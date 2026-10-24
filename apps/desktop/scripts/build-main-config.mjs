@@ -141,12 +141,9 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
   sourcemap: false,
   // Electron 43 ships Node 24.
   target: 'node24',
-  // Do NOT let esbuild pick up apps/desktop/tsconfig.json: its `paths` map
-  // @brainstrike/* to SOURCE for the vite renderer, which would inline
-  // workspace package sources and leak their own dependencies as unresolvable
-  // requires (e.g. @brainstrike/indexing-contract is not a dependency of this
-  // app). An empty tsconfigRaw disables paths resolution; bare imports stay
-  // external and resolve at runtime exactly like the previous tsc output.
+  // Do NOT let esbuild pick up apps/desktop/tsconfig.json: it configures the
+  // renderer's type-check, not this Node bundle. Bare imports stay external and
+  // resolve at runtime exactly like the previous tsc output.
   tsconfigRaw: '{}',
 };
 

@@ -9,159 +9,159 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
     "./model-stream-telemetry": {
-      "types": "./dist/model-stream-telemetry.d.ts",
+      "types": "./src/model-stream-telemetry.ts",
       "default": "./dist/model-stream-telemetry.js"
     },
     "./protocol": {
-      "types": "./dist/protocol.d.ts",
+      "types": "./src/protocol.ts",
       "default": "./dist/protocol.js"
     },
     "./boundary-wire": {
-      "types": "./dist/boundary-wire.d.ts",
+      "types": "./src/boundary-wire.ts",
       "default": "./dist/boundary-wire.js"
     },
     "./hook-trust": {
-      "types": "./dist/hook-trust.d.ts",
+      "types": "./src/hook-trust.ts",
       "default": "./dist/hook-trust.js"
     },
     "./child-answer": {
-      "types": "./dist/child-answer.d.ts",
+      "types": "./src/child-answer.ts",
       "default": "./dist/child-answer.js"
     },
     "./child-presentation": {
-      "types": "./dist/child-presentation.d.ts",
+      "types": "./src/child-presentation.ts",
       "default": "./dist/child-presentation.js"
     },
     "./canonical-tool-bindings": {
-      "types": "./dist/adapters/canonical-tool-bindings.d.ts",
+      "types": "./src/adapters/canonical-tool-bindings.ts",
       "default": "./dist/adapters/canonical-tool-bindings.js"
     },
     "./state-projection": {
-      "types": "./dist/state-projection.d.ts",
+      "types": "./src/state-projection.ts",
       "default": "./dist/state-projection.js"
     },
     "./host-state-producer": {
-      "types": "./dist/host-state-producer.d.ts",
+      "types": "./src/host-state-producer.ts",
       "default": "./dist/host-state-producer.js"
     },
     "./event-storage": {
-      "types": "./dist/event-storage.d.ts",
+      "types": "./src/event-storage.ts",
       "default": "./dist/event-storage.js"
     },
     "./host-event-encoding": {
-      "types": "./dist/host-event-encoding.d.ts",
+      "types": "./src/host-event-encoding.ts",
       "default": "./dist/host-event-encoding.js"
     },
     "./core-state": {
-      "types": "./dist/core-state.d.ts",
+      "types": "./src/core-state.ts",
       "default": "./dist/core-state.js"
     },
     "./host-event-decoding": {
-      "types": "./dist/host-event-decoding.d.ts",
+      "types": "./src/host-event-decoding.ts",
       "default": "./dist/host-event-decoding.js"
     },
     "./run-branch": {
-      "types": "./dist/run-branch.d.ts",
+      "types": "./src/run-branch.ts",
       "default": "./dist/run-branch.js"
     },
     "./telemetry-replay": {
-      "types": "./dist/telemetry-replay.d.ts",
+      "types": "./src/telemetry-replay.ts",
       "default": "./dist/telemetry-replay.js"
     },
     "./thread-catalog": {
-      "types": "./dist/thread-catalog.d.ts",
+      "types": "./src/thread-catalog.ts",
       "default": "./dist/thread-catalog.js"
     },
     "./thread-presentation-state": {
-      "types": "./dist/thread-presentation-state.d.ts",
+      "types": "./src/thread-presentation-state.ts",
       "default": "./dist/thread-presentation-state.js"
     },
     "./run-verdicts": {
-      "types": "./dist/run-verdicts.d.ts",
+      "types": "./src/run-verdicts.ts",
       "default": "./dist/run-verdicts.js"
     },
     "./memory-storage-calculator": {
-      "types": "./dist/adapters/memory-storage-calculator.d.ts",
+      "types": "./src/adapters/memory-storage-calculator.ts",
       "default": "./dist/adapters/memory-storage-calculator.js"
     },
     "./committed-identities": {
-      "types": "./dist/committed-identities.d.ts",
+      "types": "./src/committed-identities.ts",
       "default": "./dist/committed-identities.js"
     },
     "./client": {
-      "types": "./dist/client.d.ts",
+      "types": "./src/client.ts",
       "default": "./dist/client.js"
     },
     "./cli": {
-      "types": "./dist/cli.d.ts",
+      "types": "./src/cli.ts",
       "default": "./dist/cli.js"
     },
     "./credential-contract": {
-      "types": "./dist/adapters/credential-contract.d.ts",
+      "types": "./src/adapters/credential-contract.ts",
       "default": "./dist/adapters/credential-contract.js"
     },
     "./keyring-credentials": {
-      "types": "./dist/adapters/keyring-credentials.d.ts",
+      "types": "./src/adapters/keyring-credentials.ts",
       "default": "./dist/adapters/keyring-credentials.js"
     },
     "./keyring-native": {
-      "types": "./dist/adapters/keyring-native-worker.d.ts",
+      "types": "./src/adapters/keyring-native-worker.ts",
       "default": "./dist/adapters/keyring-native-worker.js"
     },
     "./file-credentials": {
-      "types": "./dist/adapters/file-credentials.d.ts",
+      "types": "./src/adapters/file-credentials.ts",
       "default": "./dist/adapters/file-credentials.js"
     },
     "./browser": {
-      "types": "./dist/browser-client.d.ts",
+      "types": "./src/browser-client.ts",
       "default": "./dist/browser-client.js"
     },
     "./test-fixtures/host-state-index": {
-      "types": "./dist/host-state-index.d.ts",
+      "types": "./src/host-state-index.ts",
       "default": "./dist/host-state-index.js"
     },
     "./test-fixtures/scripted-model": {
-      "types": "./dist/test-fixtures/scripted-model.d.ts",
+      "types": "./src/test-fixtures/scripted-model.ts",
       "default": "./dist/test-fixtures/scripted-model.js"
     },
     "./test-fixtures/owned-process": "./__tests__/fixtures/owned-fixture-process.ts",
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
     "./test-fixtures/process-platform": "./__tests__/fixtures/process-platform.mjs",
     "./workspace-state": {
-      "types": "./dist/workspace-state.d.ts",
+      "types": "./src/workspace-state.ts",
       "default": "./dist/workspace-state.js"
     },
     "./thread-view": {
-      "types": "./dist/thread-view.d.ts",
+      "types": "./src/thread-view.ts",
       "default": "./dist/thread-view.js"
     },
     "./ledger-projection": {
-      "types": "./dist/ledger-projection.d.ts",
+      "types": "./src/ledger-projection.ts",
       "default": "./dist/ledger-projection.js"
     },
     "./desktop-run-configuration": {
-      "types": "./dist/desktop-run-configuration.d.ts",
+      "types": "./src/desktop-run-configuration.ts",
       "default": "./dist/desktop-run-configuration.js"
     },
     "./edit-checkpoint-view": {
-      "types": "./dist/edit-checkpoint-view.d.ts",
+      "types": "./src/edit-checkpoint-view.ts",
       "default": "./dist/edit-checkpoint-view.js"
     },
     "./standalone-workspace-input": {
-      "types": "./dist/standalone-workspace-input.d.ts",
+      "types": "./src/standalone-workspace-input.ts",
       "default": "./dist/standalone-workspace-input.js"
     },
     "./catalog": {
-      "types": "./dist/catalog/index.d.ts",
+      "types": "./src/catalog/index.ts",
       "default": "./dist/catalog/index.js"
     }
   },
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",

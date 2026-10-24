@@ -15,46 +15,5 @@
   "exclude": [
     "dist",
     "node_modules"
-  ],
-  "references": [
-    {
-      "path": "../agent"
-    },
-    {
-      "path": "../assistant-contract"
-    },
-    {
-      "path": "../assistant-wire"
-    },
-    {
-      "path": "../canonical-ingestion"
-    },
-    {
-      "path": "../effect-kit"
-    },
-    {
-      "path": "../file-system"
-    },
-    {
-      "path": "../indexer"
-    },
-    {
-      "path": "../indexing-contract"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../sqlite-query"
-    },
-    {
-      "path": "../state-store"
-    },
-    {
-      "path": "../storage"
-    },
-    {
-      "path": "../types"
-    }
   ]
 }

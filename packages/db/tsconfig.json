@@ -3,11 +3,9 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "composite": true,
     "declaration": true,
     "declarationMap": true,
     "declarationDir": "dist",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "module": "ESNext",
     "target": "ESNext",
     "esModuleInterop": true,
@@ -44,16 +42,5 @@
   "exclude": [
     "dist",
     "node_modules"
-  ],
-  "references": [
-    {
-      "path": "../types"
-    },
-    {
-      "path": "../indexing-contract"
-    },
-    {
-      "path": "../utils"
-    }
   ]
 }
