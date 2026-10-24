@@ -94,15 +94,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       JSON.parse(
         execFileSync(
           process.execPath,
-          [
-            turboEntry,
-            'run',
-            'test',
-            'test:integration',
-            ...filters,
-            '--affected',
-            '--dry=json',
-          ],
+          [turboEntry, 'run', 'test', 'test:integration', ...filters, '--affected', '--dry=json'],
           { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
         )
       )
