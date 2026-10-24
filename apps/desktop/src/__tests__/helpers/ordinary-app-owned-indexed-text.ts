@@ -27,7 +27,7 @@ import {
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './disposable-app-profile';
-import { electronExecutablePath } from './electron-executable';
+import { electronExecutablePath, FOREGROUND_RENDERER_SWITCHES } from './electron-executable';
 import { launchAppWithLauncher } from './electron-launcher-watchdog';
 import { type OwnedTestProcess, retireOwnedTestProcesses } from './retire-owned-test-processes';
 
@@ -238,6 +238,7 @@ export async function qualifyOrdinaryAppIndexedText(
           '--test-mode',
           `--user-data-dir=${disposable}`,
           '--brainstrike-desktop-launch-mode=test-built',
+          ...FOREGROUND_RENDERER_SWITCHES,
         ],
         env,
         executablePath: electronExecutablePath(),

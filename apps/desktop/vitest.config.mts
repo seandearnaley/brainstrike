@@ -311,6 +311,10 @@ export default defineConfig({
       },
     },
     setupFiles: [
+      // BST-2246: like the app's process entries, every test process makes the current
+      // user the default owner first, so an elevated Windows run creates private
+      // directories it owns.
+      require.resolve('@brainstrike/secure-fs-native/default-owner'),
       require.resolve('@brainstrike/test-utils/vitest.setup'),
       path.join(desktopRoot, 'src/__tests__/setup.ts'),
     ],
