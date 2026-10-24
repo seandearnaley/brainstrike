@@ -10,7 +10,6 @@
       "vitest/globals",
       "@brainstrike/test-utils/vitest-matchers"
     ],
-    "paths": {},
     "strictNullChecks": true
   },
   "include": [

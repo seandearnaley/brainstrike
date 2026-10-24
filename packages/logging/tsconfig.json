@@ -1,9 +1,6 @@
 {
-  "extends": "../../packages/config/tsconfig/node-library.json",
+  "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "src",
@@ -20,6 +17,5 @@
     "dist",
     "node_modules",
     "**/*.test.ts"
-  ],
-  "references": []
+  ]
 }

@@ -25,22 +25,22 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
     "./worker": {
-      "types": "./dist/embedding.worker.d.ts",
+      "types": "./src/embedding.worker.ts",
       "import": "./dist/embedding.worker.js",
       "require": "./dist/embedding.worker.cjs"
     },
     "./pipeline-cache-controller": {
-      "types": "./dist/pipeline-cache-controller.d.ts",
+      "types": "./src/pipeline-cache-controller.ts",
       "import": "./dist/pipeline-cache-controller.js",
       "require": "./dist/pipeline-cache-controller.cjs"
     },
     "./test-runtime-bootstrap": {
-      "types": "./dist/test-runtime-bootstrap.d.ts",
+      "types": "./src/test-runtime-bootstrap.ts",
       "import": "./dist/test-runtime-bootstrap.js",
       "require": "./dist/test-runtime-bootstrap.cjs"
     },
@@ -60,7 +60,7 @@
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup --config ./tsup.config.ts",
+    "build": "pnpm run clean && tsc && tsup --config ./tsup.config.ts",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint",
@@ -80,5 +80,5 @@
     ]
   },
   "type": "module",
-  "types": "./dist/index.d.ts"
+  "types": "./src/index.ts"
 }

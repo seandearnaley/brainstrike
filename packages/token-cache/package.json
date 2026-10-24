@@ -26,23 +26,23 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./cache-runtime": {
-      "types": "./dist/cache-runtime.d.ts",
+      "types": "./src/cache-runtime.ts",
       "import": "./dist/cache-runtime.js"
     },
     "./background-indexer": {
-      "types": "./dist/background-indexer.d.ts",
+      "types": "./src/background-indexer.ts",
       "import": "./dist/background-indexer.js"
     },
     "./worker": {
-      "types": "./dist/token-cache.worker.d.ts",
+      "types": "./src/token-cache.worker.ts",
       "import": "./dist/token-cache.worker.js"
     },
     "./background-indexer-worker": {
-      "types": "./dist/background-indexer.worker.d.ts",
+      "types": "./src/background-indexer.worker.ts",
       "import": "./dist/background-indexer.worker.js"
     }
   },
@@ -76,5 +76,5 @@
     ]
   },
   "type": "module",
-  "types": "./dist/index.d.ts"
+  "types": "./src/index.ts"
 }

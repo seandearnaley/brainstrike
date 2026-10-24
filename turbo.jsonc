@@ -67,15 +67,11 @@
     //   "apps/*/tsconfig*.json" + "packages/*/tsconfig*.json" entries) only added
     //   cross-package OVER-invalidation: any one of ~75 per-package tsconfig
     //   edits busted every cache in the repo for zero correctness benefit.
-    //   Cross-package tsconfig reads that DO exist, and their hash carriers:
-    //   (a) the extends chains into base.json and config→root — the two kept
-    //   globs above; (b) TypeScript project `references` (`tsc -b` reads the
-    //   referenced package's tsconfig) — covered by the ^build task-hash cascade,
-    //   so every cross-package `references` edge MUST be mirrored by a direct or
-    //   transitive workspace dependency in that package's package.json (enforced
-    //   by scripts/__tests__/tsconfig-global-deps-contract.test.mjs; the audit
-    //   found one stale unmirrored edge, workers→storage, removed alongside this
-    //   change). No other mechanism reads a foreign tsconfig (no
+    //   The only cross-package tsconfig reads are the extends chains into
+    //   base.json and config→root — the two kept globs above. A package's
+    //   type-check reads its dependencies' SOURCE (their `types` exports) under
+    //   its own tsconfig, never a foreign one; the `topo` cascade carries those
+    //   source hashes. No other mechanism reads a foreign tsconfig (no
     //   vite-tsconfig-paths anywhere; tsup/vite configs use only local tsconfig).
     "inputs": [
       "pnpm-lock.yaml", // Package dependencies
@@ -263,15 +259,12 @@
     },
     // --- Type Check Task --- //
     "type-check": {
-      // Type-check runs after the repo-level build step in our required verification flow.
-      // Re-running ^build here causes dependency dist clean/build churn to race with packages
-      // that resolve workspace declarations from built outputs during type-check.
+      // Every package's `types` export points at its source, so a type-check
+      // reads its dependencies' source and needs no `dist`. `topo` carries the
+      // dependencies' source hashes into this task's hash without building them.
       "dependsOn": [
-        "build"
+        "topo"
       ],
-      // Type checking doesn't produce persistent artifacts to cache, only console output.
-      // Caching might still be useful if inputs haven't changed, but often set to false or relies on inputs.
-      // For now, let's keep default cache=true but no outputs.
       "outputs": [],
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
