@@ -15,6 +15,7 @@ import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { textSettings, unreadableSettings, vectorSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -130,10 +131,10 @@ function mountedRoot(): ApplicationIpcDomain {
     subscribe: unused,
   };
   return {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: async () => lease,
       restoreRoots: async () => [{ permissionState: 'granted', rootId: workspace.rootId }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
 }
@@ -141,7 +142,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
   const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
-    roots: { restoreRoots: async () => [] },
+    roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
   const transport = {
@@ -526,7 +527,7 @@ it('starts exact document cancellation before waiting for an admitted native rea
 it('retires source borrows on Pause while the original mounted read-authority borrow remains live', async () => {
   const leases: CanonicalWorkspaceLease[] = [];
   const application = {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: async () => {
         const controller = new AbortController();
         const lease: CanonicalWorkspaceLease = {
@@ -545,7 +546,7 @@ it('retires source borrows on Pause while the original mounted read-authority bo
         return lease;
       },
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
   catalogFixture.setRoot();

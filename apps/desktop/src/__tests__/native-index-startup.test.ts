@@ -13,6 +13,7 @@ import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { textSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -118,7 +119,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
   const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
-    roots: { restoreRoots: async () => [] },
+    roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
   const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
@@ -168,10 +169,10 @@ function mountedRoot(): ApplicationIpcDomain {
     subscribe: unused,
   };
   return {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: async () => lease,
       restoreRoots: async () => [{ permissionState: 'granted', rootId: workspace.rootId }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
 }
