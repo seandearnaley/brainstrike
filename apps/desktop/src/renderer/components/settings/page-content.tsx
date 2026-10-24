@@ -40,9 +40,11 @@ import {
   createToolsSettingsCategory,
   type McpCompleteRequest,
   type McpConfigInfo,
+  type McpConfigTextDocument,
   type McpGetPromptRequest,
   type McpReadResourceRequest,
   type ToolDisplayMetadata,
+  type ToolsSettingsOperations,
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
@@ -131,6 +133,60 @@ configureModelRuntimeServices({
  * Mastra skill tools have their own preferences and are not desktop toggles.
  */
 /** The visible embedding host bridge as Settings' local execution capability (BST-1993). */
+interface HostMcpConfigStatus {
+  readonly error?: string | undefined;
+  readonly exists: boolean;
+  readonly path: string;
+  readonly watchError?: string | undefined;
+}
+
+function toMcpConfigInfo(config: HostMcpConfigStatus): McpConfigInfo {
+  return {
+    exists: config.exists,
+    path: config.path,
+    ...(config.error ? { error: config.error } : {}),
+    ...(config.watchError === undefined ? {} : { watchError: config.watchError }),
+  };
+}
+
+type HostMcpConfigWriteResult =
+  | { readonly path: string; readonly revision: string; readonly success: true }
+  | {
+      readonly conflict?: true | undefined;
+      readonly error: string;
+      readonly path: string;
+      readonly success: false;
+    };
+
+type McpConfigWriteResult = Awaited<
+  ReturnType<NonNullable<ToolsSettingsOperations['writeMcpConfigText']>>
+>;
+
+function toMcpConfigTextDocument(
+  document: Omit<McpConfigTextDocument, 'error'> & { readonly error?: string | undefined }
+): McpConfigTextDocument {
+  return {
+    content: document.content,
+    created: document.created,
+    exists: document.exists,
+    path: document.path,
+    revision: document.revision,
+    ...(document.error === undefined ? {} : { error: document.error }),
+  };
+}
+
+function toMcpConfigWriteResult(result: HostMcpConfigWriteResult): McpConfigWriteResult {
+  if (result.success) {
+    return { path: result.path, revision: result.revision, success: true };
+  }
+  return {
+    error: result.error,
+    path: result.path,
+    success: false,
+    ...(result.conflict === undefined ? {} : { conflict: result.conflict }),
+  };
+}
+
 function visibleLocalExecution(): LocalExecutionCapability | undefined {
   const bridge = window.embeddingHost;
   return bridge && 'webgpuAdapter' in bridge ? bridge : undefined;
@@ -416,7 +472,7 @@ export default function SettingsPageContent() {
         }
         return mcpSettings.subscribe((event) => {
           if (event.type === 'config') {
-            listener(event.config);
+            listener(toMcpConfigInfo(event.config));
           }
         });
       },
@@ -433,31 +489,34 @@ export default function SettingsPageContent() {
       ...(mcpSettings && {
         getMcpConfigPath: async () => (await mcpSettings.request('mcp/config/path', {})).path,
         installMcpCatalogServer: async (request: McpCatalogInstallRequest) =>
-          await mcpSettings.request('mcp/config/install', request),
-        readMcpConfigText: async () => await mcpSettings.request('mcp/config/read', {}),
+          toMcpConfigWriteResult(await mcpSettings.request('mcp/config/install', request)),
+        readMcpConfigText: async () =>
+          toMcpConfigTextDocument(await mcpSettings.request('mcp/config/read', {})),
         setMcpConfigPath: async (configPath: string | null) => {
           await mcpSettings.request('mcp/config/path/set', { path: configPath });
         },
         writeMcpConfigText: async (content: string, baseRevision: string) =>
-          await mcpSettings.request('mcp/config/write', { baseRevision, content }),
+          toMcpConfigWriteResult(
+            await mcpSettings.request('mcp/config/write', { baseRevision, content })
+          ),
       }),
       createSampleConfig: async () => {
         if (!mcpSettings) {
           return { error: 'MCP settings need the desktop agent host', path: '', success: false };
         }
-        return await mcpSettings.request('mcp/config/sample', {});
+        const result = await mcpSettings.request('mcp/config/sample', {});
+        return {
+          path: result.path,
+          success: result.success,
+          ...(result.error === undefined ? {} : { error: result.error }),
+        };
       },
       getMcpConfigInfo: async () => {
         const config = await mcpSettings?.request('mcp/config/status', {});
         if (!config) {
           return null;
         }
-        return {
-          exists: config.exists,
-          path: config.path,
-          ...(config.error ? { error: config.error } : {}),
-          ...(config.watchError === undefined ? {} : { watchError: config.watchError }),
-        };
+        return toMcpConfigInfo(config);
       },
     };
   }, [mcpContent, mcpSettings]);

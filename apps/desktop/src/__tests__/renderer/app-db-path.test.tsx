@@ -73,7 +73,7 @@ beforeEach(() => {
   window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = {
     render: mockRender,
   } as unknown as ReactRoot;
-  window.__BRAINSTRIKE_READY__ = undefined;
+  Reflect.deleteProperty(window, '__BRAINSTRIKE_READY__');
   // Mock window.electronAPI for this test
   Object.defineProperty(window, 'electronAPI', {
     value: {

@@ -329,7 +329,7 @@ function App() {
     };
 
     return () => {
-      window.__brainstrikeTestHooks__ = undefined;
+      Reflect.deleteProperty(window, '__brainstrikeTestHooks__');
     };
   }, []);
 

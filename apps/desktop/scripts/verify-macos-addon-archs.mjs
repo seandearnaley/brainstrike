@@ -17,8 +17,15 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const LIPO_ARCH = { arm64: 'arm64', x64: 'x86_64' };
+const LIPO_ARCH = new Map([
+  ['arm64', 'arm64'],
+  ['x64', 'x86_64'],
+]);
 
+/**
+ * @param {string} dir
+ * @returns {Generator<string>}
+ */
 function* addons(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
@@ -30,7 +37,10 @@ function* addons(dir) {
   }
 }
 
-/** @returns {string[] | null} the addon's Mach-O archs, or null for a non-Mach-O file */
+/**
+ * @param {string} file
+ * @returns {string[] | null} the addon's Mach-O archs, or null for a non-Mach-O file
+ */
 function machoArchs(file) {
   try {
     return execFileSync('/usr/bin/lipo', ['-archs', file], {
@@ -44,19 +54,31 @@ function machoArchs(file) {
   }
 }
 
-/** The same path for `target` when `file` names the other darwin arch, else null. */
+/**
+ * The same path for `target` when `file` names the other darwin arch, else null.
+ * @param {string} file
+ * @param {string} target
+ * @param {string} other
+ */
 export function targetAlternate(file, target, other) {
   const named = new RegExp(`darwin([-/])${other}(?=[-/.]|$)`, 'gu');
   return named.test(file) ? file.replace(named, `darwin$1${target}`) : null;
 }
 
+/**
+ * @param {string} app
+ * @param {string} target
+ * @param {(file: string) => string[] | null} [archsOf]
+ * @param {(file: string) => boolean} [exists]
+ */
 export function verifyAddonArchs(app, target, archsOf = machoArchs, exists = existsSync) {
-  const want = LIPO_ARCH[target];
+  const want = LIPO_ARCH.get(target);
   const other = target === 'arm64' ? 'x64' : 'arm64';
   if (!want) {
     throw new Error(`unsupported target arch "${target}"`);
   }
   const root = path.join(app, 'Contents', 'Resources', 'app.asar.unpacked');
+  /** @type {string[]} */
   const failures = [];
   let checked = 0;
   for (const file of addons(root)) {

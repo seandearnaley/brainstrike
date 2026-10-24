@@ -42,7 +42,7 @@ async function overrideNextConfirm(
     // product switches to a custom dialog, this helper should change with it.
     target.confirm = () => {
       target.confirm = originalConfirm;
-      target.__brainstrikeOriginalConfirm__ = undefined;
+      Reflect.deleteProperty(target, '__brainstrikeOriginalConfirm__');
       return nextValue;
     };
   }, value);
@@ -55,7 +55,7 @@ async function restoreConfirmOverride(window: import('@playwright/test').Page): 
       return;
     }
     target.confirm = target.__brainstrikeOriginalConfirm__;
-    target.__brainstrikeOriginalConfirm__ = undefined;
+    Reflect.deleteProperty(target, '__brainstrikeOriginalConfirm__');
   });
 }
 

@@ -232,7 +232,7 @@ describe('file system IPC domain', () => {
         name: 'readme.md',
         path: '/users/test/workspace/readme.md',
         platform: 'electron',
-        rootId: descriptor.handle.rootId,
+        ...(descriptor.handle.rootId === undefined ? {} : { rootId: descriptor.handle.rootId }),
       } satisfies FileHandle)
     ).resolves.toBe('file content');
     expect(classificationCalls).toBe(1);
@@ -273,7 +273,7 @@ describe('file system IPC domain', () => {
         name: 'readme.md',
         path: path.join(WORKSPACE, 'readme.md'),
         platform: 'electron',
-        rootId: descriptor.handle.rootId,
+        ...(descriptor.handle.rootId === undefined ? {} : { rootId: descriptor.handle.rootId }),
       } satisfies FileHandle)
     ).resolves.toBe('native content');
     expect(resolveNativeReadPath).toHaveBeenCalledWith(
@@ -326,7 +326,7 @@ describe('file system IPC domain', () => {
       name: 'native.txt',
       path: '/mock/native-root/native.txt',
       platform: 'electron',
-      rootId: descriptor.handle.rootId,
+      ...(descriptor.handle.rootId === undefined ? {} : { rootId: descriptor.handle.rootId }),
     } satisfies FileHandle;
 
     await expect(
@@ -422,7 +422,7 @@ describe('file system IPC domain', () => {
         name: 'readme.md',
         path: fixtureFile,
         platform: 'electron',
-        rootId: selected.rootId,
+        ...(selected.rootId === undefined ? {} : { rootId: selected.rootId }),
       } satisfies FileHandle)
     ).resolves.toBe('fixture content');
     expect(fileSystem.requestDirectoryAccess).not.toHaveBeenCalled();
@@ -455,7 +455,7 @@ describe('file system IPC domain', () => {
         name: 'escape.txt',
         path: '/users/test/outside.txt',
         platform: 'electron',
-        rootId: descriptor.handle.rootId,
+        ...(descriptor.handle.rootId === undefined ? {} : { rootId: descriptor.handle.rootId }),
       } satisfies FileHandle)
     ).rejects.toThrow('outside the selected workspace root');
   });
@@ -569,7 +569,7 @@ describe('file system IPC domain', () => {
       name: 'large.txt',
       path: '/users/test/workspace/large.txt',
       platform: 'electron',
-      rootId: descriptor.handle.rootId,
+      ...(descriptor.handle.rootId === undefined ? {} : { rootId: descriptor.handle.rootId }),
     } satisfies FileHandle;
     vi.mocked(fileSystem.readFile).mockRejectedValueOnce(
       new AccessError('File too large: 1.1MB (max: 750KB)', file.path, 'read')

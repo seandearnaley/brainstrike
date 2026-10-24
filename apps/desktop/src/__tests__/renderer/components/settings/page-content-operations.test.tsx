@@ -435,7 +435,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     hostMcpSettings.current = createHostMcpSettings();
 
     const desktopWindow = getDesktopWindow();
-    desktopWindow.agentHost = undefined;
+    Reflect.deleteProperty(desktopWindow, 'agentHost');
     // BST-1930 c5d: content browsing comes from the agent host.
     hostMcpContent.current = {
       complete: vi.fn(async () => ({

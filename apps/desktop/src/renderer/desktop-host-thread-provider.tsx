@@ -309,7 +309,7 @@ function HostThread({
                           onRunningChange={onRunningChange}
                           onSendActiveInput={child ? conversation.sendInput : undefined}
                           onSteerActiveRun={steer}
-                          reconnect={reconnect}
+                          {...(reconnect === undefined ? {} : { reconnect })}
                           rewind={child ? null : rewind}
                           store={conversation.store}
                           workspaceBar={

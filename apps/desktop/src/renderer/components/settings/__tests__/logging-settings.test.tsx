@@ -79,7 +79,7 @@ describe('DesktopLoggingSettings', () => {
   afterEach(() => {
     useWorkspaceTabSelectionStore.getState().reset();
     usePanelLayoutStore.setState({ activeTab: 'explorer' });
-    (window as unknown as { logging?: Window['logging'] }).logging = undefined;
+    Reflect.deleteProperty(window, 'logging');
   });
 
   it('loads preferences and updates them through the bridge', async () => {

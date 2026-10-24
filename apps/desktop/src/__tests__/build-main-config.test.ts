@@ -113,9 +113,13 @@ describe('Node-side bundle config', () => {
       ...packageJson,
       build: {
         ...packageJson.build,
-        asarUnpack: packageJson.build?.asarUnpack?.filter(
-          (pattern) => pattern !== '**/node_modules/@typescript/old/**'
-        ),
+        ...(packageJson.build?.asarUnpack === undefined
+          ? {}
+          : {
+              asarUnpack: packageJson.build.asarUnpack.filter(
+                (pattern) => pattern !== '**/node_modules/@typescript/old/**'
+              ),
+            }),
       },
       dependencies: { ...packageJson.dependencies, '@typescript/old': '^6' },
     };

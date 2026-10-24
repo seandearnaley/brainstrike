@@ -441,7 +441,11 @@ describe("the host composer's OpenRouter reasoning effort", () => {
         ...metadata,
         reasoning: {
           ...reasoning,
-          supportedEfforts: reasoning.supportedEfforts?.filter((effort) => effort !== 'max'),
+          ...(reasoning.supportedEfforts === undefined
+            ? {}
+            : {
+                supportedEfforts: reasoning.supportedEfforts.filter((effort) => effort !== 'max'),
+              }),
         },
       },
     };

@@ -15,7 +15,8 @@ report({
   event: 'profile',
   profile: { sessionData: app.getPath('sessionData'), userData: app.getPath('userData') },
 });
-const startupTimeoutMs = process.argv[4] === undefined ? undefined : Number(process.argv[4]);
+const startupTimeoutArg = process.argv[4];
+const platformModule = process.env['BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE'];
 let ownPid: number | undefined;
 // Main's end of each host's lifetime channel, so a live Main can let its host go.
 const lifetimeEnds: MessagePortMain[] = [];
@@ -33,9 +34,9 @@ const owner = createDesktopHostLease({
     lifetimeEnds.push(channel.port1);
     return channel;
   },
-  platformModule: process.env['BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE'],
+  ...(platformModule === undefined ? {} : { platformModule }),
   root,
-  startupTimeoutMs,
+  ...(startupTimeoutArg === undefined ? {} : { startupTimeoutMs: Number(startupTimeoutArg) }),
 });
 const unused = (): Promise<never> => Promise.reject(new Error('No index requested by this client'));
 const profile = createDesktopProfileRuntime(() => owner);

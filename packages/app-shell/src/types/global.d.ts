@@ -1,5 +1,6 @@
 import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import type { SkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
+import type { BrowserBridge } from '../browser-pane/browser-bridge';
 import type { ChangesBridge } from '../changes/changes-bridge';
 import type { PlatformBridge } from '../platform-bridge';
 import type { UserCommandsBridge } from '../user-commands-bridge';
@@ -7,6 +8,15 @@ import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 declare global {
   interface Window {
+    /**
+     * Desktop-only embedded browser pane bridge (BST-1174). Absent on web (no
+     * preload) — capability-check via `resolveBrowserBridge()`
+     * (`browser-pane/browser-bridge.ts`) rather than `isElectron()`. Derived
+     * from `BrowserBridge` so this declaration cannot drift from the
+     * interface; `Partial` because a present-but-incomplete bridge is possible
+     * until the resolver validates it.
+     */
+    browser?: Partial<BrowserBridge>;
     /**
      * Desktop-only changeset diff bridge (BST-1113/BST-1114). Absent on web
      * (no preload) — capability-check via `resolveChangesBridge()`

@@ -96,8 +96,8 @@ describe('renderer main entry', () => {
     vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
     startAppReloadRecoveryMock.mockReset();
     startAppReloadRecoveryMock.mockReturnValue(stopAppReloadRecoveryMock);
-    window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = undefined;
-    window.__BRAINSTRIKE_READY__ = undefined;
+    Reflect.deleteProperty(window, '__BRAINSTRIKE_DESKTOP_REACT_ROOT__');
+    Reflect.deleteProperty(window, '__BRAINSTRIKE_READY__');
     window.history.replaceState({}, '', '/');
     // Ensure root element exists for each test
     const existing = document.getElementById('root');
@@ -398,7 +398,7 @@ describe('renderer main entry', () => {
   });
 
   it('renders a fatal startup screen when the preload bridge is incomplete inside Electron', async () => {
-    (window as unknown as { logging?: Window['logging'] }).logging = undefined;
+    Reflect.deleteProperty(window, 'logging');
     // jsdom's default user agent has no Electron token; the fatal screen is
     // reserved for real Electron renderers whose preload broke.
     Object.defineProperty(window.navigator, 'userAgent', {
@@ -427,7 +427,7 @@ describe('renderer main entry', () => {
   });
 
   it('renders the outside-Electron notice when the bridge is absent in a plain browser', async () => {
-    (window as unknown as { logging?: Window['logging'] }).logging = undefined;
+    Reflect.deleteProperty(window, 'logging');
     // jsdom's default user agent carries no Electron token, matching a plain
     // browser tab pointed at the dev-server URL.
 

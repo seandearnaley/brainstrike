@@ -9,6 +9,7 @@ import type {
   DiagnosticEventsReader,
   mainDiagnosticEventsReader,
 } from '../assistant-server/query-diagnostics-tool';
+import type { BrowserTabState } from '../browser/browser-view-manager';
 import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
@@ -72,31 +73,9 @@ declare global {
       reload: (tabId: string) => Promise<void>;
       setBounds: (rect: { height: number; width: number; x: number; y: number }) => Promise<void>;
       setOccluded: (occluded: boolean) => Promise<void>;
-      listTabs: () => Promise<
-        ReadonlyArray<{
-          active: boolean;
-          canGoBack: boolean;
-          canGoForward: boolean;
-          owner: 'agent' | 'user';
-          tabId: string;
-          title: string;
-          url: string;
-        }>
-      >;
+      listTabs: () => Promise<readonly BrowserTabState[]>;
       /** One-way main→renderer tab-state pushes. Returns unsubscribe. */
-      onTabsChanged: (
-        listener: (
-          tabs: ReadonlyArray<{
-            active: boolean;
-            canGoBack: boolean;
-            canGoForward: boolean;
-            owner: 'agent' | 'user';
-            tabId: string;
-            title: string;
-            url: string;
-          }>
-        ) => void
-      ) => () => void;
+      onTabsChanged: (listener: (tabs: readonly BrowserTabState[]) => void) => () => void;
     };
     /** Desktop-only Changes bridge, derived from its pure IPC contract. */
     changes?: TransportBridge<typeof changesContract>;
