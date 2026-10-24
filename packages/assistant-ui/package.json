@@ -7,7 +7,6 @@
     "@assistant-ui/react": "catalog:",
     "@assistant-ui/react-streamdown": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
