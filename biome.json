@@ -544,11 +544,9 @@
         "packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx",
         "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
         "packages/assistant-ui/src/__tests__/assistant-ui-panel.test.tsx",
-        "packages/assistant-ui/src/__tests__/data-stream-runtime.test.ts",
         "packages/ui/src/__tests__/ide-layout.test.tsx",
         "packages/ui/src/__tests__/tree-table.test.tsx",
         "packages/assistant-ui/src/assistant-ui-panel.tsx",
-        "packages/assistant-ui/src/data-stream-runtime.ts",
         "packages/ui/src/layout/ide-layout.tsx",
         "packages/ui/src/tree-table/tree-table.tsx",
         "scripts/__tests__/check-ci-parity.test.mjs"

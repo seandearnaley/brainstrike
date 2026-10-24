@@ -7,7 +7,6 @@ import { act } from 'react';
 import { expect, test, vi } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';
-import { BrainstrikeDataStreamRuntimeAdapter } from '../data-stream-runtime';
 import { Harness, HostHistoryHarness, runEventPart } from './assistant-activity-timeline-fixtures';
 
 const request = {
@@ -75,69 +74,6 @@ function separateNoticeContent(): typeof pausedContent {
       )
   );
 }
-
-test('decoded canvas pause and acknowledged resume leave static history', async () => {
-  const pause = [
-    'f:{"messageId":"canvas-paused"}',
-    'g:"Prepare the report."',
-    '0:"Now write the report to the canvas."',
-    `b:${JSON.stringify({ toolCallId: request.toolCallId, toolName: request.toolName })}`,
-    `c:${JSON.stringify({ argsTextDelta: JSON.stringify(request.args), toolCallId: request.toolCallId })}`,
-    `9:${JSON.stringify({ args: request.args, toolCallId: request.toolCallId, toolName: request.toolName })}`,
-    `aui-data:${JSON.stringify({ data: { id: 'pause', kind: 'tool.approval.requested', label: 'Awaiting your approval', metadata: { toolCallId: request.toolCallId }, runId: request.timelineRunId, status: 'running', timestamp: '2026-09-30T02:39:22.245Z' }, name: 'brainstrike.run-event' })}`,
-    `aui-data:${JSON.stringify({ data: request, name: 'brainstrike.tool-approval' })}`,
-    'd:{"finishReason":"tool-calls","usage":{"inputTokens":0,"outputTokens":0},"path":[]}',
-    '',
-  ].join('\n');
-  const resume = [
-    'f:{"messageId":"canvas-resumed"}',
-    `aui-data:${JSON.stringify({ data: { ...request, decision: 'approve', reason: 'user' }, name: 'brainstrike.tool-approval-answered' })}`,
-    `9:${JSON.stringify({ args: request.args, toolCallId: request.toolCallId, toolName: request.toolName })}`,
-    `a:${JSON.stringify({ result: { ok: true }, toolCallId: request.toolCallId })}`,
-    '0:"Canvas created."',
-    'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}',
-    '',
-  ].join('\n');
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(new Response(pause))
-    .mockResolvedValueOnce(new Response(resume));
-  vi.stubGlobal('fetch', fetch);
-  try {
-    render(
-      <Harness
-        adapter={
-          new BrainstrikeDataStreamRuntimeAdapter({ api: 'http://assistant.test/assistant' })
-        }
-      >
-        {(children) => (
-          <AnsweredApprovalsProvider>
-            <AssistantDataRendererRegistration />
-            {children}
-          </AnsweredApprovalsProvider>
-        )}
-      </Harness>
-    );
-    await userEvent.type(screen.getByRole('textbox', { name: 'Message' }), 'Create the report.');
-    await userEvent.click(screen.getByRole('button', { name: 'Send' }));
-    const approve = await screen.findByRole('button', { name: `Approve ${request.toolName}` });
-    const bodies = screen.getAllByTestId('assistant-activity-body');
-    expect(bodies.length).toBeGreaterThan(0);
-    for (const body of bodies) {
-      expect(body).toHaveAttribute('hidden');
-    }
-    expect(approve.closest('.bs-activity-body')).toBeNull();
-    expect(approve).toBeVisible();
-    await userEvent.click(approve);
-    await screen.findByText('Canvas created.');
-    expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
-    expect(screen.queryAllByText('Waiting for approval')).toHaveLength(0);
-    expect(document.querySelector('[data-live="true"]')).toBeNull();
-    expect(document.querySelector('.bs-thinking-shimmer')).toBeNull();
-  } finally {
-    vi.unstubAllGlobals();
-  }
-});
 
 test('settled reload content retains the captured reasoning and canvas without live chrome', async () => {
   const run = vi.fn<ChatModelAdapter['run']>(async () => {
