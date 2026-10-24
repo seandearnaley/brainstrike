@@ -253,7 +253,6 @@ overrides:
   'mermaid@12.2.0>katex': 0.19.0
   'rehype-katex@7.0.1>katex': 0.19.0
   'micromark-extension-math@3.1.0>katex': 0.19.0
-  '@mermaid-js/mermaid-cli@12.0.0>katex': 0.19.0
   # Retire sprintf-js (GHSA-hp3w-g68c-fv3c) through its actual owners.
   # Migrate only YAML 3's CLI to argparse 3's documented API (patch below);
   # retain safeLoad/safeDump for Mastra and nyc without sprintf-js or v1 aliases.
@@ -311,7 +310,6 @@ allowBuilds:
   onnxruntime-node: false
   oxc-resolver: true
   protobufjs: true
-  puppeteer: true
   sharp: true
   '@parcel/watcher': false
 # Owner decision, 2026-10-16: install selected versions without a release-age delay.
