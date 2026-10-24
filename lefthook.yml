@@ -20,11 +20,24 @@
 # if a tool isn't in the workspace deps, we WANT the commit to fail loudly
 # rather than silently fetch an unpinned version from the registry.
 
+#
+# The pre-commit run uses biome.base.json, which is biome.json minus the
+# type-aware and project rules (noFloatingPromises, noUnresolvedImports,
+# useExhaustiveSwitchCases...). Enabling any of those makes Biome index the
+# whole repo and node_modules before checking even one file: about 6 s per
+# commit, against under 1 s without them. `biome check .` in `pnpm check` and
+# CI Static still loads biome.json, which extends the base and adds those
+# rules back, so the policy is unchanged; only the commit hook skips them.
+# Biome does not follow an extended file's own `extends`, which is why
+# biome.json repeats the two ultracite presets ahead of the base. The grit
+# plugin stays in biome.json too: @jacobwolf/biome-unnecessary-effect's
+# postinstall rewrites biome.json whenever its plugin is not listed there.
+
 pre-commit:
   parallel: true
   jobs:
     - name: ultracite-fix
-      run: pnpm exec ultracite fix {staged_files}
+      run: pnpm exec ultracite fix --config-path=biome.base.json {staged_files}
       glob:
         - "*.js"
         - "*.mjs"

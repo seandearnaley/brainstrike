@@ -1,0 +1,563 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/biome/core", "ultracite/biome/react"],
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "apps/**/src/**/*.{ts,tsx,js,jsx}",
+      "packages/**/src/**/*.{ts,tsx,js,jsx}",
+      "**/*.config.{ts,mts}",
+      "**/*.test.{ts,tsx}",
+      "packages/{effect-kit,assistant-contract,agent-host}/**/*.{ts,tsx,mts,mjs}",
+      "packages/agent/src/__tests__/**/*.{ts,tsx,mts,mjs}",
+      "packages/chunking-worker/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/token-cache/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/embedding-worker/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/embedding-worker/bench/**/*.spec.{ts,tsx,mts,cts,mjs}",
+      "packages/{worker-runtime,file-tree-worker}/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/test-utils/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
+      "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
+      "packages/web-writer/src/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/canonical-ingestion/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/assistant-service/src/__tests__/node-workspace-services*/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-lease/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/src/mcp/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/{src/provider-auth,__tests__/credentials}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/indexer/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/src/native-tools/**/*.{ts,tsx,mts,cts,mjs}",
+      "packages/host-capabilities/__tests__/file-approval-target.test.ts",
+      "apps/desktop/src/__tests__/assistant-server/**/*.{ts,tsx,mts,cts,mjs}",
+      "scripts/__tests__/isolated/agent-quality-lint*.{mts,mjs}",
+      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}",
+      "**/e2e/**/*.{ts,tsx}",
+      "!!spikes/m0-a1-qualification/original",
+      "!!.muse/worktrees",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.turbo",
+      "!**/build",
+      "!apps/desktop/release",
+      "!apps/desktop/resources/python-runtime",
+      "!**/coverage",
+      "!**/playwright-report",
+      "!**/test-results",
+      "!**/.vite",
+      "!**/.nyc_output",
+      "!**/blob-report",
+      "!**/.stryker-tmp",
+      "!**/reports",
+      "!**/*.db",
+      "!**/*.json",
+      "!**/*.jsonc",
+      "packages/assistant-contract/src/provider-catalog.json",
+      "!**/*.css",
+      "!**/*.md",
+      "!**/*.html",
+      "!.claude",
+      "!.pnpm-store",
+      "!**/*.bundled_*.mjs"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "style": {
+        "noExcessiveLinesPerFile": {
+          "level": "error",
+          "options": {
+            "maxLines": 1000
+          }
+        },
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": true,
+            "filenameCases": ["kebab-case"]
+          }
+        },
+        "useNamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": false
+          }
+        },
+        "noNestedTernary": "off",
+        "noParameterProperties": "off",
+        "noExportedImports": "off",
+        "useConsistentMemberAccessibility": "off",
+        "useDefaultSwitchClause": "off",
+        "noIncrementDecrement": "off",
+        "useConsistentMethodSignatures": "off",
+        "useDestructuring": "off",
+        "useErrorCause": "off",
+        "useForOf": "off",
+        "useConsistentEnumValueType": "off"
+      },
+      "suspicious": {
+        "noConsole": "error",
+        "noEmptyBlockStatements": "off",
+        "useAwait": "off",
+        "noBitwiseOperators": "off",
+        "noEvolvingTypes": "off",
+        "noLeakedRender": "off",
+        "noNestedPromises": "off",
+        "noReturnAssign": "off",
+        "noShadow": "off",
+        "noUnnecessaryConditions": "off",
+        "useArraySortCompare": "off"
+      },
+      "complexity": {
+        "useLiteralKeys": "off",
+        "noForEach": "off",
+        "noVoid": "off",
+        "noRedundantDefaultExport": "off",
+        "noStaticOnlyClass": "off",
+        "noUselessReturn": "off",
+        "useArrayFind": "off"
+      },
+      "correctness": {
+        "noUnusedInstantiation": "off",
+        "noUndeclaredDependencies": "off"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "off"
+      },
+      "performance": {
+        "noAwaitInLoops": "off",
+        "noBarrelFile": "off",
+        "noJsxPropsBind": "off",
+        "noNamespaceImport": "off",
+        "useTopLevelRegex": "off"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "formatWithErrors": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "es5",
+      "semicolons": "always"
+    },
+    "globals": [
+      "React",
+      "describe",
+      "it",
+      "test",
+      "expect",
+      "beforeEach",
+      "afterEach",
+      "beforeAll",
+      "afterAll",
+      "vi",
+      "jest",
+      "Electron",
+      "__BRAINSTRIKE_BUILD_ID__"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": ["**/__tests__/**", "**/*.test.*", "**/*.stories.*"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": {
+              "level": "error",
+              "options": {
+                "strictCase": true,
+                "filenameCases": ["kebab-case"]
+              }
+            },
+            "useNamingConvention": "off",
+            "noNonNullAssertion": "off"
+          },
+          "suspicious": {
+            "noNonNullAssertedOptionalChain": "off",
+            "noExplicitAny": "off",
+            "noConsole": "off",
+            "noMisplacedAssertion": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "error",
+            "useUniqueElementIds": "off",
+            "useParseIntRadix": "error"
+          },
+          "complexity": {
+            "useLiteralKeys": "off",
+            "noExcessiveCognitiveComplexity": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/e2e/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": {
+              "level": "error",
+              "options": {
+                "strictCase": true,
+                "filenameCases": ["kebab-case"]
+              }
+            }
+          },
+          "correctness": {
+            "noUnusedVariables": "error",
+            "noEmptyPattern": "off"
+          },
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noConsole": "off",
+            "noSkippedTests": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/scripts/**", "**/global.d.ts", "**/env.d.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off",
+            "useNodejsImportProtocol": "off",
+            "noNamespace": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "warn"
+          },
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/host-capabilities/src/hooks/**",
+        "packages/host-capabilities/__tests__/hooks/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/web/**",
+        "packages/ui/**",
+        "packages/assistant-data/**",
+        "packages/assistant-ui/**",
+        "packages/file-explorer-ui/**",
+        "packages/file-explorer-hooks/**",
+        "packages/app-shell/**",
+        "packages/app-state/**",
+        "packages/settings-ui/**",
+        "packages/vector-management/**"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useExhaustiveDependencies": "off",
+            "useUniqueElementIds": "off",
+            "noNestedComponentDefinitions": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/constants/**",
+        "**/use-toast.ts",
+        "**/logger.ts",
+        "**/setup-security.ts",
+        "**/vitest.setup.ts",
+        "**/use-tab-manager.ts",
+        "**/migration-runner.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          },
+          "suspicious": {
+            "noConsole": "off"
+          },
+          "correctness": {
+            "useHookAtTopLevel": "off"
+          },
+          "complexity": {
+            "useLiteralKeys": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/ui/src/**",
+        "packages/assistant-ui/src/**",
+        "packages/file-explorer-ui/src/loading-overlay.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noParameterAssign": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/e2e/performance/**",
+        "**/e2e/**/performance-*",
+        "**/e2e/ipc-communication.test.ts",
+        "**/e2e/report-folder-summary.test.ts",
+        "**/e2e/layout-persistence.test.ts",
+        "**/e2e/utils/performance-config.ts",
+        "**/e2e/real-world-performance.test.ts",
+        "**/e2e/utils/layout-helpers.ts",
+        "**/e2e/**/layout-helpers.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noAssignInExpressions": "off"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off",
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/e2e/types/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/db/**",
+        "packages/token-cache/**",
+        "packages/assistant-contract/src/mcp-task-row-schema.ts",
+        "**/ipc-handlers.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/vitest.setup.ts", "**/vitest.setup.tsx"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.d.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useReactFunctionComponents": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/scripts/**", "scripts/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/embedding-worker/test/**",
+        "packages/queue/test/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/desktop/e2e/file-explorer-selection-restore.desktop.test.ts",
+        "apps/desktop/e2e/file-explorer-selection.shared.ts",
+        "apps/desktop/e2e/utils/electron-helpers.mts",
+        "apps/desktop/scripts/__tests__/start-agent-devtools-session.test.mjs",
+        "apps/desktop/src/__tests__/assistant-server/assistant-tools-read.integration.test.ts",
+        "apps/desktop/src/__tests__/assistant-server/git-service.integration.test.ts",
+        "apps/desktop/src/__tests__/llm-host-manager.test.ts",
+        "apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts",
+        "apps/desktop/src/__tests__/main/mcp-loader-comprehensive.test.ts",
+        "apps/desktop/src/__tests__/renderer-host-lifecycle.test.ts",
+        "apps/desktop/src/assistant-server/git-service.ts",
+        "apps/desktop/src/main.ts",
+        "apps/desktop/src/preload.ts",
+        "apps/web/e2e/file-explorer.test.ts",
+        "apps/web/src/__tests__/assistant-stream-helpers.test.ts",
+        "apps/web/src/app/api/assistant/__tests__/route.test.ts",
+        "packages/agent/src/__tests__/agent-runtime.spec.ts",
+        "packages/agent/src/__tests__/fence-escape-resistance.integration.spec.ts",
+        "packages/agent/src/__tests__/mastra-memory-persistence.integration.spec.ts",
+        "packages/agent/src/__tests__/mastra-streaming.spec.ts",
+        "packages/agent/src/__tests__/mastra-tool-approval-chunks.spec.ts",
+        "packages/agent/src/__tests__/mastra-tool-approval-suspend.integration.spec.ts",
+        "packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts",
+        "packages/agent/src/__tests__/mastra-tool-suspend-resume.integration.spec.ts",
+        "packages/agent/src/__tests__/mcp-tool-loader.spec.ts",
+        "packages/agent/src/__tests__/tool-model-output.spec.ts",
+        "packages/agent/src/mastra/agent-streaming.ts",
+        "packages/agent/src/providers/local/__tests__/local-llm-backend.spec.ts",
+        "packages/agent/src/providers/local/gemma4-engine.ts",
+        "packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts",
+        "packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts",
+        "packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-test-support.tsx",
+        "packages/app-shell/src/__tests__/assistant-ui-panel-wrapper.test.tsx",
+        "packages/app-shell/src/__tests__/connected-prompt-manager.test.tsx",
+        "packages/app-shell/src/__tests__/git-panel.test.tsx",
+        "packages/app-shell/src/__tests__/renderer-long-task-telemetry.test.ts",
+        "packages/app-shell/src/__tests__/threads-panel.test.tsx",
+        "packages/assistant-data/src/assistant-memory-repository.ts",
+        "packages/app-shell/src/assistant-ui-panel-wrapper-runtime.ts",
+        "packages/app-shell/src/assistant-ui-panel-wrapper.tsx",
+        "packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-import.test.ts",
+        "packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx",
+        "packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-service.test.ts",
+        "packages/app-shell/src/background-indexing/workspace-collection-sync-import.ts",
+        "packages/app-shell/src/background-indexing/workspace-collection-sync-provider.tsx",
+        "packages/app-shell/src/background-indexing/workspace-collection-sync-service.ts",
+        "packages/app-shell/src/background-indexing/workspace-index-debug-benchmark.ts",
+        "packages/app-shell/src/threads-panel.tsx",
+        "packages/app-state/src/__tests__/assistant-preferences-store.test.ts",
+        "packages/app-state/src/stores/assistant-preferences-store.ts",
+        "packages/db/__tests__/file-chunk-repository.test.ts",
+        "packages/db/__tests__/managed-cache-batch.test.ts",
+        "packages/db/src/database-work-scheduler.ts",
+        "packages/db/src/queue/job-queue.ts",
+        "packages/embedding-worker/src/embedding.worker.ts",
+        "packages/embedding-worker/test/embedding.worker.runtime.spec.ts",
+        "packages/embeddings/src/__tests__/embedding-worker-batch-optimization.integration.test.ts",
+        "packages/embeddings/src/worker/embedding-worker.ts",
+        "packages/file-explorer-hooks/src/__tests__/use-file-system.test.tsx",
+        "packages/file-explorer-ui/src/__tests__/file-explorer-panel.test.tsx",
+        "packages/file-explorer-ui/src/__tests__/file-explorer-sidebar.test.tsx",
+        "packages/file-explorer-ui/src/__tests__/optimized-file-tree-selection.test.tsx",
+        "packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration.test.tsx",
+        "packages/file-explorer-ui/src/__tests__/use-file-explorer-context.test.ts",
+        "packages/file-explorer-ui/src/__tests__/use-file-system-context.test.ts",
+        "packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts",
+        "packages/file-explorer-ui/src/__tests__/use-shared-file-content-loading.test.tsx",
+        "packages/file-explorer-ui/src/indexing/use-background-token-indexer-integration.ts",
+        "packages/file-explorer-ui/src/shell/file-explorer-panel.tsx",
+        "packages/file-explorer-ui/src/tapestry/__tests__/minimap.test.tsx",
+        "packages/file-explorer-ui/src/tapestry/__tests__/tapestry-view.test.tsx",
+        "packages/file-explorer-ui/src/tapestry/minimap.tsx",
+        "packages/file-explorer-ui/src/tapestry/tapestry-view.tsx",
+        "packages/file-explorer-ui/src/tree/optimized-file-tree-model.ts",
+        "packages/file-explorer-ui/src/tree/optimized-file-tree.tsx",
+        "packages/file-explorer-ui/src/tree/use-lazy-file-tree.ts",
+        "packages/file-explorer/src/__tests__/context-generation.test.ts",
+        "packages/file-explorer/src/actions/__tests__/file-selection-actions.test.ts",
+        "packages/file-explorer/src/persistence/__tests__/state-serialization.test.ts",
+        "packages/file-import/src/__tests__/chunking.test.ts",
+        "packages/file-import/src/__tests__/enhanced-import.test.ts",
+        "packages/file-import/src/enhanced-import.ts",
+        "packages/file-system/src/__tests__/web-adapter.test.ts",
+        "packages/file-tree-worker/src/bfs-engine.test.ts",
+        "packages/file-tree-worker/src/bfs-engine.ts",
+        "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
+        "packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx",
+        "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
+        "packages/assistant-ui/src/__tests__/assistant-ui-panel.test.tsx",
+        "packages/ui/src/__tests__/ide-layout.test.tsx",
+        "packages/ui/src/__tests__/tree-table.test.tsx",
+        "packages/assistant-ui/src/assistant-ui-panel.tsx",
+        "packages/ui/src/layout/ide-layout.tsx",
+        "packages/ui/src/tree-table/tree-table.tsx",
+        "scripts/__tests__/check-ci-parity.test.mjs"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noExcessiveLinesPerFile": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/effect-kit/**",
+        "packages/assistant-contract/src/native-tools/schemas/**",
+        "packages/agent/src/tools/**",
+        "packages/agent-host/src/approval-input.ts",
+        "packages/agent-host/src/executable-input-schema.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useErrorCause": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/effect-kit/**",
+        "packages/assistant-contract/src/native-tools/schemas/**",
+        "packages/agent/src/tools/**",
+        "packages/agent-host/src/**"
+      ],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "usePromiseRejectErrors": "error"
+          }
+        }
+      }
+    }
+  ],
+  "vcs": {
+    "enabled": false
+  }
+}
