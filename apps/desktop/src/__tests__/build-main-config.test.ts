@@ -177,13 +177,10 @@ describe('main-process bundle config', () => {
     expect(MAIN_PROCESS_BUILD_OPTIONS.outbase?.endsWith('src')).toBe(true);
   });
 
-  it('ignores the renderer tsconfig paths so workspace packages stay external', () => {
-    // apps/desktop/tsconfig.json maps @brainstrike/* to SOURCE for the vite
-    // renderer. esbuild auto-applies the nearest tsconfig's paths, which would
-    // inline workspace package sources into the bundle and leak their own
-    // dependencies as unresolvable requires (e.g. @brainstrike/indexing-contract
-    // is not a dependency of @brainstrike/desktop — it crashed app launch).
-    // An empty tsconfigRaw disables paths resolution for the bundle.
+  it('ignores the renderer tsconfig so workspace packages stay external', () => {
+    // esbuild auto-applies the nearest tsconfig. apps/desktop/tsconfig.json
+    // configures the renderer's type-check; an empty tsconfigRaw keeps it out of
+    // the Node bundle.
     expect(MAIN_PROCESS_BUILD_OPTIONS.tsconfigRaw).toBe('{}');
   });
 

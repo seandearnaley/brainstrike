@@ -3,15 +3,8 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "composite": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "emitDeclarationOnly": true,
-    "paths": {
-      "@brainstrike/utils/*": [
-        "../utils/dist/*.d.ts"
-      ]
-    },
     "types": [
       "node"
     ],
@@ -27,22 +20,5 @@
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/__tests__/**"
-  ],
-  "references": [
-    {
-      "path": "../types"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../utils"
-    },
-    {
-      "path": "../storage"
-    },
-    {
-      "path": "../file-system"
-    }
   ]
 }

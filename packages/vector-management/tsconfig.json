@@ -1,9 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "rootDir": "src",
     "outDir": "dist",
     "declarationDir": "dist",
@@ -22,19 +19,5 @@
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/__tests__/**"
-  ],
-  "references": [
-    {
-      "path": "../embeddings"
-    },
-    {
-      "path": "../indexing-contract"
-    },
-    {
-      "path": "../app-state"
-    },
-    {
-      "path": "../logging"
-    }
   ]
 }

@@ -1,9 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "declarationMap": true,
     "emitDeclarationOnly": true,
@@ -28,13 +25,5 @@
     "dist",
     "node_modules",
     "test"
-  ],
-  "references": [
-    {
-      "path": "../indexing-contract"
-    },
-    {
-      "path": "../worker-runtime"
-    }
   ]
 }

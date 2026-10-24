@@ -26,176 +26,176 @@
   },
   "exports": {
     "./automation-overrides": {
-      "types": "./dist/automation-overrides.d.ts",
+      "types": "./src/automation-overrides.ts",
       "import": "./dist/automation-overrides.js"
     },
     "./factory-reset": {
-      "types": "./dist/factory-reset.d.ts",
+      "types": "./src/factory-reset.ts",
       "import": "./dist/factory-reset.js"
     },
     "./renderer-close": {
-      "types": "./dist/renderer-close.d.ts",
+      "types": "./src/renderer-close.ts",
       "import": "./dist/renderer-close.js"
     },
     "./hooks/use-database-status-sync": {
-      "types": "./dist/hooks/use-database-status-sync.d.ts",
+      "types": "./src/hooks/use-database-status-sync.ts",
       "import": "./dist/hooks/use-database-status-sync.js"
     },
     "./hooks/use-local-runtime-embedding-model-catalog": {
-      "types": "./dist/hooks/use-local-runtime-embedding-model-catalog.d.ts",
+      "types": "./src/hooks/use-local-runtime-embedding-model-catalog.ts",
       "import": "./dist/hooks/use-local-runtime-embedding-model-catalog.js"
     },
     "./hooks/use-model-registry": {
-      "types": "./dist/hooks/use-model-registry.d.ts",
+      "types": "./src/hooks/use-model-registry.ts",
       "import": "./dist/hooks/use-model-registry.js"
     },
     "./models/local-model-utils": {
-      "types": "./dist/models/local-model-utils.d.ts",
+      "types": "./src/models/local-model-utils.ts",
       "import": "./dist/models/local-model-utils.js"
     },
     "./notifications/notification-permission": {
-      "types": "./dist/notifications/notification-permission.d.ts",
+      "types": "./src/notifications/notification-permission.ts",
       "import": "./dist/notifications/notification-permission.js"
     },
     "./notifications/run-notification-dispatcher": {
-      "types": "./dist/notifications/run-notification-dispatcher.d.ts",
+      "types": "./src/notifications/run-notification-dispatcher.ts",
       "import": "./dist/notifications/run-notification-dispatcher.js"
     },
     "./notifications/should-notify": {
-      "types": "./dist/notifications/should-notify.d.ts",
+      "types": "./src/notifications/should-notify.ts",
       "import": "./dist/notifications/should-notify.js"
     },
     "./stores/assistant-budget-preferences-store": {
-      "types": "./dist/stores/assistant-budget-preferences-store.d.ts",
+      "types": "./src/stores/assistant-budget-preferences-store.ts",
       "import": "./dist/stores/assistant-budget-preferences-store.js"
     },
     "./stores/assistant-subagent-preferences-store": {
-      "types": "./dist/stores/assistant-subagent-preferences-store.d.ts",
+      "types": "./src/stores/assistant-subagent-preferences-store.ts",
       "import": "./dist/stores/assistant-subagent-preferences-store.js"
     },
     "./stores/assistant-memory-preferences-store": {
-      "types": "./dist/stores/assistant-memory-preferences-store.d.ts",
+      "types": "./src/stores/assistant-memory-preferences-store.ts",
       "import": "./dist/stores/assistant-memory-preferences-store.js"
     },
     "./stores/assistant-preferences-store": {
-      "types": "./dist/stores/assistant-preferences-store.d.ts",
+      "types": "./src/stores/assistant-preferences-store.ts",
       "import": "./dist/stores/assistant-preferences-store.js"
     },
     "./stores/assistant-preferences-store-version": {
-      "types": "./dist/stores/assistant-preferences-store-version.d.ts",
+      "types": "./src/stores/assistant-preferences-store-version.ts",
       "import": "./dist/stores/assistant-preferences-store-version.js",
       "require": "./dist/stores/assistant-preferences-store-version.js"
     },
     "./stores/context-explorer-layout-store": {
-      "types": "./dist/stores/context-explorer-layout-store.d.ts",
+      "types": "./src/stores/context-explorer-layout-store.ts",
       "import": "./dist/stores/context-explorer-layout-store.js"
     },
     "./stores/database-status-store": {
-      "types": "./dist/stores/database-status-store.d.ts",
+      "types": "./src/stores/database-status-store.ts",
       "import": "./dist/stores/database-status-store.js"
     },
     "./stores/diagnostics-retention-store": {
-      "types": "./dist/stores/diagnostics-retention-store.d.ts",
+      "types": "./src/stores/diagnostics-retention-store.ts",
       "import": "./dist/stores/diagnostics-retention-store.js"
     },
     "./stores/explorer-column-sizes-store": {
-      "types": "./dist/stores/explorer-column-sizes-store.d.ts",
+      "types": "./src/stores/explorer-column-sizes-store.ts",
       "import": "./dist/stores/explorer-column-sizes-store.js"
     },
     "./stores/explorer-column-visibility-store": {
-      "types": "./dist/stores/explorer-column-visibility-store.d.ts",
+      "types": "./src/stores/explorer-column-visibility-store.ts",
       "import": "./dist/stores/explorer-column-visibility-store.js"
     },
     "./stores/explorer-sort-state-store": {
-      "types": "./dist/stores/explorer-sort-state-store.d.ts",
+      "types": "./src/stores/explorer-sort-state-store.ts",
       "import": "./dist/stores/explorer-sort-state-store.js"
     },
     "./stores/index-config-store": {
-      "types": "./dist/stores/index-config-store.d.ts",
+      "types": "./src/stores/index-config-store.ts",
       "import": "./dist/stores/index-config-store.js"
     },
     "./stores/indexing-activity-store": {
-      "types": "./dist/stores/indexing-activity-store.d.ts",
+      "types": "./src/stores/indexing-activity-store.ts",
       "import": "./dist/stores/indexing-activity-store.js"
     },
     "./stores/logging-preferences-store": {
-      "types": "./dist/stores/logging-preferences-store.d.ts",
+      "types": "./src/stores/logging-preferences-store.ts",
       "import": "./dist/stores/logging-preferences-store.js"
     },
     "./stores/model-registry-store": {
-      "types": "./dist/stores/model-registry-store.d.ts",
+      "types": "./src/stores/model-registry-store.ts",
       "import": "./dist/stores/model-registry-store.js"
     },
     "./stores/native-tool-preferences-store": {
-      "types": "./dist/stores/native-tool-preferences-store.d.ts",
+      "types": "./src/stores/native-tool-preferences-store.ts",
       "import": "./dist/stores/native-tool-preferences-store.js"
     },
     "./stores/notification-preferences-store": {
-      "types": "./dist/stores/notification-preferences-store.d.ts",
+      "types": "./src/stores/notification-preferences-store.ts",
       "import": "./dist/stores/notification-preferences-store.js"
     },
     "./stores/panel-layout-store": {
-      "types": "./dist/stores/panel-layout-store.d.ts",
+      "types": "./src/stores/panel-layout-store.ts",
       "import": "./dist/stores/panel-layout-store.js"
     },
     "./stores/permission-policy-store": {
-      "types": "./dist/stores/permission-policy-store.d.ts",
+      "types": "./src/stores/permission-policy-store.ts",
       "import": "./dist/stores/permission-policy-store.js"
     },
     "./stores/secrets-store": {
-      "types": "./dist/stores/secrets-store.d.ts",
+      "types": "./src/stores/secrets-store.ts",
       "import": "./dist/stores/secrets-store.js"
     },
     "./stores/skills-preferences-store": {
-      "types": "./dist/stores/skills-preferences-store.d.ts",
+      "types": "./src/stores/skills-preferences-store.ts",
       "import": "./dist/stores/skills-preferences-store.js"
     },
     "./stores/subagent-personas-store": {
-      "types": "./dist/stores/subagent-personas-store.d.ts",
+      "types": "./src/stores/subagent-personas-store.ts",
       "import": "./dist/stores/subagent-personas-store.js"
     },
     "./stores/token-preferences-store": {
-      "types": "./dist/stores/token-preferences-store.d.ts",
+      "types": "./src/stores/token-preferences-store.ts",
       "import": "./dist/stores/token-preferences-store.js"
     },
     "./stores/tree-table-column-sizes-store": {
-      "types": "./dist/stores/tree-table-column-sizes-store.d.ts",
+      "types": "./src/stores/tree-table-column-sizes-store.ts",
       "import": "./dist/stores/tree-table-column-sizes-store.js"
     },
     "./stores/vector-preferences-store-name": {
-      "types": "./dist/stores/vector-preferences-store-name.d.ts",
+      "types": "./src/stores/vector-preferences-store-name.ts",
       "import": "./dist/stores/vector-preferences-store-name.js"
     },
     "./stores/vector-preferences-store": {
-      "types": "./dist/stores/vector-preferences-store.d.ts",
+      "types": "./src/stores/vector-preferences-store.ts",
       "import": "./dist/stores/vector-preferences-store.js"
     },
     "./stores/workspace-collection-sync-status-helpers": {
-      "types": "./dist/stores/workspace-collection-sync-status-helpers.d.ts",
+      "types": "./src/stores/workspace-collection-sync-status-helpers.ts",
       "import": "./dist/stores/workspace-collection-sync-status-helpers.js"
     },
     "./stores/workspace-collection-sync-status-store": {
-      "types": "./dist/stores/workspace-collection-sync-status-store.d.ts",
+      "types": "./src/stores/workspace-collection-sync-status-store.ts",
       "import": "./dist/stores/workspace-collection-sync-status-store.js"
     },
     "./stores/workspace-instructions-preferences-store": {
-      "types": "./dist/stores/workspace-instructions-preferences-store.d.ts",
+      "types": "./src/stores/workspace-instructions-preferences-store.ts",
       "import": "./dist/stores/workspace-instructions-preferences-store.js"
     },
     "./stores/worktree-setup-consent-store": {
-      "types": "./dist/stores/worktree-setup-consent-store.d.ts",
+      "types": "./src/stores/worktree-setup-consent-store.ts",
       "import": "./dist/stores/worktree-setup-consent-store.js"
     },
     "./local-runtime-diagnostics": {
-      "types": "./dist/local-runtime-diagnostics.d.ts",
+      "types": "./src/local-runtime-diagnostics.ts",
       "import": "./dist/local-runtime-diagnostics.js"
     },
     "./hooks/use-available-embedding-models": {
-      "types": "./dist/hooks/use-available-embedding-models.d.ts",
+      "types": "./src/hooks/use-available-embedding-models.ts",
       "import": "./dist/hooks/use-available-embedding-models.js"
     },
     "./stores/assistant-preferences-store-name": {
-      "types": "./dist/stores/assistant-preferences-store-name.d.ts",
+      "types": "./src/stores/assistant-preferences-store-name.ts",
       "import": "./dist/stores/assistant-preferences-store-name.js",
       "default": "./dist/stores/assistant-preferences-store-name.js"
     }
@@ -210,9 +210,9 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",

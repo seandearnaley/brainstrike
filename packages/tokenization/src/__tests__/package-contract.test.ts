@@ -41,7 +41,7 @@ function validateRuntimeSubpaths(exportsMap: PackageJson['exports']): string[] {
     if (exportConfig?.default !== `./dist/${exportName}.js`) {
       violations.push(`${exportName} has a non-canonical default target`);
     }
-    if (exportConfig?.types !== `./dist/${exportName}.d.ts`) {
+    if (exportConfig?.types !== `./src/${exportName}.ts`) {
       violations.push(`${exportName} has a non-canonical types target`);
     }
     if (exportConfig?.import !== undefined || exportConfig?.require !== undefined) {
@@ -70,11 +70,6 @@ describe('@brainstrike/tokenization package contract', () => {
     expect(validateRuntimeSubpaths(mutatedExports)).toContain(
       'expected token-utils-accurate-lite, token-utils-lite, found token-utils-accurate-lite'
     );
-  });
-
-  it('uses the ordinary tsc-only Node ESM library strategy', () => {
-    expect(packageJson.scripts.build).toBe('node ../../scripts/prune-stale-dist.mjs && tsc -b .');
-    expect(packageJson.type).toBe('module');
   });
 
   it('keeps the root entrypoint free of the accurate runtime', () => {

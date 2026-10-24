@@ -79,19 +79,19 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./use-toast": {
-      "types": "./dist/use-toast.d.ts",
+      "types": "./src/use-toast.ts",
       "import": "./dist/use-toast.js"
     },
     "./code-block": {
-      "types": "./dist/code-block/index.d.ts",
+      "types": "./src/code-block/index.ts",
       "import": "./dist/code-block/index.js"
     },
     "./markdown-surface": {
-      "types": "./dist/markdown-surface/index.d.ts",
+      "types": "./src/markdown-surface/index.ts",
       "import": "./dist/markdown-surface/index.js"
     },
     "./globals.css": "./dist/globals.css",
@@ -114,10 +114,10 @@
     "react-router-dom": "^7.18.4"
   },
   "scripts": {
-    "build": "pnpm run clean:generated && node ../../scripts/prune-stale-dist.mjs && tsc -b . && node ../../scripts/copy-files.mjs src/globals.css dist/globals.css styles.css dist/styles.css",
+    "build": "pnpm run clean:generated && node ../../scripts/prune-stale-dist.mjs && tsc && node ../../scripts/copy-files.mjs src/globals.css dist/globals.css styles.css dist/styles.css",
     "clean": "pnpm run clean:generated && node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "clean:generated": "node ../../scripts/clean-generated-js.mjs src",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "pnpm run clean:generated && vitest run --project unit",
     "test:browser": "pnpm run clean:generated && vitest run --project browser",
@@ -130,5 +130,5 @@
     ]
   },
   "type": "module",
-  "types": "dist/index.d.ts"
+  "types": "./src/index.ts"
 }
