@@ -152,7 +152,7 @@ export const configSchema = Schema.Struct({
   // Null for the TEXT partition (BST-1988).
   managedCollectionId: Schema.NullOr(identifier),
   mode: Schema.Literals(['TEXT', 'VECTOR']),
-  parser: Schema.Struct({ parser: Schema.Literals(['oxc', 'babel']) }),
+  parser: Schema.Struct({ parser: Schema.Literal('oxc') }),
   request: Schema.Struct({
     batchSize: positive.check(Schema.isLessThanOrEqualTo(64)),
     chunkingOptions: Schema.Struct({

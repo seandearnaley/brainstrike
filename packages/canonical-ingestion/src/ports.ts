@@ -6,7 +6,7 @@ import type {
   ScopedManifestFile,
   ScopedManifestResult,
   VectorProfile,
-} from '@brainstrike/indexer/browser';
+} from '@brainstrike/indexer';
 
 /** A scan's source: one workspace folder. */
 export interface CanonicalSourceScope {

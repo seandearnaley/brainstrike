@@ -7,13 +7,14 @@
  * restart derive a run's branch through the same fold, and a run's model
  * context is its selected path only: a sibling branch is never on it.
  */
+
+import { createHash } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
   AssistantAttachmentValidationError,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract/assistant-attachments';
-import { sha256Hex } from '@brainstrike/utils/crypto';
 import { type ModelMessage, modelMessageSchema, type UserModelMessage } from 'ai';
 import { Schema } from 'effect';
 import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.js';
@@ -500,7 +501,7 @@ export function hostStartCommandRecord(params: HostStartParams): HostStartComman
     ...command,
     attachments: attachments.map(({ data, ...image }) => ({
       ...image,
-      sha256: sha256Hex(data),
+      sha256: createHash('sha256').update(data).digest('hex'),
     })),
   };
 }

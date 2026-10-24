@@ -1,5 +1,4 @@
 import { type CanonicalChunker, canonicalChunker } from '../canonical';
-import { babelAdapter } from '../parsers/babel-adapter';
 import { oxcNativeAdapter } from '../parsers/oxc-native-adapter';
 
 export type { ChunkSkipCode, PortableChunkingResult } from '../portable-chunking';
@@ -11,7 +10,7 @@ export type { ChunkingRequestOptions, PortableChunk } from '../shared';
  * claims Python but has no parser for it (BST-1983).
  */
 export interface NodeChunkerOptions {
-  readonly parser: 'oxc' | 'babel';
+  readonly parser: 'oxc';
 }
 export type NodeChunker = CanonicalChunker;
 
@@ -20,8 +19,8 @@ export function createNodeChunker(options: NodeChunkerOptions): NodeChunker {
   if ((process as { type?: string }).type === 'browser') {
     throw new Error('Canonical chunking must run in the utility process, never Electron main.');
   }
-  if (options.parser !== 'oxc' && options.parser !== 'babel') {
+  if (options.parser !== 'oxc') {
     throw new Error('Canonical Node parser configuration is invalid.');
   }
-  return canonicalChunker(options.parser === 'oxc' ? oxcNativeAdapter : babelAdapter);
+  return canonicalChunker(oxcNativeAdapter);
 }

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { embeddingProfileHash, sha256 } from './chunks.js';
@@ -10,7 +11,6 @@ import {
   profileSchema,
   scopedProofIdentitySchema,
 } from './contracts.js';
-import { randomHex } from './portable.js';
 
 export const INDEX_SCHEMA_VERSION = 15;
 /** Derived data is rebuildable (ADR-0020): any other stored version refuses as rebuild-required. */
@@ -46,7 +46,7 @@ export function freshIdentity(options: IndexerOptions): IndexerIdentity {
       options.embedding.indexMode === 'text-only'
         ? { indexMode: 'text-only' }
         : configuredEmbedding(options.embedding.profile),
-    storeId: randomHex(32),
+    storeId: randomBytes(32).toString('hex'),
   };
 }
 /** Driver-neutral row boundary; the supplied metadata must come from the caller's owned snapshot. */

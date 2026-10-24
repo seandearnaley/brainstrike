@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { CanonicalChunker } from '@brainstrike/chunking-worker/canonical';
 import type { CanonicalIndexPayload } from '@brainstrike/file-import/canonical-index-publication';
 import {
@@ -7,9 +8,8 @@ import {
   type ScopedManifestResult,
   type VectorProfile,
   vectorProfileHash,
-} from '@brainstrike/indexer/browser';
+} from '@brainstrike/indexer';
 import { createLogger } from '@brainstrike/logging';
-import { sha256Hex } from '@brainstrike/utils/crypto';
 import { CanonicalOperationCancelledError } from './cancellation.js';
 import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
 import type {
@@ -930,7 +930,7 @@ function validateVectorPlan(
     snapshot.sourcePath !== file.sourcePath ||
     snapshot.embeddingSetId !== file.embeddingSetId ||
     snapshot.content !== payload.content ||
-    plan.contentHash !== sha256Hex(payload.content) ||
+    plan.contentHash !== createHash('sha256').update(payload.content).digest('hex') ||
     !('providedChunks' in snapshot) ||
     snapshot.providedChunks.length !== payload.providedChunks.length ||
     snapshot.providedChunks.some((actual, index) => {

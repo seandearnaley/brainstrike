@@ -4,7 +4,6 @@
   "version": "0.1.0",
   "//web-tree-sitter": "Exact pin qualified for the canonical Python 0.25.0 grammar. Native Parser/Language/Query APIs and renamed web-tree-sitter.wasm assets are tested in Node by this package's tree-sitter-python, tree-sitter-grammar-abi, node-chunking and canonical-chunking suites. Upstream recovery issue 5910 remains reproducible with JSON 0.24.8, which this runtime does not route; do not expand grammars or advance this pin without rechecking the applicable recovery/source-range and CSP/asset gates. No upstream fix is claimed.",
   "dependencies": {
-    "@babel/parser": "^8.0.7",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "oxc-parser": "catalog:",

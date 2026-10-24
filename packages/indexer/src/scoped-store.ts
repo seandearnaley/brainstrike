@@ -1,3 +1,6 @@
+import { randomBytes } from 'node:crypto';
+import path from 'node:path';
+import { hostBasename } from '@brainstrike/utils/host-path';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { scopedFileChunks, sha256, vectorBlob } from './chunks.js';
@@ -24,7 +27,6 @@ import {
   type VectorProfile,
 } from './contracts.js';
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.js';
-import { basenameOfSource, basenamePosix, randomHex } from './portable.js';
 import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
 import { readScopedFileChunkBounds, readScopedFilePage } from './scoped-file-page.js';
 import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.js';
@@ -110,7 +112,7 @@ export class ScopedIndex {
   beginOwnerEpoch(): void {
     this.db
       .prepare('UPDATE index_scope_authority SET epoch=? WHERE singleton=1')
-      .run(randomHex(32));
+      .run(randomBytes(32).toString('hex'));
   }
   private epoch(): string {
     return readScopeEpoch(this.db);
@@ -297,9 +299,9 @@ export class ScopedIndex {
         snapshot.fileId,
         snapshot.rootId,
         snapshot.relativePath
-          ? basenamePosix(snapshot.relativePath)
+          ? path.posix.basename(snapshot.relativePath)
           : snapshot.sourcePath
-            ? basenameOfSource(snapshot.sourcePath)
+            ? hostBasename(snapshot.sourcePath)
             : '',
         snapshot.relativePath,
         snapshot.embeddingSetId,

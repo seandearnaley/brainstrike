@@ -19,7 +19,7 @@ export default defineConfig((options) => ({
     '.wasm': 'dataurl',
   },
   // Bundle heavy dependencies into the worker to avoid ESM resolution issues
-  noExternal: ['@babel/parser', '@brainstrike/text-splitter', '@brainstrike/tokenization'],
+  noExternal: ['@brainstrike/text-splitter', '@brainstrike/tokenization'],
   outDir: 'dist',
   platform: 'browser', // Force browser-compatible output (no require())
   sourcemap: false,

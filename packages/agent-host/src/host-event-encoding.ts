@@ -1,11 +1,11 @@
 /**
- * How Core encodes a host event for its run log, with no Node module, so the
- * browser records a run as the host does (BST-1940): its spooled large text,
- * its run snapshot blob and its hydration mark.
+ * How Core encodes a host event for its run log: its spooled large text, its
+ * run snapshot blob and its hydration mark.
  */
+
+import { createHash } from 'node:crypto';
 import type { AppendItem, BlobContent } from '@brainstrike/state-store';
 import { largeText } from '@brainstrike/state-store/large-text';
-import { sha256Hex } from '@brainstrike/utils/crypto';
 import { Schema } from 'effect';
 import { type HostEvent, HostEventSchema } from './protocol.js';
 /**
@@ -27,7 +27,7 @@ export function storedRunSnapshot(event: HostEvent): {
   }
   const { snapshot, ...started } = event;
   const content = JSON.stringify(snapshot);
-  const hash = sha256Hex(content);
+  const hash = createHash('sha256').update(content).digest('hex');
   return { blobs: [{ content, hash }], body: { ...started, blobRefs: [hash], snapshotRef: hash } };
 }
 /**

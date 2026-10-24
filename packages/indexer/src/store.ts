@@ -1,8 +1,9 @@
+import path from 'node:path';
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
-import { embeddingProfileHash, fileChunks, sha256, vectorBlob } from './chunks.js';
+import { embeddingProfileHash, fileChunks, float32At, sha256, vectorBlob } from './chunks.js';
 import {
   authorize,
   type CommitResult,
@@ -41,7 +42,6 @@ import {
   validateChunkEmbeddingState,
 } from './index-metadata.js';
 import { assertFreshOpen, decodeIndexerOptions } from './options.js';
-import { basenamePosix, float32At } from './portable.js';
 import { ScopeAuthority } from './scope-authority.js';
 import { ScopedIndex } from './scoped-store.js';
 import { StateEventStore } from './state-event-store.js';
@@ -529,7 +529,7 @@ export class IndexWriter {
       .run(
         plan.snapshot.fileId,
         plan.snapshot.rootId,
-        basenamePosix(plan.snapshot.relativePath),
+        path.posix.basename(plan.snapshot.relativePath),
         plan.snapshot.relativePath,
         plan.contentHash,
         snapshotHash(plan.snapshot)

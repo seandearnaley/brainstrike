@@ -199,7 +199,6 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "esbuild": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "@effect/tsgo": "catalog:"

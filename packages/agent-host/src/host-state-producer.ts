@@ -1,10 +1,8 @@
 /**
  * The host's state producer: how the derived index reads committed host rows
  * (ADR-0011). It decodes a row, and projects its history text, search row and
- * message identities. The caller supplies blob reads. The desktop's producer
- * module (`state-projection.ts`) reads the data root's blob files; the browser
- * state writer (BST-1940) reads its own blob store. Nothing here imports a
- * Node module.
+ * message identities. The caller supplies blob reads: the desktop's producer
+ * module (`state-projection.ts`) reads the data root's blob files.
  */
 import {
   type Mode,

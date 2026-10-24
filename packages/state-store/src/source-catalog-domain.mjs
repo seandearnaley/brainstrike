@@ -1,5 +1,5 @@
 // @ts-check
-import { sha256Hex } from '@brainstrike/utils/crypto';
+import { createHash } from 'node:crypto';
 
 const projection = `id AS fileId, root_id AS rootId, embedding_set_id AS embeddingSetId,
   path, name AS fileName, created_at AS createdAt, updated_at AS updatedAt, chunks_count AS chunksCount, content_hash AS contentHash, mtime_ms AS mtimeMs, size,
@@ -39,7 +39,7 @@ function assertSource(source) {
     source.stat.size < 0 ||
     (source.stat.mtimeMs !== null &&
       (!Number.isFinite(source.stat.mtimeMs) || source.stat.mtimeMs < 0)) ||
-    sha256Hex(source.content) !== source.contentHash
+    createHash('sha256').update(source.content).digest('hex') !== source.contentHash
   ) {
     throw new Error('Canonical source metadata or content hash is invalid');
   }

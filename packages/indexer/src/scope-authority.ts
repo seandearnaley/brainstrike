@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { poolingIdentity, promptIdentity, validateSnapshot } from './chunks.js';
+import { poolingIdentity, promptIdentity, sha256, validateSnapshot } from './chunks.js';
 import {
   decoder,
   fileBindingsSchema,
@@ -12,11 +12,10 @@ import {
   type VectorProfile,
   vectorProfileSchema,
 } from './contracts.js';
-import { sha256Hex } from './portable.js';
 
 export function vectorProfileHash(input: unknown): string {
   const profile = decoder(vectorProfileSchema)(input);
-  return sha256Hex(
+  return sha256(
     JSON.stringify([
       profile.provider,
       profile.modelId,

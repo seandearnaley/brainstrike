@@ -6,7 +6,6 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@eslint-community/regexpp": "catalog:",
-    "@noble/hashes": "catalog:",
     "ignore": "catalog:",
     "minimatch": "catalog:"
   },

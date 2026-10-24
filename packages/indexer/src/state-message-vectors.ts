@@ -3,7 +3,7 @@ import type { StateTruthReader } from '@brainstrike/state-store/state-truth-read
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
-import { sha256 } from './chunks.js';
+import { float32Bytes, sha256 } from './chunks.js';
 import {
   authorize,
   decoder,
@@ -25,7 +25,6 @@ import {
   vectorProfileSchema,
 } from './contracts.js';
 import { readIndexIdentity } from './index-metadata.js';
-import { float32Bytes } from './portable.js';
 import { vectorProfileHash } from './scope-authority.js';
 import { validateStoredVectorBytes } from './scoped-vector-validation.js';
 import type { StateMessageEvent, StateProjection } from './state-projection.js';
