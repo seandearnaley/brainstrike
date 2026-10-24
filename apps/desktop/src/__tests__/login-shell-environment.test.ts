@@ -46,6 +46,7 @@ function runCommand(
 }
 
 describe('resolveLoginShellEnvironment', () => {
+  // The stated per-OS exception: docs/agents/platform-contracts.md, "Login-shell environment".
   it.skipIf(process.platform === 'win32')(
     'gives a command child launched by launchd the PATH that only the login shell sets',
     async () => {
@@ -73,6 +74,7 @@ describe('resolveLoginShellEnvironment', () => {
     }
   );
 
+  // The stated per-OS exception: docs/agents/platform-contracts.md, "Login-shell environment".
   it.skipIf(process.platform === 'win32')(
     'reports a login shell that exits with an error instead of resolving',
     async () => {

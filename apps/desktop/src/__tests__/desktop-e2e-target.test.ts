@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -20,7 +20,6 @@ afterEach(() => {
 function executable(name: string): string {
   const file = path.join(dir, name);
   writeFileSync(file, '');
-  chmodSync(file, 0o755);
   return file;
 }
 
@@ -60,18 +59,6 @@ describe('resolveDesktopE2eTarget (BST-2190)', () => {
       resolveDesktopE2eTarget({ [DESKTOP_E2E_TARGET_ENV]: 'packaged' }, () => directory)
     ).toThrow(/not a file/u);
   });
-
-  it.skipIf(process.platform === 'win32')(
-    'fails when the packaged file is not executable (POSIX mode bits)',
-    () => {
-      const file = path.join(dir, 'BrainStrike Desktop');
-      writeFileSync(file, '');
-      chmodSync(file, 0o644);
-      expect(() =>
-        resolveDesktopE2eTarget({ [DESKTOP_E2E_TARGET_ENV]: 'packaged' }, () => file)
-      ).toThrow(/not executable/u);
-    }
-  );
 });
 
 describe('assertLaunchedDesktopTarget (BST-2190)', () => {

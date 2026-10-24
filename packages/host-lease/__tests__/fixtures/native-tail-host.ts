@@ -1,7 +1,9 @@
 // A real Root holder that starts one native command the way the desktop
 // executor does (the shared host spawn, its own process group, stdin ignored,
 // stdout/stderr piped back) and then waits. The command ignores SIGTERM, like a
-// build in its grace window, so it outlives a crashed holder.
+// build in its grace window, so only its OS mechanism can end it with a crashed
+// holder or keep the Root refused.
+import { createRequire } from 'node:module';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { processStartTime, spawnNativeChild } from '@brainstrike/state-store';
 import { Schema } from 'effect';
@@ -9,6 +11,15 @@ import { startHost } from '../../src/runtime.js';
 
 async function main(): Promise<void> {
   const root = makeThrowingDecoder(Schema.String)(process.argv[2]);
+  if (process.platform === 'win32') {
+    // ADR-0017: Windows has no inheritable Root lock. Like the agent host's process
+    // entry, this host joins a kill-on-close Job before it starts any native process.
+    (
+      createRequire(import.meta.url)(
+        '@brainstrike/windows-job-native'
+      ) as typeof import('@brainstrike/windows-job-native')
+    ).initialize();
+  }
   const host = await startHost({ lifetime: 'persistent', root });
   const command = spawnNativeChild(
     process.execPath,

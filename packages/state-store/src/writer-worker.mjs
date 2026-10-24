@@ -46,7 +46,6 @@ import {
   sourceBlobRefs,
   sourceGcCandidates,
 } from './deletion-domain.mjs';
-import { newRetryStats, retrySharing } from './fs-retry.mjs';
 import { exportJsonl, readJsonl } from './jsonl.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
 import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
@@ -121,7 +120,6 @@ if (damage) {
   migrate(db);
 }
 let log = new RunLog(db, damage);
-const blobRetry = newRetryStats();
 
 const settings = {
   fullfsync: db.pragma('fullfsync', { simple: true }),
@@ -178,10 +176,7 @@ function putBlob(hash, content) {
   } finally {
     closeSync(fd);
   }
-  const err = retrySharing(() => renameSync(tmp, p), blobRetry);
-  if (err) {
-    throw err;
-  }
+  renameSync(tmp, p);
   fsyncDir(cfg.blobsDir);
 }
 
@@ -198,10 +193,7 @@ function unlinkBlobs(hashes) {
     if (!existsSync(p)) {
       continue;
     }
-    const err = retrySharing(() => unlinkSync(p), blobRetry);
-    if (err) {
-      throw err;
-    }
+    unlinkSync(p);
     deleted.push(h);
   }
   if (deleted.length > 0) {

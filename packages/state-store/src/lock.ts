@@ -38,7 +38,6 @@ import {
 import { createRequire } from 'node:module';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { newRetryStats, type RetryStats, retrySharing } from './fs-retry.mjs';
 import { replaceLockFileSync } from './lock-file-replacement.js';
 import { canonicalRoot } from './root-identity.js';
 
@@ -385,7 +384,6 @@ export class RootLock {
   readonly gen: number;
   readonly owner: LockOwner;
   private released = false;
-  private readonly releaseStats = newRetryStats();
   #flock: number | undefined;
 
   private constructor(dir: string, gen: number, owner: LockOwner, flock: number | undefined) {
@@ -504,11 +502,6 @@ export class RootLock {
     return this.released;
   }
 
-  /** Windows release-operation accounting; snapshots never expose the mutable counters. */
-  get releaseRetryStats(): Readonly<RetryStats> {
-    return { ...this.releaseStats, codes: { ...this.releaseStats.codes } };
-  }
-
   private assertReleaseOwner(path: string): void {
     const cur = readOwner(path);
     if (
@@ -536,7 +529,7 @@ export class RootLock {
     }
   }
 
-  /** Atomic release; Windows retries only rename faults while full authority remains ours. */
+  /** Atomic release: one replacement of the record, checked again just before it, while full authority remains ours. */
   release(): void {
     if (this.released) {
       return;
@@ -556,27 +549,11 @@ export class RootLock {
       fsyncSync(fd);
       closeSync(fd);
       fd = undefined;
-      const rename = (): void => {
-        try {
-          this.assertReleaseOwner(path);
-        } catch (cause) {
-          // A read/listing EPERM is an authority failure, never a rename retry.
-          throw new ReleaseAuthorityError(cause);
-        }
-        replaceLockFileSync(candidate, path);
-      };
-      if (process.platform === 'win32') {
-        const error = retrySharing(rename, this.releaseStats);
-        if (error) {
-          throw error;
-        }
-      } else {
-        rename();
-      }
+      this.assertReleaseOwner(path);
+      replaceLockFileSync(candidate, path);
       this.released = true;
       this.#closeFlock();
-    } catch (error) {
-      const primary = error instanceof ReleaseAuthorityError ? error.cause : error;
+    } catch (primary) {
       const failures: unknown[] = [primary];
       if (fd !== undefined) {
         try {
@@ -605,14 +582,5 @@ export class RootLock {
   releaseAndRemove(): void {
     this.release();
     rmSync(this.dir, { recursive: true });
-  }
-}
-
-/** Terminal classification inside retrySharing; the caller receives the original authority cause. */
-class ReleaseAuthorityError extends Error {
-  readonly code = 'LOCK_RELEASE_AUTHORITY';
-
-  constructor(cause: unknown) {
-    super('lock: release authority validation failed', { cause });
   }
 }
