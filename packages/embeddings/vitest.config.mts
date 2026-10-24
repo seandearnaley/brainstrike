@@ -44,6 +44,8 @@ export default defineConfig({
     // every base-config-derived lane; the manual `test:models` script
     // re-includes them via vitest.models.config.mts.
     exclude: ['**/node_modules/**', '**/dist/**', '**/*.models.test.*'],
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     hookTimeout: 30_000,
     // Full `*.test.*` suffix breadth; `.models.test.*` stays excluded via `exclude` above.
     include: ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],

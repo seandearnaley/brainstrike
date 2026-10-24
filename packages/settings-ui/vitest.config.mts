@@ -33,6 +33,8 @@ export default defineConfig({
       },
     },
     environment: 'jsdom',
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     reporters: ['default', new LostTestFileReporter()],

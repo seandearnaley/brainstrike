@@ -175,6 +175,8 @@ export default defineConfig({
     environment: 'jsdom',
     // `*.compiled.test.*` suites run in vitest.compiled.config.mts.
     exclude: ['**/node_modules/**', '**/dist/**', '**/*.compiled.test.{ts,tsx}'],
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     hookTimeout: 30_000,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
