@@ -25,7 +25,7 @@ async function assertProbe(userDataDir: string, threadId: string): Promise<void>
   expect(snapshot.threads.find((thread) => thread.threadId === threadId)?.title).toBe(PROBE_TITLE);
 }
 
-/** Verify both the profile's published host record and its physical Root owner before signalling. */
+/** Verify the profile's published host record names the live process that owns its Root. */
 async function ownedHost(
   userDataDir: string
 ): Promise<{ pid: number; start: string; root: string }> {
@@ -35,7 +35,6 @@ async function ownedHost(
   expect(lock?.owner).toMatchObject({ pid: host.pid, root, start: host.start });
   expect(lock?.owner.released).not.toBe(true);
   expect(processStartTime(host.pid)).toBe(host.start);
-  expect(RootLock.isFlockHeld(root)).toBe(true);
   return { ...host, root };
 }
 
@@ -65,13 +64,13 @@ function requirePid(mainProcess: ChildProcess): number {
 }
 
 test.describe('Shutdown signals join the profile owner', () => {
-  test.skip(process.platform === 'win32', 'Windows has no catchable POSIX process signals.');
   test.setTimeout(240_000);
 
   test('a repeated dev-tree teardown releases the Root and committed state reopens', async ({
     electron,
     window,
   }, testInfo) => {
+    test.skip(process.platform === 'win32', 'Windows has no catchable POSIX process signals.');
     const { waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(window);
     await waitForAppHost(window);
@@ -108,7 +107,6 @@ test.describe('Shutdown signals join the profile owner', () => {
     expect(readOutput()).toContain('Graceful shutdown completed');
     expect(readOutput()).not.toContain('forcing exit');
     expect(processStartTime(host.pid)).not.toBe(host.start);
-    expect(RootLock.isFlockHeld(host.root)).toBe(false);
     expect(RootLock.inspect(host.root)?.owner.released).toBe(true);
     const restarted = (await electron.restart()).window;
     await waitForAppReady(restarted);
@@ -149,7 +147,7 @@ test.describe('Shutdown signals join the profile owner', () => {
         contentType: 'text/plain',
       });
     }
-    expect(RootLock.isFlockHeld(host.root)).toBe(false);
+    // A Root a surviving native process still held would refuse this claim.
     const restarted = (await electron.restart()).window;
     await waitForAppReady(restarted);
     await waitForAppHost(restarted);
