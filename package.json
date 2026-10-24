@@ -55,7 +55,7 @@
     "lint-all": "pnpm lint && pnpm format",
     "lint:biome": "biome check .",
     "lint:ci": "pnpm run lint:eslint && biome check .",
-    "lint:eslint": "eslint --cache --cache-location node_modules/.cache/eslint/ \"apps/desktop/src/**/*.{ts,tsx}\" \"packages/*/src/**/*.{ts,tsx}\"",
+    "lint:eslint": "eslint --concurrency=auto --cache --cache-location node_modules/.cache/eslint/ \"apps/desktop/src/**/*.{ts,tsx}\" \"packages/*/src/**/*.{ts,tsx}\"",
     "postinstall": "node scripts/postinstall.js",
     "predev": "node scripts/ensure-desktop-dev-deps.mjs",
     "prepare": "node scripts/postinstall.js",
