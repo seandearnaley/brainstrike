@@ -44,7 +44,7 @@ export { WEB_SEARCH_TOOL_ID };
  * `apiKey ? { apiKey } : undefined` shape when nothing was projected.
  */
 function webSearchClientSettings(options: ProviderFetchOptions): ProviderFetchOptions | undefined {
-  if (options.apiKey === undefined && options.fetch === undefined) {
+  if (options.apiKey === undefined) {
     return;
   }
   return options;
@@ -76,10 +76,8 @@ export function providerSupportsNativeWebSearch(
  * provider-instance-independent (the actual API auth rides on the language
  * model built separately), so the client built here exists for construction
  * parity — but that parity MUST include the full ProviderAuthInput (BST-1352
- * review finding 1): building it from a bare key would silently drop an
- * injected custom fetch, and under `custom_fetch` the dummy key would reach
- * the real API. `providerFetchOptions` is the same projection the chat model
- * uses, so the two clients can never diverge on auth kind handling (aws
+ * review finding 1). `providerFetchOptions` is the same projection the chat
+ * model uses, so the two clients can never diverge on auth kind handling (aws
  * throws typed here exactly like the chat case). Returns `undefined` for
  * providers without native search.
  */
