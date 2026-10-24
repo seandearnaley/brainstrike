@@ -13,7 +13,13 @@ import {
 import { StateStore } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { createIndexerConnection } from '../dist/transport.js';
+import type * as Transport from '../src/transport.js';
+
+// The transport forks the process entry beside its own module, so this suite
+// drives the built transport; the source owns its type.
+const { createIndexerConnection }: typeof Transport = await import(
+  new URL('../dist/transport.js', import.meta.url).href
+);
 
 type Port = Awaited<ReturnType<typeof openIndexer>>;
 

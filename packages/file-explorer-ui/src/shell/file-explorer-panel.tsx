@@ -1,3 +1,4 @@
+/// <reference path="../types/window.d.ts" />
 import type { AnyContextAction } from '@brainstrike/context-actions';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
@@ -409,7 +410,10 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
   const largeSelectionDiagnosticSignatureRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    if (!window.desktopLifecycle?.isTestMode) {
+    if (
+      !(window as Window & { desktopLifecycle?: { isTestMode?: boolean } }).desktopLifecycle
+        ?.isTestMode
+    ) {
       return;
     }
 

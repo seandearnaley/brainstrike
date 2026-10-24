@@ -21,15 +21,15 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
     "./lab": {
-      "types": "./dist/lab.d.ts",
+      "types": "./src/lab.ts",
       "default": "./dist/lab.js"
     },
     "./scenario": {
-      "types": "./dist/scenario.d.ts",
+      "types": "./src/scenario.ts",
       "default": "./dist/scenario.js"
     }
   },
@@ -39,7 +39,7 @@
   ],
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && node scripts/verify-built-package.mjs",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc && node scripts/verify-built-package.mjs",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
@@ -48,5 +48,5 @@
   },
   "sideEffects": false,
   "type": "module",
-  "types": "./dist/index.d.ts"
+  "types": "./src/index.ts"
 }

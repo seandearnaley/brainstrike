@@ -81,7 +81,7 @@ async function walk(absWorkingDir, entryPoints) {
     outdir: path.join(absWorkingDir, '.node-inference-boundary'),
     platform: 'node',
     plugins: [nodeRuntimeResolution],
-    // Node applies no tsconfig `paths`; desktop's map @brainstrike/* to renderer SOURCE.
+    // Node applies no tsconfig `paths`.
     tsconfigRaw: '{}',
     write: false,
   });

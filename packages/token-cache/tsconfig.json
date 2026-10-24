@@ -36,19 +36,5 @@
     "dist",
     "node_modules",
     "**/*.test.ts"
-  ],
-  "references": [
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../tokenization"
-    },
-    {
-      "path": "../utils"
-    },
-    {
-      "path": "../worker-runtime"
-    }
   ]
 }
