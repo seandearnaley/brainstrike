@@ -27,10 +27,10 @@ permissions:
   pull-requests: read
 
 jobs:
-  # The fast tier is test.yml itself: Static, Unit (affected against the main
-  # commit the batch was built on), Build and the three smoke E2E lanes. Its
-  # nightly-only jobs skip under `merge-queue: true`. A dispatch runs every Unit
-  # shard. Check names read "Test / Static", "Test / Unit (db-1)" and so on.
+  # The fast tier is test.yml itself: Static, Type check, Unit (affected
+  # against the main commit the batch was built on), Build and the smoke E2E
+  # lanes. Its nightly-only jobs skip under `merge-queue: true`. A dispatch
+  # runs every Unit shard. Check names read "Test / Static", "Test / Unit (db-1)" and so on.
   #
   # Deleting a branch also fires push, with the SHA reverted to main. Mergify
   # deletes each queue branch once its batch is done, so every job skips that.
@@ -45,9 +45,9 @@ jobs:
 
   # The merge condition in .mergify.yml and the check the ruleset requires;
   # keep its name exact. It passes only when the call succeeded, every
-  # fast-tier job succeeded and every nightly-only job skipped. Static owns
-  # Unit selection, so the Unit matrix may skip only when Static succeeded and
-  # selected no affected shard; a Unit skipped because Static failed, or any
+  # fast-tier job succeeded and every nightly-only job skipped. Unit plan owns
+  # Unit selection, so the Unit matrix may skip only when Unit plan succeeded
+  # and selected no affected shard; a Unit skipped because it failed, or any
   # other skipped, failed or cancelled job, fails the gate.
   merge-queue-gate:
     name: Merge Queue Gate
@@ -63,6 +63,7 @@ jobs:
           RESULT_TEST: ${{ needs.test.result }}
           RESULT_ADMISSION: ${{ needs.test.outputs.admission-result }}
           RESULT_STATIC: ${{ needs.test.outputs.static-result }}
+          RESULT_TYPE_CHECK: ${{ needs.test.outputs.type-check-result }}
           RESULT_UNIT_PLAN: ${{ needs.test.outputs.unit-plan-result }}
           RESULT_UNIT_SHARD: ${{ needs.test.outputs.unit-shard-result }}
           RESULT_UNIT: ${{ needs.test.outputs.unit-result }}
@@ -88,8 +89,8 @@ jobs:
               continue
             fi
             if [ "$job" = UNIT_SHARD ] && [ "$result" = skipped ] &&
-              [ "$RESULT_STATIC" = success ] && [ "$UNIT_SHARD_COUNT" = 0 ]; then
-              echo "Static succeeded and selected no affected Unit shard."
+              [ "$RESULT_UNIT_PLAN" = success ] && [ "$UNIT_SHARD_COUNT" = 0 ]; then
+              echo "Unit plan succeeded and selected no affected Unit shard."
               continue
             fi
             echo "::error::${job} was ${result:-missing}, expected ${expected}"
