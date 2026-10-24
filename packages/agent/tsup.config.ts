@@ -16,14 +16,9 @@ const broadEntries = [
   'src/fence-executor.ts',
   'src/mcp-client.ts',
   'src/test-fixtures/mcp-host-lifecycle.ts',
-  'src/test-fixtures/scripted-agent-model.ts',
   'src/mcp-tasks.ts',
-  'src/browser-safe.ts',
   'src/tool-metadata.ts',
   'src/provider-metadata.ts',
-  'src/context-packer.ts',
-  'src/memory-settings.ts',
-  'src/run-events.ts',
 ];
 const sharedExternal = [
   agentMcpClientExternal,
