@@ -52,17 +52,17 @@ jobs:
   desktop-full-regression:
     name: Desktop Full Regression (shard ${{ matrix.shard }})
     if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
-    runs-on: ubuntu-latest
-    # Each shard runs a quarter of the regression project under the lane's own
+    runs-on: ubicloud-standard-4
+    # Each shard runs an eighth of the regression project under the lane's own
     # 30m --global-timeout; shard 1 also runs the 2m AI Tools nightly lane.
-    # Setup/build headroom included. Two shards hit the 30m bound on run
-    # 39109422803 (132 and 123 specs ran, 20 never did: about 64 min of work);
-    # four give about 16 min each, inside the bound on a runner 1.7x slower.
+    # Setup/build headroom included. Four shards on ubuntu-latest took 13-16 min
+    # of tests each (run 40076152111, about 59 min of work); eight on the
+    # runner the other E2E lanes use keep each shard under about 8 min.
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -134,7 +134,7 @@ jobs:
       # Failed to connect to the bus` for every process. dbus-run-session
       # is provided by the `dbus` package (pre-installed on ubuntu-latest).
       # Playwright's own --shard splits the regression project across the
-      # matrix (the total must equal the matrix length; a script contract checks). pnpm
+      # matrix (the total must equal the matrix length and Notify Linear's parts). pnpm
       # appends the flag to the lane script, which must therefore end in the
       # playwright command.
       # Each Playwright run writes its JSON report under
@@ -145,7 +145,7 @@ jobs:
         working-directory: apps/desktop
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/nightly-results/desktop-full-regression-gate/shard-${{ matrix.shard }}/regression.json
-        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/4
+        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/8
 
       # The AI Tools smoke specs are excluded from the regression project, so
       # exactly one shard runs their nightly lane. It runs only after the regression
@@ -219,7 +219,7 @@ jobs:
   desktop-embedding-e2e:
     name: Desktop Embedding E2E
     if: github.repository == 'seandearnaley/brainstrike' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-4
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -272,7 +272,7 @@ jobs:
       # dbus-run-session wraps Electron so Chromium's D-Bus connect attempts
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
       # The two native-backfill specs embed about 300 real chunks each on WASM:
-      # about 9 minutes on this runner, which a regression shard's 30-minute
+      # about 9 minutes on ubuntu-latest, which a regression shard's 30-minute
       # budget cannot also hold (BST-2090, run 39062126583).
       - name: Run desktop embedding regression
         working-directory: apps/desktop
@@ -332,7 +332,7 @@ jobs:
       # Its own name: in nightly.yml's call, github.workflow is the caller's.
       workflow_name: Desktop E2E
       # Each shard is one part of the gate: a red shard needs its own failing test.
-      parts: desktop-full-regression-gate=shard-1 shard-2 shard-3 shard-4
+      parts: desktop-full-regression-gate=shard-1 shard-2 shard-3 shard-4 shard-5 shard-6 shard-7 shard-8
       results: desktop-full-regression-gate=${{ needs.desktop-full-regression-gate.result }},desktop-embedding-e2e=${{ needs.desktop-embedding-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
