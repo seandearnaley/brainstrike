@@ -104,8 +104,9 @@ describe('ipc-handlers filesystem composition', () => {
       rootId: handle.rootId,
     } satisfies FileHandle);
 
+    // The registry presents a root as path.normalize spells it: `\mock\…` on Windows.
     expect(handle).toMatchObject({
-      path: '/mock/test/directory',
+      path: path.normalize('/mock/test/directory'),
       rootId: expect.any(String),
     });
     expect(entries).toHaveLength(3);
