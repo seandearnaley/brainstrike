@@ -220,26 +220,28 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       watchFailures: new Map(),
     };
     graph = current;
-    const descriptors = await dependencies.application.roots.restoreRoots();
-    assertCurrent(current);
-    const roots = (await dependencies.catalog.workspaceRoots({ operation: 'list' })).roots.filter(
-      (root) => root.status === 'live'
-    );
-    for (const descriptor of descriptors) {
-      if (descriptor.permissionState !== 'granted') {
-        continue;
-      }
-      const root = roots.find((row) => row.id === descriptor.rootId);
-      if (!(root && isPartitionRoot(root, settings))) {
-        continue;
-      }
-      const lease = await dependencies.application.roots.borrowSourceRoot(
-        descriptor.rootId,
-        dependencies.application.watches.subscribe.bind(dependencies.application.watches)
-      );
-      current.leases.set(lease.rootId, lease);
+    // One registry mutation: a folder removed meanwhile is removed after these borrows.
+    await dependencies.application.roots.borrowRestoredRoots(async (descriptors, borrow) => {
       assertCurrent(current);
-    }
+      const roots = (await dependencies.catalog.workspaceRoots({ operation: 'list' })).roots.filter(
+        (root) => root.status === 'live'
+      );
+      for (const descriptor of descriptors) {
+        if (descriptor.permissionState !== 'granted') {
+          continue;
+        }
+        const root = roots.find((row) => row.id === descriptor.rootId);
+        if (!(root && isPartitionRoot(root, settings))) {
+          continue;
+        }
+        const lease = await borrow(
+          descriptor.rootId,
+          dependencies.application.watches.subscribe.bind(dependencies.application.watches)
+        );
+        current.leases.set(lease.rootId, lease);
+        assertCurrent(current);
+      }
+    });
     const port = await runtime.acquire();
     assertCurrent(current);
     const authorized = await authority();
@@ -296,11 +298,17 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       throw new Error('Native ingestion has no authoritative publication owner.');
     }
     // Source attachments own and retire their own borrows; reader authority keeps its original borrow.
-    for (const rootId of current.leases.keys()) {
-      const lease = await dependencies.application.roots.borrowSourceRoot(
-        rootId,
-        dependencies.application.watches.subscribe.bind(dependencies.application.watches)
-      );
+    for (const [rootId, reader] of current.leases) {
+      const lease = await dependencies.application.roots
+        .borrowSourceRoot(
+          rootId,
+          dependencies.application.watches.subscribe.bind(dependencies.application.watches)
+        )
+        .catch((error: unknown) => {
+          // A folder removed since the open answers with its retirement, as the lease does.
+          reader.signal.throwIfAborted();
+          throw error;
+        });
       sources.leases.set(rootId, lease);
       assertSource();
       if (lease.canonicalPath !== current.leases.get(rootId)?.canonicalPath) {
@@ -404,7 +412,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     };
     const firstReceipts: Promise<CanonicalScanReceipt>[] = [];
     for (const lease of sources.leases.values()) {
-      const signal = AbortSignal.any([current.controller.signal, sources.controller.signal]);
+      // The folder's lease is the scan's authority: its retirement ends the wait too.
+      const signal = AbortSignal.any([
+        current.controller.signal,
+        sources.controller.signal,
+        lease.signal,
+      ]);
       signal.throwIfAborted();
       const { promise, reject, resolve } = Promise.withResolvers<CanonicalScanReceipt>();
       const onAbort = (): void => reject(signal.reason);
@@ -416,7 +429,10 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       workspace = await manager.attachCanonicalWorkspace({
         ...common,
         ...pipeline(scope),
-        onError: (operation, error) => {
+        onError: (operation, reported) => {
+          // A folder removed during its scan fails the utility's reads, and that failure returns
+          // by name only: it answers with the lease's own typed retirement.
+          const error: unknown = lease.signal.aborted ? lease.signal.reason : reported;
           if (operation === 'sync' || operation === 'sync loop') {
             scanAdmission.failWorkspace(lease.rootId, error);
           }
@@ -507,9 +523,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     observeNativeIndexCatalog(current, records);
   };
-  const readSettings = (): Promise<NativeIndexSettings> => dependencies.settings();
   const captureSettings = (): Promise<NativeIndexSettings> => {
-    const settings = readSettings();
+    const settings = dependencies.settings();
     // Observe immediately while owner construction/admission is pending; preserve the rejection.
     settings.catch(() => undefined);
     return settings;
@@ -622,13 +637,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     if (nativeIndexReadiness(state).kind !== 'ready') {
       throw stateError(state);
-    }
-    if (graph && [...graph.leases.values()].some((lease) => lease.signal.aborted)) {
-      await owner.configure(readSettings, true);
-      state = await owner.state();
-      if (nativeIndexReadiness(state).kind !== 'ready') {
-        throw stateError(state);
-      }
     }
     if (!graph) {
       throw new TransitionError('Native indexing has no current source authority.');

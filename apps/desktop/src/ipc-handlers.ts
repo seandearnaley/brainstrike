@@ -39,6 +39,7 @@ interface RegisterIpcHandlerOptions {
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onStorageChanged?: (key: string) => void;
   readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
+  readonly onWorkspaceRootsChanged?: () => void;
 }
 
 /**
@@ -95,6 +96,9 @@ export function createApplicationIpcDomain(
       : {}),
     ...(options?.onWorkspaceRootGranted
       ? { onWorkspaceRootGranted: options.onWorkspaceRootGranted }
+      : {}),
+    ...(options?.onWorkspaceRootsChanged
+      ? { onWorkspaceRootsChanged: options.onWorkspaceRootsChanged }
       : {}),
     storage,
   });
