@@ -4,6 +4,7 @@
  * Tests LRU eviction, TTL expiration, and invalidation strategies.
  */
 
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMetadataCache, MetadataCache } from '../metadata-cache.js';
 
@@ -371,17 +372,22 @@ describe('MetadataCache', () => {
 
   describe('getPaths', () => {
     it('should return all cached paths', () => {
+      // Keys are the Electron adapter's host-native paths, and getPaths returns
+      // them in the host's spelling.
+      const file1 = path.resolve('/file1.ts');
+      const file2 = path.resolve('/file2.ts');
+      const dir = path.resolve('/dir');
       const cache = new MetadataCache();
 
-      cache.set('/file1.ts', { isDirectory: false, mtimeMs: 1000, size: 100 });
-      cache.set('/file2.ts', { isDirectory: false, mtimeMs: 2000, size: 200 });
-      cache.set('/dir', { isDirectory: true, mtimeMs: 3000, size: 0 });
+      cache.set(file1, { isDirectory: false, mtimeMs: 1000, size: 100 });
+      cache.set(file2, { isDirectory: false, mtimeMs: 2000, size: 200 });
+      cache.set(dir, { isDirectory: true, mtimeMs: 3000, size: 0 });
 
       const paths = cache.getPaths();
       expect(paths).toHaveLength(3);
-      expect(paths).toContain('/file1.ts');
-      expect(paths).toContain('/file2.ts');
-      expect(paths).toContain('/dir');
+      expect(paths).toContain(file1);
+      expect(paths).toContain(file2);
+      expect(paths).toContain(dir);
     });
 
     it('should return native Windows paths after internal normalization', () => {

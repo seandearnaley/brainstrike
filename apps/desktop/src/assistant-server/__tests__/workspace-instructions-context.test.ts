@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,18 +11,23 @@ import {
   type WorkspaceFileReader,
 } from '../workspace-instructions-context';
 
-const ROOT_A = { displayName: 'repo-a', path: '/abs/repo-a', rootId: 'root-a' };
-const ROOT_B = { displayName: 'repo-b', path: '/abs/repo-b', rootId: 'root-b' };
+// Roots resolve to native absolute paths, so the fixtures are native too.
+const ROOT_A = { displayName: 'repo-a', path: path.resolve('/abs/repo-a'), rootId: 'root-a' };
+const ROOT_B = { displayName: 'repo-b', path: path.resolve('/abs/repo-b'), rootId: 'root-b' };
 
 /**
  * A reader backed by an in-memory `rootPath -> { requestedPath -> content }`
  * map, mirroring the real `readWorkspaceTextFile` contract: a genuinely-absent
  * file throws an ENOENT-coded error (as `realpath` does in the live reader),
- * and a hit returns `{ content, path, size }`.
+ * and a hit returns `{ content, path, size }`. Roots are keyed the way the
+ * product resolves them, to native absolute paths.
  */
 function makeReader(files: Record<string, Record<string, string>>): WorkspaceFileReader {
+  const byRoot = new Map(
+    Object.entries(files).map(([rootPath, entries]) => [path.resolve(rootPath), entries])
+  );
   return vi.fn(async ({ rootPath, requestedPath }) => {
-    const content = files[rootPath]?.[requestedPath];
+    const content = byRoot.get(rootPath)?.[requestedPath];
     if (content === undefined) {
       throw Object.assign(new Error(`ENOENT: no such file, open '${requestedPath}'`), {
         code: 'ENOENT',
@@ -169,8 +175,16 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     // bare `### service/AGENTS.md` heading would be identical for both, so the
     // model cannot tell which root each block belongs to. Colliding names get an
     // `(id …)` qualifier (mirrors resolveWorkspaceRoot's collision convention).
-    const rootApps = { displayName: 'service', path: '/apps/service', rootId: 'root-apps' };
-    const rootLibs = { displayName: 'service', path: '/libs/service', rootId: 'root-libs' };
+    const rootApps = {
+      displayName: 'service',
+      path: path.resolve('/apps/service'),
+      rootId: 'root-apps',
+    };
+    const rootLibs = {
+      displayName: 'service',
+      path: path.resolve('/libs/service'),
+      rootId: 'root-libs',
+    };
     const reader = makeReader({
       '/apps/service': { 'AGENTS.md': 'apps-conventions' },
       '/libs/service': { 'AGENTS.md': 'libs-conventions' },
@@ -237,9 +251,9 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     const files: Record<string, Record<string, string>> = {};
     const roots = [];
     for (let i = 0; i < 5; i += 1) {
-      const path = `/abs/repo-${i}`;
-      files[path] = { 'AGENTS.md': nearFull };
-      roots.push({ displayName: `repo-${i}`, path, rootId: `root-${i}` });
+      const rootPath = path.resolve(`/abs/repo-${i}`);
+      files[rootPath] = { 'AGENTS.md': nearFull };
+      roots.push({ displayName: `repo-${i}`, path: rootPath, rootId: `root-${i}` });
     }
     const reader = makeReader(files);
 
@@ -290,9 +304,9 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     const files: Record<string, Record<string, string>> = {};
     const roots = [];
     for (let i = 0; i < 5; i += 1) {
-      const path = `/abs/repo-${i}`;
-      files[path] = { 'AGENTS.md': nearBudget };
-      roots.push({ displayName: `repo-${i}`, path, rootId: `root-${i}` });
+      const rootPath = path.resolve(`/abs/repo-${i}`);
+      files[rootPath] = { 'AGENTS.md': nearBudget };
+      roots.push({ displayName: `repo-${i}`, path: rootPath, rootId: `root-${i}` });
     }
     const reader = makeReader(files);
 

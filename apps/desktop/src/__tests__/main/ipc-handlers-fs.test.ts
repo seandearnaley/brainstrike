@@ -10,6 +10,8 @@ import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-hel
 
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 const handlers = new Map<string, IpcHandler>();
+const DOCS = path.resolve('/users/test/docs');
+const MANAGED = path.resolve('/managed/app/bright-fox');
 
 vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/Users/test/Documents') },
@@ -46,7 +48,7 @@ describe('ipc-handlers filesystem composition', () => {
       requestDirectoryAccess: vi.fn(async () => ({
         kind: 'directory',
         name: 'docs',
-        path: '/users/test/docs',
+        path: DOCS,
         platform: 'electron',
       })),
       watchDirectory: vi.fn(),
@@ -83,7 +85,7 @@ describe('ipc-handlers filesystem composition', () => {
 
     expect(fileSystem.requestDirectoryAccess).toHaveBeenCalledOnce();
     expect(handle).toMatchObject({
-      path: path.resolve('/users/test/docs'),
+      path: DOCS,
       rootId: expect.any(String),
     });
     expect(storedValues.get('rootsList')).toContain(handle.rootId);
@@ -102,8 +104,9 @@ describe('ipc-handlers filesystem composition', () => {
       rootId: handle.rootId,
     } satisfies FileHandle);
 
+    // The registry presents a root as path.normalize spells it: `\mock\…` on Windows.
     expect(handle).toMatchObject({
-      path: '/mock/test/directory',
+      path: path.normalize('/mock/test/directory'),
       rootId: expect.any(String),
     });
     expect(entries).toHaveLength(3);
@@ -118,7 +121,7 @@ describe('ipc-handlers filesystem composition', () => {
     const file = {
       kind: 'file',
       name: 'file.txt',
-      path: '/users/test/docs/file.txt',
+      path: path.join(DOCS, 'file.txt'),
       platform: 'electron',
       rootId: root.rootId,
     } satisfies FileHandle;
@@ -140,7 +143,7 @@ describe('ipc-handlers filesystem composition', () => {
   it('rejects unmounted, escaped, and malformed paths', async () => {
     const readByPath = handlers.get('fs:readFileByPath');
     await expect(
-      readByPath?.(createTrustedInvokeEvent(), '/users/test/docs/file.txt')
+      readByPath?.(createTrustedInvokeEvent(), path.join(DOCS, 'file.txt'))
     ).rejects.toMatchObject({
       code: 'workspace.path-outside-root',
       failure: { category: 'authorization', kind: 'refusal' },
@@ -166,17 +169,15 @@ describe('ipc-handlers filesystem composition', () => {
     await expect(
       handlers.get('fs:exists')?.(createTrustedInvokeEvent(), '/tmp/\0oops')
     ).resolves.toBe(false);
-    await expect(
-      handlers.get('fs:exists')?.(createTrustedInvokeEvent(), '/users/test/docs')
-    ).resolves.toBe(true);
-    expect(fileSystem.exists).toHaveBeenCalledWith(path.resolve('/users/test/docs'));
+    await expect(handlers.get('fs:exists')?.(createTrustedInvokeEvent(), DOCS)).resolves.toBe(true);
+    expect(fileSystem.exists).toHaveBeenCalledWith(DOCS);
   });
 
   it('threads the managed-worktree authorizer through the filesystem composition root', async () => {
     managedWorktreeAuthorizer.mockResolvedValue('authorized');
 
-    await handlers.get('fs:addRootByPath')?.(createTrustedInvokeEvent(), '/managed/app/bright-fox');
+    await handlers.get('fs:addRootByPath')?.(createTrustedInvokeEvent(), MANAGED);
 
-    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
+    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith(MANAGED);
   });
 });

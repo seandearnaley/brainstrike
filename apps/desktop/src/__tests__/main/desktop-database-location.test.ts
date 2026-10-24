@@ -99,9 +99,10 @@ describe('resolveDesktopDatabaseLocation', () => {
     electron.app = { getPath: getPathMock, isPackaged: true };
     const { resolveDesktopDatabaseLocation } = await load();
 
+    // Paths follow the platform being resolved for, not the host running the test.
     expect(resolveDesktopDatabaseLocation()).toEqual({
       profile: 'default',
-      rootPath: path.join('/mock/userData', 'data'),
+      rootPath: path.posix.join('/mock/userData', 'data'),
       source: 'packaged',
     });
   });
@@ -167,14 +168,16 @@ describe('resolveDesktopDatabaseLocation', () => {
   });
 
   it('honours the root and profile environment overrides', async () => {
+    // The override must be fully qualified on the host: a drive on Windows.
+    const root = path.resolve('/tmp/e2e-root');
     process.env['NODE_ENV'] = 'test';
-    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp/e2e-root';
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = root;
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'Custom Profile';
     const { resolveDesktopDatabaseLocation } = await load();
 
     expect(resolveDesktopDatabaseLocation()).toEqual({
       profile: 'custom-profile',
-      rootPath: '/tmp/e2e-root',
+      rootPath: root,
       source: 'override',
     });
   });
@@ -185,7 +188,7 @@ describe('resolveDesktopDatabaseLocation', () => {
     setPlatform('linux');
     const linux = await load();
     expect(linux.resolveDesktopDatabaseLocation().rootPath).toBe(
-      path.join('/xdg/share', 'BrainStrike Desktop', 'data')
+      path.posix.join('/xdg/share', 'BrainStrike Desktop', 'data')
     );
 
     vi.resetModules();

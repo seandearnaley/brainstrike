@@ -12,6 +12,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
@@ -58,6 +59,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // A write's post-edit diagnostics start a pooled language server whose cwd is
+  // the root; join it as the host does before the root goes away.
+  await disposeLspServers();
   await fsPromises.rm(root, { force: true, recursive: true });
 });
 

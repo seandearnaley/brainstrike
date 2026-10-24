@@ -73,13 +73,12 @@ export const GIT_NETWORK_TIMEOUT_MS = 120_000;
  */
 export const GIT_MAX_OUTPUT_BYTES = 1_000_000;
 /**
- * Hard `execFile` capture buffer. Strictly LARGER than {@link GIT_MAX_OUTPUT_BYTES}
- * so a diff between the soft and hard ceiling is captured in full and gracefully
- * truncated by {@link boundOutput} (success) rather than killed by `maxBuffer`
- * first (which would surface a legitimate big diff as a failure). A diff that
- * exceeds even this hard ceiling overflows `maxBuffer`; the runner maps that to a
- * bounded `truncated: true` success via {@link GitCommandFailureReason} rather
- * than a null-exit error.
+ * Hard per-stream capture ceiling of the runner. Strictly LARGER than
+ * {@link GIT_MAX_OUTPUT_BYTES} so a diff between the soft and hard ceiling is
+ * captured in full and gracefully truncated by {@link boundOutput} (success). A
+ * diff that exceeds even this hard ceiling is cut there: the runner keeps the
+ * prefix, closes the pipe so git ends itself, and reports 'maxBuffer', which the
+ * service maps to a bounded `truncated: true` success rather than an error.
  */
 export const GIT_MAX_BUFFER_BYTES = GIT_MAX_OUTPUT_BYTES * 4;
 
@@ -94,7 +93,10 @@ export type GitCommandFailureReason = 'maxBuffer' | 'timeout' | 'notFound';
 
 /** Result of running a single `git` invocation through the injected runner. */
 export interface GitCommandRun {
-  /** Process exit code, or null when terminated by a signal (timeout/abort). */
+  /**
+   * Process exit code, or null when the run did not complete on its own terms:
+   * killed (timeout/abort), not spawned, or cut at the capture ceiling.
+   */
   readonly exitCode: number | null;
   /** Discriminated failure cause when the run did not exit cleanly. */
   readonly failureReason?: GitCommandFailureReason;
@@ -125,10 +127,10 @@ export interface GitCommandRun {
 }
 
 /**
- * Structural runner contract — `runGitCommand` below adapts Node's
- * `child_process.execFile` to this, and tests can inject a fake. The runner MUST
- * pass `args` to the `git` binary verbatim (no shell), pin `cwd`, and resolve
- * (never reject) with the captured streams + exit code.
+ * Structural runner contract — `execFileGitRunner` (git-ipc-handlers) is the
+ * production runner, and tests can inject a fake. The runner MUST pass `args` to
+ * the `git` binary verbatim (no shell), pin `cwd`, and resolve (never reject)
+ * with the captured streams + exit code once git has exited.
  */
 export type GitCommandRunner = (params: {
   readonly args: readonly string[];

@@ -10,7 +10,7 @@
  * is read or written, and two concurrent operations can never share an index.
  *
  * Follows `git-service.ts`'s runner posture: git is invoked ONLY through an
- * injected `execFile`-style runner (NEVER a shell — every argument is a
+ * injected runner (NEVER a shell — every argument is a
  * separate array element), the runner resolves (never rejects) with captured
  * streams + a discriminated failure reason, and output is bounded by the same
  * `GIT_MAX_BUFFER_BYTES` hard cap. Commands are routed through the house
@@ -44,15 +44,12 @@
  * pins EVERY spawn's cwd to the root — never run shadow-git commands through
  * any other channel with a different cwd.
  */
-import { type ExecFileException, execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { createGitCommandEnvironment } from '../git-ipc-handlers';
+import { execFileGitRunner } from '../git-ipc-handlers';
 import {
   describeFailure,
-  GIT_MAX_BUFFER_BYTES,
-  type GitCommandFailureReason,
   type GitCommandRun,
   invokeGitHookFree,
   stripLineEnding,
@@ -101,94 +98,12 @@ export type SnapshotGitCommandRunner = (params: SnapshotGitCommandParams) => Pro
  */
 export const SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
 
-function classifyExecFailure(error: ExecFileException): {
-  exitCode: number | null;
-  failureReason?: GitCommandFailureReason;
-  timedOut: boolean;
-} {
-  const code = error.code;
-  const exitCode = typeof code === 'number' ? code : null;
-  let failureReason: GitCommandFailureReason | undefined;
-  if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-    failureReason = 'maxBuffer';
-  } else if (code === 'ENOENT') {
-    failureReason = 'notFound';
-  } else if (error.killed === true) {
-    failureReason = 'timeout';
-  }
-  return {
-    exitCode,
-    timedOut: failureReason === 'timeout',
-    ...(failureReason ? { failureReason } : {}),
-  };
-}
-
 /**
- * Adapt Node's `execFile` to {@link SnapshotGitCommandRunner}: argument array
- * (no shell), resolve-never-reject, the house pinned git environment
- * (`createGitCommandEnvironment` — hostile `GIT_*` vars stripped, ordinary
- * caller overrides merged on top, then safety keys re-pinned) for parseable
- * stderr and non-interactive execution.
+ * The production snapshot runner is the house git runner: argument array (no
+ * shell), resolve-never-reject, bounded capture, and the pinned git environment
+ * with the caller's `env` merged over it (`createGitCommandEnvironment`).
  */
-export const execFileSnapshotGitRunner: SnapshotGitCommandRunner = ({
-  args,
-  binaryStdout,
-  cwd,
-  env,
-  signal,
-  timeoutMs,
-}) => {
-  const environment = createGitCommandEnvironment(process.env, env);
-  if (binaryStdout) {
-    return new Promise<GitCommandRun>((resolve) => {
-      execFile(
-        'git',
-        [...args],
-        {
-          cwd,
-          encoding: 'buffer',
-          env: environment,
-          maxBuffer: GIT_MAX_BUFFER_BYTES,
-          signal,
-          timeout: timeoutMs,
-        },
-        (error, stdout, stderr) => {
-          const stderrText = stderr.toString('utf8');
-          if (error) {
-            resolve({
-              ...classifyExecFailure(error),
-              stderr: stderrText,
-              stdout: '',
-              stdoutBuffer: stdout,
-            });
-            return;
-          }
-          resolve({
-            exitCode: 0,
-            stderr: stderrText,
-            stdout: '',
-            stdoutBuffer: stdout,
-            timedOut: false,
-          });
-        }
-      );
-    });
-  }
-  return new Promise<GitCommandRun>((resolve) => {
-    execFile(
-      'git',
-      [...args],
-      { cwd, env: environment, maxBuffer: GIT_MAX_BUFFER_BYTES, signal, timeout: timeoutMs },
-      (error, stdout, stderr) => {
-        if (error) {
-          resolve({ ...classifyExecFailure(error), stderr, stdout });
-          return;
-        }
-        resolve({ exitCode: 0, stderr, stdout, timedOut: false });
-      }
-    );
-  });
-};
+export const execFileSnapshotGitRunner: SnapshotGitCommandRunner = execFileGitRunner;
 
 const OID_PATTERN = /^[0-9a-f]{40,64}$/;
 

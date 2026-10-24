@@ -12,7 +12,7 @@ import {
   assertNotAgentIgnored,
   createAgentIgnoreGuard,
 } from '@brainstrike/host-capabilities/native-tools';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const createdRoots: string[] = [];
 
@@ -126,12 +126,23 @@ describe('createAgentIgnoreGuard — failure modes', () => {
     // silently permits the read is the failure mode the boundary exists to
     // prevent, arriving through the door marked "robustness".
     const root = await makeWorkspace({ '.llmignore': 'secrets/\n', 'secrets/a.ts': '' });
-    await fsPromises.chmod(path.join(root, '.llmignore'), 0o000);
+    // A mode bit cannot deny a read on Windows, so the read itself is refused
+    // with the EACCES a POSIX `chmod 000` produces.
+    const ignoreFile = path.join(root, '.llmignore');
+    const readFile = fsPromises.readFile.bind(fsPromises);
+    const denied = vi.spyOn(fsPromises, 'readFile').mockImplementation(async (...args) => {
+      if (args[0] === ignoreFile) {
+        throw Object.assign(new Error(`EACCES: permission denied, open '${ignoreFile}'`), {
+          code: 'EACCES',
+        });
+      }
+      return readFile(...args);
+    });
     try {
       const guard = createAgentIgnoreGuard(root);
       await expect(guard.ignoresFile('secrets/a.ts')).rejects.toThrow(/agent ignore file/i);
     } finally {
-      await fsPromises.chmod(path.join(root, '.llmignore'), 0o644);
+      denied.mockRestore();
     }
   });
 });

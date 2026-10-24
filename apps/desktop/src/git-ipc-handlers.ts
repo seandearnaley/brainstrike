@@ -12,7 +12,7 @@
  *    `git status` reports) is enforced inside the service: status is scoped to
  *    the opened root and path args that are absolute or escape via `..` are
  *    rejected before reaching git.
- * 3. Run `git` through {@link createGitService} with an `execFile`-backed runner
+ * 3. Run `git` through {@link createGitService} with a `spawn`-backed runner
  *    — args array, NO shell, so a branch name / commit message / path can never
  *    inject a command. No `exec`/`execSync` anywhere.
  *
@@ -20,7 +20,8 @@
  * git failures are logged and surfaced, never thrown across IPC and never
  * silently swallowed.
  */
-import { type ExecFileException, execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { Readable } from 'node:stream';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { StructuredFileDiffParams } from '@brainstrike/types';
@@ -120,118 +121,112 @@ export function createGitCommandEnvironment(
 }
 
 /**
- * Adapt Node's `execFile` to the {@link GitCommandRunner} contract.
- *
- * - `git` is invoked with an ARGUMENT ARRAY (no shell): shell metacharacters in
- *   any arg are inert. There is deliberately no `shell: true`.
- * - `execFile` REJECTS on a non-zero exit; we catch and resolve a structured
- *   {@link GitCommandRun} (never reject) so the service maps it to a result.
- * - The capture buffer is {@link GIT_MAX_BUFFER_BYTES} (strictly larger than the
- *   service's soft `GIT_MAX_OUTPUT_BYTES`), so an oversized-but-valid diff is
- *   captured and gracefully truncated rather than killed and mislabeled.
- * - `error.killed === true` conflates three distinct causes; we DISCRIMINATE
- *   them into {@link GitCommandRun.failureReason}:
- *   - `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` → 'maxBuffer' (partial stdout is a
- *     valid diff prefix; the service returns a truncated SUCCESS), and
- *   - an abort/timeout kill → 'timeout' (accurate message), while
- *   - a missing `git` binary (`ENOENT`) → 'notFound' (clear install hint).
+ * Capture one stream of a git child, keeping at most {@link GIT_MAX_BUFFER_BYTES}.
+ * Past the ceiling it keeps the prefix and closes this end of the pipe: git's
+ * next write then fails and git ends itself, exactly as in `git diff | head`.
  */
-/**
- * Discriminate an `execFile` error's cause into `failureReason`, independent of
- * whether the run captured text or raw bytes. `code` is the numeric exit code on
- * a normal non-zero exit, or a string errno: 'ENOENT' (missing binary) or
- * 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' (output overflow). A kill that is NOT a
- * maxBuffer overflow is a timeout/abort. Shared by both the text and
- * {@link binaryStdout} paths so the mapping stays identical for each.
- */
-function classifyExecError(
-  error: ExecFileException
-): Pick<GitCommandRun, 'exitCode' | 'failureReason' | 'timedOut'> {
-  const code = error.code;
-  const exitCode = typeof code === 'number' ? code : null;
-  let failureReason: GitCommandRun['failureReason'];
-  if (code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
-    failureReason = 'maxBuffer';
-  } else if (code === 'ENOENT') {
-    failureReason = 'notFound';
-  } else if (error.killed === true) {
-    failureReason = 'timeout';
-  }
+function captureBounded(stream: Readable): { bytes(): Buffer; readonly truncated: boolean } {
+  const chunks: Buffer[] = [];
+  let length = 0;
+  let truncated = false;
+  stream.on('data', (chunk: Buffer) => {
+    const room = GIT_MAX_BUFFER_BYTES - length;
+    if (chunk.length <= room) {
+      chunks.push(chunk);
+      length += chunk.length;
+      return;
+    }
+    chunks.push(chunk.subarray(0, room));
+    length += room;
+    truncated = true;
+    stream.destroy();
+  });
   return {
-    exitCode,
-    timedOut: failureReason === 'timeout',
-    ...(failureReason ? { failureReason } : {}),
+    bytes: () => Buffer.concat(chunks, length),
+    get truncated() {
+      return truncated;
+    },
   };
 }
 
-export const execFileGitRunner: GitCommandRunner = ({
+function classifyGitRun(
+  truncated: boolean,
+  spawnError: NodeJS.ErrnoException | undefined,
+  killed: boolean
+): GitCommandRun['failureReason'] {
+  if (truncated) {
+    return 'maxBuffer';
+  }
+  if (spawnError?.code === 'ENOENT') {
+    return 'notFound';
+  }
+  return killed ? 'timeout' : undefined;
+}
+
+/**
+ * Run `git` for the {@link GitCommandRunner} contract.
+ *
+ * - `git` gets an ARGUMENT ARRAY and no shell, so shell metacharacters in any
+ *   arg are inert.
+ * - The run resolves (never rejects) at the child's `close`, after git has
+ *   exited, with the captured streams and a discriminated `failureReason`:
+ *   - 'maxBuffer': output passed {@link GIT_MAX_BUFFER_BYTES}. The kept prefix
+ *     is a valid diff prefix, so the service returns a truncated SUCCESS.
+ *     Overflow never kills git: Git for Windows' `cmd\git.exe` is a launcher,
+ *     and a kill stops only the launcher while the real git keeps running in
+ *     the repository. Closing the pipe ends both.
+ *   - 'timeout': the timeout or the caller's AbortSignal killed the run.
+ *   - 'notFound': `git` could not be spawned (ENOENT).
+ * - `exitCode` is null whenever the run did not complete on its own terms.
+ */
+function runGitProcess({
   args,
   binaryStdout,
   cwd,
-  env: envOverride,
+  env,
   signal,
   timeoutMs,
-}) => {
-  const env = createGitCommandEnvironment(process.env, envOverride);
-
-  if (binaryStdout) {
-    return new Promise<GitCommandRun>((resolve) => {
-      execFile(
-        'git',
-        [...args],
-        {
-          cwd,
-          encoding: 'buffer',
-          env,
-          maxBuffer: GIT_MAX_BUFFER_BYTES,
-          signal,
-          timeout: timeoutMs,
-        },
-        (error, stdout, stderr) => {
-          // `encoding: 'buffer'` applies to BOTH streams; stderr stays text (it
-          // only ever carries diagnostic messages), stdout carries the exact
-          // captured bytes — never a lossy utf8 decode.
-          const stderrText = stderr.toString('utf8');
-          if (error) {
-            // Preserve the captured (possibly partial, e.g. on maxBuffer
-            // overflow) bytes rather than silently dropping them.
-            resolve({
-              ...classifyExecError(error),
-              stderr: stderrText,
-              stdout: '',
-              stdoutBuffer: stdout,
-            });
-            return;
-          }
-          resolve({
-            exitCode: 0,
-            stderr: stderrText,
-            stdout: '',
-            stdoutBuffer: stdout,
-            timedOut: false,
-          });
-        }
+}: {
+  readonly args: readonly string[];
+  readonly binaryStdout?: boolean | undefined;
+  readonly cwd: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal | undefined;
+  readonly timeoutMs: number;
+}): Promise<GitCommandRun> {
+  return new Promise<GitCommandRun>((resolve) => {
+    const child = spawn('git', [...args], { cwd, env, signal, timeout: timeoutMs });
+    const stdout = captureBounded(child.stdout);
+    const stderr = captureBounded(child.stderr);
+    let spawnError: NodeJS.ErrnoException | undefined;
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      spawnError ??= error;
+    });
+    child.on('close', (code) => {
+      const failureReason = classifyGitRun(
+        stdout.truncated || stderr.truncated,
+        spawnError,
+        child.killed
+      );
+      const captured = stdout.bytes();
+      const run = {
+        exitCode: failureReason || spawnError ? null : code,
+        stderr: stderr.bytes().toString('utf8'),
+        timedOut: failureReason === 'timeout',
+        ...(failureReason ? { failureReason } : {}),
+      };
+      resolve(
+        binaryStdout
+          ? { ...run, stdout: '', stdoutBuffer: captured }
+          : { ...run, stdout: captured.toString('utf8') }
       );
     });
-  }
-
-  return new Promise<GitCommandRun>((resolve) => {
-    execFile(
-      'git',
-      [...args],
-      { cwd, env, maxBuffer: GIT_MAX_BUFFER_BYTES, signal, timeout: timeoutMs },
-      (error, stdout, stderr) => {
-        // Default `execFile` encoding is utf8, so the streams are strings. On a
-        // maxBuffer overflow these still hold the captured (truncated) prefix.
-        if (error) {
-          resolve({ ...classifyExecError(error), stderr, stdout });
-          return;
-        }
-        resolve({ exitCode: 0, stderr, stdout, timedOut: false });
-      }
-    );
   });
-};
+}
+
+/** The production runner: the pinned git environment plus the caller's overrides. */
+export const execFileGitRunner: GitCommandRunner = ({ env, ...params }) =>
+  runGitProcess({ ...params, env: createGitCommandEnvironment(process.env, env) });
 
 /** Reads the current host's durable root identity while Main retains path authorization. */
 export function createWorkspaceRootResolver(catalog: WorkspaceRootPort): WorkspaceRootResolver {
@@ -240,7 +235,7 @@ export function createWorkspaceRootResolver(catalog: WorkspaceRootPort): Workspa
 
 export interface GitIpcHandlersOptions {
   readonly resolver: WorkspaceRootResolver;
-  /** Injectable for tests; defaults to the real `execFile`-backed runner. */
+  /** Injectable for tests; defaults to the real {@link execFileGitRunner}. */
   readonly run?: GitCommandRunner;
 }
 
