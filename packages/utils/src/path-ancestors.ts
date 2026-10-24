@@ -32,10 +32,37 @@ export function lastPathSeparatorIndex(path: string, fromIndex = path.length - 1
   return isWindowsPath(path) ? Math.max(slash, path.lastIndexOf('\\', fromIndex)) : slash;
 }
 
+/** Whether `code` separates segments in a path of the given grammar. */
+export function isSeparatorCode(code: number, windows: boolean): boolean {
+  return code === SLASH || (windows && code === BACKSLASH);
+}
+
 /** Whether the code unit at `index` separates two segments of `path`. */
 export function isPathSeparatorAt(path: string, index: number): boolean {
   const code = path.charCodeAt(index);
   return code === SLASH || (code === BACKSLASH && isWindowsPath(path));
+}
+
+/**
+ * Whether `targetPath` is nested under `ancestorPath` on a segment boundary, by
+ * the path's grammar: `/src/com` is not an ancestor of `/src/components`. The
+ * cheap guards run ahead of `startsWith()` for the tree traversal hot path.
+ */
+export function isDescendantPath(targetPath: string, ancestorPath: string): boolean {
+  return (
+    targetPath.length > ancestorPath.length &&
+    isPathSeparatorAt(targetPath, ancestorPath.length) &&
+    targetPath.startsWith(ancestorPath)
+  );
+}
+
+/** The last segment of `path` by its grammar, ignoring trailing separators. */
+export function pathBasename(path: string): string {
+  let end = path.length;
+  while (end > 0 && isPathSeparatorAt(path, end - 1)) {
+    end -= 1;
+  }
+  return end === 0 ? '' : path.slice(lastPathSeparatorIndex(path, end - 1) + 1, end);
 }
 
 /** Length of the root a path cannot be walked above: `/`, `C:\` or a UNC path's `\\`. */

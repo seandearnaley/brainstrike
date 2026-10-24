@@ -79,4 +79,23 @@ describe('buildNodeFromPath', () => {
     expect(node.name).toBe('');
     expect(node.depth).toBe(0);
   });
+
+  it.each([
+    { expected: { depth: 1, name: 'b' }, path: 'C:\\root\\a\\b', root: 'C:\\root' },
+    { expected: { depth: 0, name: '' }, path: 'C:\\root', root: 'C:\\root' },
+    { expected: { depth: 1, name: 'b' }, path: 'C:\\root\\a\\b', root: 'C:\\root\\' },
+    { expected: { depth: 1, name: 'b' }, path: 'C:\\root\\a\\b\\', root: 'C:\\root' },
+    { expected: { depth: 2, name: 'b' }, path: 'C:\\rootExtra\\a\\b', root: 'C:\\root' },
+    { expected: { depth: 0, name: 'a' }, path: 'C:\\a', root: 'C:\\' },
+    { expected: { depth: 0, name: '' }, path: 'C:\\', root: 'C:\\' },
+  ])('names and places $path under $root by Windows separators', ({ expected, path, root }) => {
+    expect(buildNodeFromPath(path, root, 'root-folder', directoryHandle)).toMatchObject(expected);
+  });
+
+  it('keeps a backslash inside a POSIX name', () => {
+    expect(buildNodeFromPath('/root/a\\b', '/root', 'root-folder', directoryHandle)).toMatchObject({
+      depth: 0,
+      name: 'a\\b',
+    });
+  });
 });

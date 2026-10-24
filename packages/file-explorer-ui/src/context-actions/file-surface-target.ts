@@ -1,16 +1,12 @@
 import type { TargetOf } from '@brainstrike/context-actions';
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { getFileName } from '../shell/workspace-tab-utils';
 import { resolveFileTargetIdentity } from './file-target-identity';
 
 export interface FileSurfaceTab {
   readonly compositeKey: string;
   readonly id: string;
   readonly path: string;
-}
-
-function getFileName(path: string): string {
-  const segments = path.split(/[\\/]/);
-  return segments.at(-1) ?? path;
 }
 
 export function fileTabToTarget(
