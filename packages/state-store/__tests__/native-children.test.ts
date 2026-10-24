@@ -1,11 +1,12 @@
-// ADR-0017: on POSIX the Root is also an flock that every native process the host starts inherits. A record whose
-// owner is gone (or released) is still refused while such a process lives, and the Root is reusable once it exits.
+// ADR-0017: every native process a host starts belongs to exactly one held Root lease, and its supervisor hears about
+// it. That no new owner takes a dead host's Root while a native process it started still runs is host-lease's
+// native-tail integration test, on every OS.
 import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, test } from 'vitest';
-import { processStartTime, RootLock, RootLockedError } from '../src/lock.js';
+import { afterEach, expect, test } from 'vitest';
+import { processStartTime, RootLock } from '../src/lock.js';
 import {
   type NativeChild,
   observeNativeChildren,
@@ -43,35 +44,6 @@ const sleeper = (): ChildProcess => {
   children.push(child);
   return child;
 };
-
-describe.skipIf(process.platform === 'win32')('Root flock', () => {
-  test('a native child keeps a released Root refused, naming the owner that started it, until it exits', async () => {
-    const root = newRoot();
-    const owner = await RootLock.acquire(root, { shareWithNativeChildren: true });
-    expect(RootLock.isFlockHeld(root)).toBe(true);
-    const child = sleeper();
-    owner.release();
-    expect(RootLock.isFlockHeld(root)).toBe(true);
-    const refusal = await RootLock.acquire(root).then(
-      () => null,
-      (error: unknown) => error
-    );
-    expect(refusal).toBeInstanceOf(RootLockedError);
-    expect(refusal).toMatchObject({
-      holder: 'native-tail',
-      owner: { released: true, token: owner.owner.token },
-    });
-    expect(RootLock.inspect(root)).toMatchObject({
-      gen: owner.gen,
-      owner: { token: owner.owner.token },
-    });
-
-    child.kill('SIGKILL');
-    await once(child, 'exit');
-    expect(RootLock.isFlockHeld(root)).toBe(false);
-    held.push(await RootLock.acquire(root));
-  });
-});
 
 test('a host spawn after its Root was released, or between two held Roots, is refused', async () => {
   const first = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
