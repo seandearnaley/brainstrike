@@ -36,6 +36,9 @@ import {
   rootsCatalogRequest,
 } from './file-system-ipc-test-harness';
 
+const WORKSPACE = path.resolve('/users/test/workspace');
+const MANAGED = path.resolve('/managed/app/bright-fox');
+
 describe('file system IPC domain', () => {
   const visibleSenderId = 11_591;
   let fileSystem: ElectronFileSystemAdapter;
@@ -49,7 +52,7 @@ describe('file system IPC domain', () => {
     getRootsCatalog.mockClear();
     vi.stubEnv('NODE_ENV', 'production');
     delete (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY];
-    fileSystem = createFileSystem('/users/test/workspace');
+    fileSystem = createFileSystem(WORKSPACE);
     storage = createStorage();
   });
 
@@ -167,7 +170,7 @@ describe('file system IPC domain', () => {
 
     expect(handle).toMatchObject({
       kind: 'directory',
-      path: path.resolve('/users/test/workspace'),
+      path: WORKSPACE,
       platform: 'electron',
     });
     expect(handle.rootId).toMatch(/^[0-9a-f-]{36}$/);
@@ -188,12 +191,9 @@ describe('file system IPC domain', () => {
       storage,
     });
 
-    await capabilityHandler('fs:addRootByPath')?.(
-      createTrustedInvokeEvent(),
-      '/managed/app/bright-fox'
-    );
+    await capabilityHandler('fs:addRootByPath')?.(createTrustedInvokeEvent(), MANAGED);
 
-    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
+    expect(managedWorktreeAuthorizer).toHaveBeenCalledWith(MANAGED);
   });
 
   it('honors only the explicit synthetic-filesystem registration seam', async () => {
@@ -246,14 +246,16 @@ describe('file system IPC domain', () => {
     const resolveNativeReadPath = vi.fn(async (_requestedPath: string, canonicalRoot: string) =>
       path.join(canonicalRoot, 'readme.md')
     );
+    const mockParent = path.resolve('/mock');
+    const canonicalRoot = path.join(mockParent, 'canonical-native-root');
     registerFileSystemIpcHandlers({
       fileSystem,
       getRootsCatalog,
-      isSyntheticFileSystemPath: (rootPath) => rootPath.startsWith('/mock/'),
+      isSyntheticFileSystemPath: (rootPath) => rootPath.startsWith(`${mockParent}${path.sep}`),
       storage,
       workspaceRootRegistryFileSystemSeams: {
         createSecureRoot: async () => ({
-          canonicalPath: '/mock/canonical-native-root',
+          canonicalPath: canonicalRoot,
           close: () => undefined,
           listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
           readFile: nativeReadFile,
@@ -269,14 +271,14 @@ describe('file system IPC domain', () => {
       capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), {
         kind: 'file',
         name: 'readme.md',
-        path: '/users/test/workspace/readme.md',
+        path: path.join(WORKSPACE, 'readme.md'),
         platform: 'electron',
         rootId: descriptor.handle.rootId,
       } satisfies FileHandle)
     ).resolves.toBe('native content');
     expect(resolveNativeReadPath).toHaveBeenCalledWith(
-      '/users/test/workspace/readme.md',
-      '/mock/canonical-native-root'
+      path.join(WORKSPACE, 'readme.md'),
+      canonicalRoot
     );
     expect(nativeReadFile).toHaveBeenCalledWith('readme.md', expect.any(Number));
     expect(fileSystem.readFile).not.toHaveBeenCalled();
@@ -341,16 +343,17 @@ describe('file system IPC domain', () => {
   });
 
   it('closes a native capability when canonical classification conflicts', async () => {
-    fileSystem = createFileSystem('/mock/test/directory');
+    const mockRoot = path.resolve('/mock/test/directory');
+    fileSystem = createFileSystem(mockRoot);
     const closeNativeRoot = vi.fn();
     registerFileSystemIpcHandlers({
       fileSystem,
       getRootsCatalog,
-      isSyntheticFileSystemPath: (rootPath) => rootPath === '/mock/test/directory',
+      isSyntheticFileSystemPath: (rootPath) => rootPath === mockRoot,
       storage,
       workspaceRootRegistryFileSystemSeams: {
         createSecureRoot: async () => ({
-          canonicalPath: '/mock/test/directory',
+          canonicalPath: mockRoot,
           close: closeNativeRoot,
           listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
           readFile: async () => ({ content: Buffer.alloc(0), status: 'ok' }),
@@ -371,7 +374,7 @@ describe('file system IPC domain', () => {
     vi.mocked(fileSystem.requestDirectoryAccess).mockResolvedValueOnce({
       kind: 'directory',
       name: 'workspace',
-      path: '/users/test/workspace',
+      path: WORKSPACE,
       platform: 'electron',
     });
 
@@ -383,16 +386,18 @@ describe('file system IPC domain', () => {
 
   it('keeps fixture I/O isolated from the real adapter while still stamping authority', async () => {
     vi.stubEnv('NODE_ENV', 'test');
+    const fixturePath = path.resolve('/fixture');
+    const fixtureFile = path.join(fixturePath, 'readme.md');
     const fixtureRoot = {
       id: 'fixture-root',
       kind: 'directory',
       name: 'fixture',
-      path: '/fixture',
+      path: fixturePath,
       type: 'directory',
     } as DirectoryHandle & { id: string; type: 'directory' };
     const fixture = {
-      directoriesByPath: { '/fixture': [] },
-      fileContentsByPath: { '/fixture/readme.md': 'fixture content' },
+      directoriesByPath: { [fixturePath]: [] },
+      fileContentsByPath: { [fixtureFile]: 'fixture content' },
       readDirectoryCalls: [] as string[],
       readFileByPathCalls: [] as string[],
       readFileCalls: [] as string[],
@@ -406,7 +411,7 @@ describe('file system IPC domain', () => {
     const selected = (await capabilityHandler('fs:requestDirectoryAccess')?.(
       createTrustedInvokeEvent()
     )) as DirectoryHandle;
-    expect(selected).toMatchObject({ path: '/fixture', rootId: expect.any(String) });
+    expect(selected).toMatchObject({ path: fixturePath, rootId: expect.any(String) });
     await expect(
       capabilityHandler('fs:readDirectory')?.(createTrustedInvokeEvent(), selected)
     ).resolves.toEqual([]);
@@ -414,7 +419,7 @@ describe('file system IPC domain', () => {
       capabilityHandler('fs:readFile')?.(createTrustedInvokeEvent(), {
         kind: 'file',
         name: 'readme.md',
-        path: '/fixture/readme.md',
+        path: fixtureFile,
         platform: 'electron',
         rootId: selected.rootId,
       } satisfies FileHandle)
@@ -456,8 +461,8 @@ describe('file system IPC domain', () => {
 
   it('enforces the exact claimed mounted root for scoped absolute reads', async () => {
     register();
-    const rootAPath = '/users/test/workspace-a';
-    const rootBPath = '/users/test/workspace-b';
+    const rootAPath = path.resolve('/users/test/workspace-a');
+    const rootBPath = path.resolve('/users/test/workspace-b');
     vi.mocked(fileSystem.requestDirectoryAccess)
       .mockResolvedValueOnce({
         kind: 'directory',
@@ -590,18 +595,16 @@ describe('file system IPC domain', () => {
   it('retains unavailable persisted roots for retry and excludes them from DB authorization', async () => {
     const available = {
       addedAt: 1,
-      path: '/users/test/workspace',
+      path: WORKSPACE,
       rootId: 'root-available',
     };
     const unavailable = {
       addedAt: 2,
-      path: '/users/test/offline',
+      path: path.resolve('/users/test/offline'),
       rootId: 'root-offline',
     };
     storage = createStorage({ rootsList: JSON.stringify([available, unavailable]) });
-    vi.mocked(fileSystem.exists).mockImplementation(async (candidate) =>
-      candidate.endsWith('/workspace')
-    );
+    vi.mocked(fileSystem.exists).mockImplementation(async (candidate) => candidate === WORKSPACE);
     register();
 
     const restored = (await capabilityHandler('fs:restoreRoots')?.(
@@ -617,7 +620,7 @@ describe('file system IPC domain', () => {
     ]);
     expect(await storage.getItem('rootsList')).toBe(JSON.stringify([available, unavailable]));
     expect(rootsCatalogRequest).toHaveBeenCalledWith({
-      mountedPaths: ['/users/test/workspace'],
+      mountedPaths: [WORKSPACE],
       operation: 'disconnect-except',
     });
   });

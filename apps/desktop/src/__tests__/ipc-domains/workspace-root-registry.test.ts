@@ -345,9 +345,9 @@ describe('WorkspaceRootRegistry', () => {
     const onRootGranted = vi.fn();
     const registry = createTestRegistry({ onRootGranted, storage });
 
-    await registry.addRoot(rootHandle('/workspace'));
+    await registry.addRoot(rootHandle(path.resolve('/workspace')));
 
-    expect(onRootGranted).toHaveBeenCalledExactlyOnceWith('/workspace');
+    expect(onRootGranted).toHaveBeenCalledExactlyOnceWith(path.resolve('/workspace'));
   });
 
   it('removeRoot quarantines a corrupt rootsList without half-deleting state', async () => {
@@ -431,11 +431,14 @@ describe('WorkspaceRootRegistry', () => {
   });
 
   it('deduplicates aliases by canonical identity and reuses the durable root id', async () => {
-    const existing = { addedAt: 1, path: '/alias/workspace', rootId: 'root-a' };
+    const alias = path.resolve('/alias/workspace');
+    const anotherAlias = path.resolve('/another-alias/workspace');
+    const canonical = path.resolve('/canonical/workspace');
+    const existing = { addedAt: 1, path: alias, rootId: 'root-a' };
     storage = createStorage({ rootsList: JSON.stringify([existing]) });
     const canonicalByPath = new Map([
-      ['/alias/workspace', '/canonical/workspace'],
-      ['/another-alias/workspace', '/canonical/workspace'],
+      [alias, canonical],
+      [anotherAlias, canonical],
     ]);
     const registry = createTestRegistry({
       // Mount-then-ask: the probe's own canonicalPath is the identity
@@ -448,10 +451,10 @@ describe('WorkspaceRootRegistry', () => {
       storage,
     });
 
-    const descriptor = await registry.addRoot(rootHandle('/another-alias/workspace'));
+    const descriptor = await registry.addRoot(rootHandle(anotherAlias));
 
     expect(descriptor).toMatchObject({
-      handle: { path: '/alias/workspace', rootId: 'root-a' },
+      handle: { path: alias, rootId: 'root-a' },
       persisted: true,
       rootId: 'root-a',
     });
@@ -513,9 +516,10 @@ describe('WorkspaceRootRegistry', () => {
     // addRoot('/first') never merges into this same list (which would
     // otherwise make restoreRoots remount '/first' too and muddy the
     // asserted order with an incidental, still-correct second probe).
+    const [firstPath, secondPath] = [path.resolve('/first'), path.resolve('/second')];
     const backing = new Map(
       Object.entries({
-        rootsList: JSON.stringify([{ addedAt: 1, path: '/second', rootId: 'root-second' }]),
+        rootsList: JSON.stringify([{ addedAt: 1, path: secondPath, rootId: 'root-second' }]),
       })
     );
     storage = {
@@ -535,7 +539,7 @@ describe('WorkspaceRootRegistry', () => {
       // resolveCanonicalRoot — that is what the queue serializes behind.
       createSecureRoot: async (rootPath) => {
         order.push(`probe:${rootPath}`);
-        if (rootPath === '/first') {
+        if (rootPath === firstPath) {
           await probeBlocked;
         }
         return secureRoot(rootPath);
@@ -543,7 +547,7 @@ describe('WorkspaceRootRegistry', () => {
       storage,
     });
 
-    const first = registry.addRoot(rootHandle('/first'));
+    const first = registry.addRoot(rootHandle(firstPath));
     const restore = registry.restoreRoots().then(() => {
       order.push('restore-complete');
     });
@@ -552,10 +556,10 @@ describe('WorkspaceRootRegistry', () => {
     // chain inside addRoot — has run. restoreRoots is still queued behind
     // addRoot's still-blocked probe, so its own probe cannot have fired yet.
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(order).toEqual(['probe:/first']);
+    expect(order).toEqual([`probe:${firstPath}`]);
     releaseProbe();
     await Promise.all([first, restore]);
-    expect(order).toEqual(['probe:/first', 'probe:/second', 'restore-complete']);
+    expect(order).toEqual([`probe:${firstPath}`, `probe:${secondPath}`, 'restore-complete']);
   });
 
   it('re-adding a folder whose persist failed reuses the session capability', async () => {
@@ -724,16 +728,17 @@ describe('WorkspaceRootRegistry', () => {
   });
 
   it('mounts a new root under its presentation path while canonical-path reads route to it', async () => {
+    const [canonical, alias] = [path.resolve('/real/workspace'), path.resolve('/alias/workspace')];
     const registry = createTestRegistry({
-      createSecureRoot: async () => secureRoot('/real/workspace'),
+      createSecureRoot: async () => secureRoot(canonical),
       // Bypass real filesystem validation for the fake canonical path.
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
       storage,
     });
 
-    const descriptor = await registry.addRoot(rootHandle('/alias/workspace'));
+    const descriptor = await registry.addRoot(rootHandle(alias));
     // The stored/returned identity is the presentation path the caller used...
-    expect(descriptor.handle.path).toBe('/alias/workspace');
+    expect(descriptor.handle.path).toBe(alias);
     expect(descriptor.persisted).toBe(true);
 
     // ...but the mounted record also carries the capability's own canonical
@@ -744,7 +749,7 @@ describe('WorkspaceRootRegistry', () => {
       registry.readDirectory({
         kind: 'directory',
         name: 'workspace',
-        path: '/real/workspace',
+        path: canonical,
         platform: 'electron',
       })
     ).resolves.toEqual([]);
@@ -957,20 +962,21 @@ describe('WorkspaceRootRegistry', () => {
   it('an inherited rootId anchors a nested read to the traversal (outer) root, not the innermost path-matched mount (pinned intent)', async () => {
     const outerListDir = vi.fn(async () => ({ entries: [], inspected: 0, truncated: false }));
     const innerListDir = vi.fn(async () => ({ entries: [], inspected: 0, truncated: false }));
+    const outerPath = path.resolve('/canon/outer');
     const registry = createTestRegistry({
       createSecureRoot: async (rootPath) => ({
         ...secureRoot(rootPath),
-        listDir: rootPath === '/canon/outer' ? outerListDir : innerListDir,
+        listDir: rootPath === outerPath ? outerListDir : innerListDir,
       }),
       resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
       storage,
     });
 
-    const outer = await registry.addRoot(rootHandle('/canon/outer'));
+    const outer = await registry.addRoot(rootHandle(outerPath));
     // A second root nested inside the first: findForAbsolutePath
     // would normally pick this one for a path under it (longest containing
     // path wins), but a caller-supplied rootId short-circuits that lookup.
-    await registry.addRoot(rootHandle('/canon/outer/nested'));
+    await registry.addRoot(rootHandle(path.join(outerPath, 'nested')));
 
     // Reads made during a traversal anchored at the outer root are
     // authorized and attributed under the outer root's capability — that is
@@ -983,7 +989,7 @@ describe('WorkspaceRootRegistry', () => {
     await registry.readDirectory({
       kind: 'directory',
       name: 'child',
-      path: '/canon/outer/nested/child',
+      path: path.join(outerPath, 'nested', 'child'),
       platform: 'electron',
       rootId: outer.rootId,
     });

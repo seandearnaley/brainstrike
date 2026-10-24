@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createRegistry } from './workspace-root-registry-test-helpers';
 
@@ -5,6 +6,8 @@ import { createRegistry } from './workspace-root-registry-test-helpers';
 // managed-worktree authorizer wiring is a distinct concern from the general
 // registry behavior, so it lives in its own file (the sibling suite also sits
 // near the Biome line cap).
+
+const MANAGED = path.resolve('/managed/app/bright-fox');
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const { loggerMock: sharedLoggerMock } = await import(
@@ -21,8 +24,8 @@ describe('WorkspaceRootRegistry managed-worktree authorizer (BST-1390, spec §6.
     const registry = createRegistry();
     const authorizer = vi.fn(() => Promise.resolve('authorized' as const));
     registry.setManagedWorktreeAuthorizer(authorizer);
-    await registry.addRootByPath('/managed/app/bright-fox');
-    expect(authorizer).toHaveBeenCalledWith('/managed/app/bright-fox');
+    await registry.addRootByPath(MANAGED);
+    expect(authorizer).toHaveBeenCalledWith(MANAGED);
   });
 
   it('does NOT notify onRootGranted for a managed-worktree mount (BST-1393 review finding)', async () => {
@@ -32,7 +35,7 @@ describe('WorkspaceRootRegistry managed-worktree authorizer (BST-1390, spec §6.
     const onRootGranted = vi.fn();
     const registry = createRegistry({ onRootGranted });
     registry.setManagedWorktreeAuthorizer(() => Promise.resolve('authorized'));
-    await registry.addRootByPath('/managed/app/bright-fox');
+    await registry.addRootByPath(MANAGED);
     expect(onRootGranted).not.toHaveBeenCalled();
   });
 });
