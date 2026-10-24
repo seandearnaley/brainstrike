@@ -314,7 +314,7 @@ export function desktopHostToolExecutors(
         hostShellCorrelation(request, threadId, runtimeData?.memory?.runId, ports.shellWorktrees),
       // Desktop's own bundled wrapper, emitted beside this host bundle.
       windowsCommandEntry: () =>
-        resolveBundledSiblingPath('Windows command', 'windows-command-entry.js'),
+        resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),
     }),
   };
 }

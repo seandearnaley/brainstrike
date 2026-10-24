@@ -46,6 +46,11 @@ export interface HookManagerContext {
   readonly primaryCwd: string;
   /** = memory.threadId ?? runId ?? 'no-session'. */
   readonly sessionId: string;
+  /**
+   * The composing app's Windows command wrapper. On Windows each hook runs
+   * through it, as the app's own commands do.
+   */
+  readonly windowsCommandEntry: () => string;
 }
 
 function matchesTool(hook: LoadedHook, toolName: string): boolean {
@@ -139,7 +144,7 @@ export class HookManager {
         tool_input: toolInput,
         tool_name: toolName,
       }),
-      { blocking: true, logger: this.ctx.logger }
+      { blocking: true, logger: this.ctx.logger, windowsCommandEntry: this.ctx.windowsCommandEntry }
     );
     this.surfaceOutcome('PreToolUse', result);
     return result;
@@ -163,7 +168,11 @@ export class HookManager {
         tool_name: input.toolName,
         tool_output: input.toolOutput,
       }),
-      { blocking: false, logger: this.ctx.logger }
+      {
+        blocking: false,
+        logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
+      }
     );
     this.surfaceOutcome('PostToolUse', result);
     return result;
@@ -182,6 +191,7 @@ export class HookManager {
         aggregateTimeoutMs: this.ctx.aggregateTimeoutMs,
         blocking: true,
         logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
       }
     );
     this.surfaceOutcome('UserPromptSubmit', result);
@@ -210,6 +220,7 @@ export class HookManager {
         // hook.notice run events via surfaceOutcome below.
         captureRunVerdict: true,
         logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
       }
     );
     this.surfaceOutcome('Stop', result);
@@ -225,7 +236,11 @@ export class HookManager {
         hook_event_name: event,
         session_id: this.ctx.sessionId,
       }),
-      { blocking: isBlockingEvent(event), logger: this.ctx.logger }
+      {
+        blocking: isBlockingEvent(event),
+        logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
+      }
     );
   }
 
@@ -248,7 +263,11 @@ export class HookManager {
         session_id: this.ctx.sessionId,
         ...(message === undefined ? {} : { message }),
       }),
-      { blocking: false, logger: this.ctx.logger }
+      {
+        blocking: false,
+        logger: this.ctx.logger,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
+      }
     );
   }
 }

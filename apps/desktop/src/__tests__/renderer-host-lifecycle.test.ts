@@ -464,7 +464,7 @@ describe('RendererHostLifecycle', () => {
         expect.objectContaining({
           webPreferences: expect.objectContaining({
             additionalArguments: [`--brainstrike-hidden-renderer-role=${role}`],
-            preload: path.resolve('/tmp/brainstrike/dist/hidden-preload.js'),
+            preload: path.resolve('/tmp/brainstrike/dist/hidden-preload.cjs'),
           }),
         })
       );

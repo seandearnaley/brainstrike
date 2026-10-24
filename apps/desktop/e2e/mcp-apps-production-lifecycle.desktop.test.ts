@@ -18,7 +18,7 @@ import { installOrdinaryRuntimeAdmission } from './helpers/mcp-apps-ordinary-adm
 const appHostModulePath = path.resolve(process.cwd(), '../../packages/mcp-app-host/dist/index.js');
 const appSurfaceModulePath = path.resolve(
   process.cwd(),
-  '../../packages/mcp-app-host-ui/dist/index.js'
+  '../../packages/mcp-app-host-ui/src/index.ts'
 );
 const requireFromTest = createRequire(import.meta.url);
 const mcpAppsModulePath = requireFromTest.resolve('@modelcontextprotocol/ext-apps');

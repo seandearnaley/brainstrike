@@ -109,6 +109,7 @@ interface ExecuteHookOptions {
   /** Scan raw stdout for a `brainstrikeRunVerdict` line (Stop phase only). */
   readonly captureRunVerdict?: boolean;
   readonly timeoutOverrideMs?: number;
+  readonly windowsCommandEntry: () => string;
 }
 
 // A failed physical Job wait must keep its owner reachable. Only the owner's
@@ -124,9 +125,8 @@ async function executeWindowsHook(
   startTime: number,
   timeout: number
 ): Promise<HookResult> {
-  const require = createRequire(import.meta.url);
-  const wrapperPath = require.resolve('@brainstrike/host-capabilities/windows-command-entry');
-  const native = require('@brainstrike/windows-job-native') as {
+  const wrapperPath = options.windowsCommandEntry();
+  const native = createRequire(import.meta.url)('@brainstrike/windows-job-native') as {
     createCommandJob(): WindowsCommandJob;
   };
   const userEnvironment = Object.fromEntries(
@@ -233,7 +233,7 @@ function executeHook(
   hook: LoadedHook,
   stdin: HookStdin,
   logger: HookLogger,
-  options: ExecuteHookOptions = {}
+  options: ExecuteHookOptions
 ): Promise<HookResult> {
   const timeout = options.timeoutOverrideMs ?? hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
   const startTime = Date.now();
@@ -386,6 +386,11 @@ export interface RunHooksOptions {
    */
   readonly captureRunVerdict?: boolean;
   readonly logger: HookLogger;
+  /**
+   * The composing app's Windows command wrapper. On Windows each hook runs
+   * through it, as the app's own commands do.
+   */
+  readonly windowsCommandEntry: () => string;
 }
 
 function blockReasonFor(hook: LoadedHook, result: HookResult): string {
@@ -502,6 +507,7 @@ export async function runHooksForEvent(
     }
     const result = await executeHook(hook, buildStdin(hook), opts.logger, {
       captureRunVerdict: opts.captureRunVerdict === true,
+      windowsCommandEntry: opts.windowsCommandEntry,
       ...(budget.timeoutOverrideMs === undefined
         ? {}
         : { timeoutOverrideMs: budget.timeoutOverrideMs }),

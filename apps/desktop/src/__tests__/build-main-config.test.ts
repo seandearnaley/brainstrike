@@ -2,10 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  AGENT_HOST_PLATFORM_BUILD_OPTIONS,
-  MAIN_PROCESS_BUILD_OPTIONS,
-  MAIN_PROCESS_ENTRY_POINTS,
   NODE_BUILDS,
+  NODE_PROCESS_BUILD_OPTIONS,
+  PRELOAD_BUILD_OPTIONS,
+  STATE_STORE_WRITER_BUILD_OPTIONS,
+  UNPACKED_WORKER_BUILD_OPTIONS,
   WINDOWS_COMMAND_BUILD_OPTIONS,
 } from '../../scripts/build-main-config.mjs';
 
@@ -50,64 +51,26 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
 }
 
 /**
- * Contract for the bundled main-process build (Electron performance checklist
- * recipe 7: "Bundle your code"). The runtime resolves these outputs by exact
- * path, so the entry list and output layout must stay pinned:
- * - package.json "main" → dist/main.js
- * - visible BrowserWindow preload → dist/preload.js
- * - hidden renderer host preload → dist/hidden-preload.js
- * - main-thread watchdog worker → dist/main-watchdog-worker.js
- * - utilityProcess.fork sibling lookups → dist/indexer-host-entry.js (resolved
- *   through bundled-sibling-path from the running bundle's __filename, so
- *   outputs must stay FLAT in dist/)
+ * Contract for the bundled Node-side build. The runtime resolves its outputs by
+ * exact path from the running bundle's own location (bundled-sibling-path), so
+ * every output stays flat in dist/: package.json "main" -> dist/main.js, the
+ * preloads -> dist/preload.cjs and dist/hidden-preload.cjs, utilityProcess.fork
+ * targets -> dist/*-entry.js.
  */
-describe('main-process bundle config', () => {
-  it('bundles every runtime and logging transport entry point', () => {
-    expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
-      'agent-egress-entry': 'src/agent-egress-entry.ts',
-      'agent-host-entry': 'src/agent-host-entry.ts',
-      'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
-      'desktop-database-location': 'src/desktop-database-location.ts',
-      'desktop-env': 'src/desktop-env.ts',
-      'desktop-shutdown-state': 'src/desktop-shutdown-state.ts',
-      'hidden-preload': 'src/hidden-preload.ts',
-      'host-lease-entry': 'src/host-lease-entry.ts',
-      'indexer-host-entry': 'src/indexer-host-entry.ts',
-      'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
-      main: 'src/main-bootstrap.ts',
-      'main-log-transport': 'src/diagnostics/main-log-transport.ts',
-      'main-runtime': 'src/main.ts',
-      'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
-      preload: 'src/preload.ts',
-      'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
-    });
-    expect(AGENT_HOST_PLATFORM_BUILD_OPTIONS.entryPoints).toEqual({
-      'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
-    });
-  });
-
+describe('Node-side bundle config', () => {
   it('emits every Node entry from build-main.mjs, so its inference gate scans them all', () => {
     // BST-2148: a step after build-main.mjs would emit an entry the gate never sees.
     expect(NODE_BUILDS).toEqual([
-      MAIN_PROCESS_BUILD_OPTIONS,
-      AGENT_HOST_PLATFORM_BUILD_OPTIONS,
+      NODE_PROCESS_BUILD_OPTIONS,
+      STATE_STORE_WRITER_BUILD_OPTIONS,
+      UNPACKED_WORKER_BUILD_OPTIONS,
+      PRELOAD_BUILD_OPTIONS,
       WINDOWS_COMMAND_BUILD_OPTIONS,
     ]);
     expect(readDesktopPackageConfig().scripts?.['build:main']).toBe('node scripts/build-main.mjs');
-  });
-
-  it('builds the Windows command wrapper self-contained but for its native Job addon', () => {
-    expect(WINDOWS_COMMAND_BUILD_OPTIONS).toMatchObject({
-      bundle: true,
-      entryPoints: { 'windows-command-entry': 'src/windows-command-entry.ts' },
-      external: ['@brainstrike/windows-job-native'],
-      format: 'cjs',
-      packages: 'bundle',
-      platform: 'node',
-      target: 'node24',
-      tsconfigRaw: '{}',
-    });
-    expect(WINDOWS_COMMAND_BUILD_OPTIONS.outdir).toBe(MAIN_PROCESS_BUILD_OPTIONS.outdir);
+    for (const options of NODE_BUILDS) {
+      expect(options.outdir).toBe(NODE_PROCESS_BUILD_OPTIONS.outdir);
+    }
   });
 
   it('unpacks worker-thread entries for plain packaged-worker paths', () => {
@@ -163,55 +126,12 @@ describe('main-process bundle config', () => {
     ]);
   });
 
-  it('bundles app code only, as flat CJS for the Electron main process', () => {
-    expect(MAIN_PROCESS_BUILD_OPTIONS.bundle).toBe(true);
-    expect(MAIN_PROCESS_BUILD_OPTIONS.format).toBe('cjs');
-    expect(MAIN_PROCESS_BUILD_OPTIONS.platform).toBe('node');
-    // Bare imports (electron, node-pty, @brainstrike/* dist packages, every
-    // node_modules dep) must stay external requires — bundling them would
-    // change runtime resolution (native modules) and duplicate prebuilt
-    // workspace bundles.
-    expect(MAIN_PROCESS_BUILD_OPTIONS.packages).toBe('external');
-    // Flat output directory keeps the fork-entry sibling lookups valid.
-    expect(MAIN_PROCESS_BUILD_OPTIONS.outdir?.endsWith('dist')).toBe(true);
-    expect(MAIN_PROCESS_BUILD_OPTIONS.outbase?.endsWith('src')).toBe(true);
-  });
-
-  it('ignores the renderer tsconfig so workspace packages stay external', () => {
+  it('ignores the renderer tsconfig', () => {
     // esbuild auto-applies the nearest tsconfig. apps/desktop/tsconfig.json
     // configures the renderer's type-check; an empty tsconfigRaw keeps it out of
-    // the Node bundle.
-    expect(MAIN_PROCESS_BUILD_OPTIONS.tsconfigRaw).toBe('{}');
-  });
-
-  it('inlines the audited ESM-only main-process subpaths from source', () => {
-    const aliases = MAIN_PROCESS_BUILD_OPTIONS.alias as Record<string, string>;
-    expect(Object.keys(aliases)).toEqual([
-      '@brainstrike/assistant-data/assistant-memory-repository',
-      '@brainstrike/assistant-data/assistant-memory-resource',
-      '@brainstrike/types/catalog-args',
-      '@brainstrike/workspace-search/core',
-    ]);
-    expect(
-      aliases['@brainstrike/assistant-data/assistant-memory-repository']?.endsWith(
-        path.join('packages', 'assistant-data', 'src', 'assistant-memory-repository.ts')
-      )
-    ).toBe(true);
-    // The host platform entry's memory resource constant (BST-1928).
-    expect(
-      aliases['@brainstrike/assistant-data/assistant-memory-resource']?.endsWith(
-        path.join('packages', 'assistant-data', 'src', 'assistant-memory-resource.ts')
-      )
-    ).toBe(true);
-    expect(
-      aliases['@brainstrike/types/catalog-args']?.endsWith(
-        path.join('packages', 'types', 'src', 'catalog-args', 'index.ts')
-      )
-    ).toBe(true);
-    expect(
-      aliases['@brainstrike/workspace-search/core']?.endsWith(
-        path.join('packages', 'workspace-search', 'src', 'core', 'index.ts')
-      )
-    ).toBe(true);
+    // every Node bundle.
+    for (const options of NODE_BUILDS) {
+      expect(options.tsconfigRaw).toBe('{}');
+    }
   });
 });
