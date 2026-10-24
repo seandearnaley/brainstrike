@@ -3,7 +3,7 @@
 // native Turbo commands; the workflow remains the sole owner of matrix rows.
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 export function unitFilterArguments(filters) {
   if (typeof filters !== 'string' || filters.trim() === '') {
@@ -80,6 +80,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   ) {
     throw new Error('Exact base and tested head are required for affected Unit selection');
   }
+  // Unit plan runs before any dependency install so the shards start sooner: a
+  // dry run reads only git, the lockfile and package manifests. The workflow
+  // installs the repo's pinned turbo CLI by itself and names its entrypoint.
+  const turboEntry = process.env.TURBO_ENTRY;
+  if (!turboEntry) {
+    throw new Error('TURBO_ENTRY must name the pinned turbo CLI entrypoint');
+  }
   const matrix = selectUnitShards(
     JSON.parse(process.env.UNIT_MATRIX),
     process.env.UNIT_SELECTION,
@@ -88,8 +95,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         execFileSync(
           process.execPath,
           [
-            fileURLToPath(new URL('./run-turbo-command.mjs', import.meta.url)),
-            '--',
+            turboEntry,
             'run',
             'test',
             'test:integration',
