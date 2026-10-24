@@ -13,6 +13,7 @@ import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { textSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 import {
   createActivation,
   mocks,
@@ -41,10 +42,10 @@ function mountedRoot(): ApplicationIpcDomain {
     subscribe: unused,
   };
   return {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: async () => lease,
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
 }
