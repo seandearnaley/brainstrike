@@ -18,6 +18,14 @@ import {
 import { prepareAdmittedSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 
+// run_python reports a host without an OS fence (Windows) before it resolves the
+// interpreter. Fence support is held on so every OS reaches the interpreter half
+// this suite pins: the host resolving the bundled runtime from its own app paths.
+vi.mock('@brainstrike/agent/fence-executor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/agent/fence-executor')>()),
+  isFenceSupported: () => true,
+}));
+
 const directories: string[] = [];
 afterEach(async () => {
   for (const directory of directories.splice(0)) {
@@ -239,19 +247,21 @@ test('the desktop host runs executeCommand in its own process and correlates wor
   if (!tool) {
     throw new Error('executeCommand was not built for the host');
   }
-  // An ordinary command runs here; only root revalidation reaches Main.
+  // An ordinary command runs here; only root revalidation reaches Main. `echo`
+  // means the same in sh and in cmd.exe, the shells executeCommand runs.
   await expect(
-    tool.execute({ command: 'printf host-ran', cwd: '.' }, execution())
-  ).resolves.toMatchObject({ exitCode: 0, stdout: 'host-ran' });
+    tool.execute({ command: 'echo host-ran', cwd: '.' }, execution())
+  ).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringMatching(/^host-ran\r?\n$/u) });
   expect(request.mock.calls.map(([method]) => method)).toEqual([
     'admission/fresh-roots',
     'admission/fresh-roots',
   ]);
   // A worktree-shaped command snapshots Main's paths first, then reports its completion.
   request.mockClear();
-  const command = 'git worktree prune --dry-run 2>/dev/null; printf done';
+  const command = 'git worktree prune --dry-run';
   await expect(tool.execute({ command, cwd: '.' }, execution())).resolves.toMatchObject({
-    stdout: 'done',
+    exitCode: expect.any(Number),
+    timedOut: false,
   });
   await vi.waitFor(() =>
     expect(request).toHaveBeenCalledWith('platform/shell/completed', {

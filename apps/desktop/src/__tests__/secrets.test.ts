@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const userData = vi.hoisted(() => ({ path: '/unused-in-these-tests' }));
@@ -56,9 +56,10 @@ afterEach(async () => {
 
 describe('desktop credential store selection', () => {
   it('keeps isolated test profiles on a private file inside the profile', () => {
-    expect(desktopCredentialStoreSelection('/profiles/e2e-1', true)).toEqual({
+    const profile = resolve('/profiles/e2e-1');
+    expect(desktopCredentialStoreSelection(profile, true)).toEqual({
       kind: 'file',
-      path: '/profiles/e2e-1/brainstrike-credentials.json',
+      path: join(profile, 'brainstrike-credentials.json'),
     });
   });
 

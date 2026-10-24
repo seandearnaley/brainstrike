@@ -3,9 +3,11 @@
  * (`runGlobWorkspace`). Exercises the real FS walk + real ignore policy + real
  * path containment against temp-dir workspaces — no DB, no agent loop.
  */
+import { execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { runGlobWorkspace } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -24,6 +26,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
+const execFileAsync = promisify(execFile);
 const createdRoots: string[] = [];
 
 /** Restore an env var to its prior value, deleting it when it was unset. */
@@ -391,7 +394,8 @@ describe('runGlobWorkspace — ignore handling', () => {
     const excludesPath = path.join(home, 'my-excludes');
     await fsPromises.writeFile(excludesPath, 'notes.md\n', 'utf8');
     const configPath = path.join(home, 'gitconfig');
-    await fsPromises.writeFile(configPath, `[core]\n\texcludesFile = ${excludesPath}\n`, 'utf8');
+    // git writes the value: a raw Windows path is a bad config line (`\U` is no escape).
+    await execFileAsync('git', ['config', '--file', configPath, 'core.excludesFile', excludesPath]);
 
     const previousGlobal = process.env['GIT_CONFIG_GLOBAL'];
     const previousSystem = process.env['GIT_CONFIG_SYSTEM'];
