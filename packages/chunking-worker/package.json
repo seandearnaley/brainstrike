@@ -14,50 +14,22 @@
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js"
-    },
-    "./canonical": {
-      "types": "./src/canonical.ts",
-      "import": "./dist/canonical.js"
-    },
-    "./node": {
-      "types": "./src/node/index.ts",
-      "import": "./dist/node/index.js"
-    },
-    "./source-range-validation": {
-      "types": "./src/source-range-validation.ts",
-      "import": "./dist/source-range-validation.js"
-    }
+    ".": "./src/index.ts",
+    "./canonical": "./src/canonical.ts",
+    "./node": "./src/node/index.ts",
+    "./source-range-validation": "./src/source-range-validation.ts"
   },
-  "files": [
-    "dist/**",
-    "grammars/python.wasm"
-  ],
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "tsup --config ./tsup.config.ts && tsup --config ./tsup.node.config.ts",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,
-  "turbo": {
-    "outputs": [
-      "dist/**"
-    ]
-  },
-  "type": "module",
-  "types": "./src/index.ts"
+  "type": "module"
 }

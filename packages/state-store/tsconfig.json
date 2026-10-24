@@ -2,17 +2,14 @@
   "extends": "../config/tsconfig/base.json",
   "compilerOptions": {
     // The writer worker and the modules it imports are plain ESM (`.mjs`):
-    // `new Worker(url)` loads them with Node itself, under Vitest and from
-    // `dist` alike, so they cannot be TypeScript sources. checkJs type-checks
-    // them through their JSDoc and tsc emits them next to the compiled `.js`.
+    // `new Worker(url)` loads them with Node itself, under Vitest and from the
+    // desktop bundle alike, so they cannot be TypeScript sources. checkJs type-checks
+    // them through their JSDoc.
     "checkJs": true,
-    "declaration": true,
-    "declarationMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    "noEmit": true,
     "strictNullChecks": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "src/**/*.mjs"],
-  "exclude": ["dist", "node_modules", "__tests__"]
+  "exclude": ["node_modules", "__tests__"]
 }

@@ -17,17 +17,6 @@
     // a 4-vCPU ubicloud runner) and local `pnpm build` / `pnpm check`. The
     // capped lanes state their own: Type check (TURBO_CONCURRENCY=4), Unit
     // (--concurrency=4 / =2), native-electron and coverage (=4).
-    //
-    // Do NOT raise this to satisfy `turbo run dev`. Turbo refuses to start when
-    // concurrency <= the number of persistent tasks in the SELECTION, and the
-    // ~40 workspace `dev` tasks are all persistent — that floor is a property
-    // of the dev selection, not a parallelism budget, and conflating the two is
-    // what produced the 28 → 29 → 30 → 31 → 32 bump treadmill (and a `pnpm dev`
-    // that died outright at 40 tasks vs. concurrency 40). The root `dev` script
-    // in package.json therefore carries its own `--concurrency`, set above the
-    // total workspace package count so it can never bind;
-    // scripts/__tests__/turbo-global-configuration.test.mjs enforces that
-    // against the real planned dev graph.
     "concurrency": "40",
     // Turbo's cache key has no OS, CPU architecture or Node version. These put
     // them in: GitHub runners set RUNNER_OS/RUNNER_ARCH, pnpm's user agent names
@@ -79,8 +68,7 @@
       "tsconfig*.json", // Root TS config — config/tsconfig.json extends it (genuinely global)
       "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
       "turbo.jsonc", // Turborepo configuration
-      ".nvmrc", // Node version specification
-      "scripts/prune-stale-dist.mjs" // Stale-dist pruner (2026-07-30 cache-poisoning class); wired into the `build` of every non-cleaning tsc package — must invalidate their build cache when edited
+      ".nvmrc" // Node version specification
     ]
   },
   // Defines the tasks that can be run via `turbo run <taskName>`
@@ -156,19 +144,16 @@
       // the old `^build` edge. Do NOT delete this to an empty dependsOn: that
       // drops the cascade and replays stale-green cached tests against edited
       // upstream source (see the topo comment for the full landmine rationale).
-      // Packages whose tests genuinely need a built artifact declare the exact
-      // edge in their own turbo.json (B4 exceptions): packages/logging#test needs
-      // its own `build` (logger-dist-singleton.test.ts imports logging's dist by
-      // file URL); packages/utils#test needs its own `build`
-      // (typescript-build-contract.test.ts inspects emitted files);
-      // packages/secure-fs-native#test needs its own `build` (tests load the
-      // compiled .node addon; the edge must be a dependsOn, never an inline
-      // `pnpm build &&` in the script — that raced this task's
-      // concurrently-scheduled `build` as two simultaneous node-gyp rebuilds;
-      // see that package's turbo.json). Just-in-Time packages have no build, so
-      // nothing depends on one.
+      // `^build` builds only the native add-ons in the dependency closure:
+      // workspace packages are Just-in-Time and have no build, so the native
+      // add-ons (and the two kept-built verification packages) are the only
+      // `build` tasks left. A test that loads an add-on must not race its
+      // node-gyp rebuild, so the edge is a dependsOn, never an inline
+      // `pnpm build &&` in a script. packages/secure-fs-native#test additionally
+      // depends on its own `build` (see that package's turbo.json).
       "dependsOn": [
-        "topo"
+        "topo",
+        "^build"
       ],
       // Tests can be sensitive to NODE_ENV. CI changes Vitest worker count and
       // some package coverage workloads, TURBO_TEST_MODE differentiates plain
@@ -212,8 +197,10 @@
       // scarcest resource"): a hit replays a green whose inputs turbo hashed.
       // Anything result-affecting that is not a file belongs in `env` (see
       // BRAINSTRIKE_FENCE_DEPS_REQUIRED below), never a reason to uncache.
+      // Same edges as `test`: the source cascade plus the native add-ons.
       "dependsOn": [
-        "topo"
+        "topo",
+        "^build"
       ],
       // BRAINSTRIKE_FENCE_DEPS_REQUIRED is the one entry that deliberately does
       // NOT mirror `test`: the real-OS-fence suites live only in this lane. The
@@ -265,29 +252,10 @@
       "persistent": true,
       // Development tasks usually shouldn't be cached as they are interactive/watch processes.
       "cache": false,
-      // Root `pnpm dev` sets this only after synchronous dependency preparation.
-      // App predev hooks fail closed under bare `turbo run dev` when it is absent.
-      "passThroughEnv": [
-        "BRAINSTRIKE_DEV_DEPS_PREPARED"
-      ],
-      // Specifies other tasks that should be run *alongside* this one.
-      // Ideal for starting library watchers when the main app's dev server starts.
-      "with": [
-        "@brainstrike/assistant-contract#dev",
-        "@brainstrike/indexing-contract#dev",
-        "@brainstrike/effect-kit#dev",
-        "@brainstrike/logging#dev",
-        "@brainstrike/types#dev", // Run the 'dev' script from the @brainstrike/types package
-        "@brainstrike/utils#dev", // Run the 'dev' script from the @brainstrike/utils package
-        "@brainstrike/assistant-data#dev", // Run the renderer-safe assistant data package in watch mode
-        "@brainstrike/file-system#dev", // Run the 'dev' script from the @brainstrike/file-system package
-        "@brainstrike/storage#dev", // Run the 'dev' script from the @brainstrike/storage package
-        "@brainstrike/embedding-worker#dev", // Run the 'dev' script from the @brainstrike/embedding-worker package (builds workers)
-        "@brainstrike/agent#dev",
-        "@brainstrike/embeddings#dev",
-        "@brainstrike/app-state#dev",
-        "@brainstrike/chunking-worker#dev",
-        "@brainstrike/platform-utils#dev"
+      // The app's dev server needs only the native add-ons built; every
+      // workspace package is consumed from source.
+      "dependsOn": [
+        "^build"
       ]
     },
     // --- Browser Test Task (Vitest 4 Browser Mode) --- //

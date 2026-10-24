@@ -2,9 +2,6 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "declaration": false,
-    "declarationMap": false,
-    "emitDeclarationOnly": false,
     "rootDir": ".",
     "types": [
       "node",
@@ -19,7 +16,6 @@
     "bench/*.spec.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules"
   ]
 }

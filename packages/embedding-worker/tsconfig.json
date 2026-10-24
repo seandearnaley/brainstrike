@@ -1,11 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "declaration": true,
-    "declarationMap": true,
-    "emitDeclarationOnly": true,
-    "outDir": "./dist",
-    "rootDir": "src",
     "lib": [
       "DOM",
       "DOM.Iterable",
@@ -16,13 +11,13 @@
       "node",
       "vite/client"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "noEmit": true
   },
   "include": [
     "src/**/*.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "test"
   ]

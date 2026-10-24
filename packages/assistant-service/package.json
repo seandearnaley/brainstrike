@@ -22,8 +22,6 @@
     "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "concurrently": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -31,55 +29,22 @@
     "node": ">=22"
   },
   "exports": {
-    "./mcp-content-application-port": {
-      "types": "./src/mcp-content-application-port.ts",
-      "import": "./dist/mcp-content-application-port.mjs",
-      "require": "./dist/mcp-content-application-port.js"
-    },
-    "./memory-model-targets": {
-      "types": "./src/memory-model-targets.ts",
-      "import": "./dist/memory-model-targets.mjs",
-      "require": "./dist/memory-model-targets.js"
-    },
-    "./node-native-text-services": {
-      "types": "./src/node-native-text-services.ts",
-      "import": "./dist/node-native-text-services.mjs",
-      "require": "./dist/node-native-text-services.js"
-    },
-    "./node-workspace-services": {
-      "types": "./src/node-workspace-services.ts",
-      "import": "./dist/node-workspace-services.mjs",
-      "require": "./dist/node-workspace-services.js"
-    },
-    "./ports": {
-      "types": "./src/ports.ts",
-      "import": "./dist/ports.mjs",
-      "require": "./dist/ports.js"
-    },
-    "./provider-credential-projection": {
-      "types": "./src/provider-credential-projection.ts",
-      "import": "./dist/provider-credential-projection.mjs",
-      "require": "./dist/provider-credential-projection.js"
-    },
-    "./secret-errors": {
-      "types": "./src/secret-errors.ts",
-      "import": "./dist/secret-errors.mjs",
-      "require": "./dist/secret-errors.js"
-    }
+    "./mcp-content-application-port": "./src/mcp-content-application-port.ts",
+    "./memory-model-targets": "./src/memory-model-targets.ts",
+    "./node-native-text-services": "./src/node-native-text-services.ts",
+    "./node-workspace-services": "./src/node-workspace-services.ts",
+    "./ports": "./src/ports.ts",
+    "./provider-credential-projection": "./src/provider-credential-projection.ts",
+    "./secret-errors": "./src/secret-errors.ts"
   },
-  "files": [
-    "dist"
-  ],
   "license": "MIT",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/rimraf.mjs dist && tsc && tsup",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "concurrently --kill-others --names types,bundle \"tsc --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
-  "sideEffects": false
+  "sideEffects": false,
+  "type": "module"
 }

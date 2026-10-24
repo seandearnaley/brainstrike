@@ -22,157 +22,50 @@
     "node": ">=22"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./diagnostics": {
-      "types": "./src/diagnostics.ts",
-      "default": "./dist/diagnostics.js"
-    },
-    "./color-utils": {
-      "types": "./src/color-utils.ts",
-      "default": "./dist/color-utils.js"
-    },
-    "./browser-download": {
-      "types": "./src/browser-download.ts",
-      "default": "./dist/browser-download.js"
-    },
-    "./collator": {
-      "types": "./src/collator.ts",
-      "default": "./dist/collator.js"
-    },
-    "./create-debounce": {
-      "types": "./src/create-debounce.ts",
-      "default": "./dist/create-debounce.js"
-    },
-    "./error-utils": {
-      "types": "./src/error-utils.ts",
-      "default": "./dist/error-utils.js"
-    },
-    "./env-utils": {
-      "types": "./src/env-utils.ts",
-      "default": "./dist/env-utils.js"
-    },
-    "./filter-utils": {
-      "types": "./src/filter-utils.ts",
-      "default": "./dist/filter-utils.js"
-    },
-    "./file-content": {
-      "types": "./src/file-content.ts",
-      "default": "./dist/file-content.js"
-    },
-    "./file-utils": {
-      "types": "./src/file-utils.ts",
-      "default": "./dist/file-utils.js"
-    },
-    "./hmr-utils": {
-      "types": "./src/hmr-utils.ts",
-      "default": "./dist/hmr-utils.js"
-    },
-    "./bulk-operation-context": {
-      "types": "./src/bulk-operation-context.ts",
-      "default": "./dist/bulk-operation-context.js"
-    },
-    "./background-indexing-policy": {
-      "types": "./src/background-indexing-policy.ts",
-      "default": "./dist/background-indexing-policy.js"
-    },
-    "./performance-measure-guard": {
-      "types": "./src/performance-measure-guard.ts",
-      "default": "./dist/performance-measure-guard.js"
-    },
-    "./quick-filter-utils": {
-      "types": "./src/quick-filter-utils.ts",
-      "default": "./dist/quick-filter-utils.js"
-    },
-    "./string-utils": {
-      "types": "./src/string-utils.ts",
-      "default": "./dist/string-utils.js"
-    },
-    "./perf-timing": {
-      "types": "./src/perf-timing.ts",
-      "default": "./dist/perf-timing.js"
-    },
-    "./path-filter": {
-      "types": "./src/path-filter.ts",
-      "default": "./dist/path-filter.js"
-    },
-    "./path-ancestors": {
-      "types": "./src/path-ancestors.ts",
-      "default": "./dist/path-ancestors.js"
-    },
-    "./path-utils": {
-      "types": "./src/path-utils.ts",
-      "default": "./dist/path-utils.js"
-    },
-    "./relative-file-path": {
-      "types": "./src/relative-file-path.ts",
-      "default": "./dist/relative-file-path.js"
-    },
-    "./crypto": {
-      "types": "./src/crypto.ts",
-      "default": "./dist/crypto.js"
-    },
-    "./host-path": {
-      "types": "./src/host-path.ts",
-      "default": "./dist/host-path.js"
-    },
-    "./utf8": {
-      "types": "./src/utf8.ts",
-      "default": "./dist/utf8.js"
-    },
-    "./window-focus-bridge": {
-      "types": "./src/window-focus-bridge.ts",
-      "default": "./dist/window-focus-bridge.js"
-    },
-    "./grep-pattern": {
-      "types": "./src/grep-pattern.ts",
-      "default": "./dist/grep-pattern.js"
-    },
-    "./grep-search": {
-      "types": "./src/grep-search.ts",
-      "default": "./dist/grep-search.js"
-    },
-    "./grep-line-matcher": {
-      "types": "./src/grep-line-matcher.ts",
-      "default": "./dist/grep-line-matcher.js"
-    },
-    "./grep-trigram-plan": {
-      "types": "./src/grep-trigram-plan.ts",
-      "default": "./dist/grep-trigram-plan.js"
-    },
-    "./rrf": {
-      "types": "./src/rrf.ts",
-      "default": "./dist/rrf.js"
-    }
+    ".": "./src/index.ts",
+    "./diagnostics": "./src/diagnostics.ts",
+    "./color-utils": "./src/color-utils.ts",
+    "./browser-download": "./src/browser-download.ts",
+    "./collator": "./src/collator.ts",
+    "./create-debounce": "./src/create-debounce.ts",
+    "./error-utils": "./src/error-utils.ts",
+    "./env-utils": "./src/env-utils.ts",
+    "./filter-utils": "./src/filter-utils.ts",
+    "./file-content": "./src/file-content.ts",
+    "./file-utils": "./src/file-utils.ts",
+    "./hmr-utils": "./src/hmr-utils.ts",
+    "./bulk-operation-context": "./src/bulk-operation-context.ts",
+    "./background-indexing-policy": "./src/background-indexing-policy.ts",
+    "./performance-measure-guard": "./src/performance-measure-guard.ts",
+    "./quick-filter-utils": "./src/quick-filter-utils.ts",
+    "./string-utils": "./src/string-utils.ts",
+    "./perf-timing": "./src/perf-timing.ts",
+    "./path-filter": "./src/path-filter.ts",
+    "./path-ancestors": "./src/path-ancestors.ts",
+    "./path-utils": "./src/path-utils.ts",
+    "./relative-file-path": "./src/relative-file-path.ts",
+    "./crypto": "./src/crypto.ts",
+    "./host-path": "./src/host-path.ts",
+    "./utf8": "./src/utf8.ts",
+    "./window-focus-bridge": "./src/window-focus-bridge.ts",
+    "./grep-pattern": "./src/grep-pattern.ts",
+    "./grep-search": "./src/grep-search.ts",
+    "./grep-line-matcher": "./src/grep-line-matcher.ts",
+    "./grep-trigram-plan": "./src/grep-trigram-plan.ts",
+    "./rrf": "./src/rrf.ts"
   },
-  "files": [
-    "dist/**"
-  ],
   "license": "MIT",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
   "private": true,
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,
-  "turbo": {
-    "outputs": [
-      "dist/**"
-    ]
-  },
-  "types": "./src/index.ts",
   "type": "module"
 }

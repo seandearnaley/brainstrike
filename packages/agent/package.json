@@ -47,8 +47,6 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "assistant-stream": "catalog:",
-    "concurrently": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -56,113 +54,32 @@
     "node": ">=22"
   },
   "exports": {
-    "./tool-runtime": {
-      "types": "./src/tool-runtime.ts",
-      "import": "./dist/tool-runtime.mjs",
-      "require": "./dist/tool-runtime.js"
-    },
-    "./tool-guard-deadline": {
-      "types": "./src/tool-guard-deadline.ts",
-      "import": "./dist/tool-guard-deadline.js",
-      "require": "./dist/tool-guard-deadline.js"
-    },
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
-    },
-    "./client": {
-      "types": "./src/client.ts",
-      "import": "./dist/client.mjs",
-      "require": "./dist/client.js"
-    },
-    "./provider-request": {
-      "types": "./src/provider-request.ts",
-      "import": "./dist/provider-request.mjs",
-      "require": "./dist/provider-request.js"
-    },
-    "./provider-runtime": {
-      "types": "./src/provider-runtime.ts",
-      "import": "./dist/provider-runtime.mjs",
-      "require": "./dist/provider-runtime.js"
-    },
-    "./code-execution": {
-      "types": "./src/code-execution.ts",
-      "import": "./dist/code-execution.mjs",
-      "require": "./dist/code-execution.js"
-    },
-    "./fence-executor": {
-      "types": "./src/fence-executor.ts",
-      "import": "./dist/fence-executor.mjs",
-      "require": "./dist/fence-executor.js"
-    },
-    "./mcp-client": {
-      "types": "./src/mcp-client.ts",
-      "import": "./dist/mcp-client.mjs",
-      "require": "./dist/mcp-client.js"
-    },
-    "./test-fixtures/scripted-agent-model": {
-      "types": "./src/test-fixtures/scripted-agent-model.ts",
-      "import": "./dist/test-fixtures/scripted-agent-model.mjs",
-      "require": "./dist/test-fixtures/scripted-agent-model.js"
-    },
-    "./test-fixtures/mcp-host-lifecycle": {
-      "types": "./src/test-fixtures/mcp-host-lifecycle.ts",
-      "import": "./dist/test-fixtures/mcp-host-lifecycle.mjs",
-      "require": "./dist/test-fixtures/mcp-host-lifecycle.js"
-    },
+    "./tool-runtime": "./src/tool-runtime.ts",
+    "./tool-guard-deadline": "./src/tool-guard-deadline.ts",
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./provider-request": "./src/provider-request.ts",
+    "./provider-runtime": "./src/provider-runtime.ts",
+    "./code-execution": "./src/code-execution.ts",
+    "./fence-executor": "./src/fence-executor.ts",
+    "./mcp-client": "./src/mcp-client.ts",
+    "./test-fixtures/scripted-agent-model": "./src/test-fixtures/scripted-agent-model.ts",
+    "./test-fixtures/mcp-host-lifecycle": "./src/test-fixtures/mcp-host-lifecycle.ts",
     "./test-fixtures/mcp-stdio-catalog-shape-server.mjs": "./test-fixtures/mcp-stdio-catalog-shape-server.mjs",
     "./test-fixtures/mcp-stdio-handshake-exit-server.mjs": "./test-fixtures/mcp-stdio-handshake-exit-server.mjs",
     "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs": "./test-fixtures/mcp-stdio-host-lifecycle-server.mjs",
     "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs": "./test-fixtures/mcp-stdio-progress-cancellation-server.mjs",
-    "./mcp-tasks": {
-      "types": "./src/mcp-tasks.ts",
-      "import": "./dist/mcp-tasks.mjs",
-      "require": "./dist/mcp-tasks.js"
-    },
-    "./browser-safe": {
-      "types": "./src/browser-safe.ts",
-      "import": "./dist/browser-safe.mjs",
-      "require": "./dist/browser-safe.js"
-    },
-    "./tool-metadata": {
-      "types": "./src/tool-metadata.ts",
-      "import": "./dist/tool-metadata.mjs",
-      "require": "./dist/tool-metadata.js"
-    },
-    "./provider-metadata": {
-      "types": "./src/provider-metadata.ts",
-      "import": "./dist/provider-metadata.mjs",
-      "require": "./dist/provider-metadata.js"
-    },
-    "./context-packer": {
-      "types": "./src/context-packer.ts",
-      "import": "./dist/context-packer.mjs",
-      "require": "./dist/context-packer.js"
-    },
-    "./memory-settings": {
-      "types": "./src/memory-settings.ts",
-      "import": "./dist/memory-settings.mjs",
-      "require": "./dist/memory-settings.js"
-    },
-    "./run-events": {
-      "types": "./src/run-events.ts",
-      "import": "./dist/run-events.mjs",
-      "require": "./dist/run-events.js"
-    }
+    "./mcp-tasks": "./src/mcp-tasks.ts",
+    "./browser-safe": "./src/browser-safe.ts",
+    "./tool-metadata": "./src/tool-metadata.ts",
+    "./provider-metadata": "./src/provider-metadata.ts",
+    "./context-packer": "./src/context-packer.ts",
+    "./memory-settings": "./src/memory-settings.ts",
+    "./run-events": "./src/run-events.ts"
   },
-  "files": [
-    "dist/**",
-    "test-fixtures/**"
-  ],
   "license": "MIT",
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc && tsup",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "concurrently --kill-others --names types,bundle \"tsc --project tsconfig.json --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.spec.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts --no-file-parallelism",
@@ -170,10 +87,5 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
   "sideEffects": false,
-  "turbo": {
-    "outputs": [
-      "dist/**"
-    ]
-  },
-  "types": "./src/index.ts"
+  "type": "module"
 }

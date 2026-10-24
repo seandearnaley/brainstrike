@@ -409,7 +409,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   private buildWindow(): BrowserWindow {
     const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
     const enableSandbox = !isTestMode;
-    const preloadPath = path.join(resolveDistRoot(), 'hidden-preload.js');
+    const preloadPath = path.join(resolveDistRoot(), 'hidden-preload.cjs');
     const window = new BrowserWindow({
       focusable: false,
       height: 240,

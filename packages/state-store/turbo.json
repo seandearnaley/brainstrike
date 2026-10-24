@@ -4,17 +4,8 @@
     "test": {
       // Cached like every task (AGENTS.md); the root config hashes OS, arch and
       // the Node pin, so the host's native binaries are part of the key.
-      // RootLock loads native OS locking, so the addon builds first; without
-      // these edges the unit plan could rebuild the addon while corruption
-      // tests load it. Package configs replace array fields; redeclare the
-      // root's pass-through.
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"],
+      // Package configs replace array fields; redeclare the root's pass-through.
       "passThroughEnv": ["CI", "COVERAGE", "VITEST_MAX_WORKERS"]
-    },
-    "test:integration": {
-      // memory-domain imports agent-host's emitted token calculator, and
-      // memory-erasure hands that same dist module to the writer worker.
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
     }
   }
 }

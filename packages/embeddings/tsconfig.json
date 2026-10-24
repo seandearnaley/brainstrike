@@ -19,21 +19,17 @@
         }
       }
     ],
-    "declaration": true,
-    "outDir": "./dist",
-    "rootDir": "src",
-    "declarationMap": true,
     "types": [
       "node"
     ],
     "skipLibCheck": true,
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "noEmit": true
   },
   "include": [
     "src/**/*"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "**/*.test.*",
     "**/__tests__/**"

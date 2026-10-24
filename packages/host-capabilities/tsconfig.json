@@ -1,8 +1,6 @@
 {
   "extends": "../config/tsconfig/base.json",
   "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
     "types": [
       "node"
     ],
@@ -28,13 +26,13 @@
           "preferTypedSchemaDecoder": "error"
         }
       }
-    ]
+    ],
+    "noEmit": true
   },
   "include": [
     "src/**/*.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "__tests__"
   ]

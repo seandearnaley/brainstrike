@@ -9,13 +9,6 @@
         "$TURBO_EXTENDS$",
         "../test-utils/fixtures/canonical-provided-chunks.json"
       ]
-    },
-    "test:integration": {
-      "dependsOn": [
-        "@brainstrike/canonical-ingestion#build",
-        "@brainstrike/secure-fs-native#build",
-        "@brainstrike/indexer#build"
-      ]
     }
   }
 }

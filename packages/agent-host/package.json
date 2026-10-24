@@ -8,165 +8,52 @@
     "node": ">=24.20.0 <25 || >=26.8.2 <27"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./model-stream-telemetry": {
-      "types": "./src/model-stream-telemetry.ts",
-      "default": "./dist/model-stream-telemetry.js"
-    },
-    "./protocol": {
-      "types": "./src/protocol.ts",
-      "default": "./dist/protocol.js"
-    },
-    "./boundary-wire": {
-      "types": "./src/boundary-wire.ts",
-      "default": "./dist/boundary-wire.js"
-    },
-    "./hook-trust": {
-      "types": "./src/hook-trust.ts",
-      "default": "./dist/hook-trust.js"
-    },
-    "./child-answer": {
-      "types": "./src/child-answer.ts",
-      "default": "./dist/child-answer.js"
-    },
-    "./child-presentation": {
-      "types": "./src/child-presentation.ts",
-      "default": "./dist/child-presentation.js"
-    },
-    "./canonical-tool-bindings": {
-      "types": "./src/adapters/canonical-tool-bindings.ts",
-      "default": "./dist/adapters/canonical-tool-bindings.js"
-    },
-    "./state-projection": {
-      "types": "./src/state-projection.ts",
-      "default": "./dist/state-projection.js"
-    },
-    "./host-state-producer": {
-      "types": "./src/host-state-producer.ts",
-      "default": "./dist/host-state-producer.js"
-    },
-    "./event-storage": {
-      "types": "./src/event-storage.ts",
-      "default": "./dist/event-storage.js"
-    },
-    "./host-event-encoding": {
-      "types": "./src/host-event-encoding.ts",
-      "default": "./dist/host-event-encoding.js"
-    },
-    "./core-state": {
-      "types": "./src/core-state.ts",
-      "default": "./dist/core-state.js"
-    },
-    "./host-event-decoding": {
-      "types": "./src/host-event-decoding.ts",
-      "default": "./dist/host-event-decoding.js"
-    },
-    "./run-branch": {
-      "types": "./src/run-branch.ts",
-      "default": "./dist/run-branch.js"
-    },
-    "./telemetry-replay": {
-      "types": "./src/telemetry-replay.ts",
-      "default": "./dist/telemetry-replay.js"
-    },
-    "./thread-catalog": {
-      "types": "./src/thread-catalog.ts",
-      "default": "./dist/thread-catalog.js"
-    },
-    "./thread-presentation-state": {
-      "types": "./src/thread-presentation-state.ts",
-      "default": "./dist/thread-presentation-state.js"
-    },
-    "./run-verdicts": {
-      "types": "./src/run-verdicts.ts",
-      "default": "./dist/run-verdicts.js"
-    },
-    "./memory-storage-calculator": {
-      "types": "./src/adapters/memory-storage-calculator.ts",
-      "default": "./dist/adapters/memory-storage-calculator.js"
-    },
-    "./committed-identities": {
-      "types": "./src/committed-identities.ts",
-      "default": "./dist/committed-identities.js"
-    },
-    "./client": {
-      "types": "./src/client.ts",
-      "default": "./dist/client.js"
-    },
-    "./cli": {
-      "types": "./src/cli.ts",
-      "default": "./dist/cli.js"
-    },
-    "./credential-contract": {
-      "types": "./src/adapters/credential-contract.ts",
-      "default": "./dist/adapters/credential-contract.js"
-    },
-    "./keyring-credentials": {
-      "types": "./src/adapters/keyring-credentials.ts",
-      "default": "./dist/adapters/keyring-credentials.js"
-    },
-    "./keyring-native": {
-      "types": "./src/adapters/keyring-native-worker.ts",
-      "default": "./dist/adapters/keyring-native-worker.js"
-    },
-    "./file-credentials": {
-      "types": "./src/adapters/file-credentials.ts",
-      "default": "./dist/adapters/file-credentials.js"
-    },
-    "./browser": {
-      "types": "./src/browser-client.ts",
-      "default": "./dist/browser-client.js"
-    },
-    "./test-fixtures/host-state-index": {
-      "types": "./src/host-state-index.ts",
-      "default": "./dist/host-state-index.js"
-    },
-    "./test-fixtures/scripted-model": {
-      "types": "./src/test-fixtures/scripted-model.ts",
-      "default": "./dist/test-fixtures/scripted-model.js"
-    },
+    ".": "./src/index.ts",
+    "./model-stream-telemetry": "./src/model-stream-telemetry.ts",
+    "./protocol": "./src/protocol.ts",
+    "./boundary-wire": "./src/boundary-wire.ts",
+    "./hook-trust": "./src/hook-trust.ts",
+    "./child-answer": "./src/child-answer.ts",
+    "./child-presentation": "./src/child-presentation.ts",
+    "./canonical-tool-bindings": "./src/adapters/canonical-tool-bindings.ts",
+    "./state-projection": "./src/state-projection.ts",
+    "./host-state-producer": "./src/host-state-producer.ts",
+    "./event-storage": "./src/event-storage.ts",
+    "./host-event-encoding": "./src/host-event-encoding.ts",
+    "./core-state": "./src/core-state.ts",
+    "./host-event-decoding": "./src/host-event-decoding.ts",
+    "./run-branch": "./src/run-branch.ts",
+    "./telemetry-replay": "./src/telemetry-replay.ts",
+    "./thread-catalog": "./src/thread-catalog.ts",
+    "./thread-presentation-state": "./src/thread-presentation-state.ts",
+    "./run-verdicts": "./src/run-verdicts.ts",
+    "./memory-storage-calculator": "./src/adapters/memory-storage-calculator.ts",
+    "./committed-identities": "./src/committed-identities.ts",
+    "./client": "./src/client.ts",
+    "./cli": "./src/cli.ts",
+    "./credential-contract": "./src/adapters/credential-contract.ts",
+    "./keyring-credentials": "./src/adapters/keyring-credentials.ts",
+    "./keyring-native": "./src/adapters/keyring-native-worker.ts",
+    "./file-credentials": "./src/adapters/file-credentials.ts",
+    "./browser": "./src/browser-client.ts",
+    "./test-fixtures/host-state-index": "./src/host-state-index.ts",
+    "./test-fixtures/scripted-model": "./src/test-fixtures/scripted-model.ts",
     "./test-fixtures/owned-process": "./__tests__/fixtures/owned-fixture-process.ts",
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
     "./test-fixtures/process-platform": "./__tests__/fixtures/process-platform.mjs",
-    "./workspace-state": {
-      "types": "./src/workspace-state.ts",
-      "default": "./dist/workspace-state.js"
-    },
-    "./thread-view": {
-      "types": "./src/thread-view.ts",
-      "default": "./dist/thread-view.js"
-    },
-    "./ledger-projection": {
-      "types": "./src/ledger-projection.ts",
-      "default": "./dist/ledger-projection.js"
-    },
-    "./desktop-run-configuration": {
-      "types": "./src/desktop-run-configuration.ts",
-      "default": "./dist/desktop-run-configuration.js"
-    },
-    "./edit-checkpoint-view": {
-      "types": "./src/edit-checkpoint-view.ts",
-      "default": "./dist/edit-checkpoint-view.js"
-    },
-    "./standalone-workspace-input": {
-      "types": "./src/standalone-workspace-input.ts",
-      "default": "./dist/standalone-workspace-input.js"
-    },
-    "./catalog": {
-      "types": "./src/catalog/index.ts",
-      "default": "./dist/catalog/index.js"
-    }
+    "./workspace-state": "./src/workspace-state.ts",
+    "./thread-view": "./src/thread-view.ts",
+    "./ledger-projection": "./src/ledger-projection.ts",
+    "./desktop-run-configuration": "./src/desktop-run-configuration.ts",
+    "./edit-checkpoint-view": "./src/edit-checkpoint-view.ts",
+    "./standalone-workspace-input": "./src/standalone-workspace-input.ts",
+    "./catalog": "./src/catalog/index.ts"
   },
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:integration:routine": "vitest run --config vitest.integration.config.mts __tests__/host.integration.test.ts __tests__/permission-grant.integration.test.ts",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo"
+    "test:integration:routine": "vitest run --config vitest.integration.config.mts __tests__/host.integration.test.ts __tests__/permission-grant.integration.test.ts"
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",

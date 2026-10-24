@@ -2,8 +2,6 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "declaration": false,
-    "declarationMap": false,
     "rootDir": "../..",
     "types": [
       "node",
@@ -11,11 +9,9 @@
     ]
   },
   "include": [
-    "src/**/*",
-    "tsup.config.ts"
+    "src/**/*"
   ],
   "exclude": [
-    "dist",
     "node_modules"
   ]
 }

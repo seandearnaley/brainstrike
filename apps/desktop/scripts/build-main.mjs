@@ -52,7 +52,7 @@ async function cleanMainProcessOutputs() {
  */
 async function assertPreloadBundlesAreSandboxSafe() {
   for (const entryName of PRELOAD_BUNDLE_ENTRY_NAMES) {
-    const fileName = `${entryName}.js`;
+    const fileName = `${entryName}.cjs`;
     const source = await readFile(path.join(appRoot, 'dist', fileName), 'utf8');
     assertPreloadBundleRequires(fileName, source);
   }

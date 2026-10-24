@@ -1,9 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "declaration": true,
-    "outDir": "./dist",
-    "rootDir": "src",
     "types": [
       "node"
     ],
@@ -25,13 +22,13 @@
           "unstableApiUsage": "error"
         }
       }
-    ]
+    ],
+    "noEmit": true
   },
   "include": [
     "src/**/*"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "**/*.test.ts",
     "**/*.test.tsx"

@@ -4,10 +4,6 @@
   ],
   "tasks": {
     "test:integration": {
-      "dependsOn": [
-        "$TURBO_EXTENDS$",
-        "build"
-      ],
       "passThroughEnv": [
         "CI",
         "COVERAGE",

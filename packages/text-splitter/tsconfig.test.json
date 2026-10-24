@@ -13,7 +13,6 @@
     "**/*.test.*"
   ],
   "exclude": [
-    "dist",
     "node_modules"
   ]
 }

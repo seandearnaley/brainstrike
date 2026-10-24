@@ -29,57 +29,21 @@
   },
   "sideEffects": false,
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./inference-plan": {
-      "types": "./src/inference-plan.ts",
-      "default": "./dist/inference-plan.js"
-    },
-    "./pinned-plan": {
-      "types": "./src/pinned-plan.ts",
-      "default": "./dist/pinned-plan.js"
-    },
-    "./runtime-config": {
-      "types": "./src/runtime-config.ts",
-      "default": "./dist/runtime-config.js"
-    },
-    "./provider-core": {
-      "types": "./src/provider-core.ts",
-      "default": "./dist/provider-core.js"
-    },
-    "./backend": {
-      "types": "./src/backend-entry.ts",
-      "default": "./dist/backend-entry.js"
-    },
-    "./factory": {
-      "types": "./src/factory-entry.ts",
-      "default": "./dist/factory-entry.js"
-    },
-    "./service": {
-      "types": "./src/service-entry.ts",
-      "default": "./dist/service-entry.js"
-    },
-    "./worker": {
-      "types": "./src/worker-entry.ts",
-      "default": "./dist/worker-entry.js"
-    }
+    ".": "./src/index.ts",
+    "./inference-plan": "./src/inference-plan.ts",
+    "./pinned-plan": "./src/pinned-plan.ts",
+    "./runtime-config": "./src/runtime-config.ts",
+    "./provider-core": "./src/provider-core.ts",
+    "./backend": "./src/backend-entry.ts",
+    "./factory": "./src/factory-entry.ts",
+    "./service": "./src/service-entry.ts",
+    "./worker": "./src/worker-entry.ts"
   },
-  "files": [
-    "dist",
-    "bin"
-  ],
-  "main": "dist/index.js",
-  "module": "dist/index.js",
   "peerDependencies": {
     "react": "^19.3.0"
   },
   "scripts": {
     "bench": "vitest bench",
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
@@ -87,6 +51,5 @@
     "test:watch": "vitest --watch",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
-  "types": "./src/index.ts",
   "type": "module"
 }

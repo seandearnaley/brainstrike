@@ -16,7 +16,6 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "esbuild": "catalog:",
-    "tsup": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:",
@@ -24,45 +23,15 @@
     "@vitest/browser-playwright": "catalog:"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    },
-    "./worker": {
-      "types": "./src/embedding.worker.ts",
-      "import": "./dist/embedding.worker.js",
-      "require": "./dist/embedding.worker.cjs"
-    },
-    "./pipeline-cache-controller": {
-      "types": "./src/pipeline-cache-controller.ts",
-      "import": "./dist/pipeline-cache-controller.js",
-      "require": "./dist/pipeline-cache-controller.cjs"
-    },
-    "./test-runtime-bootstrap": {
-      "types": "./src/test-runtime-bootstrap.ts",
-      "import": "./dist/test-runtime-bootstrap.js",
-      "require": "./dist/test-runtime-bootstrap.cjs"
-    },
-    "./testing": {
-      "types": "./src/testing.ts",
-      "import": "./src/testing.ts"
-    },
-    "./vite": {
-      "types": "./src/vite.ts",
-      "import": "./src/vite.ts"
-    }
+    ".": "./src/index.ts",
+    "./worker": "./src/embedding.worker.ts",
+    "./pipeline-cache-controller": "./src/pipeline-cache-controller.ts",
+    "./test-runtime-bootstrap": "./src/test-runtime-bootstrap.ts",
+    "./testing": "./src/testing.ts",
+    "./vite": "./src/vite.ts"
   },
-  "files": [
-    "dist/**"
-  ],
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc && tsup --config ./tsup.config.ts",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsup --config ./tsup.config.ts --watch",
     "lint": "pnpm -w lint",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
@@ -74,11 +43,5 @@
     "./dist/embedding.worker.cjs",
     "./dist/embedding.worker.js"
   ],
-  "turbo": {
-    "outputs": [
-      "dist/**"
-    ]
-  },
-  "type": "module",
-  "types": "./src/index.ts"
+  "type": "module"
 }

@@ -13,7 +13,6 @@
     "__tests__/**/*.mjs"
   ],
   "exclude": [
-    "dist",
     "node_modules"
   ]
 }

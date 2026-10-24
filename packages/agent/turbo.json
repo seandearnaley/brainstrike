@@ -5,7 +5,6 @@
       "env": ["$TURBO_EXTENDS$", "AGENT_TEST_SHARD", "AGENT_TEST_SHARD_REQUIRED"]
     },
     "test:integration": {
-      "dependsOn": ["$TURBO_EXTENDS$", "build"],
       "env": ["$TURBO_EXTENDS$", "AGENT_TEST_SHARD", "AGENT_TEST_SHARD_REQUIRED"]
     }
   }

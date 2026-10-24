@@ -5,18 +5,9 @@
   "type": "module",
   "description": "Canonical ingestion owned by the utility or standalone host",
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./cancellation": {
-      "types": "./src/cancellation.ts",
-      "default": "./dist/cancellation.js"
-    }
+    ".": "./src/index.ts",
+    "./cancellation": "./src/cancellation.ts"
   },
-  "files": [
-    "dist"
-  ],
   "sideEffects": false,
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
@@ -44,8 +35,6 @@
     "vitest": "catalog:"
   },
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "test": "vitest run --project unit --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
