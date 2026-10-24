@@ -257,7 +257,7 @@
     // --- Lint Task --- //
     "lint": {
       // Formatting policy affects lint, not every workspace test/build.
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/biome.json"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/biome.json", "$TURBO_ROOT$/biome.base.json"],
       // No outputs to cache.
       "outputs": []
     },
