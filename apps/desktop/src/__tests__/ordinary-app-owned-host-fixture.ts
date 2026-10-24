@@ -26,7 +26,10 @@ import {
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
-import { electronExecutablePath } from './helpers/electron-executable';
+import {
+  electronExecutablePath,
+  FOREGROUND_RENDERER_SWITCHES,
+} from './helpers/electron-executable';
 import {
   committedShellSlices,
   liveStdoutSlices,
@@ -189,6 +192,7 @@ setInterval(() => {}, 1000);
         '--test-mode',
         `--user-data-dir=${disposable}`,
         '--brainstrike-desktop-launch-mode=test-built',
+        ...FOREGROUND_RENDERER_SWITCHES,
       ],
       env,
       executablePath: electronExecutablePath(),

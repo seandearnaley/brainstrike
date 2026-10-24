@@ -24,13 +24,9 @@ const vitest = fileURLToPath(new URL('../../../node_modules/vitest/vitest.mjs', 
 // Config owns the pool: native integrations use forks; Windows coverage also
 // includes the isolated Main boot thread project from the base config. Files
 // run in parallel like every other lane (AGENTS.md): turbo's per-task share
-// (VITEST_MAX_WORKERS) when it runs this, otherwise half the cores. Windows,
-// whose cold fork imports keep every desktop lane serial, runs one at a time.
+// (VITEST_MAX_WORKERS) when it runs this, otherwise half the cores.
 const workers =
-  process.platform === 'win32'
-    ? '1'
-    : (process.env.VITEST_MAX_WORKERS ??
-      String(Math.max(2, Math.floor(os.availableParallelism() / 2))));
+  process.env.VITEST_MAX_WORKERS ?? String(Math.max(2, Math.floor(os.availableParallelism() / 2)));
 const parallelism = [`--maxWorkers=${workers}`];
 
 /** The dedicated cache's single storage origin, if one was provisioned. */
