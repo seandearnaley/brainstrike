@@ -30,6 +30,22 @@ when needed. Package `AGENTS.md` files contain only additional local constraints
   work follows `docs/agents/effect-boundary.md`; infer versions and build commands
   from the installed packages and scripts.
 
+## Internal packages are source-only
+
+This is an owner rule. Every `@brainstrike/*` package is consumed as TypeScript
+source through its `exports`; type-check reads source, and desktop bundles
+workspace code at build time. Never add a `dist` build, `tsc -b` output, tsconfig
+`paths`, project references or `composite` to an internal package. Never add a
+workaround for built output either: no stale-`dist` pruning, dist loaders,
+hardcoded fallbacks or alias registries. Never move a package back to `dist`, or
+re-add a build edge, to make a failure pass; fix the root cause in source, the
+test or the bundler config.
+
+Only these may ship built output: the native add-ons (`secure-fs-native`,
+`windows-job-native`), `mcp-test-lab`, `agent-evals` and `host-capabilities`'
+`brainstrike` CLI. The packages desktop's main process still loads from `dist`
+are being moved to the bundle; that set only shrinks.
+
 ## Prefer removal
 
 When an area keeps failing, change the design and prefer removing the mechanism
