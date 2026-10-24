@@ -1,18 +1,10 @@
 {
-  "extends": "../../packages/config/tsconfig/node-library.json",
+  "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
-    "paths": {
-      "@brainstrike/utils/*": [
-        "../utils/dist/*.d.ts"
-      ]
-    },
     "types": [
       "node"
     ],
@@ -26,22 +18,5 @@
     "node_modules",
     "**/*.test.ts",
     "**/*.test.tsx"
-  ],
-  "references": [
-    {
-      "path": "../context-actions"
-    },
-    {
-      "path": "../types"
-    },
-    {
-      "path": "../file-system"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../utils"
-    }
   ]
 }

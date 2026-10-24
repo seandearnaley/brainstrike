@@ -23,7 +23,7 @@ import type {
   IndexerResult,
   WorkerLog,
   WorkerResponse,
-} from './background-indexer.worker';
+} from './background-indexer-protocol';
 import { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
 import { emitIndexedFile, emitIndexingBacklog, emitIndexingError } from './telemetry';
 import type { TokenCacheEntry, TokenCacheStoreLike, TokenCountingMode } from './types';

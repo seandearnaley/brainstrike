@@ -1,3 +1,4 @@
+/// <reference path="./vite-env.d.ts" />
 import { useMessagePartText } from '@assistant-ui/react';
 import {
   type CodeHeaderProps,

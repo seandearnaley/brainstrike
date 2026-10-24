@@ -56,140 +56,140 @@
   },
   "exports": {
     "./assistant-thread-host-context": {
-      "types": "./dist/assistant-thread-host-context.d.ts",
+      "types": "./src/assistant-thread-host-context.tsx",
       "import": "./dist/assistant-thread-host-context.js"
     },
     "./mcp-content-capability": {
-      "types": "./dist/mcp-content-capability.d.ts",
+      "types": "./src/mcp-content-capability.tsx",
       "import": "./dist/mcp-content-capability.js"
     },
     "./mcp-status-capability": {
-      "types": "./dist/mcp-status-capability.d.ts",
+      "types": "./src/mcp-status-capability.tsx",
       "import": "./dist/mcp-status-capability.js"
     },
     "./mcp-tools-capability": {
-      "types": "./dist/mcp-tools-capability.d.ts",
+      "types": "./src/mcp-tools-capability.tsx",
       "import": "./dist/mcp-tools-capability.js"
     },
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./app-reload": {
-      "types": "./dist/app-reload/index.d.ts",
+      "types": "./src/app-reload/index.ts",
       "import": "./dist/app-reload/index.js"
     },
     "./connected-prompt-manager-lazy": {
-      "types": "./dist/connected-prompt-manager-lazy.d.ts",
+      "types": "./src/connected-prompt-manager-lazy.tsx",
       "import": "./dist/connected-prompt-manager-lazy.js"
     },
     "./browser-pane/availability": {
-      "types": "./dist/browser-pane/availability.d.ts",
+      "types": "./src/browser-pane/availability.ts",
       "import": "./dist/browser-pane/availability.js"
     },
     "./browser-pane/browser-pane-content": {
-      "types": "./dist/browser-pane/browser-pane-content.d.ts",
+      "types": "./src/browser-pane/browser-pane-content.tsx",
       "import": "./dist/browser-pane/browser-pane-content.js"
     },
     "./changes": {
-      "types": "./dist/changes/index.d.ts",
+      "types": "./src/changes/index.ts",
       "import": "./dist/changes/index.js"
     },
     "./changes/availability": {
-      "types": "./dist/changes/availability.d.ts",
+      "types": "./src/changes/availability.ts",
       "import": "./dist/changes/availability.js"
     },
     "./changes/use-last-turn-follower": {
-      "types": "./dist/changes/use-last-turn-follower.d.ts",
+      "types": "./src/changes/use-last-turn-follower.ts",
       "import": "./dist/changes/use-last-turn-follower.js"
     },
     "./context-map": {
-      "types": "./dist/context-map/index.d.ts",
+      "types": "./src/context-map/index.ts",
       "import": "./dist/context-map/index.js"
     },
     "./cost-tracking-settings": {
-      "types": "./dist/cost-tracking/index.d.ts",
+      "types": "./src/cost-tracking/index.tsx",
       "import": "./dist/cost-tracking/index.js"
     },
     "./diagnostics": {
-      "types": "./dist/diagnostics/index.d.ts",
+      "types": "./src/diagnostics/index.ts",
       "import": "./dist/diagnostics/index.js"
     },
     "./forge/availability": {
-      "types": "./dist/forge/availability.d.ts",
+      "types": "./src/forge/availability.ts",
       "import": "./dist/forge/availability.js"
     },
     "./git-panel": {
-      "types": "./dist/git-panel/index.d.ts",
+      "types": "./src/git-panel/index.ts",
       "import": "./dist/git-panel/index.js"
     },
     "./git-panel/availability": {
-      "types": "./dist/git-panel/availability.d.ts",
+      "types": "./src/git-panel/availability.ts",
       "import": "./dist/git-panel/availability.js"
     },
     "./navigation": {
-      "types": "./dist/navigation.d.ts",
+      "types": "./src/navigation.ts",
       "import": "./dist/navigation.js"
     },
     "./platform-bridge": {
-      "types": "./dist/platform-bridge.d.ts",
+      "types": "./src/platform-bridge.ts",
       "import": "./dist/platform-bridge.js"
     },
     "./user-commands-bridge": {
-      "types": "./dist/user-commands-bridge.d.ts",
+      "types": "./src/user-commands-bridge.ts",
       "import": "./dist/user-commands-bridge.js"
     },
     "./worktree-map": {
-      "types": "./dist/worktree-map/index.d.ts",
+      "types": "./src/worktree-map/index.ts",
       "import": "./dist/worktree-map/index.js"
     },
     "./worktrees/availability": {
-      "types": "./dist/worktrees/availability.d.ts",
+      "types": "./src/worktrees/availability.ts",
       "import": "./dist/worktrees/availability.js"
     },
     "./roots/root-registry": {
-      "types": "./dist/roots/root-registry.d.ts",
+      "types": "./src/roots/root-registry.ts",
       "import": "./dist/roots/root-registry.js"
     },
     "./terminal-panel": {
-      "types": "./dist/terminal-panel/index.d.ts",
+      "types": "./src/terminal-panel/index.ts",
       "import": "./dist/terminal-panel/index.js"
     },
     "./terminal-panel/availability": {
-      "types": "./dist/terminal-panel/availability.d.ts",
+      "types": "./src/terminal-panel/availability.ts",
       "import": "./dist/terminal-panel/availability.js"
     },
     "./workspace-connect/workspace-connect-bridge": {
-      "types": "./dist/workspace-connect/workspace-connect-bridge.d.ts",
+      "types": "./src/workspace-connect/workspace-connect-bridge.ts",
       "import": "./dist/workspace-connect/workspace-connect-bridge.js"
     },
     "./canvas/canvas-panel": {
-      "types": "./dist/canvas/canvas-panel.d.ts",
+      "types": "./src/canvas/canvas-panel.tsx",
       "import": "./dist/canvas/canvas-panel.js"
     },
     "./root-layout-content": {
-      "types": "./dist/root-layout-content.d.ts",
+      "types": "./src/root-layout-content.tsx",
       "import": "./dist/root-layout-content.js"
     },
     "./types": {
-      "types": "./dist/types.d.ts",
+      "types": "./src/types.ts",
       "import": "./dist/types.js"
     },
     "./use-document-title": {
-      "types": "./dist/use-document-title.d.ts",
+      "types": "./src/use-document-title.ts",
       "import": "./dist/use-document-title.js"
     },
     "./thread-workspace-navigation": {
-      "types": "./dist/thread-workspace/live-thread-workspace-navigation.d.ts",
+      "types": "./src/thread-workspace/live-thread-workspace-navigation.ts",
       "import": "./dist/thread-workspace/live-thread-workspace-navigation.js"
     },
     "./styles.css": "./styles.css",
     "./roots/root-identity-context": {
-      "types": "./dist/roots/root-identity-context.d.ts",
+      "types": "./src/roots/root-identity-context.tsx",
       "import": "./dist/roots/root-identity-context.js"
     },
     "./use-workspace-search-controller": {
-      "types": "./dist/use-workspace-search-controller.d.ts",
+      "types": "./src/use-workspace-search-controller.ts",
       "import": "./dist/use-workspace-search-controller.js"
     }
   },
@@ -206,13 +206,13 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run && vitest run --config vitest.compiled.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
-  "types": "dist/index.d.ts"
+  "types": "./src/index.ts"
 }

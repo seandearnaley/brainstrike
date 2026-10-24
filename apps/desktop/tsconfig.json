@@ -1,7 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "incremental": true,
     "plugins": [
       {
         "name": "@effect/language-service",
@@ -59,131 +58,6 @@
       "electron",
       "vite/client"
     ],
-    "paths": {
-      "@brainstrike/assistant-service/memory-model-targets": [
-        "../../packages/assistant-service/src/memory-model-targets.ts"
-      ],
-      "@brainstrike/assistant-service/ports": [
-        "../../packages/assistant-service/src/ports.ts"
-      ],
-      "@brainstrike/assistant-service/secret-errors": [
-        "../../packages/assistant-service/src/secret-errors.ts"
-      ],
-      "@brainstrike/agent": [
-        "../../packages/agent/dist/index.d.ts"
-      ],
-      "@brainstrike/agent/client": [
-        "../../packages/agent/dist/client.d.ts"
-      ],
-      "@brainstrike/agent/mcp-client": [
-        "../../packages/agent/dist/mcp-client.d.ts"
-      ],
-      "@brainstrike/queue": [
-        "../../packages/queue/src/index.ts"
-      ],
-      "@brainstrike/queue/browser": [
-        "../../packages/queue/src/browser.ts"
-      ],
-      "@brainstrike/ui": [
-        "../../packages/ui/src"
-      ],
-      "@brainstrike/types": [
-        "../../packages/types/src"
-      ],
-      "@brainstrike/effect-kit": [
-        "../../packages/effect-kit/src/index.ts"
-      ],
-      "@brainstrike/logging": [
-        "../../packages/logging/src/index.ts"
-      ],
-      "@brainstrike/utils": [
-        "../../packages/utils/src"
-      ],
-      "@brainstrike/utils/*": [
-        "../../packages/utils/src/*"
-      ],
-      "@brainstrike/tokenization": [
-        "../../packages/tokenization/src"
-      ],
-      "@brainstrike/db": [
-        "../../packages/db/src"
-      ],
-      "@brainstrike/storage": [
-        "../../packages/storage/src"
-      ],
-      "@brainstrike/storage/electron": [
-        "../../packages/storage/src/electron.ts"
-      ],
-      "@brainstrike/file-system": [
-        "../../packages/file-system/src"
-      ],
-      "@brainstrike/file-system/electron": [
-        "../../packages/file-system/src/electron.ts"
-      ],
-      "@brainstrike/file-system/path-validation": [
-        "../../packages/file-system/src/path-validation.ts"
-      ],
-      "@brainstrike/file-explorer-ui": [
-        "../../packages/file-explorer-ui/src"
-      ],
-      "@brainstrike/file-explorer-ui/*": [
-        "../../packages/file-explorer-ui/src/*"
-      ],
-      "@brainstrike/file-explorer-hooks": [
-        "../../packages/file-explorer-hooks/src"
-      ],
-      "@brainstrike/file-import": [
-        "../../packages/file-import/src"
-      ],
-      "@brainstrike/app-shell": [
-        "../../packages/app-shell/src"
-      ],
-      "@brainstrike/assistant-data": [
-        "../../packages/assistant-data/src"
-      ],
-      "@brainstrike/assistant-data/cost-tracking": [
-        "../../packages/assistant-data/src/cost-tracking/index.ts"
-      ],
-      "@brainstrike/assistant-data/assistant-memory-repository": [
-        "../../packages/assistant-data/src/assistant-memory-repository.ts"
-      ],
-      "@brainstrike/app-shell/app-reload": [
-        "../../packages/app-shell/src/app-reload/index.ts"
-      ],
-      "@brainstrike/app-shell/changes/availability": [
-        "../../packages/app-shell/src/changes/availability.ts"
-      ],
-      "@brainstrike/app-shell/git-panel/availability": [
-        "../../packages/app-shell/src/git-panel/availability.ts"
-      ],
-      "@brainstrike/app-shell/platform-bridge": [
-        "../../packages/app-shell/src/platform-bridge.ts"
-      ],
-      "@brainstrike/app-shell/terminal-panel/availability": [
-        "../../packages/app-shell/src/terminal-panel/availability.ts"
-      ],
-      "@brainstrike/app-shell/user-commands-bridge": [
-        "../../packages/app-shell/src/user-commands-bridge.ts"
-      ],
-      "@brainstrike/app-shell/worktrees/availability": [
-        "../../packages/app-shell/src/worktrees/availability.ts"
-      ],
-      "@brainstrike/platform-utils": [
-        "../../packages/platform-utils/src"
-      ],
-      "@brainstrike/embeddings": [
-        "../../packages/embeddings/src"
-      ],
-      "@brainstrike/embeddings/provider-core": [
-        "../../packages/embeddings/src/provider-core.ts"
-      ],
-      "@brainstrike/embeddings/worker": [
-        "../../packages/embeddings/src/worker-entry.ts"
-      ],
-      "@brainstrike/vector-management": [
-        "../../packages/vector-management/src"
-      ]
-    },
     "strictNullChecks": true
   },
   "include": [
@@ -198,43 +72,5 @@
     "src/**/__tests__/**",
     "src/**/*.test.*",
     "src/**/*.spec.*"
-  ],
-  "references": [
-    {
-      "path": "../../packages/app-state"
-    },
-    {
-      "path": "../../packages/app-shell"
-    },
-    {
-      "path": "../../packages/assistant-data"
-    },
-    {
-      "path": "../../packages/assistant-ui"
-    },
-    {
-      "path": "../../packages/db"
-    },
-    {
-      "path": "../../packages/queue"
-    },
-    {
-      "path": "../../packages/worker-runtime"
-    },
-    {
-      "path": "../../packages/platform-utils"
-    },
-    {
-      "path": "../../packages/effect-kit"
-    },
-    {
-      "path": "../../packages/logging"
-    },
-    {
-      "path": "../../packages/settings-ui"
-    },
-    {
-      "path": "../../packages/tokenization"
-    }
   ]
 }

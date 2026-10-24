@@ -23,32 +23,32 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
     "./context-generation": {
-      "types": "./dist/context-generation.d.ts",
+      "types": "./src/context-generation.ts",
       "import": "./dist/context-generation.mjs",
       "require": "./dist/context-generation.js"
     },
     "./file-tree": {
-      "types": "./dist/file-tree.d.ts",
+      "types": "./src/file-tree.ts",
       "import": "./dist/file-tree.mjs",
       "require": "./dist/file-tree.js"
     },
     "./project-tree-text": {
-      "types": "./dist/project-tree-text.d.ts",
+      "types": "./src/project-tree-text.ts",
       "import": "./dist/project-tree-text.mjs",
       "require": "./dist/project-tree-text.js"
     },
     "./selection": {
-      "types": "./dist/selection.d.ts",
+      "types": "./src/selection.ts",
       "import": "./dist/selection.mjs",
       "require": "./dist/selection.js"
     },
     "./testing": {
-      "types": "./dist/testing.d.ts",
+      "types": "./src/testing.ts",
       "import": "./dist/testing.mjs",
       "require": "./dist/testing.js"
     }
@@ -65,11 +65,11 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc --build && tsup",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc && tsup",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsup --watch",
     "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "types": "dist/index.d.ts"
+  "types": "./src/index.ts"
 }
