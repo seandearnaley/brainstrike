@@ -86,13 +86,6 @@ describe('main-process bundle external requires (real Electron-main CJS resoluti
     const exportsMapFailures: { error: string; specifier: string }[] = [];
     let builtCount = 0;
     for (const specifier of specifiers) {
-      // agent-client-loader.ts's `resolveAgentPackageRoot` deliberately
-      // probes `@brainstrike/agent/package.json` in a try/catch that already
-      // tolerates ERR_PACKAGE_PATH_NOT_EXPORTED — a `package.json` subpath is
-      // an optional existence probe by design, not a load-bearing require.
-      if (specifier.endsWith('/package.json')) {
-        continue;
-      }
       try {
         require.resolve(specifier, { paths: [path.resolve(import.meta.dirname, '../..')] });
         builtCount += 1;
