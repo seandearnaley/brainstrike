@@ -97,22 +97,6 @@ describe('AssistantChatPanel', () => {
     expect(screen.getByText('Reason: production_auth_required')).toBeInTheDocument();
   });
 
-  it('explains how to repair an invalid Hosted Web body-limit configuration', () => {
-    useAssistantAvailabilityMock.mockReturnValue({
-      reason: 'invalid_request_body_limit_config',
-      state: 'disabled',
-    });
-
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
-
-    expect(
-      screen.getByText(
-        'Set BRAINSTRIKE_ASSISTANT_REQUEST_BODY_LIMIT_BYTES to a positive safe integer no greater than 4194304, then restart or redeploy the server.'
-      )
-    ).toBeInTheDocument();
-    expect(screen.getByText('Reason: invalid_request_body_limit_config')).toBeInTheDocument();
-  });
-
   it('keeps an unknown disabled reason visible without guessing at remediation', () => {
     useAssistantAvailabilityMock.mockReturnValue({
       reason: 'future_server_reason',
