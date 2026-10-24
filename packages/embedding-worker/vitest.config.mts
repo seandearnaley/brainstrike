@@ -58,6 +58,8 @@ if (!runWebGpuMemory) {
 
 export default defineConfig({
   test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     projects: [
       {
         plugins: [onnxRuntimeWasmUrls],

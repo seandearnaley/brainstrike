@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import {
   __resetLoggingPreferencesStoreForTests,

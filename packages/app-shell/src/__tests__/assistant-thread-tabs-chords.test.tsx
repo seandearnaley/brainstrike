@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import './assistant-thread-tabs-workspace-test-support';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
