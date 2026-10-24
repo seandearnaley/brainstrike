@@ -125,7 +125,8 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
     await lease.listDir('.', 7, context());
     await lease.readFile('src/file.txt', 37, context());
     expect(root.listDir).toHaveBeenCalledExactlyOnceWith('.', 7);
-    expect(root.readFile).toHaveBeenCalledExactlyOnceWith('src/file.txt', 37);
+    // The secure root receives the native relative path the read authority resolved.
+    expect(root.readFile).toHaveBeenCalledExactlyOnceWith(path.join('src', 'file.txt'), 37);
     expect(createSecureRoot).toHaveBeenCalledTimes(1);
 
     await lease.retire();

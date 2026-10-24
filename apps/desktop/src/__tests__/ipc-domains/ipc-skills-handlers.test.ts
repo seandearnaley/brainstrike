@@ -4,6 +4,7 @@
  * errors) and explicit catalog-failure propagation.
  */
 
+import path from 'node:path';
 import type { SkillContentDeps } from '@brainstrike/agent';
 import { __resetSkillScanWarningsForTests } from '@brainstrike/agent';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
@@ -40,22 +41,27 @@ function makeFs(fs: MemoryFs): SkillContentDeps {
   };
 }
 
+// The catalog resolves each root natively; the scanner then joins its tiers with
+// `/` on every OS, so the in-memory tree is keyed exactly that way.
+const PROJECT = path.resolve('/proj/a');
+const HOME = path.resolve('/home/user');
+
 const FS: MemoryFs = {
   dirs: {
-    '/home/user/.claude/skills': [
+    [`${HOME}/.claude/skills`]: [
       { kind: 'dir', name: 'review' },
       { kind: 'dir', name: 'broken' },
     ],
-    '/home/user/.claude/skills/broken': [{ kind: 'file', name: 'SKILL.md' }],
-    '/home/user/.claude/skills/review': [{ kind: 'file', name: 'SKILL.md' }],
-    '/proj/a/.brainstrike/skills': [{ kind: 'dir', name: 'review' }],
-    '/proj/a/.brainstrike/skills/review': [{ kind: 'file', name: 'SKILL.md' }],
+    [`${HOME}/.claude/skills/broken`]: [{ kind: 'file', name: 'SKILL.md' }],
+    [`${HOME}/.claude/skills/review`]: [{ kind: 'file', name: 'SKILL.md' }],
+    [`${PROJECT}/.brainstrike/skills`]: [{ kind: 'dir', name: 'review' }],
+    [`${PROJECT}/.brainstrike/skills/review`]: [{ kind: 'file', name: 'SKILL.md' }],
   },
   files: {
-    '/home/user/.claude/skills/broken/SKILL.md': '---\nname: not-broken\ndescription: Bad.\n---\nx',
-    '/home/user/.claude/skills/review/SKILL.md':
+    [`${HOME}/.claude/skills/broken/SKILL.md`]: '---\nname: not-broken\ndescription: Bad.\n---\nx',
+    [`${HOME}/.claude/skills/review/SKILL.md`]:
       '---\nname: review\ndescription: Global review skill.\n---\nGlobal.',
-    '/proj/a/.brainstrike/skills/review/SKILL.md':
+    [`${PROJECT}/.brainstrike/skills/review/SKILL.md`]:
       '---\nname: review\ndescription: Root review skill.\nuser-invocable: false\n---\nRoot.',
   },
 };
@@ -69,7 +75,7 @@ const CATALOG_WITH_ROOT: WorkspaceRootPort = {
         id: 'root-a',
         kind: 'path',
         lastVerifiedAt: 1,
-        path: '/proj/a',
+        path: PROJECT,
         status: 'live',
       },
     ],
@@ -84,14 +90,14 @@ describe('scanSkillsForRenderer', () => {
   it('maps ok, shadowed, and invalid entries to serializable summaries', async () => {
     const result = await scanSkillsForRenderer({
       fs: makeFs(FS),
-      homedir: () => '/home/user',
+      homedir: () => HOME,
       workspaceRoots: CATALOG_WITH_ROOT,
     });
 
     const byStatus = new Map(result.entries.map((entry) => [entry.status, entry]));
     const ok = byStatus.get('ok');
     expect(ok).toMatchObject({
-      absPath: '/proj/a/.brainstrike/skills/review',
+      absPath: `${PROJECT}/.brainstrike/skills/review`,
       description: 'Root review skill.',
       name: 'review',
       preferenceKey: 'root:root-a:review',
@@ -104,7 +110,7 @@ describe('scanSkillsForRenderer', () => {
     expect(shadowed).toMatchObject({
       name: 'review',
       preferenceKey: 'global:review',
-      shadowedBy: { absPath: '/proj/a/.brainstrike/skills/review', tier: 'root-brainstrike' },
+      shadowedBy: { absPath: `${PROJECT}/.brainstrike/skills/review`, tier: 'root-brainstrike' },
       tier: 'global-claude',
     });
 
@@ -117,7 +123,7 @@ describe('scanSkillsForRenderer', () => {
     await expect(
       scanSkillsForRenderer({
         fs: makeFs(FS),
-        homedir: () => '/home/user',
+        homedir: () => HOME,
         workspaceRoots: {
           workspaceRoots: async () => {
             throw failure;
@@ -130,7 +136,7 @@ describe('scanSkillsForRenderer', () => {
   it('scans global skills after an authoritative empty root catalog', async () => {
     const result = await scanSkillsForRenderer({
       fs: makeFs(FS),
-      homedir: () => '/home/user',
+      homedir: () => HOME,
       workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
     });
     const names = result.entries
