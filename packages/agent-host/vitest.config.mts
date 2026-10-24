@@ -41,7 +41,6 @@ export default defineConfig({
     // (BST-2181). The integration config spreads this test block; a call's own
     // options still win.
     expect: { poll: { timeout: getExpectPollTimeout() } },
-    fileParallelism: false,
     globals: true,
     hookTimeout: 120_000,
     include: ['__tests__/**/*.test.ts'],

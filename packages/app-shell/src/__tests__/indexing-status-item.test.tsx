@@ -164,7 +164,9 @@ describe('IndexingStatusItem', () => {
     expect(screen.queryByText('Embedding queue')).not.toBeInTheDocument();
     expect(screen.queryByText('No active indexing work')).not.toBeInTheDocument();
     expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('Scanning');
-    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('54 files indexed');
+    // Main reports counts when a scan starts and settles, so a running scan has no live count.
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('Indexing…');
+    expect(screen.getByTestId('indexing-activity-region')).not.toHaveTextContent('54');
   });
 
   it('presents Text search with no collection as ready, using no embeddings (BST-1988)', async () => {
@@ -672,7 +674,7 @@ describe('IndexingStatusItem', () => {
     ).toBeInTheDocument();
   });
 
-  it('marks retained dirty statistics as updating without moving the metric layout', async () => {
+  it('labels retained statistics as from before the running scan without moving the metric layout', async () => {
     seedReadyManagedStats();
     const readyStats = useIndexingActivityStore.getState().managedCollectionStats.stats;
     setManagedCollectionStats({
@@ -686,7 +688,7 @@ describe('IndexingStatusItem', () => {
     await userEvent.click(screen.getByTestId('indexing-status-trigger'));
 
     const popover = await screen.findByTestId('indexing-status-popover');
-    expect(within(popover).getByText('75% · updating')).toBeInTheDocument();
+    expect(within(popover).getByText('75% · before this scan')).toBeInTheDocument();
     expect(within(popover).getByTestId('managed-stat-files')).toHaveTextContent('24');
   });
 

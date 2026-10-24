@@ -21,8 +21,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: ['node_modules', 'dist', 'tasks'],
-    // An eval owns a real host process, its data root and its workspace.
-    fileParallelism: false,
     globals: true,
     hookTimeout: 120_000,
     include: ['__tests__/**/*.test.ts'],

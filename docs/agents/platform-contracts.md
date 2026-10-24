@@ -20,6 +20,14 @@ Native modules, utility entries, Python/CLI helpers and runtime assets are
 resolved from the actual packaged layout. Missing or incompatible assets refuse;
 a development path or system installation is not a packaged fallback.
 
+## Login-shell environment
+
+Windows keeps the Explorer environment; Main does not resolve a login shell on
+win32 (the same as VS Code's resolver). This is the one stated exception to the
+rule that every test runs on every OS: the two `login-shell-environment.test.ts`
+tests that start a real POSIX login shell are skipped on Windows, and the
+`skipped: windows` outcome is asserted on every OS.
+
 ## Reset and physical lifetime
 
 Clear Database deletes canonical content, root grants and derived indexes while

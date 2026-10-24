@@ -186,6 +186,7 @@ import {
   reportAgentHostStartupFailure as reportHostStartupFailure,
   reportNativeIndexActivationError as reportNativeIndexFailure,
 } from './native-index-activation-error';
+import { observeNativeIndex } from './native-index-observations';
 import {
   createNativeStartupFailureReporter,
   observeNativeReaderStartup,
@@ -905,23 +906,6 @@ const indexConfig = createDesktopIndexConfig({
       await nativeIndexActivation.resume();
     }),
 });
-const nativeLifecycleObserver = new AbortController();
-void nativeIndexActivation
-  .observeLifecycle((observation) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged, observation);
-      }
-    }
-  }, nativeLifecycleObserver.signal)
-  .catch((error: unknown) => {
-    if (error !== nativeLifecycleObserver.signal.reason) {
-      reportNativeIndexActivationError('Native lifecycle observer failed', error);
-    }
-  });
-ipcDisposers.add('native-index-lifecycle', () =>
-  nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
-);
 // Main's own desktop-origin client: Settings credential writes reach the host,
 // their single owner, through it.
 const agentHostMainClient = createAgentHostMainClient(
@@ -995,6 +979,29 @@ const nativeRootRegistration = createNativeRootRegistration({
   reportError: reportNativeIndexActivationError,
   transition: (operation) => nativeRootDataDeletion.transition(operation),
 });
+const nativeLifecycleObserver = new AbortController();
+// Windows follow this push for the index's lifecycle, status and coverage; none of them polls.
+observeNativeIndex({
+  coverageBatch: nativeIndexSearch.coverageBatch,
+  observeChanges: nativeIndexActivation.observeChanges,
+  observeLifecycle: nativeIndexActivation.observeLifecycle,
+  publish: (observation) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged, observation);
+      }
+    }
+  },
+  signal: nativeLifecycleObserver.signal,
+  status: nativeIndexSearch.status,
+}).catch((error: unknown) => {
+  if (error !== nativeLifecycleObserver.signal.reason) {
+    reportNativeIndexActivationError('Native lifecycle observer failed', error);
+  }
+});
+ipcDisposers.add('native-index-lifecycle', () =>
+  nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
+);
 ipcDisposers.add(
   'index-search',
   registerIndexSearchIpcHandlers(

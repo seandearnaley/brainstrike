@@ -119,8 +119,26 @@ export type NativeIndexLifecycleObservation =
       readonly cause: NativeIndexRefusalCause;
     };
 
+/**
+ * What Main's index owner tells every window: its lifecycle, and the status and
+ * the authorized roots' coverage read once after the lifecycle, a scan's start,
+ * settle or invalidation, or a source's health changed. Nothing is read on a
+ * timer, so a scan's counts are those it started from until it settles.
+ */
+export interface NativeIndexObservation {
+  readonly lifecycle: NativeIndexLifecycleObservation;
+  readonly progress:
+    | {
+        readonly kind: 'read';
+        readonly status: IndexerStatus;
+        /** Absent when the status is unavailable or no root is authorized. */
+        readonly coverage?: IndexerCoverageBatch;
+      }
+    | { readonly kind: 'failed'; readonly reason: string };
+}
+
 export interface IndexLifecycleCapability {
-  onLifecycleChanged(listener: (observation: NativeIndexLifecycleObservation) => void): () => void;
+  onLifecycleChanged(listener: (observation: NativeIndexObservation) => void): () => void;
 }
 
 /** Existing canonical source receipts, projected without a second readiness owner. */

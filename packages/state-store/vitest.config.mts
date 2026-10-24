@@ -11,11 +11,6 @@ export default defineConfig({
     coverage: { reportOnFailure: true },
     environment: 'node',
     exclude: ['node_modules', 'dist'],
-    // One file at a time, as in the M0 spikes: the suites spawn competing
-    // processes (lock races, SIGKILLed writers) and assert wall-clock bounds
-    // (a display flush under 100 ms while a 400 ms sync is in flight), which
-    // parallel files would turn into contention flakes.
-    fileParallelism: false,
     globals: true,
     hookTimeout: 120_000,
     include: ['__tests__/**/*.test.ts'],

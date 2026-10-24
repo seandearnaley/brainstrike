@@ -37,6 +37,29 @@ over patching it. Do not answer a failure with a new timer, retry, guard script,
 contract test or rule. Tests assert behaviour a user would notice or a durable-data
 invariant, not internal call order or the text of other files.
 
+## Time is the scarcest resource
+
+Every developer and agent shares this machine's cores and the owner's wait.
+
+**Caching and parallelism are never turned off.** This is an owner rule, not a
+default. Every turbo task stays cacheable (only `dev` and `clean`, which turbo
+cannot cache, are exempt), and no lane or package is made serial: no
+`--concurrency=1`, no `maxWorkers: 1`, no `fileParallelism: false`, no
+`cache: false`. A test that fails from the cache or in parallel is the defect.
+Give it its own temporary directory, port, data root or clock, or declare the
+missing input in turbo `inputs`/`env`. Never uncache or serialize to make it pass.
+
+- Iterate on the narrowest check that covers the change: `vitest run <file>`,
+  then `pnpm --filter <package> test`, then `pnpm test:affected`. Run the full
+  `pnpm check` once, right before queueing, never as an edit loop.
+- Never rerun a lane that passed. After a failure, rerun only the failing files.
+- Start anything longer than about two minutes in the background and keep
+  working; do not wait on it or poll it.
+- Run independent work in parallel (separate processes, subagents or worktrees),
+  and keep turbo and Vitest using the cores (`--concurrency`, Vitest workers).
+- Time-box audits and investigations. Report what is known with its gaps rather
+  than mapping everything first; the owner can ask for more.
+
 ## Validation and delivery
 
 `pnpm check` must pass before a change is queued. Hosted CI runs nightly on main;

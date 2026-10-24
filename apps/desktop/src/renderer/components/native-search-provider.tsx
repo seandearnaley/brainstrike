@@ -103,14 +103,11 @@ function nextSearchStatus(prior: NativeSearchStatus, status: IndexerStatus): Nat
   };
 }
 
-async function readMatchingStatus(
-  capability: IndexSearchCapability,
-  saved: SavedSearch | null
-): Promise<IndexerStatus> {
+/** Main's status as search may use it under the saved choices. */
+function matchingStatus(next: IndexerStatus, saved: SavedSearch | null): IndexerStatus {
   if (saved?.mode === 'off') {
     return { kind: 'unavailable', reason: NATIVE_INDEX_OFF_MESSAGE };
   }
-  const next = await capability.status();
   if (next.kind === 'ready' && !matchesSavedChoices(next, saved)) {
     return {
       kind: 'unavailable',
@@ -160,49 +157,39 @@ export function NativeSearchProvider({
   useEffect(() => {
     const saved = mode === null ? null : { mode, model };
     let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let revision = 0;
-    let latestEvent: NativeIndexLifecycleObservation | undefined;
-    const refresh = async (event?: NativeIndexLifecycleObservation): Promise<void> => {
-      if (event) {
-        latestEvent = event;
-      }
-      const request = ++revision;
-      try {
-        const next = await readMatchingStatus(capability, saved);
-        if (!disposed && request === revision) {
-          setStatus((prior) => nextSearchStatus(prior, next));
-          const observed = latestEvent;
-          if (observed) {
-            setLifecycle((prior) => unchangedStatus(prior, observed));
+    // Main pushes after every change it reads; a push is newer than this view's first read.
+    let pushed = false;
+    const show = (next: IndexerStatus): void => {
+      setStatus((prior) => nextSearchStatus(prior, matchingStatus(next, saved)));
+    };
+    const unsubscribe = capability.onLifecycleChanged(({ lifecycle: observed, progress }) => {
+      pushed = true;
+      show(
+        progress.kind === 'read'
+          ? progress.status
+          : { kind: 'unavailable', reason: progress.reason }
+      );
+      setLifecycle((prior) => unchangedStatus(prior, observed));
+    });
+    if (saved?.mode === 'off') {
+      show({ kind: 'unavailable', reason: NATIVE_INDEX_OFF_MESSAGE });
+    } else {
+      capability.status().then(
+        (next) => {
+          if (!(disposed || pushed)) {
+            show(next);
+          }
+        },
+        (error: unknown) => {
+          if (!(disposed || pushed)) {
+            show({ kind: 'unavailable', reason: errorMessage(error) });
           }
         }
-      } catch (error) {
-        if (!disposed && request === revision) {
-          setStatus((prior) =>
-            nextSearchStatus(prior, { kind: 'unavailable', reason: errorMessage(error) })
-          );
-        }
-      }
-    };
-    const poll = async (): Promise<void> => {
-      await refresh();
-      if (!disposed) {
-        timer = setTimeout(() => {
-          void poll();
-        }, 2000);
-      }
-    };
-    const unsubscribe = capability.onLifecycleChanged((event) => {
-      void refresh(event);
-    });
-    void poll();
+      );
+    }
     return () => {
       disposed = true;
       unsubscribe();
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
     };
   }, [capability, mode, model]);
   const semantic = mode === 'semantic';

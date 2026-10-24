@@ -59,8 +59,6 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     globals: true,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
-    maxWorkers: 1,
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],
   },

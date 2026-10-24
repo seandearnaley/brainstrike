@@ -48,75 +48,62 @@ test('L-gone: an exited pid has no start time (null), it does not throw', async 
   expect(processStartTime(p.pid as number)).toBeNull();
 }, 60_000);
 
-// An unavailable OS identity source must never be interpreted as a dead owner.
-test.skipIf(process.platform === 'win32')(
-  'L-error: a missing ps executable rejects identity instead of claiming the pid is gone',
-  () => {
-    const cp = createRequire(import.meta.url)(
-      'node:child_process'
-    ) as typeof import('node:child_process');
-    const original = cp.execFileSync;
-    (cp as { execFileSync: unknown }).execFileSync = () => {
-      throw Object.assign(new Error('ps unavailable'), { code: 'ENOENT' });
-    };
+// An unavailable OS identity source must never be interpreted as a dead owner. Both sources fail here (`ps`, and the
+// Windows process-identity addon), so whichever one this OS reads is the one that is unavailable.
+test('L-error: an unavailable identity source rejects identity instead of claiming the pid is gone', () => {
+  const require = createRequire(import.meta.url);
+  const cp = require('node:child_process') as typeof import('node:child_process');
+  const windowsIdentity = require('@brainstrike/windows-job-native') as {
+    getProcessCreationTime: (pid: number) => string | null;
+  };
+  const unavailable = (): never => {
+    throw Object.assign(new Error('identity source unavailable'), { code: 'ENOENT' });
+  };
+  const originalPs = cp.execFileSync;
+  const originalWindows = windowsIdentity.getProcessCreationTime;
+  (cp as { execFileSync: unknown }).execFileSync = unavailable;
+  windowsIdentity.getProcessCreationTime = unavailable;
+  syncBuiltinESMExports();
+  try {
+    expect(() => processStartTime(99_999_999)).toThrow(/identity source unavailable/);
+  } finally {
+    (cp as { execFileSync: unknown }).execFileSync = originalPs;
+    windowsIdentity.getProcessCreationTime = originalWindows;
     syncBuiltinESMExports();
-    try {
-      expect(() => processStartTime(99_999_999)).toThrow(/ps unavailable/);
-    } finally {
-      (cp as { execFileSync: unknown }).execFileSync = original;
-      syncBuiltinESMExports();
-    }
   }
-);
+});
 
-// BST-2106: an exited child its parent has not reaped yet is a zombie. It holds
-// no descriptors and its pid cannot be reused, but `ps` still lists it with its
-// start time. Electron reaps an exited utility process asynchronously on Linux,
-// so reset saw its joined host "survive". A zombie has no start time: it is gone.
-test.skipIf(process.platform === 'win32')(
-  'L-zombie: an exited child not yet reaped by its parent has no start time',
-  async () => {
-    // A shell can reap `sleep 0` before exec, and the old five-second parent
-    // could expire before a loaded runner observed it. Hold the real fork's
-    // parent until this test releases it, then reap and join both processes.
-    const parent = spawn(
-      'python3',
-      [
-        '-c',
-        [
-          'import os, sys',
-          'child = os.fork()',
-          'if child == 0:',
-          '    os._exit(0)',
-          'print(child, flush=True)',
-          'sys.stdin.read()',
-          'os.waitpid(child, 0)',
-        ].join('\n'),
-      ],
-      { stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-    const exited = once(parent, 'close');
-    const lines = createInterface({ input: parent.stdout });
-    let errors = '';
-    parent.stderr.on('data', (chunk: Buffer) => {
-      errors += chunk.toString();
-    });
-    try {
-      const zombie = Number((await lines[Symbol.asyncIterator]().next()).value);
-      expect(zombie, errors).toBeGreaterThan(0);
-      const state = (): string =>
-        createRequire(import.meta.url)('node:child_process')
-          .execFileSync('ps', ['-o', 'stat=', '-p', String(zombie)], { encoding: 'utf8' })
-          .trim();
-      await expect.poll(state, { timeout: 5000 }).toMatch(/^Z/);
+// BST-2106: an exited child its parent has not collected yet is still known to the OS (a POSIX zombie; on Windows a
+// process object its parent's handle keeps open), but it holds nothing and its pid cannot be reused. Electron collects
+// an exited utility process asynchronously, so reset saw its joined host "survive". Such a child has no start time.
+// The parent blocks its only thread in a synchronous stdin read, so its event loop cannot collect the child until
+// this test closes that stdin.
+const UNCOLLECTING_PARENT = [
+  "const { spawn } = require('node:child_process');",
+  "const { readSync, writeSync } = require('node:fs');",
+  "const child = spawn(process.execPath, ['-e', '0'], { stdio: 'ignore' });",
+  "writeSync(1, child.pid + '\\n');",
+  'readSync(0, Buffer.alloc(1));',
+].join('\n');
 
-      expect(processStartTime(zombie)).toBeNull();
-      expect(processStartTime(parent.pid as number)).not.toBeNull();
-    } finally {
-      parent.stdin.end();
-      expect((await exited)[0], errors).toBe(0);
-      lines.close();
-    }
-  },
-  60_000
-);
+test('L-zombie: an exited child its parent has not collected yet has no start time', async () => {
+  const parent = spawn(process.execPath, ['-e', UNCOLLECTING_PARENT], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const exited = once(parent, 'close');
+  const lines = createInterface({ input: parent.stdout });
+  let errors = '';
+  parent.stderr.on('data', (chunk: Buffer) => {
+    errors += chunk.toString();
+  });
+  try {
+    const child = Number((await lines[Symbol.asyncIterator]().next()).value);
+    expect(child, errors).toBeGreaterThan(0);
+    await expect.poll(() => processStartTime(child), { timeout: 5000 }).toBeNull();
+    expect(processStartTime(parent.pid as number)).not.toBeNull();
+  } finally {
+    parent.stdin.end();
+    expect((await exited)[0], errors).toBe(0);
+    lines.close();
+  }
+}, 60_000);
