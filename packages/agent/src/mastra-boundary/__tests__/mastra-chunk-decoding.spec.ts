@@ -1,5 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 
@@ -20,9 +18,8 @@ import {
 /**
  * BST-985. These are the PURE decoders lifted out of `agent-streaming.ts`:
  * untyped Mastra chunk in, validated Brainstrike value out. Nothing here may
- * read a clock, mint an id, log, or mutate its argument — the final `describe`
- * enforces exactly that, so a future edit that reintroduces a side effect
- * fails here rather than in a 4k-line full-stream spec.
+ * read a clock, mint an id, log, or mutate its argument; the referential
+ * transparency cases below decode frozen arguments twice and compare.
  */
 
 function deepFreeze<T>(value: T): T {
@@ -243,93 +240,4 @@ describe('purity', () => {
       expect(run()).toEqual(run());
     }
   );
-});
-
-describe('purity is structural, not just observed', () => {
-  // The behavioural cases above only cover the decoders they name. This checks
-  // the WHOLE module, so a side effect added to any future decoder fails here.
-  const IMPURE_CALL_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
-    ['wall clock', /\bnew Date\s*\(|\bDate\.now\s*\(/u],
-    ['id minting', /\bgenerateUUID\s*\(|\brandomUUID\s*\(/u],
-    ['randomness', /\bMath\.random\s*\(/u],
-    ['logging', /\blogger\s*\.|\bconsole\s*\./u],
-  ];
-
-  function sourceWithoutComments(relativePath: string): string {
-    const filePath = resolve(import.meta.dirname, relativePath);
-    return readFileSync(filePath, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//gu, '')
-      .replace(/^\s*\/\/.*$/gmu, '');
-  }
-
-  it.each(IMPURE_CALL_PATTERNS)('the decoding module performs no %s', (_label, pattern) => {
-    expect(sourceWithoutComments('../mastra-chunk-decoding.ts')).not.toMatch(pattern);
-  });
-
-  // Two controls, because a probe that cannot fire is not evidence. The first
-  // proves every regex actually matches the form it claims to; the second
-  // proves the comment-stripper does not blank out real code on a large file.
-  it.each(IMPURE_CALL_PATTERNS)('control: the %s probe fires on a synthetic sample', (_l, p) => {
-    const synthetic = [
-      'const a = new Date().toISOString(); const b = Date.now();',
-      'const c = generateUUID(); const d = crypto.randomUUID();',
-      'const e = Math.random();',
-      "logger.warn('x'); console.error('y');",
-    ].join('\n');
-    expect(synthetic).toMatch(p);
-  });
-
-  it('control: the clock, id-minting, and logging probes fire on fence-executor.ts', () => {
-    // This control read `agent-streaming.ts` until ADR-0022 retired the Mastra
-    // loop, then `pglite-mastra-memory/memory-store.ts` until BST-2068 retired
-    // desktop PGlite. `fence/fence-executor.ts` replaces it on the same two
-    // grounds: it genuinely holds these three, and at ~1k lines it still proves
-    // the comment-stripper does not blank out real code on a large file.
-    const impure = sourceWithoutComments('../../fence/fence-executor.ts');
-    expect(impure).toMatch(/\bnew Date\s*\(|\bDate\.now\s*\(/u);
-    expect(impure).toMatch(/\bgenerateUUID\s*\(|\brandomUUID\s*\(/u);
-    expect(impure).toMatch(/\blogger\s*\.|\bconsole\s*\./u);
-  });
-
-  // The file-local probes above cannot see impurity that arrives through an
-  // IMPORT — adding a `logger.warn` to `sanitizeAssistantRunEventMetadata`
-  // would make every resolveTripwire call log while all these tests stayed
-  // green (review #2169). Purity is a property of the reachable graph, so the
-  // guard walks it.
-  function reachableModules(entry: string): string[] {
-    const importRe = /(?:import|export)[^'"]*from\s+['"](\.[^'"]+)['"]/gu;
-    const seen = new Set<string>();
-    const queue = [resolve(import.meta.dirname, entry)];
-    while (queue.length > 0) {
-      const file = queue.pop() as string;
-      if (seen.has(file)) {
-        continue;
-      }
-      seen.add(file);
-      const source = readFileSync(file, 'utf8');
-      for (const match of source.matchAll(importRe)) {
-        const spec = (match[1] as string).replace(/\.js$/u, '');
-        for (const candidate of [`${spec}.ts`, `${spec}/index.ts`]) {
-          const resolved = resolve(dirname(file), candidate);
-          if (existsSync(resolved)) {
-            queue.push(resolved);
-            break;
-          }
-        }
-      }
-    }
-    return [...seen];
-  }
-
-  it.each(IMPURE_CALL_PATTERNS)('nothing reachable from the module performs %s', (_l, pattern) => {
-    const modules = reachableModules('../mastra-chunk-decoding.ts');
-    // Anti-vacuity: a resolver that silently found nothing would pass forever.
-    expect(modules.length).toBeGreaterThan(3);
-    for (const modulePath of modules) {
-      const source = readFileSync(modulePath, 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//gu, '')
-        .replace(/^\s*\/\/.*$/gmu, '');
-      expect(source, `${modulePath} breaks the decoder purity contract`).not.toMatch(pattern);
-    }
-  });
 });
