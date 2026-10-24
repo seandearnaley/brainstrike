@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
@@ -19,8 +20,17 @@ function mockDb(rows: unknown[]): WorkspaceRootsQueryable {
   return { query: vi.fn(async () => ({ rows: rows as never[] })) };
 }
 
-const ROOT_A = { displayName: 'ProjectA', path: '/Users/me/ProjectA', rootId: 'root-a' };
-const ROOT_B = { displayName: 'ProjectB', path: '/Users/me/ProjectB', rootId: 'root-b' };
+// Roots resolve to native absolute paths, so the fixtures are native too.
+const ROOT_A = {
+  displayName: 'ProjectA',
+  path: path.resolve('/Users/me/ProjectA'),
+  rootId: 'root-a',
+};
+const ROOT_B = {
+  displayName: 'ProjectB',
+  path: path.resolve('/Users/me/ProjectB'),
+  rootId: 'root-b',
+};
 
 function runtime(overrides: Partial<RuntimeData> = {}): RuntimeData {
   return { provider: 'openai', ...overrides } as RuntimeData;
@@ -256,8 +266,8 @@ describe('resolveWorkspaceRoot', () => {
 describe('loadWorkspaceRootsFromDatabase', () => {
   it('queries only live, path-backed roots and maps them', async () => {
     const db = mockDb([
-      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
-      { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+      { displayName: 'ProjectA', id: 'root-a', path: ROOT_A.path },
+      { displayName: 'ProjectB', id: 'root-b', path: ROOT_B.path },
     ]);
     const roots = await loadWorkspaceRootsFromDatabase(db);
     expect(roots).toEqual([ROOT_A, ROOT_B]);
@@ -270,7 +280,7 @@ describe('loadWorkspaceRootsFromDatabase', () => {
 
   it('drops rows with a null/empty path (e.g. web FSA roots)', async () => {
     const db = mockDb([
-      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
+      { displayName: 'ProjectA', id: 'root-a', path: ROOT_A.path },
       { displayName: 'web-root', id: 'web', path: null },
     ]);
     expect(await loadWorkspaceRootsFromDatabase(db)).toEqual([ROOT_A]);
@@ -310,7 +320,7 @@ describe('markRootDisconnectedByPath', () => {
   it('revokes an in-flight runtime snapshot as soon as its root disconnects', async () => {
     const root = {
       displayName: 'Revoked',
-      path: '/Users/me/Revoked',
+      path: path.resolve('/Users/me/Revoked'),
       rootId: 'root-revoked-during-run',
     };
     const runtimeSnapshot = runtime({
@@ -377,7 +387,11 @@ describe('markRootsDisconnectedExcept (boot convergence)', () => {
 });
 
 describe('orderWorkspaceRoots (client-declared MAIN root reorder)', () => {
-  const ROOT_C = { displayName: 'ProjectC', path: '/Users/me/ProjectC', rootId: 'root-c' };
+  const ROOT_C = {
+    displayName: 'ProjectC',
+    path: path.resolve('/Users/me/ProjectC'),
+    rootId: 'root-c',
+  };
 
   it('moves the root matching mainRootId to the FRONT, preserving the rest', () => {
     expect(orderWorkspaceRoots([ROOT_A, ROOT_B, ROOT_C], 'root-c', undefined)).toEqual([
@@ -389,7 +403,7 @@ describe('orderWorkspaceRoots (client-declared MAIN root reorder)', () => {
 
   it('falls back to a resolved-path match when the id does not match (legacy id divergence)', () => {
     expect(
-      orderWorkspaceRoots([ROOT_A, ROOT_B], 'client-uuid-not-db-id', '/Users/me/ProjectB/')
+      orderWorkspaceRoots([ROOT_A, ROOT_B], 'client-uuid-not-db-id', `${ROOT_B.path}${path.sep}`)
     ).toEqual([ROOT_B, ROOT_A]);
   });
 
@@ -418,8 +432,8 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
         workspaceRootPath: '/Users/me/ProjectA',
       }),
       mockDb([
-        { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
-        { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+        { displayName: 'ProjectA', id: 'root-a', path: ROOT_A.path },
+        { displayName: 'ProjectB', id: 'root-b', path: ROOT_B.path },
       ])
     );
 
@@ -435,8 +449,8 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
           workspaceRootPath: '/Users/me/ProjectA',
         }),
         mockDb([
-          { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
-          { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+          { displayName: 'ProjectA', id: 'root-a', path: ROOT_A.path },
+          { displayName: 'ProjectB', id: 'root-b', path: ROOT_B.path },
         ])
       )
     ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/i);
@@ -456,8 +470,8 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
 
   it('reorders DB roots so the client-declared main root is first', async () => {
     const db = mockDb([
-      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
-      { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+      { displayName: 'ProjectA', id: 'root-a', path: ROOT_A.path },
+      { displayName: 'ProjectB', id: 'root-b', path: ROOT_B.path },
     ]);
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(
       runtime({ mainRootId: 'root-b', workspaceRootPath: '/Users/me/ProjectA' }),
@@ -468,8 +482,8 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
 
   it('keeps created_at order when the declared main root is not a live DB root', async () => {
     const db = mockDb([
-      { displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' },
-      { displayName: 'ProjectB', id: 'root-b', path: '/Users/me/ProjectB' },
+      { displayName: 'ProjectA', id: 'root-a', path: ROOT_A.path },
+      { displayName: 'ProjectB', id: 'root-b', path: ROOT_B.path },
     ]);
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(
       runtime({ mainRootId: 'gone', mainRootPath: '/Users/me/Elsewhere' }),
@@ -481,7 +495,7 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
   it('injects DB roots when none are present on the runtime', async () => {
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(
       runtime({ workspaceRootPath: '/Users/me/ProjectA' }),
-      mockDb([{ displayName: 'ProjectA', id: 'root-a', path: '/Users/me/ProjectA' }])
+      mockDb([{ displayName: 'ProjectA', id: 'root-a', path: ROOT_A.path }])
     );
     expect(enriched?.workspaceRoots).toEqual([ROOT_A]);
   });

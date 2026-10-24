@@ -196,7 +196,15 @@ export function isMockFileSystemIpcPath(requestedPath: string): boolean {
   ) {
     return true;
   }
-  return requestedPath.startsWith(MOCK_PATH_PREFIX);
+  return hasMockPathPrefix(requestedPath);
+}
+
+/**
+ * The registry presents a mounted root as `path.normalize` spells it, `\mock\…`
+ * on Windows, so the mock prefix is matched in that spelling too.
+ */
+function hasMockPathPrefix(requestedPath: string): boolean {
+  return path.normalize(requestedPath).startsWith(path.normalize(MOCK_PATH_PREFIX));
 }
 
 function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
@@ -373,7 +381,7 @@ async function ipcPathExists(
     );
   }
 
-  if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
+  if (hasMockPathPrefix(requestedPath)) {
     return true;
   }
 
@@ -738,10 +746,7 @@ export function createFileSystemIpcDomain({
             return content;
           }
 
-          if (
-            absolutePath.startsWith(MOCK_PATH_PREFIX) &&
-            usesSyntheticFileSystem(MOCK_ROOT_PATH)
-          ) {
+          if (hasMockPathPrefix(absolutePath) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
             return 'Mock file content for testing purposes\nThis is a test file.\n';
           }
 
