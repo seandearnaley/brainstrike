@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import fsPromises, { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AccessError, type DirectoryHandle } from '@brainstrike/file-system';
@@ -88,6 +88,19 @@ describe('WorkspaceRootRegistry read-denial projection', () => {
     const rootPath = await mkdtemp(path.join(tmpdir(), 'bst-1159-denial-message-'));
     const rawTail = 'RAW_REALPATH_TAIL_MUST_NOT_APPEAR';
     const requestedPath = path.join(rootPath, `renderer-controlled-${'x'.repeat(1024)}${rawTail}`);
+    // POSIX realpath refuses this name with ENAMETOOLONG; Windows reports ENOENT,
+    // which is a missing file rather than a denial. Inject the POSIX failure so the
+    // projection is exercised the same way on every OS.
+    const realpath = fsPromises.realpath.bind(fsPromises);
+    const nameTooLong = vi.spyOn(fsPromises, 'realpath').mockImplementation(async (...args) => {
+      const target = String(args[0]);
+      if (target.endsWith(rawTail)) {
+        throw Object.assign(new Error(`ENAMETOOLONG: name too long, realpath '${target}'`), {
+          code: 'ENAMETOOLONG',
+        });
+      }
+      return realpath(...args);
+    });
     try {
       const registry = createRegistry();
       const descriptor = await registry.addRoot(rootHandle(rootPath));
@@ -112,6 +125,7 @@ describe('WorkspaceRootRegistry read-denial projection', () => {
       expect(metadata['message']).not.toContain(rawTail);
       expect(metadata['message']).not.toMatch(/[\n\r\t]/u);
     } finally {
+      nameTooLong.mockRestore();
       captured.remove();
       await rm(rootPath, { force: true, recursive: true });
     }

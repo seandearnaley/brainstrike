@@ -578,10 +578,13 @@ describe('grep search tool filePaths scope (BST-764)', () => {
   const UNOPENED_ROOT: RuntimeData = {
     workspaceRoots: [{ displayName: 'site-qa', path: '/work/site-qa', rootId: 'db-root-a' }],
   };
+  // Roots resolve to native absolute paths, so the nested pair is native too.
+  const NESTED_OUTER = path.resolve('/work/site-qa');
+  const NESTED_INNER = path.join(NESTED_OUTER, 'inner');
   const NESTED_ROOTS: RuntimeData = {
     workspaceRoots: [
-      { displayName: 'outer', path: '/work/site-qa', rootId: 'db-root-a' },
-      { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
+      { displayName: 'outer', path: NESTED_OUTER, rootId: 'db-root-a' },
+      { displayName: 'inner', path: NESTED_INNER, rootId: 'db-root-b' },
     ],
   };
 
@@ -675,7 +678,7 @@ describe('grep search tool filePaths scope (BST-764)', () => {
   it('rejects an ambiguous path under nested roots', async () => {
     await expect(
       runGrepSearchWith(
-        { filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle' },
+        { filePaths: [path.join(NESTED_INNER, 'f.ts')], pattern: 'needle' },
         NESTED_ROOTS
       )
     ).rejects.toThrow(/more than one open folder/i);

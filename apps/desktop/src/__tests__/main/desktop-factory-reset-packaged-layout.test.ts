@@ -145,7 +145,8 @@ describe('factory reset with the packaged macOS database layout', () => {
     });
 
     expect(observedAtDatabaseReset).toEqual([{ localStorage: true, pgdata: true }]);
-    expect(root).toBe(path.join(userData, 'data'));
+    // The macOS location joins with `/`; on any host it is userData's `data` child.
+    expect(path.relative(userData, root)).toBe('data');
     expect(existsSync(root)).toBe(false);
     expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
     expect(existsSync(path.join(userData, 'logs', 'brainstrike.log'))).toBe(true);

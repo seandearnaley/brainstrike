@@ -3,6 +3,7 @@
  * A `root` outside them is refused by type (the folder may be open in the
  * workspace), and a grep or glob with no `root` covers all of them.
  */
+import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
@@ -15,8 +16,17 @@ import {
   resolveWorkspaceSearchScope,
 } from '../../assistant-server/workspace-roots';
 
-const ALPHA = { displayName: 'alpha-root', path: '/work/alpha-root', rootId: 'root-alpha' };
-const BRAVO = { displayName: 'bravo-root', path: '/work/bravo-root', rootId: 'root-bravo' };
+// Roots resolve to native absolute paths, so the fixtures are native too.
+const ALPHA = {
+  displayName: 'alpha-root',
+  path: path.resolve('/work/alpha-root'),
+  rootId: 'root-alpha',
+};
+const BRAVO = {
+  displayName: 'bravo-root',
+  path: path.resolve('/work/bravo-root'),
+  rootId: 'root-bravo',
+};
 
 function runtime(overrides: Partial<RuntimeData>): RuntimeData {
   return { provider: 'openai', ...overrides } as RuntimeData;

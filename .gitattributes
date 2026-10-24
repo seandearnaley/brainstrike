@@ -14,3 +14,8 @@
 # file as part of that same merge, so its lockfile may still splice textually
 # that one time. The conformance guard above is what catches that case.
 pnpm-lock.yaml merge=binary
+
+# Every checkout is LF on every platform. Git for Windows defaults core.autocrlf=true,
+# which would rewrite text files to CRLF in a Windows working tree and change what
+# tests, formatters and hashes read there. Nothing in the index is CRLF.
+* text=auto eol=lf

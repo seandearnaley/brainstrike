@@ -10,7 +10,7 @@ import {
 
 type Registry = ReturnType<typeof createRegistry>;
 type ReadKind = 'directory' | 'file' | 'absolute';
-const ROOT = '/workspace';
+const ROOT = path.resolve('/workspace');
 
 function read(registry: Registry, rootId: string, kind: ReadKind): Promise<unknown> {
   if (kind === 'directory') {

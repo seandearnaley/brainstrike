@@ -84,7 +84,7 @@ class FakeFs implements InventoryFs {
     }
     return Promise.resolve(
       node.children.map((name) => {
-        const childPath = `${dirPath}/${name}`;
+        const childPath = path.join(dirPath, name);
         const childNode = this.nodes.get(childPath);
         return {
           isDirectory: () => childNode?.type === 'dir',
@@ -137,15 +137,18 @@ describe('buildInventorySnapshot — hook-free spawn discipline + dedup (unit, f
     const linkedDir = path.join(rootDir, 'linked');
     await fsPromises.mkdir(linkedDir);
 
+    // The walk and the resolvers build native paths, so the fake does too.
+    const gitDir = path.join(rootDir, '.git');
+    const linkedGitDir = path.join(gitDir, 'worktrees', 'linked');
     const fs = new FakeFs();
     fs.addDir(rootDir, ['.git', 'linked']);
-    fs.addDir(`${rootDir}/.git`, []);
-    fs.setRealpath(`${rootDir}/.git`, `${rootDir}/.git`);
+    fs.addDir(gitDir, []);
+    fs.setRealpath(gitDir, gitDir);
     fs.addDir(linkedDir, ['.git']);
-    fs.addFile(`${linkedDir}/.git`, `gitdir: ${rootDir}/.git/worktrees/linked\n`);
-    fs.addDir(`${rootDir}/.git/worktrees/linked`, ['commondir']);
-    fs.addFile(`${rootDir}/.git/worktrees/linked/commondir`, '../..\n');
-    fs.setRealpath(`${rootDir}/.git/worktrees/linked`, `${rootDir}/.git/worktrees/linked`);
+    fs.addFile(path.join(linkedDir, '.git'), `gitdir: ${linkedGitDir}\n`);
+    fs.addDir(linkedGitDir, ['commondir']);
+    fs.addFile(path.join(linkedGitDir, 'commondir'), '../..\n');
+    fs.setRealpath(linkedGitDir, linkedGitDir);
 
     const runCalls: RecordedRun[] = [];
     const run: GitCommandRunner = ({ args, cwd }): Promise<GitCommandRun> => {
@@ -228,10 +231,11 @@ describe('buildInventorySnapshot — hook-free spawn discipline + dedup (unit, f
     const rootDir = await makeTempDir('brainstrike-git-inventory-unit-nonprunable-root-');
     const vanishedWorktreePath = path.join(rootDir, 'vanished-worktree');
 
+    const gitDir = path.join(rootDir, '.git');
     const fs = new FakeFs();
     fs.addDir(rootDir, ['.git']);
-    fs.addDir(`${rootDir}/.git`, []);
-    fs.setRealpath(`${rootDir}/.git`, `${rootDir}/.git`);
+    fs.addDir(gitDir, []);
+    fs.setRealpath(gitDir, gitDir);
 
     const run: GitCommandRunner = ({ args, cwd }): Promise<GitCommandRun> => {
       if (args[0] === 'config') {
