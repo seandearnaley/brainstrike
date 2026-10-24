@@ -1,0 +1,39 @@
+name: Provision Electron binary
+description: >-
+  Install the installed electron package's binary through its own installer,
+  with the release archive cached by Electron version. Callers MUST check out
+  and install dependencies first.
+# BST-2221: Electron 44 has no install lifecycle. Its first `require('electron')`
+# downloads the binary itself, synchronously, so on an unprovisioned host the
+# download ran inside the first test that asked: indexer's scoped-electron proof
+# spent its whole 30 s budget blocked on it (Test runs 39190167055 and
+# 39207682126). Every lane that launches Electron provisions it here first.
+# Electron's installer checks the archive against the package's checksums and
+# picks the host arch; `timeout` turns a stalled transfer into this step's
+# failure rather than the job's.
+#
+# The installer keeps the ~120 MB release zip in @electron/get's cache
+# (~/.cache/electron). Downloading it took 7-15 s of every desktop Unit shard
+# and E2E job (merge-queue run 40094214869); with the zip restored the
+# installer only verifies and extracts it (about 2.5 s). The key changes only
+# with the Electron version, so the nightly run on main saves it once and merge
+# queue batches restore it.
+runs:
+  using: composite
+  steps:
+    - name: Resolve the Electron version
+      id: electron
+      shell: bash
+      working-directory: apps/desktop
+      run: echo "version=$(node -p "require('electron/package.json').version")" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v5
+      with:
+        path: ~/.cache/electron
+        key: ${{ runner.os }}-${{ runner.arch }}-electron-${{ steps.electron.outputs.version }}
+    - name: Install the Electron binary
+      shell: bash
+      working-directory: apps/desktop
+      run: |
+        set -euo pipefail
+        timeout 300 pnpm exec install-electron
+        node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p,fs.constants.X_OK);console.log('Electron binary present at '+p)"

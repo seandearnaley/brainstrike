@@ -110,24 +110,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends ripgrep
           rg --version
 
-      # Electron 43 exposes install.js only as a bin and has no install lifecycle,
-      # so pnpm cannot provision the binary. Download the prebuilt zip from
-      # GitHub Releases, extract it, and hard-verify the executable before launch.
       - name: Provision Electron binary
-        working-directory: apps/desktop
-        run: |
-          set -euo pipefail
-          VER=$(node -p "require('electron/package.json').version")
-          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
-          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
-          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
-          echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
-          rm -rf "${DIR}/dist" "${DIR}/path.txt"
-          mkdir -p "${DIR}/dist"
-          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
-          printf 'electron' > "${DIR}/path.txt"
-          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
+        uses: ./.github/actions/provision-electron
 
       # dbus-run-session provides an ephemeral D-Bus session bus so
       # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
@@ -250,24 +234,8 @@ jobs:
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
-      # Electron 43 exposes install.js only as a bin and has no install lifecycle,
-      # so pnpm cannot provision the binary. Download the prebuilt zip from
-      # GitHub Releases, extract it, and hard-verify the executable before launch.
       - name: Provision Electron binary
-        working-directory: apps/desktop
-        run: |
-          set -euo pipefail
-          VER=$(node -p "require('electron/package.json').version")
-          DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
-          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
-          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
-          echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
-          rm -rf "${DIR}/dist" "${DIR}/path.txt"
-          mkdir -p "${DIR}/dist"
-          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
-          printf 'electron' > "${DIR}/path.txt"
-          node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
+        uses: ./.github/actions/provision-electron
 
       # dbus-run-session wraps Electron so Chromium's D-Bus connect attempts
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
