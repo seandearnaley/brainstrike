@@ -23,6 +23,11 @@ export interface HostRunHooksOptions {
   }[];
   /** The hooks' `session_id`: the run's thread. */
   readonly sessionId: string;
+  /**
+   * The composing app's Windows command wrapper. On Windows each hook runs
+   * through it, as the app's own commands do.
+   */
+  readonly windowsCommandEntry: () => string;
 }
 
 /**
@@ -78,6 +83,7 @@ export function loadHostRunHooks(options: HostRunHooksOptions): {
     logger,
     primaryCwd,
     sessionId: options.sessionId,
+    windowsCommandEntry: options.windowsCommandEntry,
   });
   manager.reportConfigErrors();
   const skipped = load.errors.map(

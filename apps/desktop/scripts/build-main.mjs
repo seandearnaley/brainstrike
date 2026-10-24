@@ -11,11 +11,11 @@
  * pinned by src/__tests__/build-main-config.test.ts).
  */
 import { existsSync } from 'node:fs';
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { cp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { NODE_BUILDS } from './build-main-config.mjs';
+import { NODE_BUILDS, PROCESS_LAUNCHERS } from './build-main-config.mjs';
 import {
   assertNoNodeInferenceImports,
   findNodeInferenceImports,
@@ -52,9 +52,29 @@ async function cleanMainProcessOutputs() {
  */
 async function assertPreloadBundlesAreSandboxSafe() {
   for (const entryName of PRELOAD_BUNDLE_ENTRY_NAMES) {
-    const fileName = `${entryName}.js`;
+    const fileName = `${entryName}.cjs`;
     const source = await readFile(path.join(appRoot, 'dist', fileName), 'utf8');
     assertPreloadBundleRequires(fileName, source);
+  }
+}
+
+/**
+ * The indexer host chunks code in Node, where the bundled tree-sitter loader
+ * reads its vendored grammars from `grammars/` beside itself.
+ */
+async function copyNodeGrammars() {
+  await cp(
+    path.resolve(appRoot, '../../packages/chunking-worker/grammars'),
+    path.join(appRoot, 'dist', 'grammars'),
+    { recursive: true }
+  );
+}
+
+/** Each launcher is its imports, in order (see PROCESS_LAUNCHERS). */
+async function writeProcessLaunchers() {
+  for (const [name, imports] of Object.entries(PROCESS_LAUNCHERS)) {
+    const source = imports.map((specifier) => `import '${specifier}';\n`).join('');
+    await writeFile(path.join(appRoot, 'dist', `${name}.js`), source);
   }
 }
 
@@ -66,5 +86,7 @@ const builds = [];
 for (const options of NODE_BUILDS) {
   builds.push((await build({ ...options, metafile: true })).metafile);
 }
+await writeProcessLaunchers();
+await copyNodeGrammars();
 await assertPreloadBundlesAreSandboxSafe();
 assertNoNodeInferenceImports(await findNodeInferenceImports({ absWorkingDir: appRoot, builds }));
