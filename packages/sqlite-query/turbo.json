@@ -11,7 +11,8 @@
       "passThroughEnv": [
         "CI",
         "COVERAGE",
-        "SQLITE_QUERY_TEST_EXEC_PATH"
+        "SQLITE_QUERY_TEST_EXEC_PATH",
+        "VITEST_MAX_WORKERS"
       ]
     }
   }

@@ -2,50 +2,20 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      // NEVER cache — same "ABI is not in the hash" reason as `test` below, but
-      // caching this task also caused a PROVEN cross-arch failure. `node-gyp
-      // rebuild` emits an arch/ABI-specific `.node` into build/**, yet turbo's
-      // cache hash keys on the C/C++/JS SOURCE only — never the compiler / Node /
-      // OS ABI it was built against. `runner.os` is "Linux" on both arm64 and x64
-      // GitHub runners and arch is absent from the hash, so the shared REMOTE
-      // turbo cache is arch-blind. Caching build/** let the arm64 Static/Unit
-      // jobs (ubuntu-24.04-arm) populate an entry that an x64 job (ubuntu-latest)
-      // then replayed, so consumers loaded an arm64 addon on x64 and died with
-      // "secure_fs_native.node: cannot open shared object file" (the Coverage
-      // lane — see PR #1749). Not caching forces a fresh node-gyp rebuild on
-      // whichever runner actually needs the addon, the only sound behavior for a
-      // native build. The LOCAL .turbo layer is arch-namespaced and would be
-      // safe, but turbo cannot scope cache:false to remote-only, and a ~3s
-      // rebuild is cheap. `outputs` is intentionally omitted: it is meaningless
-      // once nothing is cached.
-      "cache": false
+      // Cached like every task (AGENTS.md). The `.node` binary depends on the
+      // OS, CPU architecture and Node ABI: the root config hashes RUNNER_OS,
+      // RUNNER_ARCH, pnpm's user agent (OS and arch) and package.json (which pins
+      // Node through devEngines), so one platform's binary is never replayed on
+      // another (the arm64/x64 failure in PR #1749).
+      "outputs": ["build/Release/**"]
     },
     "test": {
-      // NEVER cache: the `test` script exercises the compiled native `.node`
-      // binary directly (`node --test test/*.test.cjs`). Pass/fail depends on
-      // the host toolchain + Node/OS ABI producing a working binary — a
-      // result-affecting input turbo does NOT hash (it hashes the C/C++/JS
-      // source, never the compiled artifact or the ABI it was built against).
-      // A cache hit would replay a green without proving the addon
-      // builds/loads on this machine, defeating the entire purpose of a
-      // native-addon test.
-      "cache": false,
-      // B4 build-edge exception (see packages/utils/turbo.json for the
-      // pattern): the tests load the compiled addon, so this task needs the
-      // package's own `build` first. The edge MUST live here rather than as a
-      // `pnpm build &&` prefix in the test script: turbo also schedules this
-      // package's `build` task, and with the inline form a single
-      // `turbo build ... test` invocation ran TWO CONCURRENT `node-gyp
-      // rebuild`s (= clean + configure + build) in this directory — they race
-      // ("make: No targets specified and no makefile found" / missing .deps;
-      // reproduced 2026-07-19). The dependsOn edge makes turbo serialize the
-      // one and only rebuild before the tests. `$TURBO_EXTENDS$` appends to
-      // the inherited `["topo"]` instead of replacing it. Guarded by
-      // scripts/__tests__/native-addon-build-uncached-contract.test.mjs.
+      // The tests load the compiled addon, so they need this package's own build
+      // first. The edge lives here, not as a `pnpm build &&` prefix, so a
+      // `turbo build test` run never starts two concurrent node-gyp rebuilds.
       "dependsOn": ["$TURBO_EXTENDS$", "build"],
-      // cache:false does NOT exempt strict-env filtering; package configs REPLACE
-      // array fields. Redeclare to keep CI/COVERAGE visible. Sync with root.
-      "passThroughEnv": ["CI", "COVERAGE"]
+      // Package configs replace array fields; redeclare the root's pass-through.
+      "passThroughEnv": ["CI", "COVERAGE", "VITEST_MAX_WORKERS"]
     }
   }
 }

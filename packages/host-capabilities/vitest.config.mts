@@ -22,7 +22,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: ['node_modules', 'dist'],
-    fileParallelism: false,
     globals: true,
     // Both scale with the real-process step budget (BST-2157): hookTimeout covers
     // cleanup's sequential waits, testTimeout a real-bin test's bin calls.
