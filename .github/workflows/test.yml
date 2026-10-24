@@ -986,22 +986,12 @@ jobs:
         run: pnpm turbo run build --log-order=grouped
 
       # Desktop E2E drives the app through Playwright's Electron API
-      # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
-      # binary — it does NOT use a `playwright install chromium` browser. So we
-      # only need the Chromium system libraries (apt), not the browser binary
-      # download from cdn.playwright.dev (which was stalling and hanging the
-      # job). `install-deps` is apt-only and does not touch the browser CDN.
-
-      # BST-1715: an unused third-party apt source (Google Chrome, added by the
-      # runner image) serving an inconsistent index makes the apt-get update
-      # below exit non-zero and kills this step. Drop the source rather than
-      # relaxing apt's exit status.
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install Chromium system dependencies
-        run: pnpm exec playwright install-deps chromium
-
+      # (_electron.launch), which uses the app's OWN bundled Electron binary,
+      # not a Playwright browser. Its runtime libraries and xvfb ship in the
+      # runner image: the Unit lane's desktop test host launches Electron
+      # without installing them, and `playwright install-deps chromium` here
+      # found every library already present and only added fonts and point
+      # upgrades (12-19 s per job in merge-queue run 40094849438).
       - name: Provision Electron binary
         uses: ./.github/actions/provision-electron
 
@@ -1073,12 +1063,6 @@ jobs:
 
       - name: Build
         run: pnpm turbo run build --log-order=grouped
-
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install Chromium system dependencies
-        run: pnpm exec playwright install-deps chromium
 
       - name: Provision Electron binary
         uses: ./.github/actions/provision-electron
