@@ -12,7 +12,7 @@ class FakeCdpSession implements CdpSession {
     this.responses = responses;
   }
   send<T>(method: string, params?: Record<string, unknown>): Promise<T> {
-    this.sent.push({ method, params });
+    this.sent.push({ method, ...(params === undefined ? {} : { params }) });
     return Promise.resolve((this.responses[method] ?? {}) as T);
   }
   on(): void {

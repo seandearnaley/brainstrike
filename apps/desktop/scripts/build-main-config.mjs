@@ -46,6 +46,7 @@ const ESM_REQUIRE_BANNER = {
   js: "import { createRequire as __bundleCreateRequire } from 'node:module'; const require = __bundleCreateRequire(import.meta.url);",
 };
 
+/** @type {import('esbuild').BuildOptions} */
 const shared = {
   absWorkingDir: appRoot,
   bundle: true,

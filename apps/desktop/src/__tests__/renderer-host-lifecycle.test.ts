@@ -162,10 +162,10 @@ function createFakeWindow(id: number): FakeWindow {
       listeners: webContentsListeners,
       on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
         if (event === 'render-process-gone') {
-          webContentsListeners.renderProcessGone = listener as FakeListenerMap['renderProcessGone'];
+          webContentsListeners.renderProcessGone = listener;
         }
         if (event === 'did-fail-load') {
-          webContentsListeners.didFailLoad = listener as FakeListenerMap['didFailLoad'];
+          webContentsListeners.didFailLoad = listener;
         }
       }),
       send: vi.fn(),

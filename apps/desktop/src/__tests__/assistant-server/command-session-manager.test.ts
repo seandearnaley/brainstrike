@@ -31,7 +31,7 @@ class FakePty {
 
   emitExit(exitCode: number, signal?: number): void {
     for (const listener of this.exitListeners) {
-      listener({ exitCode, signal });
+      listener({ exitCode, ...(signal === undefined ? {} : { signal }) });
     }
   }
 

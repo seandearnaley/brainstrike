@@ -101,7 +101,7 @@ describe('ipc-handlers filesystem composition', () => {
       name: 'file.txt',
       path: '/mock/test/directory/file.txt',
       platform: 'electron',
-      rootId: handle.rootId,
+      ...(handle.rootId === undefined ? {} : { rootId: handle.rootId }),
     } satisfies FileHandle);
 
     // The registry presents a root as path.normalize spells it: `\mock\…` on Windows.
@@ -123,7 +123,7 @@ describe('ipc-handlers filesystem composition', () => {
       name: 'file.txt',
       path: path.join(DOCS, 'file.txt'),
       platform: 'electron',
-      rootId: root.rootId,
+      ...(root.rootId === undefined ? {} : { rootId: root.rootId }),
     } satisfies FileHandle;
 
     await expect(

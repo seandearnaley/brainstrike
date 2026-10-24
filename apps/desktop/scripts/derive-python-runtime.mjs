@@ -2,26 +2,35 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { create } from 'tar';
 
+const LINUX_DBM_ARCHITECTURES = new Map([
+  ['aarch64-unknown-linux-gnu', 'aarch64'],
+  ['x86_64-unknown-linux-gnu', 'x86_64'],
+]);
+
 // Verified against the pinned full build's PYTHON.json: _dbm is the only
 // extension linked to Berkeley DB. Keep the upstream notices and source links.
+/** @param {string} target */
 export function linuxDbmModulePath(target) {
-  const architecture = {
-    'aarch64-unknown-linux-gnu': 'aarch64',
-    'x86_64-unknown-linux-gnu': 'x86_64',
-  }[target];
+  const architecture = LINUX_DBM_ARCHITECTURES.get(target);
   if (!architecture) {
     throw new Error(`Unsupported no-dbm-v1 derivation target: ${target}.`);
   }
   return `python/lib/python3.13/lib-dynload/_dbm.cpython-313-${architecture}-linux-gnu.so`;
 }
 
-/** Repack a checksum-verified source, preserving payloads/symlinks without extracting them. */
+/**
+ * Repack a checksum-verified source, preserving payloads/symlinks without extracting them.
+ * @param {string} sourcePath
+ * @param {string} outputPath
+ * @param {string} target
+ */
 export async function derivePythonRuntimeArchive(sourcePath, outputPath, target) {
   const dbmModulePath = linuxDbmModulePath(target);
   if (path.resolve(sourcePath) === path.resolve(outputPath)) {
     throw new Error('python-runtime: derivation must not overwrite its upstream source.');
   }
   let omitted = 0;
+  /** @type {string[]} */
   const unexpected = [];
   try {
     create(

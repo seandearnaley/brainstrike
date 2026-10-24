@@ -52,7 +52,7 @@ const context = (requestId: string, signal = new AbortController().signal) => ({
 const settlement = (id: string | undefined, requestId: string) => ({
   configuredServerId: SERVER_ID,
   generation: 7,
-  id,
+  ...(id === undefined ? {} : { id }),
   requestId,
 });
 
@@ -393,7 +393,7 @@ describe('McpElicitationPresenterAuthority', () => {
         configuredServerId: SERVER_ID,
         content: { workspace: 'stale' },
         generation: 8,
-        id: closingId,
+        ...(closingId === undefined ? {} : { id: closingId }),
         requestId: 'close-me',
       })
     ).toThrowError(expect.objectContaining({ code: 'mcp-elicitation-settlement-invalid' }));

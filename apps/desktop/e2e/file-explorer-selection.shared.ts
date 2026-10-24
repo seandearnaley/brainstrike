@@ -412,7 +412,9 @@ export async function toggleFileTreeCheckboxAndWaitForSelection(args: {
   const deadline = Date.now() + FILE_TREE_CHECKBOX_INTERACTION_TIMEOUT_MS;
 
   await waitForFileExplorerSelectionIdle({
-    expectedSelectedCount: expectedSelectedCountBefore,
+    ...(expectedSelectedCountBefore === undefined
+      ? {}
+      : { expectedSelectedCount: expectedSelectedCountBefore }),
     page,
     timeoutMs: getRemainingInteractionTimeout({
       deadline,
@@ -805,31 +807,9 @@ export async function seedRestoredQuerySelectionState(args: {
   rootPath: string;
   selectionRootPath: string;
 }): Promise<void> {
-  const {
-    coveredDirectoryPaths,
-    electronHarness,
-    expandedDirectoryPaths,
-    excludeFilters,
-    excludedPaths,
-    includeFilters,
-    includedPaths,
-    manifestSnapshotId,
-    materializedPaths,
-    rootPath,
-    selectionRootPath,
-  } = args;
-  const persistedState = createRestoredQuerySelectionSnapshot({
-    coveredDirectoryPaths,
-    excludedPaths,
-    excludeFilters,
-    expandedDirectoryPaths,
-    includedPaths,
-    includeFilters,
-    manifestSnapshotId,
-    materializedPaths,
-    rootPath,
-    selectionRootPath,
-  });
+  const { electronHarness, ...snapshot } = args;
+  const { rootPath } = snapshot;
+  const persistedState = createRestoredQuerySelectionSnapshot(snapshot);
   const currentContext = await electronHarness.ensureContext();
   const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
 

@@ -16,11 +16,12 @@
 // the bundle are re-signed by osx-sign with the Developer ID identity. A
 // sentinel next to python/ records the archive sha256, so the runtime resolver
 // proves the tree matches the manifest without the archive.
+// Node's fetch body is an async-iterable web stream; this lib types that.
+/// <reference lib="dom.asynciterable" />
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 import { extract } from 'tar';
@@ -35,7 +36,32 @@ const UNPACK_DIR_BY_TARGET = new Map([
   ['x86_64-unknown-linux-gnu', 'linux-x64'],
 ]);
 
-/** The `<platform>-<electron arch>` directory a manifest target unpacks into. */
+/**
+ * @typedef {object} ArchiveEntry
+ * @property {number} bytes
+ * @property {string} sha256
+ */
+/**
+ * @typedef {ArchiveEntry & { archiveFileName: string, variant: string }} DerivedArchiveEntry
+ */
+/**
+ * @typedef {ArchiveEntry & { derived?: DerivedArchiveEntry }} TargetEntry
+ */
+/**
+ * The manifest as `JSON.parse` reads it; `loadManifestTargets` validates it.
+ * @typedef {object} PythonRuntimeManifest
+ * @property {string} assetUrlTemplate
+ * @property {string} pythonVersion
+ * @property {string} releaseTag
+ * @property {string[]} supportedTargets
+ * @property {Record<string, TargetEntry | undefined>} targets
+ * @property {string} variant
+ */
+
+/**
+ * The `<platform>-<electron arch>` directory a manifest target unpacks into.
+ * @param {string} target
+ */
 export function unpackDirForTarget(target) {
   const directory = UNPACK_DIR_BY_TARGET.get(target);
   if (!directory) {
@@ -51,28 +77,38 @@ const defaultResourcesDir = path.resolve(import.meta.dirname, '../resources/pyth
 // 25MB over any non-broken connection finishes in well under this.
 const DEFAULT_FETCH_TIMEOUT_MS = 120_000;
 
-const PLATFORM_TARGETS = {
-  darwin: ['aarch64-apple-darwin', 'x86_64-apple-darwin'],
+/** @type {ReadonlyMap<string, readonly string[]>} */
+const PLATFORM_TARGETS = new Map([
+  ['darwin', ['aarch64-apple-darwin', 'x86_64-apple-darwin']],
   // Windows packaging remains supported without bundled Python.
-  win32: [],
-};
+  ['win32', []],
+]);
+const LINUX_TARGET_BY_ARCH = new Map([
+  ['arm64', 'aarch64-unknown-linux-gnu'],
+  ['x64', 'x86_64-unknown-linux-gnu'],
+]);
 
-/** @param {string} platform */
+/**
+ * @param {string} platform
+ * @param {string} [arch]
+ * @returns {readonly string[] | undefined}
+ */
 function targetsForPlatform(platform, arch = process.arch) {
   if (platform === 'all') {
     return;
   }
   if (platform === 'linux') {
-    const target = { arm64: 'aarch64-unknown-linux-gnu', x64: 'x86_64-unknown-linux-gnu' }[arch];
+    const target = LINUX_TARGET_BY_ARCH.get(arch);
     if (!target) {
       throw new Error(`Unsupported python-runtime preparation architecture "linux/${arch}".`);
     }
     return [target];
   }
-  if (!Object.hasOwn(PLATFORM_TARGETS, platform)) {
+  const targets = PLATFORM_TARGETS.get(platform);
+  if (!targets) {
     throw new Error(`Unsupported python-runtime preparation platform "${platform}".`);
   }
-  return PLATFORM_TARGETS[platform];
+  return targets;
 }
 
 /**
@@ -82,12 +118,13 @@ function targetsForPlatform(platform, arch = process.arch) {
  */
 export function parsePythonRuntimeArgs(args, hostPlatform = process.platform) {
   let platform;
-  if (args.length === 0 || (args.length === 1 && args[0] === '--platform=host')) {
+  const [only] = args;
+  if (args.length === 0 || (args.length === 1 && only === '--platform=host')) {
     platform = hostPlatform;
-  } else if (args.length === 1 && args[0] === '--all') {
+  } else if (args.length === 1 && only === '--all') {
     platform = 'all';
-  } else if (args.length === 1 && args[0].startsWith('--platform=')) {
-    platform = args[0].slice('--platform='.length);
+  } else if (args.length === 1 && only?.startsWith('--platform=')) {
+    platform = only.slice('--platform='.length);
     if (platform === 'all') {
       throw new Error('python-runtime: use --all to prepare every target.');
     }
@@ -98,6 +135,11 @@ export function parsePythonRuntimeArgs(args, hostPlatform = process.platform) {
   return { platform };
 }
 
+/**
+ * @param {typeof fetch} fetchImpl
+ * @param {string} url
+ * @param {number} timeoutMs
+ */
 async function fetchWithTimeout(fetchImpl, url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -113,6 +155,10 @@ async function fetchWithTimeout(fetchImpl, url, timeoutMs) {
   }
 }
 
+/**
+ * @param {PythonRuntimeManifest} manifest
+ * @param {string} target
+ */
 function renderAssetUrl(manifest, target) {
   return manifest.assetUrlTemplate
     .replaceAll('{releaseTag}', manifest.releaseTag)
@@ -121,6 +167,7 @@ function renderAssetUrl(manifest, target) {
     .replaceAll('{variant}', manifest.variant);
 }
 
+/** @param {string} filePath */
 async function hashFileSha256(filePath) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(filePath)) {
@@ -129,6 +176,7 @@ async function hashFileSha256(filePath) {
   return hash.digest('hex');
 }
 
+/** @param {{ entry: ArchiveEntry, filePath: string, label: string }} archive */
 async function verifyArchive({ entry, filePath, label }) {
   const stats = await fsPromises.stat(filePath);
   if (stats.size !== entry.bytes) {
@@ -144,6 +192,7 @@ async function verifyArchive({ entry, filePath, label }) {
   }
 }
 
+/** @param {{ destPath: string, entry: ArchiveEntry }} archive */
 async function archiveAlreadyVerifies({ destPath, entry }) {
   try {
     await verifyArchive({ entry, filePath: destPath, label: destPath });
@@ -153,6 +202,11 @@ async function archiveAlreadyVerifies({ destPath, entry }) {
   }
 }
 
+/**
+ * @param {PythonRuntimeManifest} manifest
+ * @param {string} manifestPath
+ * @returns {{ entry: TargetEntry, target: string }[]}
+ */
 function loadManifestTargets(manifest, manifestPath) {
   if (
     !Array.isArray(manifest.supportedTargets) ||
@@ -193,6 +247,15 @@ function loadManifestTargets(manifest, manifestPath) {
   });
 }
 
+/**
+ * @param {{
+ *   entry: TargetEntry,
+ *   resourcesDir: string,
+ *   sourcePath: string,
+ *   log: (message: string) => void,
+ *   target: string,
+ * }} preparation
+ */
 async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log, target }) {
   if (!entry.derived) {
     return;
@@ -219,6 +282,10 @@ async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log, tar
   );
 }
 
+/**
+ * @param {string} installDir
+ * @returns {Promise<string | undefined>}
+ */
 async function readSentinel(installDir) {
   try {
     return (
@@ -234,6 +301,8 @@ async function readSentinel(installDir) {
  * the ignored unpacked/ tree can lose files after the sentinel was written, and
  * a release build must never package that silently. Only a tree whose sentinel
  * matches AND whose interpreter is executable is reused.
+ * @param {string} installDir
+ * @param {string} expectedSha256
  */
 async function isUnpackedTreeUsable(installDir, expectedSha256) {
   if ((await readSentinel(installDir)) !== expectedSha256) {
@@ -258,9 +327,12 @@ async function isUnpackedTreeUsable(installDir, expectedSha256) {
  * actually signable or runnable on the target.
  *
  * Returns the tree-relative paths removed, so the caller can report them.
+ * @param {string} treeDir
  */
 export async function pruneForeignExecutables(treeDir) {
+  /** @type {string[]} */
   const removed = [];
+  /** @param {string} dir */
   const walk = async (dir) => {
     for (const item of await fsPromises.readdir(dir, { withFileTypes: true })) {
       const full = path.join(dir, item.name);
@@ -284,15 +356,18 @@ export async function pruneForeignExecutables(treeDir) {
  * aliases stays, and the bundled interpreter never runs on a terminal.
  *
  * Returns the tree-relative paths removed.
+ * @param {string} treeDir
  */
 export async function pruneSourceNamedTerminfo(treeDir) {
+  /** @type {string[]} */
   const removed = [];
+  /** @param {string} dir */
   const walk = async (dir) => {
     let items;
     try {
       items = await fsPromises.readdir(dir, { withFileTypes: true });
     } catch (error) {
-      if (error?.code === 'ENOENT') {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         return;
       }
       throw error;
@@ -318,6 +393,13 @@ export async function pruneSourceNamedTerminfo(treeDir) {
  * older archive, partial or damaged unpack) is replaced wholesale. The archive
  * is re-verified right before extraction: what is unpacked and signed is the
  * file on disk, not the download that was verified earlier.
+ * @param {{
+ *   entry: TargetEntry,
+ *   log: (message: string) => void,
+ *   resourcesDir: string,
+ *   target: string,
+ *   upstreamFileName: string,
+ * }} unpack
  */
 async function unpackRuntimeTree({ entry, log, resourcesDir, target, upstreamFileName }) {
   const archive = entry.derived ?? entry;
@@ -383,6 +465,7 @@ export async function fetchPythonRuntime({
 } = {}) {
   const requestedTargets = targetsForPlatform(platform, arch);
   const manifestPath = path.join(resourcesDir, 'manifest.json');
+  /** @type {PythonRuntimeManifest} */
   const manifest = JSON.parse(await fsPromises.readFile(manifestPath, 'utf8'));
   const manifestTargets = loadManifestTargets(manifest, manifestPath);
   if (requestedTargets) {
@@ -418,7 +501,7 @@ export async function fetchPythonRuntime({
     }
     const tempPath = `${destPath}.download-${process.pid}`;
     try {
-      await pipeline(Readable.fromWeb(response.body), createWriteStream(tempPath));
+      await pipeline(response.body, createWriteStream(tempPath));
       await verifyArchive({ entry, filePath: tempPath, label: `python-runtime download ${url}` });
       await fsPromises.rename(tempPath, destPath);
     } catch (error) {

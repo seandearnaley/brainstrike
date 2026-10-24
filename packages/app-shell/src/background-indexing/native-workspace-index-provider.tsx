@@ -26,6 +26,7 @@ import type {
   IndexerCoverageBatch,
   IndexerStatus,
   IndexLifecycleCapability,
+  IndexRootRegistrationCapability,
   IndexSearchCapability,
   NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -295,13 +296,17 @@ export function NativeWorkspaceIndexProvider({
   capability,
 }: {
   readonly children: ReactNode;
-  readonly capability: IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability;
+  readonly capability: IndexSearchCapability &
+    IndexConfigCapability &
+    IndexLifecycleCapability &
+    IndexRootRegistrationCapability;
 }) {
   const retained = useRef<RetainedProgress | null>(null);
   const { fileSystemAdapter } = useAdapters();
   const { rootDirectoryHandles } = useFileSystem();
   const { dbRootIdByAdapterRootId, syncMountedRoots } = useRootsReconciliation({
     adapter: fileSystemAdapter,
+    registration: capability,
   });
   useEffect(() => {
     let disposed = false;

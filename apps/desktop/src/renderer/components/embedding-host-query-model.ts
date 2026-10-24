@@ -42,6 +42,8 @@ export async function loadQueryEmbeddingModelConfig(
   }
 
   const { pooling, prompts } = decodeCatalogEmbeddingFacts(capabilities, row.id);
+  const size = resolveOptionalString(parameters['size']);
+  const contextWindow = resolveOptionalNumber(parameters['contextWindow']);
   return {
     description: row.description ?? '',
     dimensions,
@@ -52,12 +54,8 @@ export async function loadQueryEmbeddingModelConfig(
     ...(prompts === undefined ? {} : { prompts }),
     quantized: false,
     tags: [row.providerId, resolveOptionalString(capabilities['type']) ?? 'embedding'],
-    ...(resolveOptionalString(parameters['size'])
-      ? { size: resolveOptionalString(parameters['size']) }
-      : {}),
-    ...(resolveOptionalNumber(parameters['contextWindow'])
-      ? { contextWindow: resolveOptionalNumber(parameters['contextWindow']) }
-      : {}),
+    ...(size === undefined ? {} : { size }),
+    ...(contextWindow ? { contextWindow } : {}),
   };
 }
 

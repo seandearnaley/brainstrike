@@ -665,7 +665,7 @@ it('accepts null text from real Core metadata across SQLite/vector reopen withou
     rootIds: ['root'],
     stateProjection: {
       mode: 'dev',
-      module: new URL('./fixtures/core-state-projection.mjs', import.meta.url).href,
+      module: new URL('./fixtures/core-state-projection.ts', import.meta.url).href,
     },
     stateResources: [{ resourceId: 'resource', rootId: 'root' }],
     stateRoot: root,

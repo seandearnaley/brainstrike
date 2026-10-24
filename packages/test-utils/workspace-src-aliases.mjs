@@ -71,6 +71,7 @@ export const DEFAULT_SRC_ALIAS_EXCLUSIONS = Object.freeze([
 // browser lanes too, so each must load without Node-only or Mastra imports. The
 // workspace-src-alias guard counts self-imports, and fails every lane that leaves
 // one unaliased.
+/** @type {Readonly<Record<string, readonly string[] | undefined>>} */
 export const EXCLUDED_PACKAGE_SELF_REFERENCES = Object.freeze({
   // BST-2075: the tool guard's one deadline owner. The build emits it as its own
   // CJS entry so ESM and CJS consumers share one WeakMap; from source, every
@@ -82,7 +83,24 @@ export const EXCLUDED_PACKAGE_SELF_REFERENCES = Object.freeze({
 const SRC_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.mjs'];
 const CODE_EXT_RE = /\.(d\.ts|d\.mts|d\.cts|mjs|cjs|js|tsx|ts)$/;
 
-/** Escape a specifier for embedding in a RegExp. */
+/**
+ * An `exports` condition value as a package.json declares it.
+ * @typedef {string | null | {
+ *   readonly default?: unknown,
+ *   readonly import?: unknown,
+ *   readonly require?: unknown,
+ *   readonly types?: unknown,
+ * }} ExportTarget
+ */
+/**
+ * @typedef {{ exportsMap: Readonly<Record<string, ExportTarget>>, name: string, srcDir: string }} WorkspacePackage
+ * @typedef {{ find: string | RegExp, replacement: string }} AliasEntry
+ */
+
+/**
+ * Escape a specifier for embedding in a RegExp.
+ * @param {string} value
+ */
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 }
@@ -96,6 +114,7 @@ function escapeRegExp(value) {
  * `./dist/context-actions/index.d.ts` -> `context-actions/index`
  * `./biome/biome.json` -> null   (asset, not built code)
  * `./src/vitest-browser.ts` -> null   (already resolves to source)
+ * @param {unknown} target
  */
 function distTargetToStem(target) {
   if (typeof target !== 'string' || target.includes('*')) {
@@ -108,7 +127,11 @@ function distTargetToStem(target) {
   return t.slice('dist/'.length).replace(CODE_EXT_RE, '');
 }
 
-/** Pick the representative target string from an exports condition value. */
+/**
+ * Pick the representative target string from an exports condition value.
+ * @param {ExportTarget | undefined} conditionValue
+ * @returns {unknown}
+ */
 function pickTarget(conditionValue) {
   if (typeof conditionValue === 'string') {
     return conditionValue;
@@ -129,7 +152,11 @@ function pickTarget(conditionValue) {
   return null;
 }
 
-/** Resolve a stem to an existing source file under `srcDir`, or null. */
+/**
+ * Resolve a stem to an existing source file under `srcDir`, or null.
+ * @param {string} srcDir
+ * @param {string} stem
+ */
 function resolveSrcFile(srcDir, stem) {
   for (const ext of SRC_EXTENSIONS) {
     const candidate = join(srcDir, `${stem}${ext}`);
@@ -146,7 +173,12 @@ function resolveSrcFile(srcDir, stem) {
   return null;
 }
 
-/** Read a workspace `package.json`, returning its identity or null to skip. */
+/**
+ * Read a workspace `package.json`, returning its identity or null to skip.
+ * @param {string} packagesDir
+ * @param {string} dirName
+ * @returns {WorkspacePackage | null}
+ */
 function readWorkspacePackage(packagesDir, dirName) {
   const pkgDir = join(packagesDir, dirName);
   if (!statSync(pkgDir).isDirectory()) {
@@ -171,7 +203,12 @@ function readWorkspacePackage(packagesDir, dirName) {
   return { exportsMap: pkg.exports ?? {}, name, srcDir };
 }
 
-/** Regex-exact alias for a validated source file. */
+/**
+ * Regex-exact alias for a validated source file.
+ * @param {string} specifier
+ * @param {string} file
+ * @returns {AliasEntry}
+ */
 function exactEntry(specifier, file) {
   return { find: new RegExp(`^${escapeRegExp(specifier)}$`), replacement: file };
 }
@@ -182,6 +219,10 @@ function exactEntry(specifier, file) {
  * string prefix (`@brainstrike/pkg` -> `pkg/src`) faithful. Any other
  * dist-code wildcard shape throws (no silent fallback); asset/src wildcards
  * (e.g. `./tsconfig/*.json`, `./icons/*`) are skipped.
+ * @param {WorkspacePackage} workspacePkg
+ * @param {string} key
+ * @param {unknown} target
+ * @returns {AliasEntry | null}
  */
 function wildcardEntry({ name, srcDir }, key, target) {
   const t = typeof target === 'string' ? target.replace(/^\.\//, '') : null;
@@ -211,6 +252,9 @@ function wildcardEntry({ name, srcDir }, key, target) {
  * Each must be a code export naming a source file (directly, or through a dist
  * stem); anything else throws (NO SILENT FALLBACKS), so a renamed or removed
  * entry fails at config load.
+ * @param {WorkspacePackage} workspacePkg
+ * @param {readonly string[]} keys
+ * @returns {AliasEntry[]}
  */
 function selfReferenceEntries({ exportsMap, name, srcDir }, keys) {
   return keys.map((key) => {
@@ -226,7 +270,11 @@ function selfReferenceEntries({ exportsMap, name, srcDir }, keys) {
   });
 }
 
-/** The existing source file a `./src/...` code export names, or null. */
+/**
+ * The existing source file a `./src/...` code export names, or null.
+ * @param {string} srcDir
+ * @param {unknown} target
+ */
 function sourceTargetFile(srcDir, target) {
   if (typeof target !== 'string' || target.includes('*')) {
     return null;
@@ -239,10 +287,15 @@ function sourceTargetFile(srcDir, target) {
   return existsSync(file) ? file : null;
 }
 
-/** Build alias entries for one workspace package: {exact: [], prefix: []}. */
+/**
+ * Build alias entries for one workspace package: {exact: [], prefix: []}.
+ * @param {WorkspacePackage} workspacePkg
+ */
 function packageAliasEntries(workspacePkg) {
   const { name, srcDir, exportsMap } = workspacePkg;
+  /** @type {AliasEntry[]} */
   const exact = [];
+  /** @type {AliasEntry[]} */
   const prefix = [];
 
   for (const [key, value] of Object.entries(exportsMap)) {
@@ -301,7 +354,9 @@ export function workspaceSrcAliases(packagesDir, options = {}) {
     throw new Error(`workspaceSrcAliases: packagesDir does not exist: ${String(packagesDir)}`);
   }
   const exclude = new Set([...DEFAULT_SRC_ALIAS_EXCLUSIONS, ...(options.exclude ?? [])]);
+  /** @type {AliasEntry[]} */
   const exactEntries = [];
+  /** @type {AliasEntry[]} */
   const prefixEntries = [];
 
   for (const dirName of readdirSync(packagesDir)) {

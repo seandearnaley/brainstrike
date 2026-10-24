@@ -21,8 +21,8 @@ import {
   captureStorage,
   groupText,
   observationTokens,
-} from './fixtures/state-observation-native.mjs';
-import { observationChunks } from './fixtures/state-observation-schema.mjs';
+} from './fixtures/state-observation-native.ts';
+import { observationChunks } from './fixtures/state-observation-schema.ts';
 
 // Close-ladder deadlines only: startup has none (lifecycle R2). The projection
 // cold-imports Mastra's Memory in the forked indexer: startups measured 2.4-6.2 s
@@ -117,7 +117,7 @@ async function fixture(owner: ObservationLifecycle, nativeScope: 'thread' | 'res
     rootIds: ['root', 'foreign-root'],
     stateProjection: {
       mode: 'dev',
-      module: new URL('./fixtures/state-observation-schema.mjs', import.meta.url).href,
+      module: new URL('./fixtures/state-observation-schema.ts', import.meta.url).href,
     },
     stateResources: [
       { resourceId: 'resource', rootId: 'root' },

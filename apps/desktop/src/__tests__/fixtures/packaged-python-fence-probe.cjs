@@ -12,6 +12,16 @@ const { createRequire } = require('node:module');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 
+const LINUX_PYTHON_TARGETS = new Map([
+  ['arm64', 'aarch64-unknown-linux-gnu'],
+  ['x64', 'x86_64-unknown-linux-gnu'],
+]);
+
+/**
+ * @param {string} resources
+ * @param {string} state
+ * @param {boolean} layoutOnly
+ */
 async function qualify(resources, state, layoutOnly) {
   assert(path.isAbsolute(resources) && path.isAbsolute(state));
   const packedRequire = createRequire(path.join(resources, 'app.asar/package.json'));
@@ -34,9 +44,7 @@ async function qualify(resources, state, layoutOnly) {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(runtimeResources, 'manifest.json'), 'utf8')
   );
-  const target = { arm64: 'aarch64-unknown-linux-gnu', x64: 'x86_64-unknown-linux-gnu' }[
-    process.arch
-  ];
+  const target = LINUX_PYTHON_TARGETS.get(process.arch);
   assert(target, `unsupported packaged Python architecture: ${process.arch}`);
   const derived = manifest.targets[target].derived;
   // BST-1627: the derived archive was unpacked at build time; its tree ships
@@ -180,7 +188,7 @@ async function main() {
   assert(path.isAbsolute(resources) && path.isAbsolute(state));
   fs.mkdirSync(path.join(state, 'home'), { recursive: true });
   fs.mkdirSync(path.join(state, 'tmp'), { recursive: true });
-  const executablePath = process.env.PATH ?? '/usr/bin:/bin';
+  const executablePath = process.env['PATH'] ?? '/usr/bin:/bin';
   for (const key of Object.keys(process.env)) {
     delete process.env[key];
   }

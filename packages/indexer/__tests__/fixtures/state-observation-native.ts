@@ -1,3 +1,5 @@
+import type { StateObservationSource } from '@brainstrike/indexer';
+import type { MemoryEntity } from '@brainstrike/state-store';
 import {
   InMemoryStore,
   Memory,
@@ -5,10 +7,23 @@ import {
   wrapInObservationGroup,
 } from '@brainstrike/test-utils/fixtures/observation-memory';
 
-/** Capture real native storage shape using public OM operations, without inference.
- * @param {'thread'|'resource'} scope @param {string} resourceId @param {string} threadId
- */
-export async function captureStorage(scope, resourceId, threadId) {
+type MemoryScope = 'thread' | 'resource';
+/** The fields of a native observational memory record this fixture reads. */
+interface NativeObservationRecord {
+  readonly id: string;
+  readonly threadId: string | null;
+}
+/** The vector upsert Mastra's Memory sends its vector store. */
+interface NativeUpsert {
+  readonly ids: string[];
+}
+interface IndexHold {
+  admitted(): void;
+  readonly release: Promise<void>;
+}
+
+/** Capture real native storage shape using public OM operations, without inference. */
+export async function captureStorage(scope: MemoryScope, resourceId: string, threadId: string) {
   const store = new InMemoryStore({ id: 'observation-storage-fixture' });
   await store.init();
   const memory = await store.getStore('memory');
@@ -29,8 +44,7 @@ export async function captureStorage(scope, resourceId, threadId) {
         id: initial.id,
         messageTokensThreshold: 1000,
       }),
-    /** @param {string} body @param {Date} date */
-    active: async (body, date) => {
+    active: async (body: string, date: Date): Promise<void> => {
       await memory.updateActiveObservations({
         id: initial.id,
         lastObservedAt: date,
@@ -38,8 +52,7 @@ export async function captureStorage(scope, resourceId, threadId) {
         tokenCount: 1,
       });
     },
-    /** @param {string} body @param {Date} date */
-    buffered: async (body, date) => {
+    buffered: async (body: string, date: Date): Promise<void> => {
       await memory.updateBufferedObservations({
         chunk: {
           cycleId: 'fixture-cycle',
@@ -53,18 +66,16 @@ export async function captureStorage(scope, resourceId, threadId) {
       });
     },
     close: () => store.close(),
-    /** @returns {Promise<import('@brainstrike/state-store').MemoryEntity[]>} */
-    records: async () =>
+    records: async (): Promise<MemoryEntity[]> =>
       (
         await memory.getObservationalMemoryHistory(scope === 'thread' ? threadId : null, resourceId)
-      ).map((record) => ({
+      ).map((record: NativeObservationRecord) => ({
         id: record.id,
         kind: 'observation',
         payload: JSON.parse(JSON.stringify(record)),
         threadId: record.threadId,
       })),
-    /** @param {string} body */
-    reflect: async (body) => {
+    reflect: async (body: string) => {
       const current = await memory.getObservationalMemory(
         scope === 'thread' ? threadId : null,
         resourceId
@@ -81,21 +92,23 @@ export async function captureStorage(scope, resourceId, threadId) {
   };
 }
 
-/** @param {import('@brainstrike/indexer').StateObservationSource} source @param {string} resourceId
- * @param {{admitted:()=>void,release:Promise<void>} | undefined} [hold] */
-export async function captureIndex(source, resourceId, hold) {
-  const captured = [];
+export async function captureIndex(
+  source: StateObservationSource,
+  resourceId: string,
+  hold?: IndexHold
+): Promise<NativeUpsert> {
+  const captured: NativeUpsert[] = [];
   const vector = {
     createIndex: async () => {},
     id: 'native-capture',
-    upsert: async (input) => {
+    upsert: async (input: NativeUpsert) => {
       captured.push(input);
       return input.ids;
     },
   };
   const memory = new Memory({
     embedder: {
-      doEmbed: async ({ values }) => {
+      doEmbed: async ({ values }: { readonly values: readonly unknown[] }) => {
         hold?.admitted();
         await hold?.release;
         return {
@@ -117,13 +130,18 @@ export async function captureIndex(source, resourceId, hold) {
     observedAt: source.observedAt === undefined ? undefined : new Date(source.observedAt),
     resourceId,
   });
-  if (captured.length !== 1) {
+  const [upsert] = captured;
+  if (captured.length !== 1 || upsert === undefined) {
     throw new Error('Expected one actual native upsert');
   }
-  return captured[0];
+  return upsert;
 }
-/** @param {string} text @param {string} groupId @param {string} threadId @param {'thread'|'resource'} scope */
-export function groupText(text, groupId, threadId, scope) {
+export function groupText(
+  text: string,
+  groupId: string,
+  threadId: string,
+  scope: MemoryScope
+): string {
   const group = wrapInObservationGroup(
     text,
     'recorded-first-message:recorded-last-message',
@@ -132,7 +150,7 @@ export function groupText(text, groupId, threadId, scope) {
   return scope === 'thread' ? group : `<thread id="${threadId}">\n${group}\n</thread>`;
 }
 
-/** Mastra OM's own observation token count (`TokenCounter.countObservations`). @param {string} text */
-export function observationTokens(text) {
+/** Mastra OM's own observation token count (`TokenCounter.countObservations`). */
+export function observationTokens(text: string): number {
   return new TokenCounter().countObservations(text);
 }

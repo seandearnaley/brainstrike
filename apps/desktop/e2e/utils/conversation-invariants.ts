@@ -112,7 +112,12 @@ export function committedRuns(rows: readonly HostLogRow[]): readonly CommittedRu
       run.finished = { outcome: row.event.outcome, seq: row.seq };
     }
   }
-  return [...runs].map(([runId, run]) => ({ runId, ...run }));
+  return [...runs].map(([runId, { finished, rows: runRows, startedSeq }]) => ({
+    rows: runRows,
+    runId,
+    startedSeq,
+    ...(finished === undefined ? {} : { finished }),
+  }));
 }
 
 function runShape(run: CommittedRun): CommittedRunShape {

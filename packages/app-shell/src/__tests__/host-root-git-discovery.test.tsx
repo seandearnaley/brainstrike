@@ -41,7 +41,9 @@ it('discovers roots recorded by the host during restore after the eager inventor
     restoreRoots: async () => [root],
   } as FileSystemAdapter;
   try {
-    const { result, rerender } = renderHook(() => useRootsReconciliation({ adapter }));
+    const { result, rerender } = renderHook(() =>
+      useRootsReconciliation({ adapter, registration: { rootsRegistered: vi.fn(async () => {}) } })
+    );
     await act(async () => {
       expect(await result.current.resolveDbRootId(rootPath, rootId)).toBe(rootId);
     });

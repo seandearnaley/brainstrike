@@ -438,7 +438,7 @@ function resolveSelectedLocalModelUnavailableReason(options: {
 }
 
 interface McpToolDescriptor {
-  description?: string;
+  description?: string | undefined;
   enabled: boolean;
   id: string;
   inputSchema?: unknown;

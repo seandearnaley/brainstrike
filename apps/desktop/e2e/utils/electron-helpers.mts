@@ -272,7 +272,7 @@ export async function launchElectronApp(
   return await launchElectronAppWithOptions({
     ...options,
     launchMode: 'test-built',
-    userDataDir,
+    ...(userDataDir === undefined ? {} : { userDataDir }),
   });
 }
 

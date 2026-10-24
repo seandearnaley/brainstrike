@@ -83,6 +83,7 @@ const ready = {
   rootReadiness: [{ rootId: 'root-a', scanComplete: true }],
   storeId: 'store-a',
 };
+const { queryPlan: _readyPlan, ...readyWithoutPlan } = ready;
 const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<BoundaryResult<number[]>>>();
 const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
 
@@ -485,7 +486,7 @@ describe('native provider and search controller observation refresh', () => {
     const mounted = mountController();
     try {
       // Main pushes once the index follows the saved Text choice.
-      mounted.refresh({ ...ready, embedding: { indexMode: 'text-only' }, queryPlan: undefined });
+      mounted.refresh({ ...readyWithoutPlan, embedding: { indexMode: 'text-only' } });
       await act(async () => mounted.publish());
       await waitFor(() =>
         expect(mounted.result.current.controller.semanticAvailability).toEqual({
@@ -723,7 +724,7 @@ describe('native provider and search controller observation refresh', () => {
         queryPlan: { ...queryPlan, inferencePlan: { ...queryPlan.inferencePlan, ...change } },
       },
     })),
-    { name: 'query plan removal', next: { ...ready, queryPlan: undefined } },
+    { name: 'query plan removal', next: readyWithoutPlan },
     { name: 'embedding mode', next: { ...ready, embedding: { indexMode: 'text-only' } } },
     {
       name: 'unavailable authority',

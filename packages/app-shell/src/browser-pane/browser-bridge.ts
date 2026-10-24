@@ -76,23 +76,30 @@ export const BROWSER_BRIDGE_REQUIRED_METHODS = Object.keys(
   BROWSER_BRIDGE_REQUIRED_METHOD_SET
 ) as readonly (keyof BrowserBridge)[];
 
+function missingBrowserBridgeMethods(bridge: Partial<BrowserBridge>): (keyof BrowserBridge)[] {
+  return BROWSER_BRIDGE_REQUIRED_METHODS.filter((method) => typeof bridge[method] !== 'function');
+}
+
+/** A bridge exposing every required method is the whole bridge. */
+function isCompleteBrowserBridge(bridge: Partial<BrowserBridge>): bridge is BrowserBridge {
+  return missingBrowserBridgeMethods(bridge).length === 0;
+}
+
 /** Resolve `window.browser`, or `null` when absent (web) or malformed. */
 export function resolveBrowserBridge(): BrowserBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = (window as Window & { browser?: Partial<BrowserBridge> }).browser;
+  const bridge = window.browser;
   if (!bridge) {
     return null;
   }
-  const missing = BROWSER_BRIDGE_REQUIRED_METHODS.filter(
-    (method) => typeof bridge[method] !== 'function'
-  );
-  if (missing.length > 0) {
+  const missing = missingBrowserBridgeMethods(bridge);
+  if (!isCompleteBrowserBridge(bridge)) {
     logger.error('window.browser bridge is malformed; browser pane disabled', { missing });
     return null;
   }
-  return bridge as BrowserBridge;
+  return bridge;
 }
 
 /** True when a fully-formed desktop `window.browser` bridge is present. */

@@ -1,3 +1,5 @@
+import type { StateObservationGroup } from '@brainstrike/indexer';
+import type { MemoryObservationRecord } from '@brainstrike/state-store';
 import {
   Memory,
   parseObservationGroups,
@@ -6,30 +8,30 @@ import {
 export { messages, schema, text } from './state-message-schema.mjs';
 
 class NativeChunks extends Memory {
-  /** @param {string} text */
-  chunks(text) {
-    return this.chunkText(text);
+  constructor(config: { readonly options: { readonly semanticRecall: boolean } }) {
+    super(config);
+  }
+  chunks(text: string): readonly string[] {
+    return this['chunkText'](text);
   }
 }
 const chunker = new NativeChunks({ options: { semanticRecall: false } });
-/** @param {string} text @returns {readonly string[]} */
-export function observationChunks(text) {
+export function observationChunks(text: string): readonly string[] {
   return chunker.chunks(text);
 }
 
-/** @param {import('@brainstrike/state-store').MemoryObservationRecord} record
- * @returns {readonly import('@brainstrike/indexer').StateObservationGroup[]} */
-export function observations(record) {
+export function observations(record: MemoryObservationRecord): readonly StateObservationGroup[] {
   const p = record.payload;
-  const texts = [p.activeObservations, p.bufferedObservations, p.bufferedReflection];
-  if (Array.isArray(p.bufferedObservationChunks)) {
-    for (const chunk of p.bufferedObservationChunks) {
+  const texts = [p['activeObservations'], p['bufferedObservations'], p['bufferedReflection']];
+  const bufferedChunks = p['bufferedObservationChunks'];
+  if (Array.isArray(bufferedChunks)) {
+    for (const chunk of bufferedChunks) {
       if (typeof chunk === 'object' && chunk !== null && 'observations' in chunk) {
         texts.push(chunk.observations);
       }
     }
   }
-  const result = [];
+  const result: StateObservationGroup[] = [];
   for (const text of texts) {
     if (typeof text !== 'string' || !text) {
       continue;
