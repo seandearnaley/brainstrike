@@ -23,6 +23,8 @@ export default defineConfig({
     environment: 'happy-dom',
     exclude: ['node_modules', 'dist'],
     fsModuleCache: true,
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally

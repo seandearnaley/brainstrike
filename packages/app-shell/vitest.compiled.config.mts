@@ -15,6 +15,8 @@ export default defineConfig({
   ...baseConfig,
   plugins: [...(baseConfig.plugins ?? []), react({ compiler: { compilationMode: 'infer' } })],
   test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     ...baseConfig.test,
     exclude: ['**/node_modules/**', '**/dist/**'],
     include: ['src/**/*.compiled.test.{ts,tsx}'],

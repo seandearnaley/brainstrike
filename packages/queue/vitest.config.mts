@@ -17,6 +17,8 @@ export default defineConfig({
     clearMocks: true,
     environment: 'node',
     exclude: ['dist', 'node_modules'],
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     include: ['test/**/*.spec.ts', 'src/**/*.test.ts'],
     reporters: ['default', new LostTestFileReporter()],
