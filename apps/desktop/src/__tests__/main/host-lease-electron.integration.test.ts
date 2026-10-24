@@ -14,6 +14,7 @@ import {
   launchHost,
 } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import { getTimeoutMultiplier } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -221,7 +222,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   const app: AppChild = {
     attached: runWithTimeout(() => completion.promise, {
       onTimeout: () => new Error(`Electron did not attach: ${stderr}`),
-      timeoutMs: 10_000,
+      timeoutMs: 10_000 * getTimeoutMultiplier(),
     }),
     close: async () => {
       if (!closingReported && child.exitCode === null && child.signalCode === null) {
@@ -234,7 +235,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
           new Error(
             `Electron did not close; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`
           ),
-        timeoutMs: 5000,
+        timeoutMs: 5000 * getTimeoutMultiplier(),
       });
       activeApps.delete(app);
       if (reportFailures.length > 0) {
