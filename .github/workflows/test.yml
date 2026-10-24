@@ -268,10 +268,24 @@ jobs:
                   "vitest_shard": "6/6"
                 },
                 {
+                  "shard": "app-shell-1",
+                  "partition": "app-shell",
+                  "pr_filters": "--filter=\"@brainstrike/app-shell\"",
+                  "push_filters": "--filter=\"@brainstrike/app-shell\"",
+                  "vitest_shard": "1/2"
+                },
+                {
+                  "shard": "app-shell-2",
+                  "partition": "app-shell",
+                  "pr_filters": "--filter=\"@brainstrike/app-shell\"",
+                  "push_filters": "--filter=\"@brainstrike/app-shell\"",
+                  "vitest_shard": "2/2"
+                },
+                {
                   "shard": "heavy",
                   "partition": "heavy",
-                  "pr_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\" --filter=\"@brainstrike/app-shell\"",
-                  "push_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\" --filter=\"@brainstrike/app-shell\"",
+                  "pr_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\"",
+                  "push_filters": "--filter=\"@brainstrike/ui\" --filter=\"@brainstrike/file-explorer-ui\"",
                   "vitest_shard": ""
                 },
                 {
@@ -382,8 +396,8 @@ jobs:
     # required `Unit` fan-in below. `.turbo` cache keys include `runner.arch`,
     # so this cannot cross-restore an incompatible ARM cache layer.
     runs-on: ubicloud-standard-4
-    # Desktop has six native Vitest shards and Agent two; the remaining UI
-    # packages keep their own row, Store takes assistant-ui, settings-ui and
+    # Desktop has six native Vitest shards, Agent and App Shell two each;
+    # Heavy runs ui and file-explorer-ui, Store takes assistant-ui, settings-ui and
     # state-store (long lanes that otherwise run last in Rest), and Rest owns
     # every other affected package.
     # Unit below remains the required fan-in.
@@ -493,6 +507,8 @@ jobs:
           TURBO_SCM_HEAD: ${{ github.sha }}
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
+          APP_SHELL_TEST_SHARD: ${{ matrix.partition == 'app-shell' && matrix.vitest_shard || '' }}
+          APP_SHELL_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'app-shell' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
@@ -552,6 +568,8 @@ jobs:
         env:
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
           AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
+          APP_SHELL_TEST_SHARD: ${{ matrix.partition == 'app-shell' && matrix.vitest_shard || '' }}
+          APP_SHELL_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'app-shell' && 'true' || 'false' }}
           DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
           DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
           COVERAGE: "false"
