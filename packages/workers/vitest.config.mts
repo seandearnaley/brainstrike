@@ -30,6 +30,8 @@ export default defineConfig({
     },
     environment: 'node',
     exclude: ['**/node_modules/**', '**/dist/**'],
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     // Anchor the __tests__ glob at the package root — this package is flat (no
     // src/), matching vitest.mutation.config.ts. The leading '**/' is the escape

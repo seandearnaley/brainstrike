@@ -36,6 +36,8 @@ export default defineConfig({
   // canonical `test.coverage` so no future config move can re-enable it here.
   coverage: { ...(baseConfig.coverage ?? {}), enabled: false },
   test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     ...baseTest,
     coverage: { ...(baseTest.coverage ?? {}), enabled: false },
     // This include MIRRORS the pure lane's --exclude suffix (restricted to
