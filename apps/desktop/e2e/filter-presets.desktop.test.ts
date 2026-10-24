@@ -1,8 +1,10 @@
+import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import {
   clickExplorerTreeAction,
   expectExplorerTreeActionsReachable,
+  mockRootPath,
 } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
@@ -469,12 +471,12 @@ async function installFilteredEmptyFolderFixture(
           handle: {
             kind: 'directory' as const,
             name: 'apps',
-            path: `${rootPath}/apps`,
+            path: path.join(rootPath, 'apps'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'apps',
-          path: `${rootPath}/apps`,
+          path: path.join(rootPath, 'apps'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           type: 'directory' as const,
@@ -485,30 +487,30 @@ async function installFilteredEmptyFolderFixture(
           handle: {
             kind: 'directory' as const,
             name: 'packages',
-            path: `${rootPath}/packages`,
+            path: path.join(rootPath, 'packages'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'packages',
-          path: `${rootPath}/packages`,
+          path: path.join(rootPath, 'packages'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/apps`]: [
+      [path.join(rootPath, 'apps')]: [
         {
           children: [],
           depth: 0,
           handle: {
             kind: 'directory' as const,
             name: 'notes',
-            path: `${rootPath}/apps/notes`,
+            path: path.join(rootPath, 'apps/notes'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'notes',
-          path: `${rootPath}/apps/notes`,
+          path: path.join(rootPath, 'apps/notes'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           type: 'directory' as const,
@@ -519,65 +521,65 @@ async function installFilteredEmptyFolderFixture(
           handle: {
             kind: 'directory' as const,
             name: 'web',
-            path: `${rootPath}/apps/web`,
+            path: path.join(rootPath, 'apps/web'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'web',
-          path: `${rootPath}/apps/web`,
+          path: path.join(rootPath, 'apps/web'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           type: 'directory' as const,
         },
       ],
-      [`${rootPath}/apps/notes`]: [
+      [path.join(rootPath, 'apps/notes')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'readme.md',
-            path: `${rootPath}/apps/notes/readme.md`,
+            path: path.join(rootPath, 'apps/notes/readme.md'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'readme.md',
-          path: `${rootPath}/apps/notes/readme.md`,
+          path: path.join(rootPath, 'apps/notes/readme.md'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 100,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/apps/web`]: [
+      [path.join(rootPath, 'apps/web')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'app.ts',
-            path: `${rootPath}/apps/web/app.ts`,
+            path: path.join(rootPath, 'apps/web/app.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'app.ts',
-          path: `${rootPath}/apps/web/app.ts`,
+          path: path.join(rootPath, 'apps/web/app.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 120,
           type: 'file' as const,
         },
       ],
-      [`${rootPath}/packages`]: [
+      [path.join(rootPath, 'packages')]: [
         {
           depth: 0,
           handle: {
             kind: 'file' as const,
             name: 'core.ts',
-            path: `${rootPath}/packages/core.ts`,
+            path: path.join(rootPath, 'packages/core.ts'),
             platform: 'electron' as const,
           },
           isVisible: true,
           name: 'core.ts',
-          path: `${rootPath}/packages/core.ts`,
+          path: path.join(rootPath, 'packages/core.ts'),
           rootFolderId: rootPath,
           selectionState: 'unchecked' as const,
           size: 80,
@@ -586,9 +588,9 @@ async function installFilteredEmptyFolderFixture(
       ],
     },
     fileContentsByPath: {
-      [`${rootPath}/apps/notes/readme.md`]: '# notes',
-      [`${rootPath}/apps/web/app.ts`]: 'export const app = 1;',
-      [`${rootPath}/packages/core.ts`]: 'export const core = 1;',
+      [path.join(rootPath, 'apps/notes/readme.md')]: '# notes',
+      [path.join(rootPath, 'apps/web/app.ts')]: 'export const app = 1;',
+      [path.join(rootPath, 'packages/core.ts')]: 'export const core = 1;',
     },
     readDirectoryCalls: [],
     readFileByPathCalls: [],
@@ -800,7 +802,10 @@ test.describe('Desktop filter presets', () => {
   }) => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
-    await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
+    await installFilteredEmptyFolderFixture(
+      electronApp.app,
+      mockRootPath('filter-empty-folder-root')
+    );
     await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);
@@ -836,7 +841,10 @@ test.describe('Desktop filter presets', () => {
   }) => {
     test.setTimeout(FILTER_PRESET_TEST_TIMEOUT_MS);
 
-    await installFilteredEmptyFolderFixture(electronApp.app, '/mock/filter-empty-folder-root');
+    await installFilteredEmptyFolderFixture(
+      electronApp.app,
+      mockRootPath('filter-empty-folder-root')
+    );
     await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
     await ensureViewFiltersExpanded(window);

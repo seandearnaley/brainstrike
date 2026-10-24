@@ -229,6 +229,26 @@ describe('useFileExplorerStore Actions Integration', () => {
       expect(store.getState().expandedDirectoryPaths.has(dirPath1)).toBe(true);
     });
 
+    it.each([
+      { name: 'POSIX', root: '/repo' },
+      { name: 'Windows', root: 'C:\\repo' },
+    ])('collapsing a $name folder collapses its descendants only', ({ name, root }) => {
+      const separator = name === 'Windows' ? '\\' : '/';
+      const join = (...segments: string[]) => [root, ...segments].join(separator);
+      for (const path of [
+        join('src'),
+        join('src', 'ui'),
+        join('src', 'ui', 'kit'),
+        join('src-old'),
+      ]) {
+        store.toggleDirectoryExpansion(path);
+      }
+
+      store.toggleDirectoryExpansion(join('src'));
+
+      expect([...store.getState().expandedDirectoryPaths]).toEqual([join('src-old')]);
+    });
+
     it('toggleDirectoryExpansion should remove path and descendants if present', () => {
       // Expand parent and children
       store.toggleDirectoryExpansion(dirPath1);

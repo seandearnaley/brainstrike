@@ -1,10 +1,9 @@
 import type { IFileNode } from '@brainstrike/types';
-
-/** Character code for '/' used in low-level path parsing */
-const SLASH = 47;
+import { isSeparatorCode, isWindowsPath } from '@brainstrike/utils/path-ancestors';
 
 /**
- * Build minimal node info from a path and root info.
+ * Build minimal node info from a path and root info. Names and depth follow the
+ * path's own grammar, so a Windows path splits at `\` as well as `/`.
  */
 export function buildNodeFromPath(
   path: string,
@@ -12,8 +11,11 @@ export function buildNodeFromPath(
   rootFolderId: string,
   handle: IFileNode['handle']
 ): IFileNode {
+  const windows = isWindowsPath(path);
+  const isSeparator = (value: string, index: number) =>
+    isSeparatorCode(value.charCodeAt(index), windows);
   const normalizedRootPath =
-    rootPath.length > 1 && rootPath.charCodeAt(rootPath.length - 1) === SLASH
+    rootPath.length > 1 && isSeparator(rootPath, rootPath.length - 1)
       ? rootPath.slice(0, -1)
       : rootPath;
 
@@ -22,27 +24,34 @@ export function buildNodeFromPath(
     path === normalizedRootPath ||
     // Check the next byte before startsWith so "/rootExtra" does not match "/root".
     (path.length > normalizedRootPath.length &&
-      path.charCodeAt(normalizedRootPath.length) === SLASH &&
+      isSeparator(path, normalizedRootPath.length) &&
       path.startsWith(normalizedRootPath))
   ) {
     relativePath = path.slice(normalizedRootPath.length);
   }
 
   let end = relativePath.length;
-  if (end > 0 && relativePath.charCodeAt(end - 1) === SLASH) {
+  if (end > 0 && isSeparator(relativePath, end - 1)) {
     end -= 1;
   }
 
-  const lastSlashIndex = end === 0 ? -1 : relativePath.lastIndexOf('/', end - 1);
-  const name =
-    lastSlashIndex === -1
-      ? relativePath.slice(0, end)
-      : relativePath.slice(lastSlashIndex + 1, end);
+  let lastSeparatorIndex = -1;
+  for (let i = end - 1; i >= 0; i -= 1) {
+    if (isSeparator(relativePath, i)) {
+      lastSeparatorIndex = i;
+      break;
+    }
+  }
+  const name = relativePath.slice(lastSeparatorIndex + 1, end);
 
+  // An unstripped absolute path counts its segments below its own root.
+  let start = windows && /^[A-Za-z]:/u.test(relativePath) ? 3 : 0;
+  if (start === 0 && relativePath.length > 0 && isSeparator(relativePath, 0)) {
+    start = 1;
+  }
   let depth = 0;
-  const start = relativePath.length > 0 && relativePath.charCodeAt(0) === SLASH ? 1 : 0;
   for (let i = start; i < end; i += 1) {
-    if (relativePath.charCodeAt(i) === SLASH) {
+    if (isSeparator(relativePath, i)) {
       depth += 1;
     }
   }

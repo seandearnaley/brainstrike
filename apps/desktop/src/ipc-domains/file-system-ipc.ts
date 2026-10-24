@@ -103,8 +103,13 @@ interface ElectronE2eFileSystemFixture {
   };
 }
 
-const MOCK_PATH_PREFIX = '/mock/' as const;
-const MOCK_ROOT_PATH = '/mock/test/directory' as const;
+/**
+ * The e2e mock tree lives under the host's own `/mock`, so on Windows it is
+ * `C:\mock\...` with `\` separators: the shape a real folder has there, which
+ * the renderer must handle and which `path.normalize` leaves unchanged.
+ */
+const MOCK_PATH_PREFIX = `${path.resolve('/mock')}${path.sep}`;
+const MOCK_ROOT_PATH = path.resolve('/mock/test/directory');
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
@@ -300,7 +305,7 @@ async function resolveRequestedDirectoryHandle(
       id: 'mock-directory-handle',
       kind: 'directory',
       name: 'mock-test-directory',
-      path: '/mock/test/directory',
+      path: MOCK_ROOT_PATH,
       platform: 'electron',
       type: 'directory',
     } as DirectoryHandle;

@@ -343,6 +343,7 @@ describe('file system IPC domain', () => {
   });
 
   it('closes a native capability when canonical classification conflicts', async () => {
+    // Test mode's default mock root, in the host's own grammar.
     const mockRoot = path.resolve('/mock/test/directory');
     fileSystem = createFileSystem(mockRoot);
     const closeNativeRoot = vi.fn();

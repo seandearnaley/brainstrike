@@ -1,3 +1,4 @@
+import { hostJoin } from '@brainstrike/utils/host-path';
 import { describe, expect, it } from 'vitest';
 import {
   getTestDirectoryStructure,
@@ -18,7 +19,7 @@ describe('mock file-system test data', () => {
         platform: 'electron',
       },
       name: 'mock-file1.txt',
-      path: `${TEST_DIRECTORY_PATH}/mock-file1.txt`,
+      path: hostJoin(TEST_DIRECTORY_PATH, 'mock-file1.txt'),
       rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       type: 'file',
     });
@@ -31,7 +32,7 @@ describe('mock file-system test data', () => {
         platform: 'electron',
       },
       name: 'mock-subfolder',
-      path: `${TEST_DIRECTORY_PATH}/mock-subfolder`,
+      path: hostJoin(TEST_DIRECTORY_PATH, 'mock-subfolder'),
       rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       type: 'directory',
     });
@@ -42,8 +43,8 @@ describe('mock file-system test data', () => {
     const nodes = getTestDirectoryStructure(customRoot);
 
     for (const node of nodes) {
-      expect(node.path.startsWith(customRoot)).toBe(true);
-      expect(node.handle.path.startsWith(customRoot)).toBe(true);
+      expect(node.path).toBe(hostJoin(customRoot, node.name));
+      expect(node.handle.path).toBe(node.path);
     }
   });
 });

@@ -11,6 +11,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
+import { homeEnvironment, nodeCommand, nodeText } from './utils/node-command';
 import { seedHostThreads } from './utils/seed-threads';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
@@ -28,7 +29,9 @@ writeFileSync(
   JSON.stringify({
     PreToolUse: [
       {
-        command: `echo '{"decision":"block","reason":"${REASON}"}'; exit 2`,
+        command: nodeCommand(
+          `console.log(${nodeText(JSON.stringify({ decision: 'block', reason: REASON }))}); process.exitCode = 2`
+        ),
         // Host runs name the tool `brainstrike.readWorkspaceFile`; legacy runs omit the prefix.
         matcher: { tool_name: 'readWorkspaceFile' },
         type: 'command',
@@ -43,7 +46,7 @@ test.use({
   electronEnv: {
     BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
     BRAINSTRIKE_OPENROUTER_API_KEY: 'test-api-key-for-e2e-tests',
-    HOME: home,
+    ...homeEnvironment(home),
   },
 });
 test.afterAll(() => {

@@ -6,6 +6,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { homeEnvironment, nodeCommand, nodeText } from './utils/node-command';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const FINAL = 'The verdict run finished.';
@@ -20,14 +21,16 @@ writeFileSync(
   JSON.stringify({
     Stop: [
       {
-        command: `printf '%s\\n' '${JSON.stringify({ brainstrikeRunVerdict: { detail: 'Graded', verdict: 'succeeded' } })}'`,
+        command: nodeCommand(
+          `console.log(${nodeText(JSON.stringify({ brainstrikeRunVerdict: { detail: 'Graded', verdict: 'succeeded' } }))})`
+        ),
         type: 'command',
       },
     ],
   })
 );
 
-test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace, HOME: home } });
+test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace, ...homeEnvironment(home) } });
 test.afterAll(() => {
   rmSync(home, { force: true, recursive: true });
   rmSync(workspace, { force: true, recursive: true });
