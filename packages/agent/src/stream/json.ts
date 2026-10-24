@@ -1,5 +1,3 @@
-import type { StreamChunk } from '../types';
-
 /**
  * Serializes arbitrary values into JSON-safe structures while preserving helpful metadata.
  */
@@ -173,27 +171,6 @@ function serializeObject(obj: Record<PropertyKey, unknown>, seen: WeakSet<object
 
   seen.delete(obj);
   return result;
-}
-
-export function cloneJsonSafe<T>(value: T): T {
-  return toJsonSafe(value) as T;
-}
-
-export function sanitizeStreamChunk<T extends StreamChunk>(chunk: T): T {
-  const copy: Record<string, unknown> = { ...chunk };
-  if ('payload' in copy) {
-    copy['payload'] = toJsonSafe(copy['payload']);
-  }
-  if ('usage' in copy) {
-    copy['usage'] = toJsonSafe(copy['usage']);
-  }
-  if ('value' in copy && typeof copy['value'] !== 'string') {
-    copy['value'] = String(copy['value'] ?? '');
-  }
-  if ('path' in copy && Array.isArray(copy['path'])) {
-    copy['path'] = (copy['path'] as unknown[]).slice();
-  }
-  return copy as T;
 }
 
 interface JsonBufferLike {

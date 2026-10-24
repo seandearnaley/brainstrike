@@ -17,9 +17,7 @@ import type {
   HostToolExecutionContext,
   HostToolDefinitions as ToolsInput,
 } from '../host-tool-definition';
-import { normalizeProgressPayload } from '../tools/progress-adapter';
 import { readToolCallId } from '../tools/read-tool-call-id';
-import type { StreamChunk } from '../types';
 import { type McpConfigInput, parseMcpConfigValue } from './config';
 import type {
   ExplicitHttpMcpCallToolParams,
@@ -616,49 +614,4 @@ function defineOwn<T>(target: Record<string, T>, key: string, value: T): void {
     value,
     writable: true,
   });
-}
-
-/** @internal Test seam: mcp-runtime-client.spec.ts verifies normalized real progress callback writes. */
-export function mapMcpProgressStreamPart(part: unknown): StreamChunk | undefined {
-  if (!(part && typeof part === 'object')) {
-    return;
-  }
-  const record = part as Record<string, unknown>;
-  if (record['type'] !== MCP_PROGRESS_STREAM_PART_TYPE) {
-    return;
-  }
-  const toolCallId = record['toolCallId'];
-  const toolName = record['toolName'];
-  const progress = record['progress'];
-  const total = record['total'];
-  const message = record['message'];
-  if (
-    typeof toolCallId !== 'string' ||
-    toolCallId.length === 0 ||
-    typeof toolName !== 'string' ||
-    toolName.length === 0 ||
-    typeof progress !== 'number' ||
-    !Number.isFinite(progress) ||
-    (total !== undefined && (typeof total !== 'number' || !Number.isFinite(total))) ||
-    (message !== undefined && typeof message !== 'string')
-  ) {
-    return;
-  }
-
-  const raw = {
-    done: progress,
-    ...(message === undefined ? {} : { message }),
-    ...(total === undefined ? {} : { total }),
-  };
-  const normalized = normalizeProgressPayload(raw);
-  return {
-    name: toolName,
-    payload: {
-      callId: toolCallId,
-      toolCallId,
-      ...normalized,
-    },
-    status: 'progress',
-    type: 'tool-event',
-  };
 }

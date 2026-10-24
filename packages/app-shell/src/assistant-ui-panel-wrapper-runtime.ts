@@ -12,7 +12,6 @@ import {
   getLlmModelDefinition,
   listProviderLlmModels,
   localRuntimeContextWindow,
-  memoryCredentialRequiredReason,
   mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
   type OpenRouterAutoProfileModel,
@@ -20,7 +19,6 @@ import {
   type OpenRouterModelMetadataLookup,
   type OpenRouterProviderOptions,
   type ProviderKeySource,
-  type RuntimeAssistantMemorySettings,
   type RuntimeData,
   resolveBedrockReasoningDisplay,
   resolveOpenRouterAutoRuntimeProfile,
@@ -30,8 +28,6 @@ import {
   resolveReasoningVisible,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
-import { readChildFollowupRunConfigAction } from '@brainstrike/assistant-contract/child-followup';
-import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
@@ -40,28 +36,18 @@ import {
   type RuntimeAssistantObservationalMemorySettings,
 } from '@brainstrike/assistant-contract/memory-settings';
 import {
-  getProviderDefaultModel,
   getProviderDefinition,
   getProviderModelDefinitions,
   isSupportedProvider,
   type ModelVisionSupport,
   type ProviderModelDefinition,
-  type ProviderRuntime,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
-import { readToolApprovalRunConfigAction } from '@brainstrike/assistant-contract/tool-approval';
 import {
   getNativeToolDescription,
   getToolSchemaDisplay,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { readToolResumeRunConfigAction } from '@brainstrike/assistant-contract/tool-suspend';
-import type {
-  AssistantThreadMetadata,
-  AssistantThreadRepository,
-  AssistantThreadRunRecord,
-  AssistantThreadRuntimeKind,
-} from '@brainstrike/assistant-data';
+import type { AssistantThreadMetadata } from '@brainstrike/assistant-data';
 import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
@@ -74,14 +60,6 @@ import {
   type LocalRuntimeModelCatalogState,
 } from '@brainstrike/local-runtime';
 import { getGoogleThinkingLevels } from '@brainstrike/types';
-
-const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
-const SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([
-  'openai',
-  'anthropic',
-  'google',
-  'openrouter',
-]);
 
 export interface AssistantOperatingRootBinding {
   readonly displayName: string;
@@ -145,33 +123,6 @@ export function resolveProviderFromComposite(
   return candidate && isSupportedProvider(candidate) ? candidate : null;
 }
 
-/** The sole `HostRunId` producer; the assertion is the brand's only construction site. */
-function createThreadRunId(): HostRunId {
-  return `run-${crypto.randomUUID()}` as HostRunId;
-}
-
-/**
- * Narrow the registry's `ProviderRuntime` to the kind a RUN is recorded under.
- *
- * The two unions are deliberately different sizes: `on-device` is a provider
- * runtime (the built-in embeddings provider) but never a run's runtime, because
- * that provider cannot serve a chat turn. Reaching here with it means a run was
- * admitted for a provider with no LLM capability, so it throws rather than
- * recording a kind that did not happen.
- */
-function toAssistantThreadRuntimeKind(runtime: ProviderRuntime): AssistantThreadRuntimeKind {
-  switch (runtime) {
-    case 'gateway':
-    case 'hosted':
-    case 'local':
-      return runtime;
-    case 'on-device':
-      throw new Error(
-        'An assistant run cannot be recorded for an on-device provider: it serves embeddings only.'
-      );
-  }
-}
-
 export function formatToolLabel(toolId: string): string {
   const name = toolId.split('.').pop() ?? toolId;
   const spaced = name
@@ -183,51 +134,6 @@ export function formatToolLabel(toolId: string): string {
 
 export function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Tool: ${toolId}`;
-}
-
-function resolveSemanticRecallDisabledReason(args: {
-  memorySettings: RuntimeAssistantMemorySettings;
-  providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
-  providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
-}): string | undefined {
-  // Observational-memory vector retrieval embeds with the SAME configured
-  // semantic-recall embedder, so its requirement applies even when the
-  // semantic-recall toggle itself is off.
-  const observationalVectorRetrieval =
-    args.memorySettings.observationalMemory.enabled &&
-    args.memorySettings.observationalMemory.retrievalMode === 'vector';
-  if (!(args.memorySettings.semanticRecall.enabled || observationalVectorRetrieval)) {
-    return;
-  }
-
-  const providerId = args.memorySettings.semanticRecall.embeddingModelTarget?.split('/')[0]?.trim();
-  if (
-    !(
-      providerId &&
-      isSupportedProvider(providerId) &&
-      SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(providerId)
-    )
-  ) {
-    return args.memorySettings.semanticRecall.enabled
-      ? 'Semantic recall requires an OpenAI, Google, or built-in local embedding model. Reconfigure Assistant Memory settings.'
-      : 'Semantic observation recall requires an OpenAI, Google, or built-in local embedding model. Configure one under Assistant Memory settings.';
-  }
-  const providerReadError = args.providerReadErrors?.[providerId];
-  if (providerReadError) {
-    return providerReadError;
-  }
-  if (
-    providerId === 'local' ||
-    args.providerKeySources === undefined ||
-    args.providerKeySources.some(({ provider }) => provider === providerId)
-  ) {
-    return;
-  }
-
-  return memoryCredentialRequiredReason(
-    args.memorySettings.semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
-    providerId
-  );
 }
 
 /** Why an 'auto' observer target could not resolve to a concrete model. */
@@ -322,436 +228,6 @@ export function resolveEffectiveObservationalMemorySettings(args: {
   };
 }
 
-function resolveObservationalMemoryDisabledReason(args: {
-  desktopAssistantBackendAvailable: boolean;
-  memorySettings: RuntimeAssistantMemorySettings;
-  providerKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
-  providerReadErrors: Partial<Record<SupportedProvider, string>> | undefined;
-  selectedProvider: SupportedProvider | null;
-}): string | undefined {
-  // Defense in depth: resolve the 'auto' sentinel with the SAME deterministic
-  // rules the wrapper uses, so a caller passing raw stored settings can never
-  // turn an unresolved auto observer into a memory-disabling validation error.
-  const { settings: observationalMemory } = resolveEffectiveObservationalMemorySettings({
-    desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
-    providerKeySources: args.providerKeySources,
-    selectedChatProvider: args.selectedProvider,
-    settings: args.memorySettings.observationalMemory,
-  });
-  if (!observationalMemory.enabled) {
-    return;
-  }
-
-  const modelTarget = observationalMemory.modelTarget;
-  const separatorIndex = modelTarget.indexOf('/');
-  if (separatorIndex <= 0 || separatorIndex === modelTarget.length - 1) {
-    return 'Observational memory requires a valid provider/model target. Reconfigure Assistant Memory settings.';
-  }
-
-  const providerId = modelTarget.slice(0, separatorIndex);
-  if (
-    !(
-      isSupportedProvider(providerId) && SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS.has(providerId)
-    )
-  ) {
-    return `Observational memory model target ${modelTarget} uses an unsupported provider. Reconfigure Assistant Memory settings.`;
-  }
-  const providerReadError = args.providerReadErrors?.[providerId];
-  if (providerReadError) {
-    return providerReadError;
-  }
-  if (args.providerKeySources === undefined) {
-    return;
-  }
-  if (args.providerKeySources.some(({ provider }) => provider === providerId)) {
-    return;
-  }
-
-  return memoryCredentialRequiredReason('observational-memory', providerId);
-}
-
-export function resolveAssistantMemoryDisabledReason(args: {
-  assistantThreadRepository: AssistantThreadRepository | null;
-  dbError: Error | null;
-  dbInitializing: boolean;
-  desktopAssistantBackendAvailable: boolean;
-  memorySettings: RuntimeAssistantMemorySettings;
-  providerKeySources?: readonly ProviderKeySource<SupportedProvider>[] | undefined;
-  providerReadErrors?: Partial<Record<SupportedProvider, string>> | undefined;
-  memoryLoadState:
-    | { readonly status: 'idle' }
-    | { readonly status: 'loading' }
-    | { readonly status: 'ready' }
-    | { readonly error: string; readonly status: 'error' }
-    | null;
-  selectedMemoryThreadId: string | undefined;
-  selectedProvider: SupportedProvider | null;
-  workspaceRootPath: string | null;
-}): string | undefined {
-  if (args.dbError) {
-    return `Assistant memory database failed to initialize: ${args.dbError.message}`;
-  }
-  if (args.memoryLoadState?.status === 'idle' || args.memoryLoadState?.status === 'loading') {
-    return 'Assistant memory is loading from PGlite.';
-  }
-  if (args.dbInitializing || !args.assistantThreadRepository) {
-    return 'Assistant memory is loading from PGlite.';
-  }
-  if (args.memoryLoadState?.status === 'error') {
-    return `Assistant memory failed to load: ${args.memoryLoadState.error}`;
-  }
-  if (!args.selectedMemoryThreadId) {
-    return 'Assistant memory has no selected thread for this workspace.';
-  }
-  if (!args.workspaceRootPath) {
-    return;
-  }
-  // With no durable backend, `buildAssistantMemoryRequest` omits the memory
-  // block entirely, so NOTHING below this line can reach a request: validating
-  // an observer target or a semantic-recall embedder that will never run would
-  // block the composer over inert configuration. One gate for both validators —
-  // reviewer catch: gating only the observational branch left a persisted
-  // semantic-recall misconfiguration still blocking hosted-web chat.
-  // `resolveHostedMemoryUnavailableNotice` reports the loss.
-  if (!args.desktopAssistantBackendAvailable) {
-    return;
-  }
-  const observationalMemoryDisabledReason = resolveObservationalMemoryDisabledReason({
-    desktopAssistantBackendAvailable: args.desktopAssistantBackendAvailable,
-    memorySettings: args.memorySettings,
-    providerKeySources: args.providerKeySources,
-    providerReadErrors: args.providerReadErrors,
-    selectedProvider: args.selectedProvider,
-  });
-  if (observationalMemoryDisabledReason) {
-    return observationalMemoryDisabledReason;
-  }
-  const semanticRecallDisabledReason = resolveSemanticRecallDisabledReason({
-    memorySettings: args.memorySettings,
-    providerKeySources: args.providerKeySources,
-    providerReadErrors: args.providerReadErrors,
-  });
-  if (semanticRecallDisabledReason) {
-    return semanticRecallDisabledReason;
-  }
-  return;
-}
-
-export function resolveHostedMemoryBackendAvailable(args: {
-  desktopAssistantBackendAvailable: boolean;
-}): boolean {
-  return args.desktopAssistantBackendAvailable;
-}
-
-/**
- * The absent durable memory backend, as a NOTICE rather than a block.
- *
- * `resolveHostedMemoryBackendAvailable` stays the single owner of the
- * capability: it still decides whether a request carries a memory block
- * (`buildAssistantMemoryRequest` omits it when false). What changed is the
- * channel it reports through. It used to return a
- * `resolveAssistantMemoryDisabledReason` string, which reaches the panel's
- * `disabled` prop — and since the predicate is
- * `selectedProvider === 'local' || desktopAssistantBackendAvailable`, and web's
- * `desktopAssistantBackendAvailable` is `hasDurableAssistantUsageCapability()`
- * (false without `window.agentHost`), the retired browser-local provider had
- * been the only thing keeping web's composer sendable. Losing memory is not a
- * reason to refuse the turn, so it rides `panelNotice` and says so out loud.
- *
- * The PGlite-readiness reasons above it still block: without the thread
- * repository there is nowhere to record the run at all.
- */
-export function resolveHostedMemoryUnavailableNotice(args: {
-  desktopAssistantBackendAvailable: boolean;
-  selectedProvider: SupportedProvider | null;
-}): string | undefined {
-  if (args.selectedProvider === null) {
-    return;
-  }
-  // Keyed on the backend alone, NOT on `resolveHostedMemoryBackendAvailable`,
-  // whose `selectedProvider === 'local'` disjunct dates from the in-renderer
-  // browser runtime that carried its own memory. That runtime is gone, so a
-  // `local` selection with no backend would otherwise lose memory with nothing
-  // said. Every shell that cannot record memory now says the same thing.
-  if (args.desktopAssistantBackendAvailable) {
-    return;
-  }
-  return 'Assistant memory is unavailable here; this turn runs without durable memory.';
-}
-
-/**
- * Both faces of the durable-memory capability from one owner: whether a request
- * may carry a memory block, and the notice shown when it may not. The wrapper
- * is under a shrink-only line pin (`assistant-contract-boundary.test.ts`), so
- * this assembly lives here rather than inline there.
- */
-export function resolveHostedMemoryBackend(args: {
-  desktopAssistantBackendAvailable: boolean;
-  selectedProvider: SupportedProvider | null;
-}): { available: boolean; notice: string | undefined } {
-  return {
-    available: resolveHostedMemoryBackendAvailable(args),
-    notice: resolveHostedMemoryUnavailableNotice(args),
-  };
-}
-
-function requireWebThreadControl(input: unknown): void {
-  if (input) {
-    throw new Error('Child conversation controls require the agent host.');
-  }
-}
-
-/** Create the ordinary web run record. Desktop child control belongs to the agent host. */
-export function createAssistantThreadRunPromise(args: {
-  runConfig?: unknown;
-  assistantThreadRepository: AssistantThreadRepository | null;
-  memoryResourceId: string | undefined;
-  modelSettings: RuntimeData['modelSettings'] | undefined;
-  providerOptions: Record<string, unknown> | undefined;
-  resolvedModelName: string | undefined;
-  selectedMemoryThreadId: string | undefined;
-  selectedProvider: SupportedProvider | null;
-  /**
-   * The turn's triggering user message (BST-1163) — the transport resolves it
-   * from thread state per leg (action echoes excluded), so initial sends AND
-   * approval/suspend resumes stamp the SAME id. `null` when the transport has
-   * no real user message in hand; never fabricated here.
-   */
-  turnMessageId: string | null;
-}): Promise<string | undefined> {
-  if (!(args.assistantThreadRepository && args.memoryResourceId && args.selectedMemoryThreadId)) {
-    throw new Error('Assistant run records require an active memory thread.');
-  }
-  if (!(args.selectedProvider && args.resolvedModelName)) {
-    throw new Error('Assistant run records require a selected provider and model.');
-  }
-
-  const followup = readChildFollowupRunConfigAction(args.runConfig);
-  const approval = readToolApprovalRunConfigAction(args.runConfig);
-  const resume = readToolResumeRunConfigAction(args.runConfig);
-  if (
-    (followup && 'invalid' in followup) ||
-    (approval && 'invalid' in approval) ||
-    (resume && 'invalid' in resume) ||
-    [followup, approval, resume].filter(Boolean).length > 1
-  ) {
-    throw new Error(
-      'Assistant run preparation received conflicting or invalid child control input.'
-    );
-  }
-  const decision =
-    approval && 'action' in approval
-      ? approval.action
-      : resume && 'action' in resume
-        ? resume.action
-        : undefined;
-  requireWebThreadControl(followup || decision?.continuationId || decision?.delegation);
-  const turnMessageId = followup && 'action' in followup ? followup.action.id : args.turnMessageId;
-  const providerDefinition = getProviderDefinition(args.selectedProvider);
-  const runId = createThreadRunId();
-  return args.assistantThreadRepository
-    .createThreadRun({
-      id: runId,
-      model: args.resolvedModelName,
-      provider: args.selectedProvider,
-      resourceId: args.memoryResourceId,
-      runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
-      threadId: args.selectedMemoryThreadId,
-      turnMessageId,
-      // The decision this leg answers, so the repository can derive the
-      // GENERATION it belongs to from durable state (migration 140).
-      ...(decision ? { decision: { runId: decision.runId, toolCallId: decision.toolCallId } } : {}),
-      ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
-      ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
-    })
-    .then((record: AssistantThreadRunRecord) => record.id);
-}
-
-export function buildAssistantRequestData(args: {
-  agentLoopSettings: RuntimeData['agentLoop'] | undefined;
-  /** Durable thread-scoped operating root, validated by the desktop server. */
-  boundWorkspaceRootId?: string | undefined;
-  enabledNativeToolIds: readonly string[];
-  hostedMemoryBackendAvailable: boolean;
-  /**
-   * The client's declared MAIN root (activeRootIds[0]) — an ordering hint for
-   * the server's workspace-root enrichment; never a path, never a security
-   * boundary. Attached only when a main root exists (multi-root or storage-v5
-   * single-root; legacy snapshots without activeRootIds send nothing).
-   */
-  mainRootId?: string | undefined;
-  /** Absolute path of the declared main root (server path-fallback matcher). */
-  mainRootPath?: string | undefined;
-  memoryOptions: RuntimeMemoryOptions;
-  memoryResourceId: string | undefined;
-  memorySettings: RuntimeAssistantMemorySettings;
-  modelSettings: RuntimeData['modelSettings'] | undefined;
-  /**
-   * Plan mode (opt-in). Attached ONLY when `true` (presence-means-on); the
-   * server constrains the tool map and prepends the plan-mode instructions.
-   * Absent → normal run.
-   *
-   * NOTE: `permissionPolicyRequest` is deliberately NOT built here. Its sole
-   * producer is `prepareRequestData` (hooks/use-assistant-request-lifecycle.ts),
-   * which reads the live permission-policy store at request-composition time
-   * and sets the field unconditionally — a render-time value would always be
-   * overwritten, so building one here would only cost a subscription (BST-1652).
-   */
-  planMode?: boolean;
-  providerOptions: Record<string, unknown> | undefined;
-  /** Explicit selection only; absent means Auto even when providerOptions has a resolved effort. */
-  requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
-  selectedMemoryThreadId: string | undefined;
-  /** The explorer's focused folder. */
-  selectionData: {
-    folderId: string | null | undefined;
-  };
-  workspaceIndex: {
-    blockedReason: RuntimeData['workspaceIndexBlockedReason'] | null;
-    enabled: boolean;
-    embeddingSetId: string | null;
-    lastError: RuntimeData['workspaceIndexLastError'] | null;
-    mode: string;
-    paused: boolean;
-    queueProgress: RuntimeData['workspaceIndexQueueProgress'] | null;
-    statusState: RuntimeData['workspaceIndexStatusState'];
-  };
-  /**
-   * Opt-in subagent persona availability; only set on the desktop data-stream
-   * transport and only when it diverges from the defaults. A preference, not a
-   * security boundary — it can only reduce the persona set.
-   */
-  /**
-   * Opt-in Agent Skills preference; only set on the desktop data-stream
-   * transport (web has no skills engine). A preference, not a security
-   * boundary — it can only reduce the skill set.
-   */
-  skillsPreference?: RuntimeData['skillsPreference'];
-  subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
-  /**
-   * Per-child subagent budgets (Settings → Subagents → Subagent budgets), for
-   * the desktop assistant host only. There it rides every request: the
-   * defaults are a real value, and the host validates whatever arrives
-   * (`parseRuntimeSubagentSettings`). Web has no subagents, and its server
-   * rejects the field, so it stays off web requests.
-   */
-  subagentSettings?: RuntimeSubagentSettings;
-  /**
-   * Opt-in workspace instructions preference; only set on the desktop
-   * data-stream transport (web has no injection path). A preference, not a
-   * security boundary — the server reads it directly.
-   */
-  workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
-  workspaceRootPath: string | null;
-}): Record<string, unknown> {
-  const data: Record<string, unknown> = {};
-  if (args.boundWorkspaceRootId) {
-    data['boundWorkspaceRootId'] = args.boundWorkspaceRootId;
-  }
-  if (args.selectionData.folderId) {
-    data['selectionFolderId'] = args.selectionData.folderId;
-  }
-  if (args.workspaceRootPath) {
-    data['workspaceRootPath'] = args.workspaceRootPath;
-  }
-  // MAIN root declaration (multi-root): ordering hint for the server's root
-  // enrichment. Distinct from workspaceRootPath above, which stays the
-  // FOCUSED root (selection scope).
-  if (args.mainRootId) {
-    data['mainRootId'] = args.mainRootId;
-  }
-  if (args.mainRootPath) {
-    data['mainRootPath'] = args.mainRootPath;
-  }
-  data['enabledNativeToolIds'] = Array.from(args.enabledNativeToolIds);
-  if (args.workspaceIndex.embeddingSetId) {
-    data['workspaceIndexEmbeddingSetId'] = args.workspaceIndex.embeddingSetId;
-  }
-  data['workspaceIndexingEnabled'] = args.workspaceIndex.enabled;
-  data['workspaceIndexingMode'] = args.workspaceIndex.mode;
-  data['workspaceIndexingPaused'] = args.workspaceIndex.paused;
-  data['workspaceIndexStatusState'] = args.workspaceIndex.statusState;
-  if (args.workspaceIndex.blockedReason) {
-    data['workspaceIndexBlockedReason'] = args.workspaceIndex.blockedReason;
-  }
-  if (args.workspaceIndex.lastError) {
-    data['workspaceIndexLastError'] = args.workspaceIndex.lastError;
-  }
-  if (args.workspaceIndex.queueProgress) {
-    data['workspaceIndexQueueProgress'] = {
-      failed: args.workspaceIndex.queueProgress.failed,
-      pending: args.workspaceIndex.queueProgress.pending,
-      processed: args.workspaceIndex.queueProgress.processed,
-      totalQueued: args.workspaceIndex.queueProgress.totalQueued,
-      ...(args.workspaceIndex.queueProgress.lastError
-        ? { lastError: args.workspaceIndex.queueProgress.lastError }
-        : {}),
-    };
-  }
-  if (args.memoryResourceId && args.selectedMemoryThreadId && args.hostedMemoryBackendAvailable) {
-    data['memory'] = {
-      memoryOptions: args.memoryOptions,
-      memorySettings: args.memorySettings,
-      resourceId: args.memoryResourceId,
-      threadId: args.selectedMemoryThreadId,
-    };
-  }
-  if (args.agentLoopSettings) {
-    data['agentLoop'] = args.agentLoopSettings;
-  }
-  if (args.modelSettings) {
-    data['modelSettings'] = args.modelSettings;
-  }
-  // Sent on every desktop host request: the defaults are a real value, and the
-  // host validates whatever arrives (`parseRuntimeSubagentSettings`).
-  if (args.subagentSettings) {
-    data['subagentSettings'] = args.subagentSettings;
-  }
-  if (args.providerOptions) {
-    data['providerOptions'] = args.providerOptions;
-  }
-  attachOptInRequestFields(data, args);
-  return data;
-}
-
-interface OptInRequestFields {
-  planMode?: boolean;
-  requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
-  skillsPreference?: RuntimeData['skillsPreference'];
-  subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
-  workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
-}
-
-/**
- * Attach the OPT-IN / presence-means-on request fields (all desktop
- * data-stream-gated by the caller). Extracted so `buildAssistantRequestData`
- * stays under the cognitive-complexity budget.
- */
-function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRequestFields): void {
-  // Explicit effort is presence-means-user-selected; absent means Auto even
-  // when resolved provider options carry a catalog-selected wire effort.
-  if (fields.requestedReasoningEffort) {
-    data['requestedReasoningEffort'] = fields.requestedReasoningEffort;
-  }
-  // Plan mode is presence-means-on: only send `true`, never a `false` residue.
-  if (fields.planMode) {
-    data['planMode'] = true;
-  }
-  // Workspace instructions preference: absent => server default (master on).
-  // Subagent persona availability is presence-means-non-default: the builder
-  // returns undefined at the defaults, so nothing rides the wire then.
-  if (fields.subagentPersonasRequest) {
-    data['subagentPersonasRequest'] = fields.subagentPersonasRequest;
-  }
-  if (fields.workspaceInstructionsPreference) {
-    data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
-  }
-  // Skills preference: absent => server default (master on, nothing disabled).
-  if (fields.skillsPreference) {
-    data['skillsPreference'] = fields.skillsPreference;
-  }
-}
-
 export function resolveAssistantProviderDisabledNotice(args: {
   configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
@@ -810,37 +286,6 @@ export function resolveAssistantProviderDisabledNotice(args: {
     return { kind: 'provider', message: 'Select a model for the chosen provider to continue.' };
   }
   return;
-}
-
-export function resolveProviderModelSelection(args: {
-  getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
-  isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
-  provider: SupportedProvider;
-}): string | undefined {
-  const enabledModels = args
-    .getProviderLlmModels(args.provider)
-    .filter((model: LlmProviderModelDefinition) => args.isModelEnabled(args.provider, model.id))
-    .map((model: LlmProviderModelDefinition) => model.id);
-
-  if (enabledModels.length === 0) {
-    return;
-  }
-
-  const defaultModel = getProviderDefaultModel(args.provider);
-  return enabledModels.includes(defaultModel ?? '') ? defaultModel : enabledModels[0];
-}
-
-export function hasValidProviderModelSelection(args: {
-  currentProvider: SupportedProvider;
-  currentSelectedModel: string | null;
-  isModelEnabled: (providerId: SupportedProvider, modelId: string) => boolean;
-  providerModelIds: readonly string[];
-}): boolean {
-  const currentModelName = resolveModelNameFromComposite(args.currentSelectedModel);
-  if (!(currentModelName && args.providerModelIds.includes(currentModelName))) {
-    return false;
-  }
-  return args.isModelEnabled(args.currentProvider, currentModelName);
 }
 
 export type LocalRuntimeStatusMap = Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
@@ -918,73 +363,6 @@ export function resolveComposerAttachmentsAvailability(args: {
   return { state: 'enabled' };
 }
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0;
-}
-
-export function addValuesToSet(target: Set<string>, values: Iterable<string>): void {
-  for (const value of values) {
-    if (isNonEmptyString(value)) {
-      target.add(value);
-    }
-  }
-}
-
-function addPreferenceEnabledModelIds(
-  target: Set<string>,
-  configuredProviders: readonly SupportedProvider[],
-  enabledModelsByProvider: Record<SupportedProvider, string[]>
-): void {
-  for (const providerId of configuredProviders) {
-    const enabledModels = enabledModelsByProvider[providerId] ?? [];
-    addValuesToSet(target, enabledModels);
-  }
-}
-
-function addRuntimeCatalogEnabledLlmModelIds(
-  target: Set<string>,
-  localRuntimeModels: LocalRuntimeModelCatalogMap | null
-): void {
-  for (const runtimeId of LOCAL_RUNTIME_PROVIDER_IDS) {
-    const runtimeState = localRuntimeModels?.[runtimeId];
-    if (!isLoadedRuntimeModelCatalogState(runtimeState)) {
-      continue;
-    }
-    for (const model of runtimeState.models) {
-      if (model.capabilities.llm) {
-        target.add(model.modelId);
-      }
-    }
-  }
-}
-
-export function buildEnabledModelIdSet(options: {
-  readonly shouldFallbackToPreferences: boolean;
-  readonly configuredProviders: readonly SupportedProvider[];
-  readonly enabledModelsByProvider: Record<SupportedProvider, string[]>;
-  readonly fixedProviderModels?: FixedProviderModels | undefined;
-  readonly registryEnabledModelIds: ReadonlySet<string>;
-  readonly localRuntimeModels: LocalRuntimeModelCatalogMap | null;
-}): Set<string> {
-  const enabledIds = new Set<string>();
-
-  if (options.shouldFallbackToPreferences) {
-    addPreferenceEnabledModelIds(
-      enabledIds,
-      options.configuredProviders,
-      options.enabledModelsByProvider
-    );
-  } else {
-    addValuesToSet(enabledIds, options.registryEnabledModelIds);
-  }
-
-  addRuntimeCatalogEnabledLlmModelIds(enabledIds, options.localRuntimeModels);
-  for (const modelIds of Object.values(options.fixedProviderModels ?? {})) {
-    addValuesToSet(enabledIds, modelIds ?? []);
-  }
-  return enabledIds;
-}
-
 export type FixedProviderModels = Partial<Record<SupportedProvider, readonly string[]>>;
 
 export function resolveFixedProviderModelSelection(args: {
@@ -1057,13 +435,6 @@ function resolveSelectedLocalModelUnavailableReason(options: {
     return;
   }
   return `The selected local model "${selectedModelName}" is unavailable.`;
-}
-
-export function findFirstProviderWithEnabledModels(
-  configuredProviders: readonly SupportedProvider[],
-  providerHasEnabledModels: (provider: SupportedProvider) => boolean
-): SupportedProvider | undefined {
-  return configuredProviders.find((providerId) => providerHasEnabledModels(providerId));
 }
 
 interface McpToolDescriptor {
@@ -1966,17 +1337,6 @@ export function copyProviderSettingsMap(
   );
 }
 
-export function extractPreparedRunId(
-  requestData: Record<string, unknown> | undefined
-): string | null {
-  const memory = requestData?.['memory'];
-  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
-    return null;
-  }
-  const runId = (memory as Record<string, unknown>)['runId'];
-  return typeof runId === 'string' && runId.trim() ? runId : null;
-}
-
 export function buildDraftRuntimeForProvider({
   model,
   openRouterLookup,
@@ -2027,44 +1387,4 @@ export function mcpReducer(_state: McpState, action: McpAction): McpState {
     case 'ERROR':
       return { loading: false, tools: [] };
   }
-}
-
-/** Finish-usage payload delivered by the data-stream runtime's onUsage tap. */
-export interface AssistantRunUsagePayload {
-  readonly billedCostUsd?: number;
-  readonly cacheCreationInputTokens?: number;
-  readonly cacheReadInputTokens?: number;
-  readonly contextInputTokens?: number;
-  readonly contextOutputTokens?: number;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-}
-
-/** Select provider-effective context for the transient meter; billing keeps run totals. */
-export function pickContextMeterUsage(usage: AssistantRunUsagePayload): {
-  inputTokens: number;
-  outputTokens: number;
-} {
-  return {
-    inputTokens: usage.contextInputTokens ?? usage.inputTokens,
-    outputTokens: usage.contextOutputTokens ?? usage.outputTokens,
-  };
-}
-
-/**
- * Anthropic cache token classes for the durable run-usage row, present only
- * when reported (BST-587). Absent fields keep pre-cache rows byte-identical.
- */
-export function pickCacheTokenFields(usage: AssistantRunUsagePayload): {
-  cacheCreationInputTokens?: number;
-  cacheReadInputTokens?: number;
-} {
-  return {
-    ...(usage.cacheCreationInputTokens === undefined
-      ? {}
-      : { cacheCreationInputTokens: usage.cacheCreationInputTokens }),
-    ...(usage.cacheReadInputTokens === undefined
-      ? {}
-      : { cacheReadInputTokens: usage.cacheReadInputTokens }),
-  };
 }

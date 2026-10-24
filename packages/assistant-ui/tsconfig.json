@@ -42,9 +42,6 @@
       "path": "../assistant-contract"
     },
     {
-      "path": "../assistant-wire"
-    },
-    {
       "path": "../logging"
     },
     {

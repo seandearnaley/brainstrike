@@ -4,12 +4,11 @@ import type { PanelLayoutState } from '@brainstrike/ui';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
-import { use, useState } from 'react';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
-import { RootsContext } from '../use-delegated-conversation-root';
 import { createRecentLongTaskEntryList } from './long-task-entry-list-test-support';
 
 vi.mock('@brainstrike/file-explorer-hooks', async () => {
@@ -177,10 +176,7 @@ vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
 }));
 
 vi.mock('../assistant-chat-panel', () => ({
-  AssistantChatPanel: () => {
-    const roots = use(RootsContext);
-    return <div data-has-root-owner={roots !== null} data-testid="assistant-chat-shell" />;
-  },
+  AssistantChatPanel: () => <div data-testid="assistant-chat-shell" />,
   AssistantProviderStatusProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -306,10 +302,7 @@ describe('RootLayoutContent', () => {
       'data-suggestions-enabled',
       'false'
     );
-    expect(screen.getByTestId('assistant-chat-shell')).toHaveAttribute(
-      'data-has-root-owner',
-      'true'
-    );
+    expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
     // The Files app body is the explorer itself, with no nested layout (BST-2018).
