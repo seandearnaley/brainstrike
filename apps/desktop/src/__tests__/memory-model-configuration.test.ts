@@ -245,10 +245,6 @@ describe('admitted Memory model configuration', () => {
     value: Auth;
   }[] = [
     { label: 'undefined', value: undefined },
-    {
-      label: 'custom fetch',
-      value: { apiKey: syntheticCredential, fetch, kind: 'custom_fetch' },
-    },
     { label: 'AWS', value: { apiKey: syntheticCredential, kind: 'aws', region: 'fixture-region' } },
     {
       label: 'AWS credential chain',

@@ -843,15 +843,22 @@ describe('MCP runtime client', () => {
         { timeoutMs: 1000, toolName: 'slow-start-export' }
       );
 
-      // The live task, not a timeout: the wait took a share of the ~600 ms left.
-      await expect(
-        tool.execute({}, { abortSignal: new AbortController().signal, toolCallId: 'task-call' })
-      ).resolves.toEqual({ kind: 'mcp-task', task: live });
-      const [[, { timeoutMs }]] = vi.mocked(mcpTaskTracking.awaitSettlement).mock.calls as [
-        [unknown, { timeoutMs: number }],
-      ];
-      expect(timeoutMs).toBeGreaterThan(0);
-      expect(timeoutMs).toBeLessThanOrEqual(450);
+      // A controlled clock, so exactly 600 ms are left when the task arrives.
+      vi.useFakeTimers();
+      try {
+        const signal = new AbortController().signal;
+        const execution = tool.execute({}, { abortSignal: signal, toolCallId: 'task-call' });
+        // The task arrives at 400 ms; the 450 ms wait ends at 850 ms, inside the guard.
+        await vi.advanceTimersByTimeAsync(850);
+        // The live task, not a timeout: the wait took three quarters of the 600 ms left.
+        await expect(execution).resolves.toEqual({ kind: 'mcp-task', task: live });
+        const [[, { timeoutMs }]] = vi.mocked(mcpTaskTracking.awaitSettlement).mock.calls as [
+          [unknown, { timeoutMs: number }],
+        ];
+        expect(timeoutMs).toBe(450);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it.each([

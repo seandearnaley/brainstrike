@@ -5,8 +5,8 @@
  * cross-region inference profile per request (resolveBedrockModelId).
  *
  * Region discipline: a missing region is a typed init failure with actionable
- * text — never a silent `us-east-1` default. Auth kinds the case cannot use
- * (`api_key` without a region, `custom_fetch`, absent auth) fail typed too.
+ * text — never a silent `us-east-1` default. Auth the case cannot use
+ * (`api_key` without a region, absent auth) fails typed too.
  */
 import { EventStreamCodec } from '@smithy/eventstream-codec';
 import { fromUtf8, toUtf8 } from '@smithy/util-utf8';
@@ -401,23 +401,11 @@ describe('createProvider bedrock case (BST-1350)', () => {
     );
   });
 
-  it('rejects custom_fetch auth input typed (no consumer on the bedrock case)', () => {
-    expectTypedInitFailure(
-      () =>
-        createProvider(
-          'bedrock',
-          { apiKey: 'dummy', fetch: globalThis.fetch, kind: 'custom_fetch' },
-          'anthropic.claude-sonnet-5'
-        ),
-      'custom_fetch'
-    );
-  });
-
   it('providerFetchOptions projects the aws bearer ONLY for aws-authType providers', () => {
     // Finding 9 (PR #2522 review): bedrock builds its SDK settings through
-    // the same providerFetchOptions seam as every other case, so a future
-    // fetch-carrying kind composes; a non-aws provider receiving an aws
-    // input still fails typed (never a silent bearer reuse).
+    // the same providerFetchOptions seam as every other case; a non-aws
+    // provider receiving an aws input still fails typed (never a silent
+    // bearer reuse).
     expect(providerFetchOptions(AWS_AUTH, 'bedrock')).toEqual({
       apiKey: 'test-bedrock-bearer',
     });

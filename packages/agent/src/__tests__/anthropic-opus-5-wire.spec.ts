@@ -1,31 +1,32 @@
 import type { createAnthropic } from '@ai-sdk/anthropic';
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createProvider } from '../providers/provider-factory';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // Real installed adapter + production factory, keyless HTTP fixture (not a live smoke).
 it.each(['low', 'medium', 'high', 'xhigh', 'max', undefined] as const)(
   'serializes Opus 5 structured output, tools and thinking configuration %s',
   async (effort) => {
     const bodies: unknown[] = [];
+    vi.stubGlobal('fetch', async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        content: [{ text: '{"ok":true}', type: 'text' }],
+        id: 'msg_opus_5_fixture',
+        model: 'claude-opus-5',
+        role: 'assistant',
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        type: 'message',
+        usage: { input_tokens: 10, output_tokens: 4 },
+      });
+    });
     const model = createProvider(
       'anthropic',
-      {
-        apiKey: 'fixture-key',
-        fetch: async (_input, init): Promise<Response> => {
-          bodies.push(JSON.parse(String(init?.body)));
-          return Response.json({
-            content: [{ text: '{"ok":true}', type: 'text' }],
-            id: 'msg_opus_5_fixture',
-            model: 'claude-opus-5',
-            role: 'assistant',
-            stop_reason: 'end_turn',
-            stop_sequence: null,
-            type: 'message',
-            usage: { input_tokens: 10, output_tokens: 4 },
-          });
-        },
-        kind: 'custom_fetch',
-      },
+      { apiKey: 'fixture-key', kind: 'api_key' },
       'claude-opus-5'
     ) as ReturnType<ReturnType<typeof createAnthropic>>;
     const schema = {
