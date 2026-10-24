@@ -14,6 +14,7 @@ import { createRequire } from 'node:module';
 import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { resolveShellInvocation } from '../native-tools/execute-command-tool.js';
 import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.js';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.js';
 import {
@@ -147,14 +148,21 @@ async function executeWindowsHook(
   let stderr = '';
   let timedOut = false;
   let joined = false;
+  // Node's own `shell: true` convention, as agent commands use it: `/s /c`
+  // runs the quoted line as written. Without it, Node re-quotes the command
+  // with `\"` escapes cmd.exe does not read, so a hook command with quotes
+  // reached its program mangled.
+  const shell = resolveShellInvocation(hook.definition.command, 'win32');
   const owner = createWindowsCommandProcess({
     command: {
-      argv: ['/c', hook.definition.command],
+      argv: shell.args.map((argument, index) =>
+        index === shell.args.length - 1 ? `"${argument}"` : argument
+      ),
       cwd: hook.source.cwd,
       env: userEnvironment,
-      executable: 'cmd',
+      executable: shell.shell,
       stdin: JSON.stringify(redactSecrets(stdin)),
-      windowsVerbatimArguments: false,
+      windowsVerbatimArguments: true,
     },
     createJob: () => native.createCommandJob(),
     onOutput: (kind, chunk) => {

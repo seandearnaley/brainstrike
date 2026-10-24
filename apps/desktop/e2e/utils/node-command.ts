@@ -12,3 +12,19 @@ export function nodeCommand(script: string): string {
   }
   return `node -e "${script}"`;
 }
+
+/**
+ * A `nodeCommand` expression that evaluates to `text`, for text either shell
+ * would interpret (JSON's double quotes, a Windows path's backslashes).
+ */
+export function nodeText(text: string): string {
+  return `Buffer.from('${Buffer.from(text).toString('base64')}', 'base64').toString()`;
+}
+
+/** The environment that points `os.homedir()` at `directory` on every platform. */
+export function homeEnvironment(
+  directory: string
+): Readonly<Record<'HOME' | 'USERPROFILE', string>> {
+  // Node reads HOME on POSIX and USERPROFILE on Windows.
+  return { ['HOME']: directory, ['USERPROFILE']: directory };
+}

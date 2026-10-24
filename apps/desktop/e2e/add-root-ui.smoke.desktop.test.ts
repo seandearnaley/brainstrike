@@ -27,8 +27,8 @@ import {
 } from './utils/git-fixtures';
 import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { nodeCommand, nodeText } from './utils/node-command';
 import { seedRoot } from './utils/seed-root';
-import { WINDOWS_SMOKE_EXCLUSIONS } from './utils/windows-smoke-exclusions';
 
 function makeRootDir(label: string, fileCount: number): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), `brainstrike-addroot-smoke-${label}-`));
@@ -158,7 +158,6 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
   test('the root header offers workspace-root actions and opens a shell at that root', {
     tag: '@smoke',
   }, async ({ window: page }) => {
-    test.fixme(process.platform === 'win32', WINDOWS_SMOKE_EXCLUSIONS.posixShellCommand);
     test.setTimeout(120_000);
     const repo = freshConnectRepo('rootmenu');
     await seedRoot(page, repo, {
@@ -180,13 +179,16 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
     await waitForPinnedShellReady(page, repo);
 
     // The falsifier a header-label-only implementation fails: what the shell
-    // itself reports, not what the panel says. The marker only prints when
-    // $PWD equals the seeded root's realpath (macOS: /var -> /private/var),
-    // and the quote split keeps the typed echo of the command line from
-    // satisfying the assertion.
+    // itself reports, not what the panel says. The marker only prints when the
+    // shell's working directory equals the seeded root's realpath (macOS: /var
+    // -> /private/var), and the split string keeps the typed echo of the
+    // command line from satisfying the assertion. Node runs it the same way in
+    // every platform's terminal shell.
     const resolvedRepo = realpathSync(repo);
     await page.getByTestId('terminal-host').click();
-    await page.keyboard.type(`[ "$(pwd)" = "${resolvedRepo}" ] && echo BST1393_"PWD_OK"\r`);
+    await page.keyboard.type(
+      `${nodeCommand(`if (process.cwd() === ${nodeText(resolvedRepo)}) console.log('BST1393_' + 'PWD_OK')`)}\r`
+    );
     await expect(page.locator('.xterm-rows')).toContainText('BST1393_PWD_OK', {
       timeout: 20_000,
     });
