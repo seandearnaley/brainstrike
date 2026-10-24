@@ -360,12 +360,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(
     cedarPanel.getByRole('button', { includeHidden: true, name: 'Restore to before this message' })
   ).toHaveCount(0);
-  // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
-  // hover (TabStrip contract), so point at the inactive second tab first.
-  await flint.hover();
-  await window
-    .getByRole('button', { exact: true, includeHidden: true, name: `Close ${second.callSign}` })
-    .click();
+  // Close the inactive second tab by its keyboard path (TabStrip: Delete closes
+  // the focused tab). Its ✕ only takes pointer events while the tab is hovered.
+  await flint.press('Delete');
   await expect(flint).toHaveCount(0);
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   // Expand the actual shared TreeTable; listing children mounts no transcripts.

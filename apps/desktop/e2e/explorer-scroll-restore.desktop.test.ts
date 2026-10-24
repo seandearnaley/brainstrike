@@ -8,6 +8,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -30,6 +32,40 @@ test.afterAll(() => {
 });
 
 const SCROLL_SELECTOR = '[data-testid="explorer-scroll-root"]';
+
+/** The offset the explorer's durable writer last stored, which a restart restores. */
+async function persistedScrollTop(page: Page): Promise<unknown> {
+  return await page.evaluate(async (key) => {
+    const storage = (
+      globalThis as typeof globalThis & {
+        electronAPI?: { storage?: { getItem?: (k: string) => Promise<string | null> } };
+      }
+    ).electronAPI?.storage;
+    if (!storage?.getItem) {
+      throw new Error('electronAPI.storage.getItem is unavailable');
+    }
+    const stored = await storage.getItem(key);
+    return stored === null
+      ? null
+      : (JSON.parse(stored) as { state?: { explorerScrollTop?: unknown } }).state
+          ?.explorerScrollTop;
+  }, FILE_EXPLORER_STORAGE_KEY);
+}
+
+/** The active scroller's offset, or -1 while the tree is not tall enough to hold 600px. */
+async function restoredScrollTop(page: Page): Promise<number> {
+  return await page.evaluate((selector) => {
+    const root = document.querySelector(selector) as HTMLElement | null;
+    if (!root) {
+      return -1;
+    }
+    const el =
+      root.querySelector<HTMLElement>('[data-testid="forest-sections-scroll"]') ??
+      root.querySelector<HTMLElement>('[data-testid="tree-table-viewport"]') ??
+      root;
+    return el.scrollHeight - el.clientHeight < 600 ? -1 : el.scrollTop;
+  }, SCROLL_SELECTOR);
+}
 
 test.describe('Explorer scroll restore', () => {
   test('@desktop-explorer-scroll-restore restores the scroll position across a restart', async ({
@@ -84,40 +120,21 @@ test.describe('Explorer scroll restore', () => {
     expect(scrollTarget?.scrollTop ?? 0).toBeGreaterThan(0);
     const savedOffset = scrollTarget?.scrollTop ?? 0;
 
-    // Let the rAF-throttled capture write the offset to the store, then persist.
-    await page.waitForTimeout(500);
+    // The capture commits the resting offset through the explorer's durable writer.
+    await expect.poll(() => persistedScrollTop(page)).toBe(savedOffset);
 
     await reloadRenderer(page, 'scroll-restore-reloaded');
     await expect(scroller).toBeVisible({ timeout: 60_000 });
 
     // The hook restores after hydration once the tree is tall enough. Poll the
     // resolved scroller's offset — do NOT wait on the top file, which a correct
-    // restore scrolls out of view (virtualized away). `-1` means the tree has
-    // not loaded/grown tall enough yet, so keep polling.
-    let restored = -1;
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      restored = await page.evaluate((selector) => {
-        const root = document.querySelector(selector) as HTMLElement | null;
-        if (!root) {
-          return -1;
-        }
-        const el =
-          root.querySelector<HTMLElement>('[data-testid="forest-sections-scroll"]') ??
-          root.querySelector<HTMLElement>('[data-testid="tree-table-viewport"]') ??
-          root;
-        if (el.scrollHeight - el.clientHeight < 600) {
-          return -1; // tree not tall enough yet
-        }
-        return el.scrollTop;
-      }, SCROLL_SELECTOR);
-      if (restored >= 0 && Math.abs(restored - savedOffset) <= 4) {
-        break;
-      }
-      await page.waitForTimeout(250);
-    }
-
-    // Restored within a few px of where we left off (fixed row height → exact,
-    // small tolerance for sub-pixel/measurement rounding).
-    expect(Math.abs(restored - savedOffset)).toBeLessThanOrEqual(4);
+    // restore scrolls out of view (virtualized away). Restored within a few px of
+    // where we left off (fixed row height → exact, small tolerance for sub-pixel
+    // rounding).
+    await expect
+      .poll(async () => Math.abs((await restoredScrollTop(page)) - savedOffset), {
+        timeout: 10_000,
+      })
+      .toBeLessThanOrEqual(4);
   });
 });

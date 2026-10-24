@@ -7,6 +7,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { nodeCommand } from './utils/node-command';
 import { seedRoot } from './utils/seed-root';
 
 const API_KEY = 'test-key-host-session';
@@ -52,7 +53,12 @@ test('a host run’s command session appears in the Terminal panel and stops fro
           [{ arguments: { toolName: session }, name: 'load_tool' }],
           [
             {
-              arguments: { operation: { action: 'start', command: 'sleep 120' } },
+              arguments: {
+                operation: {
+                  action: 'start',
+                  command: nodeCommand('setTimeout(() => undefined, 120000)'),
+                },
+              },
               name: session,
             },
           ],

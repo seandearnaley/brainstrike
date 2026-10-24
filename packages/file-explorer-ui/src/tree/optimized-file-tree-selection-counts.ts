@@ -2,6 +2,11 @@ import { resolveQuerySelection } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import {
+  isPathSeparatorAt,
+  isWindowsPath,
+  lastPathSeparatorIndex,
+} from '@brainstrike/utils/path-ancestors';
 import { useEffect, useMemo, useRef } from 'react';
 
 // Bound ancestor-path cache growth for large workspaces (15k+ files) while
@@ -60,37 +65,27 @@ function evictOldestAncestorCacheEntries(selectedPathAncestorCache: Map<string, 
   }
 }
 
-function isWindowsDriveRootPath(filePath: string): boolean {
-  return filePath.length === WINDOWS_DRIVE_ROOT_LENGTH && hasWindowsDriveRootPrefix(filePath);
-}
-
-function hasWindowsDriveRootPrefix(filePath: string): boolean {
-  return (
-    filePath.length >= WINDOWS_DRIVE_ROOT_LENGTH &&
-    filePath.charCodeAt(1) === 58 &&
-    filePath[2] === '/' &&
-    ((filePath.charCodeAt(0) >= 65 && filePath.charCodeAt(0) <= 90) ||
-      (filePath.charCodeAt(0) >= 97 && filePath.charCodeAt(0) <= 122))
-  );
-}
-
-function normalizeDirectoryCountPath(filePath: string): string {
-  const slashNormalized = filePath.includes('\\') ? filePath.replaceAll('\\', '/') : filePath;
-  if (
-    slashNormalized.length > 1 &&
-    slashNormalized.endsWith('/') &&
-    !isWindowsDriveRootPath(slashNormalized)
-  ) {
-    const minimumPathLength = hasWindowsDriveRootPrefix(slashNormalized)
-      ? WINDOWS_DRIVE_ROOT_LENGTH
-      : 1;
-    let endIndex = slashNormalized.length;
-    while (endIndex > minimumPathLength && slashNormalized[endIndex - 1] === '/') {
-      endIndex -= 1;
-    }
-    return slashNormalized.slice(0, endIndex);
+/**
+ * `filePath` without trailing separators, never below its `/` or drive root.
+ * Separators stay as written: a desktop tree's directory rows are keyed by
+ * their host's native paths, so a Windows directory count is keyed by `\`.
+ */
+function trimDirectoryCountPath(filePath: string): string {
+  const minimumPathLength = WINDOWS_DRIVE_PATH_PATTERN.test(filePath)
+    ? WINDOWS_DRIVE_ROOT_LENGTH
+    : 1;
+  let endIndex = filePath.length;
+  while (endIndex > minimumPathLength && isPathSeparatorAt(filePath, endIndex - 1)) {
+    endIndex -= 1;
   }
-  return slashNormalized;
+  return endIndex === filePath.length ? filePath : filePath.slice(0, endIndex);
+}
+
+/** The slash-separated comparison form, for matching agent-relative selections. */
+function normalizeDirectoryCountPath(filePath: string): string {
+  return trimDirectoryCountPath(
+    filePath.includes('\\') ? filePath.replaceAll('\\', '/') : filePath
+  );
 }
 
 function isAbsolutePathLike(filePath: string): boolean {
@@ -200,45 +195,42 @@ function addAncestorDirectoryPaths(
   filePath: string,
   lowerBoundPath?: string
 ): void {
-  const normalizedFilePath = normalizeDirectoryCountPath(filePath);
-  const normalizedLowerBoundPath = lowerBoundPath
-    ? normalizeDirectoryCountPath(lowerBoundPath)
-    : undefined;
-  let separatorIndex = normalizedFilePath.lastIndexOf('/');
+  const trimmedFilePath = trimDirectoryCountPath(filePath);
+  const trimmedLowerBoundPath = lowerBoundPath ? trimDirectoryCountPath(lowerBoundPath) : undefined;
+  let separatorIndex = lastPathSeparatorIndex(trimmedFilePath);
   while (separatorIndex > 0) {
-    const ancestorPath = normalizedFilePath.slice(0, separatorIndex);
+    const ancestorPath = trimmedFilePath.slice(0, separatorIndex);
     if (
-      normalizedLowerBoundPath &&
-      ancestorPath !== normalizedLowerBoundPath &&
-      !isDescendantPath(ancestorPath, normalizedLowerBoundPath)
+      trimmedLowerBoundPath &&
+      ancestorPath !== trimmedLowerBoundPath &&
+      !isDescendantPath(ancestorPath, trimmedLowerBoundPath)
     ) {
-      separatorIndex = normalizedFilePath.lastIndexOf('/', separatorIndex - 1);
+      separatorIndex = lastPathSeparatorIndex(trimmedFilePath, separatorIndex - 1);
       continue;
     }
 
     addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, ancestorPath);
-    if (ancestorPath === normalizedLowerBoundPath) {
+    if (ancestorPath === trimmedLowerBoundPath) {
       break;
     }
-    separatorIndex = normalizedFilePath.lastIndexOf('/', separatorIndex - 1);
+    separatorIndex = lastPathSeparatorIndex(trimmedFilePath, separatorIndex - 1);
   }
 }
 
-function resolveWorkspaceAbsoluteSelectionPath(folderId: string, selectedPath: string): string {
-  const normalizedFolderId = normalizeDirectoryCountPath(folderId);
-  const normalizedSelectedPath = normalizeDirectoryCountPath(selectedPath);
-  if (
-    normalizedSelectedPath === normalizedFolderId ||
-    isDescendantPath(normalizedSelectedPath, normalizedFolderId)
-  ) {
-    return normalizedSelectedPath;
+/** A selection as an absolute path under `folderPath`, in the folder's own grammar. */
+function resolveWorkspaceAbsoluteSelectionPath(folderPath: string, selectedPath: string): string {
+  const trimmedSelectedPath = trimDirectoryCountPath(selectedPath);
+  if (trimmedSelectedPath === folderPath || isDescendantPath(trimmedSelectedPath, folderPath)) {
+    return trimmedSelectedPath;
   }
 
-  const relativeSelectionPath = normalizedSelectedPath.replace(/^\/+/, '');
-  if (normalizedFolderId === '/') {
-    return `/${relativeSelectionPath}`;
-  }
-  return `${normalizedFolderId}/${relativeSelectionPath}`;
+  const separator = isWindowsPath(folderPath) ? '\\' : '/';
+  const relativeSelectionPath = trimmedSelectedPath
+    .replace(/^[\\/]+/u, '')
+    .replaceAll('/', separator);
+  return isPathSeparatorAt(folderPath, folderPath.length - 1)
+    ? `${folderPath}${relativeSelectionPath}`
+    : `${folderPath}${separator}${relativeSelectionPath}`;
 }
 
 function computeAncestorDirectoryPaths(filePath: string, folderId: string): string[] {
@@ -256,18 +248,14 @@ function computeAncestorDirectoryPaths(filePath: string, folderId: string): stri
   }
 
   if (folderId) {
-    const normalizedFolderId = normalizeDirectoryCountPath(folderId);
-    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, normalizedFolderId);
-    if (isAbsolutePathLike(normalizedFolderId)) {
-      const absoluteSelectionPath = resolveWorkspaceAbsoluteSelectionPath(
-        normalizedFolderId,
-        filePath
-      );
+    const folderPath = trimDirectoryCountPath(folderId);
+    addUniqueAncestorPath(ancestorPaths, seenAncestorPaths, folderPath);
+    if (isAbsolutePathLike(folderPath)) {
       addAncestorDirectoryPaths(
         ancestorPaths,
         seenAncestorPaths,
-        absoluteSelectionPath,
-        normalizedFolderId
+        resolveWorkspaceAbsoluteSelectionPath(folderPath, filePath),
+        folderPath
       );
     }
   }

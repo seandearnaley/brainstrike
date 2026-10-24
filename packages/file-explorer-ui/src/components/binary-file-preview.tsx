@@ -4,6 +4,7 @@ import { Badge, Button, useActionRegistry, useToast } from '@brainstrike/ui';
 import { FileBox } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { type FileSurfaceTab, fileViewerToTarget } from '../context-actions/file-surface-target';
+import { getFileName } from '../shell/workspace-tab-utils';
 
 const logger = createLogger('BinaryFilePreview');
 
@@ -100,7 +101,7 @@ export function BinaryFilePreview({ rootPath, tab }: BinaryFilePreviewProps) {
     [registry.services, target, toast]
   );
 
-  const fileName = target?.name ?? tab.path.split('/').pop() ?? tab.path;
+  const fileName = target?.name ?? getFileName(tab.path);
   const dotIndex = fileName.lastIndexOf('.');
   const extension = dotIndex > 0 ? fileName.slice(dotIndex + 1).toUpperCase() : null;
   const displayPath = target?.absolutePath ?? target?.relativePath ?? tab.path;

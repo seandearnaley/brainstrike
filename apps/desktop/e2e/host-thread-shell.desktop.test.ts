@@ -7,12 +7,15 @@ import { expect, test } from './fixtures/electron-fixture';
 import { readAgentHostLog } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { nodeCommand } from './utils/node-command';
 import { seedRoot } from './utils/seed-root';
 
 const API_KEY = 'test-key-host-shell';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL = 'anthropic/claude-sonnet-4.6';
-const COMMAND = 'printf host-shell-ok > shell-out.txt && printf streamed-from-host';
+const COMMAND = nodeCommand(
+  "require('node:fs').writeFileSync('shell-out.txt', 'host-shell-ok'); process.stdout.write('streamed-from-host')"
+);
 const REPLY = 'The command ran.';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });

@@ -438,6 +438,54 @@ describe('readFullFileTree', () => {
     expect(level0Node.isSymbolicLink).toBe(false);
     expect(level0Node.children).toEqual([]);
   });
+
+  it.each([
+    { name: 'POSIX', root: '/repo', separator: '/' },
+    { name: 'Windows', root: 'C:\\repo', separator: '\\' },
+  ])('skips ignored folders of a native $name tree', async ({ root, separator }) => {
+    const join = (...segments: string[]) => [root, ...segments].join(separator);
+    const listing: Record<string, readonly [name: string, kind: 'directory' | 'file'][]> = {
+      [root]: [
+        ['node_modules', 'directory'],
+        ['src', 'directory'],
+      ],
+      [join('node_modules')]: [['lib.js', 'file']],
+      [join('src')]: [
+        ['.git', 'directory'],
+        ['index.ts', 'file'],
+      ],
+      [join('src', '.git')]: [['HEAD', 'file']],
+    };
+    const adapter: FileSystemAdapter = {
+      exists: async () => true,
+      readDirectory: async (handle) =>
+        (listing[handle.path] ?? []).map(([name, kind]) => {
+          const path = `${handle.path}${separator}${name}`;
+          return {
+            depth: 0,
+            handle: { kind, name, path, platform: 'electron' },
+            name,
+            path,
+            rootFolderId: 'root-id',
+            selectionState: 'unchecked',
+            type: kind,
+            ...(kind === 'directory' ? { children: [] } : {}),
+          } as IFileNode;
+        }),
+      readFile: async () => '',
+      requestDirectoryAccess: async () => ({
+        kind: 'directory',
+        name: 'repo',
+        path: root,
+        platform: 'electron',
+      }),
+    };
+
+    const tree = await readFullFileTree(adapter, await adapter.requestDirectoryAccess());
+
+    expect(tree.map((node) => node.name)).toEqual(['src']);
+    expect(tree[0]?.children?.map((node) => node.name)).toEqual(['index.ts']);
+  });
 });
 
 // Helper to find a node in the tree for more complex assertions (optional)

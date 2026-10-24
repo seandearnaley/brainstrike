@@ -1,6 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
 import { escape as escapeWildcard, Minimatch } from 'minimatch';
+import { isWindowsPath } from './path-ancestors.js';
 
 /**
  * Common file patterns to ignore.
@@ -120,9 +121,6 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
   return matcher.match(str);
 };
 
-/** A Windows drive or UNC path, whose backslashes are separators. */
-const WINDOWS_PATH = /^(?:[A-Za-z]:[\\/]|\\\\)/u;
-
 /**
  * A wildcard filter that matches the file at `path` and no other: its glob
  * characters are escaped, so `a[1].ts` filters as itself, not as a class. The
@@ -132,7 +130,7 @@ const WINDOWS_PATH = /^(?:[A-Za-z]:[\\/]|\\\\)/u;
  * glob a backslash escapes, and minimatch compares Windows paths by `/`.
  */
 export function literalFilterPattern(path: string): string {
-  const separated = WINDOWS_PATH.test(path) ? path.replaceAll('\\', '/') : path;
+  const separated = isWindowsPath(path) ? path.replaceAll('\\', '/') : path;
   return `**/${escapeWildcard(separated.replace(/^\/+/u, ''))}`;
 }
 
