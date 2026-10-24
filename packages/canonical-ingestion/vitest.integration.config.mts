@@ -16,6 +16,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     include: ['__tests__/**/*.integration.test.ts'],
     reporters: config.test?.reporters,

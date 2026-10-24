@@ -18,6 +18,8 @@ export default defineConfig({
     // move stays behavior-preserving down to the DOM implementation.
     environment: 'jsdom',
     exclude: ['node_modules', 'dist'],
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     // The PGlite integration suites ran with these ceilings in app-shell;
     // vitest's 5s default times them out on CI's 2-vCPU runners (proven in
