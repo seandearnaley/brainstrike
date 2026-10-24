@@ -64,19 +64,10 @@ runs:
         # Asserting it here names a future image that drops it as provisioning.
         python3 --version
 
-    # BST-2221: Electron 44 has no install lifecycle. Its first
-    # `require('electron')` downloads the binary itself, synchronously, so on an
-    # unprovisioned host the download ran inside the first test that asked:
-    # indexer's scoped-electron proof spent its whole 30 s budget blocked on it
-    # (Test runs 39190167055 and 39207682126 timed out at 52 s and 46 s while
-    # sqlite-query's integration pass downloaded the same binary at the same
-    # time). Install it once here, before the model cache step launches Electron
-    # and before any lane runs. Electron's own installer checks the archive
-    # against the package's checksums and picks the host arch; `timeout` turns a
-    # stalled transfer into this step's failure rather than the job's.
+    # Provisioned before the model cache step launches Electron and before any
+    # lane runs.
     - name: Provision the Electron binary
-      shell: bash
-      run: timeout 300 pnpm --filter @brainstrike/desktop exec install-electron
+      uses: ./.github/actions/provision-electron
 
     # Electron itself downloads the model into the app origin's Cache Storage
     # (apps/desktop/scripts/provision-test-model-cache.mjs), so it needs the X
