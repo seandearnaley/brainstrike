@@ -86,7 +86,8 @@ test('preserves a valid checksummed nested bundle and its lock files', () => {
   expect(readFileSync(fixture.victim, 'utf8')).toBe('owned sibling bytes');
 });
 
-test.skipIf(process.platform === 'win32').each(['file', 'directory', 'lock', 'manifest'] as const)(
+// Directory links are junctions on Windows, which need no symlink privilege; `symlink` ignores the type elsewhere.
+test.each(['file', 'directory', 'lock', 'manifest'] as const)(
   'rejects a source %s symlink outside the bundle before copying',
   (kind) => {
     const fixture = bundleFixture();
@@ -104,10 +105,10 @@ test.skipIf(process.platform === 'win32').each(['file', 'directory', 'lock', 'ma
         readFileSync(join(source, 'content-addressed'))
       );
       rmSync(source, { recursive: true });
-      symlinkSync(outside, source);
+      symlinkSync(outside, source, 'junction');
     } else if (kind === 'lock') {
       writeFileSync(join(outside, 'g000000000001'), 'outside lock bytes');
-      symlinkSync(outside, join(fixture.bundle, 'lock'));
+      symlinkSync(outside, join(fixture.bundle, 'lock'), 'junction');
     } else {
       const source = join(fixture.bundle, 'manifest.json');
       const external = join(outside, 'manifest.json');
@@ -121,33 +122,27 @@ test.skipIf(process.platform === 'win32').each(['file', 'directory', 'lock', 'ma
   }
 );
 
-test.skipIf(process.platform === 'win32')(
-  'preserves a source symlink whose resolved bytes remain inside the bundle',
-  () => {
-    const fixture = bundleFixture();
-    const source = join(fixture.bundle, 'blobs/content-addressed');
-    const contained = join(fixture.bundle, 'retained-blob');
-    writeFileSync(contained, readFileSync(source));
-    rmSync(source);
-    symlinkSync(contained, source);
-    StateStore.importBundle(fixture.bundle, fixture.target);
-    expect(readFileSync(join(fixture.target, 'blobs/content-addressed'))).toEqual(
-      readFileSync(contained)
-    );
-  }
-);
+test('preserves a source symlink whose resolved bytes remain inside the bundle', () => {
+  const fixture = bundleFixture();
+  const source = join(fixture.bundle, 'blobs/content-addressed');
+  const contained = join(fixture.bundle, 'retained-blob');
+  writeFileSync(contained, readFileSync(source));
+  rmSync(source);
+  symlinkSync(contained, source);
+  StateStore.importBundle(fixture.bundle, fixture.target);
+  expect(readFileSync(join(fixture.target, 'blobs/content-addressed'))).toEqual(
+    readFileSync(contained)
+  );
+});
 
-test.skipIf(process.platform === 'win32')(
-  'refuses a nonempty destination containing a symlink without altering its target',
-  () => {
-    const fixture = bundleFixture();
-    const outside = freshDir('bundle-target-outside');
-    const protectedFile = join(outside, 'content-addressed');
-    writeFileSync(protectedFile, 'protected outside bytes');
-    mkdirSync(fixture.target);
-    symlinkSync(outside, join(fixture.target, 'blobs'));
-    expect(() => StateStore.importBundle(fixture.bundle, fixture.target)).toThrow();
-    expect(existsSync(join(fixture.target, 'state.db'))).toBe(false);
-    expect(readFileSync(protectedFile, 'utf8')).toBe('protected outside bytes');
-  }
-);
+test('refuses a nonempty destination containing a symlink without altering its target', () => {
+  const fixture = bundleFixture();
+  const outside = freshDir('bundle-target-outside');
+  const protectedFile = join(outside, 'content-addressed');
+  writeFileSync(protectedFile, 'protected outside bytes');
+  mkdirSync(fixture.target);
+  symlinkSync(outside, join(fixture.target, 'blobs'), 'junction');
+  expect(() => StateStore.importBundle(fixture.bundle, fixture.target)).toThrow();
+  expect(existsSync(join(fixture.target, 'state.db'))).toBe(false);
+  expect(readFileSync(protectedFile, 'utf8')).toBe('protected outside bytes');
+});
