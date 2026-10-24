@@ -21,7 +21,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/agent/config/browser-safe-subpath-aliases.mjs"
-      ]
+      ],
+      "env": ["$TURBO_EXTENDS$", "APP_SHELL_TEST_SHARD", "APP_SHELL_TEST_SHARD_REQUIRED"]
     }
   }
 }

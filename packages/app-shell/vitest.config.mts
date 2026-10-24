@@ -7,6 +7,31 @@ import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-alias
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../agent/config/browser-safe-subpath-aliases.mjs';
 
+// CI splits this lane into native Vitest shards (the Unit app-shell rows in
+// .github/workflows/test.yml). vitest.compiled.config.mts spreads this test
+// block, so the compiled lane is sharded the same way.
+export function resolveAppShellTestShard(
+  environment: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  const shard = environment['APP_SHELL_TEST_SHARD'];
+  if (!shard) {
+    if (environment['APP_SHELL_TEST_SHARD_REQUIRED'] === 'true') {
+      throw new Error('APP_SHELL_TEST_SHARD is required for the App Shell native-shard task');
+    }
+    return;
+  }
+  const match = /^(?<index>[1-9]\d*)\/(?<count>[1-9]\d*)$/u.exec(shard);
+  if (!match?.groups) {
+    throw new Error(`APP_SHELL_TEST_SHARD must use Vitest's i/N form; received "${shard}"`);
+  }
+  if (Number(match.groups.index) > Number(match.groups.count)) {
+    throw new Error(`APP_SHELL_TEST_SHARD index must not exceed its count; received "${shard}"`);
+  }
+  return shard;
+}
+
+const appShellTestShard = resolveAppShellTestShard();
+
 export default defineConfig({
   // Preserve real module URLs: source-boundary tests read files relative to them.
   // Vitest 5 applies define replacements to test modules too (BST-1689).
@@ -177,6 +202,7 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '**/dist/**', '**/*.compiled.test.{ts,tsx}'],
     // One module cache per package, so parallel lanes never clear a shared one.
     fsModuleCachePath: 'node_modules/.vitest-cache',
+    ...(appShellTestShard ? { shard: appShellTestShard } : {}),
     globals: true,
     hookTimeout: 30_000,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
