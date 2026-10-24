@@ -73,6 +73,7 @@ describe('preload power bridge', () => {
       | {
           storage: {
             clear: () => Promise<unknown>;
+            clearAllForE2e?: () => Promise<unknown>;
             setItem: (key: string, value: string) => Promise<unknown>;
           };
         }
@@ -126,11 +127,13 @@ describe('preload power bridge', () => {
     expect(typeof powerApi?.onPowerState).toBe('function');
   });
 
-  it('routes E2E storage reset through the explicit full-clear channel', async () => {
+  it('keeps the product clear in test mode; only the harness full clear erases root ledgers', async () => {
     mockInvoke.mockClear();
+    // Factory reset's renderer step: Main's reset barrier alone may erase the root ledgers.
     await getElectronApi()?.storage.clear();
+    await getElectronApi()?.storage.clearAllForE2e?.();
 
-    expect(mockInvoke).toHaveBeenCalledWith('storage:clearAllForE2e');
+    expect(mockInvoke.mock.calls).toEqual([['storage:clear'], ['storage:clearAllForE2e']]);
   });
 
   it('routes only main-owned E2E seed keys through the bounded helper', async () => {
