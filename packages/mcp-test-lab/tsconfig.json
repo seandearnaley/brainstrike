@@ -1,14 +1,13 @@
 {
-  "extends": "../config/tsconfig/node-library.json",
+  "extends": "../config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
     "declaration": true,
     "declarationMap": true,
-    "incremental": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "outDir": "dist",
     "rootDir": "src",
     "strictNullChecks": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "types": [
       "node"
     ]

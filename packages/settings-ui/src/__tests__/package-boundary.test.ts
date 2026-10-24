@@ -48,8 +48,8 @@ function findForbiddenRuntimeImports(files: readonly SourceFile[]): string[] {
 /**
  * The Tailwind `@source` shim. It is a stylesheet, not a module: Tailwind reads
  * it to learn that this package's `src` must be scanned for utility classes,
- * and the app CSS entrypoints `@import` it directly. It therefore has no dist
- * build and no source module, and the checks below must not demand either.
+ * and the app CSS entrypoints `@import` it directly. It therefore has no
+ * source module, and the checks below must not demand one.
  *
  * It is validated on its own terms instead — the file exists and actually
  * carries the `@source` directive — because an export pointing at a missing or
@@ -89,20 +89,13 @@ function exportedSourceViolations(packageJson: {
       violations.push(`${subpath}: only ${STYLES_SHIM_SUBPATH} may map to a bare file path`);
       continue;
     }
-    const distTarget = target.import;
-    if (!(distTarget?.startsWith('./dist/') && target.types?.startsWith('./dist/'))) {
-      violations.push(`${subpath}: import and types targets must live in dist`);
+    const sourceTarget = target.types;
+    if (!sourceTarget?.startsWith('./src/')) {
+      violations.push(`${subpath}: the types target must be its source module`);
       continue;
     }
-    const relativeStem = distTarget.slice('./dist/'.length).replace(/\.js$/, '');
-    const candidates = [
-      path.join(SETTINGS_UI_SRC_ROOT, `${relativeStem}.ts`),
-      path.join(SETTINGS_UI_SRC_ROOT, `${relativeStem}.tsx`),
-      path.join(SETTINGS_UI_SRC_ROOT, relativeStem, 'index.ts'),
-      path.join(SETTINGS_UI_SRC_ROOT, relativeStem, 'index.tsx'),
-    ];
-    if (!candidates.some((candidate) => existsSync(candidate))) {
-      violations.push(`${subpath}: ${distTarget} has no source module`);
+    if (!existsSync(path.join(SETTINGS_UI_PACKAGE_ROOT, sourceTarget))) {
+      violations.push(`${subpath}: ${sourceTarget} has no source module`);
     }
   }
   return violations;
@@ -148,7 +141,7 @@ describe('settings-ui package boundary', () => {
 
     const packageJson = readPackageJson();
     // Explicitly a MODULE export, not merely the first entry: `./styles.css` is
-    // a bare file path with no dist target, so mutating it would exercise a
+    // a bare file path with no source module, so mutating it would exercise a
     // different branch than the one this control is meant to prove.
     const moduleExport = Object.entries(packageJson.exports ?? {}).find(
       (entry): entry is [string, { import?: string; types?: string }] =>
@@ -163,11 +156,11 @@ describe('settings-ui package boundary', () => {
       ...packageJson,
       exports: {
         ...packageJson.exports,
-        [subpath]: { ...target, import: './dist/control-missing.js' },
+        [subpath]: { ...target, types: './src/control-missing.ts' },
       },
     };
     expect(exportedSourceViolations(mutatedPackageJson)).toContain(
-      `${subpath}: ./dist/control-missing.js has no source module`
+      `${subpath}: ./src/control-missing.ts has no source module`
     );
   });
 });

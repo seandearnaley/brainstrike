@@ -5,10 +5,8 @@
     // bundler. Production src is independently checked and emitted as NodeNext.
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "incremental": false,
     "noEmit": true,
     "rootDir": ".",
     // Upstream fixture declarations are not the test target; src remains fully

@@ -6,10 +6,6 @@
     "declaration": true,
     "declarationMap": true,
     "skipLibCheck": true,
-    "lib": [
-      "ES2020",
-      "WebWorker"
-    ],
     "types": [
       "node"
     ],
@@ -40,13 +36,5 @@
     "dist",
     "node_modules",
     "**/*.test.ts"
-  ],
-  "references": [
-    {
-      "path": "../worker-runtime"
-    },
-    {
-      "path": "../effect-kit"
-    }
   ]
 }
