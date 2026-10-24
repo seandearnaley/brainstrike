@@ -10,7 +10,7 @@
 Credentials cross several seams: the agent runtime, Bedrock's bearer key and AWS
 credential chain (BST-1350, BST-1353), the provider OAuth engine, which is bound by
 the signed `docs/OAUTH_LEGAL_REVIEW_GATE.md`, and the desktop env bootstrap report.
-`RequestContext.toJSON` drops functions, so a `custom_fetch` closure placed in a
+`RequestContext.toJSON` drops functions, so a credential closure placed in a
 request context vanishes silently. The ChatGPT-subscription path built each request
 as if OpenAI stored it and rewrote it to unstored afterwards, so from the second
 tool-calling step it pointed at reasoning that was never stored (BST-1918).

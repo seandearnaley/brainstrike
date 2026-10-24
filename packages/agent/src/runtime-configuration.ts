@@ -41,10 +41,8 @@ function bearerKeyForAuthInput(auth: ProviderAuthInput): {
 } {
   switch (auth.kind) {
     case 'api_key':
-    case 'custom_fetch':
-      // Both carry a required bearer string (custom_fetch's is the dummy the
-      // SDK factories demand); an empty one is a malformed input surfaced via
-      // the same stable missing-key code.
+      // A required bearer string: an empty one is a malformed input surfaced
+      // via the same stable missing-key code.
       return { apiKey: auth.apiKey, requireNonEmpty: true };
     case 'aws':
       return { apiKey: auth.apiKey ?? '', requireNonEmpty: false };
