@@ -212,7 +212,7 @@ test('switches among running child tabs and retains the child draft', async ({
               switchMeasurement?: { cleanup: () => void };
             };
             measured.switchMeasurement?.cleanup();
-            measured.switchMeasurement = undefined;
+            Reflect.deleteProperty(measured, 'switchMeasurement');
           });
         }
       }
@@ -225,13 +225,15 @@ test('switches among running child tabs and retains the child draft', async ({
       const alpha = (await readHostChildren(electron.getUserDataDir())).find(
         (child) => child.taskPrompt === 'STREAM_ALPHA_TASK_1770'
       );
-      expect(alpha).toBeDefined();
-      const alphaTab = tabs.getByRole('tab', { exact: true, name: alpha?.displayName });
+      if (alpha === undefined) {
+        throw new Error('The agent host committed no STREAM_ALPHA child');
+      }
+      const alphaTab = tabs.getByRole('tab', { exact: true, name: alpha.displayName });
       await alphaTab.click();
       const alphaPanel = window.getByRole('region', {
         exact: true,
         includeHidden: true,
-        name: alpha?.displayName,
+        name: alpha.displayName,
       });
       const draft = alphaPanel.getByRole('textbox', { name: 'Message input' });
       await draft.fill('UNSENT_CHILD_TAB_DRAFT');

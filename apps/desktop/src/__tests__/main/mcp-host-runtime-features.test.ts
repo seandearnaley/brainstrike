@@ -119,7 +119,7 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
           action: 'cancel',
           configuredServerId: http().name,
           generation: 1,
-          id: activePresentation?.id,
+          ...(activePresentation === undefined ? {} : { id: activePresentation.id }),
           requestId: 'queued',
         });
       } else if (cause === 'unexpected-close') {

@@ -50,9 +50,6 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "exactOptionalPropertyTypes": false,
     "types": [
       "node",
       "electron",

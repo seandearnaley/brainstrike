@@ -49,23 +49,20 @@ beforeEach(() => {
 });
 afterEach(() => {
   Reflect.deleteProperty(window, 'worktrees');
-  Reflect.deleteProperty(window, 'indexSearch');
 });
 
 describe('native root registration notification', () => {
   it('does not reconfigure a normal boot that only maps host-recorded roots', async () => {
     const root = grantedRootWithPath('native-root', 'native', '/workspace/native');
     const rootsRegistered = vi.fn(async () => {});
-    Object.defineProperty(window, 'indexSearch', {
-      configurable: true,
-      value: { rootsRegistered },
-    });
     const adapter = makeAdapter({
       ownsRootRecords: true,
       platform: 'electron',
       restoreRoots: async () => [root],
     });
-    const { result } = renderHook(() => useRootsReconciliation({ adapter }));
+    const { result } = renderHook(() =>
+      useRootsReconciliation({ adapter, registration: { rootsRegistered } })
+    );
     await act(async () => {
       await expect(result.current.resolveDbRootId(root.handle.path)).resolves.toBe(root.rootId);
     });
@@ -75,20 +72,17 @@ describe('native root registration notification', () => {
   it('reports rejected activation while preserving the committed root', async () => {
     const root = grantedRootWithPath('native-root', 'native', '/workspace/native');
     const failure = new Error('Native writer unavailable');
-    Object.defineProperty(window, 'indexSearch', {
-      configurable: true,
-      value: {
-        rootsRegistered: vi.fn(async () => {
-          throw failure;
-        }),
-      },
-    });
+    const registration = {
+      rootsRegistered: vi.fn(async () => {
+        throw failure;
+      }),
+    };
     const adapter = makeAdapter({
       ownsRootRecords: true,
       platform: 'electron',
       restoreRoots: async () => [],
     });
-    const { result } = renderHook(() => useRootsReconciliation({ adapter }));
+    const { result } = renderHook(() => useRootsReconciliation({ adapter, registration }));
     await waitFor(() => expect(result.current.rootsReconciliationSettled).toBe(true));
     await act(async () => {
       await result.current.registerRoot(root);
@@ -108,17 +102,15 @@ describe('native root registration notification', () => {
     const root = grantedRootWithPath('native-root', 'native', '/workspace/native');
     const ingestion = Promise.withResolvers<void>();
     const rootsRegistered = vi.fn(() => ingestion.promise);
-    Object.defineProperty(window, 'indexSearch', {
-      configurable: true,
-      value: { rootsRegistered },
-    });
     const adapter = makeAdapter({
       ownsRootRecords: true,
       platform: 'electron',
       restoreRoots: async () => [],
     });
     try {
-      const { result } = renderHook(() => useRootsReconciliation({ adapter }));
+      const { result } = renderHook(() =>
+        useRootsReconciliation({ adapter, registration: { rootsRegistered } })
+      );
       await waitFor(() => expect(result.current.rootsReconciliationSettled).toBe(true));
       expect(rootsRegistered).not.toHaveBeenCalled();
       await act(async () => {

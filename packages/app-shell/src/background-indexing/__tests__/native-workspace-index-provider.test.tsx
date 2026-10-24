@@ -152,6 +152,7 @@ it('shows what Main pushes when its index changes, and nothing new until it push
     coverageBatch: vi.fn(async (): Promise<IndexerCoverageBatch> => settled(54)),
     grep: vi.fn(),
     rebuild: vi.fn(),
+    rootsRegistered: vi.fn(async () => {}),
     search: vi.fn(),
     status: vi.fn(async (): Promise<IndexerStatus> => status),
   };
@@ -197,6 +198,7 @@ it('waits for Main’s config before reading the index, then follows each change
     grep: vi.fn(),
     onLifecycleChanged: vi.fn(() => () => {}),
     rebuild: vi.fn(),
+    rootsRegistered: vi.fn(async () => {}),
     search: vi.fn(),
     status: vi.fn(async () => ({
       kind: 'unavailable' as const,
@@ -239,6 +241,7 @@ it('shows why Main could not read the config instead of waiting forever', async 
     grep: vi.fn(),
     onLifecycleChanged: vi.fn(() => () => {}),
     rebuild: vi.fn(),
+    rootsRegistered: vi.fn(async () => {}),
     search: vi.fn(),
     status: vi.fn(),
   };
@@ -298,6 +301,7 @@ it.each([
       grep: vi.fn(),
       onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(async (): Promise<IndexerStatus> => status),
     };
@@ -355,6 +359,7 @@ it('observes an atomic batch and preserves acknowledged counters across ordinary
     ),
     grep: vi.fn(),
     rebuild: vi.fn(),
+    rootsRegistered: vi.fn(async () => {}),
     search: vi.fn(),
     status: vi.fn(async (): Promise<IndexerStatus> => status),
   };
@@ -431,6 +436,7 @@ it.each(['roots', 'profile', 'store'] as const)(
       ),
       grep: vi.fn(),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(async () => status),
     };
@@ -489,6 +495,7 @@ it.each(['status', 'batch'] as const)(
       ),
       grep: vi.fn(),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(
         async (): Promise<IndexerStatus> =>
@@ -558,6 +565,7 @@ it.each(['status', 'batch'] as const)(
       ),
       grep: vi.fn(),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(
         async (): Promise<IndexerStatus> =>
@@ -651,6 +659,7 @@ it.each([
       grep: vi.fn(),
       onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(async (): Promise<IndexerStatus> => status),
     };
@@ -713,6 +722,7 @@ it.each([
       grep: vi.fn(),
       onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(async () => {
         throw new BoundaryFailureError(failure, { cause: new Error('private fixture diagnostic') });
@@ -756,6 +766,7 @@ it.each([
       grep: vi.fn(),
       onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(async () => PREPARING),
     };
@@ -816,6 +827,7 @@ it.each([
       grep: vi.fn(),
       onLifecycleChanged: vi.fn(() => () => {}),
       rebuild: vi.fn(),
+      rootsRegistered: vi.fn(async () => {}),
       search: vi.fn(),
       status: vi.fn(async (): Promise<IndexerStatus> => status),
     };

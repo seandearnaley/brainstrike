@@ -38,7 +38,9 @@ it('registers a folder re-added under its one id again after it was removed', as
     platform: 'electron',
     restoreRoots: vi.fn(async (): Promise<RootDescriptor[]> => [descriptor]),
   } as unknown as FileSystemAdapter;
-  const { result } = renderHook(() => useRootsReconciliation({ adapter }));
+  const { result } = renderHook(() =>
+    useRootsReconciliation({ adapter, registration: { rootsRegistered: vi.fn(async () => {}) } })
+  );
   await waitFor(() => expect(result.current.rootsReconciliationSettled).toBe(true));
 
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([['one-id', 'one-id']]);

@@ -30,6 +30,13 @@ const EMITTED_MODULE = /\.(?:c|m)?js$/u;
 const URL_NAMED_MODULE = /\bnew URL\(\s*(['"])([^'"]+?\.(?:c|m)?js)\1/gu;
 const RESOLVING = Symbol('node-inference-boundary.resolving');
 
+/**
+ * @typedef {import('esbuild').Metafile} Metafile
+ * @typedef {Metafile['inputs']} MetafileInputs
+ * @typedef {{ external?: boolean, kind: string, original?: string, path: string }} ImportEdge
+ */
+
+/** @param {string} target */
 function forbiddenPackageOf(target) {
   return (
     NODE_FORBIDDEN_PACKAGES.find(
@@ -39,7 +46,10 @@ function forbiddenPackageOf(target) {
   );
 }
 
-/** Resolve bare specifiers as Node would; stop at forbidden packages, builtins and addons. */
+/**
+ * Resolve bare specifiers as Node would; stop at forbidden packages, builtins and addons.
+ * @type {import('esbuild').Plugin}
+ */
 const nodeRuntimeResolution = {
   name: 'node-runtime-resolution',
   setup(pluginBuild) {
@@ -67,6 +77,11 @@ const nodeRuntimeResolution = {
   },
 };
 
+/**
+ * @param {string} absWorkingDir
+ * @param {string[]} entryPoints
+ * @returns {Promise<MetafileInputs>}
+ */
 async function walk(absWorkingDir, entryPoints) {
   const { metafile } = await build({
     absWorkingDir,
@@ -91,16 +106,24 @@ async function walk(absWorkingDir, entryPoints) {
   return metafile.inputs;
 }
 
-/** First-party modules named by `new URL('<file>.js', …)` in `inputs`, keyed by the naming module. */
+/**
+ * First-party modules named by `new URL('<file>.js', …)` in `inputs`, keyed by the naming module.
+ * @param {string} absWorkingDir
+ * @param {MetafileInputs} inputs
+ */
 function urlNamedModules(absWorkingDir, inputs) {
+  /** @type {Map<string, string>} */
   const named = new Map();
   for (const input of Object.keys(inputs)) {
     if (input.includes('node_modules/')) {
       continue;
     }
     const file = path.resolve(absWorkingDir, input);
-    for (const match of readFileSync(file, 'utf8').matchAll(URL_NAMED_MODULE)) {
-      const target = path.resolve(path.dirname(file), match[2]);
+    for (const [, , namedFile] of readFileSync(file, 'utf8').matchAll(URL_NAMED_MODULE)) {
+      if (namedFile === undefined) {
+        continue;
+      }
+      const target = path.resolve(path.dirname(file), namedFile);
       const key = path.relative(absWorkingDir, target).split(path.sep).join('/');
       if (existsSync(target) && !named.has(key)) {
         named.set(key, input);
@@ -110,7 +133,11 @@ function urlNamedModules(absWorkingDir, inputs) {
   return named;
 }
 
-/** Adds `more` to `inputs`, keeping every import a module has in either graph. */
+/**
+ * Adds `more` to `inputs`, keeping every import a module has in either graph.
+ * @param {MetafileInputs} inputs
+ * @param {MetafileInputs} more
+ */
 function mergeInputs(inputs, more) {
   for (const [file, input] of Object.entries(more)) {
     const known = inputs[file];
@@ -125,6 +152,8 @@ function mergeInputs(inputs, more) {
  * its own record of what it bundled, from its source entries, and its emitted files,
  * walked as Node loads them. A self-bundled entry inlines its packages, so its
  * emitted file alone hides what it carries.
+ * @param {{ absWorkingDir: string, builds: readonly Metafile[] }} options
+ * @returns {Promise<string[]>}
  */
 export async function findNodeInferenceImports({ absWorkingDir: workingDir, builds }) {
   // esbuild keys the metafile by real paths (macOS tmpdir is a symlink).
@@ -134,6 +163,7 @@ export async function findNodeInferenceImports({ absWorkingDir: workingDir, buil
   const entryPoints = [
     ...new Set([...emitted, ...outputs.flatMap(([, output]) => output.entryPoint ?? [])]),
   ];
+  /** @type {Map<string, string | null>} */
   const roots = new Map(entryPoints.map((entry) => [entry, null]));
   const inputs = await walk(absWorkingDir, emitted);
   for (const metafile of builds) {
@@ -157,9 +187,12 @@ export async function findNodeInferenceImports({ absWorkingDir: workingDir, buil
   }
 
   // Breadth-first from the declared entries, so each chain is a shortest one.
+  /** @type {Map<string, { from: string, kind: string } | null>} */
   const parent = new Map(entryPoints.map((entry) => [entry, null]));
   const queue = [...entryPoints];
+  /** @type {string[]} */
   const chains = [];
+  /** @param {string} node */
   const label = (node) => {
     const steps = [node];
     for (let step = parent.get(node); step; step = parent.get(step.from)) {
@@ -167,8 +200,9 @@ export async function findNodeInferenceImports({ absWorkingDir: workingDir, buil
     }
     return steps.join(' ');
   };
-  for (let index = 0; index < queue.length; index += 1) {
-    const current = queue[index];
+  // The iterator visits each module the loop appends, in order.
+  for (const current of queue) {
+    /** @type {ImportEdge[]} */
     const edges = [
       ...(inputs[current]?.imports ?? []),
       ...[...roots]
@@ -190,6 +224,7 @@ export async function findNodeInferenceImports({ absWorkingDir: workingDir, buil
   return [...new Set(chains)];
 }
 
+/** @param {readonly string[]} chains */
 export function assertNoNodeInferenceImports(chains) {
   if (chains.length === 0) {
     return;

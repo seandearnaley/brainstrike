@@ -8,8 +8,8 @@
  * Third-party packages, `electron` and the two native add-ons stay runtime
  * imports, resolved from this app's own node_modules.
  *
- * Structurally typed esbuild plugins: no esbuild import, so the config stays
- * pure for src/__tests__/build-main-config.test.ts.
+ * esbuild plugins typed by JSDoc alone: no esbuild runtime import, so the
+ * config stays pure for src/__tests__/build-main-config.test.ts.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -20,14 +20,26 @@ export const NATIVE_WORKSPACE_PACKAGES = [
   '@brainstrike/windows-job-native',
 ];
 
+/**
+ * @typedef {string | { readonly types?: unknown, readonly default?: unknown }} ExportTarget
+ * @typedef {Readonly<Record<string, ExportTarget | undefined>>} ExportsMap
+ * @typedef {{ directory: string, exports: ExportsMap }} WorkspacePackage
+ */
+
+/** @param {string} specifier */
 function isNativeWorkspaceImport(specifier) {
   return NATIVE_WORKSPACE_PACKAGES.some(
     (name) => specifier === name || specifier.startsWith(`${name}/`)
   );
 }
 
-/** Each workspace package's directory and `exports`, by package name. */
+/**
+ * Each workspace package's directory and `exports`, by package name.
+ * @param {string} packagesRoot
+ * @returns {Map<string, WorkspacePackage>}
+ */
 export function readWorkspacePackages(packagesRoot) {
+  /** @type {Map<string, WorkspacePackage>} */
   const packages = new Map();
   for (const directory of readdirSync(packagesRoot)) {
     const manifest = path.join(packagesRoot, directory, 'package.json');
@@ -39,7 +51,12 @@ export function readWorkspacePackages(packagesRoot) {
   return packages;
 }
 
-/** The export key a subpath matches: its own key, or a `*` pattern with the text it stands for. */
+/**
+ * The export key a subpath matches: its own key, or a `*` pattern with the text it stands for.
+ * @param {ExportsMap} exportsMap
+ * @param {string} subpath
+ * @returns {{ key: string, star?: string } | null}
+ */
 function matchExport(exportsMap, subpath) {
   if (Object.hasOwn(exportsMap, subpath)) {
     return { key: subpath };
@@ -58,15 +75,17 @@ function matchExport(exportsMap, subpath) {
 /**
  * The source module a workspace specifier names. A specifier with no export, or
  * an export with no source, fails the build: there is no `dist` to fall back to.
+ * @param {ReadonlyMap<string, WorkspacePackage>} packages
+ * @param {string} specifier
  */
 export function workspaceSourceModule(packages, specifier) {
   const name = specifier.split('/', 2).join('/');
   const workspacePackage = packages.get(name);
   const subpath = `.${specifier.slice(name.length)}`;
-  const match = workspacePackage && matchExport(workspacePackage.exports, subpath);
-  const target = match && workspacePackage.exports[match.key];
+  const match = workspacePackage ? matchExport(workspacePackage.exports, subpath) : null;
+  const target = workspacePackage && match ? workspacePackage.exports[match.key] : undefined;
   const source = typeof target === 'string' ? target : (target?.types ?? target?.default);
-  if (typeof source !== 'string') {
+  if (!(workspacePackage && match && typeof source === 'string')) {
     throw new Error(`${specifier} names no source module in ${name}'s exports`);
   }
   const file = match.star === undefined ? source : source.replace('*', match.star);
@@ -76,6 +95,8 @@ export function workspaceSourceModule(packages, specifier) {
 /**
  * Bundle workspace packages from source. With `thirdParty: 'external'`, every
  * other bare import stays a runtime import; with `'bundle'`, esbuild inlines it.
+ * @param {{ packagesRoot: string, thirdParty: 'bundle' | 'external' }} options
+ * @returns {import('esbuild').Plugin}
  */
 export function workspaceSourceBundling({ packagesRoot, thirdParty }) {
   return {

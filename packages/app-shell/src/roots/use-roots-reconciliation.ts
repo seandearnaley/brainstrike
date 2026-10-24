@@ -54,19 +54,12 @@ function refreshGitInventoryAfterRootRegistration(bridge: ChangesBridge | null):
 }
 
 /** The committed roots writer notifies Main; the renderer never supplies authority. */
-function refreshNativeIndexAfterRootRegistration(): void {
-  const bridge = (window as Window & { indexSearch?: Partial<IndexRootRegistrationCapability> })
-    .indexSearch;
-  if (!bridge) {
-    return;
-  }
-  if (typeof bridge.rootsRegistered !== 'function') {
-    logger.error('Native root registration capability is unavailable');
-    return;
-  }
+function refreshNativeIndexAfterRootRegistration(
+  registration: IndexRootRegistrationCapability
+): void {
   // Main retains and joins reconfiguration. Folder selection waits only for its
   // canonical write, while the index status owns ingestion progress and failure.
-  void bridge.rootsRegistered().catch((error: unknown) => {
+  void registration.rootsRegistered().catch((error: unknown) => {
     logger.error('Native index refresh after root registration failed', { error });
   });
 }
@@ -101,6 +94,8 @@ function retainMountedKeys(
 
 export interface UseRootsReconciliationArgs {
   adapter: FileSystemAdapter;
+  /** Main's native index, told after each mid-session registration commits. */
+  registration: IndexRootRegistrationCapability;
 }
 
 export interface UseRootsReconciliationResult {
@@ -153,6 +148,8 @@ interface PerformRootRegistrationArgs {
   publishCanonicalKind: (adapterRootId: string, kind: string) => void;
   /** Publishes the canonical adapter-rootId → DB-rootId pair to reactive state. */
   publishCanonicalMapping: (adapterRootId: string, dbRootId: string) => void;
+  /** Main's native index, told once a registered root's row is committed. */
+  registration: IndexRootRegistrationCapability;
 }
 
 interface ApplyBootReconciliationResultArgs {
@@ -211,6 +208,7 @@ async function performRootRegistration({
   dbRootIdMap,
   publishCanonicalMapping,
   publishCanonicalKind,
+  registration,
 }: PerformRootRegistrationArgs): Promise<void> {
   if (!adapter.restoreRoots) {
     // Mirrors the boot no-op: on adapters without restoreRoots the registered
@@ -257,7 +255,7 @@ async function performRootRegistration({
       notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
       // The root is now in the `roots` table the inventory's loadRoots() reads.
       refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
-      refreshNativeIndexAfterRootRegistration();
+      refreshNativeIndexAfterRootRegistration(registration);
     }
   } catch (err) {
     logger.error('Mid-session root registration failed', {
@@ -282,6 +280,7 @@ async function performRootRegistration({
  */
 export function useRootsReconciliation({
   adapter,
+  registration,
 }: UseRootsReconciliationArgs): UseRootsReconciliationResult {
   const hasRunRef = useRef(false);
 
@@ -328,6 +327,8 @@ export function useRootsReconciliation({
   // registerRoot stays identity-stable without stale captures.
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
+  const registrationRef = useRef(registration);
+  registrationRef.current = registration;
 
   // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
   // the pair is already present so a re-resolved boot map never churns the Map
@@ -457,6 +458,7 @@ export function useRootsReconciliation({
           descriptor,
           publishCanonicalKind,
           publishCanonicalMapping,
+          registration: registrationRef.current,
         });
       };
       // Serialize registrations so two adds for the same path cannot interleave

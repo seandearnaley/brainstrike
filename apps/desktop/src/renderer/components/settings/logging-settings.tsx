@@ -71,7 +71,9 @@ export function DesktopLoggingSettings() {
           canSelectDestination: payload.capabilities.canSelectDestination,
           defaultDestination: payload.capabilities.defaultDestination,
           fileLoggingSupported: payload.capabilities.fileLoggingSupported,
-          reason: payload.capabilities.reason,
+          ...(payload.capabilities.reason === undefined
+            ? {}
+            : { reason: payload.capabilities.reason }),
         },
         type: 'load_success',
       });
@@ -226,7 +228,7 @@ export function DesktopLoggingSettings() {
   return (
     <LoggingSettingsSection
       busy={syncing}
-      fileCapabilities={fileCapabilities}
+      {...(fileCapabilities === undefined ? {} : { fileCapabilities })}
       onCommitPreferences={commitPreferences}
       onOpenLogDestination={openDestination}
       onOpenLogs={openLogsTab}

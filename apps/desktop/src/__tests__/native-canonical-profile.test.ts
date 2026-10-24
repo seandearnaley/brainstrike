@@ -30,6 +30,8 @@ const selection = {
   dtype: 'q8',
   modelId: metadata.modelId,
 } as const satisfies SelectedEmbeddingRequestPlan;
+const { device: _device, ...selectionWithoutDevice } = selection;
+const { dtype: _dtype, ...selectionWithoutDtype } = selection;
 const NONE = { document: '', query: '' };
 const setRow = (change: Partial<CollectionRecord> = {}): CollectionRecord => ({
   ...metadata,
@@ -147,8 +149,8 @@ describe('saved canonical profile identity', () => {
       undefined,
       'In Settings, Search & Indexing, choose a setting for Run it on.',
     ],
-    ['no device', { ...selection, device: undefined }, unverifiedPins],
-    ['no dtype', { ...selection, dtype: undefined }, unverifiedPins],
+    ['no device', selectionWithoutDevice, unverifiedPins],
+    ['no dtype', selectionWithoutDtype, unverifiedPins],
   ])('refuses missing or unverified local pins: %s', (_case, saved, message) => {
     expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(message);
   });

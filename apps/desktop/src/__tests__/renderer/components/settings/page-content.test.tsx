@@ -177,9 +177,8 @@ beforeEach(() => {
 
 afterEach(() => {
   const extendedWindow = getWindowWithExtensions();
-  // Reset to undefined instead of deleting - safer for environments where props may not be configurable
-  extendedWindow.secrets = undefined as unknown as SecretsApi | undefined;
-  extendedWindow.mcp = undefined as unknown as McpApi | undefined;
+  Reflect.deleteProperty(extendedWindow, 'secrets');
+  Reflect.deleteProperty(extendedWindow, 'mcp');
 });
 
 describe('Desktop SettingsPageContent', () => {

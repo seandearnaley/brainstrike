@@ -3,6 +3,7 @@ import {
   deriveEffectiveInputBudget,
   findLlmModelDefinition,
 } from '@brainstrike/assistant-contract';
+import { Schema } from 'effect';
 import { expect, test } from 'vitest';
 import type { DesktopAdmissionReads } from '../agent-host-platform/desktop-run-admission';
 import {
@@ -36,10 +37,10 @@ test('an uncaptured OpenRouter CLI request records the canonical output limit be
   expect(desktopInputTokenLimit(definition, intent, intent.modelConfiguration)).toBe(
     deriveEffectiveInputBudget(definition.contextWindow, outputLimit)
   );
-  const captured = {
+  const captured = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.MutableJson))({
     ...intent,
     modelConfiguration: { model, modelSettings: { maxOutputTokens: 900 }, provider },
-  };
+  });
   expect(await readDesktopIntent({ ...request, configuration: captured }, catalog)).toEqual(
     captured
   );

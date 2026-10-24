@@ -41,6 +41,12 @@ function runtime(overrides: Partial<RuntimeData> = {}): RuntimeData {
   return { provider: 'openai', workspaceRoots: [ROOT_A], ...overrides };
 }
 
+/** A renderer runtime that names no workspace root inventory at all. */
+function runtimeWithoutRoots(overrides: Partial<RuntimeData> = {}): RuntimeData {
+  const { workspaceRoots: _roots, ...rest } = runtime(overrides);
+  return rest;
+}
+
 describe('buildWorkspaceInstructionsContextMessage', () => {
   it('injects a fits-the-budget context file whole, with no truncation note', async () => {
     const reader = makeReader({ '/abs/repo-a': { 'AGENTS.md': '# Conventions\nBe precise.' } });
@@ -293,7 +299,7 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
 
     await expect(
       buildWorkspaceInstructionsContextMessage(
-        runtime({ workspaceRootPath: '/abs/legacy', workspaceRoots: undefined }),
+        runtimeWithoutRoots({ workspaceRootPath: '/abs/legacy' }),
         reader
       )
     ).rejects.toThrow(/authoritative workspace root inventory is unavailable/i);

@@ -1,6 +1,7 @@
 import type { IndexConfigCapability } from '@brainstrike/assistant-contract/index-config';
 import type {
   IndexLifecycleCapability,
+  IndexRootRegistrationCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { ReactNode } from 'react';
@@ -9,7 +10,10 @@ import { NativeWorkspaceIndexProvider } from './native-workspace-index-provider'
 export interface WorkspaceCollectionSyncProviderProps {
   children: ReactNode;
   readonly nativeIndexSearch:
-    | (IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability)
+    | (IndexSearchCapability &
+        IndexConfigCapability &
+        IndexLifecycleCapability &
+        IndexRootRegistrationCapability)
     | null;
 }
 

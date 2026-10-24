@@ -59,7 +59,10 @@ const FS: MemoryFs = {
   },
 };
 
-function makeParams(runtimeData: Partial<RuntimeData> | undefined) {
+/** Renderer runtime data, which a test may hand over malformed. */
+function makeParams(
+  runtimeData: Partial<RuntimeData> | Readonly<Record<string, unknown>> | undefined
+) {
   const scanDeps = makeScanDeps(FS);
   return {
     fs: {
@@ -126,7 +129,7 @@ describe('prepareRequestSkills', () => {
           skillsPreference: {
             disabledSkillKeys: 'nope',
             masterEnabled: 'yes',
-          } as unknown as RuntimeData['skillsPreference'],
+          },
           workspaceRoots: ROOTS,
         })
       );

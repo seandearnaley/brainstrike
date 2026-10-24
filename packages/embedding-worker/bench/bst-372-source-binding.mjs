@@ -76,6 +76,7 @@ export function verifyHistoricalSourceBinding({
     throw new Error(`BST-372 historical source binding for ${variant} has no source blobs.`);
   }
 
+  /** @type {Record<string, string>} */
   const actualSourceBlobs = {};
   for (const [relativePath, expectedBlob] of sourceEntries) {
     const contents = readFileSync(join(packageRoot, relativePath));

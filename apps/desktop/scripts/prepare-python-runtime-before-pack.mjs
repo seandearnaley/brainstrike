@@ -1,9 +1,14 @@
 import { Arch } from 'electron-builder';
 import { fetchPythonRuntime } from './fetch-python-runtime.mjs';
 
+/** @type {Map<string, Promise<void>>} */
 const preparingPlatforms = new Map();
 
-/** electron-builder supplies the target, including when --linux runs on macOS. */
+/**
+ * electron-builder supplies the target, including when --linux runs on macOS.
+ * Its before-pack context is the same `PackContext` as its after-pack one.
+ * @param {Pick<import('electron-builder').AfterPackContext, 'arch' | 'electronPlatformName'>} context
+ */
 export default async function beforePack({ electronPlatformName: platform, arch }) {
   if (
     (platform === 'linux' && ![Arch.x64, Arch.arm64].includes(arch)) ||

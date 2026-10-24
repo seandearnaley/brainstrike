@@ -58,7 +58,7 @@ describe('desktop Logs tab', () => {
     getRendererLogBuffer().clear();
     useWorkspaceTabSelectionStore.getState().reset();
     usePanelLayoutStore.setState({ activeTab: 'explorer' });
-    (window as unknown as { logging?: Window['logging'] }).logging = undefined;
+    Reflect.deleteProperty(window, 'logging');
   });
 
   it("shows this renderer's logs beside Electron main's buffered logs", async () => {

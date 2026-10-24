@@ -12,18 +12,26 @@ export const ALLOWED_PRELOAD_REQUIRES = ['electron'];
 
 const REQUIRE_CALL_PATTERN = /\brequire\(\s*(['"])([^'"]+)\1\s*\)/g;
 
-/** Specifiers required by `source` that a sandboxed preload cannot resolve, deduped and sorted. */
+/**
+ * Specifiers required by `source` that a sandboxed preload cannot resolve, deduped and sorted.
+ * @param {string} source
+ * @returns {string[]}
+ */
 export function findPreloadBundleRequireViolations(source) {
+  /** @type {Set<string>} */
   const violations = new Set();
-  for (const match of source.matchAll(REQUIRE_CALL_PATTERN)) {
-    const specifier = match[2];
-    if (!ALLOWED_PRELOAD_REQUIRES.includes(specifier)) {
+  for (const [, , specifier] of source.matchAll(REQUIRE_CALL_PATTERN)) {
+    if (specifier !== undefined && !ALLOWED_PRELOAD_REQUIRES.includes(specifier)) {
       violations.add(specifier);
     }
   }
   return [...violations].sort();
 }
 
+/**
+ * @param {string} fileName
+ * @param {string} source
+ */
 export function assertPreloadBundleRequires(fileName, source) {
   const violations = findPreloadBundleRequireViolations(source);
   if (violations.length === 0) {

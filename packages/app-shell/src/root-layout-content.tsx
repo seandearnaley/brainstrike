@@ -33,6 +33,7 @@ import {
 import type {
   IndexLifecycleCapability,
   IndexRetryCapability,
+  IndexRootRegistrationCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { McpElicitationHost } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
@@ -105,7 +106,10 @@ function FileTreeWrapper({
 }: {
   children: ReactNode;
   nativeIndexSearch:
-    | (IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability)
+    | (IndexSearchCapability &
+        IndexConfigCapability &
+        IndexLifecycleCapability &
+        IndexRootRegistrationCapability)
     | null;
 }): ReactElement {
   const { rootDirectoryHandle, rootIdByPath } = useFileSystem();
@@ -173,7 +177,10 @@ export interface RootLayoutContentProps {
   /** Retry indexing after the embedding host stopped responding (BST-2104); desktop only. */
   readonly nativeIndexRetry?: IndexRetryCapability | null;
   readonly nativeIndexSearch?:
-    | (IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability)
+    | (IndexSearchCapability &
+        IndexConfigCapability &
+        IndexLifecycleCapability &
+        IndexRootRegistrationCapability)
     | null;
   readonly navigationItems: NavigationItem[];
   readonly settingsPageContent: ReactNode;
@@ -476,7 +483,10 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly worktreeMapPageContent?: ReactNode;
   readonly visible: boolean;
   readonly nativeIndexSearch:
-    | (IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability)
+    | (IndexSearchCapability &
+        IndexConfigCapability &
+        IndexLifecycleCapability &
+        IndexRootRegistrationCapability)
     | null;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src

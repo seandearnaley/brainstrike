@@ -1,6 +1,8 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type {
   HostLogRow,
+  HostMemoryCycleEvent,
+  HostMemoryModels,
   HostParams,
   HostResults,
   HostRunTelemetry,
@@ -15,6 +17,7 @@ import { readMemoryRecallTelemetry } from '@brainstrike/assistant-contract/tool-
 import type {
   MemoryCycleDisplay,
   MemoryCyclesDisplay,
+  MemoryModelsDisplay,
   MemoryRecallDisplay,
   OmMeterState,
 } from '@brainstrike/assistant-ui';
@@ -63,8 +66,8 @@ export function hostOmMeterState(observational: ReadyRead['observational']): OmM
 }
 
 interface ComposerNotice {
-  readonly disabledReason?: string;
-  readonly isComposerDisabled?: boolean;
+  readonly disabledReason?: string | undefined;
+  readonly isComposerDisabled?: boolean | undefined;
 }
 
 /**
@@ -100,6 +103,56 @@ function memoryChangedSince(rows: readonly HostLogRow[], seen: number): boolean 
     );
 }
 
+/** A committed cycle's facts as the meter shows them, with when it committed. */
+function memoryCycleDisplay(
+  { durationMs, failure, outcome, trigger, usage }: HostMemoryCycleEvent,
+  at: number | undefined
+): MemoryCycleDisplay {
+  return {
+    ...(at === undefined ? {} : { at }),
+    ...(durationMs === undefined ? {} : { durationMs }),
+    ...(failure === undefined
+      ? {}
+      : {
+          failure: {
+            code: failure.code,
+            ...(failure.correlationId === undefined
+              ? {}
+              : { correlationId: failure.correlationId }),
+          },
+        }),
+    outcome,
+    ...(trigger === undefined ? {} : { trigger }),
+    ...(usage === undefined
+      ? {}
+      : {
+          usage: {
+            ...(usage.inputTokens === undefined ? {} : { inputTokens: usage.inputTokens }),
+            ...(usage.outputTokens === undefined ? {} : { outputTokens: usage.outputTokens }),
+            ...(usage.totalTokens === undefined ? {} : { totalTokens: usage.totalTokens }),
+          },
+        }),
+  };
+}
+
+/** The models a read named, as the meter shows them. */
+function memoryModelsDisplay({ embedder, observer }: HostMemoryModels): MemoryModelsDisplay {
+  return {
+    ...(embedder === undefined
+      ? {}
+      : {
+          embedder: {
+            dimensions: embedder.dimensions,
+            distance: embedder.distance,
+            ...(embedder.dtype === undefined ? {} : { dtype: embedder.dtype }),
+            modelId: embedder.modelId,
+            provider: embedder.provider,
+          },
+        }),
+    ...(observer === undefined ? {} : { observer }),
+  };
+}
+
 /** The thread's last committed cycle of each kind (BST-2224), with when it committed. */
 export function lastMemoryCycles(rows: readonly HostLogRow[]): MemoryCyclesDisplay | undefined {
   let observation: MemoryCycleDisplay | undefined;
@@ -108,9 +161,8 @@ export function lastMemoryCycles(rows: readonly HostLogRow[]): MemoryCyclesDispl
     if (event.type !== 'memory.cycle') {
       continue;
     }
-    const { kind, runId: _runId, type: _type, ...facts } = event;
-    const cycle = ts === undefined ? facts : { ...facts, at: ts };
-    if (kind === 'observation') {
+    const cycle = memoryCycleDisplay(event, ts);
+    if (event.kind === 'observation') {
       observation = cycle;
     } else {
       reflection = cycle;
@@ -134,7 +186,9 @@ async function readSegment(
     // The record as of this read: no committed row marks Mastra's background
     // work ending, so its live flags hold until the next read.
     const state = { ...hostOmMeterState(result.observational), readAt: Date.now() };
-    return { omSegment: result.models ? { ...state, models: result.models } : state };
+    return {
+      omSegment: result.models ? { ...state, models: memoryModelsDisplay(result.models) } : state,
+    };
   }
   return { admissionReason: result.admission.reason };
 }

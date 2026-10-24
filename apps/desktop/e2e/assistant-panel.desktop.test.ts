@@ -18,7 +18,7 @@ async function installCollectibleProviderWrite(
 ): Promise<void> {
   await page.evaluate((writeOutcome) => {
     const globals = window as Window & ProviderWriteTestState;
-    globals.__pendingProviderWrite = undefined;
+    Reflect.deleteProperty(globals, '__pendingProviderWrite');
     globals.__providerConfigured = false;
     Reflect.set(globals, '__brainstrikeTestHooks__', {
       notifySecretsChanged: () => {},
