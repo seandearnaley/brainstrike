@@ -3,14 +3,14 @@ import {
   ElicitRequestURLParamsSchema,
 } from '@modelcontextprotocol/core';
 import { Schema } from 'effect';
-import type { McpElicitationPresentationWire } from './mcp-elicitation.js';
+import type { McpElicitationPresentationWire } from './mcp-elicitation.ts';
 import {
   ConfiguredMcpServerIdSchema,
   McpConfiguredProtocolSchema,
   McpStatusTransportSchema,
-} from './mcp-host.js';
-import { McpTaskHandleSchema } from './mcp-task-presentation.js';
-import { sdkSchema } from './sdk-schema.js';
+} from './mcp-host.ts';
+import { McpTaskHandleSchema } from './mcp-task-presentation.ts';
+import { sdkSchema } from './sdk-schema.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const ProvenanceSchema = Schema.Struct({

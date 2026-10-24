@@ -1,6 +1,6 @@
 import { TOOL_TELEMETRY_OMITTED_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';
-import type { HostLogRow, HostRunTelemetry } from './protocol.js';
+import type { HostLogRow, HostRunTelemetry } from './protocol.ts';
 
 /**
  * The most chunk JSON, in bytes, Core keeps for a running call's replay, and

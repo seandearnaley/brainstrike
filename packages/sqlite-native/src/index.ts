@@ -1,1 +1,1 @@
-export { openConnection, sqliteVecExtensionPath } from './open-connection.js';
+export { openConnection, sqliteVecExtensionPath } from './open-connection.ts';

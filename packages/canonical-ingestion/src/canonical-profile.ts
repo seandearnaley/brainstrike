@@ -23,7 +23,7 @@ import type {
   CanonicalInferencePort,
   CanonicalOperationContext,
   CanonicalSourceScope,
-} from './ports.js';
+} from './ports.ts';
 
 const nonblank = Schema.String.check(Schema.isPattern(/\S/u));
 const metadataSchema = Schema.Struct({

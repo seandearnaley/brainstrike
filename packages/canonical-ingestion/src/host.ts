@@ -10,8 +10,8 @@ import {
   vectorProfileHash,
 } from '@brainstrike/indexer';
 import { createLogger } from '@brainstrike/logging';
-import { CanonicalOperationCancelledError } from './cancellation.js';
-import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
+import { CanonicalOperationCancelledError } from './cancellation.ts';
+import { chunkCanonicalRead } from './canonical-chunk-eligibility.ts';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
@@ -30,15 +30,15 @@ import type {
   CanonicalSourcePort,
   CanonicalSourceScope,
   CanonicalVectorPublicationPort,
-} from './ports.js';
-import { manifestVectorsComplete } from './scoped-publication.js';
+} from './ports.ts';
+import { manifestVectorsComplete } from './scoped-publication.ts';
 import {
   assertUniqueWorkspacePaths,
   type CanonicalPreparedRead,
   getDiscoveredSources,
   prepareDiscoveredSources,
   readCanonicalSource,
-} from './source-preparation.js';
+} from './source-preparation.ts';
 
 /**
  * VECTOR completion reads its manifest and coverage separately, and another

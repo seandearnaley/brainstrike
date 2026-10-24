@@ -1,8 +1,8 @@
 import { createLogger } from '@brainstrike/logging';
 import { generateText } from 'ai';
-import type { HostRunState } from './core-state.js';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
-import { hostTelemetry } from './telemetry/host-telemetry.js';
+import type { HostRunState } from './core-state.ts';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
+import { hostTelemetry } from './telemetry/host-telemetry.ts';
 
 const logger = createLogger('AgentHost');
 

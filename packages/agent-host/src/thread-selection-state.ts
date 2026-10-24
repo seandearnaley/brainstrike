@@ -1,5 +1,5 @@
-import { canonical, type Json, jsonValue } from './json-value.js';
-import type { HostEvent, HostLogRow, HostParams, HostRunSelection } from './protocol.js';
+import { canonical, type Json, jsonValue } from './json-value.ts';
+import type { HostEvent, HostLogRow, HostParams, HostRunSelection } from './protocol.ts';
 
 type Updated = Extract<HostEvent, { type: 'thread.selection.updated' }>;
 

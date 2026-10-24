@@ -1,4 +1,4 @@
-import { extractPathSegments } from './path-utils.js';
+import { extractPathSegments } from './path-utils.ts';
 export const WINDOWS_ABSOLUTE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
 const WINDOWS_DRIVE_PREFIX_REGEX = /^[a-zA-Z]:\//;
 const LAST_ASCII_CONTROL_CHARACTER_CODE = 0x1f;

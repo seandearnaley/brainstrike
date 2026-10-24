@@ -1,5 +1,5 @@
-import type { McpAppResourceMeta, McpAppResourcePermissions } from './metadata.js';
-import type { McpAppOwnedResource } from './provenance.js';
+import type { McpAppResourceMeta, McpAppResourcePermissions } from './metadata.ts';
+import type { McpAppOwnedResource } from './provenance.ts';
 
 const DEFAULT_MAX_ACTIVE_FRAMES = 8;
 const DEFAULT_MAX_RETAINED_BYTES = 4 * 1024 * 1024;

@@ -2,7 +2,7 @@ import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import type { ProcessLLMRequestArgs, ProcessLLMRequestResult } from '@mastra/core/processors';
 import { ProviderHistoryCompat } from '@mastra/core/processors';
-import { collectToolCallOccurrences, toolPartPositionKey } from './request-history';
+import { collectToolCallOccurrences, toolPartPositionKey } from './request-history.ts';
 
 type Prompt = ProcessLLMRequestArgs['prompt'];
 export type ProviderCallProvenance = ReadonlyMap<object, string>;

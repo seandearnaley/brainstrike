@@ -8,7 +8,7 @@ import type {
 } from '@brainstrike/state-store';
 import { InMemoryStore, type MemoryStorage } from '@mastra/core/storage';
 import { TokenCounter } from '@mastra/memory/processors';
-import { decodeMemory, encodeMemory } from './memory-storage-codec.js';
+import { decodeMemory, encodeMemory } from './memory-storage-codec.ts';
 
 const methods = new Set([
   'getThreadById',

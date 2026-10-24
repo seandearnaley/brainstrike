@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { sha256 } from './chunks.js';
+import { sha256 } from './chunks.ts';
 import {
   decoder,
   type StateSearchCoverage,
@@ -14,8 +14,8 @@ import {
   stateSearchCoverageResultSchema,
   stateSearchPendingRowSchema,
   stateSearchSimilarHitSchema,
-} from './contracts.js';
-import { profileHash, vectorBytes } from './state-message-vectors.js';
+} from './contracts.ts';
+import { profileHash, vectorBytes } from './state-message-vectors.ts';
 
 /**
  * The Threads panel's semantic arm over the host's conversation rows: one

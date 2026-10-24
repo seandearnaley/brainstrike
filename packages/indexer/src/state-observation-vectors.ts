@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { sha256 } from './chunks.js';
+import { sha256 } from './chunks.ts';
 import {
   decoder,
   IndexerError,
@@ -16,11 +16,11 @@ import {
   stateObservationPurgeSchema,
   stateObservationQuerySchema,
   stateObservationUpsertSchema,
-} from './contracts.js';
-import { readIndexIdentity } from './index-metadata.js';
-import { validateStoredVectorBytes } from './scoped-vector-validation.js';
-import { profileHash, type StateMessageVectors, vectorBytes } from './state-message-vectors.js';
-import type { StateProjection } from './state-projection.js';
+} from './contracts.ts';
+import { readIndexIdentity } from './index-metadata.ts';
+import { validateStoredVectorBytes } from './scoped-vector-validation.ts';
+import { profileHash, type StateMessageVectors, vectorBytes } from './state-message-vectors.ts';
+import type { StateProjection } from './state-projection.ts';
 
 const rowSchema = Schema.Struct({
   dimensions: Schema.Int,

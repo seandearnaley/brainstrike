@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import { BoundaryFailureSchema, describeBoundaryFailure } from './boundary-failure.js';
+import { BoundaryFailureSchema, describeBoundaryFailure } from './boundary-failure.ts';
 /** One failed attachment read, captured once by its run admission. No content or host path. */
 export const ReferencedFileFailureSchema = Schema.Struct({
   failure: BoundaryFailureSchema,

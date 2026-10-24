@@ -10,15 +10,15 @@
 import {
   DEFERRED_CAPABILITY_FAMILY_PHRASES,
   type DeferredCapabilityFamily,
-} from './capability-families.js';
+} from './capability-families.ts';
 import type {
   DesktopNativeToolDefinition,
   NativeToolDefinition,
   NativeToolDiscoveryNamespace,
   NativeToolSurface,
   SkillNativeToolDefinition,
-} from './define.js';
-import type { NativeToolDefaultMetadata } from './taxonomy.js';
+} from './define.ts';
+import type { NativeToolDefaultMetadata } from './taxonomy.ts';
 
 type CamelCase<S extends string> = S extends `${infer Head}_${infer Tail}`
   ? `${Head}${Capitalize<CamelCase<Tail>>}`

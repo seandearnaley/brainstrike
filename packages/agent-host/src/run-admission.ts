@@ -14,23 +14,23 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import type { StepResult, ToolSet } from 'ai';
 import { Schema } from 'effect';
-import { leaseHostAdmission } from './admission-lease.js';
-import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
+import { leaseHostAdmission } from './admission-lease.ts';
+import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.ts';
 import {
   browserOriginDeniedReason,
   type HostBrowserOriginStore,
   readHostBrowserOrigins,
-} from './browser-origin-answers.js';
-import { withHostDelegationTools } from './child-runs.js';
+} from './browser-origin-answers.ts';
+import { withHostDelegationTools } from './child-runs.ts';
 import {
   createHostRunContext,
   type HostConsent,
   type HostRunState,
   type HostThreadGrants,
-} from './core-state.js';
-import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
-import { canonical, jsonValue } from './json-value.js';
-import { McpAuthorityReconstructionError } from './mcp-authority.js';
+} from './core-state.ts';
+import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.ts';
+import { canonical, jsonValue } from './json-value.ts';
+import { McpAuthorityReconstructionError } from './mcp-authority.ts';
 import type {
   HostClientOrigin,
   HostPlatform,
@@ -40,12 +40,12 @@ import type {
   HostRunIntentRequest,
   HostRunOwner,
   HostTool,
-} from './ports.js';
-import type { HostEvent } from './protocol.js';
-import { HostRunSnapshotSchema } from './protocol.js';
-import { createHostSdkTools } from './sdk-tools.js';
-import { settleHostToolOutputs } from './tool-artifacts.js';
-import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.js';
+} from './ports.ts';
+import type { HostEvent } from './protocol.ts';
+import { HostRunSnapshotSchema } from './protocol.ts';
+import { createHostSdkTools } from './sdk-tools.ts';
+import { settleHostToolOutputs } from './tool-artifacts.ts';
+import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.ts';
 /** Provider instructions and public Memory context share the same SDK system input. */
 export function combineHostSystemContext(...context: readonly (string | undefined)[]): {
   readonly system?: string;

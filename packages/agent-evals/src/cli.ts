@@ -8,8 +8,8 @@
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { assertLiveAllowed } from './live-gate.js';
-import { recordEvalCassette } from './record.js';
+import { assertLiveAllowed } from './live-gate.ts';
+import { recordEvalCassette } from './record.ts';
 import {
   appendEvalResults,
   EVAL_MODES,
@@ -17,9 +17,9 @@ import {
   type EvalResult,
   formatEvalSummary,
   resultsFilePath,
-} from './results.js';
-import { providerCredentialEnvNames, runEvalTask } from './runner.js';
-import { type LoadedEvalTask, loadEvalTasks } from './task.js';
+} from './results.ts';
+import { providerCredentialEnvNames, runEvalTask } from './runner.ts';
+import { type LoadedEvalTask, loadEvalTasks } from './task.ts';
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, '..');
 const TASKS_DIR = join(PACKAGE_ROOT, 'tasks');

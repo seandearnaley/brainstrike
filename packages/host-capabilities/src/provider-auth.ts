@@ -5,8 +5,8 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import { findProviderDefinition, isSupportedProvider } from '@brainstrike/assistant-contract';
 import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
-import type { HostCredentials } from './credentials.js';
-import { createProviderCredentialReader } from './provider-credentials.js';
+import type { HostCredentials } from './credentials.ts';
+import { createProviderCredentialReader } from './provider-credentials.ts';
 
 /** A keyed provider with no configured credential; the caller names what needed it. */
 export class ProviderCredentialMissingError extends Error {

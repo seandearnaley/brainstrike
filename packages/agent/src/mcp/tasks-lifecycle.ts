@@ -8,8 +8,8 @@ import type {
 import { McpTaskMetadataTooLargeError } from '@brainstrike/assistant-contract/mcp-task-store';
 import type { CreateTaskResult, GetTaskResult } from '@brainstrike/mcp-tasks-extension';
 import type { JSONObject } from '@modelcontextprotocol/client';
-import type { McpClientExtensionRequestContract } from './client-extension-registry';
-import { MCP_TASKS_GET_REQUEST_CONTRACT } from './tasks-extension';
+import type { McpClientExtensionRequestContract } from './client-extension-registry.ts';
+import { MCP_TASKS_GET_REQUEST_CONTRACT } from './tasks-extension.ts';
 import {
   assertMcpTaskTimingProgress,
   createMcpTaskHandleUpdate,
@@ -22,8 +22,8 @@ import {
   resolveMcpTaskDeadline,
   resolveMcpTaskPollDelay,
   TERMINAL_TASK_STATUSES,
-} from './tasks-lifecycle-state';
-import { McpTaskObservationError, type McpTaskObservationPort } from './tasks-observation';
+} from './tasks-lifecycle-state.ts';
+import { McpTaskObservationError, type McpTaskObservationPort } from './tasks-observation.ts';
 
 export const DEFAULT_MCP_TASK_LIFECYCLE_LIMITS = Object.freeze({
   initialPollMs: 500,

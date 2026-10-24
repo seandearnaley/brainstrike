@@ -8,8 +8,8 @@ import {
   readProviderCallWarning,
   readToolTelemetryOmission,
 } from '@brainstrike/assistant-contract';
-import type { HostClient } from './client-connection.js';
-import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.js';
+import type { HostClient } from './client-connection.ts';
+import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
 
 export type PendingHostApproval = Extract<HostEvent, { type: 'interaction.requested' }>;
 export interface HostRunView {

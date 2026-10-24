@@ -4,15 +4,15 @@ import {
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
 import * as McpAppsSchemas from '@modelcontextprotocol/ext-apps';
-import { correlationKey } from './internal.js';
-import { parseMcpAppJsonRecord, parseMcpAppJsonValue, parseMcpAppRequestId } from './messages.js';
+import { correlationKey } from './internal.ts';
+import { parseMcpAppJsonRecord, parseMcpAppJsonValue, parseMcpAppRequestId } from './messages.ts';
 import {
   expectEncodedSize,
   expectExactKeys,
   expectRecord,
   MCP_APP_MAX_MESSAGE_BYTES,
   type UnknownRecord,
-} from './validation.js';
+} from './validation.ts';
 
 export type McpAppResponse =
   | Readonly<{ id: number | string; jsonrpc: '2.0'; result: Readonly<UnknownRecord> }>

@@ -5,11 +5,11 @@ import {
   type SyncAccurateCounter,
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
-import type { HostToolDefinitions as ToolsInput } from './host-tool-definition';
-import type { ScaledToolResultBudget } from './stream/tool-output-limits';
-import { TOOL_RESULT_TRUNCATED_CODE } from './stream/tool-output-limits';
-import { readToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
-import type { ToolCallTelemetrySample } from './types';
+import type { HostToolDefinitions as ToolsInput } from './host-tool-definition.ts';
+import type { ScaledToolResultBudget } from './stream/tool-output-limits.ts';
+import { TOOL_RESULT_TRUNCATED_CODE } from './stream/tool-output-limits.ts';
+import { readToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry.ts';
+import type { ToolCallTelemetrySample } from './types.ts';
 
 const MAX_FAILURE_MESSAGE_CHARACTERS = 240;
 const INLINE_MEDIA_TYPES = new Set(['file-data', 'image-data', 'media']);

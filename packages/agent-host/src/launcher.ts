@@ -4,7 +4,7 @@ import { Schema } from 'effect';
 import {
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
-} from './platform-launch-options.js';
+} from './platform-launch-options.ts';
 export function createAgentHostSpawner(
   platformModule: string,
   platformOptions?: HostPlatformLaunchOptions

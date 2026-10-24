@@ -31,4 +31,4 @@ export {
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
   type ToolSource,
-} from './tool-categories';
+} from './tool-categories.ts';

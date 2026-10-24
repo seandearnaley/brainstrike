@@ -5,16 +5,16 @@ import {
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/core';
 import * as McpAppsSchemas from '@modelcontextprotocol/ext-apps';
-import { MCP_APPS_SPEC_VERSION } from './capabilities.js';
-import { parseMcpAppResourceMeta } from './metadata.js';
-import { MCP_APPS_STABLE_METHODS, type McpAppStableMethod } from './stable-contract.js';
+import { MCP_APPS_SPEC_VERSION } from './capabilities.ts';
+import { parseMcpAppResourceMeta } from './metadata.ts';
+import { MCP_APPS_STABLE_METHODS, type McpAppStableMethod } from './stable-contract.ts';
 import {
   expectEncodedSize,
   expectExactKeys,
   expectRecord,
   MCP_APP_MAX_MESSAGE_BYTES,
   type UnknownRecord,
-} from './validation.js';
+} from './validation.ts';
 export type McpAppMessageDirection =
   | 'app-to-host'
   | 'host-to-app'

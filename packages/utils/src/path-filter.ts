@@ -1,7 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
 import { escape as escapeWildcard, Minimatch } from 'minimatch';
-import { isWindowsPath } from './path-ancestors.js';
+import { isWindowsPath } from './path-ancestors.ts';
 
 /**
  * Common file patterns to ignore.

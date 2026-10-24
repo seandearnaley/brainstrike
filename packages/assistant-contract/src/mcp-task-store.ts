@@ -10,7 +10,7 @@ import {
   type JsonObject,
   type McpTaskBlockedDiagnostic,
   type McpTaskStatus,
-} from './mcp-task-row-schema.js';
+} from './mcp-task-row-schema.ts';
 
 export const MCP_TASK_METADATA_MAX_BYTES = 65_536;
 const MAX_BLOCKED_DIAGNOSTIC_BYTES = 4096;

@@ -13,9 +13,9 @@ import {
   TOOL_OUTPUT_ARTIFACT_RETENTION_MS,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
-import type { HostRunState } from './core-state.js';
-import { jsonValue } from './json-value.js';
-import type { HostTool } from './ports.js';
+import type { HostRunState } from './core-state.ts';
+import { jsonValue } from './json-value.ts';
+import type { HostTool } from './ports.ts';
 
 const NON_DURABLE: ReadonlySet<string> = new Set([...NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS, 'skill']);
 const TEXT_ENCODER = new TextEncoder();

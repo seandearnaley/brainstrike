@@ -27,7 +27,7 @@ export class MemoryRevisionConflictError extends Error {
 }
 
 /** @param {import('better-sqlite3').Database} db @param {string} resourceId
- * @returns {import('./memory-types.js').MemorySnapshot} */
+ * @returns {import('./memory-types.ts').MemorySnapshot} */
 function snapshot(db, resourceId) {
   const revision = Number(
     db
@@ -36,7 +36,7 @@ function snapshot(db, resourceId) {
       .get(resourceId) ?? 0
   );
   const rows =
-    /** @type {Array<{kind:import('./memory-types.js').MemoryEntityKind,id:string,thread_id:string|null,payload:string}>} */ (
+    /** @type {Array<{kind:import('./memory-types.ts').MemoryEntityKind,id:string,thread_id:string|null,payload:string}>} */ (
       db
         .prepare(
           'SELECT kind,id,thread_id,payload FROM brainstrike_memory_entities WHERE resource_id=? ORDER BY kind,rowid'
@@ -71,7 +71,7 @@ function assertOwnerThread(db, threadId) {
 }
 
 /** @param {import('better-sqlite3').Database} db @param {string} resourceId
- * @param {import('./memory-types.js').MemoryEntity} value */
+ * @param {import('./memory-types.ts').MemoryEntity} value */
 function putEntity(db, resourceId, value) {
   if (value.payload['id'] !== value.id) {
     throw new Error('Memory entity ID does not match its payload');
@@ -101,7 +101,7 @@ function putEntity(db, resourceId, value) {
 }
 
 /** @param {import('better-sqlite3').Database} db @param {string} resourceId
- * @param {import('./memory-types.js').MemoryEntityChange} change */
+ * @param {import('./memory-types.ts').MemoryEntityChange} change */
 function applyChange(db, resourceId, change) {
   const entity = change.operation === 'put' ? change.entity : change;
   id(entity.id, 'entity ID');
@@ -198,7 +198,7 @@ function detachField(record, detached, key, threadId) {
  * is Mastra's own slice estimate (doAsyncBufferedReflection): the record's
  * tokens per active line, times the reflected lines.
  * @param {Record<string, unknown>} record @param {Record<string, unknown>} detached
- * @param {string} threadId @param {import('./memory-types.js').ObservationTokenCounter} count */
+ * @param {string} threadId @param {import('./memory-types.ts').ObservationTokenCounter} count */
 function detachActive(record, detached, threadId, count) {
   const active = record['activeObservations'];
   const ranges = typeof active === 'string' ? keptRanges(active, threadId) : null;
@@ -228,7 +228,7 @@ function detachActive(record, detached, threadId, count) {
  * counters, as Mastra's swapBufferedReflectionToActive clears an activated
  * one, so its lines stay active and unreflected.
  * @param {Record<string, unknown>} record @param {Record<string, unknown>} detached
- * @param {string} threadId @param {import('./memory-types.js').ObservationTokenCounter} count */
+ * @param {string} threadId @param {import('./memory-types.ts').ObservationTokenCounter} count */
 function detachReflection(record, detached, threadId, count) {
   const reflection = detachField(record, detached, 'bufferedReflection', threadId);
   if (reflection === null) {
@@ -252,7 +252,7 @@ function detachReflection(record, detached, threadId, count) {
 /**
  * The buffered chunks and each changed chunk's tokens.
  * @param {Record<string, unknown>} record @param {Record<string, unknown>} detached
- * @param {string} threadId @param {import('./memory-types.js').ObservationTokenCounter} count */
+ * @param {string} threadId @param {import('./memory-types.ts').ObservationTokenCounter} count */
 function detachChunks(record, detached, threadId, count) {
   const chunks = record['bufferedObservationChunks'];
   if (!Array.isArray(chunks)) {
@@ -283,7 +283,7 @@ function detachChunks(record, detached, threadId, count) {
  * none are its. Each changed text's token field is recounted with Mastra OM's
  * own counter, the one that set it; untouched texts keep their stored counts.
  * @param {Record<string, unknown>} record @param {string} threadId
- * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens
+ * @param {import('./memory-types.ts').ObservationTokenCounter | undefined} countTokens
  * @returns {Record<string, unknown> | null} */
 function detachRecord(record, threadId, countTokens) {
   /** @param {string} text */
@@ -305,7 +305,7 @@ function detachRecord(record, threadId, countTokens) {
 }
 
 /** @param {import('better-sqlite3').Database} db @param {string} resourceId @param {string} threadId
- * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens */
+ * @param {import('./memory-types.ts').ObservationTokenCounter | undefined} countTokens */
 function detachThreadObservations(db, resourceId, threadId, countTokens) {
   const rows = /** @type {{ id: string; payload: string }[]} */ (
     db
@@ -327,8 +327,8 @@ function detachThreadObservations(db, resourceId, threadId, countTokens) {
 }
 
 /** @param {import('better-sqlite3').Database} db
- * @param {Extract<import('./memory-types.js').MemoryDomainRequest,{operation:'purge-thread'}>} request
- * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens */
+ * @param {Extract<import('./memory-types.ts').MemoryDomainRequest,{operation:'purge-thread'}>} request
+ * @param {import('./memory-types.ts').ObservationTokenCounter | undefined} countTokens */
 function purgeThread(db, request, countTokens) {
   id(request.threadId, 'thread ID');
   db.prepare('DELETE FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id=?').run(
@@ -358,9 +358,9 @@ function purgeThread(db, request, countTokens) {
  * `countTokens` is Mastra OM's observation token counter, which a
  * `detach-thread` purge needs to recount the shared records it changes.
  * @param {import('better-sqlite3').Database} db
- * @param {import('./memory-types.js').MemoryDomainRequest} request
- * @param {import('./memory-types.js').ObservationTokenCounter} [countTokens]
- * @returns {import('./memory-types.js').MemorySnapshot}
+ * @param {import('./memory-types.ts').MemoryDomainRequest} request
+ * @param {import('./memory-types.ts').ObservationTokenCounter} [countTokens]
+ * @returns {import('./memory-types.ts').MemorySnapshot}
  */
 export function executeMemoryRequest(db, request, countTokens) {
   id(request.resourceId, 'resource ID');
@@ -404,9 +404,9 @@ export function executeMemoryRequest(db, request, countTokens) {
  * Read-only operations may see the previous committed snapshot while the pure
  * vendor calculator runs; every mutation remains serialized by the one owner.
  * @param {import('better-sqlite3').Database} db
- * @param {import('./memory-types.js').MemoryNativeRequest} request
- * @param {import('./memory-types.js').MemoryNativeCalculator} calculate
- * @returns {Promise<import('./memory-types.js').MemorySnapshot>}
+ * @param {import('./memory-types.ts').MemoryNativeRequest} request
+ * @param {import('./memory-types.ts').MemoryNativeCalculator} calculate
+ * @returns {Promise<import('./memory-types.ts').MemorySnapshot>}
  */
 export async function executeNativeMemoryRequest(db, request, calculate) {
   id(request.resourceId, 'resource ID');

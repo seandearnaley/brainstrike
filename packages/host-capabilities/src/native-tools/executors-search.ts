@@ -8,15 +8,15 @@ import {
   NATIVE_TOOL_INPUT_SCHEMAS,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
-import type { NativeToolBuildContext, NativeToolDefinition } from './executors.js';
-import { runFindWorkspaceSymbol } from './find-workspace-symbol-tool.js';
-import { runGlobWorkspace } from './glob-workspace-tool.js';
-import { withRepeatedCallGuard } from './tool-call-loop-guards.js';
-import { attachGlobWorkspaceTelemetry } from './tool-call-telemetry.js';
-import { parseToolExecuteInput, type ToolExecuteInput } from './tool-execute-support.js';
-import { readStateScope } from './workspace-file-staleness.js';
-import { projectFindWorkspaceSymbolModelOutput } from './workspace-inspection-model-projections.js';
-import { projectGlobWorkspaceModelOutput } from './workspace-search-model-projections.js';
+import type { NativeToolBuildContext, NativeToolDefinition } from './executors.ts';
+import { runFindWorkspaceSymbol } from './find-workspace-symbol-tool.ts';
+import { runGlobWorkspace } from './glob-workspace-tool.ts';
+import { withRepeatedCallGuard } from './tool-call-loop-guards.ts';
+import { attachGlobWorkspaceTelemetry } from './tool-call-telemetry.ts';
+import { parseToolExecuteInput, type ToolExecuteInput } from './tool-execute-support.ts';
+import { readStateScope } from './workspace-file-staleness.ts';
+import { projectFindWorkspaceSymbolModelOutput } from './workspace-inspection-model-projections.ts';
+import { projectGlobWorkspaceModelOutput } from './workspace-search-model-projections.ts';
 
 type SearchToolId = typeof NATIVE_TOOL_ID.findWorkspaceSymbol | typeof NATIVE_TOOL_ID.globWorkspace;
 

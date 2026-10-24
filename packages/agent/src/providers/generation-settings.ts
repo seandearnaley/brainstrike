@@ -5,8 +5,8 @@ import {
   resolveOpenRouterOutputWindow,
   resolveOpenRouterReasoningActive,
 } from '@brainstrike/assistant-contract';
-import type { RuntimeData } from '../types';
-import { getDefaultModel } from './provider-factory';
+import type { RuntimeData } from '../types.ts';
+import { getDefaultModel } from './provider-factory.ts';
 
 /**
  * Default OpenRouter output window when the client sent no explicit

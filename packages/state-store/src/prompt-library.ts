@@ -10,7 +10,7 @@ import type {
   PromptCatalogPort,
   PromptCatalogRecord,
   PromptCatalogReply,
-} from './prompt-catalog-types.js';
+} from './prompt-catalog-types.ts';
 
 type Metadata = PromptCatalogPort['promptCatalog'];
 /** Called under StateStore's existing mutation chain, including joins with its derived index owner. */

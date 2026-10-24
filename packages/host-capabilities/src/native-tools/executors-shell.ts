@@ -13,18 +13,18 @@ import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contra
 import {
   runExecuteCommandWithShellCorrelation,
   type ShellCorrelationDependencies,
-} from './execute-command-correlation.js';
-import { projectExecuteCommandModelOutput } from './execute-command-model-projection.js';
-import type { WindowsCommandEntry } from './execute-command-tool.js';
-import type { NativeToolBuildContext } from './executors.js';
-import type { NativeToolExecutor } from './host-tools.js';
+} from './execute-command-correlation.ts';
+import { projectExecuteCommandModelOutput } from './execute-command-model-projection.ts';
+import type { WindowsCommandEntry } from './execute-command-tool.ts';
+import type { NativeToolBuildContext } from './executors.ts';
+import type { NativeToolExecutor } from './host-tools.ts';
 import {
   logToolFailure,
   parseToolExecuteInput,
   resolveShellOutputStreamer,
   type ToolExecuteContext,
   type ToolExecuteInput,
-} from './tool-execute-support.js';
+} from './tool-execute-support.ts';
 
 /** What a shell composes executeCommand with. */
 export interface ExecuteCommandShell {

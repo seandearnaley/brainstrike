@@ -1,4 +1,4 @@
-import type { NativeToolDefinition, NativeToolExecutionBudget } from './define.js';
+import type { NativeToolDefinition, NativeToolExecutionBudget } from './define.ts';
 
 /** Budgets keyed by canonical tool id; only tools that declare one appear. */
 export function deriveNativeToolExecutionBudgets(

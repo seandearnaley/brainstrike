@@ -1,6 +1,6 @@
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import type { QueryRequest } from './protocol.js';
+import type { QueryRequest } from './protocol.ts';
 
 export interface QueryProcess {
   readonly kill: () => void;

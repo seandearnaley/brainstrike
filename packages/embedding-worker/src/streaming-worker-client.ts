@@ -13,7 +13,7 @@ import {
   recordEmbeddingBatchTelemetry,
   recordEmbeddingPipelineCacheTelemetry,
   removeEmbeddingTelemetrySource,
-} from './embedding-telemetry';
+} from './embedding-telemetry.ts';
 import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
@@ -23,8 +23,8 @@ import type {
   EmbedWorkerRequest,
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
-} from './shared';
-import { computeInitialBatchSize } from './shared';
+} from './shared.ts';
+import { computeInitialBatchSize } from './shared.ts';
 
 let nextTelemetrySourceId = 1;
 

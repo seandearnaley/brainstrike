@@ -16,13 +16,13 @@ import {
   type OpenAICompatibleConfig,
 } from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import type { RuntimeData } from '../types';
-import { resolveBedrockModelId } from './bedrock-model-id';
-import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model';
-import { createOllamaChatModel, type OllamaModelFacts } from './ollama-chat-model';
-import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
-import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
+import type { RuntimeData } from '../types.ts';
+import { resolveBedrockModelId } from './bedrock-model-id.ts';
+import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model.ts';
+import { createOllamaChatModel, type OllamaModelFacts } from './ollama-chat-model.ts';
+import { OpenRouterStrictContentGateway } from './openrouter-strict-content.ts';
+import { wrapModelWithDeclaredPromptCaching } from './prompt-caching.ts';
 import {
   apiKeyAuthInput,
   assertExactlyOneAwsCredential,
@@ -32,7 +32,7 @@ import {
   type ProviderFetchOptions,
   providerFetchOptions,
   requireAwsAuthInput,
-} from './provider-auth-input';
+} from './provider-auth-input.ts';
 import {
   getProviderDefinition,
   isSupportedProvider,
@@ -40,7 +40,7 @@ import {
   PROVIDER_DEFAULT_MODELS,
   providerAuthType,
   type SupportedProvider,
-} from './types';
+} from './types.ts';
 
 /** The factory's actual public outputs; routers have a distinct stream-shaped generate API. */
 export type ProviderModelConfiguration =

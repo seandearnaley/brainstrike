@@ -5,7 +5,7 @@ import {
   type PathValidationErrorCode,
   resolveValidatedPath,
 } from '@brainstrike/file-system/path-validation';
-import type { SecureWorkspaceRoot } from './workspace-root-types.js';
+import type { SecureWorkspaceRoot } from './workspace-root-types.ts';
 
 class WorkspaceReadPathValidationError extends AccessError {
   readonly readDenialCategory = 'path-validation' as const;

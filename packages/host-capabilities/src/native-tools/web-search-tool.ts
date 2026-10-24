@@ -2,7 +2,7 @@ import type { WebSearchInput } from '@brainstrike/agent';
 import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
 import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { createLogger } from '@brainstrike/logging';
-import { isValidWebSearchCitationUrl } from './web-search-citation-url.js';
+import { isValidWebSearchCitationUrl } from './web-search-citation-url.ts';
 
 const logger = createLogger('AssistantWebSearchTool');
 

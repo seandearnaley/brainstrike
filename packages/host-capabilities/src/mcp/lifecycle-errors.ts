@@ -7,7 +7,7 @@ import {
   SdkHttpError,
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
-import { McpBearerCredentialFailure } from './bearer-credential.js';
+import { McpBearerCredentialFailure } from './bearer-credential.ts';
 
 const logger = createLogger('McpLifecycleErrors');
 

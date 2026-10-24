@@ -1,4 +1,4 @@
-import type { AssistantMemoryThread, AssistantThreadMetadata } from './assistant-memory-repository';
+import type { AssistantMemoryThread, AssistantThreadMetadata } from './assistant-memory-repository.ts';
 
 /** Mirrors the repository's checkout-transition merge in loaded store state. */
 export function mergeAssistantThreadMetadata(

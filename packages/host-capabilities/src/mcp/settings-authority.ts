@@ -17,28 +17,28 @@ import {
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
-import type { McpBearerCredentialWriter } from './bearer-credential.js';
-import { installCatalogServerWith } from './catalog-install.js';
+import type { McpBearerCredentialWriter } from './bearer-credential.ts';
+import { installCatalogServerWith } from './catalog-install.ts';
 import type {
   LoadedMcpConfig,
   McpConfigFile,
   McpConfigWriteResult,
   McpWatcher,
   ResolvedMcpConfig,
-} from './config-file.js';
-import { toMcpConfigStatus } from './config-status.js';
+} from './config-file.ts';
+import { toMcpConfigStatus } from './config-status.ts';
 import {
   controlThenReloadConfig,
   type McpConfigWriteSync,
   syncFailureError,
-} from './config-sync.js';
-import { type McpConfigWatchControl, McpConfigWatchHealth } from './config-watch.js';
+} from './config-sync.ts';
+import { type McpConfigWatchControl, McpConfigWatchHealth } from './config-watch.ts';
 import {
   clearStoredMcpExtensionPreferences,
   type McpExtensionPreferencesStore,
   readStoredMcpExtensionPreferences,
   writeStoredMcpExtensionPreferences,
-} from './extension-preferences.js';
+} from './extension-preferences.ts';
 import {
   applyToolPreferenceMutation,
   buildToolPreferencesFaultMessage,
@@ -49,8 +49,8 @@ import {
   type ToolPreferenceProjection,
   type ToolPreferenceWriteIntent,
   withToolPreferencesFileLock,
-} from './tool-discovery.js';
-import type { McpDiscoveredTool } from './types.js';
+} from './tool-discovery.ts';
+import type { McpDiscoveredTool } from './types.ts';
 
 const logger = createLogger('McpSettingsAuthority');
 const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;

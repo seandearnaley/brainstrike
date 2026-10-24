@@ -4,21 +4,21 @@ import {
   McpTaskHandleSchema,
 } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { Schema } from 'effect';
-import type { HostRunState } from './core-state.js';
-import { canonical, jsonValue } from './json-value.js';
+import type { HostRunState } from './core-state.ts';
+import { canonical, jsonValue } from './json-value.ts';
 import type {
   HostMcpExecution,
   HostMcpInputCapability,
   HostMcpTaskCapability,
   HostTool,
-} from './ports.js';
+} from './ports.ts';
 import {
   type HostEvent,
   HostEventSchema,
   type HostLogRow,
   type HostParams,
   type HostResults,
-} from './protocol.js';
+} from './protocol.ts';
 
 type Origin = Extract<
   HostEvent,

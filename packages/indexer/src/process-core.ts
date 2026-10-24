@@ -24,13 +24,13 @@ import {
   stateSearchSimilarHitSchema,
   stateSearchVectorsResultSchema,
   stateStatsSchema,
-} from './contracts.js';
-import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
-import { openDesktopIndexReader } from './desktop-index-connection.js';
-import { readScopedIdentity } from './index-metadata.js';
-import { promptVectorReplySchema } from './prompt-vector-contract.js';
-import { RpcClient } from './rpc-client.js';
-import { IndexReader } from './store.js';
+} from './contracts.ts';
+import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.ts';
+import { openDesktopIndexReader } from './desktop-index-connection.ts';
+import { readScopedIdentity } from './index-metadata.ts';
+import { promptVectorReplySchema } from './prompt-vector-contract.ts';
+import { RpcClient } from './rpc-client.ts';
+import { IndexReader } from './store.ts';
 
 export interface IndexerProcessEndpoint {
   finish(): void;

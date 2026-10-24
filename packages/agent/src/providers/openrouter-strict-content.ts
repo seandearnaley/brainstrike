@@ -4,7 +4,7 @@ import type {
   ProviderConfig,
 } from '@mastra/core/llm';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { getProviderEnvKeys } from './registry';
+import { getProviderEnvKeys } from './registry.ts';
 
 /**
  * OpenRouter strict-content compatibility (2026-08-16 field failure).

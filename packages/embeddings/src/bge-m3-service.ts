@@ -1,7 +1,7 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { calculateCosineSimilarity } from './embedding-math.js';
-import { quantizesUnpinnedLoad } from './inference-plan.js';
-import { TransformersBackend } from './transformers-backend.js';
+import { calculateCosineSimilarity } from './embedding-math.ts';
+import { quantizesUnpinnedLoad } from './inference-plan.ts';
+import { TransformersBackend } from './transformers-backend.ts';
 import type {
   EmbeddingConfig,
   EmbeddingExecutionOptions,
@@ -13,7 +13,7 @@ import type {
   EmbeddingStreamOptions,
   ModelConfig,
   SimilarityResult,
-} from './types.js';
+} from './types.ts';
 
 export interface SimpleEmbeddingServiceOptions {
   readonly streamBatchSize?: number;

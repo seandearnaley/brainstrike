@@ -6,19 +6,19 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
-import { createTavilyKeyResolver } from './native-tools/web-search-tool.js';
+import { createTavilyKeyResolver } from './native-tools/web-search-tool.ts';
 import {
   createOpenRouterModelMetadataService,
   requireOpenRouterModelId,
-} from './openrouter-model-metadata.js';
-import type { HostAuthority } from './provider-auth/host-authority.js';
-import { createProviderCredentialReader } from './provider-credentials.js';
-import { readProviderStatus } from './provider-status.js';
+} from './openrouter-model-metadata.ts';
+import type { HostAuthority } from './provider-auth/host-authority.ts';
+import { createProviderCredentialReader } from './provider-credentials.ts';
+import { readProviderStatus } from './provider-status.ts';
 import {
   createProviderVerificationService,
   TAVILY_SECRET_PROVIDER,
-} from './provider-verification.js';
-import { leaveOnAbort } from './shared-flight.js';
+} from './provider-verification.ts';
+import { leaveOnAbort } from './shared-flight.ts';
 
 export interface HostProviderServicesOptions {
   readonly auth: Pick<HostAuthority, 'secrets'>;

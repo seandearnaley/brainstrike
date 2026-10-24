@@ -17,7 +17,7 @@ import {
 } from '@brainstrike/assistant-contract/assistant-attachments';
 import { type ModelMessage, modelMessageSchema, type UserModelMessage } from 'ai';
 import { Schema } from 'effect';
-import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.js';
+import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.ts';
 import {
   createHostRunState,
   foldHostRunMessages,
@@ -27,8 +27,8 @@ import {
   type HostRunState,
   type HostThreadGrants,
   recordHostConversationId,
-} from './core-state.js';
-import { storedJson } from './json-value.js';
+} from './core-state.ts';
+import { storedJson } from './json-value.ts';
 import {
   HOST_RESULT_SCHEMAS,
   type HostChildDelivery,
@@ -36,7 +36,7 @@ import {
   type HostImageAttachment,
   type HostParams,
   type HostRunSnapshot,
-} from './protocol.js';
+} from './protocol.ts';
 
 /** The configuration a committed run command carried; its other fields have their own readers. */
 const CommittedRunInputSchema = Schema.StructWithRest(

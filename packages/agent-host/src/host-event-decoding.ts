@@ -6,14 +6,14 @@
  */
 import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
-import { storedJson } from './json-value.js';
+import { storedJson } from './json-value.ts';
 import {
   type HostEvent,
   type HostRunSnapshot,
   hostEventSchema,
   hostRunSnapshotSchema,
-} from './protocol.js';
-import { Sha256 } from './workspace-wire.js';
+} from './protocol.ts';
+import { Sha256 } from './workspace-wire.ts';
 
 const utf8 = new TextDecoder('utf-8', { fatal: true });
 /** A stored body's run snapshot reference, removed from the body it came with. */

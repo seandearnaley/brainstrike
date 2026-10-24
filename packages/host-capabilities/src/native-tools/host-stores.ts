@@ -9,7 +9,7 @@ import {
   CANVAS_STATE_KEY_PREFIX,
   canvasStateKey,
   HostCanvasVersionSchema,
-} from './canvas-state.js';
+} from './canvas-state.ts';
 import {
   CANVAS_LIST_LIMIT,
   type CanvasMutationResult,
@@ -17,7 +17,7 @@ import {
   type CanvasStore,
   type CanvasVersion,
   type TaskListStore,
-} from './ports.js';
+} from './ports.ts';
 
 /**
  * The host's thread-scoped stores: Core's `tool.state.updated` rows, one key

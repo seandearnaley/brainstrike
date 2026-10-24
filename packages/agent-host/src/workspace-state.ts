@@ -10,11 +10,11 @@ import {
   acceptHostWorkspaceSnapshot,
   type HostRunState,
   readHostWorkspaceSnapshot,
-} from './core-state.js';
-import { canonical, jsonValue } from './json-value.js';
-import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from './ports.js';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
-import { foldHostWorktreeEntry } from './worktree-binding.js';
+} from './core-state.ts';
+import { canonical, jsonValue } from './json-value.ts';
+import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from './ports.ts';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
+import { foldHostWorktreeEntry } from './worktree-binding.ts';
 /** In-memory projections of Core's existing thread log; owns no writer or queue. */
 export class HostThreadWorkspaceState {
   private readonly snapshots = new Map<string, HostParams<'thread/workspace/set'>['snapshot']>();

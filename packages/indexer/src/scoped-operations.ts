@@ -1,4 +1,4 @@
-import type { IndexWriter } from './store.js';
+import type { IndexWriter } from './store.ts';
 
 /**
  * Desktop's `ScopedIndexerPort`, by operation, plus `info`. Desktop's process

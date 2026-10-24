@@ -3,10 +3,10 @@ import { refusalError } from '@brainstrike/assistant-contract';
 import { MEMORY_RECALL_TELEMETRY_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { ModelMessage, Tool } from 'ai';
 import { Schema } from 'effect';
-import { recordRawToolInputs } from './approval-input.js';
-import { canonical, type Json, jsonValue } from './json-value.js';
-import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
-import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
+import { recordRawToolInputs } from './approval-input.ts';
+import { canonical, type Json, jsonValue } from './json-value.ts';
+import type { HostMcpInputPersistenceError } from './mcp-input-state.ts';
+import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.ts';
 import {
   HOST_METHOD_SCHEMAS,
   HOST_RESULT_SCHEMAS,
@@ -20,7 +20,7 @@ import {
   HostPromptToolCallWindowSchema,
   type HostRunSnapshot,
   type HostRunTelemetry,
-} from './protocol.js';
+} from './protocol.ts';
 /**
  * HostCore alone folds and writes accepted command records. The committed
  * payload is canonicalized only when its command ID is submitted again, never

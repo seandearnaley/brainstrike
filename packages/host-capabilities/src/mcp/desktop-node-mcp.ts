@@ -10,26 +10,26 @@ import type { MessageConnection } from 'vscode-jsonrpc';
 import {
   createSecretsMcpBearerCredentialAuthority,
   createSecretsMcpBearerCredentialWriter,
-} from './bearer-credential.js';
-import { createMcpConfigFile } from './config-file.js';
-import { McpContentService } from './content-service.js';
+} from './bearer-credential.ts';
+import { createMcpConfigFile } from './config-file.ts';
+import { McpContentService } from './content-service.ts';
 import {
   createCredentialMcpOAuthStore,
   type McpOAuthCredentialStorage,
-} from './credential-oauth-store.js';
-import { readStoredMcpExtensionPreferences } from './extension-preferences.js';
-import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
-import { serveMcpRuntimeToMain } from './mcp-runtime-server.js';
+} from './credential-oauth-store.ts';
+import { readStoredMcpExtensionPreferences } from './extension-preferences.ts';
+import { createMcpHostServices, type McpHostServices } from './mcp-host-services.ts';
+import { serveMcpRuntimeToMain } from './mcp-runtime-server.ts';
 import {
   MCP_STORE_METHODS,
   type McpDiagnosticEvent,
   McpDiagnosticEventSchema,
   McpDiagnosticScopeSchema,
-} from './mcp-runtime-wire.js';
-import { identityKey, parseRecords } from './oauth-client-provider.js';
-import { McpPresentationService } from './presentation-service.js';
-import { McpSettingsAuthority, type McpSettingsAuthorityOptions } from './settings-authority.js';
-import { stateStoreMcpTaskStorage } from './state-store-task-storage.js';
+} from './mcp-runtime-wire.ts';
+import { identityKey, parseRecords } from './oauth-client-provider.ts';
+import { McpPresentationService } from './presentation-service.ts';
+import { McpSettingsAuthority, type McpSettingsAuthorityOptions } from './settings-authority.ts';
+import { stateStoreMcpTaskStorage } from './state-store-task-storage.ts';
 
 const logger = createLogger('DesktopNodeMcpHost');
 

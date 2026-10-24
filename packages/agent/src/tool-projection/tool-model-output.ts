@@ -6,13 +6,13 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
 import {
   isMcpMediaPart,
   type McpContentPart,
   readMcpMultimodalOutput,
-} from '../mcp/mcp-multimodal-output';
-import { toJsonSafe } from '../stream/json';
+} from '../mcp/mcp-multimodal-output.ts';
+import { toJsonSafe } from '../stream/json.ts';
 import {
   boundToolOutputForModel,
   decodedTextModelOutputChars,
@@ -28,13 +28,13 @@ import {
   SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
-} from '../stream/tool-output-limits';
-import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET, readHookResultEnvelope } from '../tools/hook-runner';
+} from '../stream/tool-output-limits.ts';
+import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET, readHookResultEnvelope } from '../tools/hook-runner.ts';
 import {
   readToolCallTelemetryMetadata,
   transferToolCallTelemetryMetadata,
-} from './tool-call-telemetry';
-import { isToolProjectionInputRejected } from './tool-projection-input-rejected';
+} from './tool-call-telemetry.ts';
+import { isToolProjectionInputRejected } from './tool-projection-input-rejected.ts';
 
 const logger = createLogger('MastraAgent');
 

@@ -1,5 +1,5 @@
-import { defineNativeTool } from '../define.js';
-import { AskUserInputSchema } from '../schemas/schemas-tasks.js';
+import { defineNativeTool } from '../define.ts';
+import { AskUserInputSchema } from '../schemas/schemas-tasks.ts';
 
 // Suspending tool: asks the user a question and PAUSES the run for their
 // answer. `category:'action'` is the UI/load taxonomy, but the risk bucket is

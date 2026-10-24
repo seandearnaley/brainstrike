@@ -18,7 +18,7 @@
  * any runtime; that is a later step in the permission-engine work.
  */
 
-import type { ToolCategory, ToolRiskCategory } from './native-tools/taxonomy.js';
+import type { ToolCategory, ToolRiskCategory } from './native-tools/taxonomy.ts';
 
 export type { ToolRiskCategory };
 

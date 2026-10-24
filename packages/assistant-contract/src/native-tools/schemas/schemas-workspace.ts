@@ -1,5 +1,5 @@
 import { Schema, SchemaIssue } from 'effect';
-import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra-memory-schema.js';
+import { CANVAS_HTML_MAX_BYTES, canvasHtmlWithinByteCeiling } from '../../mastra-memory-schema.ts';
 
 const ROOT_QUALIFIER_DESCRIPTION =
   "Open-folder name/id. Omit for this thread's primary folder; an explicit root always wins.";

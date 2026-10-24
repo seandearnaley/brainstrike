@@ -17,15 +17,15 @@ import {
   isNoSandboxConfiguredError,
   MAX_EXEC_OUTPUT_BYTES,
   resolveCodeExecutor,
-} from '../code-execution';
-import { isFenceReadinessError } from '../fence/fence-readiness-error';
-import type { HostToolExecutionContext } from '../host-tool-definition';
-import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
+} from '../code-execution.ts';
+import { isFenceReadinessError } from '../fence/fence-readiness-error.ts';
+import type { HostToolExecutionContext } from '../host-tool-definition.ts';
+import { NATIVE_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits.ts';
 // Single source with the approval-context derivation (BST-1070): the timeout
 // the card displays and the timeout this tool enforces must be the same
 // constant, or the approval card would state terms the run does not honour.
-import { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
-import { type RunPythonInput, RunPythonInputSchema } from './schemas';
+import { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context.ts';
+import { type RunPythonInput, RunPythonInputSchema } from './schemas.ts';
 
 const logger = createLogger('RunPythonTool');
 
@@ -53,7 +53,7 @@ function parseRunPythonInput(input: unknown): RunPythonInput {
 
 export const RUN_PYTHON_TOOL_ID = NATIVE_TOOL_ID.runPython;
 
-export { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context';
+export { RUN_PYTHON_DEFAULT_TIMEOUT_MS } from './run-python-approval-context.ts';
 
 /**
  * Room reserved for the result envelope (kind, exit code, omitted-byte counts)

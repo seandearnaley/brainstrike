@@ -6,8 +6,8 @@ import {
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { resolveProviderBaseUrl } from './provider-base-url.js';
-import { createSharedFlights } from './shared-flight.js';
+import { resolveProviderBaseUrl } from './provider-base-url.ts';
+import { createSharedFlights } from './shared-flight.ts';
 
 const DEFAULT_SUCCESS_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;

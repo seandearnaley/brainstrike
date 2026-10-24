@@ -1,13 +1,13 @@
-import type { NativeToolId } from './native-tool-catalog.js';
-import type { NativeToolDiscoveryNamespace } from './native-tools/define.js';
-import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.js';
-import type { PermissionDecision } from './permission-policy.js';
+import type { NativeToolId } from './native-tool-catalog.ts';
+import type { NativeToolDiscoveryNamespace } from './native-tools/define.ts';
+import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.ts';
+import type { PermissionDecision } from './permission-policy.ts';
 import {
   getProviderDefinition,
   listProviderLlmModels,
   type NativeToolSearchCapability,
   type ProviderId,
-} from './provider-registry.js';
+} from './provider-registry.ts';
 
 export type { NativeToolDiscoveryNamespace };
 

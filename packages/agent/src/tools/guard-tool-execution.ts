@@ -5,10 +5,10 @@ import {
   type GuardedToolError,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id';
-import type { ToolGuardBudget } from './resolve-tool-guard-budget';
-import type { ToolExecutionDurations } from './tool-execution-durations';
-import type { ToolLogger } from './types';
+import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id.ts';
+import type { ToolGuardBudget } from './resolve-tool-guard-budget.ts';
+import type { ToolExecutionDurations } from './tool-execution-durations.ts';
+import type { ToolLogger } from './types.ts';
 
 export { isGuardedToolError } from '@brainstrike/assistant-contract';
 

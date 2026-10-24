@@ -1,5 +1,5 @@
-import type { AssistantChildInput } from './child-input.js';
-import { findLlmModelDefinition, findProviderDefinition } from './provider-registry.js';
+import type { AssistantChildInput } from './child-input.ts';
+import { findLlmModelDefinition, findProviderDefinition } from './provider-registry.ts';
 
 /** Same tri-state policy as the root composer: unknown routes retain visible provider errors. */
 export function assertAssistantChildImageCapability(

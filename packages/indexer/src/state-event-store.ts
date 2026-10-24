@@ -2,7 +2,7 @@ import { blobsOf } from '@brainstrike/state-store/run-log-format';
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import type { IndexerOptions } from './contracts.js';
+import type { IndexerOptions } from './contracts.ts';
 import {
   decoder,
   IndexerError,
@@ -25,12 +25,12 @@ import {
   stateSearchVectorBatchSchema,
   stateStatsSchema,
   stateThreadsSchema,
-} from './contracts.js';
-import { PromptVectors } from './prompt-vectors.js';
-import { StateMessageVectors } from './state-message-vectors.js';
-import { StateObservationVectors } from './state-observation-vectors.js';
-import type { StateProjection } from './state-projection.js';
-import { StateSearchVectors } from './state-search-vectors.js';
+} from './contracts.ts';
+import { PromptVectors } from './prompt-vectors.ts';
+import { StateMessageVectors } from './state-message-vectors.ts';
+import { StateObservationVectors } from './state-observation-vectors.ts';
+import type { StateProjection } from './state-projection.ts';
+import { StateSearchVectors } from './state-search-vectors.ts';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);

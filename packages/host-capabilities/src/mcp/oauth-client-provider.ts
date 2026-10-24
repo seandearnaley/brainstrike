@@ -16,17 +16,17 @@ import {
   type StoredOAuthTokens,
   validateClientMetadataUrl,
 } from '@modelcontextprotocol/client';
-import { McpLifecycleFailure } from './lifecycle-errors.js';
+import { McpLifecycleFailure } from './lifecycle-errors.ts';
 import {
   persistedClientSupportsRedirect,
   reportLoopbackListenerBound,
   reportStaleDynamicClientRegistration,
-} from './oauth-client-registration.js';
+} from './oauth-client-registration.ts';
 import {
   DEFAULT_CALLBACK_PATH,
   type LoopbackCallback,
   startLoopbackCallback,
-} from './oauth-loopback-callback.js';
+} from './oauth-loopback-callback.ts';
 
 const MAX_DATE_EPOCH_MS = 8_640_000_000_000_000;
 const MIN_LOOPBACK_PORT = 1;

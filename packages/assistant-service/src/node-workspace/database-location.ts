@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV } from './db-runtime-env.js';
+import { DB_PROFILE_ENV, DB_ROOT_PATH_ENV } from './db-runtime-env.ts';
 
 /**
  * Pure, Electron-free resolution of WHERE the desktop database lives. Main

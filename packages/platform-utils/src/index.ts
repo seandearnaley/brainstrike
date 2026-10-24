@@ -14,16 +14,16 @@ export {
   getCanvasSandboxContentSecurityPolicy,
   isCanvasFrameInboundMessage,
   renderCanvasFrameShellHtml,
-} from './canvas-sandbox.js';
+} from './canvas-sandbox.ts';
 
 export {
   type CspEnvironment,
   getContentSecurityPolicy,
-} from './content-security-policy.js';
+} from './content-security-policy.ts';
 
-export { detectPlatform, type Platform } from './platform-detection.js';
+export { detectPlatform, type Platform } from './platform-detection.ts';
 
 export {
   type PositiveIntegerConfigInput,
   parsePositiveIntegerConfig,
-} from './positive-integer-config.js';
+} from './positive-integer-config.ts';

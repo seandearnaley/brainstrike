@@ -1,12 +1,12 @@
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
-import { readDesktopRunConfiguration } from './desktop-run-configuration.js';
-import type { HostLatestRun, HostLedgerThread } from './ledger-wire.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
-import { type HostRunVerdict, projectRunVerdicts } from './run-verdicts.js';
+import { readDesktopRunConfiguration } from './desktop-run-configuration.ts';
+import type { HostLatestRun, HostLedgerThread } from './ledger-wire.ts';
+import type { HostEvent, HostLogRow } from './protocol.ts';
+import { type HostRunVerdict, projectRunVerdicts } from './run-verdicts.ts';
 
-export type { HostLatestRun, HostLedgerThread } from './ledger-wire.js';
+export type { HostLatestRun, HostLedgerThread } from './ledger-wire.ts';
 
 const logger = createLogger('HostLedgerProjection');
 type LedgerRun = HostLedgerThread['runs'][number];

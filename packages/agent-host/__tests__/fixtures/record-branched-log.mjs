@@ -3,8 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
-import { committedRunIdentity } from '../../dist/committed-identities.js';
-import { attachAgentHost, startAgentHost } from '../../dist/index.js';
+import { committedRunIdentity } from '../../src/committed-identities.ts';
+import { attachAgentHost, startAgentHost } from '../../src/index.ts';
 
 // Explicit recording from real SDK -> socket -> writer-worker SQLite -> replay of
 // a branched thread: First, Second, a regenerated Second, and an edited Second.

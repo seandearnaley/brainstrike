@@ -11,13 +11,13 @@ import {
   RootLock,
   RootLockedError,
 } from '@brainstrike/state-store';
-import { attachHost, type HostAttachment } from './client.js';
-import type { HostRecord } from './record.js';
-import { readHostRecord } from './record-file.js';
-import { HOST_LEASE_CLOSING, HOST_LEASE_CONNECTION_CLOSED } from './refusal.js';
-import type { HostLifetime, HostStartOptions } from './runtime.js';
-import { RootContentionError } from './startup-failure.js';
-import { verifyWindowsPrivateDirectory } from './windows-acl.js';
+import { attachHost, type HostAttachment } from './client.ts';
+import type { HostRecord } from './record.ts';
+import { readHostRecord } from './record-file.ts';
+import { HOST_LEASE_CLOSING, HOST_LEASE_CONNECTION_CLOSED } from './refusal.ts';
+import type { HostLifetime, HostStartOptions } from './runtime.ts';
+import { RootContentionError } from './startup-failure.ts';
+import { verifyWindowsPrivateDirectory } from './windows-acl.ts';
 /**
  * A host a starter started, still owned by the launch that asked for it
  * (BST-2167). The launch settles it exactly once: `release` once it attached,

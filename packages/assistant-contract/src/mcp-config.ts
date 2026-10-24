@@ -3,12 +3,12 @@ import {
   type McpExtensionEnablement,
   McpExtensionEnablementSchema,
   resolveMcpExtensionEnablement,
-} from './mcp-extensions.js';
+} from './mcp-extensions.ts';
 import {
   ConfiguredMcpServerIdSchema,
   McpConfiguredAuthSchema,
   McpToolTimeoutMsSchema,
-} from './mcp-host.js';
+} from './mcp-host.ts';
 export const McpTransportEnum = Schema.Literals(['stdio', 'streamable-http', 'sse']);
 export const McpProtocolEnum = Schema.Literals(['legacy', 'auto', '2026-07-28']);
 export type McpProtocol = (typeof McpProtocolEnum)['Type'];

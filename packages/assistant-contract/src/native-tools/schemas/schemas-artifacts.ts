@@ -4,7 +4,7 @@ import {
   isToolOutputArtifactCursor,
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
   TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES,
-} from '../../tool-output-artifact.js';
+} from '../../tool-output-artifact.ts';
 
 export const ArtifactPageSizeSchema = Schema.optionalKey(
   Schema.Int.check(

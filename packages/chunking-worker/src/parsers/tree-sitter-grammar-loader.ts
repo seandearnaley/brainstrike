@@ -24,7 +24,7 @@
  */
 
 import { Language, Parser } from 'web-tree-sitter';
-import type { TreeSitterLanguage } from './tree-sitter-adapter';
+import type { TreeSitterLanguage } from './tree-sitter-adapter.ts';
 
 /** Module-level: ensure `Parser.init()` runs at most once per process. */
 let parserInitPromise: Promise<void> | null = null;

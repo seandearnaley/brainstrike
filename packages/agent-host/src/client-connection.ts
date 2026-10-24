@@ -4,9 +4,9 @@ import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
-import { watchPeerReset } from './boundary-wire.js';
-import { createHostCatalogClient, type HostCatalog } from './catalog/transport.js';
-import { sendHostRequest } from './client-request.js';
+import { watchPeerReset } from './boundary-wire.ts';
+import { createHostCatalogClient, type HostCatalog } from './catalog/transport.ts';
+import { sendHostRequest } from './client-request.ts';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_CHILDREN_CHANGED,
@@ -27,7 +27,7 @@ import {
   type McpSettingsEvent,
   McpSettingsEventSchema,
   parseHostParams,
-} from './protocol.js';
+} from './protocol.ts';
 export interface HostClient extends HostAttachment {
   readonly catalog: HostCatalog;
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */

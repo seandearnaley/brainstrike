@@ -8,7 +8,7 @@ import {
   assertCoverageAuthorityBound,
   type CoverageAuthority,
 } from '@brainstrike/indexer/coverage-reader';
-import type { QueryProcess } from './process.js';
+import type { QueryProcess } from './process.ts';
 import {
   decodeRequest,
   decodeResponse,
@@ -16,8 +16,8 @@ import {
   type QueryResponse,
   type SqliteGrepOptions,
   type SqliteGrepRows,
-} from './protocol.js';
-import { SqliteRuntimeRefusedError } from './runtime-refusal.js';
+} from './protocol.ts';
+import { SqliteRuntimeRefusedError } from './runtime-refusal.ts';
 
 /** A startup failure rebuilt from the query process's reply; a runtime refusal keeps its type. */
 function startupError(reply: { readonly message: string; readonly name: string }): Error {

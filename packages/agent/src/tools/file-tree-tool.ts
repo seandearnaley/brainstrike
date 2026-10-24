@@ -11,9 +11,9 @@ import {
   type EffectToolInputSchema,
   effectToolInputSchema,
 } from '@brainstrike/assistant-contract/native-tool-schemas';
-import type { QueryFileTreeInput } from './schemas';
-import { QueryFileTreeInputSchema } from './schemas';
-import { handleToolError, type ToolContext } from './types';
+import type { QueryFileTreeInput } from './schemas.ts';
+import { QueryFileTreeInputSchema } from './schemas.ts';
+import { handleToolError, type ToolContext } from './types.ts';
 
 /** Tool identifier used in the Mastra tools registry */
 export const QUERY_FILE_TREE_TOOL_ID = 'brainstrike.queryFileTree' as const;

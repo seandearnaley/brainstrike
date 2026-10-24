@@ -1,6 +1,6 @@
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { type LanguageModel, wrapLanguageModel } from 'ai';
-import type { ProviderModelConfiguration } from './provider-factory';
+import type { ProviderModelConfiguration } from './provider-factory.ts';
 
 type SdkV3 = Extract<LanguageModel, { specificationVersion: 'v3' }>;
 type StreamResult = Awaited<ReturnType<SdkV3['doStream']>>;

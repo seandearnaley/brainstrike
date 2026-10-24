@@ -1,6 +1,6 @@
 import { utf8Decode } from '@brainstrike/utils/utf8';
-import { formatFileSize, getFileSizeConfig } from './config.js';
-import { AccessError } from './errors.js';
+import { formatFileSize, getFileSizeConfig } from './config.ts';
+import { AccessError } from './errors.ts';
 
 /** Native secure-fs reads cap one operation at16MiB. */
 export const NATIVE_MAX_READ_BYTES = 16 * 1024 * 1024;

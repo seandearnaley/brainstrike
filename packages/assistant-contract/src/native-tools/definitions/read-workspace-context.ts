@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ReadWorkspaceContextInputSchema } from '../schemas/schemas-workspace.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ReadWorkspaceContextInputSchema } from '../schemas/schemas-workspace.ts';
 
 export const readWorkspaceContext = defineNativeTool({
   defaults: {

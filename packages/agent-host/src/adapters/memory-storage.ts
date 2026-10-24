@@ -5,7 +5,7 @@ import type {
 } from '@brainstrike/state-store';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import { InMemoryStore, MemoryStorage } from '@mastra/core/storage';
-import { decodeMemory, encodeMemory, memoryConfiguration } from './memory-storage-codec.js';
+import { decodeMemory, encodeMemory, memoryConfiguration } from './memory-storage-codec.ts';
 
 export interface CommittedMemoryTranscript {
   /**

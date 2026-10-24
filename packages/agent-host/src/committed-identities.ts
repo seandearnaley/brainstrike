@@ -1,4 +1,4 @@
-import type { HostEvent, HostLogRow } from './protocol.js';
+import type { HostEvent, HostLogRow } from './protocol.ts';
 
 export interface CommittedRunIdentity {
   readonly assistantMessageId: string;

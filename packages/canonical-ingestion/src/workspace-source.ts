@@ -12,14 +12,14 @@ import type {
   CanonicalSourceBatch,
   CanonicalSourceFile,
   CanonicalSourcePort,
-} from './ports.js';
-import { CanonicalSourceContentExcludedError } from './source-content-exclusion.js';
-import { discoverCanonicalWorkspace } from './workspace-source-discovery.js';
+} from './ports.ts';
+import { CanonicalSourceContentExcludedError } from './source-content-exclusion.ts';
+import { discoverCanonicalWorkspace } from './workspace-source-discovery.ts';
 import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
   CanonicalWorkspaceSourceDependencies,
-} from './workspace-source-ports.js';
+} from './workspace-source-ports.ts';
 
 type SourceFile = CanonicalSourceFile | CanonicalDiscoveredSourceFile;
 interface SourceRun {

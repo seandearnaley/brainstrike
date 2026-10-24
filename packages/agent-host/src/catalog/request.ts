@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { sendHostRequest } from '../client-request.js';
+import { sendHostRequest } from '../client-request.ts';
 
 const logger = createLogger('HostCatalogClient');
 export async function sendCatalogRequest(

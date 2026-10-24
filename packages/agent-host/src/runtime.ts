@@ -17,12 +17,12 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import { serveHostCatalog } from './catalog/transport.js';
-import { bindHostConnection, type HostConnectionOptions } from './connection.js';
-import { HostCore } from './core.js';
-import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.js';
-import type { HostClientOrigin, HostPlatform } from './ports.js';
-import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
+import { serveHostCatalog } from './catalog/transport.ts';
+import { bindHostConnection, type HostConnectionOptions } from './connection.ts';
+import { HostCore } from './core.ts';
+import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
+import type { HostClientOrigin, HostPlatform } from './ports.ts';
+import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
 
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */

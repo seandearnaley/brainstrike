@@ -13,11 +13,11 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import { authenticateHostClient, type HostClient } from './client-connection.js';
-import { closeReceivedConnection } from './client-receive-lifetime.js';
-import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
+import { authenticateHostClient, type HostClient } from './client-connection.ts';
+import { closeReceivedConnection } from './client-receive-lifetime.ts';
+import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
 
-export { authenticateHostClient, type HostClient } from './client-connection.js';
+export { authenticateHostClient, type HostClient } from './client-connection.ts';
 
 function compatibleRecord(input: HostRecord): HostRecord {
   const record = decodeHostRecord(input);

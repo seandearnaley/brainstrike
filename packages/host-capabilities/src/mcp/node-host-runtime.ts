@@ -35,22 +35,22 @@ import { applyMcpExtensionPreferences } from '@brainstrike/assistant-contract/mc
 import type { McpTaskStorage } from '@brainstrike/assistant-contract/mcp-task-store';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
-import type { McpBearerCredentialAuthority } from './bearer-credential.js';
-import { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
+import type { McpBearerCredentialAuthority } from './bearer-credential.ts';
+import { McpElicitationPresenterAuthority } from './elicitation-presenter.ts';
 import {
   connectClient,
   type ExplicitClient,
   reportStdioFailureDiagnostics,
   type TransportActorClient,
-} from './host-connection.js';
+} from './host-connection.ts';
 import {
   createDefaultMcpExtensionRegistry,
   requireTaskConnectionClient,
   resolveMcpServerExtensions,
-} from './host-extensions.js';
-import { McpHostRevisionPublisher } from './host-revision-publisher.js';
-import { McpHostService } from './host-service.js';
-import { McpLifecycleFailure } from './lifecycle-errors.js';
+} from './host-extensions.ts';
+import { McpHostRevisionPublisher } from './host-revision-publisher.ts';
+import { McpHostService } from './host-service.ts';
+import { McpLifecycleFailure } from './lifecycle-errors.ts';
 import {
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
@@ -58,23 +58,23 @@ import {
   type McpOAuthClientProviderOptions,
   type McpOAuthStore,
   readMcpOAuthAuthProjection,
-} from './oauth-client-provider.js';
+} from './oauth-client-provider.ts';
 import {
   McpServerActor,
   type McpServerActorClient,
   McpServerActorClientCleanupError,
   type McpServerActorClientFactory,
-} from './server-actor.js';
-import { McpStdioDiagnosticCollector } from './stdio-diagnostics.js';
+} from './server-actor.ts';
+import { McpStdioDiagnosticCollector } from './stdio-diagnostics.ts';
 import {
   MCP_TASKS_EXTENSION_ID,
   McpDesktopTaskHost,
   type McpDesktopTaskHostPort,
   type McpTaskConnection,
   type McpTaskConnectionObserver,
-} from './task-host.js';
+} from './task-host.ts';
 
-export type { ExplicitClient } from './host-connection.js';
+export type { ExplicitClient } from './host-connection.ts';
 
 type ActorContext = Parameters<McpServerActorClientFactory>[0];
 type ConfiguredServer = McpHostConfig['servers'][number];

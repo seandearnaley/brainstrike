@@ -1,13 +1,13 @@
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 import { Schema } from 'effect';
-import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.js';
+import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.ts';
 import {
   type KeyringNativeBackend,
   type KeyringNativeRequest,
   KeyringNativeResponseSchema,
-} from './keyring-native-protocol.js';
+} from './keyring-native-protocol.ts';
 
-export type { KeyringNativeBackend } from './keyring-native-protocol.js';
+export type { KeyringNativeBackend } from './keyring-native-protocol.ts';
 export interface KeyringNativeWorkerOptions {
   /** Trusted fixture/composition seam; never accepted through the client protocol. */
   readonly createWorker?: (entry: URL, options: WorkerOptions) => Worker;

@@ -13,7 +13,7 @@ export {
   type ContextPackerOptions,
   type ContextPackerResult,
   type PackedContextChunk,
-} from './context-packer';
+} from './context-packer.ts';
 export {
   getProviderDefaultModel,
   getProviderDefinition,
@@ -35,7 +35,7 @@ export {
   providerEnvKeys,
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
-} from './providers/types';
+} from './providers/types.ts';
 export {
   compareByLoadPriority,
   DESKTOP_NATIVE_TOOL_IDS,
@@ -61,5 +61,5 @@ export {
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
   type ToolSource,
-} from './registry/tool-categories';
-export { TOOL_DESCRIPTIONS } from './registry/tool-descriptions';
+} from './registry/tool-categories.ts';
+export { TOOL_DESCRIPTIONS } from './registry/tool-descriptions.ts';

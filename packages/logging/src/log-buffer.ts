@@ -1,4 +1,4 @@
-import type { LogRecord } from './logger.js';
+import type { LogRecord } from './logger.ts';
 
 export type LogBufferSubscriber = (records: readonly LogRecord[]) => void;
 

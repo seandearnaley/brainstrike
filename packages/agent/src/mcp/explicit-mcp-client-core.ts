@@ -5,10 +5,10 @@
  * with its capability lease and feature-event handlers installed.
  */
 import { Client, type ClientOptions } from '@modelcontextprotocol/client';
-import type { McpClientCapabilityLease, McpClientCapabilityRuntime } from './client-capabilities';
-import type { McpClientExtensionRegistry } from './client-extension-registry';
-import { type McpProtocol, toMcpVersionNegotiation } from './config';
-import type { McpServerFeatureEventRegistry } from './server-feature-events';
+import type { McpClientCapabilityLease, McpClientCapabilityRuntime } from './client-capabilities.ts';
+import type { McpClientExtensionRegistry } from './client-extension-registry.ts';
+import { type McpProtocol, toMcpVersionNegotiation } from './config.ts';
+import type { McpServerFeatureEventRegistry } from './server-feature-events.ts';
 
 const DEFAULT_CLIENT_VERSION = '0.1.0';
 

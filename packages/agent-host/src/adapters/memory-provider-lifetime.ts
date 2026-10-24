@@ -2,7 +2,7 @@ import { isProxy } from 'node:util/types';
 import type { MemoryComponent } from '@brainstrike/assistant-contract';
 import type { MastraEmbeddingModel, MastraVector } from '@mastra/core/vector';
 import { type LanguageModelUsage, wrapLanguageModel } from 'ai';
-import { memoryFailureCauses } from './memory-failure.js';
+import { memoryFailureCauses } from './memory-failure.ts';
 
 export type MemoryLanguageModel = Parameters<typeof wrapLanguageModel>[0]['model'];
 type Model = ReturnType<typeof wrapLanguageModel>;

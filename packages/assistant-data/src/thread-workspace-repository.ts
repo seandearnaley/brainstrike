@@ -1,4 +1,4 @@
-import type { WorkspaceSnapshotV1 } from './thread-workspace-snapshot';
+import type { WorkspaceSnapshotV1 } from './thread-workspace-snapshot.ts';
 
 /**
  * Per-thread workspace snapshot persistence (BST-1268, migration 094).

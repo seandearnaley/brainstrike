@@ -2,7 +2,7 @@ import type { SourceCatalogPort, SourceCatalogReply } from '@brainstrike/state-s
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
-import { sendCatalogRequest } from './request.js';
+import { sendCatalogRequest } from './request.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));

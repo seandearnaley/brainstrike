@@ -16,30 +16,30 @@ import { toStandardSchema } from '@mastra/schema-compat/schema';
 import type {
   HostToolExecutionContext,
   HostToolDefinitions as ToolsInput,
-} from '../host-tool-definition';
-import { readToolCallId } from '../tools/read-tool-call-id';
-import { type McpConfigInput, parseMcpConfigValue } from './config';
+} from '../host-tool-definition.ts';
+import { readToolCallId } from '../tools/read-tool-call-id.ts';
+import { type McpConfigInput, parseMcpConfigValue } from './config.ts';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
   ExplicitHttpMcpTool,
-} from './explicit-http-client';
+} from './explicit-http-client.ts';
 import {
   createMcpAppToolResult,
   hasMcpAppToolMeta,
   projectMcpAppOrTaskToolModelOutput,
   readMcpAppToolResourceUri,
-} from './mcp-app-tool-result';
-import { readMcpMultimodalOutput } from './mcp-multimodal-output';
+} from './mcp-app-tool-result.ts';
+import { readMcpMultimodalOutput } from './mcp-multimodal-output.ts';
 import {
   createMcpTaskToolTracking,
   type McpTaskToolTracking,
   readMcpCreatedTaskResult,
   settleMcpTaskToolResult,
-} from './mcp-task-tool-result';
-import type { McpTaskTrackingCapability } from './task-tracking';
+} from './mcp-task-tool-result.ts';
+import type { McpTaskTrackingCapability } from './task-tracking.ts';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 const rawCallToolResultSignals = new WeakSet<AbortSignal>();

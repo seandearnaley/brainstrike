@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
+import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability.ts';
 import {
   type DailySpendSummary,
   type HostUsageRecord,
   hostDailySpendRows,
   resolveDailySpendSummary,
-} from './daily-spend';
-import { resolveModelPricing } from './model-pricing';
+} from './daily-spend.ts';
+import { resolveModelPricing } from './model-pricing.ts';
 
 /** Rolling last-24h spend derived from the agent host’s committed provider calls. */
 export interface DailySpendState {

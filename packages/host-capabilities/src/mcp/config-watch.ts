@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import { errorMessage } from './config-file.js';
+import { errorMessage } from './config-file.ts';
 
 const logger = createLogger('McpConfigWatch');
 

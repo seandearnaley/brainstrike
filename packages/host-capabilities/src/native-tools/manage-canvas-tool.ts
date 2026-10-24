@@ -1,14 +1,14 @@
 import type { ManageCanvasInput } from '@brainstrike/agent';
 import { CANVAS_HTML_MAX_BYTES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { isEmptyCanvasDocument } from './canvas-document-content.js';
+import { isEmptyCanvasDocument } from './canvas-document-content.ts';
 import type {
   CanvasListResult,
   CanvasMutationResult,
   CanvasRepositoryFailure,
   CanvasStore,
   CanvasVersion,
-} from './ports.js';
+} from './ports.ts';
 
 export const MANAGE_CANVAS_TOOL_ID = NATIVE_TOOL_ID.manageCanvas;
 

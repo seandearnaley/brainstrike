@@ -5,8 +5,8 @@
  * Moved here from `apps/desktop/src/desktop-env.ts` so the CLI host scrubs the
  * same names: a second hand-written list would silently drift.
  */
-import { listProviders, providerDeprecatedEnvKeys, providerEnvKeys } from './provider-metadata.js';
-import { TAVILY_ENV_KEYS } from './tavily-env-keys.js';
+import { listProviders, providerDeprecatedEnvKeys, providerEnvKeys } from './provider-metadata.ts';
+import { TAVILY_ENV_KEYS } from './tavily-env-keys.ts';
 
 /**
  * Registry-derived credential names a `.env` FILE may set (BST-1361, split in

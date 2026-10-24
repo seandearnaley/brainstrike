@@ -4,7 +4,7 @@ import {
   SUBSCRIPTION_ID_META_KEY,
   type Transport,
 } from '@modelcontextprotocol/client';
-import type { McpClientExtensionRegistry } from './client-extension-registry';
+import type { McpClientExtensionRegistry } from './client-extension-registry.ts';
 
 const BASE64_SENTINEL_PREFIX = '=?base64?';
 const BASE64_SENTINEL_SUFFIX = '?=';

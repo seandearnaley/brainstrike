@@ -7,8 +7,8 @@ const worktreeColumns = `id, repo_common_dir AS repoCommonDir, path, branch, bas
   archived_at AS archivedAt, archive_snapshot_ref AS archiveSnapshotRef`;
 
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./worktree-forge-types.js').WorktreeLedgerRequest} request
- * @returns {import('./worktree-forge-types.js').WorktreeLedgerReply} */
+ * @param {import('./worktree-forge-types.ts').WorktreeLedgerRequest} request
+ * @returns {import('./worktree-forge-types.ts').WorktreeLedgerReply} */
 export function executeWorktreeLedgerRequest(db, request) {
   const table = 'brainstrike_worktrees';
   const read = `SELECT ${worktreeColumns} FROM ${table}`;
@@ -83,7 +83,7 @@ export function executeWorktreeLedgerRequest(db, request) {
     throw new Error('Managed worktree mutation matched no ledger row');
   }
   return {
-    rows: /** @type {import('./worktree-forge-types.js').WorktreeLedgerReply['rows']} */ (rows),
+    rows: /** @type {import('./worktree-forge-types.ts').WorktreeLedgerReply['rows']} */ (rows),
   };
 }
 
@@ -101,7 +101,7 @@ function sqliteBoolean(value) {
   }
   return value === 1;
 }
-/** @param {unknown} value @returns {import('./worktree-forge-types.js').ForgeCacheEntry | null} */
+/** @param {unknown} value @returns {import('./worktree-forge-types.ts').ForgeCacheEntry | null} */
 function readEntry(value) {
   if (value === undefined) {
     return null;
@@ -160,8 +160,8 @@ function readEntry(value) {
   };
 }
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./worktree-forge-types.js').ForgeCacheRequest} request
- * @returns {import('./worktree-forge-types.js').ForgeCacheReply} */
+ * @param {import('./worktree-forge-types.ts').ForgeCacheRequest} request
+ * @returns {import('./worktree-forge-types.ts').ForgeCacheReply} */
 export function executeForgeCacheRequest(db, request) {
   if (request.operation === 'write') {
     writeEntry(db, request);
@@ -177,7 +177,7 @@ export function executeForgeCacheRequest(db, request) {
 }
 
 /** @param {import('better-sqlite3').Database} db
- * @param {Extract<import('./worktree-forge-types.js').ForgeCacheRequest, {operation:'write'}>} request */
+ * @param {Extract<import('./worktree-forge-types.ts').ForgeCacheRequest, {operation:'write'}>} request */
 function writeEntry(db, request) {
   const pr = request.pullRequest;
   validateEntry(pr, request.observedAt);
@@ -200,7 +200,7 @@ function writeEntry(db, request) {
   );
 }
 
-/** @param {import('./worktree-forge-types.js').ForgeCacheEntry['pullRequest']} pr
+/** @param {import('./worktree-forge-types.ts').ForgeCacheEntry['pullRequest']} pr
  * @param {string} observedAt */
 function validateEntry(pr, observedAt) {
   if (pr !== null && typeof pr?.isDraft !== 'boolean') {

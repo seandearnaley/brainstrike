@@ -8,7 +8,7 @@ import {
   resolvePermissionDecision,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
+import { sanitizeToolName } from '../tool-projection/tool-sanitizer.ts';
 
 /**
  * Minimal logger surface the gate needs. A structural subset of the project

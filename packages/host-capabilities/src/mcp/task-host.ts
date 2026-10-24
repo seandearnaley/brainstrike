@@ -80,7 +80,7 @@ import type {
   McpBoundTaskElicitationPresenter,
   McpElicitationPresenterAuthority,
   McpTaskElicitationBinding,
-} from './elicitation-presenter.js';
+} from './elicitation-presenter.ts';
 
 export const MCP_TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks';
 /** Reserved-name (RFC 2606) marker: a stdio child has no protected resource URL. */

@@ -7,9 +7,9 @@
  * @see retrieval-tool.ts for the DI pattern reference
  */
 
-import type { SystemDiagnosticsInput } from './schemas';
-import { SystemDiagnosticsInputSchema } from './schemas';
-import { handleToolError, type ToolContext } from './types';
+import type { SystemDiagnosticsInput } from './schemas.ts';
+import { SystemDiagnosticsInputSchema } from './schemas.ts';
+import { handleToolError, type ToolContext } from './types.ts';
 
 /** Tool identifier used in the Mastra tools registry */
 export const SYSTEM_DIAGNOSTICS_TOOL_ID = 'brainstrike.systemDiagnostics' as const;

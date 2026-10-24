@@ -24,8 +24,8 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
-import { correlatedFailure } from './failure-correlation.js';
-import type { HostEvent } from './protocol.js';
+import { correlatedFailure } from './failure-correlation.ts';
+import type { HostEvent } from './protocol.ts';
 
 const logger = createLogger('AgentHost');
 

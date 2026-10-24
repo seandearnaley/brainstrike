@@ -1,6 +1,6 @@
 import { type ToolSet, tool } from 'ai';
-import { approvalRuntimeSchema } from './approval-input.js';
-import type { HostTool } from './ports.js';
+import { approvalRuntimeSchema } from './approval-input.ts';
+import type { HostTool } from './ports.ts';
 
 /** Public SDK shape only; the supplied callbacks retain HostCore admission and dispatch. */
 export function createHostSdkTools(options: {

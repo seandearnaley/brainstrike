@@ -1,5 +1,5 @@
-import { canonical, jsonValue } from './json-value.js';
-import type { McpToolAuthority } from './protocol.js';
+import { canonical, jsonValue } from './json-value.ts';
+import type { McpToolAuthority } from './protocol.ts';
 
 export class McpAuthorityReconstructionError extends Error {
   readonly code = 'mcp-authority-reconstruction-refused';

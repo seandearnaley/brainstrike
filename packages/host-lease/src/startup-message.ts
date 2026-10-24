@@ -1,6 +1,6 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
-import { HostRecordSchema } from './record.js';
+import { HostRecordSchema } from './record.ts';
 
 const StartupMessageSchema = Schema.Union([
   // Lifecycle R3: readiness is this message, and it carries what the parent

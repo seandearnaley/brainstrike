@@ -1,5 +1,5 @@
 import { parseSync } from 'oxc-parser';
-import type { AstNode, ParseOptions, ParserAdapter } from './types';
+import type { AstNode, ParseOptions, ParserAdapter } from './types.ts';
 
 /** Parses in-process with native oxc; without `errorRecovery`, oxc's first error is thrown. */
 export const oxcNativeAdapter: ParserAdapter = {

@@ -6,8 +6,8 @@ import type {
   LocalRuntimeLogger,
   LocalRuntimeSurface,
   RuntimeDiagnosticLogLevel,
-} from './local-runtime-discovery.js';
-import type { LocalRuntimeEndpointConfig } from './local-runtime-utils.js';
+} from './local-runtime-discovery.ts';
+import type { LocalRuntimeEndpointConfig } from './local-runtime-utils.ts';
 
 export type LocalRuntimeModelSource =
   | 'openai_v1_models'

@@ -6,7 +6,7 @@ import {
   getProviderVendorEnvKey,
   listProviders,
   type ProviderId,
-} from './provider-registry.js';
+} from './provider-registry.ts';
 
 /**
  * A deprecated provider env var found SET in a process environment

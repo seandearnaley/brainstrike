@@ -1,11 +1,11 @@
-import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.js';
+import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.ts';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   ProviderMetadata,
   Result,
-} from '../../provider-types.js';
-import type { ModelConfig } from '../../types.js';
+} from '../../provider-types.ts';
+import type { ModelConfig } from '../../types.ts';
 
 /** Default distance metric for Google embeddings */
 const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';

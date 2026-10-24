@@ -24,8 +24,8 @@
 
 import { deriveSkillPreferenceKey, type SkillSourceTier } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { parseSkillMarkdown } from './skill-frontmatter';
-import { validateSkillMetadata } from './skill-validation';
+import { parseSkillMarkdown } from './skill-frontmatter.ts';
+import { validateSkillMetadata } from './skill-validation.ts';
 
 const logger = createLogger('SkillScan');
 

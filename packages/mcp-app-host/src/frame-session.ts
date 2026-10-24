@@ -1,4 +1,4 @@
-import { parsePositiveSafeInteger, toError } from './internal.js';
+import { parsePositiveSafeInteger, toError } from './internal.ts';
 
 const OPAQUE_FRAME_ORIGIN = 'null';
 

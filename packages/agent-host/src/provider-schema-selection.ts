@@ -13,9 +13,9 @@ import {
 } from '@mastra/schema-compat';
 import { asSchema, jsonSchema, TypeValidationError } from 'ai';
 import { z } from 'zod';
-import { executableInputSchema } from './executable-input-schema.js';
-import { jsonValue } from './json-value.js';
-import type { HostTool } from './ports.js';
+import { executableInputSchema } from './executable-input-schema.ts';
+import { jsonValue } from './json-value.ts';
+import type { HostTool } from './ports.ts';
 
 /** Supply the concrete resolved SDK model, never a configured routing alias. */
 export interface HostProviderModelIdentity {

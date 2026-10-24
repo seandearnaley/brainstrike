@@ -1,25 +1,25 @@
 // Import the actual classes
-import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from './errors.js';
+import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from './errors.ts';
 
-export * from './agent-color.js';
-export * from './assistant-provider-settings.js';
-export * from './changeset.js';
-export * from './database.js';
-export * from './embedding-constants.js';
+export * from './agent-color.ts';
+export * from './assistant-provider-settings.ts';
+export * from './changeset.ts';
+export * from './database.ts';
+export * from './embedding-constants.ts';
 // Export types from other files
-export * from './errors.js';
-export * from './file-explorer-constants.js';
-export * from './file-explorer-persisted-state-types.js';
-export * from './file-explorer-selection-types.js';
-export * from './file-explorer-state-types.js';
-export * from './file-explorer-strings.js';
-export * from './file-system.js'; // Added export for file system types
-export * from './forge.js';
-export * from './git.js';
-export type * from './onnx-wasm-paths.js';
-export * from './view-filter-preset-types.js';
-export * from './workspace-path-utils.js';
-export * from './worktree.js';
+export * from './errors.ts';
+export * from './file-explorer-constants.ts';
+export * from './file-explorer-persisted-state-types.ts';
+export * from './file-explorer-selection-types.ts';
+export * from './file-explorer-state-types.ts';
+export * from './file-explorer-strings.ts';
+export * from './file-system.ts'; // Added export for file system types
+export * from './forge.ts';
+export * from './git.ts';
+export type * from './onnx-wasm-paths.ts';
+export * from './view-filter-preset-types.ts';
+export * from './workspace-path-utils.ts';
+export * from './worktree.ts';
 
 // Explicitly re-export the classes as values
 export { ConcurrentLoadingError, FileContentError, PartialRefreshError };
@@ -30,7 +30,7 @@ export type FileContents = Record<string, string>;
 // Global module augmentation moved to lucide-react.d.ts
 // declare module 'lucide-react';
 
-export type { CollectionMetadata, CollectionRecord } from './collection.js';
-export type { ContentClearCapability, ContentClearResult } from './content-clear.js';
-export type { SourceFileRecord } from './source-file.js';
-export * from './thread-groups.js';
+export type { CollectionMetadata, CollectionRecord } from './collection.ts';
+export type { ContentClearCapability, ContentClearResult } from './content-clear.ts';
+export type { SourceFileRecord } from './source-file.ts';
+export * from './thread-groups.ts';

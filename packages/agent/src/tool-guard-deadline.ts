@@ -6,4 +6,4 @@ export {
   reportToolGuardActivity,
   resolveGuardedToolSignal,
   toolGuardOwnsInactivity,
-} from './tools/tool-guard-deadline';
+} from './tools/tool-guard-deadline.ts';

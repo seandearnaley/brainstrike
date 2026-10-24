@@ -28,42 +28,42 @@ import {
   hostBranchDeliveries,
   overlayHostChildOutcomes,
   withHostDeliveryLedger,
-} from '../child-delivery.js';
+} from '../child-delivery.ts';
 import {
   committedRowAddress,
   committedRunAncestors,
   committedRunIdentity,
   committedThreadBranches,
-} from '../committed-identities.js';
-import { compactedRunIds } from '../context-compaction.js';
+} from '../committed-identities.ts';
+import { compactedRunIds } from '../context-compaction.ts';
 import type {
   HostPreparedStep,
   HostProjectionRewrite,
   HostRunContext,
   HostRunOwner,
-} from '../ports.js';
-import { committedRewrites } from '../projection-rewrites.js';
-import type { HostLogRow } from '../protocol.js';
-import { HostRunOwnerCleanupError } from '../run-admission.js';
-import { committedMemoryTranscript } from './committed-memory-transcript.js';
+} from '../ports.ts';
+import { committedRewrites } from '../projection-rewrites.ts';
+import type { HostLogRow } from '../protocol.ts';
+import { HostRunOwnerCleanupError } from '../run-admission.ts';
+import { committedMemoryTranscript } from './committed-memory-transcript.ts';
 import {
   HostMemory,
   type HostMemoryCapabilities,
   type HostMemoryIdentity,
   HostMemoryStepError,
   type HostMemoryStepName,
-} from './memory.js';
-import { classifyMemoryFailure, type HostMemoryEmbedderIdentity } from './memory-failure.js';
-import { StateStoreMemoryStorage } from './memory-storage.js';
+} from './memory.ts';
+import { classifyMemoryFailure, type HostMemoryEmbedderIdentity } from './memory-failure.ts';
+import { StateStoreMemoryStorage } from './memory-storage.ts';
 import {
   StateStoreMemoryVector,
   type StateStoreMemoryVectorOptions,
-} from './state-store-memory-vector.js';
-import { StateStoreObservationMemory } from './state-store-observation-memory.js';
+} from './state-store-memory-vector.ts';
+import { StateStoreObservationMemory } from './state-store-observation-memory.ts';
 import {
   StateStoreObservationVector,
   type StateStoreObservationVectorOptions,
-} from './state-store-observation-vector.js';
+} from './state-store-observation-vector.ts';
 
 const logger = createLogger('AgentHostMemory');
 

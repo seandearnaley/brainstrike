@@ -8,7 +8,7 @@ import {
 import {
   CanonicalProviderHistoryCompat,
   type ProviderCallProvenance,
-} from '../providers/foreign-provider-history';
+} from '../providers/foreign-provider-history.ts';
 
 /** Retry cap for the retained vendor-processor regression harness. */
 const STREAM_ERROR_MAX_RETRIES = 2;

@@ -21,8 +21,8 @@ import {
   joinSegments,
   normalizeWorkspacePath,
   toPathSegments,
-} from './workspace-path.js';
-import { resolveWorkspaceAbsolutePath } from './workspace-path-resolution.js';
+} from './workspace-path.ts';
+import { resolveWorkspaceAbsolutePath } from './workspace-path-resolution.ts';
 
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;

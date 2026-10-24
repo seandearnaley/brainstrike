@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { Schema } from 'effect';
-import type { HostCliOutput } from './cli.js';
-import type { HostClient } from './client.js';
-import type { HostLogRow, HostRunTelemetry } from './protocol.js';
+import type { HostCliOutput } from './cli.ts';
+import type { HostClient } from './client.ts';
+import type { HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
   CommittedThreadView,
   committedAssistantText,
@@ -12,7 +12,7 @@ import {
   type HostRunView,
   isHostStepStart,
   type PendingHostApproval,
-} from './thread-view.js';
+} from './thread-view.ts';
 
 /** How each committed interaction kind is answered at the prompt. */
 const INTERACTION_PROMPTS: Readonly<Record<PendingHostApproval['kind'], string>> = {

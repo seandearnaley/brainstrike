@@ -17,8 +17,8 @@ import {
   parseMcpHostControlRequest,
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
-import type { McpHostRevisionPublisher } from './host-revision-publisher.js';
-import { settleOnAbort } from './server-actor.js';
+import type { McpHostRevisionPublisher } from './host-revision-publisher.ts';
+import { settleOnAbort } from './server-actor.ts';
 
 type ConfiguredServer = McpHostConfig['servers'][number];
 type Counter = Exclude<keyof McpHostCloseReport, 'failures'>;

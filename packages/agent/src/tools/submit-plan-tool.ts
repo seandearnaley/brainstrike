@@ -1,8 +1,8 @@
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { SubmitPlanResumeSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
-import type { HostToolDefinition, HostToolExecutionContext } from '../host-tool-definition';
-import { SubmitPlanInputSchema } from './schemas';
+import type { HostToolDefinition, HostToolExecutionContext } from '../host-tool-definition.ts';
+import { SubmitPlanInputSchema } from './schemas.ts';
 
 export const SUBMIT_PLAN_TOOL_ID = NATIVE_TOOL_ID.submitPlan;
 

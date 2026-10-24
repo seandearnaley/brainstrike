@@ -20,7 +20,7 @@ import {
   providerSupportsStandardEmbeddingDimension,
   resolveDefaultModel,
   STANDARD_EMBEDDING_DIMENSION,
-} from './provider-registry.js';
+} from './provider-registry.ts';
 
 export type SupportedProvider = ProviderId;
 export type {
@@ -148,7 +148,7 @@ export function providerVendorEnvKey(provider: SupportedProvider): string | unde
 export {
   type DeprecatedEnvVarReport,
   detectDeprecatedProviderEnvVars,
-} from './provider-env-deprecation.js';
+} from './provider-env-deprecation.ts';
 
 /**
  * Registry-derived auth mode. Keyless-ness is `authType === 'none'` —
@@ -179,4 +179,4 @@ export {
   getProviderDefinition,
   type LlmModelDefinition,
   listProviders,
-} from './provider-registry.js';
+} from './provider-registry.ts';

@@ -9,8 +9,8 @@ import { createLogger } from '@brainstrike/logging';
 import {
   type McpElicitationPresenterAuthority,
   McpElicitationPresenterError,
-} from './elicitation-presenter.js';
-import type { McpDesktopTaskHostPort } from './task-host.js';
+} from './elicitation-presenter.ts';
+import type { McpDesktopTaskHostPort } from './task-host.ts';
 
 const logger = createLogger('McpPresentationService');
 

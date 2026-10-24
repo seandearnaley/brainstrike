@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { embeddingProfileHash, sha256 } from './chunks.js';
+import { embeddingProfileHash, sha256 } from './chunks.ts';
 import {
   decoder,
   type EmbeddingState,
@@ -10,7 +10,7 @@ import {
   type IndexerOptions,
   profileSchema,
   scopedProofIdentitySchema,
-} from './contracts.js';
+} from './contracts.ts';
 
 export const INDEX_SCHEMA_VERSION = 15;
 /** Derived data is rebuildable (ADR-0020): any other stored version refuses as rebuild-required. */

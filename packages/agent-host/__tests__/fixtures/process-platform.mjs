@@ -6,7 +6,7 @@ import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
 
 /** @param {import('@brainstrike/host-lease').HostStartOptions} options
- * @returns {Promise<import('../../src/ports.js').HostPlatform>} */
+ * @returns {Promise<import('../../src/ports.ts').HostPlatform>} */
 export async function createHostPlatform(options) {
   const root = options.root;
   await appendFile(join(root, 'fixture-platform-pids'), `${process.pid}\n`);

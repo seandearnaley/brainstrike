@@ -14,18 +14,18 @@ import {
   type CanonicalIngestionDependencies,
   CanonicalIngestionHost,
   CanonicalScanIncompleteError,
-} from './host.js';
+} from './host.ts';
 import type {
   CanonicalManifestFile,
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalScanRequest,
-} from './ports.js';
-import { CanonicalWorkspaceSource } from './workspace-source.js';
+} from './ports.ts';
+import { CanonicalWorkspaceSource } from './workspace-source.ts';
 import type {
   CanonicalWorkspaceLease,
   CanonicalWorkspaceSourceDependencies,
-} from './workspace-source-ports.js';
+} from './workspace-source-ports.ts';
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 export type CanonicalWorkspaceRuntimeDependencies =

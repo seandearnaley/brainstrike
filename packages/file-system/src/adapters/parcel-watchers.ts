@@ -46,14 +46,14 @@ import type {
   WatcherFailure,
   WatcherHealthState,
   WatcherHealthTransition,
-} from '../types.js';
-import { createFileSystemChangeBatcher } from './electron-watchers.js';
+} from '../types.ts';
+import { createFileSystemChangeBatcher } from './electron-watchers.ts';
 import {
   loadParcelWatcher,
   type ParcelWatcherModule,
   selectParcelBackend,
-} from './parcel-backend.js';
-import { classifyParcelWatchFailure } from './parcel-watch-failure.js';
+} from './parcel-backend.ts';
+import { classifyParcelWatchFailure } from './parcel-watch-failure.ts';
 
 const logger = createLogger('ParcelWatchers');
 const REPORTABLE_DEFAULT_FILTER_PATTERNS: ReadonlySet<string> = new Set([

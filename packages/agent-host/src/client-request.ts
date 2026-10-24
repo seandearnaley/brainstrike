@@ -1,6 +1,6 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { type BoundaryLog, fromBoundaryResponseError } from './boundary-wire.js';
+import { type BoundaryLog, fromBoundaryResponseError } from './boundary-wire.ts';
 
 const retired = new WeakMap<MessageConnection, BoundaryFailureError>();
 

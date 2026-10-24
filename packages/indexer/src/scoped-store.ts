@@ -3,7 +3,7 @@ import path from 'node:path';
 import { hostBasename } from '@brainstrike/utils/host-path';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { scopedFileChunks, sha256, vectorBlob } from './chunks.js';
+import { scopedFileChunks, sha256, vectorBlob } from './chunks.ts';
 import {
   type CommitResult,
   decoder,
@@ -25,17 +25,17 @@ import {
   scopedSearchSchema,
   scopedTextCommitSchema,
   type VectorProfile,
-} from './contracts.js';
-import { readIndexIdentity, readScopeEpoch } from './index-metadata.js';
-import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
-import { readScopedFileChunkBounds, readScopedFilePage } from './scoped-file-page.js';
-import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.js';
+} from './contracts.ts';
+import { readIndexIdentity, readScopeEpoch } from './index-metadata.ts';
+import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.ts';
+import { readScopedFileChunkBounds, readScopedFilePage } from './scoped-file-page.ts';
+import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.ts';
 import {
   coarseVectorBlob,
   validateScopedStorage,
   vectorTable,
-} from './scoped-vector-validation.js';
-import type { CoarseVectorEngine } from './vector-engine.js';
+} from './scoped-vector-validation.ts';
+import type { CoarseVectorEngine } from './vector-engine.ts';
 
 const integer = Schema.Int.check(
   Schema.isGreaterThan(0),
@@ -103,10 +103,10 @@ export class ScopedIndex {
       CREATE TABLE vector_profiles(profile_hash TEXT PRIMARY KEY,profile_json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0));
       CREATE TABLE scoped_vectors(pk INTEGER PRIMARY KEY,chunk_pk INTEGER NOT NULL REFERENCES file_chunks(pk) ON DELETE CASCADE,profile_hash TEXT NOT NULL REFERENCES vector_profiles(profile_hash),content_hash TEXT NOT NULL,dimensions INTEGER NOT NULL,emb BLOB NOT NULL CHECK(typeof(emb)='blob' AND vec_length(emb)=dimensions),UNIQUE(chunk_pk,profile_hash));`);
   }
-  readFilePage(input: unknown): import('./contracts.js').ScopedFilePage {
+  readFilePage(input: unknown): import('./contracts.ts').ScopedFilePage {
     return readScopedFilePage(this.db, this.authority, input);
   }
-  readFileChunkBounds(input: unknown): import('./contracts.js').ScopedFileChunkBounds {
+  readFileChunkBounds(input: unknown): import('./contracts.ts').ScopedFileChunkBounds {
     return readScopedFileChunkBounds(this.db, this.authority, input);
   }
   beginOwnerEpoch(): void {

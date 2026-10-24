@@ -7,7 +7,7 @@ import {
   providerEnvKeys,
   providerVendorEnvKey,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import type { HostedProviderType } from '../../provider-types.js';
+import type { HostedProviderType } from '../../provider-types.ts';
 
 type HostedProvider = HostedProviderType;
 

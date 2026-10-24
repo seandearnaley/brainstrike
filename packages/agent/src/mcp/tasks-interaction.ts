@@ -9,15 +9,15 @@ import {
   fulfillMcpElicitationRequest,
   type McpClientHandlerContext,
   type McpElicitationCapability,
-} from './client-capabilities';
-import type { McpClientExtensionRequestContract } from './client-extension-registry';
+} from './client-capabilities.ts';
+import type { McpClientExtensionRequestContract } from './client-extension-registry.ts';
 import {
   MCP_TASKS_CANCEL_REQUEST_CONTRACT,
   MCP_TASKS_UPDATE_REQUEST_CONTRACT,
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
-} from './tasks-extension';
-import type { McpTaskObservationPort } from './tasks-observation';
+} from './tasks-extension.ts';
+import type { McpTaskObservationPort } from './tasks-observation.ts';
 
 export interface McpTaskInteractionElicitationContext
   extends McpClientHandlerContext,

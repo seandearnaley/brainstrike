@@ -13,9 +13,9 @@
  * risk resolver, and the schema wrappers. Execution stays in the desktop
  * executor map and Mastra.
  */
-import { resolveToolRiskCategory } from '../tool-risk.js';
-import type { EffectToolInputSchema } from './schemas/effect-tool-input.js';
-import type { NativeToolDefaultMetadata } from './taxonomy.js';
+import { resolveToolRiskCategory } from '../tool-risk.ts';
+import type { EffectToolInputSchema } from './schemas/effect-tool-input.ts';
+import type { NativeToolDefaultMetadata } from './taxonomy.ts';
 
 /** One Effect-authored boundary per native tool. */
 export type NativeToolInputSchema = EffectToolInputSchema<unknown>;

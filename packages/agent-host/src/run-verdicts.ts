@@ -1,5 +1,5 @@
 import { refusalError } from '@brainstrike/assistant-contract';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
 
 type VerdictEvent = Extract<HostEvent, { type: 'run.verdict' }>;
 

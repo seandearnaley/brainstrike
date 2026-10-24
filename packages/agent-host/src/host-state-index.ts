@@ -16,8 +16,8 @@ import {
 } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalRoot, type IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
-import { createStateIndexOwner } from './host-state-index-owner.js';
-import type { HostStartupContext } from './runtime.js';
+import { createStateIndexOwner } from './host-state-index-owner.ts';
+import type { HostStartupContext } from './runtime.ts';
 
 const logger = createLogger('AgentHostStateIndex');
 

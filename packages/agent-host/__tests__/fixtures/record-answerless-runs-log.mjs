@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { z } from 'zod';
-import { attachAgentHost, startAgentHost } from '../../dist/index.js';
+import { attachAgentHost, startAgentHost } from '../../src/index.ts';
 
 // Explicit recording from real SDK -> socket -> writer-worker SQLite -> replay
 // of two runs on one thread that end without writing an answer. The first

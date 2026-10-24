@@ -2,12 +2,12 @@ import { type ChildProcess, fork, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
-import type { HostSpawner, StartedHost } from './launcher.js';
-import type { HostRecord } from './record.js';
-import { ResourceOwner } from './resource-owner.js';
-import { decodeStartOptions, type HostLifetime } from './runtime.js';
-import { startupFailure } from './startup-failure.js';
-import { decodeStartupMessage } from './startup-message.js';
+import type { HostSpawner, StartedHost } from './launcher.ts';
+import type { HostRecord } from './record.ts';
+import { ResourceOwner } from './resource-owner.ts';
+import { decodeStartOptions, type HostLifetime } from './runtime.ts';
+import { startupFailure } from './startup-failure.ts';
+import { decodeStartupMessage } from './startup-message.ts';
 export interface NodeSpawnerOptions {
   /** Trusted shell composition inputs, appended after the validated start options. */
   readonly entryArgs?: readonly string[];

@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { HybridSearchInputSchema } from '../schemas/schemas-search.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { HybridSearchInputSchema } from '../schemas/schemas-search.ts';
 
 // Read-only hybrid (vector + BM25 keyword, RRF-fused) workspace retrieval.
 export const hybridSearch = defineNativeTool({

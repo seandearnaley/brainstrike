@@ -21,7 +21,7 @@ import {
   parseMcpNegotiatedStatus,
 } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { OAuthError, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
-import { findBearerCredentialFailure, McpLifecycleFailure } from './lifecycle-errors.js';
+import { findBearerCredentialFailure, McpLifecycleFailure } from './lifecycle-errors.ts';
 
 type McpServerActorInvokeOptions = McpHostInvokeOptions & { signal: AbortSignal };
 export interface McpServerActorClient {

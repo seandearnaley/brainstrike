@@ -1,6 +1,6 @@
 import type { ModelMessage } from 'ai';
-import type { HostPlatform, HostProjectionRewrite, HostToolInvocation } from './ports.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
+import type { HostPlatform, HostProjectionRewrite, HostToolInvocation } from './ports.ts';
+import type { HostEvent, HostLogRow } from './protocol.ts';
 
 type Rewritten = Extract<HostEvent, { type: 'tool.projection.rewritten' }>;
 

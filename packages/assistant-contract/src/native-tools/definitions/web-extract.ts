@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { WebExtractInputSchema } from '../schemas/schemas-search.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { WebExtractInputSchema } from '../schemas/schemas-search.ts';
 
 // The natural pair to webSearch (report R5): read the page BEHIND a result
 // or a user-pasted URL as markdown, via Tavily's /extract endpoint. Same

@@ -1,14 +1,14 @@
-import { settleHostChildInput, takeHostChildInput } from './child-input.js';
-import { type HostChildRuns, reportHostChildWakeFailure } from './core-child-runs.js';
-import { joinHostThreadSettlements, settleHostRunOwner } from './core-run-lifecycle.js';
-import type { HostRunState } from './core-state.js';
-import { hostRunTerminalEvents } from './hook-context.js';
-import type { HostClientOrigin } from './ports.js';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
-import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
-import { endHostRunTurn } from './run-admission.js';
-import { enteredWorktreeRunParams } from './run-continuation.js';
-import type { HostThreadPresentationState } from './thread-presentation-state.js';
+import { settleHostChildInput, takeHostChildInput } from './child-input.ts';
+import { type HostChildRuns, reportHostChildWakeFailure } from './core-child-runs.ts';
+import { joinHostThreadSettlements, settleHostRunOwner } from './core-run-lifecycle.ts';
+import type { HostRunState } from './core-state.ts';
+import { hostRunTerminalEvents } from './hook-context.ts';
+import type { HostClientOrigin } from './ports.ts';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
+import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.ts';
+import { endHostRunTurn } from './run-admission.ts';
+import { enteredWorktreeRunParams } from './run-continuation.ts';
+import type { HostThreadPresentationState } from './thread-presentation-state.ts';
 
 type Outcome = Extract<HostEvent, { type: 'run.finished' }>['outcome'];
 

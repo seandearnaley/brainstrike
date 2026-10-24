@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { RenameWorkspaceFileInputSchema } from '../schemas/schemas-workspace.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { RenameWorkspaceFileInputSchema } from '../schemas/schemas-workspace.ts';
 
 // Renames/moves a single workspace FILE within one root. riskCategory 'edit' so
 // the permission engine gates it (→ 'ask' by default) like the other

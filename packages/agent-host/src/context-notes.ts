@@ -1,4 +1,4 @@
-import type { HostTool, HostToolState } from './ports.js';
+import type { HostTool, HostToolState } from './ports.ts';
 
 /**
  * The notes the run's admitted tools contribute before a step, from the

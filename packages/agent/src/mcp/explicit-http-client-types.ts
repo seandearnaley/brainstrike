@@ -16,7 +16,7 @@ export type ExplicitHttpMcpUnexpectedCloseObserver = () => void | Promise<void>;
 
 export type ExplicitHttpMcpFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
-export type { ExplicitHttpMcpAuthorizationCallbackSource } from './interactive-oauth-completion';
+export type { ExplicitHttpMcpAuthorizationCallbackSource } from './interactive-oauth-completion.ts';
 
 type SdkRequestOptions = NonNullable<Parameters<Client['callTool']>[1]>;
 export type ExplicitHttpMcpRequestOptions = SdkRequestOptions;

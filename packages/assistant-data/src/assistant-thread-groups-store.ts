@@ -1,19 +1,19 @@
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AssistantThreadColorId, AssistantThreadIconId } from './assistant-memory-repository';
+import type { AssistantThreadColorId, AssistantThreadIconId } from './assistant-memory-repository.ts';
 import type {
   AssistantThreadGroup,
   AssistantThreadGroupsRepository,
   AssistantThreadPlacement,
-} from './assistant-thread-groups-repository';
+} from './assistant-thread-groups-repository.ts';
 import {
   FOLDER_SECTION_ID_PREFIX,
   folderSectionId,
   type ThreadsPanelFolderSortBy,
   type ThreadsPanelGroupBy,
   type ThreadsPanelSortBy,
-} from './thread-list-sections';
+} from './thread-list-sections.ts';
 
 type ThreadGroupsLoadState =
   | { readonly status: 'idle' }

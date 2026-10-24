@@ -24,7 +24,7 @@ import os from 'node:os';
 import { NATIVE_TOOL_ID, requireNativeToolExecutionBudget } from '@brainstrike/assistant-contract';
 import { validateToolInputValue } from '@brainstrike/assistant-contract/native-tool-schemas';
 import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
-import { type RunPythonInput, RunPythonInputSchema } from './schemas';
+import { type RunPythonInput, RunPythonInputSchema } from './schemas.ts';
 
 /** Matches the display schema's documented default; the seam caps at MAX_EXEC_TIMEOUT_MS. */
 export const RUN_PYTHON_DEFAULT_TIMEOUT_MS = requireNativeToolExecutionBudget(

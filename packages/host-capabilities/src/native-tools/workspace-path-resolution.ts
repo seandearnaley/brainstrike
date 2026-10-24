@@ -14,7 +14,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { type RuntimeData, withFileLock } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.js';
+import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.ts';
 
 export function normalizeWorkspaceRootPath(value: string | undefined): string | undefined {
   if (typeof value !== 'string') {

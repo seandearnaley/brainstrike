@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ExecuteCommandInputSchema } from '../schemas/schemas-execution.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ExecuteCommandInputSchema } from '../schemas/schemas-execution.ts';
 
 // Arbitrary shell execution — THE highest-risk native tool. There is NO
 // sandbox, so it is pinned to the 'execute' risk bucket and requires approval.

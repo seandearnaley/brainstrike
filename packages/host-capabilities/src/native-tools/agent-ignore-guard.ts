@@ -10,7 +10,7 @@ import {
   ancestorDirectoriesBetween,
   findRepositoryRoot,
   relativePosixPrefix,
-} from './repository-root.js';
+} from './repository-root.ts';
 
 /**
  * The HARD agent-ignore layers, queryable by arbitrary path (BST-1432).

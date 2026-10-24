@@ -1,4 +1,4 @@
-import type { AgentMessage, RuntimeData, RuntimeWorkspaceRoot } from './types';
+import type { AgentMessage, RuntimeData, RuntimeWorkspaceRoot } from './types.ts';
 
 export const MAX_WORKSPACE_ROOT_MANIFEST_CHARS = 3000;
 export const MAX_WORKSPACE_ROOT_MANIFEST_ROOTS = 5;

@@ -1,5 +1,5 @@
-import type { HostAuthService, HostClientOrigin } from './ports.js';
-import type { HostMethod, HostParams } from './protocol.js';
+import type { HostAuthService, HostClientOrigin } from './ports.ts';
+import type { HostMethod, HostParams } from './protocol.ts';
 export type HostMethodHandler = <M extends HostMethod>(
   method: M,
   request: (params: HostParams<M>) => unknown

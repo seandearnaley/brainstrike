@@ -4,8 +4,8 @@ import { isAbsolute, join } from 'node:path';
 import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
-import type { HostMethodHandler } from './auth-connection.js';
-import { type HostHookTrust, HostHookTrustSchema, type HostParams } from './protocol.js';
+import type { HostMethodHandler } from './auth-connection.ts';
+import { type HostHookTrust, HostHookTrustSchema, type HostParams } from './protocol.ts';
 /** The host's StateStore settings, where it alone records each root's hook trust. */
 export type HostHookTrustStore = Pick<StateStore, 'deleteSetting' | 'getSetting' | 'setSetting'>;
 /**

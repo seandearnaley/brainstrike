@@ -45,7 +45,7 @@ import {
   loadParcelWatcher,
   type ParcelBackendName,
   selectParcelBackend,
-} from '../adapters/parcel-backend.js';
+} from '../adapters/parcel-backend.ts';
 
 /**
  * Outcome of a liveness probe.

@@ -10,12 +10,12 @@ import {
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
-import { readMcpMultimodalOutput } from '../mcp/mcp-multimodal-output';
-import { toJsonSafe } from '../stream/json';
-import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
-import { isGuardedToolError } from '../tools/guard-tool-execution';
-import { readHookResultEnvelope } from '../tools/hook-runner';
-import { projectToolOutputArtifactPage } from './tool-output-artifact-reader';
+import { readMcpMultimodalOutput } from '../mcp/mcp-multimodal-output.ts';
+import { toJsonSafe } from '../stream/json.ts';
+import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits.ts';
+import { isGuardedToolError } from '../tools/guard-tool-execution.ts';
+import { readHookResultEnvelope } from '../tools/hook-runner.ts';
+import { projectToolOutputArtifactPage } from './tool-output-artifact-reader.ts';
 
 const APPROX_CHARS_PER_TOKEN = 4;
 const TEXT_ENCODER = new TextEncoder();

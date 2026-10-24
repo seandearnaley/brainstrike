@@ -4,9 +4,9 @@ import type {
   PromptVectorState,
 } from '@brainstrike/state-store';
 import type Database from 'better-sqlite3';
-import { decoder } from './contracts.js';
-import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.js';
-import { vectorBytes } from './state-message-vectors.js';
+import { decoder } from './contracts.ts';
+import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.ts';
+import { vectorBytes } from './state-message-vectors.ts';
 
 /** Derived prompt vectors live under the existing host state index writer and reset lease. */
 export class PromptVectors {

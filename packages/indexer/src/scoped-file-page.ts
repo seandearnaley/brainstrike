@@ -10,10 +10,10 @@ import {
   scopedFilePageRequestSchema,
   scopedFilePageSchema,
   scopedManifestChunkSchema,
-} from './contracts.js';
-import { readIndexIdentity, readScopeEpoch } from './index-metadata.js';
-import { type ScopeAuthority, vectorProfileHash } from './scope-authority.js';
-import { validateStoredVectorBytes } from './scoped-vector-validation.js';
+} from './contracts.ts';
+import { readIndexIdentity, readScopeEpoch } from './index-metadata.ts';
+import { type ScopeAuthority, vectorProfileHash } from './scope-authority.ts';
+import { validateStoredVectorBytes } from './scoped-vector-validation.ts';
 
 const fileSchema = Schema.Struct({ contentHash: Schema.String, snapshotHash: Schema.String });
 const rowSchema = Schema.Struct({

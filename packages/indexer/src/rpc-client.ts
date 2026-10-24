@@ -1,4 +1,4 @@
-import { decoder, frameSchema, IndexerError } from './contracts.js';
+import { decoder, frameSchema, IndexerError } from './contracts.ts';
 
 interface Pending {
   reject(error: unknown): void;

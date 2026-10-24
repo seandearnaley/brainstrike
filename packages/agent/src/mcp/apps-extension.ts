@@ -9,7 +9,7 @@ import type { JSONObject } from '@modelcontextprotocol/client';
 import type {
   McpClientExtensionContract,
   McpClientExtensionRegistry,
-} from './client-extension-registry';
+} from './client-extension-registry.ts';
 
 const MCP_APPS_CLIENT_IMPLEMENTATION = Object.freeze({ capabilityOnly: true as const });
 type McpAppsClientSettings = McpAppsClientCapability & JSONObject;

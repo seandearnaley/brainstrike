@@ -5,7 +5,7 @@ import type {
   TransportTargetOptions,
 } from 'pino';
 import pino from 'pino';
-import { isErrorObject, logSerializers } from './log-serializers.js';
+import { isErrorObject, logSerializers } from './log-serializers.ts';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {

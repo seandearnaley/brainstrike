@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { formatTokenCount } from '@brainstrike/tokenization';
-import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families';
+import { describeAvailableDeferredCapabilityFamilies } from './deferred-capability-families.ts';
 
 export function buildContextBudgetNote(budgetTokens: number | undefined): string | null {
   if (budgetTokens === undefined || !Number.isFinite(budgetTokens) || budgetTokens <= 0) {
