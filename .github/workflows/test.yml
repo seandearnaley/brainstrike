@@ -626,11 +626,9 @@ jobs:
         # failure in one run instead of cancelling siblings at the first error
         # — the point of a build gate is to show all of what is broken.
         #
-        # NOT affected-filtered (BST-1005, measured): both E2E smoke jobs run
-        # on EVERY PR (AGENTS.md CI contract, and audit-bolt-readiness.mjs
-        # counts a skipped required check as not-ready), so this job must
-        # always produce the web and desktop bundles they consume. Those two
-        # apps' dependency closure is 46 of 47 workspace packages, so a
+        # NOT affected-filtered (BST-1005, measured): the desktop smoke lanes
+        # run this same command for themselves, and the web and desktop apps'
+        # dependency closure is 46 of 47 workspace packages, so a
         # `...[origin/$BASE_REF]` filter here can skip at most ONE package
         # (@brainstrike/tsconfig) while turbo's cache already replays the rest.
         env:
@@ -869,11 +867,10 @@ jobs:
         needs.admission.result != 'success' ||
         (
           (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
-          needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success'
+          needs.admission.outputs.admitted == 'true'
         )
       )
-    needs: [admission, build]
+    needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
     # Playwright splits the lane across two runners (--shard), so its tests take
@@ -899,11 +896,12 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
-      # Build has just written every build output to the remote Turbo cache, so
-      # the same command replays it here instead of downloading an artifact.
-      # The job's env must hash like Build's: NODE_ENV is a desktop build input,
-      # so it is set on the test step only.
-      - name: Restore build outputs from the Turbo cache
+      # The lanes build for themselves beside the Build job instead of waiting
+      # for it: Turbo replays whatever the remote cache already holds and builds
+      # the rest, so the tests start about one Build job sooner. The job's env
+      # must hash like Build's: NODE_ENV is a desktop build input, so it is set
+      # on the test step only.
+      - name: Build
         run: pnpm turbo run build --log-order=grouped
 
       # Desktop E2E drives the app through Playwright's Electron API
@@ -978,11 +976,10 @@ jobs:
         needs.admission.result != 'success' ||
         (
           (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
-          needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success'
+          needs.admission.outputs.admitted == 'true'
         )
       )
-    needs: [admission, build]
+    needs: [admission]
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
     # Playwright splits the lane across two runners (--shard), so its tests take
@@ -1008,7 +1005,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
-      - name: Restore build outputs from the Turbo cache
+      - name: Build
         run: pnpm turbo run build --log-order=grouped
 
       - name: Drop unused apt sources
@@ -1063,11 +1060,10 @@ jobs:
         needs.admission.result != 'success' ||
         (
           (github.event_name != 'workflow_dispatch' || inputs.merge-queue) &&
-          needs.admission.outputs.admitted == 'true' &&
-          needs.build.result == 'success'
+          needs.admission.outputs.admitted == 'true'
         )
       )
-    needs: [admission, build, desktop-e2e-smoke, desktop-e2e-delegated]
+    needs: [admission, desktop-e2e-smoke, desktop-e2e-delegated]
     # Reads two dependency results and completes in seconds, so it uses the
     # same slim runner as the Unit fan-in.
     runs-on: ubuntu-slim
