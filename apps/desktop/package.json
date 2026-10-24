@@ -255,7 +255,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm build:renderer && pnpm build:main",
-    "build:cached": "node ../../scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --filter=@brainstrike/desktop",
+    "build:cached": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/desktop",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "build:main": "node scripts/build-main.mjs",
     "build:renderer": "vite build",

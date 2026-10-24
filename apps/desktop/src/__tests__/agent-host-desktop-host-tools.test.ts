@@ -586,10 +586,15 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
     throw new Error('run_python was not built for the host');
   }
   // This launch's resources hold no bundled runtime: the host resolved the interpreter
-  // from its own app paths and reports that, typed, without asking Main.
+  // from its own app paths and reports that, typed, without asking Main. Windows has no
+  // bundled target, so there it names the platform instead of the missing manifest.
   const output = await tool.execute({ code: 'print(1)' }, execution());
   expect(output).toMatchObject({ kind: 'unavailable', reason: 'interpreter_unavailable' });
-  expect(JSON.stringify(output)).toContain(join(resourcesPath, 'python-runtime', 'manifest.json'));
+  expect(JSON.stringify(output)).toContain(
+    process.platform === 'win32'
+      ? 'does not support win32'
+      : join(resourcesPath, 'python-runtime', 'manifest.json')
+  );
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
     new Set(['admission/fresh-roots'])
   );
