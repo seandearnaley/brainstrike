@@ -1,5 +1,4 @@
 #include <napi.h>
-#include "linux-process-observer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -188,258 +187,6 @@ Napi::Value TerminateOtherProcesses(const Napi::CallbackInfo& info) {
     terminated += 1;
   }
   return Napi::Number::New(env, terminated);
-}
-
-class DrainWorker final : public Napi::AsyncWorker {
- public:
-  DrainWorker(Napi::Env env, HANDLE job, UINT exit_code)
-      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
-        job_(job), guard_pid_(GetCurrentProcessId()), exit_code_(exit_code) {}
-
-  ~DrainWorker() override {
-    CloseProcesses();
-    CloseHandle(job_);
-  }
-
-  Napi::Promise Promise() const { return deferred_.Promise(); }
-
-  void Execute() override {
-    Drain();
-    // Every path, each rejection included, releases the pinned member handles
-    // here, before OnOK or OnError settles the Promise on the JS thread.
-    CloseProcesses();
-  }
-
-  void OnOK() override { deferred_.Resolve(Env().Undefined()); }
-  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
-
- private:
-  void Drain() {
-    BOOL guard_in_job = FALSE;
-    if (!IsProcessInJob(GetCurrentProcess(), job_, &guard_in_job)) {
-      Fail("IsProcessInJob", GetLastError());
-      return;
-    }
-    if (!guard_in_job) {
-      SetError("Windows Job Object drain caller is not a contained guard.");
-      return;
-    }
-
-    std::vector<ULONG_PTR> members;
-    if (!ReadMembers(&members)) {
-      return;
-    }
-    for (const ULONG_PTR raw_pid : members) {
-      const DWORD pid = static_cast<DWORD>(raw_pid);
-      if (pid == guard_pid_) {
-        continue;
-      }
-      HANDLE process = OpenProcess(
-          PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
-      if (process == nullptr) {
-        const DWORD error = GetLastError();
-        // A disappearing census PID is not proof. The final census/accounting
-        // must still establish that no other Job member remains.
-        if (error == ERROR_INVALID_PARAMETER) {
-          continue;
-        }
-        Fail("OpenProcess", error);
-        return;
-      }
-      processes_.push_back(process);
-      BOOL contained = FALSE;
-      if (!IsProcessInJob(process, job_, &contained)) {
-        Fail("IsProcessInJob", GetLastError());
-        return;
-      }
-      if (!contained) {
-        // PID reuse can only select a foreign object before it is pinned.
-        // Never terminate it; the final Job proof covers the original member.
-        CloseHandle(process);
-        processes_.pop_back();
-      }
-    }
-
-    // Pin the whole census before requesting any termination. Request the whole
-    // contained cohort before waiting, rather than leaving peers running while
-    // one member's physical exit is pending.
-    for (const HANDLE process : processes_) {
-      if (!TerminateProcess(process, exit_code_)) {
-        const DWORD error = GetLastError();
-        // Exit code 259 (STILL_ACTIVE) can also be a real exit code. Only the
-        // pinned process object's signal proves exit, including this race.
-        if (error != ERROR_ACCESS_DENIED || WaitForSingleObject(process, 0) != WAIT_OBJECT_0) {
-          Fail("TerminateProcess", error);
-          return;
-        }
-      }
-    }
-    // TerminateProcess is asynchronous. No deadline or cancellation substitutes
-    // for these physical signals. Execute runs off the JS/event-loop thread.
-    // https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess
-    for (const HANDLE process : processes_) {
-      const DWORD wait = WaitForSingleObject(process, INFINITE);
-      if (wait != WAIT_OBJECT_0) {
-        Fail("WaitForSingleObject", wait == WAIT_FAILED ? GetLastError() : wait);
-        return;
-      }
-    }
-
-    // Windows decrements ActiveProcesses only "when the terminated process exits
-    // and all references to the process are released", which can trail the exit
-    // signal awaited above, and JobObjectBasicProcessIdList keeps listing such a
-    // member meanwhile (BST-2137).
-    // https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information
-    // Windows can release a joined member at any moment, including between the
-    // reads below, so the proof only assumes that membership shrinks: under the
-    // stop-admission precondition nothing can join. A census before and a census
-    // after the count must each list the guard and otherwise only joined members,
-    // the later one a subset of the earlier one; any other entry is a live or
-    // unknown process. Releases can only lower the count, so it must lie between
-    // the guard plus the members still listed afterwards and the guard plus those
-    // listed before. Stop-admission is the caller's precondition, not an
-    // optimistic assumption: any other entry, discrepancy or failed query rejects
-    // cleanup rather than releasing the existing Root authority.
-    std::vector<ULONG_PTR> listed;
-    if (!ReadMembers(&listed)) {
-      return;
-    }
-    size_t joined_listed = 0;
-    if (!ListsOnlyGuardAndJoined(listed, &joined_listed)) {
-      SetError(kUnproved);
-      return;
-    }
-    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
-    if (!QueryInformationJobObject(job_, JobObjectBasicAccountingInformation, &accounting,
-                                   sizeof(accounting), nullptr)) {
-      Fail("QueryInformationJobObject", GetLastError());
-      return;
-    }
-    std::vector<ULONG_PTR> relisted;
-    if (!ReadMembers(&relisted)) {
-      return;
-    }
-    size_t joined_relisted = 0;
-    if (!ListsOnlyGuardAndJoined(relisted, &joined_relisted)) {
-      SetError(kUnproved);
-      return;
-    }
-    std::sort(listed.begin(), listed.end());
-    std::sort(relisted.begin(), relisted.end());
-    const size_t active = accounting.ActiveProcesses;
-    if (!std::includes(listed.begin(), listed.end(), relisted.begin(), relisted.end()) ||
-        active < 1 + joined_relisted || active > 1 + joined_listed) {
-      SetError(kUnproved);
-    }
-  }
-
-  static constexpr const char* kUnproved =
-      "Windows Job Object drain did not prove the guard alone; cleanup remains unproved.";
-
-  void Fail(const char* operation, DWORD error) { SetError(WindowsError(operation, error)); }
-
-  // A census entry is a joined member only as one of this drain's pinned
-  // processes. Each pinned handle already returned WAIT_OBJECT_0 above, so no
-  // separate signal check is needed, and while the handle stays open its PID
-  // cannot name another process.
-  bool IsJoined(ULONG_PTR pid) const {
-    for (const HANDLE process : processes_) {
-      if (static_cast<ULONG_PTR>(GetProcessId(process)) == pid) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // True when the census lists the guard and otherwise only joined members.
-  bool ListsOnlyGuardAndJoined(const std::vector<ULONG_PTR>& census, size_t* joined) const {
-    bool guard_listed = false;
-    *joined = 0;
-    for (const ULONG_PTR pid : census) {
-      if (pid == guard_pid_) {
-        guard_listed = true;
-      } else if (IsJoined(pid)) {
-        *joined += 1;
-      } else {
-        return false;
-      }
-    }
-    return guard_listed;
-  }
-
-  void CloseProcesses() {
-    for (const HANDLE process : processes_) {
-      CloseHandle(process);
-    }
-    processes_.clear();
-  }
-
-  bool ReadMembers(std::vector<ULONG_PTR>* members) {
-    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
-    if (!QueryInformationJobObject(job_, JobObjectBasicAccountingInformation, &accounting,
-                                   sizeof(accounting), nullptr)) {
-      Fail("QueryInformationJobObject", GetLastError());
-      return false;
-    }
-    DWORD capacity = accounting.ActiveProcesses + 8;
-    // Match the existing API's bounded census allocation; exhausted enumeration
-    // rejects and is never treated as extinction.
-    for (int attempt = 0; attempt < 4; ++attempt) {
-      const size_t bytes = sizeof(JOBOBJECT_BASIC_PROCESS_ID_LIST) +
-                           static_cast<size_t>(capacity - 1) * sizeof(ULONG_PTR);
-      std::vector<ULONG_PTR> storage((bytes + sizeof(ULONG_PTR) - 1) / sizeof(ULONG_PTR));
-      auto* list = reinterpret_cast<JOBOBJECT_BASIC_PROCESS_ID_LIST*>(storage.data());
-      if (QueryInformationJobObject(job_, JobObjectBasicProcessIdList, list,
-                                    static_cast<DWORD>(bytes), nullptr)) {
-        members->assign(list->ProcessIdList, list->ProcessIdList + list->NumberOfProcessIdsInList);
-        return true;
-      }
-      const DWORD error = GetLastError();
-      if (error != ERROR_MORE_DATA) {
-        Fail("QueryInformationJobObject", error);
-        return false;
-      }
-      capacity = list->NumberOfAssignedProcesses + 8;
-    }
-    SetError("Windows Job Object membership did not stabilize during enumeration.");
-    return false;
-  }
-
-  Napi::Promise::Deferred deferred_;
-  HANDLE job_;
-  DWORD guard_pid_;
-  UINT exit_code_;
-  std::vector<HANDLE> processes_;
-};
-
-Napi::Value DrainOtherProcesses(const Napi::CallbackInfo& info) {
-  const Napi::Env env = info.Env();
-  auto rejected = Napi::Promise::Deferred::New(env);
-  if (info.Length() != 1 || !info[0].IsNumber()) {
-    rejected.Reject(Napi::TypeError::New(env, "drainOtherProcesses requires one numeric exit code.").Value());
-    return rejected.Promise();
-  }
-  const double value = info[0].As<Napi::Number>().DoubleValue();
-  if (!std::isfinite(value) || value < 0 || value > UINT32_MAX ||
-      value != static_cast<std::uint32_t>(value)) {
-    rejected.Reject(Napi::RangeError::New(env, "drainOtherProcesses exit code must be a uint32.").Value());
-    return rejected.Promise();
-  }
-  if (job_handle == nullptr) {
-    rejected.Reject(Napi::Error::New(env, "Windows Job Object has not been initialized.").Value());
-    return rejected.Promise();
-  }
-  HANDLE pinned_job = nullptr;
-  if (!DuplicateHandle(GetCurrentProcess(), job_handle, GetCurrentProcess(), &pinned_job,
-                       0, FALSE, DUPLICATE_SAME_ACCESS)) {
-    rejected.Reject(Napi::Error::New(env, WindowsError("DuplicateHandle", GetLastError())).Value());
-    return rejected.Promise();
-  }
-  auto worker = std::make_unique<DrainWorker>(env, pinned_job, static_cast<UINT>(value));
-  const Napi::Promise promise = worker->Promise();
-  worker->Queue();
-  worker.release();
-  return promise;
 }
 
 std::string CreationTimeText(const FILETIME& creation) {
@@ -851,22 +598,14 @@ Napi::Value Unsupported(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
-Napi::Value UnsupportedDrain(const Napi::CallbackInfo& info) {
-  auto deferred = Napi::Promise::Deferred::New(info.Env());
-  deferred.Reject(Napi::Error::New(info.Env(), "Windows Job Objects are only available on Windows.").Value());
-  return deferred.Promise();
-}
-
 #endif
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("observeLinuxProcess", Napi::Function::New(env, ObserveLinuxProcess));
 #ifdef _WIN32
   exports.Set("createCommandJob", Napi::Function::New(env, CommandJob::Create));
   exports.Set("getCurrentProcessIdentity", Napi::Function::New(env, GetCurrentProcessIdentity));
   exports.Set("getProcessCreationTime", Napi::Function::New(env, GetProcessCreationTime));
   exports.Set("activeProcessCount", Napi::Function::New(env, ActiveProcessCount));
-  exports.Set("drainOtherProcesses", Napi::Function::New(env, DrainOtherProcesses));
   exports.Set("initialize", Napi::Function::New(env, Initialize));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, TerminateOtherProcesses));
 #else
@@ -874,7 +613,6 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("getCurrentProcessIdentity", Napi::Function::New(env, Unsupported));
   exports.Set("getProcessCreationTime", Napi::Function::New(env, Unsupported));
   exports.Set("activeProcessCount", Napi::Function::New(env, Unsupported));
-  exports.Set("drainOtherProcesses", Napi::Function::New(env, UnsupportedDrain));
   exports.Set("initialize", Napi::Function::New(env, Unsupported));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, Unsupported));
 #endif
