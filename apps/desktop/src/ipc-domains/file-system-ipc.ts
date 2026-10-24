@@ -75,6 +75,11 @@ interface RegisterFileSystemIpcHandlersOptions {
    * succeeded, so the call is wrapped.
    */
   readonly onWorkspaceRootGranted?: ((grantedPath: string) => void) | undefined;
+  /**
+   * Fired after a removal retired a mounted folder, or failed once it may have: main re-reads
+   * the committed folders through its native index transition, as a registration does.
+   */
+  readonly onWorkspaceRootsChanged?: (() => void) | undefined;
   readonly storage: ElectronStorageAdapter;
   /** Explicit constructor seams for unit tests of native-root composition. */
   readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
@@ -434,6 +439,7 @@ export function createFileSystemIpcDomain({
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
   onWorkspaceRootGranted,
+  onWorkspaceRootsChanged,
   onDeleteRootData,
   storage,
   workspaceRootRegistryFileSystemSeams,
@@ -762,9 +768,17 @@ export function createFileSystemIpcDomain({
         }
       ),
     removeRoot: async (rootId: string) =>
-      settleFileSystemResult({ category: 'files', code: 'files.remove-root-failed' }, async () =>
-        roots.removeRoot(rootId)
-      ),
+      settleFileSystemResult({ category: 'files', code: 'files.remove-root-failed' }, async () => {
+        // Removing a mounted folder ends the index's borrow of it, even when the removal then
+        // fails: Main re-reads the folders either way.
+        const retired = await roots.removeRoot(rootId).catch((error: unknown) => {
+          onWorkspaceRootsChanged?.();
+          throw error;
+        });
+        if (retired) {
+          onWorkspaceRootsChanged?.();
+        }
+      }),
     requestDirectoryAccess: async () =>
       settleFileSystemResult(
         { category: 'files', code: 'files.request-directory-access-failed' },
