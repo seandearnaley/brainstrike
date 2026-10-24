@@ -36,6 +36,8 @@ on:
         value: ${{ jobs.admission.result }}
       static-result:
         value: ${{ jobs.static.result }}
+      type-check-result:
+        value: ${{ jobs.type-check.result }}
       unit-plan-result:
         value: ${{ jobs.unit-plan.result }}
       unit-shard-result:
@@ -277,6 +279,9 @@ jobs:
         run: node scripts/select-unit-shards.mjs
 
 
+  # Lint and type-check run as two jobs so the queue waits for the longer of
+  # them, not both in turn (run 40084219035: lint 1m33s, then type-check
+  # 2m20s, made Static the last job to finish).
   static:
     name: Static
     if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
@@ -303,22 +308,40 @@ jobs:
       # Checkout MUST stay here, ahead of the composite: a local `uses: ./...`
       # action is read off the runner's filesystem, so the repo has to be on
       # disk before it can resolve. See setup-workspace/action.yml's header.
-      # Full history also supplies the exact PR base used by Unit admission.
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
+      # Lint never runs turbo, so it skips the .turbo cache layer.
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'true'
 
       - name: Secret scan
         run: pnpm secrets:scan
 
       - name: Lint
         run: pnpm run lint:ci
+
+  type-check:
+    name: Type check
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    needs: [admission]
+    # Same arm64 runner class as Static; see the note there.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Type check."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
 
       - name: Type check
         env:
@@ -1093,13 +1116,13 @@ jobs:
   # one `nightly-alert` issue per red workflow and comments on later nights.
   notify-linear:
     name: Notify Linear
-    needs: [admission, unit-plan, static, unit-shard, unit, build, native-electron, browser-tests, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
+    needs: [admission, unit-plan, static, type-check, unit-shard, unit, build, native-electron, browser-tests, desktop-e2e-smoke, desktop-e2e-delegated, desktop-e2e]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       # This workflow's own name: in nightly.yml's call, github.workflow is
       # the caller's (BST-2233).
       workflow_name: Test
-      results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},static=${{ needs.static.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
+      results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},static=${{ needs.static.result }},type-check=${{ needs.type-check.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},build=${{ needs.build.result }},native-electron=${{ needs.native-electron.result }},browser-tests=${{ needs.browser-tests.result }},desktop-e2e-smoke=${{ needs.desktop-e2e-smoke.result }},desktop-e2e-delegated=${{ needs.desktop-e2e-delegated.result }},desktop-e2e=${{ needs.desktop-e2e.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
