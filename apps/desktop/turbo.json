@@ -37,6 +37,10 @@
       // Pending-input cancellation uses the real emitted SDK fixture.
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#build"]
     },
+    "test:e2e:lane:smoke": {
+      // The smoke lane launches the same app and fixtures as test:e2e.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#build"]
+    },
     "test:integration": {
       // These lanes run built artifacts outside Vitest's source aliases: Electron
       // launches dist/main.js with dist/renderer (`test-built`), spawned processes

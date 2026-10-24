@@ -71,7 +71,7 @@
     "test:e2e:desktop": "cd apps/desktop && pnpm run test:e2e",
     "test:e2e:desktop:debug": "cd apps/desktop && pnpm run test:e2e:debug",
     "test:e2e:desktop:ui": "cd apps/desktop && pnpm run test:e2e:ui",
-    "test:e2e:smoke": "node scripts/run-env.mjs CI=true pnpm_config_ci=false -- pnpm -s --filter @brainstrike/desktop run test:e2e:lane:smoke",
+    "test:e2e:smoke": "node scripts/run-env.mjs CI=true pnpm_config_ci=false -- node scripts/run-turbo-command.mjs -- run test:e2e:lane:smoke --filter=@brainstrike/desktop --output-logs=new-only",
     "type-check": "node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run type-check --summarize --log-order=grouped"
   },
   "type": "module",
