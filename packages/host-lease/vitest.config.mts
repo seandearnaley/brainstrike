@@ -16,6 +16,10 @@ export default defineConfig({
     hookTimeout: 120_000,
     include: ['__tests__/**/*.test.ts'],
     reporters: ['default', new LostTestFileReporter()],
+    // BST-2246: like the app's process entries, every test process makes the current
+    // user the default owner first, so an elevated Windows run creates private
+    // directories it owns.
+    setupFiles: ['@brainstrike/secure-fs-native/default-owner'],
     testTimeout: 60_000,
   },
 });
