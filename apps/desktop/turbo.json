@@ -17,8 +17,7 @@
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#build"]
     },
     "test": {
-      // vitest.config.mts imports @brainstrike/build-utils, which exports only dist.
-      // The unit suites also load native add-ons. assistant-server/skills-fs-deps
+      // The unit suites load native add-ons. assistant-server/skills-fs-deps
       // imports @brainstrike/secure-fs-native statically, and host-lease-manager's
       // tests read real process start times, which load windows-job-native on
       // Windows. Each add-on's uncached `node-gyp rebuild` first removes build/,
@@ -27,7 +26,6 @@
       // edge as state-store's `test`.
       "dependsOn": [
         "$TURBO_EXTENDS$",
-        "@brainstrike/build-utils#build",
         "@brainstrike/secure-fs-native#build",
         "@brainstrike/windows-job-native#build"
       ],

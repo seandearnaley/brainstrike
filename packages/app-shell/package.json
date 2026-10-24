@@ -54,150 +54,43 @@
     "node": ">=22"
   },
   "exports": {
-    "./assistant-thread-host-context": {
-      "types": "./src/assistant-thread-host-context.tsx",
-      "import": "./dist/assistant-thread-host-context.js"
-    },
-    "./mcp-content-capability": {
-      "types": "./src/mcp-content-capability.tsx",
-      "import": "./dist/mcp-content-capability.js"
-    },
-    "./mcp-status-capability": {
-      "types": "./src/mcp-status-capability.tsx",
-      "import": "./dist/mcp-status-capability.js"
-    },
-    "./mcp-tools-capability": {
-      "types": "./src/mcp-tools-capability.tsx",
-      "import": "./dist/mcp-tools-capability.js"
-    },
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js"
-    },
-    "./app-reload": {
-      "types": "./src/app-reload/index.ts",
-      "import": "./dist/app-reload/index.js"
-    },
-    "./connected-prompt-manager-lazy": {
-      "types": "./src/connected-prompt-manager-lazy.tsx",
-      "import": "./dist/connected-prompt-manager-lazy.js"
-    },
-    "./browser-pane/availability": {
-      "types": "./src/browser-pane/availability.ts",
-      "import": "./dist/browser-pane/availability.js"
-    },
-    "./browser-pane/browser-pane-content": {
-      "types": "./src/browser-pane/browser-pane-content.tsx",
-      "import": "./dist/browser-pane/browser-pane-content.js"
-    },
-    "./changes": {
-      "types": "./src/changes/index.ts",
-      "import": "./dist/changes/index.js"
-    },
-    "./changes/availability": {
-      "types": "./src/changes/availability.ts",
-      "import": "./dist/changes/availability.js"
-    },
-    "./changes/use-last-turn-follower": {
-      "types": "./src/changes/use-last-turn-follower.ts",
-      "import": "./dist/changes/use-last-turn-follower.js"
-    },
-    "./context-map": {
-      "types": "./src/context-map/index.ts",
-      "import": "./dist/context-map/index.js"
-    },
-    "./cost-tracking-settings": {
-      "types": "./src/cost-tracking/index.tsx",
-      "import": "./dist/cost-tracking/index.js"
-    },
-    "./diagnostics": {
-      "types": "./src/diagnostics/index.ts",
-      "import": "./dist/diagnostics/index.js"
-    },
-    "./forge/availability": {
-      "types": "./src/forge/availability.ts",
-      "import": "./dist/forge/availability.js"
-    },
-    "./git-panel": {
-      "types": "./src/git-panel/index.ts",
-      "import": "./dist/git-panel/index.js"
-    },
-    "./git-panel/availability": {
-      "types": "./src/git-panel/availability.ts",
-      "import": "./dist/git-panel/availability.js"
-    },
-    "./navigation": {
-      "types": "./src/navigation.ts",
-      "import": "./dist/navigation.js"
-    },
-    "./platform-bridge": {
-      "types": "./src/platform-bridge.ts",
-      "import": "./dist/platform-bridge.js"
-    },
-    "./user-commands-bridge": {
-      "types": "./src/user-commands-bridge.ts",
-      "import": "./dist/user-commands-bridge.js"
-    },
-    "./worktree-map": {
-      "types": "./src/worktree-map/index.ts",
-      "import": "./dist/worktree-map/index.js"
-    },
-    "./worktrees/availability": {
-      "types": "./src/worktrees/availability.ts",
-      "import": "./dist/worktrees/availability.js"
-    },
-    "./roots/root-registry": {
-      "types": "./src/roots/root-registry.ts",
-      "import": "./dist/roots/root-registry.js"
-    },
-    "./terminal-panel": {
-      "types": "./src/terminal-panel/index.ts",
-      "import": "./dist/terminal-panel/index.js"
-    },
-    "./terminal-panel/availability": {
-      "types": "./src/terminal-panel/availability.ts",
-      "import": "./dist/terminal-panel/availability.js"
-    },
-    "./workspace-connect/workspace-connect-bridge": {
-      "types": "./src/workspace-connect/workspace-connect-bridge.ts",
-      "import": "./dist/workspace-connect/workspace-connect-bridge.js"
-    },
-    "./canvas/canvas-panel": {
-      "types": "./src/canvas/canvas-panel.tsx",
-      "import": "./dist/canvas/canvas-panel.js"
-    },
-    "./root-layout-content": {
-      "types": "./src/root-layout-content.tsx",
-      "import": "./dist/root-layout-content.js"
-    },
-    "./types": {
-      "types": "./src/types.ts",
-      "import": "./dist/types.js"
-    },
-    "./use-document-title": {
-      "types": "./src/use-document-title.ts",
-      "import": "./dist/use-document-title.js"
-    },
-    "./thread-workspace-navigation": {
-      "types": "./src/thread-workspace/live-thread-workspace-navigation.ts",
-      "import": "./dist/thread-workspace/live-thread-workspace-navigation.js"
-    },
+    "./assistant-thread-host-context": "./src/assistant-thread-host-context.tsx",
+    "./mcp-content-capability": "./src/mcp-content-capability.tsx",
+    "./mcp-status-capability": "./src/mcp-status-capability.tsx",
+    "./mcp-tools-capability": "./src/mcp-tools-capability.tsx",
+    ".": "./src/index.ts",
+    "./app-reload": "./src/app-reload/index.ts",
+    "./connected-prompt-manager-lazy": "./src/connected-prompt-manager-lazy.tsx",
+    "./browser-pane/availability": "./src/browser-pane/availability.ts",
+    "./browser-pane/browser-pane-content": "./src/browser-pane/browser-pane-content.tsx",
+    "./changes": "./src/changes/index.ts",
+    "./changes/availability": "./src/changes/availability.ts",
+    "./changes/use-last-turn-follower": "./src/changes/use-last-turn-follower.ts",
+    "./context-map": "./src/context-map/index.ts",
+    "./cost-tracking-settings": "./src/cost-tracking/index.tsx",
+    "./diagnostics": "./src/diagnostics/index.ts",
+    "./forge/availability": "./src/forge/availability.ts",
+    "./git-panel": "./src/git-panel/index.ts",
+    "./git-panel/availability": "./src/git-panel/availability.ts",
+    "./navigation": "./src/navigation.ts",
+    "./platform-bridge": "./src/platform-bridge.ts",
+    "./user-commands-bridge": "./src/user-commands-bridge.ts",
+    "./worktree-map": "./src/worktree-map/index.ts",
+    "./worktrees/availability": "./src/worktrees/availability.ts",
+    "./roots/root-registry": "./src/roots/root-registry.ts",
+    "./terminal-panel": "./src/terminal-panel/index.ts",
+    "./terminal-panel/availability": "./src/terminal-panel/availability.ts",
+    "./workspace-connect/workspace-connect-bridge": "./src/workspace-connect/workspace-connect-bridge.ts",
+    "./canvas/canvas-panel": "./src/canvas/canvas-panel.tsx",
+    "./root-layout-content": "./src/root-layout-content.tsx",
+    "./types": "./src/types.ts",
+    "./use-document-title": "./src/use-document-title.ts",
+    "./thread-workspace-navigation": "./src/thread-workspace/live-thread-workspace-navigation.ts",
     "./styles.css": "./styles.css",
-    "./roots/root-identity-context": {
-      "types": "./src/roots/root-identity-context.tsx",
-      "import": "./dist/roots/root-identity-context.js"
-    },
-    "./use-workspace-search-controller": {
-      "types": "./src/use-workspace-search-controller.ts",
-      "import": "./dist/use-workspace-search-controller.js"
-    }
+    "./roots/root-identity-context": "./src/roots/root-identity-context.tsx",
+    "./use-workspace-search-controller": "./src/use-workspace-search-controller.ts"
   },
-  "files": [
-    "dist"
-  ],
   "license": "ISC",
-  "main": "dist/index.js",
-  "module": "dist/index.js",
   "peerDependencies": {
     "react": "^19.3.0",
     "react-dom": "^19.2.4",
@@ -205,13 +98,10 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run && vitest run --config vitest.compiled.config.mts",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit --project tsconfig.typecheck.json && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict"
   },
-  "types": "./src/index.ts"
+  "type": "module"
 }
