@@ -1,9 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "src",
@@ -20,13 +17,5 @@
     "node_modules",
     "**/*.test.ts",
     "**/*.test.tsx"
-  ],
-  "references": [
-    {
-      "path": "../db"
-    },
-    {
-      "path": "../indexing-contract"
-    }
   ]
 }

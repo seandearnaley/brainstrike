@@ -6,11 +6,9 @@
       "node",
       "@brainstrike/test-utils/vitest-matchers"
     ],
-    "composite": false,
     "declaration": false,
     "emitDeclarationOnly": false,
     "declarationMap": false,
-    "incremental": false,
     "skipLibCheck": true,
     "noEmit": true,
     "strictNullChecks": true

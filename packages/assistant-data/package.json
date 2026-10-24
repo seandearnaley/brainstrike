@@ -26,23 +26,23 @@
   },
   "exports": {
     "./assistant-thread-metadata-merge": {
-      "types": "./dist/assistant-thread-metadata-merge.d.ts",
+      "types": "./src/assistant-thread-metadata-merge.ts",
       "import": "./dist/assistant-thread-metadata-merge.js"
     },
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./cost-tracking": {
-      "types": "./dist/cost-tracking/index.d.ts",
+      "types": "./src/cost-tracking/index.ts",
       "import": "./dist/cost-tracking/index.js"
     },
     "./assistant-memory-repository": {
-      "types": "./dist/assistant-memory-repository.d.ts",
+      "types": "./src/assistant-memory-repository.ts",
       "import": "./dist/assistant-memory-repository.js"
     },
     "./assistant-memory-resource": {
-      "types": "./dist/assistant-memory-resource.d.ts",
+      "types": "./src/assistant-memory-resource.ts",
       "import": "./dist/assistant-memory-resource.js"
     }
   },
@@ -58,9 +58,9 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",
@@ -68,5 +68,5 @@
   },
   "sideEffects": false,
   "type": "module",
-  "types": "dist/index.d.ts"
+  "types": "./src/index.ts"
 }

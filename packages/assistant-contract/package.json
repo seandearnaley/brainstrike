@@ -24,260 +24,260 @@
   },
   "exports": {
     "./thread-workspace-binding": {
-      "types": "./dist/thread-workspace-binding.d.ts",
+      "types": "./src/thread-workspace-binding.ts",
       "import": "./dist/thread-workspace-binding.js",
       "require": "./dist/thread-workspace-binding.js"
     },
     "./thread-workspace-snapshot": {
-      "types": "./dist/thread-workspace-snapshot.d.ts",
+      "types": "./src/thread-workspace-snapshot.ts",
       "import": "./dist/thread-workspace-snapshot.js",
       "require": "./dist/thread-workspace-snapshot.js"
     },
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
     "./host-run-id": {
-      "types": "./dist/host-run-id.d.ts",
+      "types": "./src/host-run-id.ts",
       "import": "./dist/host-run-id.js",
       "require": "./dist/host-run-id.js"
     },
     "./index-config": {
-      "types": "./dist/index-config.d.ts",
+      "types": "./src/index-config.ts",
       "import": "./dist/index-config.js",
       "require": "./dist/index-config.js"
     },
     "./mcp-host-status": {
-      "types": "./dist/mcp-host-status.d.ts",
+      "types": "./src/mcp-host-status.ts",
       "import": "./dist/mcp-host-status.js",
       "require": "./dist/mcp-host-status.js"
     },
     "./mcp-host-runtime": {
+      "types": "./src/mcp-host-runtime.ts",
       "browser": null,
-      "types": "./dist/mcp-host-runtime.d.ts",
       "import": "./dist/mcp-host-runtime.js",
       "require": "./dist/mcp-host-runtime.js"
     },
     "./mcp-config": {
-      "types": "./dist/mcp-config.d.ts",
+      "types": "./src/mcp-config.ts",
       "import": "./dist/mcp-config.js",
       "require": "./dist/mcp-config.js"
     },
     "./mcp-catalog": {
-      "types": "./dist/mcp-catalog.d.ts",
+      "types": "./src/mcp-catalog.ts",
       "import": "./dist/mcp-catalog.js",
       "require": "./dist/mcp-catalog.js"
     },
     "./mcp-task-presentation": {
-      "types": "./dist/mcp-task-presentation.d.ts",
+      "types": "./src/mcp-task-presentation.ts",
       "import": "./dist/mcp-task-presentation.js",
       "require": "./dist/mcp-task-presentation.js"
     },
     "./mcp-task-store": {
-      "types": "./dist/mcp-task-store.d.ts",
+      "types": "./src/mcp-task-store.ts",
       "import": "./dist/mcp-task-store.js",
       "require": "./dist/mcp-task-store.js"
     },
     "./native-tool-schemas": {
-      "types": "./dist/native-tools/schemas/index.d.ts",
+      "types": "./src/native-tools/schemas/index.ts",
       "import": "./dist/native-tools/schemas/index.js",
       "require": "./dist/native-tools/schemas/index.js"
     },
     "./citation-markers": {
-      "types": "./dist/citation-markers.d.ts",
+      "types": "./src/citation-markers.ts",
       "import": "./dist/citation-markers.js",
       "require": "./dist/citation-markers.js"
     },
     "./context-breakdown": {
-      "types": "./dist/context-breakdown.d.ts",
+      "types": "./src/context-breakdown.ts",
       "import": "./dist/context-breakdown.js",
       "require": "./dist/context-breakdown.js"
     },
     "./context-provenance": {
-      "types": "./dist/context-provenance.d.ts",
+      "types": "./src/context-provenance.ts",
       "import": "./dist/context-provenance.js",
       "require": "./dist/context-provenance.js"
     },
     "./context-budget": {
-      "types": "./dist/context-budget.d.ts",
+      "types": "./src/context-budget.ts",
       "import": "./dist/context-budget.js",
       "require": "./dist/context-budget.js"
     },
     "./local-runtime-context": {
-      "types": "./dist/local-runtime-context.d.ts",
+      "types": "./src/local-runtime-context.ts",
       "import": "./dist/local-runtime-context.js",
       "require": "./dist/local-runtime-context.js"
     },
     "./env-bootstrap-bridge": {
-      "types": "./dist/env-bootstrap-bridge.d.ts",
+      "types": "./src/env-bootstrap-bridge.ts",
       "import": "./dist/env-bootstrap-bridge.js",
       "require": "./dist/env-bootstrap-bridge.js"
     },
     "./context-packer": {
-      "types": "./dist/context-packer.d.ts",
+      "types": "./src/context-packer.ts",
       "import": "./dist/context-packer.js",
       "require": "./dist/context-packer.js"
     },
     "./assistant-attachments": {
-      "types": "./dist/assistant-attachments.d.ts",
+      "types": "./src/assistant-attachments.ts",
       "import": "./dist/assistant-attachments.js",
       "require": "./dist/assistant-attachments.js"
     },
     "./compaction-summary": {
-      "types": "./dist/compaction-summary.d.ts",
+      "types": "./src/compaction-summary.ts",
       "import": "./dist/compaction-summary.js",
       "require": "./dist/compaction-summary.js"
     },
     "./mastra-memory-schema": {
-      "types": "./dist/mastra-memory-schema.d.ts",
+      "types": "./src/mastra-memory-schema.ts",
       "import": "./dist/mastra-memory-schema.js",
       "require": "./dist/mastra-memory-schema.js"
     },
     "./memory-settings": {
-      "types": "./dist/memory-settings.d.ts",
+      "types": "./src/memory-settings.ts",
       "import": "./dist/memory-settings.js",
       "require": "./dist/memory-settings.js"
     },
     "./personas": {
-      "types": "./dist/personas.d.ts",
+      "types": "./src/personas.ts",
       "import": "./dist/personas.js",
       "require": "./dist/personas.js"
     },
     "./provider-key-resolution": {
-      "types": "./dist/provider-key-resolution.d.ts",
+      "types": "./src/provider-key-resolution.ts",
       "import": "./dist/provider-key-resolution.js",
       "require": "./dist/provider-key-resolution.js"
     },
     "./provider-metadata": {
-      "types": "./dist/provider-metadata.d.ts",
+      "types": "./src/provider-metadata.ts",
       "import": "./dist/provider-metadata.js",
       "require": "./dist/provider-metadata.js"
     },
     "./provider-registry": {
-      "types": "./dist/provider-registry.d.ts",
+      "types": "./src/provider-registry.ts",
       "import": "./dist/provider-registry.js",
       "require": "./dist/provider-registry.js"
     },
     "./run-events": {
-      "types": "./dist/run-events.d.ts",
+      "types": "./src/run-events.ts",
       "import": "./dist/run-events.js",
       "require": "./dist/run-events.js"
     },
     "./model-step": {
-      "types": "./dist/model-step.d.ts",
+      "types": "./src/model-step.ts",
       "import": "./dist/model-step.js",
       "require": "./dist/model-step.js"
     },
     "./run-usage": {
-      "types": "./dist/run-usage.d.ts",
+      "types": "./src/run-usage.ts",
       "import": "./dist/run-usage.js",
       "require": "./dist/run-usage.js"
     },
     "./shell-output": {
-      "types": "./dist/shell-output.d.ts",
+      "types": "./src/shell-output.ts",
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
     "./tool-telemetry": {
-      "types": "./dist/tool-telemetry.d.ts",
+      "types": "./src/tool-telemetry.ts",
       "import": "./dist/tool-telemetry.js",
       "require": "./dist/tool-telemetry.js"
     },
     "./secrets-bridge": {
-      "types": "./dist/secrets-bridge.d.ts",
+      "types": "./src/secrets-bridge.ts",
       "import": "./dist/secrets-bridge.js",
       "require": "./dist/secrets-bridge.js"
     },
     "./subagent-settings": {
-      "types": "./dist/subagent-settings.d.ts",
+      "types": "./src/subagent-settings.ts",
       "import": "./dist/subagent-settings.js",
       "require": "./dist/subagent-settings.js"
     },
     "./skills-bridge": {
-      "types": "./dist/skills-bridge.d.ts",
+      "types": "./src/skills-bridge.ts",
       "import": "./dist/skills-bridge.js",
       "require": "./dist/skills-bridge.js"
     },
     "./personas-bridge": {
-      "types": "./dist/personas-bridge.d.ts",
+      "types": "./src/personas-bridge.ts",
       "import": "./dist/personas-bridge.js",
       "require": "./dist/personas-bridge.js"
     },
     "./context-files-bridge": {
-      "types": "./dist/context-files-bridge.d.ts",
+      "types": "./src/context-files-bridge.ts",
       "import": "./dist/context-files-bridge.js",
       "require": "./dist/context-files-bridge.js"
     },
     "./runtime-data": {
-      "types": "./dist/runtime-data.d.ts",
+      "types": "./src/runtime-data.ts",
       "import": "./dist/runtime-data.js",
       "require": "./dist/runtime-data.js"
     },
     "./credential-child-environment": {
-      "types": "./dist/credential-child-environment.d.ts",
+      "types": "./src/credential-child-environment.ts",
       "import": "./dist/credential-child-environment.js",
       "require": "./dist/credential-child-environment.js"
     },
     "./tavily-env-keys": {
-      "types": "./dist/tavily-env-keys.d.ts",
+      "types": "./src/tavily-env-keys.ts",
       "import": "./dist/tavily-env-keys.js",
       "require": "./dist/tavily-env-keys.js"
     },
     "./tool-approval": {
-      "types": "./dist/tool-approval.d.ts",
+      "types": "./src/tool-approval.ts",
       "import": "./dist/tool-approval.js",
       "require": "./dist/tool-approval.js"
     },
     "./tool-metadata": {
-      "types": "./dist/tool-metadata.d.ts",
+      "types": "./src/tool-metadata.ts",
       "import": "./dist/tool-metadata.js",
       "require": "./dist/tool-metadata.js"
     },
     "./tool-output-artifact": {
-      "types": "./dist/tool-output-artifact.d.ts",
+      "types": "./src/tool-output-artifact.ts",
       "import": "./dist/tool-output-artifact.js",
       "require": "./dist/tool-output-artifact.js"
     },
     "./tool-suspend": {
-      "types": "./dist/tool-suspend.d.ts",
+      "types": "./src/tool-suspend.ts",
       "import": "./dist/tool-suspend.js",
       "require": "./dist/tool-suspend.js"
     },
     "./user-personas": {
-      "types": "./dist/user-personas.d.ts",
+      "types": "./src/user-personas.ts",
       "import": "./dist/user-personas.js",
       "require": "./dist/user-personas.js"
     },
     "./model-reasoning": {
-      "types": "./dist/model-reasoning.d.ts",
+      "types": "./src/model-reasoning.ts",
       "import": "./dist/model-reasoning.js",
       "require": "./dist/model-reasoning.js"
     },
     "./delegated-conversation-stream": {
-      "types": "./dist/delegated-conversation-stream.d.ts",
+      "types": "./src/delegated-conversation-stream.ts",
       "import": "./dist/delegated-conversation-stream.js",
       "require": "./dist/delegated-conversation-stream.js"
     },
     "./child-followup": {
-      "types": "./dist/child-followup.d.ts",
+      "types": "./src/child-followup.ts",
       "import": "./dist/child-followup.js",
       "require": "./dist/child-followup.js"
     },
     "./boundary-result": {
-      "types": "./dist/boundary-result.d.ts",
+      "types": "./src/boundary-result.ts",
       "default": "./dist/boundary-result.js"
     },
     "./boundary-failure": {
-      "types": "./dist/boundary-failure.d.ts",
+      "types": "./src/boundary-failure.ts",
       "default": "./dist/boundary-failure.js"
     },
     "./schema-boundary": {
-      "types": "./dist/schema-boundary.d.ts",
+      "types": "./src/schema-boundary.ts",
       "default": "./dist/schema-boundary.js"
     },
     "./sdk-schema": {
-      "types": "./dist/sdk-schema.d.ts",
+      "types": "./src/sdk-schema.ts",
       "default": "./dist/sdk-schema.js"
     }
   },
@@ -289,9 +289,9 @@
   "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -299,5 +299,5 @@
   },
   "sideEffects": false,
   "type": "module",
-  "types": "./dist/index.d.ts"
+  "types": "./src/index.ts"
 }

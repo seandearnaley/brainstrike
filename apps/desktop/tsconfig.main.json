@@ -1,7 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "incremental": true,
     "target": "ES2022",
     "module": "preserve",
     "moduleResolution": "bundler",
@@ -10,7 +9,6 @@
     "skipLibCheck": true,
     "strict": true,
     "isolatedModules": false,
-    "allowJs": false,
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
@@ -24,65 +22,11 @@
       "electron"
     ],
     "paths": {
-      "@brainstrike/assistant-service/memory-model-targets": [
-        "../../packages/assistant-service/dist/memory-model-targets.d.ts"
-      ],
-      "@brainstrike/assistant-service/ports": [
-        "../../packages/assistant-service/dist/ports.d.ts"
-      ],
-      "@brainstrike/assistant-service/secret-errors": [
-        "../../packages/assistant-service/dist/secret-errors.d.ts"
-      ],
       "vscode-jsonrpc/node": [
         "./node_modules/vscode-jsonrpc/lib/node/main.d.ts"
       ],
       "vscode-languageserver-protocol/node": [
         "./node_modules/vscode-languageserver-protocol/lib/node/main.d.ts"
-      ],
-      "@brainstrike/utils": [
-        "../../packages/utils/dist/index.d.ts"
-      ],
-      "@brainstrike/agent": [
-        "../../packages/agent/dist/index.d.ts"
-      ],
-      "@brainstrike/agent/client": [
-        "../../packages/agent/dist/client.d.ts"
-      ],
-      "@brainstrike/agent/mcp-client": [
-        "../../packages/agent/dist/mcp-client.d.ts"
-      ],
-      "@brainstrike/embeddings/provider-core": [
-        "../../packages/embeddings/dist/provider-core.d.ts"
-      ],
-      "@brainstrike/storage/electron": [
-        "../../packages/storage/dist/electron.d.ts"
-      ],
-      "@brainstrike/file-system/electron": [
-        "../../packages/file-system/dist/electron.d.ts"
-      ],
-      "@brainstrike/file-system/path-validation": [
-        "../../packages/file-system/dist/path-validation.d.ts"
-      ],
-      "@brainstrike/effect-kit": [
-        "../../packages/effect-kit/dist/index.d.ts"
-      ],
-      "@brainstrike/logging": [
-        "../../packages/logging/dist/index.d.ts"
-      ],
-      "@brainstrike/utils/collator": [
-        "../../packages/utils/dist/collator.d.ts"
-      ],
-      "@brainstrike/utils/string-utils": [
-        "../../packages/utils/dist/string-utils.d.ts"
-      ],
-      "@brainstrike/utils/crypto": [
-        "../../packages/utils/dist/crypto.d.ts"
-      ],
-      "@brainstrike/indexing-contract/workspace-indexing-qos": [
-        "../../packages/indexing-contract/dist/workspace-indexing-qos.d.ts"
-      ],
-      "@brainstrike/indexing-contract/workspace-indexing-power-snapshot": [
-        "../../packages/indexing-contract/dist/workspace-indexing-power-snapshot.d.ts"
       ]
     },
     "strictNullChecks": true

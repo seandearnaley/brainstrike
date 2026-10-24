@@ -10,6 +10,7 @@ import type {
   VectorProfile,
 } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
+import type * as CanonicalIngestion from '../src/index.js';
 import type {
   CanonicalCatalogPort,
   CanonicalInferencePort,
@@ -21,7 +22,10 @@ import type {
   CanonicalVectorPublicationPort,
 } from '../src/ports.js';
 
-const { CanonicalIngestionHost } = await import('../dist/index.js');
+// This suite drives the built package; the source owns its type.
+const { CanonicalIngestionHost }: typeof CanonicalIngestion = await import(
+  new URL('../dist/index.js', import.meta.url).href
+);
 const { openIndexer } = await import('@brainstrike/indexer');
 const profile: VectorProfile = {
   dimensions: 384,
