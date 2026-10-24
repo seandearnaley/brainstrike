@@ -1,9 +1,6 @@
 {
   "extends": "../config/tsconfig/base.json",
   "compilerOptions": {
-    "declarationDir": "dist",
-    "outDir": "dist",
-    "rootDir": "src",
     "strictNullChecks": true,
     "plugins": [
       {
@@ -22,10 +19,10 @@
           "unstableApiUsage": "error"
         }
       }
-    ]
+    ],
+    "noEmit": true
   },
   "exclude": [
-    "dist",
     "node_modules",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",

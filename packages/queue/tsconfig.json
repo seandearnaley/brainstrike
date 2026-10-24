@@ -1,21 +1,17 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "declaration": true,
-    "declarationMap": true,
-    "outDir": "./dist",
-    "rootDir": "src",
     "types": [
       "node"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "noEmit": true
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "test"
   ]

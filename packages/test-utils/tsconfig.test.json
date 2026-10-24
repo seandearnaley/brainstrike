@@ -2,8 +2,6 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "declaration": false,
-    "declarationMap": false,
     "rootDir": ".",
     "types": [
       "node",
@@ -16,7 +14,6 @@
     "test/**/*"
   ],
   "exclude": [
-    "dist",
     "node_modules"
   ]
 }
