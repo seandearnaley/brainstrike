@@ -75,6 +75,11 @@ interface RegisterFileSystemIpcHandlersOptions {
    * succeeded, so the call is wrapped.
    */
   readonly onWorkspaceRootGranted?: ((grantedPath: string) => void) | undefined;
+  /**
+   * Fired after a removal retired a mounted folder, or failed once it may have: main re-reads
+   * the committed folders through its native index transition, as a registration does.
+   */
+  readonly onWorkspaceRootsChanged?: (() => void) | undefined;
   readonly storage: ElectronStorageAdapter;
   /** Explicit constructor seams for unit tests of native-root composition. */
   readonly workspaceRootRegistryFileSystemSeams?: WorkspaceRootRegistryFileSystemSeams;
@@ -196,7 +201,15 @@ export function isMockFileSystemIpcPath(requestedPath: string): boolean {
   ) {
     return true;
   }
-  return requestedPath.startsWith(MOCK_PATH_PREFIX);
+  return hasMockPathPrefix(requestedPath);
+}
+
+/**
+ * The registry presents a mounted root as `path.normalize` spells it, `\mock\…`
+ * on Windows, so the mock prefix is matched in that spelling too.
+ */
+function hasMockPathPrefix(requestedPath: string): boolean {
+  return path.normalize(requestedPath).startsWith(path.normalize(MOCK_PATH_PREFIX));
 }
 
 function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null {
@@ -373,7 +386,7 @@ async function ipcPathExists(
     );
   }
 
-  if (requestedPath.startsWith(MOCK_PATH_PREFIX)) {
+  if (hasMockPathPrefix(requestedPath)) {
     return true;
   }
 
@@ -426,6 +439,7 @@ export function createFileSystemIpcDomain({
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
   onWorkspaceRootGranted,
+  onWorkspaceRootsChanged,
   onDeleteRootData,
   storage,
   workspaceRootRegistryFileSystemSeams,
@@ -738,10 +752,7 @@ export function createFileSystemIpcDomain({
             return content;
           }
 
-          if (
-            absolutePath.startsWith(MOCK_PATH_PREFIX) &&
-            usesSyntheticFileSystem(MOCK_ROOT_PATH)
-          ) {
+          if (hasMockPathPrefix(absolutePath) && usesSyntheticFileSystem(MOCK_ROOT_PATH)) {
             return 'Mock file content for testing purposes\nThis is a test file.\n';
           }
 
@@ -757,9 +768,17 @@ export function createFileSystemIpcDomain({
         }
       ),
     removeRoot: async (rootId: string) =>
-      settleFileSystemResult({ category: 'files', code: 'files.remove-root-failed' }, async () =>
-        roots.removeRoot(rootId)
-      ),
+      settleFileSystemResult({ category: 'files', code: 'files.remove-root-failed' }, async () => {
+        // Removing a mounted folder ends the index's borrow of it, even when the removal then
+        // fails: Main re-reads the folders either way.
+        const retired = await roots.removeRoot(rootId).catch((error: unknown) => {
+          onWorkspaceRootsChanged?.();
+          throw error;
+        });
+        if (retired) {
+          onWorkspaceRootsChanged?.();
+        }
+      }),
     requestDirectoryAccess: async () =>
       settleFileSystemResult(
         { category: 'files', code: 'files.request-directory-access-failed' },

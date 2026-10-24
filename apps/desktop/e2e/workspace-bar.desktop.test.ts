@@ -74,7 +74,7 @@ async function seedRoot(
  * available assistant the composer shell (the bar's host) never renders.
  */
 async function openComposer(page: Page): Promise<void> {
-  await setupAssistantMock(page, { variant: 'simple' });
+  await setupAssistantMock(page);
   await ensureAssistantShellVisible(page);
   await expect(page.getByTestId('workspace-bar')).toBeVisible({ timeout: 30_000 });
 }

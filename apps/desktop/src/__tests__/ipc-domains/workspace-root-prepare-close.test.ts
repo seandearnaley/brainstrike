@@ -1,4 +1,5 @@
 // @vitest-environment node
+import path from 'node:path';
 import { expect, test, vi } from 'vitest';
 import {
   createRegistry,
@@ -33,8 +34,8 @@ test('terminal preparation joins the complete admitted restore batch before cata
   const handles = [secureRoot('/alpha'), secureRoot('/beta')];
   const registry = createRegistry(
     {
-      createSecureRoot: async (path) => {
-        const handle = handles.find((entry) => entry.canonicalPath === path);
+      createSecureRoot: async (rootPath) => {
+        const handle = handles.find((entry) => entry.canonicalPath === rootPath);
         if (!handle) {
           throw new Error('Unexpected root');
         }
@@ -77,14 +78,16 @@ test('terminal preparation joins queued mutations accepted before its fence', as
     createSecureRoot: vi
       .fn()
       .mockReturnValueOnce(secure.promise)
-      .mockImplementation(async (path: string) => secureRoot(path)),
+      .mockImplementation(async (rootPath: string) => secureRoot(rootPath)),
   });
-  const first = registry.addRoot(rootHandle('/first'));
-  const second = registry.addRoot(rootHandle('/second'));
+  const firstPath = path.resolve('/first');
+  const secondPath = path.resolve('/second');
+  const first = registry.addRoot(rootHandle(firstPath));
+  const second = registry.addRoot(rootHandle(secondPath));
   const preparation = registry.prepareClose();
-  secure.resolve(secureRoot('/first'));
-  await expect(first).resolves.toMatchObject({ handle: { path: '/first' } });
-  await expect(second).resolves.toMatchObject({ handle: { path: '/second' } });
+  secure.resolve(secureRoot(firstPath));
+  await expect(first).resolves.toMatchObject({ handle: { path: firstPath } });
+  await expect(second).resolves.toMatchObject({ handle: { path: secondPath } });
   await preparation;
   await expect(registry.restoreRoots()).rejects.toThrow('closing');
   await registry.dispose();

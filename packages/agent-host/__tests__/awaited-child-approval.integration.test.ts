@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { HostEvent } from '../src/protocol.js';
@@ -137,7 +138,12 @@ test('a root awaiting a child that waits on an approval outlives every parent wi
     runId: approval.runId,
     threadId: childThreadId,
   });
-  const rows = await rowsUntil(harness, harness.threadId, finished(rootRunId), 15_000);
+  const rows = await rowsUntil(
+    harness,
+    harness.threadId,
+    finished(rootRunId),
+    getAdjustedTimeout('integration')
+  );
   expect(rows.find(finished(rootRunId))?.event).toMatchObject({ outcome: 'completed' });
   expect(harness.writes).toEqual([JSON.stringify({ path: 'notes.md' })]);
 });
@@ -155,7 +161,12 @@ test('a root awaiting a child that keeps working past every parent window comple
   for (let index = 0; index <= deltas; index += 1) {
     await vi.advanceTimersByTimeAsync(gapMs);
   }
-  const rows = await rowsUntil(harness, harness.threadId, finished(rootRunId), 15_000);
+  const rows = await rowsUntil(
+    harness,
+    harness.threadId,
+    finished(rootRunId),
+    getAdjustedTimeout('integration')
+  );
   const [childThreadId = ''] = await childThreads(harness);
   const childRows = await harness.core().read(childThreadId, 0);
   expect(childRows.find((row) => row.event.type === 'run.finished')?.event).toMatchObject({

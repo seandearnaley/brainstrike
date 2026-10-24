@@ -27,6 +27,8 @@ const srcAliases = workspaceSrcAliases(path.resolve(import.meta.dirname, '..'));
  */
 export default defineConfig({
   test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     projects: [
       {
         resolve: {

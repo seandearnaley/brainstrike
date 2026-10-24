@@ -39,6 +39,8 @@ function invoke(
 }
 describe('current profile reset and path IPC', () => {
   it('awaits the existing reset owner and retains its result without a database owner', async () => {
+    // Windows refuses reset before the owner (pinned below); admit it here on every OS.
+    Object.defineProperty(process, 'platform', { value: 'darwin' });
     const completion = Promise.withResolvers<{ success: boolean; message?: string }>();
     const reset = vi.fn(() => completion.promise);
     const close = registerFactoryResetIpcHandlers(reset);

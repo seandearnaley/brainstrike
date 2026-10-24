@@ -5,6 +5,8 @@ import baseConfig from './vitest.config.mts';
 export default defineConfig({
   ...baseConfig,
   test: {
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     ...baseConfig.test,
     coverage: { enabled: false },
     include: ['src/__tests__/**/*.integration.test.{ts,tsx}'],

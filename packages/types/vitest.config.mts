@@ -10,9 +10,14 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: ['node_modules', 'dist'],
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     // setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['__tests__/**/*.test.{ts,tsx}'],
     reporters: ['default', new LostTestFileReporter()],
+    // The agent-color suites do O(n^2) colour-distance work: 0.3 s alone, past
+    // Vitest's 5 s default on a host busy with parallel lanes.
+    testTimeout: 30_000,
   },
 });

@@ -339,10 +339,86 @@
       "outputLogs": "full"
     },
     // --- E2E Test Task --- //
+    // The smoke lane `pnpm check` runs. Cached like every task (AGENTS.md): it
+    // depends on desktop's build, whose hash carries every workspace dependency,
+    // so an unchanged app replays its green instead of relaunching Electron.
+    "test:e2e:lane:smoke": {
+      "dependsOn": [
+        "build"
+      ],
+      // Every variable the specs and fixtures read that changes what runs or what
+      // passes is hashed, so an opted-in run (BRAINSTRIKE_E2E_AGENT_DEVTOOLS=1)
+      // reaches Playwright and never replays a cached skip. Strict env mode drops
+      // anything undeclared.
+      "env": [
+        "BRAINSTRIKE_DESKTOP_DEV_SERVER_URL",
+        "BRAINSTRIKE_E2E_*",
+        "BRAINSTRIKE_OPENROUTER_API_KEY",
+        "BRAINSTRIKE_PROVIDER_CASSETTE_RECORD",
+        "CI",
+        "OPENROUTER_BASE_URL"
+      ],
+      // Platform plumbing Electron needs to start; it does not change results.
+      "passThroughEnv": [
+        "CODEX_ENV",
+        "DISPLAY",
+        "ELECTRON_ENABLE_STACK_DUMPING",
+        "GITHUB_ACTIONS",
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_NUMBER",
+        "NODE_DEBUG",
+        "NODE_OPTIONS",
+        "RUNNER_NAME",
+        "RUN_SALT",
+        "TMPDIR",
+        "WAYLAND_DISPLAY",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_SESSION_TYPE",
+        "pnpm_config_ci"
+      ],
+      "outputs": [
+        "test-results/**",
+        "playwright-report/**",
+        "blob-report/**"
+      ],
+      "outputLogs": "full"
+    },
     "test:e2e": {
       // E2E tests should run after the app is built
       "dependsOn": [
         "build"
+      ],
+      // Every variable the specs and fixtures read that changes what runs or what
+      // passes is hashed, so an opted-in run (BRAINSTRIKE_E2E_AGENT_DEVTOOLS=1)
+      // reaches Playwright and never replays a cached skip. Strict env mode drops
+      // anything undeclared.
+      "env": [
+        "BRAINSTRIKE_DESKTOP_DEV_SERVER_URL",
+        "BRAINSTRIKE_E2E_*",
+        "BRAINSTRIKE_OPENROUTER_API_KEY",
+        "BRAINSTRIKE_PROVIDER_CASSETTE_RECORD",
+        "CI",
+        "OPENROUTER_BASE_URL"
+      ],
+      // Platform plumbing Electron needs to start; it does not change results.
+      "passThroughEnv": [
+        "CODEX_ENV",
+        "DISPLAY",
+        "ELECTRON_ENABLE_STACK_DUMPING",
+        "GITHUB_ACTIONS",
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_NUMBER",
+        "NODE_DEBUG",
+        "NODE_OPTIONS",
+        "RUNNER_NAME",
+        "RUN_SALT",
+        "TMPDIR",
+        "WAYLAND_DISPLAY",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_SESSION_TYPE",
+        "pnpm_config_ci"
       ],
       // E2E tests produce test results and reports
       "outputs": [

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 import { playwright as playwrightProvider } from '@vitest/browser-playwright';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -134,7 +135,11 @@ describe('createBrowserProject', () => {
         testFileName: 'assistant-panel.browser.test.tsx',
       })
     ).toBe(
-      '/repo/packages/assistant-ui/src/__tests__/__image_snapshots__/assistant-panel.browser.test.tsx/renders-the-panel-1-chromium-darwin.png'
+      path.join(
+        '/repo/packages/assistant-ui/src/__tests__/__image_snapshots__',
+        'assistant-panel.browser.test.tsx',
+        'renders-the-panel-1-chromium-darwin.png'
+      )
     );
   });
 

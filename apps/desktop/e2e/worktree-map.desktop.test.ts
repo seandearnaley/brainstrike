@@ -110,7 +110,7 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
 }
 
 async function openWorktreeMap(page: Page): Promise<void> {
-  await setupAssistantMock(page, { variant: 'simple' });
+  await setupAssistantMock(page);
   await openWorktreeMapTab(page);
 }
 

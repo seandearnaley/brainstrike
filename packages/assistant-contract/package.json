@@ -38,16 +38,6 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
-    "./assistant-stream-session": {
-      "types": "./src/assistant-stream-session.ts",
-      "import": "./dist/assistant-stream-session.js",
-      "require": "./dist/assistant-stream-session.js"
-    },
-    "./assistant-request-body-limit": {
-      "types": "./src/assistant-request-body-limit.ts",
-      "import": "./dist/assistant-request-body-limit.js",
-      "require": "./dist/assistant-request-body-limit.js"
-    },
     "./host-run-id": {
       "types": "./src/host-run-id.ts",
       "import": "./dist/host-run-id.js",
@@ -228,11 +218,6 @@
       "types": "./src/runtime-data.ts",
       "import": "./dist/runtime-data.js",
       "require": "./dist/runtime-data.js"
-    },
-    "./approval-action-message": {
-      "types": "./src/approval-action-message.ts",
-      "import": "./dist/approval-action-message.js",
-      "require": "./dist/approval-action-message.js"
     },
     "./credential-child-environment": {
       "types": "./src/credential-child-environment.ts",

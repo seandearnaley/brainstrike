@@ -21,6 +21,7 @@ import {
   executeCommandExecutor,
   ReadWorkspaceFileCursorRegistry,
 } from '../src/native-tools/index.js';
+import { packageWindowsCommandEntry } from './fixtures/execute-command.js';
 
 vi.mock('@brainstrike/state-store/native-children', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/state-store/native-children')>();
@@ -130,9 +131,11 @@ test('input the Effect Schema owner rejects never reaches a process', async () =
 test('a shell correlation hears the completed command; without one nothing is correlated', async () => {
   const onCommandCompleted = vi.fn();
   const list = vi.fn(async () => ({ ok: true as const, value: [{ path: root }] }));
+  // Both shells really run the command, so both ship a real Windows wrapper:
+  // on Windows every finite command runs through it.
   const correlated = shellTool({
     correlation: () => ({ shellCorrelation: { onCommandCompleted }, worktreeTools: { list } }),
-    windowsCommandEntry: vi.fn(),
+    windowsCommandEntry: packageWindowsCommandEntry,
   });
   // Worktree-shaped to the scanner; outside a repository it changes nothing.
   const command = 'git worktree prune --dry-run';
@@ -144,7 +147,7 @@ test('a shell correlation hears the completed command; without one nothing is co
     rootId: root,
   });
   // The standalone host composes no correlation: the same command just runs.
-  const standalone = shellTool({ windowsCommandEntry: vi.fn() });
+  const standalone = shellTool({ windowsCommandEntry: packageWindowsCommandEntry });
   expect(await standalone.execute({ command }, call())).toMatchObject({
     exitCode: expect.any(Number),
     rootId: root,

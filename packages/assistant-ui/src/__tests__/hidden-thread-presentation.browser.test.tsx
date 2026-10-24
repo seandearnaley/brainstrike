@@ -6,6 +6,7 @@ import {
   type AssistantRuntime,
   AssistantRuntimeProvider,
   type ChatModelAdapter,
+  type ThreadAssistantMessagePart,
   type ThreadMessageLike,
   useLocalRuntime,
 } from '@assistant-ui/react';
@@ -14,7 +15,6 @@ import { act, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { useEffect } from 'react';
 import { beforeEach, expect, onTestFinished, test, vi } from 'vitest';
 import { ChatThreadUI } from '../assistant-ui-panel';
-import { BrainstrikeDataStreamRuntimeAdapter } from '../data-stream-runtime';
 import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
 import { ACTIVITY_TRACE_CLOCK_INTERVAL_MS } from '../use-activity-trace-clock';
 import { completedParts } from './assistant-activity-timeline-fixtures';
@@ -87,13 +87,77 @@ function Workspace({ firstVisible }: { firstVisible: boolean }) {
   );
 }
 
-function event(id: string, kind: string, status: string): string {
-  return `aui-data:${JSON.stringify({ data: { id, kind, label: kind, runId: 'run-first', status, timestamp: new Date().toISOString() }, name: 'brainstrike.run-event' })}`;
+function event(id: string, kind: string, status: string): ThreadAssistantMessagePart {
+  return {
+    data: {
+      id,
+      kind,
+      label: kind,
+      runId: 'run-first',
+      status,
+      timestamp: new Date().toISOString(),
+    },
+    name: 'brainstrike.run-event',
+    type: 'data',
+  };
+}
+
+/** History-only panels never run a turn. */
+const HISTORY_ADAPTER: ChatModelAdapter = {
+  // biome-ignore lint/correctness/useYield: a history panel must never produce a turn.
+  async *run() {
+    throw new Error('History must not invoke a model.');
+  },
+};
+
+/**
+ * A turn the test drives part by part: each `emit` publishes the accumulated
+ * content, and `finish` ends the run after its last parts.
+ */
+function createScriptedTurn() {
+  const snapshots: Array<{
+    readonly content: ThreadAssistantMessagePart[];
+    readonly done: boolean;
+  }> = [];
+  let content: ThreadAssistantMessagePart[] = [];
+  let wake: (() => void) | undefined;
+  let started = false;
+  const publish = (parts: readonly ThreadAssistantMessagePart[], done: boolean): void => {
+    content = [...content, ...parts];
+    snapshots.push({ content, done });
+    wake?.();
+  };
+  const adapter: ChatModelAdapter = {
+    async *run() {
+      started = true;
+      for (;;) {
+        while (snapshots.length === 0) {
+          await new Promise<void>((resolve) => {
+            wake = resolve;
+          });
+        }
+        const next = snapshots.shift();
+        if (!next) {
+          continue;
+        }
+        yield { content: next.content };
+        if (next.done) {
+          return;
+        }
+      }
+    },
+  };
+  return {
+    adapter,
+    emit: (...parts: ThreadAssistantMessagePart[]) => publish(parts, false),
+    finish: (...parts: ThreadAssistantMessagePart[]) => publish(parts, true),
+    get started() {
+      return started;
+    },
+  };
 }
 
 test('pauses hidden presentation clocks while both owned streams and hidden notifications continue', async () => {
-  const streams = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
-  const encoder = new TextEncoder();
   const intervals = new Set<number>();
   const browserTimers: Window = window;
   const originalSetInterval = browserTimers.setInterval.bind(browserTimers);
@@ -111,32 +175,24 @@ test('pauses hidden presentation clocks while both owned streams and hidden noti
     }
     originalClearInterval(id);
   });
-  vi.stubGlobal(
-    'fetch',
-    vi.fn((url: string) => {
-      const id = url.includes('sibling') ? 'sibling' : 'first';
-      return Promise.resolve(
-        new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              streams.set(id, controller);
-            },
-          })
-        )
-      );
-    })
-  );
   onTestFinished(() => {
     vi.restoreAllMocks();
-    vi.unstubAllGlobals();
     adapters.clear();
   });
-  for (const id of ['first', 'sibling']) {
-    adapters.set(
-      id,
-      new BrainstrikeDataStreamRuntimeAdapter({ api: `http://assistant.test/${id}` })
-    );
-  }
+  const turns = new Map(
+    ['first', 'sibling'].map((id) => {
+      const turn = createScriptedTurn();
+      adapters.set(id, turn.adapter);
+      return [id, turn] as const;
+    })
+  );
+  const turn = (id: string) => {
+    const scripted = turns.get(id);
+    if (!scripted) {
+      throw new Error(`Missing turn ${id}`);
+    }
+    return scripted;
+  };
   const view = render(<Workspace firstVisible />);
   await waitFor(() => expect(runtimes.size).toBe(2));
   await act(async () => {
@@ -144,22 +200,13 @@ test('pauses hidden presentation clocks while both owned streams and hidden noti
       runtime.thread.append('Inspect the read path.');
     }
   });
-  await waitFor(() => expect(streams.size).toBe(2));
-  function emit(id: string, ...frames: string[]): void {
-    const stream = streams.get(id);
-    if (!stream) {
-      throw new Error(`Missing stream ${id}`);
-    }
-    stream.enqueue(encoder.encode(`${frames.join('\n')}\n`));
-  }
+  await waitFor(() => expect([...turns.values()].every(({ started }) => started)).toBe(true));
   await act(async () => {
     for (const id of ['first', 'sibling']) {
-      emit(
-        id,
-        `f:{"messageId":"${id}-assistant"}`,
-        event(`${id}-start`, 'run.started', 'running'),
-        'g:"Inspecting the workspace."'
-      );
+      turn(id).emit(event(`${id}-start`, 'run.started', 'running'), {
+        text: 'Inspecting the workspace.',
+        type: 'reasoning',
+      });
     }
   });
   await waitFor(() => expect(intervals.size).toBe(2));
@@ -172,10 +219,17 @@ test('pauses hidden presentation clocks while both owned streams and hidden noti
   expect(runtimes.get('first')?.thread.getState().isRunning).toBe(true);
   expect(runtimes.get('sibling')?.thread.getState().isRunning).toBe(true);
   await act(async () => {
-    emit(
-      'first',
-      `aui-data:${JSON.stringify({ data: { args: { path: 'README.md' }, riskCategory: 'read', runId: 'run-first', toolCallId: 'read-first', toolName: 'brainstrike.readWorkspaceFile' }, name: 'brainstrike.tool-approval' })}`
-    );
+    turn('first').emit({
+      data: {
+        args: { path: 'README.md' },
+        riskCategory: 'read',
+        runId: 'run-first',
+        toolCallId: 'read-first',
+        toolName: 'brainstrike.readWorkspaceFile',
+      },
+      name: 'brainstrike.tool-approval',
+      type: 'data',
+    });
   });
   await waitFor(() =>
     expect(onToolApprovalRequired).toHaveBeenCalledWith(
@@ -183,15 +237,18 @@ test('pauses hidden presentation clocks while both owned streams and hidden noti
     )
   );
   await act(async () => {
-    emit(
-      'first',
-      '9:{"toolCallId":"read-first","toolName":"brainstrike.readWorkspaceFile","args":{"path":"README.md"}}',
-      'a:{"toolCallId":"read-first","result":{"content":"Verified read output"}}',
-      '0:"Read complete while hidden."',
-      event('first-finish', 'run.finished', 'completed'),
-      'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}'
+    turn('first').finish(
+      {
+        args: { path: 'README.md' },
+        argsText: '{"path":"README.md"}',
+        result: { content: 'Verified read output' },
+        toolCallId: 'read-first',
+        toolName: 'brainstrike.readWorkspaceFile',
+        type: 'tool-call',
+      },
+      { text: 'Read complete while hidden.', type: 'text' },
+      event('first-finish', 'run.finished', 'completed')
     );
-    streams.get('first')?.close();
   });
   await waitFor(() =>
     expect(onRunFinished).toHaveBeenCalledWith(expect.objectContaining({ id: 'first-finish' }))
@@ -200,7 +257,7 @@ test('pauses hidden presentation clocks while both owned streams and hidden noti
   expect(runtimes.get('sibling')?.thread.getState().isRunning).toBe(true);
   expect(intervals.size).toBe(1);
   await act(async () => {
-    emit('sibling', '0:"Sibling still producing output."');
+    turn('sibling').emit({ text: 'Sibling still producing output.', type: 'text' });
   });
   view.rerender(<Workspace firstVisible />);
   await waitFor(() => expect(first.getByText('Read complete while hidden.')).toBeVisible());
@@ -208,11 +265,7 @@ test('pauses hidden presentation clocks while both owned streams and hidden noti
   expect(input).toHaveValue('Retained draft');
   expect(first.getByTestId('assistant-ui-viewport')).toBe(viewport);
   await act(async () => {
-    emit(
-      'sibling',
-      'd:{"finishReason":"stop","usage":{"inputTokens":1,"outputTokens":1},"path":[]}'
-    );
-    streams.get('sibling')?.close();
+    turn('sibling').finish();
   });
   await waitFor(() => expect(intervals.size).toBe(0));
 });
@@ -225,10 +278,7 @@ const history: ThreadMessageLike[] = Array.from({ length: 80 }, (_, index) => ({
 }));
 
 test('retains transcript DOM, draft, disclosure, and reader scroll across hidden presentation', async () => {
-  adapters.set(
-    'history',
-    new BrainstrikeDataStreamRuntimeAdapter({ api: 'http://assistant.test/history' })
-  );
+  adapters.set('history', HISTORY_ADAPTER);
   onTestFinished(() => adapters.clear());
   const content = (visible: boolean) => (
     <TooltipProvider>
@@ -285,10 +335,7 @@ test('retains transcript DOM, draft, disclosure, and reader scroll across hidden
 });
 
 test('keeps a skipped transcript row at its intrinsic size (BST-1949)', async () => {
-  adapters.set(
-    'history',
-    new BrainstrikeDataStreamRuntimeAdapter({ api: 'http://assistant.test/history' })
-  );
+  adapters.set('history', HISTORY_ADAPTER);
   onTestFinished(() => adapters.clear());
   const view = render(
     <TooltipProvider>

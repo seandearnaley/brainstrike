@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
@@ -36,6 +37,19 @@ const profileReset = createDesktopProfileResetOwner({
 });
 let guard: ProfileResetLease | undefined;
 let storageFailed = false;
+/** The OS's state letter for `pid` (`ps -o stat=`), so a survival failure says what it saw. */
+function processState(pid: number): string {
+  if (process.platform === 'win32') {
+    return 'n/a on Windows';
+  }
+  try {
+    return (
+      execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim() || 'gone'
+    );
+  } catch {
+    return 'gone';
+  }
+}
 function assert(condition: boolean, message: string): void {
   if (!condition) {
     throw new Error(message);
@@ -70,7 +84,7 @@ app
         assert(guard?.isReleased === false, 'Guard released before storage purge');
         assert(
           processStartTime(attachment.record.pid) !== attachment.record.start,
-          'Owned native utility survived reset'
+          `Owned native utility survived reset (ps state: ${processState(attachment.record.pid)})`
         );
         assert(!existsSync(path.join(profile, 'state.db')), 'State file survived profile reset');
         assert(

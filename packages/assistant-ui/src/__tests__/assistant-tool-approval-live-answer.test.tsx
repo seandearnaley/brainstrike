@@ -1,12 +1,8 @@
-import {
-  type AssistantToolApprovalRequest,
-  TOOL_APPROVAL_RUN_CONFIG_KEY,
-} from '@brainstrike/assistant-contract/tool-approval';
+import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
-import { AssistantDecisionRecoveryProvider } from '../assistant-decision-recovery-provider';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import { expandApprovalRow } from './approval-row-helpers';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
@@ -142,38 +138,4 @@ describe('AssistantToolApprovalNotice live answers', () => {
       ).not.toBeInTheDocument();
     }
   );
-
-  it('waits for hosted run reconciliation before retrying a failed approval', async () => {
-    const answeredRun = answer('approve', 'user');
-    answeredRun.status = { error: 'resume_failed', reason: 'error', type: 'incomplete' };
-    // No acknowledgement: this is a failed request, not an applied decision.
-    messages.push(
-      {
-        metadata: {
-          custom: { [TOOL_APPROVAL_RUN_CONFIG_KEY]: { ...approval, action: 'approve' } },
-        },
-        role: 'user',
-      },
-      answeredRun
-    );
-    answeredRun.content = [];
-    const view = render(
-      <AssistantDecisionRecoveryProvider blocked>
-        <AnsweredApprovalsProvider>
-          <AssistantToolApprovalNotice data={approval} />
-        </AnsweredApprovalsProvider>
-      </AssistantDecisionRecoveryProvider>
-    );
-
-    const approve = screen.getByRole('button', { name: /approve brainstrike/i });
-    expect(approve).toBeDisabled();
-    view.rerender(
-      <AssistantDecisionRecoveryProvider blocked={false}>
-        <AnsweredApprovalsProvider>
-          <AssistantToolApprovalNotice data={approval} />
-        </AnsweredApprovalsProvider>
-      </AssistantDecisionRecoveryProvider>
-    );
-    expect(approve).toBeEnabled();
-  });
 });

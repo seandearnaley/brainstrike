@@ -11,7 +11,6 @@ import type {
 } from '../mcp/explicit-http-client';
 import {
   MCP_PROGRESS_STREAM_PART_TYPE,
-  mapMcpProgressStreamPart,
   retainRawMcpCallToolResult,
 } from '../mcp/mcp-runtime-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
@@ -252,18 +251,6 @@ describe('MCP runtime client', () => {
         type: MCP_PROGRESS_STREAM_PART_TYPE,
       },
     ]);
-    expect(mapMcpProgressStreamPart(progressWrites[0])).toEqual({
-      name: 'remote.echo',
-      payload: {
-        callId: 'call-1',
-        note: 'Halfway',
-        percent: 50,
-        raw: { done: 1, message: 'Halfway', total: 2 },
-        toolCallId: 'call-1',
-      },
-      status: 'progress',
-      type: 'tool-event',
-    });
 
     const mixedStructuredMediaResult: ExplicitHttpMcpCallToolResult = {
       content: [

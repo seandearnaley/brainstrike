@@ -10,6 +10,8 @@ export default defineConfig({
     clearMocks: true,
     coverage: { enabled: false },
     environment: 'node',
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     include: ['bench/bst-372-current-retention.measurement.spec.ts'],
     restoreMocks: true,
