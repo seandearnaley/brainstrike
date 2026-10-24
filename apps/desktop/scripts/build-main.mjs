@@ -11,11 +11,11 @@
  * pinned by src/__tests__/build-main-config.test.ts).
  */
 import { existsSync } from 'node:fs';
-import { cp, readdir, readFile, rm } from 'node:fs/promises';
+import { cp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { NODE_BUILDS } from './build-main-config.mjs';
+import { NODE_BUILDS, PROCESS_LAUNCHERS } from './build-main-config.mjs';
 import {
   assertNoNodeInferenceImports,
   findNodeInferenceImports,
@@ -70,6 +70,14 @@ async function copyNodeGrammars() {
   );
 }
 
+/** Each launcher is its imports, in order (see PROCESS_LAUNCHERS). */
+async function writeProcessLaunchers() {
+  for (const [name, imports] of Object.entries(PROCESS_LAUNCHERS)) {
+    const source = imports.map((specifier) => `import '${specifier}';\n`).join('');
+    await writeFile(path.join(appRoot, 'dist', `${name}.js`), source);
+  }
+}
+
 await cleanMainProcessOutputs();
 // Every Node-side entry Main, a utility process, a worker or the Windows command
 // path loads. None may reach Transformers.js or onnxruntime-node, which the
@@ -78,6 +86,7 @@ const builds = [];
 for (const options of NODE_BUILDS) {
   builds.push((await build({ ...options, metafile: true })).metafile);
 }
+await writeProcessLaunchers();
 await copyNodeGrammars();
 await assertPreloadBundlesAreSandboxSafe();
 assertNoNodeInferenceImports(await findNodeInferenceImports({ absWorkingDir: appRoot, builds }));

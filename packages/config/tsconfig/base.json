@@ -6,7 +6,11 @@
     "declarationMap": true,
     "esModuleInterop": true,
     "isolatedModules": true,
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
     "module": "ESNext",
     "moduleDetection": "force",
     "moduleResolution": "Bundler",
@@ -14,6 +18,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "resolveJsonModule": true,
+    "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2020",
@@ -36,5 +41,10 @@
     "jsx": "react-jsx",
     "forceConsistentCasingInFileNames": true
   },
-  "exclude": ["node_modules", "dist", "build", "**/*.test.*"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "**/*.test.*"
+  ]
 }

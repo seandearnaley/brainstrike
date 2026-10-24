@@ -88,22 +88,17 @@ const pinnedExternals = {
   },
 };
 
-function entryName(specifier) {
-  return specifier.replace(/^@/, '').replaceAll('/', '-');
-}
+/** The variable a suite's config sets to its bundle directory (`test.env`). */
+export const NODE_RUNTIME_BUNDLE_ENV = 'BRAINSTRIKE_NODE_RUNTIME_BUNDLE';
 
 /**
- * Bundle `entries` (public specifier -> source file) with every workspace
- * runtime entry beside them, and return exact Vitest aliases to the bundle.
- * `extraEntries` adds entries one suite's code names beside itself that would
- * collide across packages (each package's `process-entry.js`).
- * @param {{
- *   readonly consumerDir: string;
- *   readonly entries: Readonly<Record<string, string>>;
- *   readonly extraEntries?: Readonly<Record<string, string>>;
- * }} options
+ * Bundle `entries` (output name -> source file) with every workspace runtime
+ * entry beside them, into a fresh directory under the consuming package, and
+ * return that directory. Entries one suite names that would collide across
+ * packages (each package's `process-entry.js`) belong to that suite's entries.
+ * @param {{ readonly consumerDir: string; readonly entries: Readonly<Record<string, string>> }} options
  */
-export async function nodeRuntimeBundleAliases({ consumerDir, entries, extraEntries = {} }) {
+export async function buildNodeRuntimeBundle({ consumerDir, entries }) {
   const cacheRoot = path.join(consumerDir, 'node_modules', '.cache', 'brainstrike-node-runtime');
   mkdirSync(cacheRoot, { recursive: true });
   const outdir = mkdtempSync(path.join(cacheRoot, 'bundle-'));
@@ -125,13 +120,7 @@ export async function nodeRuntimeBundleAliases({ consumerDir, entries, extraEntr
     build({
       ...shared,
       chunkNames: '[name]-[hash]',
-      entryPoints: {
-        ...Object.fromEntries(
-          Object.entries(entries).map(([specifier, source]) => [entryName(specifier), source])
-        ),
-        ...nodeRuntimeEntryPoints(packagesRoot),
-        ...extraEntries,
-      },
+      entryPoints: { ...nodeRuntimeEntryPoints(packagesRoot), ...entries },
       splitting: true,
     }),
     build({
@@ -140,8 +129,32 @@ export async function nodeRuntimeBundleAliases({ consumerDir, entries, extraEntr
       outExtension: { '.js': '.mjs' },
     }),
   ]);
-  return Object.keys(entries).map((specifier) => ({
+  return outdir;
+}
+
+/**
+ * Exact Vitest aliases from public specifiers to entries of a bundle.
+ * @param {string} outdir
+ * @param {Readonly<Record<string, string>>} specifiers  specifier -> entry name
+ */
+export function nodeRuntimeBundleAliases(outdir, specifiers) {
+  return Object.entries(specifiers).map(([specifier, name]) => ({
     find: new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}$`),
-    replacement: path.join(outdir, `${entryName(specifier)}.js`),
+    replacement: path.join(outdir, `${name}.js`),
   }));
+}
+
+/**
+ * A file of this suite's bundle, for a test that starts a worker or process
+ * from it. Fails loudly when the suite's config built no bundle.
+ * @param {string} file
+ */
+export function nodeRuntimeBundleFile(file) {
+  const outdir = process.env[NODE_RUNTIME_BUNDLE_ENV];
+  if (!outdir) {
+    throw new Error(
+      `${NODE_RUNTIME_BUNDLE_ENV} is unset: this suite's Vitest config must build a node runtime bundle.`
+    );
+  }
+  return path.join(outdir, file);
 }

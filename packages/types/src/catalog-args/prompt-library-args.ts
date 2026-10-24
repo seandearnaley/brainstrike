@@ -6,7 +6,7 @@ import type {
   PromptItemUsageAction,
   PromptLibraryRequest,
   UpdatePromptItemInput,
-} from '../prompt-item.js';
+} from '../prompt-item.ts';
 
 const kinds = ['prompt', 'snippet', 'fragment'] as const;
 const actions = ['compose', 'insert', 'new-thread'] as const;

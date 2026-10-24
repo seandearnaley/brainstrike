@@ -1,11 +1,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { isMainThread, Worker, workerData } from 'node:worker_threads';
 import { openConnection } from '@brainstrike/sqlite-native';
-import { openDesktopIndex } from '../../dist/desktop-index-connection.js';
-import { loadStateProjection } from '../../dist/state-projection.js';
-import { IndexWriter } from '../../dist/store.js';
+import { openDesktopIndex } from '../../src/desktop-index-connection.ts';
+import { loadStateProjection } from '../../src/state-projection.ts';
+import { IndexWriter } from '../../src/store.ts';
 
-// A separate real process lets SIGKILL interrupt the actual sole writer's native transaction.
+// A separate real process lets SIGKILL interrupt the actual sole writer's native
+// transaction. The suite's node runtime bundle builds this file as an entry.
 if (isMainThread) {
   const worker = new Worker(new URL(import.meta.url), {
     workerData: { optionsPath: process.argv[2], receiptPath: process.argv[3] },

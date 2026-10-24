@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 // Every entry point that catches the state index up, over a cold backlog far
 // past one catch-up step: each is served, the worker lives, and no request it
 // sends takes half as long as that backlog's projection in one request.
@@ -13,13 +14,9 @@ import {
 import { StateStore } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import type * as Transport from '../src/transport.js';
+import { createIndexerConnection } from '@brainstrike/indexer/transport';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
-// The transport forks the process entry beside its own module, so this suite
-// drives the built transport; the source owns its type.
-const { createIndexerConnection }: typeof Transport = await import(
-  new URL('../dist/transport.js', import.meta.url).href
-);
 
 type Port = Awaited<ReturnType<typeof openIndexer>>;
 
@@ -87,7 +84,7 @@ process.send = (message, ...rest) => {
   }
   return send(message, ...rest);
 };
-await import(${JSON.stringify(new URL('../dist/process-entry.js', import.meta.url).href)});
+await import(${JSON.stringify(pathToFileURL(nodeRuntimeBundleFile('process-entry.js')).href)});
 `;
 
 /**

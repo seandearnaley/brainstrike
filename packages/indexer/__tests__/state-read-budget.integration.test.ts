@@ -11,6 +11,7 @@ import { IndexerError, STATE_CATCH_UP_STEP_EVENTS } from '../src/contracts.js';
 import { openDesktopIndex } from '../src/desktop-index-connection.js';
 import { loadStateProjection } from '../src/state-projection.js';
 import { IndexWriter } from '../src/store.js';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
@@ -120,7 +121,7 @@ it('the worker thread serves every read op with a one-step budget, and a refusal
     },
   };
   const options = await seeded(Object.keys(ops), budget * 2 + 1);
-  const worker = new Worker(new URL('../dist/writer-worker.js', import.meta.url), {
+  const worker = new Worker(nodeRuntimeBundleFile('writer-worker.js'), {
     workerData: options,
   });
   owned.push(async () => {

@@ -2,7 +2,6 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   createStateStoreIndexer,
   openIndexer,
@@ -23,15 +22,14 @@ import {
   observationTokens,
 } from './fixtures/state-observation-native.mjs';
 import { observationChunks } from './fixtures/state-observation-schema.mjs';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
 // Close-ladder deadlines only: startup has none (lifecycle R2). The projection
 // cold-imports Mastra's Memory in the forked indexer: startups measured 2.4-6.2 s
 // under coverage on a hosted-like 2-vCPU throttle.
 const deadlines = { closeMs: 5000, exitMs: 5000 };
 // The production writer's native memory calculator, which also carries Mastra OM's token counter.
-const memoryCalculatorModule = fileURLToPath(
-  new URL('../../agent-host/dist/adapters/memory-storage-calculator.js', import.meta.url)
-);
+const memoryCalculatorModule = nodeRuntimeBundleFile('memory-storage-calculator.js');
 const profile = {
   dimensions: 8,
   distance: 'cosine',

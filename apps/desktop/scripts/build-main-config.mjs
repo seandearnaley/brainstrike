@@ -10,7 +10,8 @@
  *
  * Output layout is a runtime contract. Everything sits directly in `dist/`:
  * - dist/main.js            package.json "main" (ESM; desktop is `type: module`)
- * - dist/*-entry.js         utility-process entries Main forks by sibling path
+ * - dist/*-entry.js         utility-process entries Main forks by sibling path;
+ *   the order-sensitive ones are launchers (`PROCESS_LAUNCHERS`)
  * - dist/<chunk>-<hash>.js  modules shared by those entries. One process loads
  *   one instance of each module, however many entries it loads (Main loads its
  *   bootstrap and runtime; the agent host loads its launcher and platform).
@@ -95,16 +96,36 @@ const shared = {
 /** Entries a process loads, and the package entries those modules name beside themselves. */
 export const NODE_PROCESS_ENTRY_POINTS = {
   'agent-egress-entry': 'src/agent-egress-entry.ts',
-  'agent-host-entry': 'src/agent-host-entry.ts',
   'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
+  'agent-host-process': 'src/agent-host-entry.ts',
   // The app-close integration proof loads it by path before Main.
   'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
-  'host-lease-entry': 'src/host-lease-entry.ts',
-  'indexer-host-entry': 'src/indexer-host-entry.ts',
-  main: 'src/main-bootstrap.ts',
+  'desktop-env': 'src/desktop-env.ts',
+  'host-lease-process': 'src/host-lease-entry.ts',
+  'indexer-host-process': 'src/indexer-host-entry.ts',
+  'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
+  'main-process': 'src/main-bootstrap.ts',
   'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
   ...nodeRuntimeEntryPoints(packagesRoot),
+};
+
+const DEFAULT_OWNER = '@brainstrike/secure-fs-native/default-owner';
+
+/**
+ * Code splitting hoists shared-chunk imports above an entry's own first import
+ * (https://esbuild.github.io/api/#splitting), so a process whose first module
+ * must evaluate before anything else starts from a launcher: static imports, in
+ * order. The default owner (BST-2246) evaluates before any module that can
+ * create a file; Main's environment and delay seam modules precede its
+ * bootstrap. No step moves behind a dynamic import, so Main's pre-`ready` work
+ * stays in its static graph. build-main.mjs writes each as dist/<name>.js.
+ */
+export const PROCESS_LAUNCHERS = {
+  'agent-host-entry': [DEFAULT_OWNER, './agent-host-process.js'],
+  'host-lease-entry': [DEFAULT_OWNER, './host-lease-process.js'],
+  'indexer-host-entry': [DEFAULT_OWNER, './indexer-host-process.js'],
+  main: [DEFAULT_OWNER, './desktop-env.js', './lifecycle-delay-seam.js', './main-process.js'],
 };
 
 /**

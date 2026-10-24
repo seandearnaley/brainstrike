@@ -3,13 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type * as Transport from '../src/transport.js';
+import { createIndexerConnection, IndexerLifecycleError } from '@brainstrike/indexer/transport';
 
-// The transport forks the process entry beside its own module, so this suite
-// drives the built transport; the source owns its type.
-const { createIndexerConnection, IndexerLifecycleError }: typeof Transport = await import(
-  new URL('../dist/transport.js', import.meta.url).href
-);
 
 const profile = {
   dimensions: 384,

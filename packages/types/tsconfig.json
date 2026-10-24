@@ -5,7 +5,8 @@
       "node"
     ],
     "strictNullChecks": true,
-    "noEmit": true
+    "noEmit": true,
+    "erasableSyntaxOnly": true
   },
   "include": [
     "src/**/*.ts"

@@ -10,6 +10,7 @@ import { STATE_CATCH_UP_STEP_EVENTS } from '@brainstrike/indexer';
 import { StateStore } from '@brainstrike/state-store';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createIndexerConnection } from '../src/transport.js';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
@@ -60,7 +61,7 @@ beforeAll(async () => {
   for (const threadId of Object.keys(reads)) {
     await append(threadId, step + 1);
   }
-  const child = fork(new URL('../dist/process-entry.js', import.meta.url), [], {
+  const child = fork(nodeRuntimeBundleFile('process-entry.js'), [], {
     execArgv: [],
     serialization: 'advanced',
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],

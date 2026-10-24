@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { crc32 } from 'node:zlib';
 import { openIndexer } from '@brainstrike/indexer';
@@ -15,6 +14,7 @@ import {
   retained,
   truthHash,
 } from './fixtures/schema-compatibility.js';
+import { nodeRuntimeBundleFile } from '@brainstrike/test-utils/node-runtime-bundle';
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -196,7 +196,7 @@ for (const version of [8, 9] as const) {
       writeFileSync(optionsPath, JSON.stringify(f.options));
       await expect(
         promisify(execFile)(process.execPath, [
-          fileURLToPath(new URL('./fixtures/schema-compatibility-crash.mjs', import.meta.url)),
+          nodeRuntimeBundleFile('schema-compatibility-crash.js'),
           optionsPath,
           receiptPath,
         ])

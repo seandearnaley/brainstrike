@@ -3,6 +3,9 @@ const { app, utilityProcess } = require('electron');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { DatabaseSync } = require('node:sqlite');
+// The suite's node runtime bundle (vitest.integration.config.mts) holds the modules this proof loads.
+const bundled = (file) =>
+  require('node:url').pathToFileURL(path.join(process.env.BRAINSTRIKE_NODE_RUNTIME_BUNDLE, file)).href;
 const userData = process.env.BRAINSTRIKE_SCOPED_PROOF_USER_DATA;
 assert.ok(userData && path.isAbsolute(userData), 'Disposable Electron userData is required');
 app.setPath('userData', userData);
@@ -17,9 +20,9 @@ app
     assert.equal(actualProfile.userData, userData);
     assert.equal(actualProfile.sessionData, path.join(userData, 'session-data'));
     console.log(`SCOPED_ELECTRON_PROFILE:${JSON.stringify(actualProfile)}`);
-    const { createIndexerConnection } = await import('@brainstrike/indexer/transport');
-    const { sqliteVecExtensionPath } = await import('@brainstrike/sqlite-native');
-    const { decodeIndexIdentityRow } = await import('@brainstrike/indexer/metadata');
+    const { createIndexerConnection } = await import(bundled('transport.js'));
+    const { sqliteVecExtensionPath } = await import(bundled('sqlite-native.js'));
+    const { decodeIndexIdentityRow } = await import(bundled('metadata.js'));
     const profile = {
       dimensions: 1536,
       distance: 'cosine',

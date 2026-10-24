@@ -1,22 +1,17 @@
-import { resolve } from 'node:path';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { defineConfig } from 'vitest/config';
+
+// Coverage also runs the real-process suites, which need the integration
+// config's node runtime bundle and its aliases.
+const realProcesses = process.argv.includes('--coverage')
+  ? (await import('./vitest.integration.config.mts')).default
+  : undefined;
+
 export default defineConfig({
-  resolve: {
-    alias: [
-      // Coverage also runs real process cases; their entry needs emitted siblings.
-      ...(process.argv.includes('--coverage')
-        ? [
-            {
-              find: /^@brainstrike\/indexer$/,
-              replacement: resolve(import.meta.dirname, './dist/index.js'),
-            },
-          ]
-        : []),
-    ],
-  },
+  ...(realProcesses ? { resolve: realProcesses.resolve } : {}),
   test: {
+    ...(realProcesses ? { env: realProcesses.test?.env } : {}),
     coverage: { reportOnFailure: true },
     environment: 'node',
     // Coverage also runs the real-process integration suites, with the forked
