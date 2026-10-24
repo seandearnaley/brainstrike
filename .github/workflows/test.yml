@@ -303,15 +303,15 @@ jobs:
                 {
                   "shard": "assistant",
                   "partition": "assistant",
-                  "pr_filters": "--filter=\"@brainstrike/assistant-ui\" --filter=\"@brainstrike/settings-ui\"",
-                  "push_filters": "--filter=\"@brainstrike/assistant-ui\" --filter=\"@brainstrike/settings-ui\"",
+                  "pr_filters": "--filter=\"@brainstrike/assistant-ui\"",
+                  "push_filters": "--filter=\"@brainstrike/assistant-ui\"",
                   "vitest_shard": ""
                 },
                 {
                   "shard": "store",
                   "partition": "store",
-                  "pr_filters": "--filter=\"@brainstrike/state-store\"",
-                  "push_filters": "--filter=\"@brainstrike/state-store\"",
+                  "pr_filters": "--filter=\"@brainstrike/settings-ui\" --filter=\"@brainstrike/state-store\"",
+                  "push_filters": "--filter=\"@brainstrike/settings-ui\" --filter=\"@brainstrike/state-store\"",
                   "vitest_shard": ""
                 },
                 {
@@ -423,8 +423,8 @@ jobs:
     # so this cannot cross-restore an incompatible ARM cache layer.
     runs-on: ubicloud-standard-4
     # Desktop has six native Vitest shards, Agent and App Shell two each;
-    # Heavy runs ui and file-explorer-ui, Assistant takes assistant-ui and
-    # settings-ui, Store takes state-store (together they took 16 minutes on a
+    # Heavy runs ui and file-explorer-ui, Assistant takes assistant-ui, Store
+    # takes settings-ui and state-store (the three together took 16 minutes on a
     # 4-core Windows runner), Host takes app-state, agent-host, host-capabilities and
     # indexer (long lanes that otherwise run last in Rest), and Rest owns every
     # other affected package.
