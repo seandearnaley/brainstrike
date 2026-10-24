@@ -51,11 +51,6 @@ export const InferencePlanSchema = Schema.Struct({
 const ReadyStatusSchema = Schema.Struct({
   authorizedCollectionIds: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
   authorizedRootIds: Schema.mutable(Schema.Array(Schema.String)),
-  collectionReadiness: Schema.optionalKey(
-    Schema.mutable(
-      Schema.Array(Schema.Struct({ embeddingSetId: Schema.String, scanComplete: Schema.Boolean }))
-    )
-  ),
   embedding: EmbeddingStateSchema,
   kind: Schema.Literal('ready'),
   publicationProgress: Schema.optionalKey(
@@ -70,13 +65,7 @@ const ReadyStatusSchema = Schema.Struct({
           profileHash: Schema.NullOr(Schema.String),
           requestId: Schema.String,
           scanGeneration: Count,
-          scope: Schema.Union(
-            [
-              Schema.Struct({ kind: Schema.Literal('workspace'), rootId: Schema.String }),
-              Schema.Struct({ embeddingSetId: Schema.String, kind: Schema.Literal('collection') }),
-            ],
-            { mode: 'oneOf' }
-          ),
+          scope: Schema.Struct({ kind: Schema.Literal('workspace'), rootId: Schema.String }),
           storeId: Schema.String,
         })
       )
@@ -118,7 +107,6 @@ export const IndexStatusSchema = Schema.Union(
   { mode: 'oneOf' }
 );
 export const IndexCoverageRequestSchema = Schema.Struct({
-  collectionId: Schema.optionalKey(Id),
   rootIds: Schema.mutable(Schema.Array(Id)),
 });
 const CoverageCountsShape = {
@@ -128,11 +116,6 @@ const CoverageCountsShape = {
   vectors: Count,
 };
 export const IndexCoverageSchema = Schema.Struct({
-  collections: Schema.optionalKey(
-    Schema.mutable(
-      Schema.Array(Schema.Struct({ ...CoverageCountsShape, embeddingSetId: Schema.String }))
-    )
-  ),
   embedding: EmbeddingStateSchema,
   roots: Schema.mutable(
     Schema.Array(Schema.Struct({ ...CoverageCountsShape, rootId: Schema.String }))
@@ -162,7 +145,6 @@ export const IndexCoverageBatchSchema = Schema.Union(
   { mode: 'oneOf' }
 );
 const SearchScopeShape = {
-  collectionId: Schema.optionalKey(Id),
   limit: Schema.Int.check(Schema.isGreaterThan(0)),
   rootIds: Schema.mutable(Schema.Array(Id)),
 };
@@ -212,7 +194,6 @@ export const IndexSearchResultSchema = Schema.Struct({
 });
 export const IndexGrepRequestSchema = Schema.Struct({
   caseSensitive: Schema.Boolean,
-  collectionId: Schema.optionalKey(Id),
   filePaths: Schema.optionalKey(Schema.mutable(Schema.Array(Id)).check(Schema.isMaxLength(1000))),
   isRegex: Schema.Boolean,
   limit: Schema.Int.check(Schema.isGreaterThan(0)),

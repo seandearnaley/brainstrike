@@ -17,11 +17,6 @@ export type SourceCatalogRequest =
       readonly maxContentBytes?: number;
     }
   | {
-      readonly operation: 'import';
-      readonly embeddingSetId: string | null;
-      readonly files: readonly SourceCatalogInput[];
-    }
-  | {
       readonly operation: 'prepare';
       readonly rootId: string;
       readonly embeddingSetId: string | null;
@@ -44,8 +39,6 @@ export type SourceCatalogRequest =
   | { readonly operation: 'remove'; readonly files: readonly SourceCatalogRecord[] };
 export interface SourceCatalogReply {
   readonly files: readonly SourceCatalogRecord[];
-  /** Per-input commit receipt, present only for import. */
-  readonly imported?: readonly boolean[];
 }
 export interface SourceCatalogPort {
   sourceCatalog(request: SourceCatalogRequest): Promise<SourceCatalogReply>;

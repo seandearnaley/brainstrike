@@ -106,9 +106,7 @@ function incompleteStore(
     value.kind === 'ready' &&
     value.storeId !== oldStore &&
     value.rootReadiness.length === 1 &&
-    value.rootReadiness[0]?.scanComplete === false &&
-    value.collectionReadiness?.length === 1 &&
-    value.collectionReadiness[0]?.scanComplete === false
+    value.rootReadiness[0]?.scanComplete === false
   );
 }
 
@@ -130,7 +128,6 @@ test('visible real VECTOR rebuild permits chat before completion and preserves c
     await configureVectorProfile(context);
     await context.window.getByTestId('select-root-button').click();
     const initial = await waitForScopes(context, {
-      collection: corpus.files,
       mode: 'VECTOR',
       workspace: corpus.files,
     });
@@ -232,7 +229,6 @@ test('visible real VECTOR rebuild permits chat before completion and preserves c
     });
     await context.window.screenshot({ path: path.join(session.runDir, 'chat-during-rebuild.png') });
     const rebuilt = await waitForScopes(context, {
-      collection: corpus.files,
       mode: 'VECTOR',
       workspace: corpus.files,
     });

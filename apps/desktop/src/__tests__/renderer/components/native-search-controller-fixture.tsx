@@ -26,20 +26,12 @@ export function mountNativeSearchController(
           ...status,
           sourceObservation: {
             ownerGeneration: 11,
-            readiness: [
-              ...status.rootReadiness.map(({ rootId, scanComplete }) => ({
-                generation: 1,
-                mutationRevision: 12,
-                scanComplete,
-                scope: { kind: 'workspace' as const, rootId },
-              })),
-              ...(status.collectionReadiness ?? []).map(({ embeddingSetId, scanComplete }) => ({
-                generation: 1,
-                mutationRevision: 28,
-                scanComplete,
-                scope: { embeddingSetId, kind: 'collection' as const },
-              })),
-            ],
+            readiness: status.rootReadiness.map(({ rootId, scanComplete }) => ({
+              generation: 1,
+              mutationRevision: 12,
+              scanComplete,
+              scope: { kind: 'workspace' as const, rootId },
+            })),
           },
         };
   let observation: IndexerStatus = withSourceProof(ready);
@@ -66,12 +58,6 @@ export function mountNativeSearchController(
           mutationRevision: 12,
           scanComplete: false,
           scope: { kind: 'workspace' as const, rootId: 'root-a' },
-        },
-        {
-          generation: 1,
-          mutationRevision: 28,
-          scanComplete: false,
-          scope: { embeddingSetId: 'collection-a', kind: 'collection' as const },
         },
       ],
     },

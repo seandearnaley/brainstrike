@@ -650,31 +650,3 @@ it('surfaces the selected renderer plan refusal without blocking text or substit
     })
   ).toEqual({ available: false, reason });
 });
-
-it('admits rootless indexed vectors and marks an incomplete collection receipt explicitly', async () => {
-  const bridge = capability();
-  const status = {
-    ...ready(),
-    authorizedCollectionIds: ['selected'],
-    authorizedRootIds: [],
-    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
-    rootReadiness: [],
-  };
-  bridge.status.mockResolvedValue(status);
-  bridge.coverage.mockResolvedValue({
-    ...covered(),
-    collections: [{ embeddingSetId: 'selected', ...counts }],
-    roots: [],
-  });
-  const scope = { capability: bridge, collectionId: 'selected', profile, rootIds: [] };
-  expect(await getNativeSemanticAvailability(scope)).toEqual({ available: true, reason: null });
-  expect(bridge.coverage).toHaveBeenCalledWith({ collectionId: 'selected', rootIds: [] });
-  bridge.status.mockResolvedValue({
-    ...status,
-    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: false }],
-  });
-  expect(await getNativeSemanticAvailability(scope)).toMatchObject({
-    available: true,
-    hint: expect.stringContaining('Source scan incomplete'),
-  });
-});

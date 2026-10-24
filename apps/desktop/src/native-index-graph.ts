@@ -64,10 +64,7 @@ export function createNativeGraphProfileResolver(
     resolveEmbeddingSetId: async (scope) => {
       assertCurrent(current);
       const collectionId = vectorCollectionId(current.settings);
-      if (
-        (scope.kind === 'workspace' && !current.leases.has(scope.rootId)) ||
-        (scope.kind === 'collection' && scope.embeddingSetId !== collectionId)
-      ) {
+      if (!current.leases.has(scope.rootId)) {
         throw new Error('Canonical profile scope is not authorized by current desktop settings.');
       }
       return collectionId;

@@ -1,7 +1,6 @@
 import type {
   CanonicalWorkspaceLease,
   createNativeScanAdmission,
-  NativeCanonicalCatalogRecord,
   NativeCanonicalInference,
 } from '@brainstrike/canonical-ingestion';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
@@ -9,16 +8,12 @@ import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export interface NativeIndexSources {
   readonly attachments: Set<{ close(): Promise<void> }>;
-  collectionInventory?: readonly NativeCanonicalCatalogRecord[];
-  collectionScan?: Promise<void> | undefined;
   readonly controller: AbortController;
   readonly inference: Set<NativeCanonicalInference>;
   readonly leases: Map<string, CanonicalWorkspaceLease>;
   retirement?: Promise<void> | undefined;
   scanAdmission?: ReturnType<typeof createNativeScanAdmission>;
-  scanCollection?: () => Promise<void>;
   startup?: Promise<void>;
-  waitForCollection?: () => Promise<void>;
   readonly workspaceTriggers: Map<string, () => Promise<void>>;
 }
 

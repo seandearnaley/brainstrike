@@ -40,7 +40,7 @@ const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
 const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
 const graniteRow = setRow({ modelId: GRANITE_ID, modelKey: `local::${GRANITE_ID}` });
 const catalogSnapshot = () => projectModelCatalog({ models: [], providers: [] });
-const scope: CanonicalSourceScope = { embeddingSetId: metadata.id, kind: 'collection' };
+const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' };
 // The catalog facts the resolver reads with the set: bge states no prompts in this fixture.
 const bgePrompts = catalogSnapshot().models.find((model) => model.id === metadata.modelId)!
   .capabilities.prompts!;

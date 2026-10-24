@@ -43,11 +43,6 @@ const Request = Schema.Union(
     Schema.Struct({
       embeddingSetId: Schema.NullOr(Id),
       files: Schema.mutable(Schema.Array(Source)).check(Schema.isMaxLength(250)),
-      operation: Schema.Literal('import'),
-    }),
-    Schema.Struct({
-      embeddingSetId: Schema.NullOr(Id),
-      files: Schema.mutable(Schema.Array(Source)).check(Schema.isMaxLength(250)),
       operation: Schema.Literal('prepare'),
       rootId: Id,
     }),
@@ -75,10 +70,7 @@ const Request = Schema.Union(
   ],
   { mode: 'oneOf' }
 );
-const Reply = Schema.Struct({
-  files: Schema.mutable(Schema.Array(Record)),
-  imported: Schema.optional(Schema.mutable(Schema.Array(Schema.Boolean))),
-});
+const Reply = Schema.Struct({ files: Schema.mutable(Schema.Array(Record)) });
 const METHOD = 'host/source-catalog';
 /** Authenticated clients borrow the existing source catalog writer. */
 export function serveSourceCatalogStore(
@@ -136,10 +128,7 @@ export function createSourceCatalogClient(connection: MessageConnection): Source
           Schema.decodeUnknownSync(Request, { errors: 'all', onExcessProperty: 'error' })(request)
         )
       );
-      return {
-        files: reply.files,
-        ...(reply.imported === undefined ? {} : { imported: reply.imported }),
-      };
+      return { files: reply.files };
     },
   };
 }

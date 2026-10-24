@@ -2,6 +2,7 @@ import { createActivationCatalogFixture } from './native-activation-catalog-fixt
 // @vitest-environment node
 
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { beforeEach, expect, it, vi } from 'vitest';
@@ -19,7 +20,7 @@ import {
   getRegisteredIpcMainHandler,
   resetElectronMainTestHarness,
 } from './helpers/electron-main-test-harness';
-import { textCollectionSettings, unreadableSettings } from './helpers/native-index-settings';
+import { textSettings, unreadableSettings } from './helpers/native-index-settings';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -32,7 +33,6 @@ const mocks = vi.hoisted(() => ({
   closeReaders: vi.fn(),
   destroy: vi.fn(),
   manager: {
-    attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
@@ -67,7 +67,7 @@ vi.mock('../sqlite-query-host-manager', () => ({
 }));
 
 const storeId = 'a'.repeat(64);
-const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
+const workspace = { kind: 'workspace', rootId: 'root' } as const;
 const unused = async (): Promise<never> => {
   throw new Error('Unexpected legacy or inference operation.');
 };
@@ -86,7 +86,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
       dbPath: '/owned/profile/index.sqlite',
       fileBindings: [],
       rootIds: [],
-      scopes: [scope],
+      scopes: [workspace],
       storeId,
     }),
     coverageBatch: unused,
@@ -112,7 +112,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: async () => ({
+    verifyScopedManifest: async ({ scope }) => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
       changed: [],
@@ -124,9 +124,29 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     }),
   };
 }
+/** Main's application domain with the one granted folder `root` mounted. */
+function mountedRoot(): ApplicationIpcDomain {
+  const lease: CanonicalWorkspaceLease = {
+    canonicalPath: '/actual/root',
+    generation: 'actual-generation',
+    listDir: unused,
+    readFile: unused,
+    retire: async () => {},
+    rootId: workspace.rootId,
+    signal: new AbortController().signal,
+    subscribe: unused,
+  };
+  return {
+    roots: {
+      borrowSourceRoot: async () => lease,
+      restoreRoots: async () => [{ permissionState: 'granted', rootId: workspace.rootId }],
+    },
+    watches: { subscribe: unused },
+  } as unknown as ApplicationIpcDomain;
+}
 function fixture(applicationOverride?: ApplicationIpcDomain) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
-  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -175,7 +195,7 @@ it.each(['reconfigure', 'rebuild', 'resume'] as const)(
     });
     await expect(f.activation.acquire()).rejects.toBe(unreadable);
     expect(mocks.acquire).not.toHaveBeenCalled();
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+    f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     mocks.acquireProfile.mockImplementation(async () => {
@@ -269,7 +289,7 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
   try {
     await expect(f.activation.acquire()).rejects.toBe(unreadable);
     // Main's config owner saves the change, then applies it through the serialized transition.
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+    f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
     changing = transitions.transition(f.activation.reconfigure);
     changing.catch(() => undefined);
     await entered.promise;
@@ -297,7 +317,7 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
 
 it('joins the previous writer and profile on terminal close and reports held resumed acquisition as unavailable', async () => {
   const f = fixture();
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+  f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
   const capability = createNativeScopedSearchCapability({
     openQuery: unused,
     rebuild: f.activation.rebuild,
@@ -336,10 +356,10 @@ it.each(['reconfigure', 'rebuild'] as const)(
   'retains the shared profile lease through %s and retires it only on terminal close',
   async (operation) => {
     const f = fixture();
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+    f.settings.mockResolvedValue(textSettings({ paused: true }));
     await f.activation.acquire();
     try {
-      f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+      f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
       await f.activation[operation]();
       expect(mocks.acquire).toHaveBeenCalledTimes(2);
       expect(mocks.acquireProfile).toHaveBeenCalledOnce();
@@ -353,7 +373,7 @@ it.each(['reconfigure', 'rebuild'] as const)(
 
 it('retains an independent terminal profile cleanup failure and admits no replacement until that original owner joins', async () => {
   const f = fixture();
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+  f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
   await f.activation.acquire();
   const cause = new Error('Original profile cleanup has not joined.');
   mocks.closeProfile.mockRejectedValueOnce(cause).mockResolvedValue(undefined);
@@ -379,7 +399,7 @@ it('preserves a new profile acquisition failure during settings recovery without
   const unreadable = unreadableSettings();
   f.settings.mockRejectedValue(unreadable);
   await expect(f.activation.acquire()).rejects.toBe(unreadable);
-  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+  f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
   const cause = new Error('Replacement profile acquisition failed.');
   mocks.acquireProfile.mockRejectedValue(cause);
   const capability = createNativeScopedSearchCapability({
@@ -451,10 +471,11 @@ it.each([
 ] as const)(
   'projects real reconfiguration as $method data during $phase',
   async ({ method, phase }) => {
-    const f = fixture();
+    catalogFixture.setRoot();
+    const f = fixture(mountedRoot());
     const native = writer();
-    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
-    native.coverageScope = async () => ({
+    f.settings.mockResolvedValue(textSettings({ paused: true }));
+    native.coverageScope = async ({ scope }) => ({
       authorityEpoch: 'b'.repeat(64),
       authorityRevision: 1,
       counts: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
@@ -515,9 +536,7 @@ it.each([
     await f.activation.acquireRead();
     armed = true;
     const result = (
-      method === 'status'
-        ? capability.status()
-        : capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
+      method === 'status' ? capability.status() : capability.coverageBatch([{ rootIds: ['root'] }])
     ).then(
       (value) => ({ value }),
       (error: unknown) => ({ error })
@@ -525,7 +544,7 @@ it.each([
     let changing: Promise<void> | undefined;
     try {
       await entered.promise;
-      f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
+      f.settings.mockResolvedValue(textSettings({ paused: true, policy: 'full-root' }));
       changing = f.activation.reconfigure();
       const changed = changing.catch((error: unknown) => error);
       if (phase === 'authority') {
@@ -541,12 +560,10 @@ it.each([
           refusal: { kind: 'transitioning' },
         });
         await expect(capability.status()).resolves.toMatchObject({ kind: 'unavailable' });
-        await expect(
-          capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
-        ).resolves.toMatchObject({ kind: 'invalidated' });
-        await expect(
-          capability.coverage({ collectionId: 'selected', rootIds: [] })
-        ).rejects.toThrow();
+        await expect(capability.coverageBatch([{ rootIds: ['root'] }])).resolves.toMatchObject({
+          kind: 'invalidated',
+        });
+        await expect(capability.coverage({ rootIds: ['root'] })).rejects.toThrow();
         expect(mocks.close).not.toHaveBeenCalled();
       }
       release.resolve();

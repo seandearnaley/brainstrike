@@ -3,7 +3,7 @@
 // retires the indexer utility only when it exits, and never closes admission on a clock.
 import { EventEmitter } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import {
   CANONICAL_CHANNEL,
   decodeCanonicalFrame,
@@ -101,8 +101,8 @@ function slowUtility(slow: {
   return utility;
 }
 
-function collection(embeddingSetId: string): CanonicalCollectionDependencies {
-  const scope = { embeddingSetId, kind: 'collection' as const };
+function workspace(rootId: string): CanonicalRemoteWorkspaceDependencies {
+  const scope = { kind: 'workspace' as const, rootId };
   return {
     catalog: {
       applyManagedCacheBatch: async () => {},
@@ -114,6 +114,10 @@ function collection(embeddingSetId: string): CanonicalCollectionDependencies {
         throw new Error('TEXT profile resolved');
       },
     },
+    managedCollectionId: null,
+    onError: vi.fn(),
+    onReceipt: vi.fn(),
+    onWatchHealth: vi.fn(),
     parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
@@ -130,12 +134,18 @@ function collection(embeddingSetId: string): CanonicalCollectionDependencies {
       }),
     },
     request: { batchSize: 1, chunkingOptions: { strategy: 'recursive' }, maxFileBytes: 1024 },
-    scope,
     source: {
       indexingPolicyPreset: 'balanced',
-      inventory: {
-        loadFiles: async () => [],
-        readRetained: async () => ({ content: '', stat: { mtimeMs: null, size: 0 } }),
+      inventory: { loadFiles: async () => [] },
+      lease: {
+        canonicalPath: `/actual/${rootId}`,
+        generation: 'generation',
+        listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
+        readFile: async () => ({ status: 'not-found' as const }),
+        retire: async () => {},
+        rootId,
+        signal: new AbortController().signal,
+        subscribe: async () => ({ close: async () => {} }),
       },
     },
   };
@@ -148,10 +158,10 @@ async function manager(utility: FakeUtility): Promise<IndexerHostManager> {
       dbPath,
       embedding: { indexMode: 'text-only' },
       fileBindings: [],
-      rootIds: [],
+      rootIds: ['first', 'second'],
       scopes: [
-        { embeddingSetId: 'first', kind: 'collection' },
-        { embeddingSetId: 'second', kind: 'collection' },
+        { kind: 'workspace', rootId: 'first' },
+        { kind: 'workspace', rootId: 'second' },
       ],
     },
     // Desktop's production native-index deadlines (native-index-activation.ts).
@@ -195,13 +205,13 @@ it('attaches a canonical source slower than any former deadline and keeps admiss
   await vi.advanceTimersByTimeAsync(0);
   await starting;
 
-  const first = host.attachCanonicalCollection(collection('first'));
+  const first = host.attachCanonicalWorkspace(workspace('first'));
   first.catch(() => undefined);
   await vi.waitFor(() => expect(utility.canonicalOps).toEqual(['attach']));
   await vi.advanceTimersByTimeAsync(SLOW_MS);
   await expect(first).resolves.toBeDefined();
 
-  const second = host.attachCanonicalCollection(collection('second'));
+  const second = host.attachCanonicalWorkspace(workspace('second'));
   second.catch(() => undefined);
   await vi.waitFor(() => expect(utility.canonicalOps).toEqual(['attach', 'attach']));
   await vi.advanceTimersByTimeAsync(SLOW_MS);
@@ -222,7 +232,7 @@ it('escalates a close the utility never answers to one kill after closeMs, then 
   const starting = host.start();
   await vi.advanceTimersByTimeAsync(0);
   await starting;
-  const attaching = host.attachCanonicalCollection(collection('first'));
+  const attaching = host.attachCanonicalWorkspace(workspace('first'));
   await vi.waitFor(() => expect(utility.canonicalOps).toEqual(['attach']));
   await vi.advanceTimersByTimeAsync(0);
   await attaching;

@@ -28,29 +28,13 @@ const Collection = CollectionSchema;
 const Request = Schema.Union(
   [
     Schema.Struct({ operation: Schema.Literal('list') }),
-    Schema.Struct({ operation: Schema.Literal('snapshot') }),
     Schema.Struct({ id: Id, operation: Schema.Literal('get') }),
     Schema.Struct({ collection: Collection, operation: Schema.Literal('create') }),
-    Schema.Struct({ id: Id, metadata: Metadata, operation: Schema.Literal('update') }),
     Schema.Struct({ id: Id, operation: Schema.Literal('delete') }),
   ],
   { mode: 'oneOf' }
 );
-const Reply = Schema.Struct({
-  collections: Schema.mutable(Schema.Array(Collection)),
-  counts: Schema.optional(
-    Schema.mutable(
-      Schema.Array(
-        Schema.Struct({
-          chunks: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-          files: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-          id: Id,
-          unprocessedFiles: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-        })
-      )
-    )
-  ),
-});
+const Reply = Schema.Struct({ collections: Schema.mutable(Schema.Array(Collection)) });
 const METHOD = 'host/collections';
 export function serveCollectionStore(
   connection: Pick<MessageConnection, 'onRequest'>,
@@ -97,10 +81,7 @@ export function createCollectionClient(connection: MessageConnection): Collectio
           Schema.decodeSync(Request, { errors: 'all', onExcessProperty: 'error' })(request)
         )
       );
-      return {
-        collections: reply.collections,
-        ...(reply.counts === undefined ? {} : { counts: reply.counts }),
-      };
+      return { collections: reply.collections };
     },
   };
 }

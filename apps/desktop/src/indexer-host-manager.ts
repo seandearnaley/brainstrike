@@ -5,8 +5,6 @@ import { createLogger } from '@brainstrike/logging';
 import { app, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import {
-  type CanonicalCollectionAttachment,
-  type CanonicalCollectionDependencies,
   type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
   type CanonicalWorkspaceAttachment,
@@ -17,11 +15,6 @@ import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 const logger = createLogger('IndexerHostManager');
-
-interface OwnedCollectionScan {
-  release(): void;
-  readonly work: Promise<unknown>;
-}
 
 /**
  * Main owns lifecycle only. SQLite and its writer worker belong to the utility process.
@@ -48,7 +41,6 @@ export class IndexerHostManager {
   #exitCleanupFailed = false;
   #transportFailure: unknown;
   #closed = false;
-  readonly #scans = new Set<OwnedCollectionScan>();
   #sourceRetirement: Promise<void> | undefined;
   #sourceRetirementOwned = false;
   /** Counts fences. An acquisition a fence overtook belongs to the fenced graph (BST-2140). */
@@ -198,36 +190,6 @@ export class IndexerHostManager {
     return canonical.attachWorkspace(dependencies);
   }
 
-  async attachCanonicalCollection(
-    dependencies: CanonicalCollectionDependencies
-  ): Promise<CanonicalCollectionAttachment> {
-    const canonical = await this.#admitAttachment();
-    const attachment = await canonical.attachCollection(dependencies);
-    const scans = new Set<OwnedCollectionScan>();
-    return {
-      cancel: () => attachment.cancel(),
-      close: () => this.#joinScans(attachment.close(), scans),
-      scan: (requestId) => {
-        if (this.#closed || this.#sourceRetirementOwned) {
-          return Promise.reject(new Error('Indexer canonical scan admission is closed.'));
-        }
-        // Owned from admission to the terminal receipt: close and source retirement join it.
-        const work = attachment.startScan(requestId).then((admitted) => admitted.join());
-        const owned: OwnedCollectionScan = {
-          release: () => {
-            this.#scans.delete(owned);
-            scans.delete(owned);
-          },
-          work,
-        };
-        this.#scans.add(owned);
-        scans.add(owned);
-        void work.then(owned.release, owned.release);
-        return work;
-      },
-    };
-  }
-
   /** The started utility's canonical channel, refused while closed or while sources retire. */
   async #admitAttachment(): Promise<CanonicalUtilityParent> {
     if (this.#sourceRetirementOwned) {
@@ -272,7 +234,6 @@ export class IndexerHostManager {
       await this.#start;
       await this.#escalated(async () => {
         await (admitted ?? this.#canonical?.retireAttachments());
-        await this.#joinScans(Promise.resolve());
       });
     })()
       .then(() => {
@@ -282,13 +243,6 @@ export class IndexerHostManager {
         this.#sourceRetirement = undefined;
       });
     return this.#sourceRetirement;
-  }
-
-  async #joinScans(retirement: Promise<void>, scans = this.#scans): Promise<void> {
-    // A close ACK does not release an already admitted terminal correlation.
-    await retirement;
-    const owned = [...scans];
-    await Promise.allSettled(owned.map((scan) => scan.work));
   }
 
   /**
@@ -329,11 +283,11 @@ export class IndexerHostManager {
         await this.#exitCleanup;
         this.#exitCleanupFailed = false;
       }
-      await this.#joinScans(this.#exitCleanup ?? Promise.resolve());
+      await this.#exitCleanup;
       this.#reportTransportFailure();
       return;
     }
-    await this.#escalated(() => this.#joinScans(this.#canonical?.close() ?? Promise.resolve()));
+    await this.#escalated(() => this.#canonical?.close() ?? Promise.resolve());
     await this.#connection?.close();
     await this.#exitCleanup;
     this.#reportTransportFailure();
@@ -346,7 +300,7 @@ export class IndexerHostManager {
         'Indexer has not acquired a process; destroy requires its validated connection.'
       );
     }
-    await this.#escalated(() => this.#joinScans(this.#canonical?.close() ?? Promise.resolve()));
+    await this.#escalated(() => this.#canonical?.close() ?? Promise.resolve());
     await this.#connection.destroy();
     await this.#exitCleanup;
     this.#reportTransportFailure();

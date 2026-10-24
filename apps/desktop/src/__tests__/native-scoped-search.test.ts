@@ -16,9 +16,9 @@ import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
   binding,
   fixture,
-  hit,
   profile,
   progressAuthority,
+  rootId,
   scope,
   storeId,
   unused,
@@ -51,13 +51,7 @@ it.each(['unchanged', 'complete-during-read', 'invalidate-during-read'] as const
       return { ...result, scanLimited: true };
     });
     await expect(
-      f.capability.search({
-        collectionId: 'selected',
-        limit: 100,
-        mode: 'bm25',
-        rootIds: [],
-        text: 'retained',
-      })
+      f.capability.search({ limit: 100, mode: 'bm25', rootIds: [rootId], text: 'notes' })
     ).resolves.toMatchObject({
       scanLimited: true,
       sourceComplete: change === 'unchanged',
@@ -65,11 +59,10 @@ it.each(['unchanged', 'complete-during-read', 'invalidate-during-read'] as const
     await expect(
       f.capability.grep({
         caseSensitive: false,
-        collectionId: 'selected',
         isRegex: false,
         limit: 100,
-        pattern: 'retained',
-        rootIds: [],
+        pattern: 'notes',
+        rootIds: [rootId],
       })
     ).resolves.toMatchObject({
       sourceComplete: change !== 'invalidate-during-read',
@@ -89,7 +82,6 @@ it('projects historical native ACK identity independently of newer admission rev
   const f = fixture(profile);
   f.replaceAuthority(progressAuthority(f));
   expect(await f.capability.status()).toMatchObject({
-    collectionReadiness: [{ scanComplete: false }],
     publicationProgress: [
       {
         acknowledgedFiles: 1,
@@ -110,6 +102,7 @@ it('projects historical native ACK identity independently of newer admission rev
         storeId,
       },
     ],
+    rootReadiness: [{ rootId, scanComplete: false }],
   });
 });
 
@@ -135,24 +128,17 @@ it('withholds old progress while a new scan starts during status capture', async
   });
   release.resolve();
   expect(await result).toMatchObject({
-    collectionReadiness: [{ scanComplete: false }],
     kind: 'ready',
     publicationProgress: [],
+    rootReadiness: [{ rootId, scanComplete: false }],
   });
 });
 
 it('keeps scan-start status interleaving nonterminal in the actual benchmark progress seam without credit', async () => {
   const f = fixture(profile);
-  const workspace = { kind: 'workspace', rootId: 'root' } as const;
   f.replaceAuthority({
     ...f.getAuthority(),
-    readiness: [scope, workspace].map((selected) => ({
-      generation: 0,
-      mutationRevision: 0,
-      scanComplete: false,
-      scope: selected,
-    })),
-    rootIds: ['root'],
+    readiness: [{ generation: 0, mutationRevision: 0, scanComplete: false, scope }],
   });
   const baseline = await f.capability.status();
   if (baseline.kind !== 'ready') {
@@ -237,9 +223,9 @@ it('withholds captured completion and ACK when publication advances during statu
   });
   release.resolve();
   expect(await reading).toMatchObject({
-    collectionReadiness: [{ scanComplete: false }],
     kind: 'ready',
     publicationProgress: [],
+    rootReadiness: [{ rootId, scanComplete: false }],
   });
   expect(await f.capability.status()).toMatchObject({
     kind: 'ready',
@@ -262,7 +248,7 @@ it.each(['store', 'profile', 'generation', 'scope'] as const)(
         {
           ...receipt,
           ...(field === 'scope'
-            ? { scope: { embeddingSetId: 'foreign', kind: 'collection' } as const }
+            ? { scope: { kind: 'workspace', rootId: 'foreign' } as const }
             : {}),
           publication: {
             ...publication,
@@ -297,7 +283,7 @@ it.each(['store', 'profile', 'generation', 'scope'] as const)(
           ...entry,
           mutationRevision: entry.mutationRevision + 1,
           ...(field === 'scope'
-            ? { scope: { embeddingSetId: 'foreign', kind: 'collection' as const } }
+            ? { scope: { kind: 'workspace' as const, rootId: 'foreign' } }
             : {}),
           publication: {
             ...entry.publication!,
@@ -313,64 +299,11 @@ it.each(['store', 'profile', 'generation', 'scope'] as const)(
       });
       return rows;
     });
-    await expect(
-      f.capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
-    ).rejects.toThrow('Native publication progress differs');
+    await expect(f.capability.coverageBatch([{ rootIds: [rootId] }])).rejects.toThrow(
+      'Native publication progress differs'
+    );
   }
 );
-
-it('projects actual rootless collection scope through text, grep and coverage without legacy reads', async () => {
-  const f = fixture();
-  expect(await f.capability.status()).toMatchObject({
-    authorizedCollectionIds: ['selected'],
-    authorizedRootIds: [],
-    kind: 'ready',
-  });
-  const result = await f.capability.search({
-    collectionId: 'selected',
-    limit: 100,
-    mode: 'bm25',
-    rootIds: [],
-    text: 'marker',
-  });
-  expect(result.hits).toEqual([hit]);
-  expect(f.searchScopes).toHaveBeenCalledExactlyOnceWith({
-    limit: 100,
-    mode: 'bm25',
-    scopes: [scope],
-    text: 'marker',
-  });
-  await f.capability.grep({
-    caseSensitive: false,
-    collectionId: 'selected',
-    isRegex: false,
-    limit: 100,
-    pattern: 'marker',
-    rootIds: [],
-  });
-  expect(f.grep).toHaveBeenCalledExactlyOnceWith({
-    caseSensitive: false,
-    fileIds: ['retained'],
-    isRegex: false,
-    maxRows: 100,
-    pattern: 'marker',
-    rootIds: [],
-  });
-  expect(f.close).toHaveBeenCalledOnce();
-  expect(await f.capability.coverage({ collectionId: 'selected', rootIds: [] })).toMatchObject({
-    collections: [{ chunks: 1, embeddingSetId: 'selected' }],
-    roots: [],
-  });
-  await expect(
-    f.capability.search({
-      collectionId: 'foreign',
-      limit: 10,
-      mode: 'bm25',
-      rootIds: [],
-      text: 'marker',
-    })
-  ).rejects.toThrow('not authorized');
-});
 
 it('refuses a workspace search with no folder in words the person acts on, logging nothing', async () => {
   const f = fixture();
@@ -450,11 +383,10 @@ it('uses the full saved scoped vector profile while the independent legacy engin
   });
   const vector = Array.from({ length: 384 }, () => 1);
   await f.capability.search({
-    collectionId: 'selected',
     limit: 100,
     mode: 'vector',
     profile: queryProfile,
-    rootIds: [],
+    rootIds: [rootId],
     vector,
   });
   expect(f.searchScopes).toHaveBeenCalledWith({
@@ -464,17 +396,16 @@ it('uses the full saved scoped vector profile while the independent legacy engin
     scopes: [scope],
     vector,
   });
-  expect(await f.capability.coverage({ collectionId: 'selected', rootIds: [] })).toMatchObject({
+  expect(await f.capability.coverage({ rootIds: [rootId] })).toMatchObject({
     totals: { missingVectors: 0, vectors: 1 },
     vectorCoverageComplete: true,
   });
   await expect(
     f.capability.search({
-      collectionId: 'selected',
       limit: 100,
       mode: 'vector',
       profile: { ...queryProfile, tokenCap: 128 },
-      rootIds: [],
+      rootIds: [rootId],
       vector,
     })
   ).rejects.toThrow('differs');
@@ -504,17 +435,16 @@ it('reports a CLS, prompted profile in status with the identity the renderer mir
   expect(mirrored).toBe(status.embedding.profileHash);
 });
 
-it('joins the grep reader but refuses its result after canonical collection authority changes', async () => {
+it('joins the grep reader but refuses its result after canonical source authority changes', async () => {
   const f = fixture();
   const held = Promise.withResolvers<SqliteGrepRows>();
   f.grep.mockReturnValueOnce(held.promise);
   const outcome = f.capability.grep({
     caseSensitive: false,
-    collectionId: 'selected',
     isRegex: false,
     limit: 100,
     pattern: 'marker',
-    rootIds: [],
+    rootIds: [rootId],
   });
   await vi.waitFor(() => expect(f.grep).toHaveBeenCalledOnce());
   f.replaceAuthority({ ...f.getAuthority(), generation: 2 });
@@ -564,7 +494,7 @@ it.each(['generation', 'root', 'collection', 'profile', 'store'] as const)(
       return original;
     });
     const outcome = f.capability
-      .search({ collectionId: 'selected', limit: 10, mode: 'bm25', rootIds: [], text: 'marker' })
+      .search({ limit: 10, mode: 'bm25', rootIds: [rootId], text: 'marker' })
       .catch((error: unknown) => error);
     await entered.promise;
     const authority = f.getAuthority();
@@ -599,7 +529,17 @@ function pairedFixture() {
   const f = fixture(profile);
   f.replaceAuthority({
     ...f.getAuthority(),
-    bindings: [{ ...binding, profile, relativePath: 'file.txt', rootId: 'root' }],
+    bindings: [
+      { ...binding, profile },
+      {
+        ...binding,
+        fileId: 'file',
+        profile,
+        relativePath: 'file.txt',
+        rootId: 'root',
+        sourcePath: '/workspace/root/file.txt',
+      },
+    ],
     readiness: [
       { generation: 1, mutationRevision: 0, scanComplete: true, scope },
       {
@@ -609,11 +549,11 @@ function pairedFixture() {
         scope: { kind: 'workspace', rootId: 'root' },
       },
     ],
-    rootIds: ['root'],
+    rootIds: [rootId, 'root'],
   });
   return f;
 }
-const pairedRequests = [{ collectionId: 'selected', rootIds: [] }, { rootIds: ['root'] }];
+const pairedRequests = [{ rootIds: [rootId] }, { rootIds: ['root'] }];
 it.each([
   { emptyScanned: true, expected: true, rootIds: ['root', 'empty'] },
   { emptyScanned: false, expected: false, rootIds: ['root', 'empty'] },
@@ -629,7 +569,7 @@ it.each([
         ...f.getAuthority().readiness,
         { generation: 1, mutationRevision: 0, scanComplete: emptyScanned, scope: empty },
       ],
-      rootIds: ['root', 'empty'],
+      rootIds: [rootId, 'root', 'empty'],
     });
     const original = f.coverageBatch.getMockImplementation()!;
     f.coverageBatch.mockImplementation(async (requests) =>
@@ -686,19 +626,15 @@ it.each([
     const observation = await f.capability.coverageBatch(pairedRequests);
     expect(observation).toMatchObject({
       kind: 'current',
-      status: {
-        collectionReadiness: [{ scanComplete: false }],
-        rootReadiness: [{ scanComplete: false }],
-      },
+      status: { rootReadiness: [{ scanComplete: false }, { scanComplete: false }] },
     });
     if (observation.kind !== 'current') {
       throw new Error('Expected actual partial coverage during publication.');
     }
-    expect(observation.coverage.map((entry) => entry.totals.chunks)).toEqual([3, 2]);
+    expect(observation.coverage.map((entry) => entry.totals.chunks)).toEqual([1, 2]);
     expect(f.coverageBatch).toHaveBeenCalledOnce();
     expect(await f.capability.status()).toMatchObject({
-      collectionReadiness: [{ scanComplete: complete }],
-      rootReadiness: [{ scanComplete: complete }],
+      rootReadiness: [{ scanComplete: complete }, { scanComplete: complete }],
     });
   }
 );
@@ -731,9 +667,8 @@ it.each(['new-scan', 'completed-mutation', 'completed-rescan'] as const)(
     await expect(f.capability.coverageBatch(pairedRequests)).resolves.toMatchObject({
       kind: 'current',
       status: {
-        collectionReadiness: [{ scanComplete: false }],
         publicationProgress: [],
-        rootReadiness: [{ scanComplete: false }],
+        rootReadiness: [{ scanComplete: false }, { scanComplete: false }],
       },
     });
   }
@@ -745,11 +680,13 @@ it('returns both independent coverage results and readiness from the same fenced
   if (result.kind !== 'current') {
     throw new Error('Expected a current fenced batch.');
   }
-  expect(result.coverage.map((entry) => entry.totals.chunks)).toEqual([3, 2]);
+  expect(result.coverage.map((entry) => entry.totals.chunks)).toEqual([1, 2]);
   expect(result.status).toMatchObject({
-    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
     kind: 'ready',
-    rootReadiness: [{ rootId: 'root', scanComplete: true }],
+    rootReadiness: [
+      { rootId, scanComplete: true },
+      { rootId: 'root', scanComplete: true },
+    ],
   });
   expect(f.coverageBatch).toHaveBeenCalledExactlyOnceWith([
     { profile, scope },
@@ -798,43 +735,30 @@ it.each([
   });
 });
 it('does not pair an earlier successful status with full counters after readiness invalidation', async () => {
-  const f = pairedFixture();
+  const f = fixture(profile);
   const staleStatus = await f.capability.status();
-  expect(staleStatus).toMatchObject({ collectionReadiness: [{ scanComplete: true }] });
+  expect(staleStatus).toMatchObject({ rootReadiness: [{ rootId, scanComplete: true }] });
   f.replaceAuthority({
     ...f.getAuthority(),
     generation: 2,
-    readiness: [
-      { generation: 2, mutationRevision: 1, scanComplete: false, scope },
-      {
-        generation: 1,
-        mutationRevision: 0,
-        scanComplete: true,
-        scope: { kind: 'workspace', rootId: 'root' },
-      },
-    ],
+    readiness: [{ generation: 2, mutationRevision: 1, scanComplete: false, scope }],
   });
-  const result = await f.capability.coverageBatch(pairedRequests);
+  const result = await f.capability.coverageBatch([{ rootIds: [rootId] }]);
   if (result.kind !== 'current') {
     throw new Error('Expected a current fenced batch.');
   }
   expect(result.coverage.every((entry) => entry.vectorCoverageComplete)).toBe(true);
-  expect(result.status).toMatchObject({ collectionReadiness: [{ scanComplete: false }] });
+  expect(result.status).toMatchObject({ rootReadiness: [{ rootId, scanComplete: false }] });
   const { provider: _provider, distance: _distance, ...queryProfile } = profile;
   const completionScope = {
-    collectionId: 'selected',
     files: 1,
     mode: 'vector' as const,
     profile: queryProfile,
-    rootId: 'root',
+    rootId,
     storeId,
   };
-  expect(
-    nativeBuildComplete(staleStatus, result.coverage[1]!, completionScope, result.coverage[0]!)
-  ).toBe(true);
-  expect(
-    nativeBuildComplete(result.status, result.coverage[1]!, completionScope, result.coverage[0]!)
-  ).toBe(false);
+  expect(nativeBuildComplete(staleStatus, result.coverage[0]!, completionScope)).toBe(true);
+  expect(nativeBuildComplete(result.status, result.coverage[0]!, completionScope)).toBe(false);
 });
 
 it.each(['status', 'coverageBatch'] as const)(
@@ -861,7 +785,7 @@ it.each(['status', 'coverageBatch'] as const)(
       await expect(
         method === 'status'
           ? capability.status()
-          : capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
+          : capability.coverageBatch([{ rootIds: [rootId] }])
       ).rejects.toBe(failure);
     }
     const entered = Promise.withResolvers<void>();
@@ -880,9 +804,7 @@ it.each(['status', 'coverageBatch'] as const)(
       },
     });
     const result = (
-      method === 'status'
-        ? capability.status()
-        : capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }])
+      method === 'status' ? capability.status() : capability.coverageBatch([{ rootIds: [rootId] }])
     ).then((value) => {
       settled = true;
       return value;
@@ -899,45 +821,36 @@ it.each(['status', 'coverageBatch'] as const)(
 
 it('restricts canonical file membership before the native grep candidate limit', async () => {
   const f = fixture();
-  const recorded = await f.grep();
-  f.grep.mockClear();
   f.replaceAuthority({
     ...f.getAuthority(),
     bindings: [
-      { ...binding, profile: null, relativePath: 'selected.md', rootId: 'root' },
+      { ...binding, profile: null },
       {
         ...binding,
         fileId: 'unselected',
         profile: null,
         relativePath: 'unselected.md',
-        rootId: 'root',
+        sourcePath: '/workspace/root-a/unselected.md',
       },
     ],
-    rootIds: ['root'],
-  });
-  f.grep.mockResolvedValueOnce({
-    ...recorded,
-    rows: recorded.rows.map((row) =>
-      row.map((value, i) => (i === 1 ? 'root' : i === 3 ? 'selected.md' : value))
-    ),
   });
   const result = await f.capability.grep({
     caseSensitive: false,
-    filePaths: ['selected.md'],
+    filePaths: [binding.relativePath],
     isRegex: false,
     limit: 1,
     pattern: 'marker',
-    rootIds: ['root'],
+    rootIds: [rootId],
   });
   expect(f.grep).toHaveBeenCalledExactlyOnceWith({
     caseSensitive: false,
-    fileIds: ['retained'],
+    fileIds: [binding.fileId],
     isRegex: false,
     maxRows: 1,
     pattern: 'marker',
-    rootIds: ['root'],
+    rootIds: [rootId],
   });
-  expect(result.hits.map(({ fileId }) => fileId)).toEqual(['retained']);
+  expect(result.hits.map(({ fileId }) => fileId)).toEqual([binding.fileId]);
   expect(f.close).toHaveBeenCalledOnce();
 });
 

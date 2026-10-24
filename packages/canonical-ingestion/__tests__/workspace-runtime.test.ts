@@ -48,9 +48,6 @@ function fixture(): CanonicalWorkspaceRuntimeDependencies {
       indexingPolicyPreset: 'balanced',
       inventory: {
         loadFiles: vi.fn(async () => []),
-        readRetained: async () => {
-          throw new Error('Unexpected retained read');
-        },
       },
       lease: {
         canonicalPath: '/workspace',

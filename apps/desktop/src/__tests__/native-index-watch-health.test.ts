@@ -6,15 +6,12 @@ import type {
 } from '@brainstrike/canonical-ingestion';
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import {
-  emptyCollection,
   fixture,
   mocks,
   requestedScope,
   resetActivationFixture,
-  scope,
   setCatalogRoot,
   storeId,
   unused,
@@ -80,9 +77,6 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
       return { close: async () => {}, trigger };
     }
   );
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
   const { activation, onError } = fixture(application);
   try {
     await activation.acquire();
@@ -112,15 +106,12 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
       info: await read.port.info(),
     }));
     expect(partial.info.storeId).toBe(storeId);
-    expect(partial.authority.readiness).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          scanComplete: false,
-          scope: { kind: 'workspace', rootId: 'root' },
-        }),
-        expect.objectContaining({ scanComplete: false, scope }),
-      ])
-    );
+    expect(partial.authority.readiness).toEqual([
+      expect.objectContaining({
+        scanComplete: false,
+        scope: { kind: 'workspace', rootId: 'root' },
+      }),
+    ]);
     expect(onError).not.toHaveBeenCalled();
     expect(trigger).not.toHaveBeenCalled();
     emit({ backend: 'fs-events', state: 'healthy', timestamp: 2 });
@@ -157,7 +148,10 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
         state,
         timestamp: 3,
       });
-      await expect(activation.withRead((read) => read.getAuthority())).rejects.toThrow(reason);
+      await expect(activation.withRead((read) => read.getAuthority())).rejects.toMatchObject({
+        code: 'native-index-source-failure',
+        message: reason,
+      });
       expect(onError).toHaveBeenLastCalledWith(
         'workspace watcher health',
         expect.objectContaining({ message: reason })
@@ -173,7 +167,10 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
         state: 'degraded',
         timestamp: 3,
       });
-      await expect(activation.withRead((read) => read.getAuthority())).rejects.toThrow(reason);
+      await expect(activation.withRead((read) => read.getAuthority())).rejects.toMatchObject({
+        code: 'native-index-source-failure',
+        message: reason,
+      });
       emit({ backend: 'fs-events', state: 'healthy', timestamp: 4 });
     }
     expect(trigger).toHaveBeenCalledTimes(3);
