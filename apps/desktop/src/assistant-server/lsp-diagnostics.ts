@@ -382,9 +382,13 @@ class LspServerConnection {
   constructor(server: ResolvedServer, rootPath: string) {
     this.server = server;
     this.rootPath = rootPath;
-    // In the agent host the server inherits the Root's flock (ADR-0017).
+    // In the agent host the server inherits the Root's flock (ADR-0017). The
+    // Root reaches the server only as initialize's rootUri, never as its cwd:
+    // the server forks tsserver (and its typings installer) without a cwd, and
+    // those descendants outlive the server's own exit for a moment. On Windows
+    // a live process pins its cwd, so a Root cwd would keep the Root directory
+    // undeletable after disposal returned.
     this.child = spawnNativeChild(process.execPath, [server.cliPath, ...server.args], {
-      cwd: rootPath,
       // ELECTRON_RUN_AS_NODE lets the packaged app run the server's JS entry
       // through Electron's bundled Node (there is no standalone `node`).
       // biome-ignore lint/style/useNamingConvention: OS env var name is fixed
