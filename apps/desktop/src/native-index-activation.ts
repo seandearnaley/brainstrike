@@ -83,6 +83,13 @@ const logger = createLogger('NativeIndexActivation');
 export function createNativeIndexActivation(dependencies: Dependencies) {
   // This handle owns physical resources only. Admission and failure are owned by lifecycle.
   let graph: (Graph & { retirement?: Promise<void> | undefined }) | undefined;
+  // A scan's start, settle or invalidation, or a source's health, changed what a status read says.
+  const changeListeners = new Set<() => void>();
+  const indexChanged = (): void => {
+    for (const listener of changeListeners) {
+      listener();
+    }
+  };
   const assertCurrent = (current: Graph): void => {
     current.controller.signal.throwIfAborted();
     if (graph !== current) {
@@ -247,7 +254,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         verifyScopedManifest: (request) =>
           runtime.withWriterRead(port, () => port.verifyScopedManifest(request)),
       },
-      authorized.rootIds.map((rootId) => ({ kind: 'workspace', rootId }) as const)
+      authorized.rootIds.map((rootId) => ({ kind: 'workspace', rootId }) as const),
+      indexChanged
     );
     current.publication = publication;
     current.observedCatalogFingerprint = catalogFingerprint(await loadRecords(current));
@@ -416,6 +424,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           dependencies.onError(operation, error);
         },
         onReceipt: (receipt, sourceInvalidated) => {
+          indexChanged();
           if (sourceInvalidated) {
             scanAdmission.releaseInvalidatedWorkspace(receipt);
             dependencies.onReceipt?.(receipt);
@@ -430,6 +439,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           }
         },
         onWatchHealth: createNativeIndexWatchHealthHandler({
+          changed: indexChanged,
           onError: dependencies.onError,
           publication: () => current.publication,
           rootId: lease.rootId,
@@ -865,6 +875,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     fenceTerminal,
     getReadiness: () => graph?.publication?.getReadiness() ?? [],
     getSearchAuthority: () => getSearchAuthority(),
+    /** Hears each change a status read would show besides the lifecycle; `signal` ends it. */
+    observeChanges: (listener: () => void, signal: AbortSignal): void => {
+      changeListeners.add(listener);
+      signal.addEventListener('abort', () => changeListeners.delete(listener), { once: true });
+    },
     observeLifecycle: async (
       listener: (value: ReturnType<typeof nativeIndexObservation>) => void,
       signal: AbortSignal

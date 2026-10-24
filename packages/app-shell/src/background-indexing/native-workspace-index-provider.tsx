@@ -23,7 +23,9 @@ import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type {
   IndexerCoverage,
+  IndexerCoverageBatch,
   IndexerStatus,
+  IndexLifecycleCapability,
   IndexSearchCapability,
   NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -31,7 +33,7 @@ import { type ReactNode, useEffect, useRef } from 'react';
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 
-async function readNativeProgress(capability: IndexSearchCapability): Promise<
+type NativeProgress =
   | Extract<IndexerStatus, { kind: 'unavailable' }>
   | { readonly kind: 'invalidated'; readonly identity: string }
   | {
@@ -40,9 +42,23 @@ async function readNativeProgress(capability: IndexSearchCapability): Promise<
       readonly complete: boolean;
       readonly identity: string;
       readonly status: Extract<IndexerStatus, { kind: 'ready' }>;
-    }
-> {
+    };
+
+/** This view's one read on mount; Main pushes the same pair after every change. */
+async function readNativeProgress(capability: IndexSearchCapability): Promise<NativeProgress> {
   const status = await capability.status();
+  return nativeProgress(
+    status,
+    status.kind === 'ready' && status.authorizedRootIds.length > 0
+      ? await capability.coverageBatch([{ rootIds: status.authorizedRootIds }])
+      : undefined
+  );
+}
+
+function nativeProgress(
+  status: IndexerStatus,
+  observation: IndexerCoverageBatch | undefined
+): NativeProgress {
   if (status.kind === 'unavailable') {
     return status;
   }
@@ -64,7 +80,9 @@ async function readNativeProgress(capability: IndexSearchCapability): Promise<
     };
   }
   // Root-scoped coverage counts the vectors of workspace files indexed under the vector space.
-  const observation = await capability.coverageBatch([{ rootIds: status.authorizedRootIds }]);
+  if (!observation) {
+    throw new Error('Native progress has no coverage for its authorized roots.');
+  }
   if (observation.kind === 'blocked') {
     return {
       ...(observation.cause ? { cause: observation.cause } : {}),
@@ -257,20 +275,27 @@ function publishNativeFailure(error: unknown): void {
     publishPreparingProgress();
     return;
   }
+  publishFailureReason(nativeProgressError(error));
+}
+
+function publishFailureReason(reason: string): void {
   useWorkspaceCollectionSyncStatusStore.getState().setStatus({
     blockedReason: null,
-    lastError: nativeProgressError(error),
+    lastError: reason,
     state: 'error',
   });
 }
 
-/** Visible UI observes the main-owned producer; closing this view never retires ingestion. */
+/**
+ * Visible UI observes the main-owned producer; closing this view never retires ingestion. It
+ * reads once on mount, then shows what Main pushes after each change; it never polls.
+ */
 export function NativeWorkspaceIndexProvider({
   children,
   capability,
 }: {
   readonly children: ReactNode;
-  readonly capability: IndexSearchCapability & IndexConfigCapability;
+  readonly capability: IndexSearchCapability & IndexConfigCapability & IndexLifecycleCapability;
 }) {
   const retained = useRef<RetainedProgress | null>(null);
   const { fileSystemAdapter } = useAdapters();
@@ -303,7 +328,6 @@ export function NativeWorkspaceIndexProvider({
   );
   useEffect(() => {
     let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const publish = useWorkspaceCollectionSyncStatusStore.getState().setStatus;
     const mountedRoots = rootDirectoryHandles
       .map((root) => [root.rootId ?? null, root.path])
@@ -333,44 +357,51 @@ export function NativeWorkspaceIndexProvider({
       return;
     }
     const indexMode = mode === 'semantic' ? 'VECTOR' : 'TEXT';
-    const refresh = async (): Promise<void> => {
+    const show = (progress: NativeProgress): void => {
+      if (progress.kind === 'unavailable') {
+        publishUnavailableProgress(progress);
+        return;
+      }
+      reconcileProgressIdentity(retained, selectionIdentity, progress.identity);
+      if (progress.kind === 'invalidated') {
+        return;
+      }
+      publishNativeProgress(
+        progress.coverage,
+        progress.complete,
+        indexMode,
+        nativeRootPath(progress.status, rootDirectoryHandles, dbRootIdByAdapterRootId)
+      );
+    };
+    // Main pushes after every change it reads; a push is newer than this view's first read.
+    let pushed = false;
+    const unsubscribe = capability.onLifecycleChanged(({ progress }) => {
+      pushed = true;
+      if (progress.kind === 'failed') {
+        publishFailureReason(progress.reason);
+        return;
+      }
       try {
-        const progress = await readNativeProgress(capability);
-        if (disposed) {
-          return;
-        }
-        if (progress.kind === 'unavailable') {
-          publishUnavailableProgress(progress);
-          return;
-        }
-        reconcileProgressIdentity(retained, selectionIdentity, progress.identity);
-        if (progress.kind === 'invalidated') {
-          return;
-        }
-        publishNativeProgress(
-          progress.coverage,
-          progress.complete,
-          indexMode,
-          nativeRootPath(progress.status, rootDirectoryHandles, dbRootIdByAdapterRootId)
-        );
+        show(nativeProgress(progress.status, progress.coverage));
       } catch (error) {
-        if (!disposed) {
+        publishNativeFailure(error);
+      }
+    });
+    readNativeProgress(capability).then(
+      (progress) => {
+        if (!(disposed || pushed)) {
+          show(progress);
+        }
+      },
+      (error: unknown) => {
+        if (!(disposed || pushed)) {
           publishNativeFailure(error);
         }
-      } finally {
-        if (!disposed) {
-          timer = setTimeout(() => {
-            void refresh();
-          }, 2000);
-        }
       }
-    };
-    void refresh();
+    );
     return () => {
       disposed = true;
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
+      unsubscribe();
     };
   }, [
     capability,

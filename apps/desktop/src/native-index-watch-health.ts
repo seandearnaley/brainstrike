@@ -2,6 +2,8 @@ import type { createNativeCanonicalPublication } from '@brainstrike/canonical-in
 import type { WatcherHealthTransition } from '@brainstrike/types';
 
 interface Dependencies {
+  /** The root's watch failure was recorded or cleared: its status changed. */
+  readonly changed: () => void;
   readonly onError: (operation: string, error: unknown) => void;
   readonly publication: () =>
     | Pick<ReturnType<typeof createNativeCanonicalPublication>, 'invalidateScope'>
@@ -20,6 +22,9 @@ export function createNativeIndexWatchHealthHandler(dependencies: Dependencies) 
     }
     if (health.state === 'healthy') {
       const recovering = dependencies.watchFailures.delete(dependencies.rootId);
+      if (recovering) {
+        dependencies.changed();
+      }
       const workspace = dependencies.workspace();
       if (recovering && workspace) {
         workspace
@@ -42,6 +47,7 @@ export function createNativeIndexWatchHealthHandler(dependencies: Dependencies) 
       return;
     }
     dependencies.watchFailures.set(dependencies.rootId, reason);
+    dependencies.changed();
     dependencies.onError('workspace watcher health', new Error(reason));
   };
 }

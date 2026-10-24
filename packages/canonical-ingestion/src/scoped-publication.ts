@@ -123,10 +123,16 @@ function manifest(plan: ScopedFilePlan): ScopedManifestFile {
   };
 }
 
-/** The existing scan-ticket predicate, scoped to canonical PG IDs and the sole native writer. */
+/**
+ * The existing scan-ticket predicate, scoped to canonical PG IDs and the sole native writer.
+ * `onReadinessChange` hears each scan start and each change of a scope's completeness (a
+ * settle, an abort, an invalidation); a scan's own file writes leave it incomplete, so they
+ * are not changes.
+ */
 export function createNativeCanonicalPublication(
   writer: PublicationWriter,
-  scopes: readonly CanonicalSourceScope[]
+  scopes: readonly CanonicalSourceScope[],
+  onReadinessChange: () => void = () => {}
 ): CanonicalVectorPublicationPort & {
   invalidateFile(file: Pick<CanonicalFileIdentity, 'fileId' | 'rootId' | 'embeddingSetId'>): void;
   invalidateScope(scope: CanonicalSourceScope): void;
@@ -155,6 +161,18 @@ export function createNativeCanonicalPublication(
       writeFailed: false,
     });
   }
+  /** Set a scope's completeness; true when that changed it. */
+  const complete = (state: ScanState, value: boolean): boolean => {
+    const changed = state.scanComplete !== value;
+    state.scanComplete = value;
+    return changed;
+  };
+  /** Set one scope's completeness, telling the observer when that changed it. */
+  const settle = (state: ScanState, value: boolean): void => {
+    if (complete(state, value)) {
+      onReadinessChange();
+    }
+  };
   const stateFor = (scope: CanonicalSourceScope): ScanState => {
     const state = states.get(scopeKey(scope));
     if (!state) {
@@ -191,12 +209,16 @@ export function createNativeCanonicalPublication(
       }
     };
     assertFileCurrent();
+    let changed = false;
     for (const scope of ownedScopes) {
       if (file.rootId === scope.rootId) {
         const affected = stateFor(scope);
-        affected.scanComplete = false;
+        changed = complete(affected, false) || changed;
         affected.mutationRevision += 1;
       }
+    }
+    if (changed) {
+      onReadinessChange();
     }
     const pending = Promise.resolve().then(() => work(assertFileCurrent));
     state.pending.add(pending);
@@ -270,7 +292,7 @@ export function createNativeCanonicalPublication(
       }
       const state = stateForTicket(ticket);
       state.aborted = true;
-      state.scanComplete = false;
+      settle(state, false);
       await Promise.allSettled([...state.pending]);
       await state.finishing;
     },
@@ -291,6 +313,7 @@ export function createNativeCanonicalPublication(
       state.writeFailed = false;
       state.scanComplete = false;
       state.sourceProof = undefined;
+      onReadinessChange();
       const provisional = Object.freeze({
         generation: state.generation,
         requestId,
@@ -340,7 +363,7 @@ export function createNativeCanonicalPublication(
       if (state.finishing !== undefined) {
         return Promise.reject(new Error('Canonical scan is already finishing.'));
       }
-      state.scanComplete = false;
+      settle(state, false);
       const finish = Promise.resolve()
         .then(async (): Promise<CanonicalScanReceipt> => {
           await Promise.allSettled([...state.pending]);
@@ -375,10 +398,10 @@ export function createNativeCanonicalPublication(
           if (state.mutationRevision !== revision) {
             return receipt('manifest-mismatch');
           }
-          state.scanComplete = result.complete;
           if (result.complete) {
             state.sourceProof = { files, storeId: result.storeId };
           }
+          settle(state, result.complete);
           return receipt(result.complete ? 'complete' : 'manifest-mismatch');
         })
         .finally(() => {
@@ -404,6 +427,7 @@ export function createNativeCanonicalPublication(
       }),
     invalidateFile: (file) => {
       const acknowledgedPlan = published.delete(file.fileId);
+      let changed = false;
       for (const scope of ownedScopes) {
         if (scope.rootId !== file.rootId) {
           continue;
@@ -418,16 +442,19 @@ export function createNativeCanonicalPublication(
         ) {
           continue;
         }
-        state.scanComplete = false;
+        changed = complete(state, false) || changed;
         state.mutationRevision += 1;
         state.sourceProof = undefined;
+      }
+      if (changed) {
+        onReadinessChange();
       }
     },
     invalidateScope: (scope) => {
       const state = stateFor(scope);
-      state.scanComplete = false;
       state.mutationRevision += 1;
       state.sourceProof = undefined;
+      settle(state, false);
     },
     prepareVectorFile: ({ file, payload, profile, ticket }) =>
       runWrite(ticket, file, () =>
