@@ -230,28 +230,42 @@ jobs:
                   "partition": "desktop",
                   "pr_filters": "--filter=\"@brainstrike/desktop\"",
                   "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "1/4"
+                  "vitest_shard": "1/6"
                 },
                 {
                   "shard": "desktop-2",
                   "partition": "desktop",
                   "pr_filters": "--filter=\"@brainstrike/desktop\"",
                   "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "2/4"
+                  "vitest_shard": "2/6"
                 },
                 {
                   "shard": "desktop-3",
                   "partition": "desktop",
                   "pr_filters": "--filter=\"@brainstrike/desktop\"",
                   "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "3/4"
+                  "vitest_shard": "3/6"
                 },
                 {
                   "shard": "desktop-4",
                   "partition": "desktop",
                   "pr_filters": "--filter=\"@brainstrike/desktop\"",
                   "push_filters": "--filter=\"@brainstrike/desktop\"",
-                  "vitest_shard": "4/4"
+                  "vitest_shard": "4/6"
+                },
+                {
+                  "shard": "desktop-5",
+                  "partition": "desktop",
+                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
+                  "push_filters": "--filter=\"@brainstrike/desktop\"",
+                  "vitest_shard": "5/6"
+                },
+                {
+                  "shard": "desktop-6",
+                  "partition": "desktop",
+                  "pr_filters": "--filter=\"@brainstrike/desktop\"",
+                  "push_filters": "--filter=\"@brainstrike/desktop\"",
+                  "vitest_shard": "6/6"
                 },
                 {
                   "shard": "heavy",
@@ -368,7 +382,7 @@ jobs:
     # required `Unit` fan-in below. `.turbo` cache keys include `runner.arch`,
     # so this cannot cross-restore an incompatible ARM cache layer.
     runs-on: ubicloud-standard-4
-    # Desktop has four native Vitest shards and Agent two; the remaining UI
+    # Desktop has six native Vitest shards and Agent two; the remaining UI
     # packages keep their own row, Store takes assistant-ui and state-store
     # (the two longest lanes Rest used to run), and Rest owns every other
     # affected package.
