@@ -11,10 +11,10 @@
       ]
     },
     "test:integration": {
+      // The indexer process these proofs start loads the native add-ons.
       "dependsOn": [
-        "@brainstrike/canonical-ingestion#build",
-        "@brainstrike/secure-fs-native#build",
-        "@brainstrike/indexer#build"
+        "topo",
+        "^build"
       ]
     }
   }

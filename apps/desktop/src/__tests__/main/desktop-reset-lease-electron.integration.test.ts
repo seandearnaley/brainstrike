@@ -120,7 +120,7 @@ describe('real Electron desktop reset lease adapter', () => {
     const cli = await launchHost(profile, {
       lifetime: 'persistent',
       spawn: createNodeHostSpawner({
-        entrypoint: resolve('../../packages/host-lease/dist/process-entry.js'),
+        entrypoint: resolve('../../packages/host-lease/src/process-entry.ts'),
       }),
     });
     const before = await readFile(join(profile, 'host.json'), 'utf8');

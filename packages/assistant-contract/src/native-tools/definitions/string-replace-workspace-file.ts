@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { StringReplaceWorkspaceFileInputSchema } from '../schemas/schemas-workspace.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { StringReplaceWorkspaceFileInputSchema } from '../schemas/schemas-workspace.ts';
 
 // Surgical-edit complement to writeWorkspaceFile: fuzzy-matches an oldStr
 // block and replaces it. Same edit-risk gating.

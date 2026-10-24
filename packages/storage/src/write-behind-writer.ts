@@ -1,4 +1,4 @@
-import type { StorageAdapter } from './types.js';
+import type { StorageAdapter } from './types.ts';
 
 /**
  * The owner a write-behind writer hands each key's latest value to. It must apply and settle

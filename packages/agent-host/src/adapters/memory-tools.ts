@@ -1,8 +1,8 @@
 import { isStandardSchemaWithJSON } from '@mastra/core/schema';
 import { Memory } from '@mastra/memory';
-import type { HostTool } from '../ports.js';
-import type { HostMemory } from './memory.js';
-import type { StateStoreHostMemoryOptions } from './state-store-host-memory.js';
+import type { HostTool } from '../ports.ts';
+import type { HostMemory } from './memory.ts';
+import type { StateStoreHostMemoryOptions } from './state-store-host-memory.ts';
 
 /**
  * The public Memory configuration's own model-facing tools (`Memory.listTools`):

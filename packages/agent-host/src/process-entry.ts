@@ -18,11 +18,11 @@ import { Schema } from 'effect';
 import {
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
-} from './platform-launch-options.js';
-import type { HostPlatform } from './ports.js';
-import { isProcessEntrypoint } from './process-entrypoint.js';
-import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.js';
-import { type HostTracing, startHostTracing } from './telemetry/otel.js';
+} from './platform-launch-options.ts';
+import type { HostPlatform } from './ports.ts';
+import { isProcessEntrypoint } from './process-entrypoint.ts';
+import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.ts';
+import { type HostTracing, startHostTracing } from './telemetry/otel.ts';
 export type HostPlatformFactory = (
   options: HostStartOptions,
   context: HostStartupContext,

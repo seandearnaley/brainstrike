@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { z } from 'zod';
-import { attachAgentHost, startAgentHost } from '../../dist/index.js';
+import { attachAgentHost, startAgentHost } from '../../src/index.ts';
 
 // Explicit recording from real SDK -> socket -> writer-worker SQLite -> replay.
 // This owned fixture uses a scripted model and never invokes a live provider.

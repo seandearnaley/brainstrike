@@ -41,11 +41,11 @@ type TransitionErrorCode =
   | 'mcp-host-stale-generation';
 export class McpHostRevisionPublisherTransitionError extends Error {
   readonly category: 'configuration' | 'generation-retired';
-  constructor(
-    readonly code: TransitionErrorCode,
-    configuredServerId?: string
-  ) {
+  readonly code: TransitionErrorCode;
+
+  constructor(code: TransitionErrorCode, configuredServerId?: string) {
     super(configuredServerId ? `${code}: ${configuredServerId}` : code);
+    this.code = code;
     this.name = 'McpHostRevisionPublisherTransitionError';
     this.category =
       code === 'mcp-host-stale-generation' || code === 'mcp-host-future-generation'
@@ -82,7 +82,11 @@ export class McpHostRevisionPublisher {
   private servers: readonly McpHostServerSnapshot[] = [];
   private readonly watches = new Map<number, WatchRegistration>();
 
-  constructor(private readonly options: McpHostRevisionPublisherOptions) {}
+  private readonly options: McpHostRevisionPublisherOptions;
+
+  constructor(options: McpHostRevisionPublisherOptions) {
+    this.options = options;
+  }
 
   snapshot(): McpHostSnapshot {
     return { revision: this.revision, servers: structuredClone(this.servers) };

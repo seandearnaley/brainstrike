@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ListWorktreesInputSchema } from '../schemas/schemas-worktrees.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ListWorktreesInputSchema } from '../schemas/schemas-worktrees.ts';
 
 // Read-only orientation. Deliberately NOT execute-risk even though its
 // siblings mutate: an agent must be able to answer "which worktrees exist"

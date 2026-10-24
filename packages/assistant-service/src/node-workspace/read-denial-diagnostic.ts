@@ -1,7 +1,7 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { AccessError } from '@brainstrike/file-system';
 import type { createLogger } from '@brainstrike/logging';
-import { isFileNotFoundError } from './file-not-found-error.js';
+import { isFileNotFoundError } from './file-not-found-error.ts';
 
 const MAX_READ_DENIAL_DIAGNOSTIC_LENGTH = 256;
 const READ_DENIAL_TRUNCATION_MARKER = '…[truncated]';

@@ -85,11 +85,11 @@ function stubWorker(answer: (request: { id: string }) => unknown) {
   const terminated = vi.fn();
   const names: string[] = [];
   class FakeWorker extends EventTarget {
-    constructor(
-      readonly url: string | URL,
-      options?: WorkerOptions
-    ) {
+    readonly url: string | URL;
+
+    constructor(url: string | URL, options?: WorkerOptions) {
       super();
+      this.url = url;
       names.push(options?.name ?? '');
     }
     postMessage(request: { id: string }): void {

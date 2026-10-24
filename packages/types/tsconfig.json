@@ -1,10 +1,7 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
-    "declaration": true,
-    "declarationMap": true,
+    "noEmit": true,
     "types": [
       "node"
     ],
@@ -14,7 +11,6 @@
     "src/**/*.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "**/*.test.*",
     "**/*.spec.*"

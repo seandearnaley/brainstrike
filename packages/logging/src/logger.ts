@@ -5,7 +5,7 @@ import type {
   TransportTargetOptions,
 } from 'pino';
 import pino from 'pino';
-import { isErrorObject, logSerializers } from './log-serializers.js';
+import { isErrorObject, logSerializers } from './log-serializers.ts';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {
@@ -27,24 +27,18 @@ const isWorkerEnvironment =
 const isBrowserEnvironment =
   (typeof window !== 'undefined' && typeof window.document !== 'undefined') || isWorkerEnvironment;
 
-// biome-ignore lint/style/noEnum: Widely used enum with string values - refactoring would be breaking change
-export enum LogLevel {
-  TRACE = 'trace',
-  DEBUG = 'debug',
-  INFO = 'info',
-  WARN = 'warn',
-  ERROR = 'error',
-  FATAL = 'fatal',
-  SILENT = 'silent',
-}
+export const LogLevel = {
+  DEBUG: 'debug',
+  ERROR: 'error',
+  FATAL: 'fatal',
+  INFO: 'info',
+  SILENT: 'silent',
+  TRACE: 'trace',
+  WARN: 'warn',
+} as const;
+export type LogLevel = (typeof LogLevel)[keyof typeof LogLevel];
 
-type ActiveLogLevel =
-  | LogLevel.TRACE
-  | LogLevel.DEBUG
-  | LogLevel.INFO
-  | LogLevel.WARN
-  | LogLevel.ERROR
-  | LogLevel.FATAL;
+type ActiveLogLevel = Exclude<LogLevel, typeof LogLevel.SILENT>;
 
 type LogMethodName = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 

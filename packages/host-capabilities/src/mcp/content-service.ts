@@ -43,7 +43,10 @@ export interface McpContentServiceOptions {
 export class McpContentService implements HostMcpContentService {
   readonly #port: McpContentApplicationPort;
 
-  constructor(private readonly options: McpContentServiceOptions) {
+  private readonly options: McpContentServiceOptions;
+
+  constructor(options: McpContentServiceOptions) {
+    this.options = options;
     this.#port = createMcpContentApplicationPort(options.host, {
       onInternalError: (code, cause) => {
         logger.error('MCP content internal failure', { cause, code });

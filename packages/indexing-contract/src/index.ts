@@ -1,13 +1,13 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import type { EmbeddingPrompts } from './catalog-embedding-model.js';
-import type { EmbeddingDimensionParameter, EmbeddingPooling } from './embedding-worker-protocol.js';
+import type { EmbeddingPrompts } from './catalog-embedding-model.ts';
+import type { EmbeddingDimensionParameter, EmbeddingPooling } from './embedding-worker-protocol.ts';
 
-export * from './catalog-embedding-model.js';
-export * from './embedding-input-hash.js';
-export * from './embedding-worker-protocol.js';
-export type * from './local-execution.js';
-export * from './model-cache-status.js';
-export * from './onnx-wasm-paths.js';
+export * from './catalog-embedding-model.ts';
+export * from './embedding-input-hash.ts';
+export * from './embedding-worker-protocol.ts';
+export type * from './local-execution.ts';
+export * from './model-cache-status.ts';
+export * from './onnx-wasm-paths.ts';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 

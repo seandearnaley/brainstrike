@@ -280,7 +280,11 @@ export interface NativeWorkspaceSearchResults extends WorkspaceSearchResults {
 export class NativeWorkspaceSearchExecutor {
   private requestSeq = 0;
   private inferenceController: AbortController | undefined;
-  constructor(private readonly deps: NativeWorkspaceSearchDependencies) {}
+  private readonly deps: NativeWorkspaceSearchDependencies;
+
+  constructor(deps: NativeWorkspaceSearchDependencies) {
+    this.deps = deps;
+  }
   cancelPendingSearch(): void {
     this.requestSeq += 1;
     this.inferenceController?.abort(new Error('Native semantic search cancelled.'));

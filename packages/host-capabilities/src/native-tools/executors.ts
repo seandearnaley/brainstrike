@@ -31,32 +31,32 @@ import {
 } from '@brainstrike/agent/tool-runtime';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
-import { createArtifactReaderModelProjection } from './artifact-reader-model-projection.js';
-import { SEARCH_NATIVE_TOOL_EXECUTORS } from './executors-search.js';
+import { createArtifactReaderModelProjection } from './artifact-reader-model-projection.ts';
+import { SEARCH_NATIVE_TOOL_EXECUTORS } from './executors-search.ts';
 import {
   runDeleteWorkspaceFile,
   runRenameWorkspaceFile,
   runStringReplaceWorkspaceFile,
   runWriteWorkspaceFile,
-} from './file-mutation-tools.js';
-import { runManageCanvas } from './manage-canvas-tool.js';
-import { runManageTaskList } from './manage-task-list-tool.js';
-import type { CanvasStore, FileMutationPorts, TaskListStore } from './ports.js';
-import { runReadWorkspaceDirectory } from './read-workspace-directory-tool.js';
-import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.js';
-import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection.js';
-import { runReadWorkspaceFile } from './read-workspace-file-tool.js';
+} from './file-mutation-tools.ts';
+import { runManageCanvas } from './manage-canvas-tool.ts';
+import { runManageTaskList } from './manage-task-list-tool.ts';
+import type { CanvasStore, FileMutationPorts, TaskListStore } from './ports.ts';
+import { runReadWorkspaceDirectory } from './read-workspace-directory-tool.ts';
+import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.ts';
+import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection.ts';
+import { runReadWorkspaceFile } from './read-workspace-file-tool.ts';
 import {
   parseToolExecuteInput,
   readToolCallId,
   type ToolExecuteContext,
   type ToolExecuteInput,
-} from './tool-execute-support.js';
-import { projectWebExtractModelOutput } from './web-extract-model-projection.js';
-import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool.js';
-import { projectWebSearchModelOutput } from './web-search-model-projection.js';
-import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool.js';
-import { readStateScope } from './workspace-file-staleness.js';
+} from './tool-execute-support.ts';
+import { projectWebExtractModelOutput } from './web-extract-model-projection.ts';
+import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool.ts';
+import { projectWebSearchModelOutput } from './web-search-model-projection.ts';
+import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool.ts';
+import { readStateScope } from './workspace-file-staleness.ts';
 
 export type NativeToolDefinitions = HostToolDefinitions;
 export type NativeToolDefinition = NativeToolDefinitions[string];

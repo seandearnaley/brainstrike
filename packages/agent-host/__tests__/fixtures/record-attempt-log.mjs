@@ -6,7 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { StateStore } from '@brainstrike/state-store';
 import { MockLanguageModelV4 } from 'ai/test';
 import { z } from 'zod';
-import { HostCore } from '../../dist/core.js';
+import { HostCore } from '../../src/core.ts';
 
 // Explicit recording from the real SDK -> HostCore -> SQLite of one thread with
 // two runs: a run whose first attempt stalls after partial text and recovers,

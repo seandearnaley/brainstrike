@@ -4,7 +4,7 @@ import {
   type LocalRuntimeId,
   type ProbeLocalRuntimeOptions,
   resolveRuntimeBaseUrl,
-} from './local-runtime-discovery.js';
+} from './local-runtime-discovery.ts';
 import type {
   ListAllLocalRuntimeModelsOptions,
   ListLocalRuntimeModelsOptions,
@@ -16,7 +16,7 @@ import type {
   LocalRuntimeNormalizedModel,
   LocalRuntimeOllamaCapabilitiesResolved,
   LocalRuntimeOllamaCapabilitiesResult,
-} from './local-runtime-model-catalog-types.js';
+} from './local-runtime-model-catalog-types.ts';
 import {
   buildRuntimeAvailabilityMessage,
   buildRuntimeEmbeddingProbeEndpoints,
@@ -42,8 +42,8 @@ import {
   resolveCandidateCapabilities,
   sanitizeVerificationLimit,
   setModelFreshness,
-} from './local-runtime-model-parsing.js';
-import { hydrateOllamaModelCapabilities } from './local-runtime-ollama-capabilities.js';
+} from './local-runtime-model-parsing.ts';
+import { hydrateOllamaModelCapabilities } from './local-runtime-ollama-capabilities.ts';
 import {
   buildRuntimeAuthHeaders,
   buildRuntimeEndpoint,
@@ -54,7 +54,7 @@ import {
   type LocalRuntimeLogger,
   noopLocalRuntimeLogger,
   sanitizeDuration,
-} from './local-runtime-utils.js';
+} from './local-runtime-utils.ts';
 
 export {
   isLoadedRuntimeModelCatalogState,
@@ -84,7 +84,7 @@ export {
   type LocalRuntimeOllamaCapabilitiesResult,
   type LocalRuntimeOllamaCapabilitiesUnavailable,
   type OllamaModelCapability,
-} from './local-runtime-model-catalog-types.js';
+} from './local-runtime-model-catalog-types.ts';
 
 export class LocalRuntimeModelCatalogService {
   private readonly discoveryService: LocalRuntimeDiscoveryService;

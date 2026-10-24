@@ -39,11 +39,19 @@ export class CommittedHostCheckpoints {
   private rows: readonly HostLogRow[] | undefined;
   private value: EditCheckpointContextValue | undefined;
 
+  private readonly client: Pick<HostClient, 'request'>;
+  private readonly source: Pick<CommittedThreadSession, 'getSnapshot' | 'subscribe'>;
+  private readonly threadId: string;
+
   constructor(
-    private readonly client: Pick<HostClient, 'request'>,
-    private readonly source: Pick<CommittedThreadSession, 'getSnapshot' | 'subscribe'>,
-    private readonly threadId: string
-  ) {}
+    client: Pick<HostClient, 'request'>,
+    source: Pick<CommittedThreadSession, 'getSnapshot' | 'subscribe'>,
+    threadId: string
+  ) {
+    this.client = client;
+    this.source = source;
+    this.threadId = threadId;
+  }
 
   readonly subscribe = (listener: () => void): (() => void) => this.source.subscribe(listener);
 

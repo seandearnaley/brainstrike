@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ReadToolOutputArtifactCursorInputSchema } from '../schemas/schemas-artifacts.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ReadToolOutputArtifactCursorInputSchema } from '../schemas/schemas-artifacts.ts';
 
 export const readToolOutputArtifact = defineNativeTool({
   defaults: {

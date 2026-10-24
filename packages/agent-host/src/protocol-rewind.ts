@@ -3,7 +3,7 @@ import {
   HostRewindConflictSchema,
   HostRewindFileOutcomeSchema,
   HostTurnSnapshotSchema,
-} from './workspace-wire.js';
+} from './workspace-wire.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Command = { commandId: Id };

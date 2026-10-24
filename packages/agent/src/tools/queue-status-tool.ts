@@ -7,9 +7,9 @@
  * @see retrieval-tool.ts for the DI pattern reference
  */
 
-import type { QueueStatusInput } from './schemas';
-import { QueueStatusInputSchema } from './schemas';
-import { handleToolError, type ToolContext } from './types';
+import type { QueueStatusInput } from './schemas.ts';
+import { QueueStatusInputSchema } from './schemas.ts';
+import { handleToolError, type ToolContext } from './types.ts';
 
 /** Tool identifier used in the Mastra tools registry */
 export const QUEUE_STATUS_TOOL_ID = 'brainstrike.queueStatus' as const;

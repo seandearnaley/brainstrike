@@ -6,9 +6,9 @@
  * request permission ONLY on the user's toggle-on click, never on load).
  */
 
-import type { AssistantNotificationPermissionState } from './should-notify';
+import type { AssistantNotificationPermissionState } from './should-notify.ts';
 
-export type { AssistantNotificationPermissionState } from './should-notify';
+export type { AssistantNotificationPermissionState } from './should-notify.ts';
 
 interface NotificationPermissionApi {
   readonly permission: string;

@@ -15,7 +15,7 @@
  * FIELD NAME (`feature`/`setting`, `details`/`message`), which keeps an unknown
  * type readable.
  */
-import { type AssistantRunEventMetadata, boundRunEventReason } from './run-events.js';
+import { type AssistantRunEventMetadata, boundRunEventReason } from './run-events.ts';
 
 export interface ProviderCallWarningOrigin {
   readonly modelId: string;

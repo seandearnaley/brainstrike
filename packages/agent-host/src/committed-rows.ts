@@ -1,5 +1,5 @@
-import { hydratesHostEvent } from './host-event-encoding.js';
-import type { HostLogRow } from './protocol.js';
+import { hydratesHostEvent } from './host-event-encoding.ts';
+import type { HostLogRow } from './protocol.ts';
 
 /**
  * Each thread's committed rows that the hydration read keeps, as Core decoded

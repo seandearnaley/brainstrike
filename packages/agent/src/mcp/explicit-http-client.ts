@@ -4,14 +4,14 @@ import {
   SdkHttpError,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
-import type { McpClientCapabilityLease } from './client-capabilities';
-import type { McpClientExtensionRequestContract } from './client-extension-registry';
-import { normalizeMcpRequestOptions } from './client-policy';
+import type { McpClientCapabilityLease } from './client-capabilities.ts';
+import type { McpClientExtensionRequestContract } from './client-extension-registry.ts';
+import { normalizeMcpRequestOptions } from './client-policy.ts';
 import {
   type ExplicitHttpMcpClientOptions,
   type NormalizedHttpClientOptions,
   normalizeExplicitHttpClientOptions,
-} from './explicit-http-client-options';
+} from './explicit-http-client-options.ts';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -38,30 +38,33 @@ import type {
   ExplicitHttpMcpSubscriptionFilter,
   ExplicitHttpMcpTool,
   NegotiatedProtocolFacts,
-} from './explicit-http-client-types';
-import { createExplicitHttpTransport, type ExplicitHttpTransport } from './explicit-http-transport';
-import { createExplicitMcpSdkClient, type McpCatalogKind } from './explicit-mcp-client-core';
-import { closeOwnedHttpConnection } from './http-connection-cleanup';
+} from './explicit-http-client-types.ts';
+import {
+  createExplicitHttpTransport,
+  type ExplicitHttpTransport,
+} from './explicit-http-transport.ts';
+import { createExplicitMcpSdkClient, type McpCatalogKind } from './explicit-mcp-client-core.ts';
+import { closeOwnedHttpConnection } from './http-connection-cleanup.ts';
 import {
   type InteractiveOAuthOperation,
   tryCompleteInteractiveOAuthRequestAuthorization,
-} from './interactive-oauth-completion';
+} from './interactive-oauth-completion.ts';
 import {
   type McpServerFeatureEventHandlers,
   McpServerFeatureEventRegistry,
-} from './server-feature-events';
+} from './server-feature-events.ts';
 import {
   listenForMcpTasks,
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
   requireMcpTasksRegistry,
-} from './tasks-extension';
+} from './tasks-extension.ts';
 import {
   diagnoseInvalidatedCloseFailure,
   notifyUnexpectedClose,
-} from './unexpected-close-observer';
+} from './unexpected-close-observer.ts';
 
-export type { ExplicitHttpMcpClientOptions } from './explicit-http-client-options';
+export type { ExplicitHttpMcpClientOptions } from './explicit-http-client-options.ts';
 export type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -87,7 +90,7 @@ export type {
   ExplicitHttpMcpTool,
   ExplicitHttpMcpTransport,
   NegotiatedProtocolFacts,
-} from './explicit-http-client-types';
+} from './explicit-http-client-types.ts';
 
 const CLOSED_ERROR_MESSAGE = 'Explicit HTTP MCP client is closed';
 

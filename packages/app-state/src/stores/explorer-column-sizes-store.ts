@@ -22,7 +22,7 @@
 import {
   createSingletonColumnSizesStore,
   type TreeTableColumnSizesStoreState,
-} from './tree-table-column-sizes-store';
+} from './tree-table-column-sizes-store.ts';
 
 export const EXPLORER_COLUMN_BOUNDS = {
   size: { defaultWidth: 76, maxWidth: 160, minWidth: 52 },

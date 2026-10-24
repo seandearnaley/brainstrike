@@ -30,7 +30,7 @@ export {
   FenceReadinessError,
   type FenceReadinessReason,
   isFenceReadinessError,
-} from './fence/fence-readiness-error';
+} from './fence/fence-readiness-error.ts';
 // The policy domain grammar and its limits live on the browser-safe side of the
 // Mastra boundary (BST-1646) because the run_python INPUT schema needs them;
 // this seam re-exports them so its public API is unchanged.

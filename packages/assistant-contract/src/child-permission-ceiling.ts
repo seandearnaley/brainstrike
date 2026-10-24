@@ -2,8 +2,8 @@ import {
   type PermissionDecision,
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
-} from './permission-policy.js';
-import type { ToolRiskCategory } from './tool-risk.js';
+} from './permission-policy.ts';
+import type { ToolRiskCategory } from './tool-risk.ts';
 
 const risks = ['read', 'edit', 'execute', 'mcp'] as const;
 

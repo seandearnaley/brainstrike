@@ -35,7 +35,10 @@ export class EmbeddingHostSettingsReads {
   private readonly webgpuAdapterRequests: ReturnType<typeof createWebGpuAdapterRequestChannel>;
   private readonly modelCacheRequests: ReturnType<typeof createModelCacheRequestChannel>;
 
-  constructor(private readonly port: EmbeddingHostSettingsReadsPort) {
+  private readonly port: EmbeddingHostSettingsReadsPort;
+
+  constructor(port: EmbeddingHostSettingsReadsPort) {
+    this.port = port;
     this.webgpuAdapterRequests = createWebGpuAdapterRequestChannel(
       (request) => port.send(EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT, request),
       port.timeoutMs

@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ensureVectorPreferencesHydrated,
   useVectorPreferencesStore,
-} from '../stores/vector-preferences-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/vector-preferences-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useVectorPreferencesStore as PersistApi<typeof useVectorPreferencesStore>;
 
@@ -316,7 +316,7 @@ describe('vector-preferences-store', () => {
   it('auto-hydrates on first module evaluation without manual rehydrate', async () => {
     vi.resetModules();
 
-    const module = await import('../stores/vector-preferences-store');
+    const module = await import('../stores/vector-preferences-store.ts');
     const freshStore = module.useVectorPreferencesStore as PersistApi<
       typeof module.useVectorPreferencesStore
     >;

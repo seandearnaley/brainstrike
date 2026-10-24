@@ -1,4 +1,4 @@
-import { getProviderDefinition, type ProviderId } from './provider-registry.js';
+import { getProviderDefinition, type ProviderId } from './provider-registry.ts';
 
 /** The memory feature a hosted provider's API key is required for. */
 export type MemoryCredentialNeed =

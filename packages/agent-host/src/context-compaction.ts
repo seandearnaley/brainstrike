@@ -12,13 +12,13 @@ import {
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { generateText, type LanguageModel, type ModelMessage } from 'ai';
-import type { HostRunState } from './core-state.js';
-import { correlatedFailure } from './failure-correlation.js';
-import { type Json, jsonValue } from './json-value.js';
-import type { HostPreparedStep } from './ports.js';
-import { applyProjectionRewrites } from './projection-rewrites.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
-import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.js';
+import type { HostRunState } from './core-state.ts';
+import { correlatedFailure } from './failure-correlation.ts';
+import { type Json, jsonValue } from './json-value.ts';
+import type { HostPreparedStep } from './ports.ts';
+import { applyProjectionRewrites } from './projection-rewrites.ts';
+import type { HostEvent, HostLogRow } from './protocol.ts';
+import { type HostTelemetryIds, hostTelemetry } from './telemetry/host-telemetry.ts';
 
 const logger = createLogger('AgentHost');
 

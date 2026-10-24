@@ -19,10 +19,13 @@ export class CanonicalUtilityChannel {
   private sequence = 0;
   private readonly pending = new Map<number, Pending>();
   private failure: unknown;
-  constructor(
-    private readonly send: (frame: object) => void,
-    private readonly limit = MAX_CANONICAL_PENDING
-  ) {}
+  private readonly send: (frame: object) => void;
+  private readonly limit: number;
+
+  constructor(send: (frame: object) => void, limit = MAX_CANONICAL_PENDING) {
+    this.send = send;
+    this.limit = limit;
+  }
   get pendingCount(): number {
     return this.pending.size;
   }

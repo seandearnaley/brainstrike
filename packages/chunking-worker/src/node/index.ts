@@ -1,7 +1,7 @@
-import { type CanonicalChunker, canonicalChunker } from '../canonical';
-import { oxcNativeAdapter } from '../parsers/oxc-native-adapter';
+import { type CanonicalChunker, canonicalChunker } from '../canonical.ts';
+import { oxcNativeAdapter } from '../parsers/oxc-native-adapter.ts';
 
-export type { ChunkSkipCode, PortableChunkingResult } from '../portable-chunking';
+export type { ChunkSkipCode, PortableChunkingResult } from '../portable-chunking.ts';
 export type { ChunkingRequestOptions, PortableChunk } from '../shared';
 
 /**

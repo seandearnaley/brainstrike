@@ -8,7 +8,7 @@
 import type {
   NotificationEventKind,
   NotificationEventToggles,
-} from '../stores/notification-preferences-store';
+} from '../stores/notification-preferences-store.ts';
 
 /**
  * Mirrors the standard `NotificationPermission` union plus `'unsupported'` for

@@ -5,7 +5,7 @@ import type {
 } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { sendCatalogRequest } from './request.js';
+import { sendCatalogRequest } from './request.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const WorkspaceRootRequestSchema = Schema.Union(

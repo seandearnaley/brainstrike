@@ -1,6 +1,6 @@
 import { requestedEmbeddingPooling } from '@brainstrike/indexing-contract';
-import type { CatalogEmbeddingWorkerPlan } from './inference-plan.js';
-import type { EmbeddingResult, ModelConfig } from './types.js';
+import type { CatalogEmbeddingWorkerPlan } from './inference-plan.ts';
+import type { EmbeddingResult, ModelConfig } from './types.ts';
 
 /**
  * The model a pinned plan loads. The plan states its execution whole, so the

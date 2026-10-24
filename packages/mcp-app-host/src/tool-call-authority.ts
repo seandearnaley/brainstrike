@@ -1,12 +1,12 @@
-import { McpAppFrameRpcError } from './frame-bridge.js';
-import { parseMcpAppJsonRecord, parseMcpAppRequestId } from './messages.js';
+import { McpAppFrameRpcError } from './frame-bridge.ts';
+import { parseMcpAppJsonRecord, parseMcpAppRequestId } from './messages.ts';
 import type {
   McpAppGeneration,
   McpAppOwnedTool,
   McpAppProvenanceAuthority,
   McpAppToolCall,
-} from './provenance.js';
-import { expectExactKeys, expectRecord, type UnknownRecord } from './validation.js';
+} from './provenance.ts';
+import { expectExactKeys, expectRecord, type UnknownRecord } from './validation.ts';
 
 export type McpAppPermissionDecision = 'allow' | 'ask' | 'deny';
 export type McpAppToolRiskCategory = 'edit' | 'execute' | 'mcp' | 'read';

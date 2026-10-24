@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ListEmbeddingSetsInputSchema } from '../schemas/schemas-diagnostics.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ListEmbeddingSetsInputSchema } from '../schemas/schemas-diagnostics.ts';
 
 export const listEmbeddingSpaces = defineNativeTool({
   defaults: {

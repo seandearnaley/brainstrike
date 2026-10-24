@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import * as core from '../../dist/state-projection.js';
+import * as core from '../../src/state-projection.ts';
 
 // Instrument only the original writer callback; all producer logic is the emitted Core entry.
 let acquiredRoot;

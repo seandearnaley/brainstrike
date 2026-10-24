@@ -10,9 +10,9 @@ import {
   isSupportedProvider,
   refusalError,
 } from '@brainstrike/assistant-contract';
-import type { HostCredentials } from '../credentials.js';
-import { purgeMcpOAuthRuntimeState } from '../mcp/oauth-client-provider.js';
-import { createHostProviderAuth } from '../provider-auth.js';
+import type { HostCredentials } from '../credentials.ts';
+import { purgeMcpOAuthRuntimeState } from '../mcp/oauth-client-provider.ts';
+import { createHostProviderAuth } from '../provider-auth.ts';
 
 export interface HostAuthorityOptions {
   readonly credentials: HostCredentials;

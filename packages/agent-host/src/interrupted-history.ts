@@ -1,6 +1,6 @@
 import { healInterruptedModelMessages } from '@brainstrike/agent/provider-request';
 import type { ModelMessage } from 'ai';
-import type { HostRunState } from './core-state.js';
+import type { HostRunState } from './core-state.ts';
 
 /** Repair a provider view only for existing committed interrupted run occurrences. */
 export function healInterruptedRunHistory(

@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   __resetAssistantBudgetPreferencesStoreForTests,
   useAssistantBudgetPreferencesStore,
-} from '../stores/assistant-budget-preferences-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/assistant-budget-preferences-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useAssistantBudgetPreferencesStore as PersistApi<
   typeof useAssistantBudgetPreferencesStore

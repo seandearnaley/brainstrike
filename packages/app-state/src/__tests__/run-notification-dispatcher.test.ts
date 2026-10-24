@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createRunNotificationDispatcher } from '../notifications/run-notification-dispatcher';
-import type { NotificationEventToggles } from '../stores/notification-preferences-store';
+import { createRunNotificationDispatcher } from '../notifications/run-notification-dispatcher.ts';
+import type { NotificationEventToggles } from '../stores/notification-preferences-store.ts';
 
 const baseSettings = {
   events: allEventsOn(),

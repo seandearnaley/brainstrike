@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
-import type { RunLedgerRow } from '../assistant-memory-repository';
+import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability.ts';
+import type { RunLedgerRow } from '../assistant-memory-repository.ts';
 
 /** Newest-first host runs shown by the Task Ledger panel. */
 export const TASK_LEDGER_RUN_LIMIT = 50;

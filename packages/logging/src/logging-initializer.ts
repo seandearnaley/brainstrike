@@ -1,11 +1,11 @@
-import type { CustomTransportConfig } from './logger.js';
+import type { CustomTransportConfig } from './logger.ts';
 import {
   type ConsoleTransportConfig,
   configureLogger,
   type FileTransportConfig,
   type LoggerConfig,
   type LogLevel,
-} from './logger.js';
+} from './logger.ts';
 
 export type LoggerRuntime = 'browser' | 'electron-main' | 'electron-renderer';
 

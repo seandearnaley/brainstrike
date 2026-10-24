@@ -17,9 +17,11 @@ import {
 } from '@brainstrike/assistant-contract/assistant-attachments';
 import { type ModelMessage, modelMessageSchema, type UserModelMessage } from 'ai';
 import { Schema } from 'effect';
-import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.js';
+import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.ts';
 import {
   createHostRunState,
+  foldHostInteraction,
+  foldHostRunEffect,
   foldHostRunMessages,
   type HostRunBranch,
   type HostRunInput,
@@ -27,8 +29,9 @@ import {
   type HostRunState,
   type HostThreadGrants,
   recordHostConversationId,
-} from './core-state.js';
-import { storedJson } from './json-value.js';
+} from './core-state.ts';
+import { foldHostHookContextEvent } from './hook-context.ts';
+import { storedJson } from './json-value.ts';
 import {
   HOST_RESULT_SCHEMAS,
   type HostChildDelivery,
@@ -36,7 +39,7 @@ import {
   type HostImageAttachment,
   type HostParams,
   type HostRunSnapshot,
-} from './protocol.js';
+} from './protocol.ts';
 
 /** The configuration a committed run command carried; its other fields have their own readers. */
 const CommittedRunInputSchema = Schema.StructWithRest(
@@ -279,6 +282,29 @@ export function foldHostConversationMessages(
   const messages = event.messages.map((message) => modelMessageSchema.parse(message));
   foldHostRunMessages(run, event, messages, hostRunContext(runs, run).length);
   run.messages.push(...messages);
+}
+/** Fold a committed run event that is neither a command nor a run start into its run. */
+export function foldHostRunEvent(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: HostEvent,
+  ts: number | undefined
+): void {
+  switch (event.type) {
+    case 'model.step':
+    case 'model.messages':
+      foldHostConversationMessages(runs, event);
+      break;
+    case 'interaction.requested':
+    case 'interaction.responded':
+      foldHostInteraction(runs, event);
+      break;
+    case 'hook.context':
+      foldHostHookContextEvent(runs, event);
+      break;
+    default:
+      foldHostRunEffect(runs, event, ts);
+      break;
+  }
 }
 /** Where a new run's user message goes. */
 export type HostRunPosition = {

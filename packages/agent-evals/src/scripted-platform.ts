@@ -11,7 +11,7 @@ import {
   createHostPlatform,
   type StandaloneTrustedModel,
 } from '@brainstrike/host-capabilities/platform';
-import { type EvalScript, scriptSteps } from './task.js';
+import { type EvalScript, scriptSteps } from './task.ts';
 
 export const SCRIPTED_PROVIDER = 'scripted';
 

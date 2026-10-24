@@ -42,7 +42,7 @@ describe('persisted store hydration at module load', () => {
       })
     );
 
-    const { useLoggingPreferencesStore } = await import('../stores/logging-preferences-store');
+    const { useLoggingPreferencesStore } = await import('../stores/logging-preferences-store.ts');
 
     // Consumers gate on `hasHydrated` to avoid writing defaults over persisted
     // preferences. Stuck at `false`, the store looks permanently un-hydrated.
@@ -70,7 +70,7 @@ describe('persisted store hydration at module load', () => {
     );
 
     const { useNativeToolPreferencesStore } = await import(
-      '../stores/native-tool-preferences-store'
+      '../stores/native-tool-preferences-store.ts'
     );
 
     expect(useNativeToolPreferencesStore.getState().toolStates).toEqual({
@@ -106,7 +106,7 @@ describe('persisted store hydration at module load', () => {
     );
 
     const { useAssistantMemoryPreferencesStore } = await import(
-      '../stores/assistant-memory-preferences-store'
+      '../stores/assistant-memory-preferences-store.ts'
     );
     const state = useAssistantMemoryPreferencesStore.getState();
 
@@ -132,7 +132,7 @@ describe('persisted store hydration at module load', () => {
     Object.defineProperty(window, 'electronAPI', { configurable: true, value: electronAPI });
     try {
       const { useAssistantMemoryPreferencesStore } = await import(
-        '../stores/assistant-memory-preferences-store'
+        '../stores/assistant-memory-preferences-store.ts'
       );
       const before = useAssistantMemoryPreferencesStore.getState();
       expect(before.hasHydrated).toBe(false);

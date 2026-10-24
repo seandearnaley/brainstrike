@@ -16,49 +16,20 @@
     "node": ">=22"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
-    },
-    "./indexer-client": {
-      "types": "./src/indexer-client.ts",
-      "import": "./dist/indexer-client.js",
-      "require": "./dist/indexer-client.js"
-    },
-    "./workspace-indexing-power-snapshot": {
-      "types": "./src/workspace-indexing-power-snapshot.ts",
-      "import": "./dist/workspace-indexing-power-snapshot.js",
-      "require": "./dist/workspace-indexing-power-snapshot.js"
-    },
-    "./workspace-indexing-qos": {
-      "types": "./src/workspace-indexing-qos.ts",
-      "import": "./dist/workspace-indexing-qos.js",
-      "require": "./dist/workspace-indexing-qos.js"
-    },
-    "./indexer-producer": {
-      "types": "./src/indexer-producer.ts",
-      "import": "./dist/indexer-producer.js",
-      "require": "./dist/indexer-producer.js"
-    }
+    ".": "./src/index.ts",
+    "./indexer-client": "./src/indexer-client.ts",
+    "./workspace-indexing-power-snapshot": "./src/workspace-indexing-power-snapshot.ts",
+    "./workspace-indexing-qos": "./src/workspace-indexing-qos.ts",
+    "./indexer-producer": "./src/indexer-producer.ts"
   },
-  "files": [
-    "dist"
-  ],
   "license": "MIT",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,
-  "type": "module",
-  "types": "./src/index.ts"
+  "type": "module"
 }

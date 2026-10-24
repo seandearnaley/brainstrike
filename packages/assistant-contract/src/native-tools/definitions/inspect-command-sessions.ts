@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { InspectCommandSessionsInputSchema } from '../schemas/schemas-execution.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { InspectCommandSessionsInputSchema } from '../schemas/schemas-execution.ts';
 
 export const inspectCommandSessions = defineNativeTool({
   defaults: {

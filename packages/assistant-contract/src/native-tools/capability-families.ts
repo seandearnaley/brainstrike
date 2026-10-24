@@ -1,4 +1,4 @@
-import type { DeferredCapabilityFamilyPhrase } from './define.js';
+import type { DeferredCapabilityFamilyPhrase } from './define.ts';
 
 /**
  * The single source for how DEFERRED tool capabilities are named to the model,

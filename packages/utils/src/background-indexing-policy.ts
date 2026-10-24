@@ -1,5 +1,5 @@
-import { getBaseFilename, isBinaryFile, isTextFile } from './file-utils.js';
-import { createPathFilterMatcher } from './filter-utils.js';
+import { getBaseFilename, isBinaryFile, isTextFile } from './file-utils.ts';
+import { createPathFilterMatcher } from './filter-utils.ts';
 
 export type BackgroundIndexingPolicyPreset = 'balanced' | 'full-root';
 

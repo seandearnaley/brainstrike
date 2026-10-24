@@ -4,7 +4,7 @@ import {
   __resetAssistantMemoryPreferencesStoreForTests,
   ASSISTANT_MEMORY_PREFERENCES_STORE_NAME,
   useAssistantMemoryPreferencesStore,
-} from '../stores/assistant-memory-preferences-store';
+} from '../stores/assistant-memory-preferences-store.ts';
 
 type MemoryPersistApi = typeof useAssistantMemoryPreferencesStore & {
   persist?: {

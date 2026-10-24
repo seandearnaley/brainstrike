@@ -11,13 +11,13 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel } from 'ai';
 import { Schema } from 'effect';
-import { borrowHostAdmission } from './admission-lease.js';
+import { borrowHostAdmission } from './admission-lease.ts';
 import {
   describeHostChildContinuation,
   describeHostChildLedger,
   type HostChildLedgerState,
-} from './child-delivery.js';
-import { hostChildCallSign, hostChildColors } from './child-presentation.js';
+} from './child-delivery.ts';
+import { hostChildCallSign, hostChildColors } from './child-presentation.ts';
 import {
   deriveHostChildAdmission,
   type HostChildResult,
@@ -26,16 +26,16 @@ import {
   hostChildStarted,
   hostDelegationRunsInBackground,
   hostInvocationLimitText,
-} from './child-runs.js';
-import { HostChildWorkQueue } from './child-work-queue.js';
-import { hostRootRunTurnId } from './committed-identities.js';
-import { retainHostRunWork } from './core-run-lifecycle.js';
+} from './child-runs.ts';
+import { HostChildWorkQueue } from './child-work-queue.ts';
+import { hostRootRunTurnId } from './committed-identities.ts';
+import { retainHostRunWork } from './core-run-lifecycle.ts';
 import {
   type HostRunState,
   type HostThreadGrants,
   hasHostInteractionResponse,
-} from './core-state.js';
-import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.js';
+} from './core-state.ts';
+import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.ts';
 import type {
   HostChildDelivery,
   HostChildDeliveryEntry,
@@ -45,8 +45,8 @@ import type {
   HostLogRow,
   HostResults,
   HostRunSelection,
-} from './protocol.js';
-import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
+} from './protocol.ts';
+import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.ts';
 
 type Action = Extract<
   HostEvent,

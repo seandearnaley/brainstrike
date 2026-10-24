@@ -280,7 +280,7 @@ export async function setupChildRunHost(
     fixture.memory
       ? {
           memoryCalculatorModule: fileURLToPath(
-            new URL('../../dist/adapters/memory-storage-calculator.js', import.meta.url)
+            new URL('../../src/adapters/memory-storage-calculator.ts', import.meta.url)
           ),
         }
       : undefined

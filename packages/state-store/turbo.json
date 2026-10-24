@@ -6,20 +6,16 @@
       // the Node pin, so the host's native binaries are part of the key.
       // RootLock loads native OS locking, so the addon builds first; without
       // these edges the unit plan could rebuild the addon while corruption
-      // tests load it. The export and lock suites' child processes run
-      // large-text and source-catalog-domain under plain Node, which resolves
-      // @brainstrike/utils to its emitted dist, so utils builds first too.
-      // Package configs replace array fields; redeclare the root's pass-through.
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/utils#build"],
+      // tests load it. Package configs replace array fields; redeclare the
+      // root's pass-through.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"],
       "passThroughEnv": ["CI", "COVERAGE", "VITEST_MAX_WORKERS"]
     },
     "test:integration": {
       // The soak sizes reach Vitest only when declared (strict env mode), and are
       // hashed: nightly's 100-kill, 100 MB run never replays a PR run's result.
       "env": ["$TURBO_EXTENDS$", "STATE_STORE_KILL_TRIALS", "STATE_STORE_THREAD_MB"],
-      // memory-domain imports agent-host's emitted token calculator, and
-      // memory-erasure hands that same dist module to the writer worker.
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"]
     }
   }
 }

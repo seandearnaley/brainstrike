@@ -6,11 +6,11 @@ import {
   McpServer,
 } from '@modelcontextprotocol/server';
 import { z } from 'zod';
-import { APPS_PROFILE as apps } from './apps-profile.js';
-import { OFFICIAL_EVERYTHING_PROFILE as profile } from './official-everything-profile.js';
-import type { McpLabFixture } from './scenario.js';
-import { TASKS_PROFILE as tasks } from './tasks-profile.js';
-import { installTasksServerWireAlias, TASKS_WIRE_ALIASES } from './tasks-wire-alias.js';
+import { APPS_PROFILE as apps } from './apps-profile.ts';
+import { OFFICIAL_EVERYTHING_PROFILE as profile } from './official-everything-profile.ts';
+import type { McpLabFixture } from './scenario.ts';
+import { TASKS_PROFILE as tasks } from './tasks-profile.ts';
+import { installTasksServerWireAlias, TASKS_WIRE_ALIASES } from './tasks-wire-alias.ts';
 
 /**
  * Content surface of the Brainstrike echo fixture (BST-1592): one readable

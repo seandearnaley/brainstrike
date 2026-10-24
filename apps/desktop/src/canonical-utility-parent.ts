@@ -54,10 +54,12 @@ export class CanonicalUtilityParent {
   /** The first exit's error: what an attachment the exit ended reports instead of a close. */
   private remoteExit: unknown;
   readonly channel: CanonicalUtilityChannel;
-  constructor(
-    private readonly send: (frame: object) => void,
-    private readonly onTransportFailure: (error: unknown) => void
-  ) {
+  private readonly send: (frame: object) => void;
+  private readonly onTransportFailure: (error: unknown) => void;
+
+  constructor(send: (frame: object) => void, onTransportFailure: (error: unknown) => void) {
+    this.send = send;
+    this.onTransportFailure = onTransportFailure;
     this.channel = new CanonicalUtilityChannel(send);
   }
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetLoggingPreferencesStoreForTests,
   useLoggingPreferencesStore,
-} from '../stores/logging-preferences-store';
+} from '../stores/logging-preferences-store.ts';
 
 type PersistApi<T> = T & {
   persist?: {

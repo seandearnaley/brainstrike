@@ -1,8 +1,8 @@
 import { DESKTOP_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { clearPersistedStorageForTests } from './persist-api';
-import { createSanitizedPersistMerge } from './sanitized-persist-merge';
+import { clearPersistedStorageForTests } from './persist-api.ts';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 type NativeToolStateMap = Record<string, boolean>;
 

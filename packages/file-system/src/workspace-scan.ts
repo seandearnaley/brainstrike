@@ -3,22 +3,22 @@ import {
   type BackgroundIndexingPolicyPreset,
   createBackgroundIndexingEntryPolicy,
 } from '@brainstrike/utils/background-indexing-policy';
-import { readFullTreeWithOptions } from './directory-tree.js';
-import { createWorkspaceScanIgnorePolicy, isWorkspaceIgnoreFile } from './workspace-scan-ignore.js';
+import { readFullTreeWithOptions } from './directory-tree.ts';
+import { createWorkspaceScanIgnorePolicy, isWorkspaceIgnoreFile } from './workspace-scan-ignore.ts';
 import {
   collectScopedChange,
   type ScopedChangeAccumulator,
   type ScopedPendingRemoval,
   type WorkspaceDiscoveryDeps,
-} from './workspace-scan-nodes.js';
+} from './workspace-scan-nodes.ts';
 import {
   getPathName,
   isRootSelfPath,
   isUnderTruncatedDirectory,
   normalizeScopedChangePath,
   toTruncatedRelativePrefixes,
-} from './workspace-scan-paths.js';
-import { flattenFileNodes } from './workspace-source-content.js';
+} from './workspace-scan-paths.ts';
+import { flattenFileNodes } from './workspace-source-content.ts';
 
 export type WorkspaceScanScope =
   | { readonly mode: 'full' }

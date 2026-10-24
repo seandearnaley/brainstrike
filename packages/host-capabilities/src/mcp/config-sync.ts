@@ -1,5 +1,5 @@
 import type { McpHostServerSnapshot } from '@brainstrike/assistant-contract';
-import { errorMessage, type McpConfigWriteResult } from './config-file.js';
+import { errorMessage, type McpConfigWriteResult } from './config-file.ts';
 
 /**
  * A step after a config write that threw: which one, and why. Only the runtime

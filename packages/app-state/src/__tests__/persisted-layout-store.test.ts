@@ -1,6 +1,6 @@
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createPanelLayoutStore } from '../stores/panel-layout-store';
+import { createPanelLayoutStore } from '../stores/panel-layout-store.ts';
 import {
   createAdapterPersistStorage,
   createFallbackPersistStorage,
@@ -8,7 +8,7 @@ import {
   hasCorruptedSizes,
   normalizeSizes,
   resolveNextSizes,
-} from '../stores/persisted-layout-store';
+} from '../stores/persisted-layout-store.ts';
 
 interface LayoutState {
   showConsole: boolean;

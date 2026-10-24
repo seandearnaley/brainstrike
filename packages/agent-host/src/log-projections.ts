@@ -1,7 +1,7 @@
-import { HostCommittedRows } from './committed-rows.js';
-import { HostLedgerProjection } from './ledger-projection.js';
-import type { HostLogRow } from './protocol.js';
-import type { HostThreadCatalog } from './thread-catalog.js';
+import { HostCommittedRows } from './committed-rows.ts';
+import { HostLedgerProjection } from './ledger-projection.ts';
+import type { HostLogRow } from './protocol.ts';
+import type { HostThreadCatalog } from './thread-catalog.ts';
 
 /** Core's projections of every committed row, applied at hydration and at commit. */
 export class HostLogProjections {

@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import type { RuntimeEnvelopeObjectPayloadBase, RuntimeRequestPayloadBase } from './index.js';
+import type { RuntimeEnvelopeObjectPayloadBase, RuntimeRequestPayloadBase } from './index.ts';
 
 const nonEmptyString = Schema.String.check(
   Schema.makeFilter((value: string) => value.trim().length > 0)

@@ -14,8 +14,8 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { McpServer, ResolvedMcpConfig, ResolvedMcpServer } from './config-file.js';
-import type { McpDiscoveredTool } from './types.js';
+import type { McpServer, ResolvedMcpConfig, ResolvedMcpServer } from './config-file.ts';
+import type { McpDiscoveredTool } from './types.ts';
 
 const logger = createLogger('McpToolDiscovery');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';

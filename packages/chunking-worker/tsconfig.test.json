@@ -11,8 +11,7 @@
     ]
   },
   "include": [
-    "src/**/*",
-    "tsup.config.ts"
+    "src/**/*"
   ],
   "exclude": [
     "dist",

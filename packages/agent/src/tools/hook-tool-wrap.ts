@@ -19,17 +19,17 @@ import type {
   ToolPayloadTransformTarget,
   ToolPayloadTransformTargetConfig,
 } from '@mastra/core/tools';
-import { isGuardedToolError } from './guard-tool-execution';
+import { isGuardedToolError } from './guard-tool-execution.ts';
 import {
   type AgentHookRunner,
   createHookResultEnvelope,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
   type HookBlockedToolError,
   readHookResultEnvelope,
-} from './hook-runner';
-import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id';
-import type { ToolExecutionDurations } from './tool-execution-durations';
-import type { ToolLogger } from './types';
+} from './hook-runner.ts';
+import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id.ts';
+import type { ToolExecutionDurations } from './tool-execution-durations.ts';
+import type { ToolLogger } from './types.ts';
 
 interface ExecutableLike {
   execute: (...args: unknown[]) => unknown;

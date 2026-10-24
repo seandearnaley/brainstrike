@@ -228,12 +228,13 @@ export interface EmbeddingService {
  * Error thrown by embedding service
  */
 export class EmbeddingError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public override readonly cause?: Error
-  ) {
+  public readonly code: string;
+  public override readonly cause: Error | undefined;
+
+  constructor(message: string, code: string, cause?: Error) {
     super(message);
+    this.code = code;
+    this.cause = cause;
     this.name = 'EmbeddingError';
   }
 }

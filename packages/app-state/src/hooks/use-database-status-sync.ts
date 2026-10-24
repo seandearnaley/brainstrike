@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import type { IndexLifecycleCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { useEffect } from 'react';
-import { useDatabaseStatusStore } from '../stores/database-status-store';
+import { useDatabaseStatusStore } from '../stores/database-status-store.ts';
 
 /**
  * Keeps the global database status store in sync with the native model catalog connection state.

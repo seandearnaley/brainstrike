@@ -28,7 +28,7 @@ const columns = `id,kind,title,content,description,tags,is_favorite AS isFavorit
 source_url AS sourceUrl,rating,model_key AS modelKey,model_settings AS modelSettings,revision,
 use_count AS useCount,last_used_at AS lastUsedAt,last_used_action AS lastUsedAction,
 created_at AS createdAt,updated_at AS updatedAt`;
-/** @typedef {import('./prompt-catalog-types.js').PromptCatalogRecord} Item */
+/** @typedef {import('./prompt-catalog-types.ts').PromptCatalogRecord} Item */
 /** @typedef {Omit<Item,'tags'|'modelSettings'|'isFavorite'> & {tags:string;modelSettings:string|null;isFavorite:0|1}} Row */
 /** @param {string} value @returns {string[]} */
 function tags(value) {
@@ -113,10 +113,10 @@ function list(db, filter) {
           ))
     );
 }
-/** @param {import('better-sqlite3').Database} db @param {string} id @returns {import('./prompt-catalog-types.js').PromptRevisionRecord[]} */
+/** @param {import('better-sqlite3').Database} db @param {string} id @returns {import('./prompt-catalog-types.ts').PromptRevisionRecord[]} */
 function revisions(db, id) {
   const rows =
-    /** @type {(Omit<import('./prompt-catalog-types.js').PromptRevisionRecord,'tags'|'modelSettings'> & {tags:string;modelSettings:string|null})[]} */ (
+    /** @type {(Omit<import('./prompt-catalog-types.ts').PromptRevisionRecord,'tags'|'modelSettings'> & {tags:string;modelSettings:string|null})[]} */ (
       db
         .prepare(
           'SELECT id,prompt_item_id AS promptItemId,revision,title,content,description,tags,model_key AS modelKey,model_settings AS modelSettings,note,created_at AS createdAt FROM prompt_item_revisions WHERE prompt_item_id=? ORDER BY revision DESC'
@@ -129,10 +129,10 @@ function revisions(db, id) {
     tags: tags(row.tags),
   }));
 }
-/** @param {import('better-sqlite3').Database} db @param {import('./prompt-catalog-types.js').PromptCatalogRequest} request @returns {import('./prompt-catalog-types.js').PromptCatalogReply} */
+/** @param {import('better-sqlite3').Database} db @param {import('./prompt-catalog-types.ts').PromptCatalogRequest} request @returns {import('./prompt-catalog-types.ts').PromptCatalogReply} */
 export function executePromptCatalogRequest(db, request) {
   return db.transaction(
-    /** @returns {import('./prompt-catalog-types.js').PromptCatalogReply} */ () => {
+    /** @returns {import('./prompt-catalog-types.ts').PromptCatalogReply} */ () => {
       const now = new Date().toISOString();
       switch (request.operation) {
         case 'list':

@@ -1,4 +1,4 @@
-import type { AssistantMemoryThread } from './assistant-memory-repository';
+import type { AssistantMemoryThread } from './assistant-memory-repository.ts';
 
 interface CatalogState {
   activeThreadIdByResourceId: Record<string, string>;

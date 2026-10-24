@@ -10,7 +10,7 @@ export {
 export {
   MCP_APPS_CLIENT_EXTENSION_CONTRACT,
   registerMcpAppsClientCapability,
-} from './mcp/apps-extension';
+} from './mcp/apps-extension.ts';
 export {
   composeMcpTransportCapabilities,
   createMcpClientCapabilityRuntime,
@@ -32,17 +32,17 @@ export {
   sanitizeMcpServerLog,
   validateMcpElicitationRequest,
   validateMcpElicitationResult,
-} from './mcp/client-capabilities';
+} from './mcp/client-capabilities.ts';
 export {
   type McpClientExtensionContract,
   type McpClientExtensionRegistration,
   McpClientExtensionRegistry,
   type McpClientExtensionRequestContract,
-} from './mcp/client-extension-registry';
+} from './mcp/client-extension-registry.ts';
 export {
   DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS,
   MAX_MCP_MAX_TOTAL_TIMEOUT_MS,
-} from './mcp/client-policy';
+} from './mcp/client-policy.ts';
 export {
   type ExplicitHttpMcpCallToolParams,
   type ExplicitHttpMcpCallToolResult,
@@ -68,7 +68,7 @@ export {
   type ExplicitHttpMcpTool,
   type ExplicitHttpMcpTransport,
   type NegotiatedProtocolFacts,
-} from './mcp/explicit-http-client';
+} from './mcp/explicit-http-client.ts';
 export {
   type ExplicitStdioMcpCallToolParams,
   type ExplicitStdioMcpCallToolResult,
@@ -90,24 +90,24 @@ export {
   type ExplicitStdioMcpRequestOptions,
   type ExplicitStdioMcpSubscription,
   type ExplicitStdioMcpSubscriptionFilter,
-} from './mcp/explicit-stdio-client';
-export type { McpDiscoverySkip } from './mcp/mcp-discovery-diagnostics';
+} from './mcp/explicit-stdio-client.ts';
+export type { McpDiscoverySkip } from './mcp/mcp-discovery-diagnostics.ts';
 export {
   type CreateMcpRuntimeClientOptions,
   createMcpRuntimeClient,
   type McpRuntimeClient,
   type McpToolsetsWithErrors,
-} from './mcp/mcp-runtime-client';
+} from './mcp/mcp-runtime-client.ts';
 export {
   type CollectCombinedToolsOptions,
   type CollectCombinedToolsResult,
   collectCombinedTools,
-} from './mcp/mcp-tool-loader';
+} from './mcp/mcp-tool-loader.ts';
 export type {
   McpServerFeatureEventDiagnosticSink,
   McpServerFeatureEventHandlers,
   McpServerFeatureEventKind,
-} from './mcp/server-feature-events';
+} from './mcp/server-feature-events.ts';
 export {
   MCP_TASK_CONTEXT_MAX_BYTES,
   type McpTaskContextProjection,
@@ -116,7 +116,7 @@ export {
   type McpTaskPresentationControllerOptions,
   projectMcpTaskForContext,
   projectMcpTaskRecord,
-} from './mcp/task-presentation';
+} from './mcp/task-presentation.ts';
 export {
   MCP_TASKS_CALL_TOOL_REQUEST_CONTRACT,
   MCP_TASKS_CANCEL_REQUEST_CONTRACT,
@@ -126,7 +126,7 @@ export {
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
   registerMcpTasksWireContracts,
-} from './mcp/tasks-extension';
+} from './mcp/tasks-extension.ts';
 export {
   McpTaskCancellationOutcomeError,
   type McpTaskCancellationResult,
@@ -137,7 +137,7 @@ export {
   type McpTaskInteractionElicitationContext,
   type McpTaskInteractionOptions,
   type McpTaskInteractionRequestOptions,
-} from './mcp/tasks-interaction';
+} from './mcp/tasks-interaction.ts';
 export {
   DEFAULT_MCP_TASK_LIFECYCLE_LIMITS,
   McpTaskLifecycle,
@@ -148,16 +148,16 @@ export {
   type McpTaskPollingClient,
   type McpTaskRequestOptions,
   type McpTrackedTask,
-} from './mcp/tasks-lifecycle';
+} from './mcp/tasks-lifecycle.ts';
 export {
   type McpTaskObservationConsumer,
   McpTaskObservationError,
   McpTaskObservationPort,
   type McpTaskPollAuthority,
-} from './mcp/tasks-observation';
+} from './mcp/tasks-observation.ts';
 /**
  * The registry this entry's collector filters with. Entries are bundled
  * separately, so a host that collects through this entry applies Settings
  * tool preferences here, not to the root entry's copy.
  */
-export { toolRegistry as mcpToolRegistry } from './mcp/tool-registry';
+export { toolRegistry as mcpToolRegistry } from './mcp/tool-registry.ts';

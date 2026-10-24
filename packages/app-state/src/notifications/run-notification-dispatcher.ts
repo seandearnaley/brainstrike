@@ -9,12 +9,12 @@
  * leak), not by filtering, so a future caller cannot accidentally widen it.
  */
 
-import type { NotificationEventKind } from '../stores/notification-preferences-store';
+import type { NotificationEventKind } from '../stores/notification-preferences-store.ts';
 import type {
   AssistantNotificationPermissionState,
   AssistantNotificationSettingsSnapshot,
-} from './should-notify';
-import { shouldNotify } from './should-notify';
+} from './should-notify.ts';
+import { shouldNotify } from './should-notify.ts';
 
 interface RunNotificationEventBase {
   readonly runId: string;

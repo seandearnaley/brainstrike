@@ -2,7 +2,7 @@ import type { LanguageModelV4Prompt } from '@ai-sdk/provider';
 import type { MastraDBMessage } from '@mastra/core/agent';
 import type { ProcessLLMRequestArgs, ProcessLLMRequestResult } from '@mastra/core/processors';
 import { ProviderHistoryCompat } from '@mastra/core/processors';
-import { collectToolCallOccurrences, toolPartPositionKey } from './request-history';
+import { collectToolCallOccurrences, toolPartPositionKey } from './request-history.ts';
 
 type Prompt = ProcessLLMRequestArgs['prompt'];
 export type ProviderCallProvenance = ReadonlyMap<object, string>;
@@ -125,11 +125,13 @@ export function stripForeignExecutedToolPairs(
 }
 
 export class CanonicalProviderHistoryCompat extends ProviderHistoryCompat {
-  constructor(
-    private readonly provider: string,
-    private readonly provenance?: ProviderCallProvenance
-  ) {
+  private readonly provider: string;
+  private readonly provenance: ProviderCallProvenance | undefined;
+
+  constructor(provider: string, provenance?: ProviderCallProvenance) {
     super();
+    this.provider = provider;
+    this.provenance = provenance;
   }
 
   override processLLMRequest(args: ProcessLLMRequestArgs): ProcessLLMRequestResult {

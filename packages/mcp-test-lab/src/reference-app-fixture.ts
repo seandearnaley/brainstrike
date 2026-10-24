@@ -1,8 +1,8 @@
 import { createServer } from 'node:http';
 import { localhostHostValidation, toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
-import { asNodeIncomingMessage } from './loopback-http.js';
-import { registerElicitConfirmTool } from './reference-server.js';
+import { asNodeIncomingMessage } from './loopback-http.ts';
+import { registerElicitConfirmTool } from './reference-server.ts';
 
 const APP_MIME_TYPE = 'text/html;profile=mcp-app';
 

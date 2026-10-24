@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { shouldNotify } from '../notifications/should-notify';
+import { shouldNotify } from '../notifications/should-notify.ts';
 
 const baseSettings = {
   events: {

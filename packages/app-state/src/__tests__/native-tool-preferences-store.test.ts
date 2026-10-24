@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetNativeToolPreferencesStoreForTests,
   useNativeToolPreferencesStore,
-} from '../stores/native-tool-preferences-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/native-tool-preferences-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useNativeToolPreferencesStore as PersistApi<
   typeof useNativeToolPreferencesStore

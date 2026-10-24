@@ -21,7 +21,7 @@ import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
-const platform = pathToFileURL(fileURLToPath(new URL('../dist/platform.js', import.meta.url))).href;
+const platform = pathToFileURL(fileURLToPath(new URL('../src/platform.ts', import.meta.url))).href;
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) {

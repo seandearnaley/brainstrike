@@ -10,12 +10,12 @@
  * never on `assistant-tools.ts`, so no import cycle is possible.
  */
 import fsPromises from 'node:fs/promises';
-import { assertNotAgentIgnored } from './agent-ignore-guard.js';
+import { assertNotAgentIgnored } from './agent-ignore-guard.ts';
 import {
   missingWorkspacePathRefusal,
   resolveWorkspaceAbsolutePath,
   WorkspacePathRefusal,
-} from './workspace-path-resolution.js';
+} from './workspace-path-resolution.ts';
 
 export const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
 

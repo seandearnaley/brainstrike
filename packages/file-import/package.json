@@ -1,6 +1,7 @@
 {
   "name": "@brainstrike/file-import",
   "version": "0.1.0",
+  "type": "module",
   "dependencies": {
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*"
@@ -18,34 +19,14 @@
     "vitest": "catalog:"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
-    },
-    "./canonical-symbol-inserts": {
-      "types": "./src/canonical-symbol-inserts.ts",
-      "import": "./dist/canonical-symbol-inserts.js",
-      "require": "./dist/canonical-symbol-inserts.js"
-    },
-    "./canonical-index-publication": {
-      "types": "./src/canonical-index-publication.ts",
-      "import": "./dist/canonical-index-publication.js",
-      "require": "./dist/canonical-index-publication.js"
-    }
+    ".": "./src/index.ts",
+    "./canonical-symbol-inserts": "./src/canonical-symbol-inserts.ts",
+    "./canonical-index-publication": "./src/canonical-index-publication.ts"
   },
-  "files": [
-    "dist"
-  ],
-  "main": "dist/index.js",
-  "module": "dist/index.js",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
-  },
-  "types": "./src/index.ts"
+  }
 }

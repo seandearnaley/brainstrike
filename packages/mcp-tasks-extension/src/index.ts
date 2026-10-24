@@ -1,9 +1,9 @@
 import { Schema } from 'effect';
-import { type TasksExtensionCapability, TasksExtensionCapabilitySchema } from './schema.js';
+import { type TasksExtensionCapability, TasksExtensionCapabilitySchema } from './schema.ts';
 
-export * from './parsers.js';
-export * from './provenance.js';
-export * from './schema.js';
+export * from './parsers.ts';
+export * from './provenance.ts';
+export * from './schema.ts';
 
 export const MCP_TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks' as const;
 export const MCP_TASKS_EXTENSION_VERSION = '2026-07-28' as const;

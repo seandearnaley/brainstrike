@@ -44,7 +44,7 @@ await build({
   bundle: true,
   entryPoints: {
     client: 'packages/embedding-worker/src/streaming-worker-client.ts',
-    worker: 'packages/embedding-worker/dist/embedding.worker.js',
+    worker: 'packages/embedding-worker/src/embedding.worker.ts',
   },
   external: ['onnxruntime-node', 'sharp'],
   format: 'esm',

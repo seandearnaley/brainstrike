@@ -6,8 +6,8 @@ import type {
   InspectLocation,
   LspInspectionResult,
   LspQueryFailure,
-} from './lsp-inspection-shapes.js';
-import type { EditDiagnostic, LspUnavailableReason } from './ports.js';
+} from './lsp-inspection-shapes.ts';
+import type { EditDiagnostic, LspUnavailableReason } from './ports.ts';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
@@ -18,7 +18,7 @@ import {
   makeWorkspaceTextModelOutput as makeTextModelOutput,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
-} from './workspace-model-projection-helpers.js';
+} from './workspace-model-projection-helpers.ts';
 
 export type WorkspaceInspectionTextModelOutput = WorkspaceTextModelOutput;
 

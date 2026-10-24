@@ -1,5 +1,5 @@
-import { isNativeToolId, type NativeToolId } from './native-tool-catalog.js';
-import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.js';
+import { isNativeToolId, type NativeToolId } from './native-tool-catalog.ts';
+import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.ts';
 
 /**
  * Model-facing description per native tool, DERIVED from each tool's

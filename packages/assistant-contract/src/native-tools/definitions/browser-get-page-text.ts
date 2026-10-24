@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { BrowserGetPageTextInputSchema } from '../schemas/schemas-browser.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { BrowserGetPageTextInputSchema } from '../schemas/schemas-browser.ts';
 
 // Browser pane read tools (BST-1176 PR2): riskCategory 'read' like
 // webExtract — they fetch/observe web content without mutating workspace

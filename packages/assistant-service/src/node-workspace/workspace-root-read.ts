@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { isFullyQualifiedFileSystemPath } from '@brainstrike/file-system';
-import { isContained, pathsEqual } from './workspace-root-paths.js';
-import type { SecureWorkspaceRoot } from './workspace-root-types.js';
+import { isContained, pathsEqual } from './workspace-root-paths.ts';
+import type { SecureWorkspaceRoot } from './workspace-root-types.ts';
 
 export interface MountedWorkspaceRootReadAuthority {
   readonly canonicalPath: string;

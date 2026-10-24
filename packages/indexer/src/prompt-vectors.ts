@@ -4,9 +4,9 @@ import type {
   PromptVectorState,
 } from '@brainstrike/state-store';
 import type Database from 'better-sqlite3';
-import { decoder } from './contracts.js';
-import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.js';
-import { vectorBytes } from './state-message-vectors.js';
+import { decoder } from './contracts.ts';
+import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.ts';
+import { vectorBytes } from './state-message-vectors.ts';
 
 /** Derived prompt vectors live under the existing host state index writer and reset lease. */
 export class PromptVectors {
@@ -15,7 +15,11 @@ export class PromptVectors {
  emb BLOB CHECK(emb IS NULL OR length(emb)=384*4),error TEXT,updated_at TEXT NOT NULL,
  CHECK((emb IS NOT NULL AND error IS NULL) OR (emb IS NULL AND length(trim(error))>0))
  ) STRICT;`;
-  constructor(private readonly db: Database.Database) {}
+  private readonly db: Database.Database;
+
+  constructor(db: Database.Database) {
+    this.db = db;
+  }
   execute(input: unknown): PromptVectorReply {
     const request: PromptVectorRequest = decoder(promptVectorRequestSchema)(input);
     return this.db.transaction(() => {

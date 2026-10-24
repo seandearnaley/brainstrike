@@ -10,18 +10,18 @@ import {
   type GrepToolResult,
   grepProjectionHeaderPrefix,
   parseGrepToolResult,
-} from './grep-search-result-contract.js';
+} from './grep-search-result-contract.ts';
 import {
   projectReadWorkspaceFileModelOutput,
   resolveReadWorkspaceFileRootLabel,
-} from './read-workspace-file-model-projection.js';
-import { readProjectionHeaderPrefix } from './read-workspace-file-result-contract.js';
-import { redactToolErrorForLog } from './tool-execute-support.js';
-import { decodedPersistedModelOutputChars } from './tool-projection-prune.js';
+} from './read-workspace-file-model-projection.ts';
+import { readProjectionHeaderPrefix } from './read-workspace-file-result-contract.ts';
+import { redactToolErrorForLog } from './tool-execute-support.ts';
+import { decodedPersistedModelOutputChars } from './tool-projection-prune.ts';
 import {
   decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
-} from './workspace-model-projection-helpers.js';
+} from './workspace-model-projection-helpers.ts';
 
 const decodeGrepHistory = Schema.decodeUnknownResult(GrepSearchInputSchema, {
   onExcessProperty: 'error',

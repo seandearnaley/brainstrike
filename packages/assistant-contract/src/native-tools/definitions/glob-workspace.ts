@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { GlobWorkspaceInputSchema } from '../schemas/schemas-search.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { GlobWorkspaceInputSchema } from '../schemas/schemas-search.ts';
 
 // Read-only file enumeration by glob pattern. Explicitly pinned to the 'read'
 // risk bucket (it is also derivable from retrieval + no-approval) so the

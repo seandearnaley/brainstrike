@@ -65,7 +65,7 @@ export function workspaceSourceModule(packages, specifier) {
   const subpath = `.${specifier.slice(name.length)}`;
   const match = workspacePackage && matchExport(workspacePackage.exports, subpath);
   const target = match && workspacePackage.exports[match.key];
-  const source = typeof target === 'string' ? target : target?.types;
+  const source = typeof target === 'string' ? target : (target?.types ?? target?.default);
   if (typeof source !== 'string') {
     throw new Error(`${specifier} names no source module in ${name}'s exports`);
   }

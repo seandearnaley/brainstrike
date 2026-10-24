@@ -1,6 +1,6 @@
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { type LanguageModel, wrapLanguageModel } from 'ai';
-import type { ProviderModelConfiguration } from './provider-factory';
+import type { ProviderModelConfiguration } from './provider-factory.ts';
 
 type SdkV3 = Extract<LanguageModel, { specificationVersion: 'v3' }>;
 type StreamResult = Awaited<ReturnType<SdkV3['doStream']>>;
@@ -47,7 +47,10 @@ class RouterGenerationCollector {
   private response: GenerateResult['response'];
   private readonly warnings: GenerateResult['warnings'] = [];
 
-  constructor(private readonly source: StreamResult) {
+  private readonly source: StreamResult;
+
+  constructor(source: StreamResult) {
+    this.source = source;
     this.response = source.response;
   }
 

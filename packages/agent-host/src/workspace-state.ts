@@ -10,17 +10,29 @@ import {
   acceptHostWorkspaceSnapshot,
   type HostRunState,
   readHostWorkspaceSnapshot,
-} from './core-state.js';
-import { canonical, jsonValue } from './json-value.js';
-import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from './ports.js';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
-import { foldHostWorktreeEntry } from './worktree-binding.js';
+} from './core-state.ts';
+import { canonical, jsonValue } from './json-value.ts';
+import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from './ports.ts';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
+import { foldHostWorktreeEntry } from './worktree-binding.ts';
 /** In-memory projections of Core's existing thread log; owns no writer or queue. */
 export class HostThreadWorkspaceState {
   private readonly snapshots = new Map<string, HostParams<'thread/workspace/set'>['snapshot']>();
   private readonly bindings = new Map<string, ThreadWorkspaceBinding>();
+  private readonly commit: (
+    method: 'thread/workspace/set' | 'thread/workspace/binding/update',
+    params: HostParams<'thread/workspace/set'> | HostParams<'thread/workspace/binding/update'>,
+    event: Extract<
+      HostEvent,
+      {
+        type: 'workspace.updated' | 'workspace.binding.updated';
+      }
+    >,
+    durability: 'normal' | 'full'
+  ) => Promise<void>;
+
   constructor(
-    private readonly commit: (
+    commit: (
       method: 'thread/workspace/set' | 'thread/workspace/binding/update',
       params: HostParams<'thread/workspace/set'> | HostParams<'thread/workspace/binding/update'>,
       event: Extract<
@@ -31,7 +43,9 @@ export class HostThreadWorkspaceState {
       >,
       durability: 'normal' | 'full'
     ) => Promise<void>
-  ) {}
+  ) {
+    this.commit = commit;
+  }
   /** The binding, and the run its commit names as having moved the thread (ADR-0028). */
   fold(row: HostLogRow, runs: ReadonlyMap<string, HostRunState>): void {
     if (row.event.type === 'workspace.updated') {

@@ -1,7 +1,7 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { ErrorCodes, ResponseError } from 'vscode-jsonrpc';
-import type { HostProviderService } from './ports.js';
-import type { HostMethod, HostParams } from './protocol.js';
+import type { HostProviderService } from './ports.ts';
+import type { HostMethod, HostParams } from './protocol.ts';
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
 

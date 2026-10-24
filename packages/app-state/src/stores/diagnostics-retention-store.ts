@@ -31,7 +31,7 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createSanitizedPersistMerge } from './sanitized-persist-merge';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 export const DIAGNOSTICS_RETENTION_DAY_OPTIONS = [7, 14, 30, 90] as const;
 export const DIAGNOSTICS_RETENTION_ROW_OPTIONS = [5000, 20_000, 50_000] as const;

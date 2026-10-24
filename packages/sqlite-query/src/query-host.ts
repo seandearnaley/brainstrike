@@ -1,4 +1,4 @@
-import { createQueryHost } from './host-core.js';
+import { createQueryHost } from './host-core.ts';
 
 if (!process.send) {
   throw new Error('Node SQLite query host must have a parent IPC channel.');

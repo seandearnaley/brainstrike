@@ -46,7 +46,7 @@ test.each([
     const resourceId = randomUUID();
     const writerOptions = {
       memoryCalculatorModule: fileURLToPath(
-        new URL('../dist/adapters/memory-storage-calculator.js', import.meta.url)
+        new URL('../src/adapters/memory-storage-calculator.ts', import.meta.url)
       ),
     };
     let store = await StateStore.open(root, writerOptions);

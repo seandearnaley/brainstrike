@@ -11,7 +11,7 @@
  * resolves for `@file` mentions — no new file-reading code.
  */
 
-import { encodeFileMentionId, serializeFileMentionDirective } from './file-mention-directive.js';
+import { encodeFileMentionId, serializeFileMentionDirective } from './file-mention-directive.ts';
 
 /** A user-defined slash command as returned over the discovery IPC. */
 export interface UserSlashCommandDescriptor {

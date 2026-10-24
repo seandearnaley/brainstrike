@@ -5,8 +5,8 @@ import {
   hasValidDelegatedDecisionState,
   hasValidDelegatedToolActionTarget,
   isDelegatedToolActionIdentity,
-} from './delegated-tool-actions.js';
-import type { ToolRiskCategory } from './tool-risk.js';
+} from './delegated-tool-actions.ts';
+import type { ToolRiskCategory } from './tool-risk.ts';
 
 export const TOOL_APPROVAL_DATA_NAME = 'brainstrike.tool-approval';
 export const TOOL_APPROVAL_RUN_CONFIG_KEY = 'brainstrikeToolApproval';

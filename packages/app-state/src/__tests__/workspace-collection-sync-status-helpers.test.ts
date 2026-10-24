@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
-} from '../stores/workspace-collection-sync-status-helpers';
+} from '../stores/workspace-collection-sync-status-helpers.ts';
 
 describe('workspace collection sync status helpers', () => {
   it('builds metric rows for each populated sync phase', () => {

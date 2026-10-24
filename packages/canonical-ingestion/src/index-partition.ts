@@ -19,9 +19,9 @@ import type {
 import {
   decodeNativeCanonicalCatalogRecords,
   type NativeCanonicalCatalogRecord,
-} from './canonical-catalog.js';
-import type { NativeIndexSettings } from './index-settings.js';
-import type { CanonicalFileIdentity } from './ports.js';
+} from './canonical-catalog.ts';
+import type { NativeIndexSettings } from './index-settings.ts';
+import type { CanonicalFileIdentity } from './ports.ts';
 
 type SavedPartition = Pick<NativeIndexSettings, 'managedCollectionId'>;
 

@@ -6,7 +6,7 @@ import type {
 import { isLoadedRuntimeModelCatalogState } from '@brainstrike/local-runtime';
 import { formatProviderModelKey } from '@brainstrike/utils';
 import { useMemo } from 'react';
-import type { DbModel, DbProvider } from '../stores/model-registry-store';
+import type { DbModel, DbProvider } from '../stores/model-registry-store.ts';
 
 interface AvailableModel {
   // Picker-dialect capabilities: the DB catalog stores `vision` as a boolean

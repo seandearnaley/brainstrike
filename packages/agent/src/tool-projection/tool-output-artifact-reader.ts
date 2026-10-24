@@ -23,13 +23,13 @@ import { Schema, SchemaIssue } from 'effect';
 import {
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
-} from '../stream/tool-output-limits';
+} from '../stream/tool-output-limits.ts';
 import {
   clipGrepProjectionLine,
   formatGrepContentHeader,
   formatGrepContentRow,
   GREP_MATCH_LINE_MAX_CHARS,
-} from './grep-model-format';
+} from './grep-model-format.ts';
 
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
@@ -148,8 +148,10 @@ function messageForReadFailure(reason: ToolOutputArtifactReadFailureReason): str
 }
 
 export class ToolOutputArtifactReadError extends Error {
+  readonly reason: ToolOutputArtifactReadFailureReason;
+
   constructor(
-    readonly reason: ToolOutputArtifactReadFailureReason,
+    reason: ToolOutputArtifactReadFailureReason,
     cause?: unknown,
     /**
      * Overrides the reason's generic message with a dynamic, specific one
@@ -162,6 +164,7 @@ export class ToolOutputArtifactReadError extends Error {
     super(message ?? messageForReadFailure(reason), {
       ...(cause === undefined ? {} : { cause }),
     });
+    this.reason = reason;
     this.name = 'ToolOutputArtifactReadError';
   }
 }

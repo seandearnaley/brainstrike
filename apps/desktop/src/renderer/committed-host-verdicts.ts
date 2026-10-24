@@ -14,11 +14,15 @@ export class CommittedHostVerdicts {
   private rows: readonly HostLogRow[] | undefined;
   private value: RunVerdictContextValue | undefined;
 
-  constructor(
-    private readonly client: HostClient,
-    private readonly source: CommittedThreadSession,
-    private readonly threadId: string
-  ) {}
+  private readonly client: HostClient;
+  private readonly source: CommittedThreadSession;
+  private readonly threadId: string;
+
+  constructor(client: HostClient, source: CommittedThreadSession, threadId: string) {
+    this.client = client;
+    this.source = source;
+    this.threadId = threadId;
+  }
 
   readonly subscribe = (listener: () => void): (() => void) => this.source.subscribe(listener);
 

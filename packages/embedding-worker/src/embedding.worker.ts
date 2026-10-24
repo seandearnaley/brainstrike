@@ -23,12 +23,12 @@ import {
   extractEmbeddingBatch,
   measurePipelineTokenLengths,
   planAttentionBoundedBatchEnds,
-} from './embedding-input-plan';
-import { answerModelCacheStatus, type ModelCacheRegistry } from './model-cache-status';
+} from './embedding-input-plan.ts';
+import { answerModelCacheStatus, type ModelCacheRegistry } from './model-cache-status.ts';
 import {
   createEmbeddingPipelineCacheController,
   type PipelineCacheDiagnosticSink,
-} from './pipeline-cache-controller';
+} from './pipeline-cache-controller.ts';
 import type {
   EmbeddingDevice,
   EmbeddingDeviceHint,
@@ -42,7 +42,7 @@ import type {
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
-} from './shared';
+} from './shared.ts';
 import {
   cloneAsFloat32,
   computeInitialBatchSize,
@@ -51,13 +51,13 @@ import {
   POWER_BROADCAST_CHANNEL,
   truncateVector,
   vectorsFromPipelineOutput,
-} from './shared';
-import { consumeEmbeddingWorkerTestRuntimeOverride } from './test-runtime-bootstrap';
+} from './shared.ts';
+import { consumeEmbeddingWorkerTestRuntimeOverride } from './test-runtime-bootstrap.ts';
 import {
   createWebGpuDeviceOwner,
   type GpuDeviceHandle,
   type OwnedWebGpuDevice,
-} from './webgpu-device-owner';
+} from './webgpu-device-owner.ts';
 
 function resolveEmbeddingWorkerInstanceId(): string {
   const workerName = (globalThis as typeof globalThis & { readonly name?: unknown }).name;

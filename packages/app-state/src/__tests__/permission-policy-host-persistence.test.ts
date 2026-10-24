@@ -30,7 +30,7 @@ describe('the permission policy store with an agent host client', () => {
         values.set(name, value);
       }),
     };
-    const store = await import('../stores/permission-policy-store');
+    const store = await import('../stores/permission-policy-store.ts');
     // Before the client provides its persistence, nothing is read or written.
     await Promise.resolve();
     expect(host.getItem).not.toHaveBeenCalled();

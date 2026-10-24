@@ -4,7 +4,7 @@ import {
   createSingletonColumnSizesStore,
   createTreeTableColumnSizesStore,
   sanitizeColumnSizes,
-} from '../stores/tree-table-column-sizes-store';
+} from '../stores/tree-table-column-sizes-store.ts';
 
 const BOUNDS = {
   name: { defaultWidth: 200, maxWidth: 400, minWidth: 80 },

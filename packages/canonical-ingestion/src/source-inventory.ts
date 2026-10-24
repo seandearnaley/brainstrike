@@ -4,9 +4,9 @@ import type { VectorProfile } from '@brainstrike/indexer';
 import type {
   createNativeCanonicalCatalog,
   NativeCanonicalCatalogRecord,
-} from './canonical-catalog.js';
-import type { CanonicalCatalogFile, CanonicalFileIdentity, CanonicalSourceScope } from './ports.js';
-import type { CanonicalSourceInventoryPort } from './workspace-source-ports.js';
+} from './canonical-catalog.ts';
+import type { CanonicalCatalogFile, CanonicalFileIdentity, CanonicalSourceScope } from './ports.ts';
+import type { CanonicalSourceInventoryPort } from './workspace-source-ports.ts';
 
 export function createNativeSourceInventory(dependencies: {
   readonly assertSource: () => void;

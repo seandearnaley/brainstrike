@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { WebStorageAdapter } from '../adapters/web-storage-adapter.js';
+import { WebStorageAdapter } from '../adapters/web-storage-adapter.ts';
 
 describe('WebStorageAdapter (Browser Mode)', () => {
   let adapter: WebStorageAdapter;

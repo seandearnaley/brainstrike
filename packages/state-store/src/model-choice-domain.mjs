@@ -12,7 +12,7 @@ CREATE TABLE model_choices (
   PRIMARY KEY(provider_id,model_id)
 ) STRICT;
 `;
-/** @param {import('better-sqlite3').Database} db @returns {import('./model-choice-types.js').ModelChoiceSnapshot} */
+/** @param {import('better-sqlite3').Database} db @returns {import('./model-choice-types.ts').ModelChoiceSnapshot} */
 function snapshot(db) {
   const models = /** @type {{providerId:string;modelId:string;enabled:0|1}[]} */ (
     db
@@ -40,7 +40,7 @@ function identity(value) {
   }
 }
 /** @param {import('better-sqlite3').Database} db
- * @param {readonly import('./model-choice-types.js').ModelChoice[]} models */
+ * @param {readonly import('./model-choice-types.ts').ModelChoice[]} models */
 function writeModels(db, models) {
   if (models.length === 0) {
     throw new Error('Model choice batch is empty');
@@ -63,7 +63,7 @@ function writeModels(db, models) {
   }
 }
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./model-choice-types.js').ModelChoiceRequest & {operation:'initialize'}} request
+ * @param {import('./model-choice-types.ts').ModelChoiceRequest & {operation:'initialize'}} request
  * @returns {'initialized'|'preserved'} */
 function initializeModels(db, request) {
   identity(request.providerId);
@@ -89,8 +89,8 @@ function initializeModels(db, request) {
   return changed > 0 ? 'initialized' : 'preserved';
 }
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./model-choice-types.js').ModelChoiceRequest} request
- * @returns {import('./model-choice-types.js').ModelChoiceResult} */
+ * @param {import('./model-choice-types.ts').ModelChoiceRequest} request
+ * @returns {import('./model-choice-types.ts').ModelChoiceResult} */
 export function executeModelChoiceRequest(db, request) {
   return db.transaction(() => {
     const previous = snapshot(db);

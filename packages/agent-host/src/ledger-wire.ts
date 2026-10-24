@@ -4,7 +4,7 @@ import {
   RunVerdictDetailSchema,
   RunVerdictSchema,
   RunVerdictSourceSchema,
-} from './run-verdict-wire.js';
+} from './run-verdict-wire.ts';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Seq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));

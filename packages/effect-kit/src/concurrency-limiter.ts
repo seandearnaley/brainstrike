@@ -1,5 +1,5 @@
 import { Effect, Semaphore } from 'effect';
-import { runAtPromiseBoundary } from './promise-boundary.js';
+import { runAtPromiseBoundary } from './promise-boundary.ts';
 
 export interface LimitedTaskOptions {
   /**

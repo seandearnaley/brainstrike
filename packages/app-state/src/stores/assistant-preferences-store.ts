@@ -36,19 +36,19 @@ import {
   getAssistantConfiguredProvidersTestOverride,
   getLocalRuntimeStatusTestOverride,
   recordLocalRuntimeProbeForTests,
-} from '../automation-overrides';
+} from '../automation-overrides.ts';
 import {
   recordAssistantModelDiagnostic,
   withLocalRuntimeDiagnostics,
-} from '../local-runtime-diagnostics';
-import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations';
-import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
-import { clearPersistedStorageForTests } from './persist-api';
+} from '../local-runtime-diagnostics.ts';
+import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations.ts';
+import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version.ts';
+import { clearPersistedStorageForTests } from './persist-api.ts';
 
 export {
   getModelIdMigrationTarget,
   isRetiredModelId,
-} from './assistant-model-id-migrations';
+} from './assistant-model-id-migrations.ts';
 
 const logger = createLogger('AssistantPreferencesStore');
 
@@ -179,8 +179,8 @@ interface AssistantPreferencesActions {
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
-export { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name';
-export { ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version';
+export { ASSISTANT_PREFERENCES_STORE_NAME } from './assistant-preferences-store-name.ts';
+export { ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version.ts';
 
 const STORE_NAME = 'assistant-preferences.v1';
 const STORE_VERSION = LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION;

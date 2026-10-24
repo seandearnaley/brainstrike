@@ -5,7 +5,7 @@ import {
   createSafeJsonStorageAdapter,
   type PersistenceIssue,
   type StorageError,
-} from '../safe-storage.js';
+} from '../safe-storage.ts';
 
 const KEY = 'safe-storage.test';
 

@@ -1,4 +1,4 @@
-import { createQueryHost } from './host-core.js';
+import { createQueryHost } from './host-core.ts';
 
 if (!('parentPort' in process)) {
   throw new Error('SQLite query utility host requires an Electron parent port.');

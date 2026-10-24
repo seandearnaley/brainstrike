@@ -199,7 +199,11 @@ function requirePositiveInteger(value: number, field: string): void {
 }
 
 export class ThreadSearchService {
-  constructor(private readonly repository: ThreadSearchServiceRepository | null) {}
+  private readonly repository: ThreadSearchServiceRepository | null;
+
+  constructor(repository: ThreadSearchServiceRepository | null) {
+    this.repository = repository;
+  }
 
   private async readRepositoryArms(
     query: string,

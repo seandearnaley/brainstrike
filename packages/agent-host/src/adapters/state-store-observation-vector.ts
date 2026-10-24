@@ -13,11 +13,11 @@ import type {
 import {
   StateStoreMemoryVector,
   type StateStoreMemoryVectorOptions,
-} from './state-store-memory-vector.js';
+} from './state-store-memory-vector.ts';
 import type {
   NativeObservationInput,
   StateStoreObservationPreparation,
-} from './state-store-observation-memory.js';
+} from './state-store-observation-memory.ts';
 
 export interface StateStoreObservationVectorOptions extends StateStoreMemoryVectorOptions {
   readonly port: StateMessageVectorPort & StateObservationVectorPort;

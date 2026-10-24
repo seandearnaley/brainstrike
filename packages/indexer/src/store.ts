@@ -2,8 +2,8 @@ import path from 'node:path';
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
-import { embeddingProfileHash, fileChunks, float32At, sha256, vectorBlob } from './chunks.js';
+import { checkedTruncateCheckpoint } from './checked-checkpoint.ts';
+import { embeddingProfileHash, fileChunks, float32At, sha256, vectorBlob } from './chunks.ts';
 import {
   authorize,
   type CommitResult,
@@ -29,9 +29,9 @@ import {
   searchSchema,
   snapshotSchema,
   textCommitSchema,
-} from './contracts.js';
-import type { IndexConnection, IndexReaderConnection } from './index-connection.js';
-import { verifyIndexManifest } from './index-manifest.js';
+} from './contracts.ts';
+import type { IndexConnection, IndexReaderConnection } from './index-connection.ts';
+import { verifyIndexManifest } from './index-manifest.ts';
 import {
   configuredEmbedding,
   freshIdentity,
@@ -40,13 +40,13 @@ import {
   readIndexSchemaVersion,
   validateAcquisition,
   validateChunkEmbeddingState,
-} from './index-metadata.js';
-import { assertFreshOpen, decodeIndexerOptions } from './options.js';
-import { ScopeAuthority } from './scope-authority.js';
-import { ScopedIndex } from './scoped-store.js';
-import { StateEventStore } from './state-event-store.js';
-import type { StateProjection } from './state-projection.js';
-import type { CoarseVectorEngine } from './vector-engine.js';
+} from './index-metadata.ts';
+import { assertFreshOpen, decodeIndexerOptions } from './options.ts';
+import { ScopeAuthority } from './scope-authority.ts';
+import { ScopedIndex } from './scoped-store.ts';
+import { StateEventStore } from './state-event-store.ts';
+import type { StateProjection } from './state-projection.ts';
+import type { CoarseVectorEngine } from './vector-engine.ts';
 
 type PreparedCommit = Pick<FileCommit, 'plan' | 'syntax' | 'embeddings'>;
 const numberId = Schema.Int.check(
@@ -133,12 +133,11 @@ export class IndexWriter {
   readonly allowed: ReadonlySet<string>;
   readonly info: IndexerInfo;
   readonly scoped: ScopedIndex;
+  private readonly projection: StateProjection | undefined;
+
   /** `connection` is the index database its host opened (`desktop-index-connection.ts` on desktop). */
-  constructor(
-    input: unknown,
-    connection: IndexConnection,
-    private readonly projection?: StateProjection
-  ) {
+  constructor(input: unknown, connection: IndexConnection, projection?: StateProjection) {
+    this.projection = projection;
     try {
       this.options = decodeIndexerOptions(input);
     } catch (error) {

@@ -8,8 +8,8 @@ import {
   readProviderCallWarning,
   readToolTelemetryOmission,
 } from '@brainstrike/assistant-contract';
-import type { HostClient } from './client-connection.js';
-import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.js';
+import type { HostClient } from './client-connection.ts';
+import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
 
 export type PendingHostApproval = Extract<HostEvent, { type: 'interaction.requested' }>;
 export interface HostRunView {
@@ -194,7 +194,11 @@ export class CommittedThreadView {
   private readonly listeners = new Set<() => void>();
   private rows: readonly HostLogRow[] = [];
   private tail = 0;
-  constructor(readonly threadId: string) {}
+  readonly threadId: string;
+
+  constructor(threadId: string) {
+    this.threadId = threadId;
+  }
   readonly getSnapshot = (): readonly HostLogRow[] => this.rows;
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -246,7 +250,11 @@ class ViewTelemetry {
   private readonly next = new Map<string, number>();
   private early: HostRunTelemetry[] | undefined = [];
 
-  constructor(private readonly deliver: (telemetry: HostRunTelemetry) => void) {}
+  private readonly deliver: (telemetry: HostRunTelemetry) => void;
+
+  constructor(deliver: (telemetry: HostRunTelemetry) => void) {
+    this.deliver = deliver;
+  }
 
   /** A live chunk; held until the subscription's replay has been applied. */
   live(telemetry: HostRunTelemetry): void {
@@ -299,10 +307,15 @@ export class CommittedThreadSession {
     replayedThrough: undefined,
     rows: [],
   };
+  private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>;
+  private readonly threadId: string;
+
   constructor(
-    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
-    private readonly threadId: string
+    client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
+    threadId: string
   ) {
+    this.client = client;
+    this.threadId = threadId;
     this.view = new CommittedThreadView(threadId);
     this.view.subscribe(() => this.update({ rows: this.view.getSnapshot() }));
   }

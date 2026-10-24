@@ -1,5 +1,5 @@
-import type { MCP_APPS_MIME_TYPE } from './capabilities.js';
-import { parseMcpAppJsonRecord, parseMcpAppRequestId } from './messages.js';
+import type { MCP_APPS_MIME_TYPE } from './capabilities.ts';
+import { parseMcpAppJsonRecord, parseMcpAppRequestId } from './messages.ts';
 import {
   type McpAppResourceMeta,
   type McpAppResourceUri,
@@ -9,14 +9,14 @@ import {
   parseMcpAppResourceMeta,
   parseMcpAppResourceUri,
   parseMcpAppToolMeta,
-} from './metadata.js';
+} from './metadata.ts';
 import {
   expectEncodedSize,
   expectExactKeys,
   expectRecord,
   MCP_APP_MAX_MESSAGE_BYTES,
   type UnknownRecord,
-} from './validation.js';
+} from './validation.ts';
 
 const MAX_SERVER_ID_LENGTH = 256;
 const MAX_TOOL_NAME_LENGTH = 256;

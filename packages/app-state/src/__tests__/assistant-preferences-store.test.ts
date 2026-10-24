@@ -6,15 +6,15 @@ import {
 import { LocalRuntimeDiscoveryService } from '@brainstrike/local-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
-import { MODEL_ID_MIGRATIONS } from '../stores/assistant-model-id-migrations';
+import { MODEL_ID_MIGRATIONS } from '../stores/assistant-model-id-migrations.ts';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
-} from '../stores/assistant-preferences-store';
+} from '../stores/assistant-preferences-store.ts';
 import {
   __resetSettingsTestOverridesForTests,
   __setSettingsTestOverridesForTests,
-} from './settings-test-overrides-test-helper';
+} from './settings-test-overrides-test-helper.ts';
 
 type PersistApi<T> = T & {
   persist?: {

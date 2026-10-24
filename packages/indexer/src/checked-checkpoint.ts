@@ -1,7 +1,7 @@
 import { CheckpointBlockedError } from '@brainstrike/state-store/sqlite-checkpoint';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { decoder } from './contracts.js';
+import { decoder } from './contracts.ts';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);

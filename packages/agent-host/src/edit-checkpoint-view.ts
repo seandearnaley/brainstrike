@@ -5,7 +5,7 @@ import {
   denormalizeNativeToolName,
 } from '@brainstrike/assistant-contract';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
-import type { HostEditBaseline, HostEvent, HostLogRow } from './protocol.js';
+import type { HostEditBaseline, HostEvent, HostLogRow } from './protocol.ts';
 
 /**
  * Client fold of a thread's committed edit checkpoints, in the existing

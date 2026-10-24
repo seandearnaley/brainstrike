@@ -1,6 +1,6 @@
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
-import type { CoarseVectorEngine } from './vector-engine.js';
+import type { CoarseVectorEngine } from './vector-engine.ts';
 
 /**
  * What the derived store runs on, opened by its host: on desktop a

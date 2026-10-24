@@ -8,8 +8,8 @@ import {
   manifestFileSchema,
   manifestRequestSchema,
   manifestResultSchema,
-} from './contracts.js';
-import { readIndexIdentity } from './index-metadata.js';
+} from './contracts.ts';
+import { readIndexIdentity } from './index-metadata.ts';
 
 interface ManifestComparison<T> {
   changed: T[];

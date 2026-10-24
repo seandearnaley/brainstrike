@@ -1,1 +1,1 @@
-export * from './diagnostics/index.js';
+export * from './diagnostics/index.ts';

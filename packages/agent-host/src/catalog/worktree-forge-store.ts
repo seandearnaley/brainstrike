@@ -2,7 +2,7 @@ import type { ForgeCachePort, WorktreeLedgerPort } from '@brainstrike/state-stor
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
-import { sendCatalogRequest } from './request.js';
+import { sendCatalogRequest } from './request.ts';
 
 const Text = Schema.String;
 const Id = Text.check(Schema.isMinCodePoints(1));

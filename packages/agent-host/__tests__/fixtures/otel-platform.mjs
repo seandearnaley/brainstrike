@@ -16,7 +16,7 @@ const usage = {
 /**
  * BST-2067: a host run that makes one policy-allowed tool call (no approval
  * pause), streams its answer, and titles its thread through the same model.
- * @returns {Promise<import('../../src/ports.js').HostPlatform>}
+ * @returns {Promise<import('../../src/ports.ts').HostPlatform>}
  */
 export async function createHostPlatform() {
   const run = scriptedModel('read_note');

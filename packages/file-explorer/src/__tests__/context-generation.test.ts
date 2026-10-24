@@ -21,7 +21,11 @@ interface MockFileEntry {
 class MockFileSystemAdapter implements FileSystemAdapter {
   private readonly rootName = 'mock-root';
 
-  constructor(private readonly mockFileSystem: Record<string, MockFileEntry>) {}
+  private readonly mockFileSystem: Record<string, MockFileEntry>;
+
+  constructor(mockFileSystem: Record<string, MockFileEntry>) {
+    this.mockFileSystem = mockFileSystem;
+  }
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     return {
@@ -449,7 +453,11 @@ describe('reportGenerator', () => {
     }) as unknown as FileSystemDirectoryHandle;
 
   class BrowserHandleTestAdapter implements FileSystemAdapter {
-    constructor(private readonly root: FileSystemDirectoryHandle) {}
+    private readonly root: FileSystemDirectoryHandle;
+
+    constructor(root: FileSystemDirectoryHandle) {
+      this.root = root;
+    }
 
     async requestDirectoryAccess(): Promise<DirectoryHandle> {
       return {
@@ -1056,7 +1064,11 @@ describe('generateReportFromAdapter', () => {
     structure['root/.git'] = [fileNodeFull('root/.git/HEAD')];
 
     class SimpleAdapter implements FileSystemAdapter {
-      constructor(private readonly map: Record<string, IFileNode[]>) {}
+      private readonly map: Record<string, IFileNode[]>;
+
+      constructor(map: Record<string, IFileNode[]>) {
+        this.map = map;
+      }
       async requestDirectoryAccess(): Promise<DirectoryHandle> {
         return { kind: 'directory', name: 'root', path: 'root', platform: 'web' };
       }

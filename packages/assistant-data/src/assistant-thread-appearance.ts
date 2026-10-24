@@ -2,8 +2,8 @@ import type {
   AssistantMemoryThread,
   AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
-} from './assistant-memory-repository';
-import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge';
+} from './assistant-memory-repository.ts';
+import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge.ts';
 
 /**
  * A thread's icon and colour, the keys a customization click changes (BST-2116).

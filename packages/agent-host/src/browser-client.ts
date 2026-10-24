@@ -4,9 +4,9 @@ import {
   BrowserMessageWriter,
   createMessageConnection,
 } from 'vscode-jsonrpc/browser';
-import { authenticateHostClient, type HostClient } from './client-connection.js';
+import { authenticateHostClient, type HostClient } from './client-connection.ts';
 
-export type { HostClient } from './client-connection.js';
+export type { HostClient } from './client-connection.ts';
 /** The owning bridge supplies the private record and reports port lifetime. */
 export function attachBrowserHost(
   port: MessagePort,

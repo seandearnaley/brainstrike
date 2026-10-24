@@ -1,4 +1,4 @@
-import { type BoundaryTransport, callBoundary } from './boundary-result.js';
+import { type BoundaryTransport, callBoundary } from './boundary-result.ts';
 /**
  * Structural typing + capability resolution for the desktop
  * `window.contextFiles` workspace-instructions scan bridge (Settings →

@@ -8,15 +8,15 @@ import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
 import { noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import type { LanguageModelMiddleware, LanguageModelUsage } from 'ai';
-import { correlationIdFor } from '../failure-correlation.js';
-import type { HostMemoryCycle, HostRunContext, HostRunOwner } from '../ports.js';
-import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.js';
+import { correlationIdFor } from '../failure-correlation.ts';
+import type { HostMemoryCycle, HostRunContext, HostRunOwner } from '../ports.ts';
+import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.ts';
 import {
   classifyMemoryFailure,
   type HostMemoryEmbedderIdentity,
   memoryFailureCauses,
-} from './memory-failure.js';
-import { type MemoryLanguageModel, MemoryProviderLifetime } from './memory-provider-lifetime.js';
+} from './memory-failure.ts';
+import { type MemoryLanguageModel, MemoryProviderLifetime } from './memory-provider-lifetime.ts';
 
 type MemoryConfig = NonNullable<ConstructorParameters<typeof Memory>[0]>;
 type Engine = NonNullable<Awaited<Memory['omEngine']>>;
@@ -130,12 +130,11 @@ export type HostMemoryStepName =
  * correlation id; `step` names the memory step in that record.
  */
 export class HostMemoryStepError extends BoundaryFailureError {
-  private constructor(
-    readonly step: HostMemoryStepName,
-    failure: BoundaryFailure,
-    cause: unknown
-  ) {
+  readonly step: HostMemoryStepName;
+
+  private constructor(step: HostMemoryStepName, failure: BoundaryFailure, cause: unknown) {
     super(failure, { cause });
+    this.step = step;
     this.name = 'HostMemoryStepError';
   }
 
@@ -241,10 +240,12 @@ export class HostMemory implements HostRunOwner {
   private joined = false;
   private readonly observerModelId: string | undefined;
 
-  constructor(
-    readonly identity: HostMemoryIdentity,
-    private readonly capabilities: HostMemoryCapabilities
-  ) {
+  readonly identity: HostMemoryIdentity;
+  private readonly capabilities: HostMemoryCapabilities;
+
+  constructor(identity: HostMemoryIdentity, capabilities: HostMemoryCapabilities) {
+    this.identity = identity;
+    this.capabilities = capabilities;
     this.observerModelId = capabilities.observerModelId;
     this.providers = new MemoryProviderLifetime(
       identity.signal,

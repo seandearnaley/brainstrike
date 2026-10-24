@@ -5,12 +5,12 @@
 // bounded SIGKILL can end it. It runs the built package under plain Node.
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
-import { decodeStartOptions, startHost } from '../../dist/index.js';
+import { decodeStartOptions, startHost } from '../../src/index.ts';
 
 const options = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null'));
 const mode = makeThrowingDecoder(Schema.Literals(['honour', 'ignore']))(process.argv[3]);
 const startup = new AbortController();
-/** @type {import('../../dist/index.js').HostRuntime | undefined} */
+/** @type {import('../../src/index.ts').HostRuntime | undefined} */
 let host;
 process.on('SIGTERM', () => {
   if (mode !== 'honour') {

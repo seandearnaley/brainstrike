@@ -1,5 +1,5 @@
 import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
-import type { ToolProjectionRewriteEntry } from '../types';
+import type { ToolProjectionRewriteEntry } from '../types.ts';
 
 type Prompt = ProcessLLMRequestArgs['prompt'];
 type AssistantOrToolMessage = Extract<Prompt[number], { role: 'assistant' | 'tool' }>;

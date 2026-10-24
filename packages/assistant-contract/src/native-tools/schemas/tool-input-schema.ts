@@ -1,4 +1,4 @@
-import { isEffectToolInputSchema, type ToolJsonSchemaTarget } from './effect-tool-input.js';
+import { isEffectToolInputSchema, type ToolJsonSchemaTarget } from './effect-tool-input.ts';
 
 /** Inspector uses 2020-12; provider callers explicitly request draft-07. */
 export const TOOL_DISPLAY_JSON_SCHEMA_TARGET = 'draft-2020-12' satisfies ToolJsonSchemaTarget;

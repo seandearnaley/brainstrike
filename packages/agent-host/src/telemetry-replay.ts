@@ -1,6 +1,6 @@
 import { TOOL_TELEMETRY_OMITTED_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';
-import type { HostLogRow, HostRunTelemetry } from './protocol.js';
+import type { HostLogRow, HostRunTelemetry } from './protocol.ts';
 
 /**
  * The most chunk JSON, in bytes, Core keeps for a running call's replay, and
@@ -21,7 +21,11 @@ class ReplayRing {
   private bytes = 0;
   private omittedBytes = 0;
 
-  constructor(private readonly limit: number) {}
+  private readonly limit: number;
+
+  constructor(limit: number) {
+    this.limit = limit;
+  }
 
   push(telemetry: HostRunTelemetry): void {
     const bytes = utf8ByteLength(JSON.stringify(telemetry.chunk));
@@ -89,7 +93,11 @@ export class HostTelemetryReplay {
   private readonly streams = new Map<string, TelemetryStream>();
   private readonly listeners = new Set<(telemetry: HostRunTelemetry) => void>();
 
-  constructor(private readonly limit = HOST_TELEMETRY_REPLAY_BYTES) {}
+  private readonly limit: number;
+
+  constructor(limit = HOST_TELEMETRY_REPLAY_BYTES) {
+    this.limit = limit;
+  }
 
   subscribe(listener: (telemetry: HostRunTelemetry) => void): () => void {
     this.listeners.add(listener);

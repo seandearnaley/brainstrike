@@ -1,7 +1,7 @@
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract/run-events';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
-import type { DelegatedReplayProofInput } from './assistant-delegated-replay-proof';
+import type { DelegatedReplayProofInput } from './assistant-delegated-replay-proof.ts';
 
 export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
@@ -44,11 +44,11 @@ export interface AssistantMemoryThread {
 import type { AssistantThreadIconId } from '@brainstrike/types';
 
 export { ASSISTANT_THREAD_ICON_IDS, type AssistantThreadIconId } from '@brainstrike/types';
-export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.js';
+export { ASSISTANT_THREAD_COLOR_IDS } from './assistant-thread-palette.ts';
 
-import type { AssistantThreadColorId } from './assistant-thread-palette.js';
+import type { AssistantThreadColorId } from './assistant-thread-palette.ts';
 
-export type { AssistantThreadColorId } from './assistant-thread-palette.js';
+export type { AssistantThreadColorId } from './assistant-thread-palette.ts';
 
 // biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
@@ -420,4 +420,4 @@ export function assertBulkThreadMetadataPatch(metadata: AssistantThreadMetadata)
   }
 }
 
-export { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
+export { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource.ts';

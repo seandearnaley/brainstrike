@@ -11,16 +11,16 @@ import { describe, expect, it } from 'vitest';
 import {
   EXPLORER_COLUMN_BOUNDS,
   useExplorerColumnSizesStore,
-} from '../stores/explorer-column-sizes-store';
+} from '../stores/explorer-column-sizes-store.ts';
 import {
   EXPLORER_METADATA_COLUMN_IDS,
   sanitizeExplorerColumnVisibility,
   useExplorerColumnVisibilityStore,
-} from '../stores/explorer-column-visibility-store';
+} from '../stores/explorer-column-visibility-store.ts';
 import {
   sanitizeExplorerSortState,
   useExplorerSortStateStore,
-} from '../stores/explorer-sort-state-store';
+} from '../stores/explorer-sort-state-store.ts';
 
 describe('explorer column sizes store', () => {
   it('carries bounds for the metadata columns only — name is the pinned tree column', () => {

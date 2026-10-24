@@ -1,18 +1,21 @@
 import { ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
-import { sanitizeTools } from '../tool-projection/tool-sanitizer';
-import type { McpConfig } from './config';
-import { boundMcpDiscoveryReason, type McpDiscoverySkip } from './mcp-discovery-diagnostics';
-import { measureMcpMultimodalOutput } from './mcp-multimodal-output';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
+import { boundToolOutputForModel, MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits.ts';
+import { sanitizeTools } from '../tool-projection/tool-sanitizer.ts';
+import type { McpConfig } from './config.ts';
+import { boundMcpDiscoveryReason, type McpDiscoverySkip } from './mcp-discovery-diagnostics.ts';
+import { measureMcpMultimodalOutput } from './mcp-multimodal-output.ts';
 import {
   type McpRuntimeClient,
   type McpToolsetsWithErrors,
   shouldRetainRawMcpCallToolResult,
-} from './mcp-runtime-client';
-import { isAnyToolIdEnabledByFilterConfig, toolRegistry as mcpToolRegistry } from './tool-registry';
+} from './mcp-runtime-client.ts';
+import {
+  isAnyToolIdEnabledByFilterConfig,
+  toolRegistry as mcpToolRegistry,
+} from './tool-registry.ts';
 
 const logger = createLogger('MastraAgentMcpTools');
 

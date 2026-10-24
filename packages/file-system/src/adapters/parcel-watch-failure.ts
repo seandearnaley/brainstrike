@@ -1,4 +1,4 @@
-import type { ParcelBackendName } from './parcel-backend.js';
+import type { ParcelBackendName } from './parcel-backend.ts';
 
 // Parcel 2.6.0 emits these exact messages for MustScanSubDirs while retaining
 // the FSEvents subscription. Other backend errors do not establish that fact.

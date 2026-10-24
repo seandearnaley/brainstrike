@@ -1,5 +1,5 @@
-import { canonical, type Json, jsonValue } from './json-value.js';
-import type { HostEvent, HostLogRow, HostParams, HostRunSelection } from './protocol.js';
+import { canonical, type Json, jsonValue } from './json-value.ts';
+import type { HostEvent, HostLogRow, HostParams, HostRunSelection } from './protocol.ts';
 
 type Updated = Extract<HostEvent, { type: 'thread.selection.updated' }>;
 
@@ -34,7 +34,11 @@ function selectionOf(pair: HostRunSelection): HostRunSelection {
 export class HostThreadSelections {
   private readonly selections = new Map<string, HostRunSelection>();
 
-  constructor(private readonly ports: HostThreadSelectionPorts) {}
+  private readonly ports: HostThreadSelectionPorts;
+
+  constructor(ports: HostThreadSelectionPorts) {
+    this.ports = ports;
+  }
 
   fold(row: HostLogRow): void {
     if (row.event.type === 'thread.selection.updated') {

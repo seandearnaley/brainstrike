@@ -1,4 +1,4 @@
-import { BoundaryFailureError, refusal } from './boundary-failure.js';
+import { BoundaryFailureError, refusal } from './boundary-failure.ts';
 /**
  * Shared image-attachment limits and validation for the assistant composer
  * (client) and the assistant request boundary (server). ONE source for the

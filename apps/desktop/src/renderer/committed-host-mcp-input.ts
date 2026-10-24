@@ -94,11 +94,14 @@ export class CommittedHostMcpInput {
   private epoch = 0;
   private closed = false;
 
-  constructor(
-    private readonly client: HostClient,
-    private readonly source: CommittedThreadSession,
-    private readonly threadId: string
-  ) {
+  private readonly client: HostClient;
+  private readonly source: CommittedThreadSession;
+  private readonly threadId: string;
+
+  constructor(client: HostClient, source: CommittedThreadSession, threadId: string) {
+    this.client = client;
+    this.source = source;
+    this.threadId = threadId;
     this.release = source.subscribe(() => this.refresh());
     this.refresh();
   }

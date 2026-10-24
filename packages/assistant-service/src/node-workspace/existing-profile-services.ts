@@ -4,15 +4,15 @@ import type {
   NodeWorkspaceProfileOwner,
   NodeWorkspaceServices,
   NodeWorkspaceServicesStartup,
-} from '../node-workspace-services.js';
-import { openNodeWorkspaceServices } from '../node-workspace-services.js';
-import { type DatabaseLocation, joinProfileDirectory } from './database-location.js';
+} from '../node-workspace-services.ts';
+import { openNodeWorkspaceServices } from '../node-workspace-services.ts';
+import { type DatabaseLocation, joinProfileDirectory } from './database-location.ts';
 import {
   type SubscribeMountedWorkspaceRoot,
   WorkspaceRootRegistry,
-} from './workspace-root-registry.js';
-import type { WorkspaceRootStorage } from './workspace-root-types.js';
-import { loadWorkspaceRootsFromCatalog } from './workspace-roots.js';
+} from './workspace-root-registry.ts';
+import type { WorkspaceRootStorage } from './workspace-root-types.ts';
+import { loadWorkspaceRootsFromCatalog } from './workspace-roots.ts';
 
 // Keep one cold mount borrower per acquired profile; the existing StateStore owns all records.
 const activeProfiles = new Set<string>();

@@ -19,30 +19,30 @@ import type {
   ViewFilterPresetRequest,
 } from '@brainstrike/types';
 import type { PromptLibraryReply, PromptLibraryRequest } from '@brainstrike/types/prompt-item';
-import type { CollectionReply, CollectionRequest } from './collection-types.js';
-import { ThreadDamagedError, ThreadReadOnlyError } from './errors.js';
+import type { CollectionReply, CollectionRequest } from './collection-types.ts';
+import { ThreadDamagedError, ThreadReadOnlyError } from './errors.ts';
 import {
   type Decoded,
   decodeEvent,
   type EventSchema,
   type Mode,
   type Unreadable,
-} from './event-schema.js';
-import { RootLock } from './lock.js';
-import type { McpTaskDomainReply, McpTaskDomainRequest } from './mcp-task-types.js';
-import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.js';
+} from './event-schema.ts';
+import { RootLock } from './lock.ts';
+import type { McpTaskDomainReply, McpTaskDomainRequest } from './mcp-task-types.ts';
+import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.ts';
 import type {
   ModelChoiceRequest,
   ModelChoiceResult,
   ModelChoiceSnapshot,
-} from './model-choice-types.js';
-import type { PromptCatalogReply, PromptCatalogRequest } from './prompt-catalog-types.js';
-import { executePromptLibrary } from './prompt-library.js';
+} from './model-choice-types.ts';
+import type { PromptCatalogReply, PromptCatalogRequest } from './prompt-catalog-types.ts';
+import { executePromptLibrary } from './prompt-library.ts';
 import { withSeq } from './run-log-format.mjs';
-import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
-import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.js';
-import { type DeletionWriter, StateDeletion } from './state-deletion.js';
-import { BLOBS_DIR, exportStateBundle, importStateBundle, STATE_DB } from './state-store-bundle.js';
+import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
+import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.ts';
+import { type DeletionWriter, StateDeletion } from './state-deletion.ts';
+import { BLOBS_DIR, exportStateBundle, importStateBundle, STATE_DB } from './state-store-bundle.ts';
 import type {
   HydrationThread,
   IndexerPort,
@@ -51,19 +51,19 @@ import type {
   StateStoreOptions,
   StoreSettings,
   SyncSpan,
-} from './state-store-types.js';
-import { type Ready, waitReady } from './state-store-worker-ready.js';
-import { assertNotSyncedRoot } from './sync-roots.js';
-import { errorOf, logRowOf, type WorkerRow } from './worker-reply.js';
-import type { WorkspaceRootReply, WorkspaceRootRequest } from './workspace-root-types.js';
+} from './state-store-types.ts';
+import { type Ready, waitReady } from './state-store-worker-ready.ts';
+import { assertNotSyncedRoot } from './sync-roots.ts';
+import { errorOf, logRowOf, type WorkerRow } from './worker-reply.ts';
+import type { WorkspaceRootReply, WorkspaceRootRequest } from './workspace-root-types.ts';
 import type {
   ForgeCacheReply,
   ForgeCacheRequest,
   WorktreeLedgerReply,
   WorktreeLedgerRequest,
-} from './worktree-forge-types.js';
+} from './worktree-forge-types.ts';
 
-export { BLOBS_DIR, STATE_DB, sha256Hex } from './state-store-bundle.js';
+export { BLOBS_DIR, STATE_DB, sha256Hex } from './state-store-bundle.ts';
 /** Every entry the store creates in its data root besides the lock directory, which the lock removes itself. */
 export const STORE_ENTRIES: readonly string[] = [
   STATE_DB,
@@ -76,7 +76,7 @@ export type { ContentClearResult as ClearContentResult } from '@brainstrike/type
 
 import type { ContentClearResult as ClearContentResult } from '@brainstrike/types';
 
-export { BLOB_MIN_BYTES, largeText, PREVIEW_CHARS, type StoredText } from './large-text.js';
+export { BLOB_MIN_BYTES, largeText, PREVIEW_CHARS, type StoredText } from './large-text.ts';
 export type {
   ExportedThread,
   HydrationThread,
@@ -88,7 +88,7 @@ export type {
   StoreSettings,
   SyncSpan,
   WriteSpan,
-} from './state-store-types.js';
+} from './state-store-types.ts';
 
 /** Trusted host composition after writer readiness, before interrupted purge replay. */
 export interface StateStoreStartupOwner {
@@ -99,11 +99,11 @@ export interface StateStoreStartupOwner {
 
 /** Failed startup retains the original writer and Root when external cleanup is unproved. */
 export class StateStoreStartupError extends AggregateError {
-  constructor(
-    causes: readonly unknown[],
-    readonly store: StateStore
-  ) {
+  readonly store: StateStore;
+
+  constructor(causes: readonly unknown[], store: StateStore) {
     super(causes, 'State startup cleanup failed; durable root ownership is retained');
+    this.store = store;
   }
 }
 

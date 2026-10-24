@@ -21,7 +21,7 @@ import {
   RESULT_META_SCHEMA,
   TaskSchema,
   WorkingTaskSchema,
-} from './task.js';
+} from './task.ts';
 
 const INPUT_REQUEST_VALIDATOR = sdkSchema(
   z.union([
@@ -176,4 +176,4 @@ export {
   TaskStatusSchema,
   type WorkingTask,
   WorkingTaskSchema,
-} from './task.js';
+} from './task.ts';

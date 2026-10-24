@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
-import type { ScopedPendingRemoval } from './workspace-scan-nodes.js';
-import { isUnderRelativePrefix, isUnderTruncatedDirectory } from './workspace-scan-paths.js';
+import type { ScopedPendingRemoval } from './workspace-scan-nodes.ts';
+import { isUnderRelativePrefix, isUnderTruncatedDirectory } from './workspace-scan-paths.ts';
 
 // Structural scan projections, not canonical catalog identities or authority.
 interface ScanEntry {

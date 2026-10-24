@@ -15,9 +15,9 @@ import {
   parseCredentialOrThrow,
   SecretReadError,
   type SecretsService,
-} from './credential-contract.js';
+} from './credential-contract.ts';
 
-export * from './credential-contract.js';
+export * from './credential-contract.ts';
 
 export interface KeyringCredentialStoreOptions {
   readonly backend: KeyringCredentialBackend;

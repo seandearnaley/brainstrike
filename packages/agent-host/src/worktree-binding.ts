@@ -1,10 +1,10 @@
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
-import type { HostCore } from './core.js';
-import type { HostChildRuns } from './core-child-runs.js';
-import type { HostRunAction } from './core-run-execution.js';
-import type { HostRunState } from './core-state.js';
-import type { HostEnteredWorktree } from './ports.js';
-import type { HostEvent } from './protocol.js';
+import type { HostCore } from './core.ts';
+import type { HostChildRuns } from './core-child-runs.ts';
+import type { HostRunAction } from './core-run-execution.ts';
+import type { HostRunState } from './core-state.ts';
+import type { HostEnteredWorktree } from './ports.ts';
+import type { HostEvent } from './protocol.ts';
 
 type HostBindingCommands = Pick<HostCore, 'readWorkspaceBinding' | 'updateWorkspaceBinding'>;
 

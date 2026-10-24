@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
-import { HOST_LEASE_CLOSING } from './refusal.js';
+import { HOST_LEASE_CLOSING } from './refusal.ts';
 
 // 2: the error frame carries an optional typed refusal `code` (BST-2158), which
 // a version-1 client's strict decoder rejects.

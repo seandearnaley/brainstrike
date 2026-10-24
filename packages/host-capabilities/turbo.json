@@ -2,8 +2,9 @@
   "extends": ["//"],
   "tasks": {
     "test:integration": {
-      // Spawned CLI proofs resolve this package's emitted bin and platform module in Node.
-      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+      // Spawned CLI proofs run the bin from source under Node; it loads the
+      // native add-ons (`^build`).
+      "dependsOn": ["$TURBO_EXTENDS$", "^build"]
     }
   }
 }

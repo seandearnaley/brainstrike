@@ -10,35 +10,35 @@ import {
   type ToolContent,
 } from 'ai';
 import { Schema } from 'effect';
-import { toBoundaryFailure } from './boundary-wire.js';
+import { toBoundaryFailure } from './boundary-wire.ts';
 
 const logger = createLogger('AgentHost');
 
-import { ApprovalInputReconstructionError, validateApprovalInput } from './approval-input.js';
+import { ApprovalInputReconstructionError, validateApprovalInput } from './approval-input.ts';
 import {
   browserOriginDeniedReason,
   type HostBrowserOriginStore,
   saveHostBrowserOrigin,
-} from './browser-origin-answers.js';
+} from './browser-origin-answers.ts';
 import {
   applyHostPermissionGrant,
   hasHostInteractionResponse,
   type PendingInteraction,
   type HostRunState as Run,
-} from './core-state.js';
-import { executableInputSchema } from './executable-input-schema.js';
-import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
-import { jsonValue } from './json-value.js';
-import type { HostPlatform } from './ports.js';
+} from './core-state.ts';
+import { executableInputSchema } from './executable-input-schema.ts';
+import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.ts';
+import { jsonValue } from './json-value.ts';
+import type { HostPlatform } from './ports.ts';
 import {
   type HostEvent,
   type HostLogRow,
   HostNetworkConsentSchema,
   type HostParams,
   type HostPermissionGrant,
-} from './protocol.js';
-import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
-import { hostStartPosition } from './run-branch.js';
+} from './protocol.ts';
+import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.ts';
+import { hostStartPosition } from './run-branch.ts';
 
 type Action = Extract<
   HostEvent,

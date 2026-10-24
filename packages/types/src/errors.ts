@@ -1,10 +1,11 @@
 export class PartialRefreshError extends Error {
-  constructor(
-    message: string,
-    public successCount: number,
-    public failCount: number
-  ) {
+  public successCount: number;
+  public failCount: number;
+
+  constructor(message: string, successCount: number, failCount: number) {
     super(message);
+    this.successCount = successCount;
+    this.failCount = failCount;
     this.name = 'PartialRefreshError';
   }
 }
@@ -17,22 +18,27 @@ export class PartialRefreshError extends Error {
 export const BINARY_CONTENT_MESSAGE = 'Binary file - preview not available';
 
 export class FileContentError extends Error {
+  public path: string;
+  public code: 'TOO_LARGE' | 'BINARY' | 'LOADING_ERROR' | 'INVALID_FILE';
+
   constructor(
     message: string,
-    public path: string,
-    public code: 'TOO_LARGE' | 'BINARY' | 'LOADING_ERROR' | 'INVALID_FILE'
+    path: string,
+    code: 'TOO_LARGE' | 'BINARY' | 'LOADING_ERROR' | 'INVALID_FILE'
   ) {
     super(message);
+    this.path = path;
+    this.code = code;
     this.name = 'FileContentError';
   }
 }
 
 export class ConcurrentLoadingError extends Error {
-  constructor(
-    message: string,
-    public failedPaths: string[]
-  ) {
+  public failedPaths: string[];
+
+  constructor(message: string, failedPaths: string[]) {
     super(message);
+    this.failedPaths = failedPaths;
     this.name = 'ConcurrentLoadingError';
   }
 }
