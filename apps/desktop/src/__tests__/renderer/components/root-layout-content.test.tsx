@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -92,12 +92,6 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
   ),
 }));
 
-let currentDb: unknown = null;
-const usePGliteDatabaseMock = vi.fn(() => currentDb);
-vi.mock('@brainstrike/db', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: () => usePGliteDatabaseMock(),
-}));
 // Mock UI provider to avoid asynchronous provider effects in unit tests
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
@@ -257,7 +251,6 @@ describe('RootLayoutContent', () => {
   });
 
   beforeEach(() => {
-    currentDb = null;
     settingsMountCount = 0;
     vi.clearAllMocks();
     sharedRootLayoutCapture.props = null;
@@ -310,9 +303,8 @@ describe('RootLayoutContent', () => {
     expect(document.title).toBe('BrainStrike Desktop - Settings');
   });
 
-  it('mounts without opening PGlite or a visible-renderer embedding queue', () => {
+  it('mounts without a visible-renderer embedding queue', () => {
     render(<RootLayoutContent />);
-    expect(usePGliteDatabaseMock).not.toHaveBeenCalled();
     expect(registerDesktopEmbeddingRuntimeConfigMock).not.toHaveBeenCalled();
     expect(sharedRootLayoutCapture.props).not.toHaveProperty('loadEmbeddingQueue');
   });
@@ -373,39 +365,8 @@ describe('RootLayoutContent', () => {
     expect(sharedRootLayoutCapture.props?.['worktreeMapPageContent']).toBeDefined();
   });
 
-  it('keeps its page content mounted while the database becomes available', async () => {
-    const { rerender } = render(<RootLayoutContent />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-mount-index', '1')
-    );
-
-    currentDb = {
-      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
-    };
-
-    rerender(<RootLayoutContent />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-mount-index', '1')
-    );
-  });
-
-  it('does not mount an app-specific embedding queue tracker before the database is ready', () => {
+  it('does not mount an app-specific embedding queue tracker', () => {
     render(<RootLayoutContent />);
-    expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
-  });
-
-  it('keeps indexing activity delegated to the shared root when the database becomes available', async () => {
-    const { rerender } = render(<RootLayoutContent />);
-
-    currentDb = {
-      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
-    };
-
-    rerender(<RootLayoutContent />);
-
-    await waitFor(() => expect(screen.getByTestId('settings-page-content')).toBeInTheDocument());
     expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 
@@ -426,9 +387,6 @@ describe('RootLayoutContent', () => {
 
     expect(setIntervalSpy).toHaveBeenCalledTimes(2);
 
-    currentDb = {
-      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
-    };
     (
       globalThis.performance as typeof globalThis.performance & {
         memory: {
@@ -500,7 +458,7 @@ describe('RootLayoutContent', () => {
     expect(cancelAnimationFrameSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('logs visible renderer frame stalls with the latest database readiness state', () => {
+  it('logs visible renderer frame stalls with the active tools tab', () => {
     vi.useFakeTimers();
     Object.defineProperty(globalThis.performance, 'memory', {
       configurable: true,
@@ -519,9 +477,6 @@ describe('RootLayoutContent', () => {
       });
     const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
 
-    currentDb = {
-      query: vi.fn(async () => ({ affectedRows: 0, rows: [] })),
-    };
     const { unmount } = render(<RootLayoutContent />);
 
     expect(requestAnimationFrameSpy).toHaveBeenCalled();

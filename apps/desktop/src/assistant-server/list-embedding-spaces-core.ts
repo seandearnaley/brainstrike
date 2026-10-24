@@ -6,12 +6,11 @@
 
 import type { ListEmbeddingSetsInput } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import type { EmbeddingSpaceListing, EmbeddingSpaceStats } from '@brainstrike/db';
 import type {
   IndexerCoverageBatch,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
-import type { RetrievalStore } from './retrieval-store';
+import type { EmbeddingSpaceListing, EmbeddingSpaceStats, RetrievalStore } from './retrieval-store';
 import { nativeWorkspaceIndexSummary, type WorkspaceIndexSummary } from './workspace-index-summary';
 
 type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {

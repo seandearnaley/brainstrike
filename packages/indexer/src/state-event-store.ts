@@ -26,7 +26,6 @@ import {
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.js';
-import { INDEX_SCHEMA_VERSION, type IndexSchemaVersion } from './index-metadata.js';
 import { PromptVectors } from './prompt-vectors.js';
 import { StateMessageVectors } from './state-message-vectors.js';
 import { StateObservationVectors } from './state-observation-vectors.js';
@@ -35,9 +34,8 @@ import { StateSearchVectors } from './state-search-vectors.js';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);
-const stateSourceColumns =
-  'singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT';
-const stateSourceDefinition = `CREATE TABLE state_index_source(${stateSourceColumns},resource_grants TEXT NOT NULL)`;
+const stateSourceDefinition =
+  'CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT,resource_grants TEXT NOT NULL)';
 /** Gap 10: one searchable conversation row per committed event, with its own FTS. */
 const searchDefinition = `
   CREATE TABLE state_search_rows(event_pk INTEGER PRIMARY KEY REFERENCES state_event_rows(pk) ON DELETE CASCADE,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),run_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('user','assistant')),text TEXT NOT NULL);
@@ -79,9 +77,6 @@ function projectionStatements(db: Database.Database) {
   };
 }
 const quote = (text: string): string => `"${text.replaceAll('"', '""')}"`;
-// Normalize only SQL whitespace; quoted constraint/default literals retain their exact bytes.
-const normalizedDefinition = (sql: string): string =>
-  sql.replace(/'(?:''|[^'])*'|\s+/gu, (token) => (token.startsWith("'") ? token : ' ')).trim();
 
 /** The same derived writer owns this projection, FTS, references and physical purge. */
 export class StateEventStore {
@@ -137,8 +132,7 @@ export class StateEventStore {
     db: Database.Database,
     root: string | undefined,
     projection: StateProjection | undefined,
-    options: IndexerOptions,
-    version: IndexSchemaVersion = INDEX_SCHEMA_VERSION
+    options: IndexerOptions
   ): void {
     const stored = decoder(Schema.NullOr(Schema.String))(
       db.prepare('SELECT root FROM state_index_source WHERE singleton=1').pluck().get()
@@ -149,15 +143,9 @@ export class StateEventStore {
         .pluck()
         .get()
     );
-    const grants =
-      version === 8
-        ? '[]'
-        : decoder(Schema.String)(
-            db
-              .prepare('SELECT resource_grants FROM state_index_source WHERE singleton=1')
-              .pluck()
-              .get()
-          );
+    const grants = decoder(Schema.String)(
+      db.prepare('SELECT resource_grants FROM state_index_source WHERE singleton=1').pluck().get()
+    );
     if (grants !== JSON.stringify(options.stateResources ?? [])) {
       throw new IndexerError(
         'rebuild-required',
@@ -172,58 +160,39 @@ export class StateEventStore {
     }
   }
 
-  /** Exact additive frontier: a legacy label must not hide partial or counterfeit additions. */
-  static validateLayout(db: Database.Database, version: IndexSchemaVersion): void {
-    const additions: readonly (readonly [string, string, boolean])[] = [
-      ['state_index_source', 'table', true],
-      ['state_message_generation', 'table', version >= 9],
-      ['state_message_profiles', 'table', version >= 9],
-      ['state_message_vectors', 'table', version >= 9],
-      ['state_message_scope', 'index', version >= 9],
-      ['state_observation_vectors', 'table', version >= 10],
-      ['state_observation_scope', 'index', version >= 10],
-      ['state_search_rows', 'table', version >= 11],
-      ['state_search_thread', 'index', version >= 11],
-      ['state_search_fts', 'table', version >= 11],
-      ['state_search_vectors', 'table', version >= 12],
-      ['state_search_vector_failures', 'table', version >= 13],
-      ['prompt_vectors', 'table', version >= 14],
-      ['state_message_sources', 'table', version >= 15],
+  /** Exact layout: a partial or counterfeit derived schema refuses as rebuild-required. */
+  static validateLayout(db: Database.Database): void {
+    const objects: readonly (readonly [string, string])[] = [
+      ['state_index_source', 'table'],
+      ['state_message_generation', 'table'],
+      ['state_message_profiles', 'table'],
+      ['state_message_vectors', 'table'],
+      ['state_message_scope', 'index'],
+      ['state_observation_vectors', 'table'],
+      ['state_observation_scope', 'index'],
+      ['state_search_rows', 'table'],
+      ['state_search_thread', 'index'],
+      ['state_search_fts', 'table'],
+      ['state_search_vectors', 'table'],
+      ['state_search_vector_failures', 'table'],
+      ['prompt_vectors', 'table'],
+      ['state_message_sources', 'table'],
     ];
-    const objects = decoder(
-      Schema.Array(Schema.Struct({ name: Schema.String, sql: Schema.String, type: Schema.String }))
+    const stored = decoder(
+      Schema.Array(Schema.Struct({ name: Schema.String, type: Schema.String }))
     )(
       db
         .prepare(
-          'SELECT name,sql,type FROM sqlite_schema WHERE name IN (SELECT value FROM json_each(?))'
+          'SELECT name,type FROM sqlite_schema WHERE name IN (SELECT value FROM json_each(?))'
         )
-        .all(JSON.stringify(additions.map(([name]) => name)))
+        .all(JSON.stringify(objects.map(([name]) => name)))
     );
-    for (const [name, type, expected] of additions) {
-      const found = objects.find((object) => object.name === name);
-      if (expected ? found?.type !== type : found !== undefined) {
+    for (const [name, type] of objects) {
+      if (stored.find((object) => object.name === name)?.type !== type) {
         throw new IndexerError(
           'rebuild-required',
-          'Declared derived schema disagrees with its additive layout.'
+          'Declared derived schema disagrees with its layout.'
         );
-      }
-    }
-    if (version !== INDEX_SCHEMA_VERSION) {
-      const required = [
-        {
-          name: 'state_index_source',
-          sql:
-            version === 8
-              ? `CREATE TABLE state_index_source(${stateSourceColumns})`
-              : stateSourceDefinition,
-        },
-        ...(version === 9 ? StateMessageVectors.definitions : []),
-      ];
-      for (const { name, sql } of required) {
-        const stored = objects.find((object) => object.name === name);
-        if (!stored || normalizedDefinition(stored.sql) !== normalizedDefinition(sql)) {
-          throw new IndexerError('rebuild-required', `Legacy derived definition changed: ${name}.`);
-        }
       }
     }
     const columns = decoder(Schema.Array(Schema.String))(
@@ -234,12 +203,7 @@ export class StateEventStore {
     );
     if (
       JSON.stringify(columns) !==
-      JSON.stringify([
-        'singleton',
-        'root',
-        'projection_identity',
-        ...(version === 8 ? [] : ['resource_grants']),
-      ])
+      JSON.stringify(['singleton', 'root', 'projection_identity', 'resource_grants'])
     ) {
       throw new IndexerError(
         'rebuild-required',
@@ -248,44 +212,14 @@ export class StateEventStore {
     }
   }
 
-  /** Caller owns the native transaction; no rows or existing authority are replaced. */
-  static addCompatibleStorage(db: Database.Database, version: IndexSchemaVersion): void {
-    if (version === 8) {
-      db.exec(
-        "ALTER TABLE state_index_source ADD COLUMN resource_grants TEXT NOT NULL DEFAULT '[]'"
-      );
-      StateMessageVectors.initialize(db);
-    }
-    if (version < 10) {
-      StateObservationVectors.initialize(db);
-    }
-    if (version < 11) {
-      db.exec(searchDefinition);
-    }
-    if (version < 12) {
-      db.exec(StateSearchVectors.definition);
-    }
-    if (version < 13) {
-      db.exec(StateSearchVectors.failureDefinition);
-    }
-    if (version < 14) {
-      db.exec(PromptVectors.definition);
-    }
-    if (version < 15) {
-      db.exec(StateMessageVectors.sourcesDefinition);
-    }
-  }
-
-  /** Caller owns the native transaction: additions, acquisition and their backfill commit together. */
+  /** Caller owns the native transaction that acquires the store. */
   static acquire(
     db: Database.Database,
     root: string | undefined,
     truth: StateTruthReader | undefined,
     projection: StateProjection | undefined,
-    options: IndexerOptions,
-    version: IndexSchemaVersion
+    options: IndexerOptions
   ): StateEventStore | undefined {
-    StateEventStore.addCompatibleStorage(db, version);
     StateEventStore.validateRoot(db, root, projection, options);
     if (root === undefined) {
       StateMessageVectors.validateStorage(db);
@@ -297,30 +231,7 @@ export class StateEventStore {
     if (!truth) {
       throw new TypeError('State projection requires its authoritative truth reader.');
     }
-    if (version < 15) {
-      StateMessageVectors.backfillSources(db, truth, projection);
-    }
-    const store = new StateEventStore(db, truth, projection, options);
-    if (version < 11) {
-      store.backfillSearch();
-    }
-    return store;
-  }
-
-  /** An upgraded store's search rows, projected from the committed events it already holds. */
-  private backfillSearch(): void {
-    const rows = decoder(
-      Schema.Array(
-        Schema.Struct({ payload: Schema.String, pk: count, seq: count, threadId: Schema.String })
-      )
-    )(
-      this.db
-        .prepare('SELECT pk,thread_id AS threadId,seq,payload FROM state_event_rows ORDER BY pk')
-        .all()
-    );
-    for (const row of rows) {
-      this.writeSearch(row.pk, row.threadId, row.seq, this.projection.decode(row.payload).search);
-    }
+    return new StateEventStore(db, truth, projection, options);
   }
 
   private writeSearch(pk: number, threadId: string, seq: number, search: StateSearchRow): void {

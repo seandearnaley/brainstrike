@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import {
@@ -9,7 +10,6 @@ import {
   manifestResultSchema,
 } from './contracts.js';
 import { readIndexIdentity } from './index-metadata.js';
-import { isAbsolutePosix } from './portable.js';
 
 interface ManifestComparison<T> {
   changed: T[];
@@ -56,7 +56,7 @@ export function verifyIndexManifest(
     if (
       expected.has(file.fileId) ||
       paths.has(file.relativePath) ||
-      isAbsolutePosix(file.relativePath) ||
+      path.posix.isAbsolute(file.relativePath) ||
       file.relativePath.includes('\\') ||
       file.relativePath
         .split('/')

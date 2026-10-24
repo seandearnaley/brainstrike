@@ -44,23 +44,3 @@ export function normalizeDirectoryReadOptions(options?: DirectoryReadOptions) {
     limiter,
   };
 }
-
-export function isFileSystemDirectoryHandle(h: unknown): h is FileSystemDirectoryHandle {
-  return (
-    !!h &&
-    typeof h === 'object' &&
-    (h as { kind?: unknown }).kind === 'directory' &&
-    typeof (h as { name?: unknown }).name === 'string' &&
-    'entries' in (h as object)
-  );
-}
-
-export function isFileSystemFileHandle(h: unknown): h is FileSystemFileHandle {
-  return (
-    !!h &&
-    typeof h === 'object' &&
-    (h as { kind?: unknown }).kind === 'file' &&
-    typeof (h as { name?: unknown }).name === 'string' &&
-    'getFile' in (h as object)
-  );
-}

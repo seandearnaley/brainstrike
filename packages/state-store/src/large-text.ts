@@ -1,7 +1,7 @@
 /**
- * M0-A2 Host.toBody's rule for a large text, with no Node module.
+ * M0-A2 Host.toBody's rule for a large text.
  */
-import { sha256Hex } from '@brainstrike/utils/crypto';
+import { createHash } from 'node:crypto';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type { BlobContent } from './run-log-types.js';
 
@@ -26,7 +26,7 @@ export function largeText(output: string): {
   if (bytes < BLOB_MIN_BYTES) {
     return { blob: null, fields: { output } };
   }
-  const hash = sha256Hex(output);
+  const hash = createHash('sha256').update(output).digest('hex');
   return {
     blob: { content: output, hash },
     fields: { blob: hash, bytes, preview: output.slice(0, PREVIEW_CHARS) },

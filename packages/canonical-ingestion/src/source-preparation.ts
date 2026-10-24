@@ -1,4 +1,4 @@
-import { sha256Hex } from '@brainstrike/utils/crypto';
+import { createHash } from 'node:crypto';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';
 import type {
   CanonicalCatalogPort,
@@ -73,7 +73,7 @@ export async function readCanonicalSource(
   return {
     kind: 'content',
     ...read,
-    contentHash: sha256Hex(read.content),
+    contentHash: createHash('sha256').update(read.content).digest('hex'),
   };
 }
 

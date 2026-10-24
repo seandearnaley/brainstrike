@@ -1,7 +1,5 @@
 import type { CodeLanguage } from './chunking-config';
 import { type ExtractedSymbols, extractSymbols } from './extract-symbols';
-import { getEnabledTreeSitterLanguages } from './parsers/environment';
-import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode, ParserAdapter } from './parsers/types';
 
 /**
@@ -32,30 +30,24 @@ function auditFirstSuccessfulParse(adapterId: string): void {
 
 export function supportsCanonicalAst(
   language: CodeLanguage | null,
-  runtime?: CanonicalChunkingRuntime
+  runtime: CanonicalChunkingRuntime
 ): boolean {
   if (language === 'typescript' || language === 'javascript') {
     return true;
   }
-  if (language !== 'python') {
-    return false;
-  }
-  if (runtime?.strict) {
-    return true;
-  }
-  return getEnabledTreeSitterLanguages().includes('python');
+  return language === 'python' && runtime.strict;
 }
 
 export async function parseCanonicalSource(
   content: string,
   language: CodeLanguage | null,
   fileName: string | undefined,
-  runtime?: CanonicalChunkingRuntime
+  runtime: CanonicalChunkingRuntime
 ): Promise<{ ast: AstNode; symbols: ExtractedSymbols | null } | null> {
   let ast: AstNode | null = null;
-  const adapter = runtime ? runtime.selectAdapter(fileName) : selectAdapter(fileName);
+  const adapter = runtime.selectAdapter(fileName);
   if (adapter === null) {
-    if (runtime?.strict) {
+    if (runtime.strict) {
       throw new Error(`No canonical AST adapter for ${fileName ?? 'unnamed source'}.`);
     }
     // selectAdapter returned null (Phase 9 strict): the file is not
@@ -87,7 +79,7 @@ export async function parseCanonicalSource(
     // audit goes silent so the log isn't spammy.
     auditFirstSuccessfulParse(adapter.id);
   } catch (err) {
-    if (runtime?.strict) {
+    if (runtime.strict) {
       throw err;
     }
     // WARN level (not debug): an AST parse failure means function-aware
@@ -115,7 +107,7 @@ export async function parseCanonicalSource(
   try {
     symbols = extractSymbols({ adapterId: adapter.id, ast, content });
   } catch (err) {
-    if (runtime?.strict) {
+    if (runtime.strict) {
       throw err;
     }
     // biome-ignore lint/suspicious/noConsole: visible signal that the symbol graph lost this file

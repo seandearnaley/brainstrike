@@ -30,8 +30,7 @@ import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
-// Import the adapter and text-splitter directly from source — matches the
-// oxc bench's pattern (`../src/parsers/babel-adapter.ts`). Node 22+ strips
+// Import the adapter and text-splitter directly from source. Node 22+ strips
 // types natively. The bench refuses to silently use a stale/different
 // adapter from dist.
 const { treeSitterAdapter } = await import('../src/parsers/tree-sitter-adapter.ts');

@@ -7,11 +7,9 @@ const {
   readModelCatalogMock,
   reopenEmbeddingQueueMock,
   queryEmbeddingCancelListenerRef,
-  embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
   retireEmbeddingQueueMock,
-  createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,
@@ -28,14 +26,7 @@ const {
   commandListenerRef: {
     current: null as null | ((command: unknown) => void),
   },
-  createEmbeddingCacheRepositoryMock: vi.fn(),
   detectDeviceCapabilitiesMock: vi.fn(),
-  embeddingCacheRepository: {
-    get: vi.fn(),
-    getBatch: vi.fn(),
-    set: vi.fn(),
-    setBatch: vi.fn(),
-  },
   embeddingQueueBootstrapMock: vi.fn(),
   ensureVectorPreferencesHydratedMock: vi.fn(),
   generateQueryEmbeddingMock: vi.fn(async () => ({
@@ -118,12 +109,6 @@ vi.mock('electron', () => ({
   powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
 }));
 
-vi.mock('@brainstrike/db', () => ({
-  createEmbeddingCacheRepository: createEmbeddingCacheRepositoryMock,
-  usePGliteDatabase: () => {
-    throw new Error('PGlite is unavailable in the native hidden host');
-  },
-}));
 vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,
   useVectorPreferencesStore: Object.assign(
@@ -195,7 +180,6 @@ export function installEmbeddingHostRuntimeFixture(): void {
       }
       return storeState;
     });
-    createEmbeddingCacheRepositoryMock.mockReturnValue(embeddingCacheRepository);
     startEmbeddingWorkerMock.mockResolvedValue({
       stop: stopMock,
     });
@@ -239,10 +223,8 @@ export function installEmbeddingHostRuntimeFixture(): void {
 
 export {
   commandListenerRef,
-  createEmbeddingCacheRepositoryMock,
   createHostWindowMock,
   detectDeviceCapabilitiesMock,
-  embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   ensureVectorPreferencesHydratedMock,
   generateQueryEmbeddingMock,

@@ -547,7 +547,7 @@ async function splitCodeByFunctions(
      * of #998) can route extensions like .py to tree-sitter.
      */
     fileName?: string;
-    runtime?: CanonicalChunkingRuntime;
+    runtime: CanonicalChunkingRuntime;
   }
 ): Promise<{ pieces: string[]; symbols: ExtractedSymbols | null } | null> {
   const parsed = await parseCanonicalSource(content, language, fileName, runtime);
@@ -663,7 +663,7 @@ function joinWordlessGaps(content: string, spans: readonly SourceSpan[]): Source
 export async function chunkContent(
   content: string,
   options: ChunkingRequestOptions & { fileName?: string; filePath?: string },
-  runtime?: CanonicalChunkingRuntime
+  runtime: CanonicalChunkingRuntime
 ): Promise<PortableChunkingResult> {
   const initialStrategy = resolveChunkingStrategyForFile(
     options.filePath ?? options.fileName ?? '',
@@ -756,13 +756,12 @@ export async function chunkContent(
         language: codeLanguage,
         maxChars,
         overlapChars,
+        runtime,
         separators: getCodeSeparators(options.separators),
-        ...(runtime ? { runtime } : {}),
-        // Plumb fileName so selectAdapter(fileName) can extension-route
-        // (e.g., .py → tree-sitter). For JS/TS the routing ignores
-        // fileName and uses the env/flag globals, so this is a no-op for
-        // the existing path. Conditional spread keeps the property absent
-        // when no name is available (exactOptionalPropertyTypes).
+        // Plumb fileName so the runtime's selectAdapter(fileName) can
+        // extension-route (e.g., .py → tree-sitter). Conditional spread keeps
+        // the property absent when no name is available
+        // (exactOptionalPropertyTypes).
         ...(resolvedFileName ? { fileName: resolvedFileName } : {}),
       });
 

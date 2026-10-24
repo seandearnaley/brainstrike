@@ -161,10 +161,7 @@
       // its own `build` (logger-dist-singleton.test.ts imports logging's dist by
       // file URL); packages/utils#test needs its own `build`
       // (typescript-build-contract.test.ts inspects emitted files);
-      // packages/db#test needs `@brainstrike/utils#build`
-      // (migration-runner-types.test.ts runs a nested `ts.createProgram` whose
-      // compiler resolves @brainstrike/utils types from dist — vitest aliases
-      // cannot intercept tsc); packages/secure-fs-native#test needs its own
+      // packages/secure-fs-native#test needs its own
       // `build` (tests load the compiled .node addon; the edge must be a
       // dependsOn, never an inline `pnpm build &&` in the script — that raced
       // this task's concurrently-scheduled `build` as two simultaneous
@@ -198,8 +195,7 @@
       // `COVERAGE` from the vitest child process unless they are declared here. Both
       // are read at runtime by the test configs:
       //   - packages/test-utils/src/vitest.base.ts gates `maxWorkers` on `CI`,
-      //   - ~12 packages compute `coverageEnabled = CI === 'true' || COVERAGE === 'true'`,
-      //   - packages/db/vitest.config.mts adds Chromium `--no-sandbox` flags when `CI` is set.
+      //   - ~12 packages compute `coverageEnabled = CI === 'true' || COVERAGE === 'true'`.
       // CI belongs in `env`: its worker and coverage branches change the
       // workload, so a local green must never be replayed in CI without
       // executing CI's profile. `COVERAGE` differs between the PR path (unset)
@@ -305,7 +301,6 @@
         "@brainstrike/embedding-worker#dev", // Run the 'dev' script from the @brainstrike/embedding-worker package (builds workers)
         "@brainstrike/agent#dev",
         "@brainstrike/embeddings#dev",
-        "@brainstrike/db#dev",
         "@brainstrike/queue#dev",
         "@brainstrike/app-state#dev",
         "@brainstrike/settings-ui#dev",

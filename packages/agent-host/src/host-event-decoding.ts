@@ -1,11 +1,10 @@
 /**
  * Decoding a committed host row, wherever it is read: the desktop's Core and
- * state projection, and the browser state writer (BST-1940). The caller owns
- * blob IO and supplies the bytes: a spooled body's blob, and a resolver from a
- * run snapshot reference to its committed snapshot. Nothing here imports a
- * Node module.
+ * state projection. The caller owns blob IO and supplies the bytes: a spooled
+ * body's blob, and a resolver from a run snapshot reference to its committed
+ * snapshot.
  */
-import { sha256Hex } from '@brainstrike/utils/crypto';
+import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
 import { storedJson } from './json-value.js';
 import {
@@ -46,7 +45,7 @@ function frozen<T>(value: T): T {
 const StoredRunSnapshotSchema = hostRunSnapshotSchema(storedJson);
 /** A run snapshot blob's committed snapshot: verified against its hash, then decoded and deep-frozen. */
 export function decodeRunSnapshot(hash: string, bytes: Uint8Array): HostRunSnapshot {
-  if (sha256Hex(bytes) !== hash) {
+  if (createHash('sha256').update(bytes).digest('hex') !== hash) {
     throw new Error('Committed run snapshot blob is damaged');
   }
   return frozen(
@@ -81,7 +80,13 @@ export function storedHostBody(
   if (!spool) {
     return stored;
   }
-  if (!(blob && blob.byteLength === spool.bytes && sha256Hex(blob) === spool.blob)) {
+  if (
+    !(
+      blob &&
+      blob.byteLength === spool.bytes &&
+      createHash('sha256').update(blob).digest('hex') === spool.blob
+    )
+  ) {
     throw new Error('Committed host event blob is damaged');
   }
   const body = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(

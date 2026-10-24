@@ -33,7 +33,7 @@ function loadedDocumentUrl(target: DesktopRendererTarget, role: DesktopWindowRol
   return `${target.url}${query}`;
 }
 
-const ROLES: readonly DesktopWindowRole[] = ['visible-ui', 'chunking-host', 'embedding-host'];
+const ROLES: readonly DesktopWindowRole[] = ['visible-ui', 'embedding-host'];
 
 describe('desktop renderer target', () => {
   afterEach(() => {

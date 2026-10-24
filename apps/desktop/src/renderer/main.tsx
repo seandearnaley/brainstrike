@@ -27,7 +27,6 @@ import {
   LogLevel,
   redactSensitiveLogValue,
 } from '@brainstrike/logging';
-import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { createWriteBehindStorageAdapter } from '@brainstrike/storage';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
@@ -96,7 +95,6 @@ if (desktopRendererRole === 'visible-ui' && bridgeValidation.ok) {
 const rendererLevel = LogLevel.INFO;
 const rendererConsoleLevel = LogLevel.WARN;
 const rendererLogger = createLogger('DesktopRenderer');
-let flushQueueTelemetry: (() => void) | null = null;
 let removeHiddenHostLogForwarder: (() => void) | null = null;
 
 const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
@@ -130,12 +128,7 @@ initializeLogging({
 const removeRendererErrorHooks =
   typeof window === 'undefined'
     ? () => {}
-    : installRendererErrorHooks({
-        onError: () => {
-          flushQueueTelemetry?.();
-        },
-        scope: 'DesktopRenderer',
-      });
+    : installRendererErrorHooks({ scope: 'DesktopRenderer' });
 
 const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {
@@ -269,47 +262,6 @@ if (import.meta.hot) {
     unsubscribeLoggingEvents?.();
     removeRendererErrorHooks();
   });
-}
-
-const telemetryEndpoint = import.meta.env['VITE_QUEUE_TELEMETRY_ENDPOINT'];
-const rendererTelemetrySink =
-  typeof window !== 'undefined' && telemetryEndpoint
-    ? initializeQueueTelemetrySink({
-        endpoint: telemetryEndpoint,
-        useSendBeacon: false,
-        ...(import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY']
-          ? { apiKey: import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY'] }
-          : {}),
-        metadata: {
-          app: 'desktop-renderer',
-          mode: import.meta.env.MODE,
-          version: import.meta.env['VITE_APP_VERSION'] ?? 'desktop-renderer',
-        },
-        runtime: 'electron-renderer',
-      })
-    : null;
-
-if (rendererTelemetrySink) {
-  const flushTelemetry = () => {
-    void rendererTelemetrySink.flush();
-  };
-  flushQueueTelemetry = flushTelemetry;
-  const handleBeforeUnload = () => {
-    flushTelemetry();
-  };
-  if (typeof window !== 'undefined') {
-    window.addEventListener('beforeunload', handleBeforeUnload);
-  }
-
-  if (import.meta.hot) {
-    import.meta.hot.dispose(() => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-      }
-      flushQueueTelemetry = null;
-      void rendererTelemetrySink.dispose();
-    });
-  }
 }
 
 declare global {

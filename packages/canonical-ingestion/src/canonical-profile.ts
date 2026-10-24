@@ -10,7 +10,7 @@ import {
 } from '@brainstrike/embeddings/inference-plan';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import type { VectorProfile } from '@brainstrike/indexer';
-import { vectorProfileHash } from '@brainstrike/indexer/browser';
+import { vectorProfileHash } from '@brainstrike/indexer';
 import {
   decodeCatalogEmbeddingModel,
   type HostedProviderType,

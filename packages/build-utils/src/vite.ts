@@ -183,7 +183,6 @@ const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
   '@brainstrike/ui > tailwind-merge',
   '@brainstrike/ui > yaml',
   '@brainstrike/file-explorer-ui > react-resizable-panels',
-  '@brainstrike/utils > @noble/hashes/sha2.js',
   '@brainstrike/utils > ignore',
   '@brainstrike/settings-ui > @tanstack/react-table',
   'zustand/vanilla',

@@ -20,14 +20,69 @@
  */
 
 import { createRankedList, fuseRankedLists, normalizeRRFScores } from '@brainstrike/utils/rrf';
-import type {
-  ThreadMessageFtsMatch,
-  ThreadMessageFtsOptions,
-  ThreadMessageVectorMatch,
-  ThreadMessageVectorOptions,
-  ThreadTitleMatch,
-  ThreadTitleSearchOptions,
-} from '../models/thread-search.js';
+
+export interface ThreadMessageFtsOptions {
+  /** Generate `<mark>`-highlighted headlines (default true). */
+  includeHeadline?: boolean;
+  limit: number;
+  resourceId: string;
+}
+
+export interface ThreadMessageFtsMatch {
+  headline: string | null;
+  messageCreatedAt: Date;
+  messageId: string;
+  rank: number;
+  role: string;
+  threadId: string;
+}
+
+export interface ThreadMessageVectorOptions {
+  limit: number;
+  resourceId: string;
+  /** Minimum cosine similarity (default 0.35). */
+  threshold?: number;
+}
+
+export interface ThreadMessageVectorMatch {
+  messageCreatedAt: Date;
+  messageId: string;
+  role: string;
+  similarity: number;
+  snippet: string;
+  threadId: string;
+}
+
+export interface ThreadTitleSearchOptions {
+  limit: number;
+  resourceId: string;
+}
+
+export interface ThreadTitleMatch {
+  similarity: number;
+  threadId: string;
+  title: string;
+}
+
+/**
+ * Honest coverage counters for the search UI: the semantic arm's readiness is
+ * always visible, never silently degraded.
+ */
+export interface ThreadSearchCoverage {
+  /** Index rows with non-empty extracted text (the embeddable set). */
+  embeddableMessages: number;
+  /** Embeddable rows with a stored vector. */
+  embeddedMessages: number;
+  /** Rows whose embedding attempt recorded an error. */
+  erroredMessages: number;
+  /** Rows present in the index. */
+  indexedMessages: number;
+  /** All mastra messages for the resource (indexed or not). */
+  totalMessages: number;
+}
+
+/** The vector arm's minimum cosine similarity, for every owner's thread search. */
+export const THREAD_SEARCH_VECTOR_THRESHOLD = 0.35;
 
 /** The three repository arms this service fuses (structural, DI-friendly). */
 export interface ThreadSearchServiceRepository {

@@ -12,7 +12,6 @@ import {
 } from './browser-workerpool-test-fixtures.js';
 
 const {
-  emitQueueTelemetryMock,
   loggerMock,
   poolExecMock,
   poolFactoryMock,
@@ -23,7 +22,6 @@ const {
   recordEmbeddingPipelineCacheTelemetryMock,
   removeEmbeddingTelemetrySourceMock,
 } = vi.hoisted(() => ({
-  emitQueueTelemetryMock: vi.fn(),
   loggerMock: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -52,10 +50,6 @@ vi.mock('workerpool', () => ({
   default: {
     pool: poolFactoryMock,
   },
-}));
-
-vi.mock('../telemetry', () => ({
-  emitQueueTelemetry: emitQueueTelemetryMock,
 }));
 
 vi.mock('../util', async () => {
@@ -149,7 +143,6 @@ describe('createWorkerpoolAdapter', () => {
       'BroadcastChannel',
       MockBroadcastChannel as unknown as typeof globalThis.BroadcastChannel
     );
-    emitQueueTelemetryMock.mockReset();
     loggerMock.debug.mockReset();
     loggerMock.error.mockReset();
     loggerMock.info.mockReset();
@@ -235,15 +228,9 @@ describe('createWorkerpoolAdapter', () => {
       progress: 1,
       type: 'progress',
     });
-    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'enqueue', pending: 2, taskId: 'task-1' })
-    );
-    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'complete', pending: 2, taskId: 'task-1' })
-    );
     expect(loggerMock.debug).toHaveBeenCalledWith(
       'Workerpool embedding task complete',
-      expect.objectContaining({ taskId: 'task-1' })
+      expect.objectContaining({ pending: 2, taskId: 'task-1' })
     );
     expect(recordEmbeddingBatchTelemetryMock).toHaveBeenCalledWith(
       expect.stringMatching(/^workerpool-embedding-/),
@@ -454,8 +441,9 @@ describe('createWorkerpoolAdapter', () => {
     expect(recordEmbeddingTelemetryFailureMock).toHaveBeenCalledWith(
       'Workerpool result arrived without a pipeline-cache source diagnostic.'
     );
-    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ event: 'complete', taskId: 'task-without-source' })
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'Workerpool embedding task complete',
+      expect.objectContaining({ taskId: 'task-without-source' })
     );
   });
 
@@ -945,16 +933,13 @@ describe('createWorkerpoolAdapter', () => {
     expect(running.promise.cancel).not.toHaveBeenCalled();
     expect(poolTerminateMock).not.toHaveBeenCalled();
     expect(removeListener).toHaveBeenCalledWith('abort', expect.any(Function));
-    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        errorMessage: preAbortedReason.message,
-        event: 'error',
-        taskId: 'task-2',
-      })
+    expect(loggerMock.debug).toHaveBeenCalledWith(
+      'Workerpool embedding task failed',
+      expect.objectContaining({ error: preAbortedReason.message, taskId: 'task-2' })
     );
   });
 
-  it('normalizes object-style worker errors into telemetry and logs', async () => {
+  it('normalizes object-style worker errors into logs', async () => {
     const objectError = { code: 'E_WORKER', message: 'object failure', stack: 'stacktrace' };
     const { promise, reject } = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(promise);
@@ -966,9 +951,6 @@ describe('createWorkerpoolAdapter', () => {
     reject(objectError);
 
     await expect(addPromise).rejects.toEqual(objectError);
-    expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ errorMessage: 'object failure', event: 'error', taskId: 'task-4' })
-    );
     expect(loggerMock.debug).toHaveBeenCalledWith(
       'Workerpool embedding task failed',
       expect.objectContaining({ details: objectError, error: 'object failure', taskId: 'task-4' })

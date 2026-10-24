@@ -3,11 +3,20 @@ import {
   splitMarkdownIntoBlocks,
 } from '@brainstrike/text-splitter/chunking-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { CanonicalChunkingRuntime } from '../canonical-parser-runtime';
 import { CHUNKING_CONFIG } from '../chunking-config';
-import { chunkContent } from '../portable-chunking';
+import { oxcNativeAdapter } from '../parsers/oxc-native-adapter';
+import { chunkContent as chunkWithRuntime } from '../portable-chunking';
+
+/** Code parses with oxc; Python has no adapter in this non-strict runtime. */
+const runtime: CanonicalChunkingRuntime = {
+  selectAdapter: (fileName) => (/\.pyi?$/i.test(fileName ?? '') ? null : oxcNativeAdapter),
+  strict: false,
+};
+const chunkContent = (content: string, options: Parameters<typeof chunkWithRuntime>[1]) =>
+  chunkWithRuntime(content, options, runtime);
 
 afterEach(() => {
-  vi.doUnmock('@babel/parser');
   vi.doUnmock('@brainstrike/text-splitter');
   vi.doUnmock('@brainstrike/tokenization/token-utils-lite');
   vi.unstubAllGlobals();
@@ -262,13 +271,17 @@ describe('portable-chunking', () => {
         });
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
-        const result = await isolatedChunkContent(text, {
-          allowLargeFiles: true,
-          fileName: 'large-repetitive.txt',
-          maxTokens: 64,
-          overlap: 0,
-          strategy: 'sentence',
-        });
+        const result = await isolatedChunkContent(
+          text,
+          {
+            allowLargeFiles: true,
+            fileName: 'large-repetitive.txt',
+            maxTokens: 64,
+            overlap: 0,
+            strategy: 'sentence',
+          },
+          runtime
+        );
 
         expect(result.skipped).toBe(false);
         expect(result.chunks).toHaveLength(1);
@@ -309,13 +322,17 @@ describe('portable-chunking', () => {
         });
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
-        const result = await isolatedChunkContent(text, {
-          allowLargeFiles: true,
-          fileName: 'mixed-newline-anchor.txt',
-          maxTokens: 64,
-          overlap: 0,
-          strategy: 'sentence',
-        });
+        const result = await isolatedChunkContent(
+          text,
+          {
+            allowLargeFiles: true,
+            fileName: 'mixed-newline-anchor.txt',
+            maxTokens: 64,
+            overlap: 0,
+            strategy: 'sentence',
+          },
+          runtime
+        );
 
         expect(result.skipped).toBe(false);
         expect(result.chunks).toHaveLength(1);
@@ -348,13 +365,17 @@ describe('portable-chunking', () => {
         });
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
-        const result = await isolatedChunkContent(text, {
-          allowLargeFiles: true,
-          fileName: 'global-anchor-budget.txt',
-          maxTokens: 64,
-          overlap: 0,
-          strategy: 'sentence',
-        });
+        const result = await isolatedChunkContent(
+          text,
+          {
+            allowLargeFiles: true,
+            fileName: 'global-anchor-budget.txt',
+            maxTokens: 64,
+            overlap: 0,
+            strategy: 'sentence',
+          },
+          runtime
+        );
 
         expect(result).toMatchObject({
           chunks: [],
@@ -378,12 +399,16 @@ describe('portable-chunking', () => {
         vi.resetModules();
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
-        const result = await isolatedChunkContent('First sentence. Second sentence.', {
-          fileName: 'unmocked.txt',
-          maxTokens: 64,
-          overlap: 0,
-          strategy: 'sentence',
-        });
+        const result = await isolatedChunkContent(
+          'First sentence. Second sentence.',
+          {
+            fileName: 'unmocked.txt',
+            maxTokens: 64,
+            overlap: 0,
+            strategy: 'sentence',
+          },
+          runtime
+        );
 
         expect(result.skipped).toBe(false);
         expect(result.chunks.map((chunk) => chunk.content)).not.toEqual([
@@ -403,10 +428,14 @@ describe('portable-chunking', () => {
         });
         const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
 
-        const result = await isolatedChunkContent('real source text', {
-          fileName: 'source.txt',
-          strategy: 'sentence',
-        });
+        const result = await isolatedChunkContent(
+          'real source text',
+          {
+            fileName: 'source.txt',
+            strategy: 'sentence',
+          },
+          runtime
+        );
 
         expect(result).toMatchObject({
           chunks: [],
@@ -525,64 +554,25 @@ function baz() {
       });
 
       it('falls back to recursive splitting when AST parsing fails', async () => {
-        vi.doMock('@babel/parser', () => ({
-          parse: () => {
-            throw new Error('parser exploded');
-          },
-        }));
-
-        const result = await chunkContent(
+        const result = await chunkWithRuntime(
           `
 const alpha = () => 1;
 const beta = () => 2;
 const gamma = () => alpha() + beta();
 `.repeat(40),
+          { fileName: 'broken.ts', strategy: 'recursive' },
           {
-            fileName: 'broken.ts',
-            strategy: 'recursive',
+            selectAdapter: () => ({
+              id: 'oxc-native',
+              parse: () => Promise.reject(new Error('parser exploded')),
+            }),
+            strict: false,
           }
         );
 
         expect(result.skipped).toBe(false);
         expect(result.strategyUsed).toBe('recursive');
         expect(result.chunks.length).toBeGreaterThan(1);
-      });
-
-      it('uses Babel parser modules bundled with a default export', async () => {
-        vi.resetModules();
-        const parse = vi.fn(() => ({
-          program: {
-            body: [
-              {
-                end: 'function alpha() { return 1; }'.length,
-                start: 0,
-                type: 'FunctionDeclaration',
-              },
-            ],
-            type: 'Program',
-          },
-          type: 'File',
-        }));
-        const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
-        vi.doMock('@babel/parser', () => ({
-          default: { parse },
-        }));
-        const { chunkContent: isolatedChunkContent } = await import('../portable-chunking');
-
-        const result = await isolatedChunkContent(
-          'function alpha() { return 1; }\n\nconst beta = 2;',
-          {
-            fileName: 'default-parser.ts',
-            strategy: 'recursive',
-          }
-        );
-
-        expect(result.skipped).toBe(false);
-        expect(parse).toHaveBeenCalledTimes(1);
-        expect(debug).not.toHaveBeenCalledWith(
-          '[portable-chunking] AST parsing failed for function-level splitting',
-          expect.anything()
-        );
       });
 
       it('falls back to recursive splitting when no top-level function ranges exist', async () => {
@@ -802,11 +792,15 @@ export function feature${index}() {
         );
 
         await expect(
-          chunkContentWithUnavailableCounter('Content that requires true token sizing.', {
-            fileName: 'true-sized.txt',
-            strategy: 'token',
-            tokenTrueSizing: true,
-          })
+          chunkContentWithUnavailableCounter(
+            'Content that requires true token sizing.',
+            {
+              fileName: 'true-sized.txt',
+              strategy: 'token',
+              tokenTrueSizing: true,
+            },
+            runtime
+          )
         ).rejects.toThrow('Accurate token counting unavailable: WASM asset missing');
       });
     });
