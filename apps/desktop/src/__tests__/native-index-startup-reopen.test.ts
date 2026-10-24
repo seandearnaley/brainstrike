@@ -11,6 +11,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { textSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 import {
   createActivation,
   mocks,
@@ -55,10 +56,10 @@ function startup(syncs: readonly Sync[]) {
     subscribe: unused,
   };
   const application = {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: async () => lease,
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
   setCatalogRoot();

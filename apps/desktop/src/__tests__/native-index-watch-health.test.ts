@@ -7,6 +7,7 @@ import type {
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
+import { restoredRoots } from './helpers/restored-roots';
 import {
   fixture,
   mocks,
@@ -32,10 +33,10 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
     subscribe: unused,
   };
   const application = {
-    roots: {
+    roots: restoredRoots({
       borrowSourceRoot: async () => lease,
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
-    },
+    }),
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
   setCatalogRoot();

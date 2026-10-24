@@ -663,6 +663,53 @@ describe('file system IPC domain', () => {
     expect(await storage.getItem('rootsList')).toBe(JSON.stringify([entry]));
   });
 
+  it('asks Main to re-read the folders once a removal retires a mounted folder', async () => {
+    const rootsChanged = vi.fn();
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsCatalog,
+      isSyntheticFileSystemPath: () => true,
+      onWorkspaceRootsChanged: rootsChanged,
+      storage,
+    });
+    const descriptor = (await capabilityHandler('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+      handle: DirectoryHandle;
+    };
+
+    await capabilityHandler('fs:removeRoot')?.(
+      createTrustedInvokeEvent(),
+      descriptor.handle.rootId
+    );
+    expect(rootsChanged).toHaveBeenCalledOnce();
+    // Removing it again (as the renderer does after deleting a folder's data) changes nothing.
+    await capabilityHandler('fs:removeRoot')?.(
+      createTrustedInvokeEvent(),
+      descriptor.handle.rootId
+    );
+    expect(rootsChanged).toHaveBeenCalledOnce();
+  });
+
+  it('asks Main to re-read the folders when a removal fails after retiring the mount', async () => {
+    const entry = { addedAt: 1, path: '/users/test/workspace', rootId: 'root-a' };
+    storage = createStorage({ rootsList: JSON.stringify([entry]) });
+    const rootsChanged = vi.fn();
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsCatalog,
+      isSyntheticFileSystemPath: () => true,
+      onWorkspaceRootsChanged: rootsChanged,
+      storage,
+    });
+    await capabilityHandler('fs:restoreRoots')?.(createTrustedInvokeEvent());
+    rootsCatalogRequest.mockRejectedValueOnce(new Error('db unavailable'));
+
+    await expect(
+      capabilityHandler('fs:removeRoot')?.(createTrustedInvokeEvent(), 'root-a')
+    ).rejects.toMatchObject({ code: 'boundary.internal' });
+    // The folder stays connected, but its borrowed mount was already retired.
+    expect(rootsChanged).toHaveBeenCalledOnce();
+  });
+
   it('unregisters every file channel and disposes the registry', () => {
     const unregister = register();
     const channels = [...handlers.keys()];

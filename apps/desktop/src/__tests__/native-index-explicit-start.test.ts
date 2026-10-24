@@ -8,6 +8,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { unreadableSettings } from './helpers/native-index-settings';
+import { restoredRoots } from './helpers/restored-roots';
 import { fixture, mocks, resetActivationFixture, unused } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
@@ -16,7 +17,7 @@ beforeEach(resetActivationFixture);
 function heldOpens() {
   const held = { entered: false, hold: false, release: Promise.withResolvers<void>() };
   const application = {
-    roots: {
+    roots: restoredRoots({
       restoreRoots: async () => {
         if (held.hold) {
           held.entered = true;
@@ -24,7 +25,7 @@ function heldOpens() {
         }
         return [];
       },
-    },
+    }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
   const f = fixture(application);

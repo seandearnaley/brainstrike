@@ -826,6 +826,11 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
   },
+  onWorkspaceRootsChanged: () => {
+    // Not awaited, as a renderer's registration is not: the index status owns the outcome,
+    // and the registration reports its own failure.
+    nativeRootRegistration.rootsRegistered().catch(() => undefined);
+  },
 });
 function activateSavedNativeIndexSettings(): Promise<void> {
   if (isDesktopShuttingDown()) {
@@ -968,6 +973,12 @@ const nativeIndexSearch = createNativeScopedSearchCapability({
   rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
   withRead: nativeIndexActivation.withRead,
 });
+const nativeRootRegistration = createNativeRootRegistration({
+  isShuttingDown: isDesktopShuttingDown,
+  reconfigureRoots: () => nativeIndexActivation.reconfigureRoots(),
+  reportError: reportNativeIndexActivationError,
+  transition: (operation) => nativeRootDataDeletion.transition(operation),
+});
 const nativeLifecycleObserver = new AbortController();
 // Windows follow this push for the index's lifecycle, status and coverage; none of them polls.
 observeNativeIndex({
@@ -995,12 +1006,7 @@ ipcDisposers.add(
   'index-search',
   registerIndexSearchIpcHandlers(
     nativeIndexSearch,
-    createNativeRootRegistration({
-      isShuttingDown: isDesktopShuttingDown,
-      reconfigureRoots: () => nativeIndexActivation.reconfigureRoots(),
-      reportError: reportNativeIndexActivationError,
-      transition: (operation) => nativeRootDataDeletion.transition(operation),
-    }),
+    nativeRootRegistration,
     {
       retryIndexing: () =>
         nativeRootDataDeletion.transition(() => nativeIndexActivation.retryIndexing()),
