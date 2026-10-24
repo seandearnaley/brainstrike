@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { encodeFileMentionId, serializeFileMentionDirective } from '@brainstrike/agent';
 import { INTERNAL_FAULT, ToolInputError } from '@brainstrike/assistant-contract';
@@ -11,11 +12,13 @@ import {
 } from '../../assistant-server/referenced-files-context';
 
 const ROOT_ID = '/abs/workspace';
+// The root's path resolves to a native absolute path; its id stays opaque.
+const ROOT_PATH = path.resolve('/abs/workspace');
 
 function runtimeWithRoot(): RuntimeData {
   return {
     provider: 'anthropic',
-    workspaceRoots: [{ displayName: 'workspace', path: ROOT_ID, rootId: ROOT_ID }],
+    workspaceRoots: [{ displayName: 'workspace', path: ROOT_PATH, rootId: ROOT_ID }],
   } as RuntimeData;
 }
 
@@ -23,8 +26,8 @@ function userMessage(text: string): AgentMessage {
   return { id: 'u1', parts: [{ text, type: 'text' }], role: 'user' };
 }
 
-function directive(rootId: string, path: string, label: string): string {
-  return serializeFileMentionDirective({ id: encodeFileMentionId(rootId, path), label });
+function directive(rootId: string, filePath: string, label: string): string {
+  return serializeFileMentionDirective({ id: encodeFileMentionId(rootId, filePath), label });
 }
 
 describe('buildReferencedFilesContextMessage', () => {
@@ -52,7 +55,7 @@ describe('buildReferencedFilesContextMessage', () => {
     const text = `Review ${directive(ROOT_ID, 'src/app.ts', 'app.ts')} please.`;
     const result = await buildReferencedFilesContextMessage(text, runtimeWithRoot(), reader);
 
-    expect(reader).toHaveBeenCalledWith({ requestedPath: 'src/app.ts', rootPath: ROOT_ID });
+    expect(reader).toHaveBeenCalledWith({ requestedPath: 'src/app.ts', rootPath: ROOT_PATH });
     expect(result).not.toBeNull();
     expect(result?.role).toBe('system');
     const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('');
@@ -221,7 +224,7 @@ describe('injectReferencedFilesContext', () => {
     const next = await injectReferencedFilesContext(messages, runtimeWithRoot(), reader);
 
     expect(reader).toHaveBeenCalledTimes(1);
-    expect(reader).toHaveBeenCalledWith({ requestedPath: 'new.ts', rootPath: ROOT_ID });
+    expect(reader).toHaveBeenCalledWith({ requestedPath: 'new.ts', rootPath: ROOT_PATH });
     expect(next).toHaveLength(4);
     expect(next[0]?.role).toBe('system');
   });

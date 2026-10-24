@@ -1,7 +1,7 @@
 import { constants, realpath } from 'node:fs';
 import { access, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { platform } from 'node:process';
 import { promisify } from 'node:util';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
@@ -69,11 +69,13 @@ export async function withLinuxSeccompApplyPath(
   }
   let physicalPath: string;
   try {
-    if (applyPath.split('/').some((component) => component.toLowerCase().endsWith('.asar'))) {
+    // Host-native path components: `sep` is what native realpath returns, and
+    // fence-policy splits its paths the same way.
+    if (applyPath.split(sep).some((component) => component.toLowerCase().endsWith('.asar'))) {
       throw new Error('The sandbox helper must be outside ASAR archives.');
     }
     physicalPath = await realpathNative(applyPath);
-    if (physicalPath.split('/').some((component) => component.toLowerCase().endsWith('.asar'))) {
+    if (physicalPath.split(sep).some((component) => component.toLowerCase().endsWith('.asar'))) {
       throw new Error('The sandbox helper must resolve outside ASAR archives.');
     }
     if (!(await stat(physicalPath)).isFile()) {

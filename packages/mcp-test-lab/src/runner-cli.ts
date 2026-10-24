@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, normalize } from 'node:path';
+import { dirname, normalize, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createMcpLabReferenceRunnerDependencies } from './reference-runner.js';
 import { runMcpLabVerification } from './runner.js';
@@ -46,13 +46,14 @@ function collectValues(argv: unknown): ReadonlyMap<string, string> {
   return values;
 }
 
+// The output path is recorded in the evidence command, so it stays portable
+// (`/`-separated) on every host; only the write below converts it to native.
 function relativeJsonPath(value: string): string {
-  if (isAbsolute(value) || !PORTABLE_OUTPUT_PATH.test(value)) {
+  if (posix.isAbsolute(value) || !PORTABLE_OUTPUT_PATH.test(value)) {
     invalid('output must be a portable relative JSON path using safe path characters');
   }
-  const normalized = normalize(value);
-  const parentPrefix = `..${process.platform === 'win32' ? '\\' : '/'}`;
-  if (normalized === '..' || normalized.startsWith(parentPrefix)) {
+  const normalized = posix.normalize(value);
+  if (normalized === '..' || normalized.startsWith('../')) {
     invalid('output must stay inside the working directory');
   }
   return normalized;

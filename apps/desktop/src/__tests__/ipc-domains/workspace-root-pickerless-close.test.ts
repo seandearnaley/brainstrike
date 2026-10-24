@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { join, resolve } from 'node:path';
 import { expect, test, vi } from 'vitest';
 import {
   createRegistry,
@@ -7,10 +8,13 @@ import {
   secureRoot,
 } from './workspace-root-registry-test-helpers';
 
+const FIRST = resolve('/first');
+const SECOND = resolve('/second');
+
 test.each(['recent-roots read', 'managed-worktree authorization'] as const)(
   'close joins an accepted pickerless %s through mount and catalog ACK',
   async (authorization) => {
-    const path = '/authorized';
+    const path = resolve('/authorized');
     const storage = createStorage({
       ...(authorization === 'recent-roots read'
         ? { recentRootsList: JSON.stringify([{ lastGrantedAt: 1, path }]) }
@@ -83,7 +87,7 @@ test.each(['recent-roots read', 'managed-worktree authorization'] as const)(
       await preparation;
       expect(root).toMatchObject({ handle: { path }, persisted: true });
       await expect(
-        registry.readFileByAbsolutePath('/authorized/file.txt', path, root.rootId)
+        registry.readFileByAbsolutePath(join(path, 'file.txt'), path, root.rootId)
       ).resolves.toBe('inside');
       expect(open).toHaveBeenCalledOnce();
       expect(handle.close).not.toHaveBeenCalled();
@@ -214,12 +218,12 @@ test.each(['storage failure', 'authorizer exception', 'authorizer denial'] as co
 test('a pickerless workflow queued before close finishes without re-entering the mutation queue', async () => {
   const firstOpened = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const handles = [secureRoot('/first'), secureRoot('/second')];
+  const handles = [secureRoot(FIRST), secureRoot(SECOND)];
   const request = createRegistryCatalogRequest();
   const registry = createRegistry(
     {
       createSecureRoot: async (path) => {
-        if (path === '/first') {
+        if (path === FIRST) {
           firstOpened.resolve();
           await release.promise;
         }
@@ -230,7 +234,7 @@ test('a pickerless workflow queued before close finishes without re-entering the
         return handle;
       },
       storage: createStorage({
-        recentRootsList: JSON.stringify([{ lastGrantedAt: 1, path: '/second' }]),
+        recentRootsList: JSON.stringify([{ lastGrantedAt: 1, path: SECOND }]),
       }),
     },
     request
@@ -238,22 +242,22 @@ test('a pickerless workflow queued before close finishes without re-entering the
   const first = registry.addRoot({
     kind: 'directory',
     name: 'first',
-    path: '/first',
+    path: FIRST,
     platform: 'electron',
   });
   await firstOpened.promise;
-  const second = registry.addRootByPath('/second');
+  const second = registry.addRootByPath(SECOND);
   const preparation = registry.prepareClose();
   try {
     release.resolve();
-    await expect(first).resolves.toMatchObject({ handle: { path: '/first' } });
-    await expect(second).resolves.toMatchObject({ handle: { path: '/second' } });
+    await expect(first).resolves.toMatchObject({ handle: { path: FIRST } });
+    await expect(second).resolves.toMatchObject({ handle: { path: SECOND } });
     await preparation;
     expect(
       request.mock.calls.flatMap(([input]) =>
         input.operation === 'register' ? [input.root.path] : []
       )
-    ).toEqual(['/first', '/second']);
+    ).toEqual([FIRST, SECOND]);
     expect(handles.every((handle) => vi.mocked(handle.close).mock.calls.length === 0)).toBe(true);
   } finally {
     release.resolve();

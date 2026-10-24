@@ -10,16 +10,16 @@ import {
 
 export function registryRoot(
   id: string,
-  path: string,
+  rootPath: string,
   kind: 'path' | 'worktree' = 'path'
 ): WorkspaceRootRecord {
   return {
     createdAt: 1,
-    displayName: path.split('/').at(-1) ?? path,
+    displayName: path.basename(rootPath),
     id,
     kind,
     lastVerifiedAt: 1,
-    path,
+    path: rootPath,
     status: 'live',
   };
 }

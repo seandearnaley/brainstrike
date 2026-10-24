@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -79,7 +79,14 @@ describe('runRipgrep credential floor file', () => {
     const directory = path.dirname(file);
     expect(directory).not.toBe(os.tmpdir());
     expect(path.dirname(directory)).toBe(os.tmpdir());
-    expect(statSync(directory).mode & 0o777).toBe(0o700);
+    // Owner-only is what mkdtemp creates on this OS: 0o700 on POSIX. Windows has
+    // no POSIX mode; there the per-user temp directory's ACL carries it.
+    const reference = mkdtempSync(path.join(os.tmpdir(), 'bs-floor-mode-reference-'));
+    try {
+      expect(statSync(directory).mode & 0o777).toBe(statSync(reference).mode & 0o777);
+    } finally {
+      rmSync(reference, { force: true, recursive: true });
+    }
     // Caseless, as the JS matcher reads the floor (Codex review on #3718).
     expect(readFileSync(file, 'utf8')).toContain('.[eE][nN][vV].*');
   });
