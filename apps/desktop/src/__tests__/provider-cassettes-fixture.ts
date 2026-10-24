@@ -11,6 +11,10 @@
  * it leaks nothing, shows the behavior the scenario exists for, keeps every
  * invariant and replays to the conversation it recorded. A scenario recorded
  * in the desktop app is only ever replayed here.
+ *
+ * Each provider's scenarios run from their own
+ * provider-cassettes-<provider>.integration.test.ts, so Vitest can spread them
+ * across workers and native shards.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -21,10 +25,12 @@ import {
 import { describe, expect, test } from 'vitest';
 import { recordingUpstreams } from '../../e2e/utils/provider-cassette-recording';
 import {
+  type CassetteProvider,
   cassetteFile,
   describeRecording,
   PROVIDER_CASSETTE_SCENARIOS,
   type ProviderCassetteScenario,
+  providerOf,
   readScenarioCassette,
   recorderKey,
 } from '../../e2e/utils/provider-cassette-scenarios';
@@ -61,18 +67,24 @@ async function record(scenario: ProviderCassetteScenario): Promise<ProviderCasse
   return recorded.cassette;
 }
 
-describe.each(PROVIDER_CASSETTE_SCENARIOS)('provider cassette $id', (scenario) => {
-  test(`${recording(scenario) ? 'records' : 'replays'} and keeps every invariant${scenario.guards ? ` (guards ${scenario.guards})` : ''}`, {
-    timeout: 300_000,
-  }, async () => {
-    const cassette = recording(scenario) ? await record(scenario) : readScenarioCassette(scenario);
-    const { refusals, shape, unserved, violations } = await replayScenario(scenario, cassette);
-    expect(refusals).toEqual([]);
-    expect(unserved).toEqual([]);
-    expect(violations).toEqual([]);
-    // One file per scenario: a filtered `-u` never touches another scenario's shape.
-    await expect(`${JSON.stringify(shape, null, 2)}\n`).toMatchFileSnapshot(
-      `__snapshots__/provider-cassettes/${scenario.id}.shape.json`
-    );
+export function describeProviderCassettes(provider: CassetteProvider): void {
+  describe.each(
+    PROVIDER_CASSETTE_SCENARIOS.filter((scenario) => providerOf(scenario) === provider)
+  )('provider cassette $id', (scenario) => {
+    test(`${recording(scenario) ? 'records' : 'replays'} and keeps every invariant${scenario.guards ? ` (guards ${scenario.guards})` : ''}`, {
+      timeout: 300_000,
+    }, async () => {
+      const cassette = recording(scenario)
+        ? await record(scenario)
+        : readScenarioCassette(scenario);
+      const { refusals, shape, unserved, violations } = await replayScenario(scenario, cassette);
+      expect(refusals).toEqual([]);
+      expect(unserved).toEqual([]);
+      expect(violations).toEqual([]);
+      // One file per scenario: a filtered `-u` never touches another scenario's shape.
+      await expect(`${JSON.stringify(shape, null, 2)}\n`).toMatchFileSnapshot(
+        `__snapshots__/provider-cassettes/${scenario.id}.shape.json`
+      );
+    });
   });
-});
+}
