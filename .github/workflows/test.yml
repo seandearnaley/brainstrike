@@ -168,10 +168,13 @@ jobs:
           exit 1
 
       # Full history supplies the exact base the affected selection diffs from.
+      # Blobless: affected selection reads commits and trees, and git fetches
+      # any other blob it needs on demand (a full-history clone took 8-16 s).
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          filter: blob:none
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -421,12 +424,15 @@ jobs:
           exit 1
 
       # `fetch-depth: 0` is REQUIRED here: task-aware affected selection needs
-      # the exact PR base and tested checkout commits, including stacked bases. Checkout stays in the
-      # caller (not the composite) — see setup-workspace/action.yml's header.
+      # the exact PR base and tested checkout commits, including stacked bases.
+      # `blob:none` keeps that history without every past file version, as in
+      # Unit plan. Checkout stays in the caller (not the composite) — see
+      # setup-workspace/action.yml's header.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          filter: blob:none
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
