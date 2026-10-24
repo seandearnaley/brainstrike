@@ -41,6 +41,14 @@ invariant, not internal call order or the text of other files.
 
 Every developer and agent shares this machine's cores and the owner's wait.
 
+**Caching and parallelism are never turned off.** This is an owner rule, not a
+default. Every turbo task stays cacheable (only `dev` and `clean`, which turbo
+cannot cache, are exempt), and no lane or package is made serial: no
+`--concurrency=1`, no `maxWorkers: 1`, no `fileParallelism: false`, no
+`cache: false`. A test that fails from the cache or in parallel is the defect.
+Give it its own temporary directory, port, data root or clock, or declare the
+missing input in turbo `inputs`/`env`. Never uncache or serialize to make it pass.
+
 - Iterate on the narrowest check that covers the change: `vitest run <file>`,
   then `pnpm --filter <package> test`, then `pnpm test:affected`. Run the full
   `pnpm check` once, right before queueing, never as an edit loop.

@@ -29,6 +29,12 @@
     // scripts/__tests__/turbo-global-configuration.test.mjs enforces that
     // against the real planned dev graph.
     "concurrency": "40",
+    // Turbo's cache key has no OS, CPU architecture or Node version. These put
+    // them in: GitHub runners set RUNNER_OS/RUNNER_ARCH, pnpm's user agent names
+    // the OS and arch on every machine, and package.json (in `inputs`) pins Node
+    // through devEngines. One platform's result or native binary is never
+    // replayed on another.
+    "env": ["RUNNER_OS", "RUNNER_ARCH", "npm_config_user_agent"],
     // Files that, when changed, should invalidate caches globally
     // These files affect all tasks and will cause cache misses when modified.
     //
@@ -73,6 +79,7 @@
     //   vite-tsconfig-paths anywhere; tsup/vite configs use only local tsconfig).
     "inputs": [
       "pnpm-lock.yaml", // Package dependencies
+      "package.json", // Root devEngines pins the Node version (native ABI)
       "tsconfig*.json", // Root TS config — config/tsconfig.json extends it (genuinely global)
       "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
       "turbo.jsonc", // Turborepo configuration
@@ -214,49 +221,12 @@
       // Only show logs from cache misses and errors
       "outputLogs": "new-only"
     },
-    // --- Integration Test Task (uncached env-sensitive lane) --- //
+    // --- Integration Test Task (real processes, cached) --- //
     "test:integration": {
-      // THE UNCACHED SIBLING OF `test`. Env-sensitive integration lanes run here
-      // and are NEVER replayed from cache — every invocation executes the tests.
-      //
-      // CONTRACT: the cacheable `test` task (above, `outputs: []`) replays a
-      // previously-logged green on a cache HIT WITHOUT executing anything, which
-      // is only sound when a lane's pass/fail is a pure function of the inputs
-      // turbo hashes (source + pnpm-lock + tsconfig/biome/turbo config). Tests
-      // whose outcome can depend on an UN-hashed input — real PGlite/WASM under
-      // wall-clock timeouts and CPU contention, native/N-API binaries + their
-      // host ABI, an installed CLI shelled out to (git, node-pty, /bin/sh), or
-      // REAL-SUBSYSTEM execution under wall-clock budgets — must NOT be
-      // cacheable. A mocked dependency graph is not sufficient to make a test
-      // cache-safe: a watchdog case that drives production Date.now/setTimeout
-      // behavior with real elapsed-time gaps still depends on un-hashed host
-      // scheduling and belongs here (BST-1047). Fully mocked watchdogs that use
-      // deterministic/fake time, or whose verdict does not depend on scheduler
-      // progress, remain unit tests. Cross-package file reads are a separate
-      // hazard: declare them as explicit `inputs` (see apps/web/turbo.json)
-      // instead of un-caching.
-      // See the invariant that anchors this rule in packages/db/turbo.json.
-      //
-      // Instead of carving a package's WHOLE `test` task out with `cache: false`
-      // (which strands its fast, deterministic unit tests in the uncached lane
-      // too), a package tags its env-sensitive files with the
-      // `*.integration.test.*` suffix and splits them into a `test:integration`
-      // script. The pure `test` script excludes that suffix and STAYS cacheable;
-      // this task runs the suffix and is `cache: false`. Whole-task carve-outs
-      // remain only for packages whose ENTIRE suite is env-sensitive (db,
-      // secure-fs-native).
-      //
-      // Mirrors `test`'s dependsOn/env/passThroughEnv so cache keys and the
-      // Strict-mode runtime env match the pure lane (TURBO_TEST_MODE
-      // differentiates unit vs coverage; CI stays hashed for parity with the
-      // cacheable task, while COVERAGE stays in passThroughEnv — moot here
-      // since caching is off, but kept aligned so a file moving between lanes
-      // sees the same runtime env).
-      // dependsOn is `["topo"]` for parity with `test` (see that task + the topo
-      // transit-node comment). This lane is `cache: false`, so topo's cascade is
-      // moot for it, but keeping it identical means a file moving between the two
-      // lanes carries the same task graph. Integration tests also import
-      // workspace deps from SOURCE, so no `^build` is needed here either.
+      // Cached like every other test task (owner rule, AGENTS.md "Time is the
+      // scarcest resource"): a hit replays a green whose inputs turbo hashed.
+      // Anything result-affecting that is not a file belongs in `env` (see
+      // BRAINSTRIKE_FENCE_DEPS_REQUIRED below), never a reason to uncache.
       "dependsOn": [
         "topo"
       ],
@@ -282,15 +252,12 @@
         "VITEST_MAX_WORKERS"
       ],
       "outputs": [],
-      "cache": false,
       "outputLogs": "new-only"
     },
     // --- Lint Task --- //
     "lint": {
       // Formatting policy affects lint, not every workspace test/build.
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/biome.json"],
-      // Linting usually doesn't produce cacheable artifacts and should run on current code.
-      "cache": false,
       // No outputs to cache.
       "outputs": []
     },
@@ -375,8 +342,6 @@
       "outputs": [
         "__tests__/__screenshots__/**"
       ],
-      // Browser tests should not be cached due to environment-specific behavior
-      "cache": false,
       // Show all logs for browser tests
       "outputLogs": "full"
     },
@@ -392,8 +357,6 @@
         "playwright-report/**",
         "blob-report/**"
       ],
-      // E2E tests should not be cached as they test the full application
-      "cache": false,
       // Show all logs for E2E tests as they're important for debugging
       "outputLogs": "full"
     }
