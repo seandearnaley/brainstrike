@@ -8,9 +8,9 @@ const fs = require('node:fs');
 // @boundaries-ignore Electron's built-in native filesystem is required to distinguish OS files from virtual ASAR entries; this probe runs only in packaged Electron.
 const originalFs = require('original-fs');
 // biome-ignore-end lint/correctness/noUndeclaredDependencies: Keep the exception limited to Electron's builtin.
-const { createRequire } = require('node:module');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 
 const LINUX_PYTHON_TARGETS = new Map([
   ['arm64', 'aarch64-unknown-linux-gnu'],
@@ -24,10 +24,10 @@ const LINUX_PYTHON_TARGETS = new Map([
  */
 async function qualify(resources, state, layoutOnly) {
   assert(path.isAbsolute(resources) && path.isAbsolute(state));
-  const packedRequire = createRequire(path.join(resources, 'app.asar/package.json'));
-  const entry = packedRequire.resolve('@brainstrike/agent/fence-executor');
-  assert(entry.startsWith(path.join(resources, 'app.asar') + path.sep));
-  const { createFenceExecutor } = packedRequire('@brainstrike/agent/fence-executor');
+  // The fence executor Main bundles from source (build-main-config.mjs); Node never strips
+  // types under node_modules, so the packaged app's workspace copies cannot load.
+  const entry = path.join(resources, 'app.asar/dist/fence-executor.js');
+  const { createFenceExecutor } = await import(pathToFileURL(entry).href);
   const helper = path.join(
     resources,
     'app.asar.unpacked/node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp',

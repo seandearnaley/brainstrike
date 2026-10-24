@@ -93,6 +93,8 @@ export const NODE_PROCESS_ENTRY_POINTS = {
   // The app-close integration proof loads it by path before Main.
   'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
   'desktop-env': 'src/desktop-env.ts',
+  // Main imports it lazily; the packaged Python probe loads it by path.
+  'fence-executor': path.join(packagesRoot, 'agent/src/fence-executor.ts'),
   'host-lease-process': 'src/host-lease-entry.ts',
   'indexer-host-process': 'src/indexer-host-entry.ts',
   'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',

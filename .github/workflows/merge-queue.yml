@@ -3,8 +3,6 @@
 
 name: Merge Queue
 
-# scripts/__tests__/merge-queue-contract.test.mjs pins these triggers, the
-# call, the gate and .mergify.yml.
 on:
   # Mergify builds each batch on main and pushes it to a branch under the
   # queue_branch_prefix in .mergify.yml (owner decision 2026-10-19). The branch
@@ -27,9 +25,9 @@ permissions:
   pull-requests: read
 
 jobs:
-  # The fast tier is test.yml itself: Static, Type check, Unit (affected
-  # against the main commit the batch was built on), Build and the smoke E2E
-  # lanes. Its nightly-only jobs skip under `merge-queue: true`. A dispatch
+  # test.yml itself: Static, Type check, Unit (affected against the main
+  # commit the batch was built on), Build, Native Electron, Browser tests and
+  # the smoke E2E lanes. Only Notify Linear skips under `merge-queue: true`. A dispatch
   # runs every Unit shard. Check names read "Test / Static", "Test / Unit (db-1)" and so on.
   #
   # Deleting a branch also fires push, with the SHA reverted to main. Mergify
@@ -43,6 +41,18 @@ jobs:
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
+  # The nightly's desktop lanes: the full regression (8 shards) and Desktop
+  # Embedding E2E. Owner decision 2026-10-24: every lane the nightly runs gates
+  # the queue, so a nightly failure cannot land.
+  desktop-e2e:
+    name: Desktop E2E
+    if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted
+    uses: ./.github/workflows/desktop-e2e.yml
+    with:
+      suite: full
+    secrets:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+
   # The merge condition in .mergify.yml and the check the ruleset requires;
   # keep its name exact. It passes only when the call succeeded, every
   # fast-tier job succeeded and every nightly-only job skipped. Unit plan owns
@@ -52,15 +62,16 @@ jobs:
   merge-queue-gate:
     name: Merge Queue Gate
     if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted && always()
-    needs: [test]
+    needs: [test, desktop-e2e]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:
       - name: Judge every job
         env:
-          NIGHTLY_ONLY: NATIVE_ELECTRON BROWSER_TESTS NOTIFY_LINEAR
+          NIGHTLY_ONLY: NOTIFY_LINEAR
           UNIT_SHARD_COUNT: ${{ needs.test.outputs.unit-shard-count }}
           RESULT_TEST: ${{ needs.test.result }}
+          RESULT_DESKTOP_REGRESSION: ${{ needs.desktop-e2e.result }}
           RESULT_ADMISSION: ${{ needs.test.outputs.admission-result }}
           RESULT_STATIC: ${{ needs.test.outputs.static-result }}
           RESULT_TYPE_CHECK: ${{ needs.test.outputs.type-check-result }}
