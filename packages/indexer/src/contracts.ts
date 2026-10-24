@@ -697,12 +697,11 @@ export function decoder<S extends Schema.ConstraintDecoder<unknown>>(
   return makeThrowingDecoder(schema, { onExcessProperty: 'error' });
 }
 export class IndexerError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-    options?: ErrorOptions
-  ) {
+  readonly code: string;
+
+  constructor(code: string, message: string, options?: ErrorOptions) {
     super(message, options);
+    this.code = code;
     this.name = 'IndexerError';
   }
 }

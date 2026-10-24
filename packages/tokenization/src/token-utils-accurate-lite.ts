@@ -1,5 +1,5 @@
 /// <reference path="./tiktoken-wasm.d.ts" />
-import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from './token-constants.js';
+import { ACCURATE_TOKEN_ENCODING, ACCURATE_TOKEN_MODEL_HINT } from './token-constants.ts';
 
 type EncodeFn = (text: string) => Uint32Array;
 

@@ -1,6 +1,7 @@
 import { fork } from 'node:child_process';
+import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { QueryRequest } from './protocol.js';
+import type { QueryRequest } from './protocol.ts';
 
 export interface QueryProcess {
   readonly kill: () => void;
@@ -17,9 +18,11 @@ export interface SpawnQueryProcessOptions {
 }
 
 export function queryHostEntryPath(transport: 'node' | 'utility'): string {
-  return fileURLToPath(
-    new URL(transport === 'node' ? './query-host.js' : './utility-query-host.js', import.meta.url)
-  );
+  // The hosts sit beside this module with its own extension: TypeScript source
+  // run by Node or Electron, or emitted JS beside a bundle.
+  const extension = extname(fileURLToPath(import.meta.url));
+  const name = transport === 'node' ? 'query-host' : 'utility-query-host';
+  return fileURLToPath(new URL(`./${name}${extension}`, import.meta.url));
 }
 
 /** Explicit runtime choice; the child rejects unsupported SQLite builds. */

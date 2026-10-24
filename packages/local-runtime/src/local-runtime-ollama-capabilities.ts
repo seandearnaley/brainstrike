@@ -1,7 +1,7 @@
 import type {
   LocalRuntimeNormalizedModel,
   LocalRuntimeOllamaCapabilitiesResult,
-} from './local-runtime-model-catalog-types.js';
+} from './local-runtime-model-catalog-types.ts';
 
 export type OllamaCapabilityHydrationOutcome =
   | {

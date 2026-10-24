@@ -15,10 +15,10 @@ import recordedContinuation from './fixtures/child-continuation-native-wire.json
 export class PublishedConversation implements CommittedAssistantStore {
   private snapshot: CommittedAssistantSnapshot;
   private readonly listeners = new Set<() => void>();
-  constructor(
-    readonly threadId: string,
-    messages: readonly ThreadMessage[]
-  ) {
+  readonly threadId: string;
+
+  constructor(threadId: string, messages: readonly ThreadMessage[]) {
+    this.threadId = threadId;
     this.snapshot = {
       connection: 'connected',
       isLoading: false,

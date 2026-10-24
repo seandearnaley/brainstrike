@@ -5,9 +5,9 @@ import { join, sep } from 'node:path';
 import { platform } from 'node:process';
 import { promisify } from 'node:util';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
-import type { ExecResult } from '../code-execution';
-import { buildSandboxRuntimeConfig } from './fence-policy';
-import { FenceReadinessError } from './fence-readiness-error';
+import type { ExecResult } from '../code-execution.ts';
+import { buildSandboxRuntimeConfig } from './fence-policy.ts';
+import { FenceReadinessError } from './fence-readiness-error.ts';
 
 const realpathNative = promisify(realpath.native);
 export const FENCE_READINESS_TIMEOUT_MS = 5000;

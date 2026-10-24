@@ -2,7 +2,7 @@
 // command that outlives a crashed host keeps the Root refused until it exits; an observer (desktop Main, the host's
 // supervisor) learns each process's identity so it can end the process group after the host dies.
 import { type ChildProcess, type SpawnOptions, type StdioOptions, spawn } from 'node:child_process';
-import { processStartTime, sharedRootLeases } from './lock.js';
+import { processStartTime, sharedRootLeases } from './lock.ts';
 
 /** One supervised native process. `group`: it leads its own process group, which is signalled as a whole. */
 export interface NativeChild {

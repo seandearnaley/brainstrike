@@ -253,7 +253,7 @@ function verifyBlobReferences(rows) {
 /**
  * Mastra OM's observation token counter, from the configured native memory
  * calculator module; none when no calculator is configured.
- * @returns {Promise<import('./memory-types.js').ObservationTokenCounter | undefined>} */
+ * @returns {Promise<import('./memory-types.ts').ObservationTokenCounter | undefined>} */
 async function observationTokenCounter() {
   if (!cfg.memoryCalculatorModule) {
     return;
@@ -262,12 +262,12 @@ async function observationTokenCounter() {
   if (typeof module.countObservationTokens !== 'function') {
     throw new Error('Configured observation token counter is unavailable');
   }
-  return /** @type {import('./memory-types.js').ObservationTokenCounter} */ (
+  return /** @type {import('./memory-types.ts').ObservationTokenCounter} */ (
     module.countObservationTokens
   );
 }
 
-/** @param {import('./memory-types.js').MemoryDomainRequest} request */
+/** @param {import('./memory-types.ts').MemoryDomainRequest} request */
 async function handleMemory(request) {
   if (request.operation !== 'native') {
     const countTokens =
@@ -281,7 +281,7 @@ async function handleMemory(request) {
   if (typeof module.calculateMemoryMutation !== 'function') {
     throw new Error('Configured native memory calculator is unavailable');
   }
-  const calculate = /** @type {import('./memory-types.js').MemoryNativeCalculator} */ (
+  const calculate = /** @type {import('./memory-types.ts').MemoryNativeCalculator} */ (
     module.calculateMemoryMutation
   );
   return { snapshot: await executeNativeMemoryRequest(db, request, calculate) };
@@ -311,24 +311,24 @@ async function handle(m) {
     case 'worktree-ledger':
       return executeWorktreeLedgerRequest(
         db,
-        /** @type {import('./worktree-forge-types.js').WorktreeLedgerRequest} */ (m['request'])
+        /** @type {import('./worktree-forge-types.ts').WorktreeLedgerRequest} */ (m['request'])
       );
     case 'forge-cache-snapshot':
       return { entries: readForgeCacheSnapshot(db) };
     case 'forge-cache':
       return executeForgeCacheRequest(
         db,
-        /** @type {import('./worktree-forge-types.js').ForgeCacheRequest} */ (m['request'])
+        /** @type {import('./worktree-forge-types.ts').ForgeCacheRequest} */ (m['request'])
       );
     case 'prompt-catalog':
       return executePromptCatalogRequest(
         db,
-        /** @type {import('./prompt-catalog-types.js').PromptCatalogRequest} */ (m['request'])
+        /** @type {import('./prompt-catalog-types.ts').PromptCatalogRequest} */ (m['request'])
       );
     case 'collections':
       return executeCollectionRequest(
         db,
-        /** @type {import('./collection-types.js').CollectionRequest} */ (m['request'])
+        /** @type {import('./collection-types.ts').CollectionRequest} */ (m['request'])
       );
     case 'thread-groups':
       return executeThreadGroups(
@@ -343,12 +343,12 @@ async function handle(m) {
     case 'model-choices':
       return executeModelChoiceRequest(
         db,
-        /** @type {import('./model-choice-types.js').ModelChoiceRequest} */ (m['request'])
+        /** @type {import('./model-choice-types.ts').ModelChoiceRequest} */ (m['request'])
       );
     case 'source-catalog':
       return executeSourceCatalogRequest(
         db,
-        /** @type {import('./source-catalog-types.js').SourceCatalogRequest} */ (m['request']),
+        /** @type {import('./source-catalog-types.ts').SourceCatalogRequest} */ (m['request']),
         {
           put: putBlob,
           read: (hash, maxBytes) => {
@@ -367,18 +367,18 @@ async function handle(m) {
     case 'workspace-roots':
       return executeWorkspaceRootRequest(
         db,
-        /** @type {import('./workspace-root-types.js').WorkspaceRootRequest} */ (m['request']),
+        /** @type {import('./workspace-root-types.ts').WorkspaceRootRequest} */ (m['request']),
         // Main grants absolute OS paths.
         { isGranted: (root) => isAbsolute(root.path) }
       );
     case 'memory':
       return handleMemory(
-        /** @type {import('./memory-types.js').MemoryDomainRequest} */ (m['request'])
+        /** @type {import('./memory-types.ts').MemoryDomainRequest} */ (m['request'])
       );
     case 'mcp-tasks':
       return executeMcpTaskRequest(
         db,
-        /** @type {import('./mcp-task-types.js').McpTaskDomainRequest} */ (m['request'])
+        /** @type {import('./mcp-task-types.ts').McpTaskDomainRequest} */ (m['request'])
       );
     case 'append': {
       const t0 = clock();

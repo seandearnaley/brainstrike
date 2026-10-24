@@ -1,6 +1,6 @@
-import { APPS_PROFILE_SHA256 } from './apps-profile.js';
-import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profile.js';
-import { TASKS_PROFILE_SHA256 } from './tasks-profile.js';
+import { APPS_PROFILE_SHA256 } from './apps-profile.ts';
+import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profile.ts';
+import { TASKS_PROFILE_SHA256 } from './tasks-profile.ts';
 
 export const MCP_LAB_SDK_VERSION = '2.3.1' as const;
 export const MCP_LAB_SDK_SOURCE = Object.freeze({

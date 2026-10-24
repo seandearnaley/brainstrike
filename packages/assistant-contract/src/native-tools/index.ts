@@ -7,47 +7,47 @@
  * preserves. Adding a tool: create `definitions/<tool>.ts`, import it here,
  * add it to the list in order, and add its executor entry on the desktop side.
  */
-import { askUser } from './definitions/ask-user.js';
-import { browserGetPageText } from './definitions/browser-get-page-text.js';
-import { browserNavigate } from './definitions/browser-navigate.js';
-import { browserReadPage } from './definitions/browser-read-page.js';
-import { deleteWorkspaceFile } from './definitions/delete-workspace-file.js';
-import { executeCommand } from './definitions/execute-command.js';
-import { findWorkspaceSymbol } from './definitions/find-workspace-symbol.js';
-import { globWorkspace } from './definitions/glob-workspace.js';
-import { grepSearch } from './definitions/grep-search.js';
-import { hybridSearch } from './definitions/hybrid-search.js';
-import { inspectCommandSessions } from './definitions/inspect-command-sessions.js';
-import { listEmbeddingSpaces } from './definitions/list-embedding-spaces.js';
-import { listWorkspaceContext } from './definitions/list-workspace-context.js';
-import { listWorktrees } from './definitions/list-worktrees.js';
-import { lspInspect } from './definitions/lsp-inspect.js';
-import { manageCanvas } from './definitions/manage-canvas.js';
-import { manageCommandSession } from './definitions/manage-command-session.js';
-import { manageTaskList } from './definitions/manage-task-list.js';
-import { manageWorktree } from './definitions/manage-worktree.js';
-import { queryDiagnostics } from './definitions/query-diagnostics.js';
-import { queryEmbeddingSpace } from './definitions/query-embedding-space.js';
-import { readToolOutputArtifact } from './definitions/read-tool-output-artifact.js';
-import { readWorkspaceContext } from './definitions/read-workspace-context.js';
-import { readWorkspaceDirectory } from './definitions/read-workspace-directory.js';
-import { readWorkspaceFile } from './definitions/read-workspace-file.js';
-import { renameWorkspaceFile } from './definitions/rename-workspace-file.js';
-import { runPython } from './definitions/run-python.js';
-import { runSkillScript } from './definitions/run-skill-script.js';
-import { skill } from './definitions/skill.js';
-import { skillRead } from './definitions/skill-read.js';
-import { skillSearch } from './definitions/skill-search.js';
-import { stringReplaceWorkspaceFile } from './definitions/string-replace-workspace-file.js';
-import { submitPlan } from './definitions/submit-plan.js';
-import { webExtract } from './definitions/web-extract.js';
-import { webSearch } from './definitions/web-search.js';
-import { writeWorkspaceFile } from './definitions/write-workspace-file.js';
+import { askUser } from './definitions/ask-user.ts';
+import { browserGetPageText } from './definitions/browser-get-page-text.ts';
+import { browserNavigate } from './definitions/browser-navigate.ts';
+import { browserReadPage } from './definitions/browser-read-page.ts';
+import { deleteWorkspaceFile } from './definitions/delete-workspace-file.ts';
+import { executeCommand } from './definitions/execute-command.ts';
+import { findWorkspaceSymbol } from './definitions/find-workspace-symbol.ts';
+import { globWorkspace } from './definitions/glob-workspace.ts';
+import { grepSearch } from './definitions/grep-search.ts';
+import { hybridSearch } from './definitions/hybrid-search.ts';
+import { inspectCommandSessions } from './definitions/inspect-command-sessions.ts';
+import { listEmbeddingSpaces } from './definitions/list-embedding-spaces.ts';
+import { listWorkspaceContext } from './definitions/list-workspace-context.ts';
+import { listWorktrees } from './definitions/list-worktrees.ts';
+import { lspInspect } from './definitions/lsp-inspect.ts';
+import { manageCanvas } from './definitions/manage-canvas.ts';
+import { manageCommandSession } from './definitions/manage-command-session.ts';
+import { manageTaskList } from './definitions/manage-task-list.ts';
+import { manageWorktree } from './definitions/manage-worktree.ts';
+import { queryDiagnostics } from './definitions/query-diagnostics.ts';
+import { queryEmbeddingSpace } from './definitions/query-embedding-space.ts';
+import { readToolOutputArtifact } from './definitions/read-tool-output-artifact.ts';
+import { readWorkspaceContext } from './definitions/read-workspace-context.ts';
+import { readWorkspaceDirectory } from './definitions/read-workspace-directory.ts';
+import { readWorkspaceFile } from './definitions/read-workspace-file.ts';
+import { renameWorkspaceFile } from './definitions/rename-workspace-file.ts';
+import { runPython } from './definitions/run-python.ts';
+import { runSkillScript } from './definitions/run-skill-script.ts';
+import { skill } from './definitions/skill.ts';
+import { skillRead } from './definitions/skill-read.ts';
+import { skillSearch } from './definitions/skill-search.ts';
+import { stringReplaceWorkspaceFile } from './definitions/string-replace-workspace-file.ts';
+import { submitPlan } from './definitions/submit-plan.ts';
+import { webExtract } from './definitions/web-extract.ts';
+import { webSearch } from './definitions/web-search.ts';
+import { writeWorkspaceFile } from './definitions/write-workspace-file.ts';
 import {
   deriveNativeToolExecutionBudgets,
   requireNativeToolExecutionBudgetFactory,
-} from './execution-budgets.js';
-import { deriveNativeToolRegistries } from './registries.js';
+} from './execution-budgets.ts';
+import { deriveNativeToolRegistries } from './registries.ts';
 
 export const NATIVE_TOOLS = [
   askUser,
@@ -115,7 +115,7 @@ export {
   DEFERRED_CAPABILITY_FAMILY_PHRASES,
   type DeferredCapabilityFamily,
   describeAvailableDeferredCapabilityFamilies,
-} from './capability-families.js';
+} from './capability-families.ts';
 export {
   type DeferredCapabilityFamilyPhrase,
   type DesktopNativeToolDefinition,
@@ -128,10 +128,10 @@ export {
   type NativeToolNameResolver,
   type NativeToolSurface,
   type SkillNativeToolDefinition,
-} from './define.js';
+} from './define.ts';
 export {
   deriveNativeToolRegistries,
   type NativeToolKeyOf,
   type NativeToolRegistries,
   toNativeToolKey,
-} from './registries.js';
+} from './registries.ts';

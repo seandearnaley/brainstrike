@@ -7,7 +7,7 @@ import {
   SdkHttpError,
   UnauthorizedError,
 } from '@modelcontextprotocol/client';
-import { McpBearerCredentialFailure } from './bearer-credential.js';
+import { McpBearerCredentialFailure } from './bearer-credential.ts';
 
 const logger = createLogger('McpLifecycleErrors');
 
@@ -48,12 +48,17 @@ const FAILURE_MESSAGES = {
 export class McpLifecycleFailure extends Error {
   override readonly name = 'McpLifecycleFailure';
 
+  readonly category: McpStableErrorCategory;
+  readonly code: McpLifecycleFailureCode;
+
   constructor(
-    readonly category: McpStableErrorCategory,
-    readonly code: McpLifecycleFailureCode,
+    category: McpStableErrorCategory,
+    code: McpLifecycleFailureCode,
     options?: ErrorOptions
   ) {
     super(FAILURE_MESSAGES[code], options);
+    this.category = category;
+    this.code = code;
   }
 }
 

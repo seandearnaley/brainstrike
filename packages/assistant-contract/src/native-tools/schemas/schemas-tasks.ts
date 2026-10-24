@@ -8,8 +8,8 @@
  * Resume schemas use ordinary open/strip decoders, outside the strict provider boundary.
  */
 import { Schema } from 'effect';
-import { effectToolInputSchema } from './effect-tool-input.js';
-import { standardInputSchema } from './standard-input-schema.js';
+import { effectToolInputSchema } from './effect-tool-input.ts';
+import { standardInputSchema } from './standard-input-schema.ts';
 
 /**
  * A length-bounded string whose ADVERTISED bounds are the ones it enforces.

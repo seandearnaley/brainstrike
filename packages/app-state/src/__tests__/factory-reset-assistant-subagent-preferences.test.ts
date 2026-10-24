@@ -1,10 +1,10 @@
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearPersistentUiState } from '../factory-reset';
+import { clearPersistentUiState } from '../factory-reset.ts';
 import {
   __resetAssistantSubagentPreferencesStoreForTests,
   useAssistantSubagentPreferencesStore,
-} from '../stores/assistant-subagent-preferences-store';
+} from '../stores/assistant-subagent-preferences-store.ts';
 
 const globalWindow = window as Window & typeof globalThis & { caches?: CacheStorage };
 

@@ -6,7 +6,7 @@ import {
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { clearPersistedStorageForTests } from './persist-api';
+import { clearPersistedStorageForTests } from './persist-api.ts';
 
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends readonly unknown[]

@@ -1,5 +1,5 @@
 import type { Worker } from 'node:worker_threads';
-import type { StoreSettings } from './state-store-types.js';
+import type { StoreSettings } from './state-store-types.ts';
 
 export interface Ready {
   readonly damage: string | null;

@@ -38,8 +38,8 @@ import type {
   Tool,
   ToolSet,
 } from 'ai';
-import type { McpHostToolBinding } from './adapters/mcp.js';
-import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
+import type { McpHostToolBinding } from './adapters/mcp.ts';
+import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.ts';
 import type {
   HostApprovalTargetRoot,
   HostEditOp,
@@ -55,10 +55,10 @@ import type {
   HostRunSnapshot,
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
-} from './protocol.js';
-import type { McpPresentationEvent } from './protocol-mcp-presentation.js';
-import type { McpSettingsEvent } from './protocol-mcp-settings.js';
-import type { HostStateSearch, HostStateSearchVectors } from './thread-search.js';
+} from './protocol.ts';
+import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
+import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
+import type { HostStateSearch, HostStateSearchVectors } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -498,7 +498,7 @@ export interface HostMcpToolRequest {
 }
 /** An MCP App's own tool call, once Core admitted it under the thread's policy. */
 export interface HostMcpAppToolCall {
-  readonly arguments: import('./protocol.js').HostParams<'mcp/app/call'>['arguments'];
+  readonly arguments: import('./protocol.ts').HostParams<'mcp/app/call'>['arguments'];
   readonly serverId: string;
   readonly toolName: string;
 }
@@ -558,7 +558,7 @@ export interface HostTool {
     readonly kind: 'question' | 'plan';
     readonly resumeSchema: FlexibleSchema<unknown>;
   };
-  readonly mcpAuthority?: import('./protocol.js').McpToolAuthority;
+  readonly mcpAuthority?: import('./protocol.ts').McpToolAuthority;
   /** Existing configured owner, supplied directly rather than parsed from a tool name. */
   readonly mcpBinding?: { readonly configuredServerId: string; readonly generation: number };
   /** Existing catalog ID used by Settings policy, before provider-name sanitization. */

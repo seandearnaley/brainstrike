@@ -1,8 +1,8 @@
 import type { BlobContent } from '@brainstrike/state-store';
-import type { HostPlatform, HostToolContext, HostToolState } from './ports.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
-import { HostToolStates } from './tool-state.js';
-import { HostWorkspaceEdits, hostEditScope } from './workspace-edits.js';
+import type { HostPlatform, HostToolContext, HostToolState } from './ports.ts';
+import type { HostEvent, HostLogRow } from './protocol.ts';
+import { HostToolStates } from './tool-state.ts';
+import { HostWorkspaceEdits, hostEditScope } from './workspace-edits.ts';
 
 /** Core's per-thread tool records: workspace edit checkpoints and tool state, folded from the log. */
 export class HostToolRecords {

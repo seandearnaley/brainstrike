@@ -78,9 +78,7 @@ it('reports each markdown hit on its source line, once, through the real index a
     .toEqual(payload.providedChunks.map((chunk) => chunk.content));
 
   const child = fork(
-    fileURLToPath(
-      new URL('../../../../../packages/indexer/dist/process-entry.js', import.meta.url)
-    ),
+    fileURLToPath(new URL('../../../../../packages/indexer/src/process-entry.ts', import.meta.url)),
     [],
     {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined },

@@ -6,7 +6,7 @@
     "test:integration": {
       "dependsOn": [
         "$TURBO_EXTENDS$",
-        "build"
+        "^build"
       ],
       "passThroughEnv": [
         "CI",

@@ -56,11 +56,11 @@ const TOOL_INPUT_ERROR_MAX_CHARS = 600;
  * producer-neutral one both tool-schema libraries report in.
  */
 export class ToolInputValidationError extends Error {
-  constructor(
-    message: string,
-    readonly issues: readonly ToolInputIssue[]
-  ) {
+  readonly issues: readonly ToolInputIssue[];
+
+  constructor(message: string, issues: readonly ToolInputIssue[]) {
     super(message);
+    this.issues = issues;
     this.name = 'ToolInputValidationError';
   }
 }

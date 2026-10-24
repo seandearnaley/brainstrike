@@ -6,7 +6,7 @@ import { isAbsolute, join } from 'node:path';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { assertNotSyncedRoot, processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
-import { destroySocket, receiveFrames, sendFrame } from './frames.js';
+import { destroySocket, receiveFrames, sendFrame } from './frames.ts';
 import {
   decodeRequest,
   HOST_VERSION,
@@ -14,10 +14,10 @@ import {
   type HostRequest,
   PROTOCOL_VERSION,
   tokensEqual,
-} from './record.js';
-import { publishHostRecord, removeOwnHostRecord, secureDirectory } from './record-file.js';
-import { HOST_LEASE_CLOSING, HostLeaseRefusalError } from './refusal.js';
-import { ResourceOwner } from './resource-owner.js';
+} from './record.ts';
+import { publishHostRecord, removeOwnHostRecord, secureDirectory } from './record-file.ts';
+import { HOST_LEASE_CLOSING, HostLeaseRefusalError } from './refusal.ts';
+import { ResourceOwner } from './resource-owner.ts';
 
 export type HostLifetime = 'app' | 'cli' | 'persistent';
 export type HostStartOptions = typeof StartOptionsSchema.Type;

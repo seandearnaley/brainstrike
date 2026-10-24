@@ -44,7 +44,10 @@ export class CanonicalUtilityChild {
   private readonly sessions = new Map<string, Session>();
   private closed = false;
   private readonly controls = new Map<number, Promise<void>>();
-  constructor(private readonly send: (frame: object) => void) {
+  private readonly send: (frame: object) => void;
+
+  constructor(send: (frame: object) => void) {
+    this.send = send;
     this.channel = new CanonicalUtilityChannel(send);
   }
   receive(input: unknown): void {

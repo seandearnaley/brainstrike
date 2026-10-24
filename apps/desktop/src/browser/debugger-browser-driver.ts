@@ -81,7 +81,11 @@ interface EvaluateResult {
 }
 
 export class DebuggerBrowserDriver implements BrowserDriver {
-  constructor(private readonly resolveSession: CdpSessionResolver) {}
+  private readonly resolveSession: CdpSessionResolver;
+
+  constructor(resolveSession: CdpSessionResolver) {
+    this.resolveSession = resolveSession;
+  }
 
   async snapshot(options: SnapshotOptions): Promise<AccessibilitySnapshot> {
     const session = await this.resolveSession();

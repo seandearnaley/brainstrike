@@ -13,11 +13,11 @@ import type { MastraDBMessage } from '@mastra/core/agent';
 import { RequestContext } from '@mastra/core/request-context';
 import { createTool, noopObserve, type ToolExecutionContext } from '@mastra/core/tools';
 import { asSchema, type FlexibleSchema } from 'ai';
-import { committedRowAddress, committedRunAncestors } from '../committed-identities.js';
-import { readHostRow } from '../event-storage.js';
-import { executableInputSchema } from '../executable-input-schema.js';
-import type { HostTool, HostToolDiscovery } from '../ports.js';
-import { committedMemoryTranscript } from './committed-memory-transcript.js';
+import { committedRowAddress, committedRunAncestors } from '../committed-identities.ts';
+import { readHostRow } from '../event-storage.ts';
+import { executableInputSchema } from '../executable-input-schema.ts';
+import type { HostTool, HostToolDiscovery } from '../ports.ts';
+import { committedMemoryTranscript } from './committed-memory-transcript.ts';
 
 /** Mastra's fixed meta-tool ids, beside Brainstrike's catalog tool. */
 const SEARCH_TOOLS_ID = HOST_META_TOOL_ID.searchTools;

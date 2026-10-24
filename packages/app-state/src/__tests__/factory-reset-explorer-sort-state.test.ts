@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearPersistentUiState } from '../factory-reset';
-import { useExplorerSortStateStore } from '../stores/explorer-sort-state-store';
+import { clearPersistentUiState } from '../factory-reset.ts';
+import { useExplorerSortStateStore } from '../stores/explorer-sort-state-store.ts';
 
 const globalWindow = window as Window &
   typeof globalThis & {

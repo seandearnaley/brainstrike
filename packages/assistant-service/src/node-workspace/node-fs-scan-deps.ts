@@ -10,7 +10,7 @@ import { SecureRoot } from '@brainstrike/secure-fs-native';
 import {
   MAX_USER_COMMAND_FILE_BYTES,
   type UserSlashCommandScanDeps,
-} from './user-slash-commands-loader.js';
+} from './user-slash-commands-loader.ts';
 
 // Same scope string the function logged under at its previous home, so the
 // warn below stays byte-identical in log output.

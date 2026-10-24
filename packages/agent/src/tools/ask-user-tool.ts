@@ -5,8 +5,8 @@ import {
 } from '@brainstrike/assistant-contract';
 import { AskUserResumeSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
-import type { HostToolDefinition, HostToolExecutionContext } from '../host-tool-definition';
-import { AskUserInputSchema } from './schemas';
+import type { HostToolDefinition, HostToolExecutionContext } from '../host-tool-definition.ts';
+import { AskUserInputSchema } from './schemas.ts';
 
 export const ASK_USER_TOOL_ID = NATIVE_TOOL_ID.askUser;
 

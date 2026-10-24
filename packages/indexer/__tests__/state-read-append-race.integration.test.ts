@@ -60,7 +60,7 @@ beforeAll(async () => {
   for (const threadId of Object.keys(reads)) {
     await append(threadId, step + 1);
   }
-  const child = fork(new URL('../dist/process-entry.js', import.meta.url), [], {
+  const child = fork(new URL('../src/process-entry.ts', import.meta.url), [], {
     execArgv: [],
     serialization: 'advanced',
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],

@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import type { WorkspaceCollectionSyncState } from './workspace-collection-sync-status-store';
+import type { WorkspaceCollectionSyncState } from './workspace-collection-sync-status-store.ts';
 
 export type IndexingActivityStatus = 'unavailable' | 'idle' | 'active' | 'paused' | 'error';
 

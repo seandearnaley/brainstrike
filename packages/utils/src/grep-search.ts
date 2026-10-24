@@ -14,8 +14,8 @@
  */
 
 import type { GrepMatch } from '@brainstrike/assistant-contract';
-import { createGrepLineMatcher, type LineMatcher } from './grep-line-matcher.js';
-import { escapeLikeLiteral, extractTrigramLiteral } from './grep-pattern.js';
+import { createGrepLineMatcher, type LineMatcher } from './grep-line-matcher.ts';
+import { escapeLikeLiteral, extractTrigramLiteral } from './grep-pattern.ts';
 
 /** Options for the SQL candidate-selection phase of grep search. */
 export interface GrepCandidateOptions {
@@ -206,7 +206,11 @@ function processCandidate(
 }
 
 export class GrepSearchService {
-  constructor(private readonly repository: GrepSearchRepository) {}
+  private readonly repository: GrepSearchRepository;
+
+  constructor(repository: GrepSearchRepository) {
+    this.repository = repository;
+  }
 
   async search(options: GrepSearchOptions): Promise<GrepSearchResult> {
     const pattern = options.pattern;

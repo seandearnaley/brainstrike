@@ -1,6 +1,6 @@
-import { BEDROCK_RECOMMENDED_MODEL_IDS } from './bedrock-defaults.js';
-import { OPENROUTER_RECOMMENDED_CODING_MODEL_IDS } from './openrouter-coding-defaults.js';
-import type { SupportedProvider } from './provider-metadata.js';
+import { BEDROCK_RECOMMENDED_MODEL_IDS } from './bedrock-defaults.ts';
+import { OPENROUTER_RECOMMENDED_CODING_MODEL_IDS } from './openrouter-coding-defaults.ts';
+import type { SupportedProvider } from './provider-metadata.ts';
 
 /**
  * How a provider's DB catalog rows become enabled without the user (BST-1794).

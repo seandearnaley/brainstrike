@@ -14,7 +14,7 @@ import { create } from 'zustand';
 import {
   getModelRegistryFetchErrorTestOverride,
   getModelRegistrySnapshotTestOverride,
-} from '../automation-overrides';
+} from '../automation-overrides.ts';
 
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;

@@ -1,6 +1,6 @@
 import { Socket } from 'node:net';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { destroySocket, receiveFrames, sendFrame } from './frames.js';
+import { destroySocket, receiveFrames, sendFrame } from './frames.ts';
 import {
   decodeHostRecord,
   decodeReply,
@@ -9,9 +9,9 @@ import {
   type HostReply,
   type HostRequest,
   PROTOCOL_VERSION,
-} from './record.js';
-import { HOST_LEASE_CONNECTION_CLOSED, HostLeaseRefusalError } from './refusal.js';
-import { ResourceOwner } from './resource-owner.js';
+} from './record.ts';
+import { HOST_LEASE_CONNECTION_CLOSED, HostLeaseRefusalError } from './refusal.ts';
+import { ResourceOwner } from './resource-owner.ts';
 
 export interface HostAttachment {
   close(): Promise<void>;
@@ -25,7 +25,10 @@ class ReplyQueue {
   private closeFailure: unknown;
   private readonly completion = Promise.withResolvers<void>();
   readonly closed = this.completion.promise;
-  constructor(readonly socket: Socket) {
+  readonly socket: Socket;
+
+  constructor(socket: Socket) {
+    this.socket = socket;
     this.closed.catch(() => undefined); // the public attachment preserves the rejection
     receiveFrames(
       socket,

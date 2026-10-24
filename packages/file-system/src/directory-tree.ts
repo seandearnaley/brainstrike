@@ -11,15 +11,15 @@ import {
   type DirectoryReadCapability,
   type ParallelWalkerOptions,
   walkDirectoryParallel,
-} from './directory-tree-walker.js';
-import type { DirectoryHandle } from './types.js';
+} from './directory-tree-walker.ts';
+import type { DirectoryHandle } from './types.ts';
 
 export {
   DirectoryListingTruncatedError,
   type DirectoryReadCapability,
   type ParallelWalkerOptions,
   walkDirectoryParallel,
-} from './directory-tree-walker.js';
+} from './directory-tree-walker.ts';
 
 export interface ReadFullTreeOptions {
   /** AbortSignal for cancellation support */

@@ -3,8 +3,8 @@ import {
   type McpLabCleanupReport,
   type McpLabSession,
   startMcpLabScenario,
-} from './lab.js';
-import type { McpLabScenarioId } from './scenario.js';
+} from './lab.ts';
+import type { McpLabScenarioId } from './scenario.ts';
 export type PackagedCoreFixtureId = Extract<
   McpLabScenarioId,
   'legacy-reference' | 'modern-reference' | 'oauth-reference'

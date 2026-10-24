@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { sha256 } from './chunks.js';
+import { sha256 } from './chunks.ts';
 import {
   decoder,
   type StateSearchCoverage,
@@ -14,8 +14,8 @@ import {
   stateSearchCoverageResultSchema,
   stateSearchPendingRowSchema,
   stateSearchSimilarHitSchema,
-} from './contracts.js';
-import { profileHash, vectorBytes } from './state-message-vectors.js';
+} from './contracts.ts';
+import { profileHash, vectorBytes } from './state-message-vectors.ts';
 
 /**
  * The Threads panel's semantic arm over the host's conversation rows: one
@@ -39,10 +39,13 @@ export class StateSearchVectors {
   /** Legacy thread search's `EMBEDDING_ERROR_RETRY_MS`: a failed row is retried after this. */
   static readonly retryAfterMs = 300_000;
 
-  constructor(
-    private readonly db: Database.Database,
-    private readonly now: () => number = Date.now
-  ) {}
+  private readonly db: Database.Database;
+  private readonly now: () => number;
+
+  constructor(db: Database.Database, now: () => number = Date.now) {
+    this.db = db;
+    this.now = now;
+  }
 
   /** Rows of the threads with no vector and no recent failure under the profile, oldest first. */
   pending(request: StateSearchPending): readonly StateSearchPendingRow[] {

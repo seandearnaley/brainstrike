@@ -10,8 +10,8 @@ import {
   vectorProfileHash,
 } from '@brainstrike/indexer';
 import { createLogger } from '@brainstrike/logging';
-import { CanonicalOperationCancelledError } from './cancellation.js';
-import { chunkCanonicalRead } from './canonical-chunk-eligibility.js';
+import { CanonicalOperationCancelledError } from './cancellation.ts';
+import { chunkCanonicalRead } from './canonical-chunk-eligibility.ts';
 import type {
   CanonicalCatalogFile,
   CanonicalCatalogPort,
@@ -30,15 +30,15 @@ import type {
   CanonicalSourcePort,
   CanonicalSourceScope,
   CanonicalVectorPublicationPort,
-} from './ports.js';
-import { manifestVectorsComplete } from './scoped-publication.js';
+} from './ports.ts';
+import { manifestVectorsComplete } from './scoped-publication.ts';
 import {
   assertUniqueWorkspacePaths,
   type CanonicalPreparedRead,
   getDiscoveredSources,
   prepareDiscoveredSources,
   readCanonicalSource,
-} from './source-preparation.js';
+} from './source-preparation.ts';
 
 /**
  * VECTOR completion reads its manifest and coverage separately, and another
@@ -50,8 +50,11 @@ const logger = createLogger('CanonicalIngestionHost');
 
 /** An owned, physically settled scan whose source proof is incomplete. */
 export class CanonicalScanIncompleteError extends Error {
-  constructor(readonly receipt: CanonicalScanReceipt) {
+  readonly receipt: CanonicalScanReceipt;
+
+  constructor(receipt: CanonicalScanReceipt) {
     super(`Canonical scan receipt is incomplete: ${receipt.reason}.`);
+    this.receipt = receipt;
     this.name = 'CanonicalScanIncompleteError';
   }
 }
@@ -108,7 +111,10 @@ export class CanonicalIngestionHost {
   private readonly chunk: CanonicalChunker;
   private readonly inferenceRequests = new Set<string>();
 
-  constructor(private readonly dependencies: CanonicalIngestionDependencies) {
+  private readonly dependencies: CanonicalIngestionDependencies;
+
+  constructor(dependencies: CanonicalIngestionDependencies) {
+    this.dependencies = dependencies;
     if (
       dependencies.mode !== undefined &&
       dependencies.mode !== 'TEXT' &&

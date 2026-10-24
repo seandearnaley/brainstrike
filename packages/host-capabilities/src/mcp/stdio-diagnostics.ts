@@ -89,7 +89,11 @@ export class McpStdioDiagnosticCollector {
   private failureReportTaken = false;
   private readonly retained: McpHostDiagnostic[] = [];
 
-  constructor(private readonly onDiagnostic?: (diagnostic: McpHostDiagnostic) => void) {}
+  private readonly onDiagnostic: ((diagnostic: McpHostDiagnostic) => void) | undefined;
+
+  constructor(onDiagnostic?: (diagnostic: McpHostDiagnostic) => void) {
+    this.onDiagnostic = onDiagnostic;
+  }
 
   flush(): void {
     if (this.buffer.length === 0 && this.droppedBufferedChars === 0) {

@@ -5,8 +5,8 @@ const projection = `id AS fileId, root_id AS rootId, embedding_set_id AS embeddi
   path, name AS fileName, created_at AS createdAt, updated_at AS updatedAt, chunks_count AS chunksCount, content_hash AS contentHash, mtime_ms AS mtimeMs, size,
   chunks_processed AS chunksProcessed`;
 
-/** @typedef {import('./source-catalog-types.js').SourceCatalogRecord} Record */
-/** @typedef {import('./source-catalog-types.js').SourceCatalogInput} Input */
+/** @typedef {import('./source-catalog-types.ts').SourceCatalogRecord} Record */
+/** @typedef {import('./source-catalog-types.ts').SourceCatalogInput} Input */
 /** @typedef {Omit<Record, 'content' | 'stat' | 'chunksProcessed'> & { mtimeMs:number|null; size:number; chunksProcessed:0|1 }} Row */
 /** @typedef {{put(hash:string,content:string):void;read(hash:string,maxBytes:number):string|null}} Blobs */
 
@@ -90,7 +90,7 @@ function assertCollection(db, id) {
   }
 }
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./source-catalog-types.js').SourceCatalogRequest & {operation:'prepare'}} request
+ * @param {import('./source-catalog-types.ts').SourceCatalogRequest & {operation:'prepare'}} request
  * @param {Blobs} blobs @returns {Record[]} */
 function prepare(db, request, blobs) {
   assertBatch(request.files);
@@ -134,8 +134,8 @@ function prepare(db, request, blobs) {
   });
 }
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./source-catalog-types.js').SourceCatalogRequest & {operation:'read'}} request
- * @param {Blobs} blobs @returns {import('./source-catalog-types.js').SourceCatalogReply} */
+ * @param {import('./source-catalog-types.ts').SourceCatalogRequest & {operation:'read'}} request
+ * @param {Blobs} blobs @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
 function readSources(db, request, blobs) {
   assertBatch(request.fileIds);
   const max = request.maxContentBytes;
@@ -153,8 +153,8 @@ function readSources(db, request, blobs) {
 }
 
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./source-catalog-types.js').SourceCatalogRequest & {operation:'replace'}} request
- * @param {Blobs} blobs @returns {import('./source-catalog-types.js').SourceCatalogReply} */
+ * @param {import('./source-catalog-types.ts').SourceCatalogRequest & {operation:'replace'}} request
+ * @param {Blobs} blobs @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
 function replaceSources(db, request, blobs) {
   assertExpected(
     db,
@@ -174,8 +174,8 @@ function replaceSources(db, request, blobs) {
 }
 
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./source-catalog-types.js').SourceCatalogRequest & {operation:'complete'}} request
- * @returns {import('./source-catalog-types.js').SourceCatalogReply} */
+ * @param {import('./source-catalog-types.ts').SourceCatalogRequest & {operation:'complete'}} request
+ * @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
 function completeSources(db, request) {
   assertExpected(
     db,
@@ -194,8 +194,8 @@ function completeSources(db, request) {
 }
 
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./source-catalog-types.js').SourceCatalogRequest} request
- * @param {Blobs} blobs @returns {import('./source-catalog-types.js').SourceCatalogReply} */
+ * @param {import('./source-catalog-types.ts').SourceCatalogRequest} request
+ * @param {Blobs} blobs @returns {import('./source-catalog-types.ts').SourceCatalogReply} */
 export function executeSourceCatalogRequest(db, request, blobs) {
   return db.transaction(() => {
     switch (request.operation) {

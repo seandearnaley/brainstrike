@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
-import { pathsEqual } from './workspace-root-paths.js';
-import type { StoredWorkspaceRoot, WorkspaceRootStorage } from './workspace-root-types.js';
+import { pathsEqual } from './workspace-root-paths.ts';
+import type { StoredWorkspaceRoot, WorkspaceRootStorage } from './workspace-root-types.ts';
 
 const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;

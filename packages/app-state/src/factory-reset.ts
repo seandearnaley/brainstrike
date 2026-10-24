@@ -1,16 +1,16 @@
 import { createLogger } from '@brainstrike/logging';
-import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assistant-budget-preferences-store';
-import { resetAssistantSubagentPreferencesStoreToDefaults } from './stores/assistant-subagent-preferences-store';
-import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store';
-import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
-import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store';
-import { resetExplorerSortStateStoreToDefault } from './stores/explorer-sort-state-store';
-import { resetNotificationPreferencesStoreToDefaults } from './stores/notification-preferences-store';
-import { resetPermissionPolicyStoreToDefaults } from './stores/permission-policy-store';
-import { resetSkillsPreferencesStoreToDefaults } from './stores/skills-preferences-store';
-import { resetSubagentPersonasStoreToDefaults } from './stores/subagent-personas-store';
-import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from './stores/workspace-instructions-preferences-store';
-import { resetWorktreeSetupConsentStoreToDefaults } from './stores/worktree-setup-consent-store';
+import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assistant-budget-preferences-store.ts';
+import { resetAssistantSubagentPreferencesStoreToDefaults } from './stores/assistant-subagent-preferences-store.ts';
+import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store.ts';
+import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store.ts';
+import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store.ts';
+import { resetExplorerSortStateStoreToDefault } from './stores/explorer-sort-state-store.ts';
+import { resetNotificationPreferencesStoreToDefaults } from './stores/notification-preferences-store.ts';
+import { resetPermissionPolicyStoreToDefaults } from './stores/permission-policy-store.ts';
+import { resetSkillsPreferencesStoreToDefaults } from './stores/skills-preferences-store.ts';
+import { resetSubagentPersonasStoreToDefaults } from './stores/subagent-personas-store.ts';
+import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from './stores/workspace-instructions-preferences-store.ts';
+import { resetWorktreeSetupConsentStoreToDefaults } from './stores/worktree-setup-consent-store.ts';
 
 const logger = createLogger('FactoryReset');
 

@@ -11,7 +11,7 @@ import {
 } from '@brainstrike/agent-host';
 import type { HostRunSnapshot } from '@brainstrike/agent-host/protocol';
 import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
-import type { McpHostRuntime } from './node-host-runtime.js';
+import type { McpHostRuntime } from './node-host-runtime.ts';
 
 type CanonicalTools = HostToolDefinitions;
 type ExecutableMcpBindings = HostMcpToolSelection['bindings'];

@@ -1,11 +1,11 @@
 import { Schema } from 'effect';
-import { hasToolResultKind } from './mcp-apps-ipc.js';
+import { hasToolResultKind } from './mcp-apps-ipc.ts';
 import {
   type McpTaskActionRequest,
   type McpTaskActionResult,
   type McpTaskPresentation,
   McpTaskPresentationSchema,
-} from './mcp-task-presentation.js';
+} from './mcp-task-presentation.ts';
 /**
  * Renderer ↔ desktop-main contract for production MCP Tasks (BST-1566
  * enablement). The main process owns every task authority (repository,

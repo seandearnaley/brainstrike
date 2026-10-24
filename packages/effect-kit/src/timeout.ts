@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { runAtPromiseBoundary } from './promise-boundary.js';
+import { runAtPromiseBoundary } from './promise-boundary.ts';
 
 export interface TimeoutOptions {
   /** Builds the rejection value when the deadline passes. */

@@ -31,7 +31,7 @@ import type {
   UserSlashCommandDirEntry,
   UserSlashCommandReadResult,
   UserSlashCommandScanRoot,
-} from './user-slash-commands-loader.js';
+} from './user-slash-commands-loader.ts';
 
 const logger = createLogger('UserPersonas');
 

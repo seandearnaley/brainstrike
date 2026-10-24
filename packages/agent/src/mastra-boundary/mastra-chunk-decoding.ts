@@ -22,9 +22,9 @@ import {
   MAX_PROVIDER_RUN_ERROR_MESSAGE_CHARS,
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
   type ProviderRunError,
-} from '../provider-error-metadata';
-import { OpenAIStoredItemExpiredError } from '../providers/openai-expired-item';
-import type { RuntimeData } from '../types';
+} from '../provider-error-metadata.ts';
+import { OpenAIStoredItemExpiredError } from '../providers/openai-expired-item.ts';
+import type { RuntimeData } from '../types.ts';
 
 /** Cap the provider error detail rendered as visible assistant text. Provider
  * error bodies can be verbose; the full detail is preserved in the log. */

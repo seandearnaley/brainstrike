@@ -1,6 +1,6 @@
 /** Shared contracts for the Changeset Diff Viewer engine (spec: docs/superpowers/specs/2026-08-03-changeset-diff-viewer-design.md §3). */
 
-import type { GitWorktreeSummary } from './git.js';
+import type { GitWorktreeSummary } from './git.ts';
 
 /** A repository keyed by its main-worktree realpath — stable identity across linked worktrees. */
 export interface RepositoryIdentity {

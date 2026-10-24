@@ -4,7 +4,7 @@ import {
   __resetDatabaseStatusStoreForTests,
   databaseStatusSelectors,
   useDatabaseStatusStore,
-} from '../stores/database-status-store';
+} from '../stores/database-status-store.ts';
 
 describe('database-status-store', () => {
   beforeEach(() => {

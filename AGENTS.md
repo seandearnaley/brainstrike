@@ -26,7 +26,8 @@ when needed. Package `AGENTS.md` files contain only additional local constraints
 - The host owns the AI SDK run loop; Mastra is a memory library, not another
   server, permission system or persistence owner. Keep Node-only dependencies out
   of browser bundles. See ADRs 0011, 0012 and 0017.
-- Use strict TypeScript and existing React/shared UI conventions. Effect runtime
+- Strictest TypeScript settings stay on; never loosen a compiler flag to pass a
+  check. Use existing React/shared UI conventions. Effect runtime
   work follows `docs/agents/effect-boundary.md`; infer versions and build commands
   from the installed packages and scripts.
 
@@ -42,9 +43,10 @@ re-add a build edge, to make a failure pass; fix the root cause in source, the
 test or the bundler config.
 
 Only these may ship built output: the native add-ons (`secure-fs-native`,
-`windows-job-native`), `mcp-test-lab`, `agent-evals` and `host-capabilities`'
-`brainstrike` CLI. The packages desktop's main process still loads from `dist`
-are being moved to the bundle; that set only shrinks.
+`windows-job-native`), `mcp-test-lab` and `agent-evals`. Node runs every other
+package's source directly with its built-in type stripping (Electron included),
+so source stays erasable TypeScript and relative imports name the `.ts` file;
+a worker or process entry beside a module takes that module's own extension.
 
 ## Prefer removal
 

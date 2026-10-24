@@ -38,10 +38,12 @@ const mockDirectory = (
 class BrowserHandleTestAdapter implements FileSystemAdapter {
   private readonly pathByHandle = new WeakMap<object, string>();
 
-  constructor(
-    private readonly root: MockDirectoryHandle,
-    private readonly wrapDirectoryDescriptors = false
-  ) {
+  private readonly root: MockDirectoryHandle;
+  private readonly wrapDirectoryDescriptors: boolean;
+
+  constructor(root: MockDirectoryHandle, wrapDirectoryDescriptors = false) {
+    this.root = root;
+    this.wrapDirectoryDescriptors = wrapDirectoryDescriptors;
     this.pathByHandle.set(root, '');
   }
 

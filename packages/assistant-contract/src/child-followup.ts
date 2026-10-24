@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import { assistantChildInputSchema } from './child-input.js';
+import { assistantChildInputSchema } from './child-input.ts';
 export const CHILD_FOLLOWUP_RUN_CONFIG_KEY = 'brainstrikeChildFollowup';
 const identifier = Schema.String.pipe(Schema.decodeTo(Schema.Trim))
   .check(Schema.isMinCodePoints(1))
@@ -51,7 +51,7 @@ export function readChildFollowupRunConfigAction(runConfig: unknown):
 export const CHILD_CONTINUATION_DATA_NAME = 'brainstrike.child-continuation';
 /** No parent-tool coordinates: a human continuation is a new run of an existing child. */
 export interface ChildContinuationStreamData {
-  readonly baseline?: import('./delegated-conversation-stream.js').DelegatedConversationBaseline;
+  readonly baseline?: import('./delegated-conversation-stream.ts').DelegatedConversationBaseline;
   readonly continuationId: string;
   readonly frames: readonly {
     readonly code: string;

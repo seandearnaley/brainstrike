@@ -12,7 +12,7 @@ import { isAbsolute, join, normalize, parse, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
-import { type ExecPolicy, parseExecPolicy } from '../code-execution';
+import { type ExecPolicy, parseExecPolicy } from '../code-execution.ts';
 
 /**
  * `realpath.NATIVE`, not `fs/promises`' `realpath` (BST-1074).

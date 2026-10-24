@@ -8,8 +8,8 @@ import {
   TypeValidationError,
 } from 'ai';
 import { Schema } from 'effect';
-import { executableInputSchema } from '../executable-input-schema.js';
-import type { HostToolContext } from '../ports.js';
+import { executableInputSchema } from '../executable-input-schema.ts';
+import type { HostToolContext } from '../ports.ts';
 /** One structural context; execution authority never comes from model arguments. */
 export function createCanonicalToolContext(context: HostToolContext): HostToolExecutionContext {
   return {

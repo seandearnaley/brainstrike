@@ -8,16 +8,16 @@
  * `@brainstrike/agent` re-exports every name from its historical
  * `src/tools/schemas-*.ts` paths. Native input schemas use Effect Schema (ADR-0004).
  */
-export * from './effect-tool-input.js';
-export * from './exec-policy-domain.js';
-export * from './provider-null-normalization.js';
-export * from './schemas-artifacts.js';
-export * from './schemas-browser.js';
-export * from './schemas-diagnostics.js';
-export * from './schemas-execution.js';
-export * from './schemas-search.js';
-export * from './schemas-tasks.js';
-export * from './schemas-workspace.js';
-export * from './schemas-worktrees.js';
-export * from './standard-input-schema.js';
-export * from './tool-input-schema.js';
+export * from './effect-tool-input.ts';
+export * from './exec-policy-domain.ts';
+export * from './provider-null-normalization.ts';
+export * from './schemas-artifacts.ts';
+export * from './schemas-browser.ts';
+export * from './schemas-diagnostics.ts';
+export * from './schemas-execution.ts';
+export * from './schemas-search.ts';
+export * from './schemas-tasks.ts';
+export * from './schemas-workspace.ts';
+export * from './schemas-worktrees.ts';
+export * from './standard-input-schema.ts';
+export * from './tool-input-schema.ts';

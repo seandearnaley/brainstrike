@@ -19,9 +19,9 @@ import {
   providerCassetteFindings,
   startProviderCassetteRecorder,
 } from '@brainstrike/test-utils/provider-cassette';
-import { startProviderBoundary } from './provider-boundary.js';
-import { attemptEvalTask, providerCredentialEnvNames } from './runner.js';
-import { loadEvalTask } from './task.js';
+import { startProviderBoundary } from './provider-boundary.ts';
+import { attemptEvalTask, providerCredentialEnvNames } from './runner.ts';
+import { loadEvalTask } from './task.ts';
 
 const SECRET_SCAN = resolve(import.meta.dirname, '../../../scripts/secret-scan.mjs');
 const KNOBS = Object.keys(PROVIDER_CASSETTE_UPSTREAMS) as ProviderCassetteKnob[];

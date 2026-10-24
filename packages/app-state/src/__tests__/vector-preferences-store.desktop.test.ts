@@ -24,7 +24,7 @@ describe('vector-preferences-store desktop storage bridge', () => {
       },
     });
 
-    const { useVectorPreferencesStore } = await import('../stores/vector-preferences-store');
+    const { useVectorPreferencesStore } = await import('../stores/vector-preferences-store.ts');
 
     useVectorPreferencesStore.getState().setDevicePref('wasm');
 

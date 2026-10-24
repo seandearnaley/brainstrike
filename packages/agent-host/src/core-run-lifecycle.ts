@@ -5,12 +5,12 @@ import {
   refusalError,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import { toBoundaryFailure } from './boundary-wire.js';
-import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
-import { HostMcpInputPersistenceError } from './mcp-input-state.js';
-import type { HostRunAdmission } from './ports.js';
-import type { HostEvent } from './protocol.js';
-import { HostRunAdmissionCleanupError, HostRunOwnerFailure } from './run-admission.js';
+import { toBoundaryFailure } from './boundary-wire.ts';
+import { type HostRunState, hasHostInteractionResponse } from './core-state.ts';
+import { HostMcpInputPersistenceError } from './mcp-input-state.ts';
+import type { HostRunAdmission } from './ports.ts';
+import type { HostEvent } from './protocol.ts';
+import { HostRunAdmissionCleanupError, HostRunOwnerFailure } from './run-admission.ts';
 
 const logger = createLogger('AgentHost');
 

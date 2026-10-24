@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { ManageTaskListInputSchema } from '../schemas/schemas-tasks.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { ManageTaskListInputSchema } from '../schemas/schemas-tasks.ts';
 
 // Whole-list replace of the assistant's own per-thread plan. `category:'action'`
 // is the UI/load taxonomy, but the risk bucket is EXPLICITLY 'read': it mutates

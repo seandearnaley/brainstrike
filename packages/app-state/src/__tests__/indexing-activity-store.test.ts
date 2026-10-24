@@ -6,7 +6,7 @@ import {
   type IndexingDatabaseWorkSnapshot,
   type IndexingManagedCollectionStats,
   useIndexingActivityStore,
-} from '../stores/indexing-activity-store';
+} from '../stores/indexing-activity-store.ts';
 
 const MANAGED_COLLECTION_STATS: IndexingManagedCollectionStats = {
   chunkCount: 42,

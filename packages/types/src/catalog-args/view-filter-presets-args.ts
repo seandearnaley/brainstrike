@@ -3,8 +3,8 @@ import type {
   UpdateViewFilterPresetInput,
   ViewFilterPresetIcon,
   ViewFilterPresetRequest,
-} from '../index.js';
-import { assertSupportedKeys, parseRecord } from './structural.js';
+} from '../index.ts';
+import { assertSupportedKeys, parseRecord } from './structural.ts';
 
 const icons: readonly ViewFilterPresetIcon[] = [
   'file',

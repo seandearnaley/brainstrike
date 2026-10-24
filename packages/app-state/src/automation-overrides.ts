@@ -1,7 +1,7 @@
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import type { LocalRuntimeAvailabilityState, LocalRuntimeId } from '@brainstrike/local-runtime';
-import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store-name';
-import type { DbModel, DbProvider } from './stores/model-registry-store';
+import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store-name.ts';
+import type { DbModel, DbProvider } from './stores/model-registry-store.ts';
 
 export interface ModelRegistrySnapshotOverride {
   readonly downloadedModels?: Record<string, boolean>;

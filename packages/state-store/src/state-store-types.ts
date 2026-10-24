@@ -1,10 +1,10 @@
 import type { PromptVectorPort } from '@brainstrike/types/prompt-item';
 // The store's public shapes: its options, the indexer port it drives, and what its reads, purges and exports report.
 // Split from state-store.ts so the facade stays one module of behaviour.
-import type { ThreadDamagedError } from './errors.js';
-import type { LockOptions } from './lock.js';
-import type { LogRow } from './run-log-types.js';
-import type { StateStoreStartupOwner } from './state-store.js';
+import type { ThreadDamagedError } from './errors.ts';
+import type { LockOptions } from './lock.ts';
+import type { LogRow } from './run-log-types.ts';
+import type { StateStoreStartupOwner } from './state-store.ts';
 
 /**
  * The indexer's side of purge and thread delete (M0-A2 src/indexer-client.ts requests). The derived store re-derives a

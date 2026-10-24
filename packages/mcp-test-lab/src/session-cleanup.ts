@@ -1,4 +1,4 @@
-import type { McpOAuthReferenceStateCounts } from './oauth-reference.js';
+import type { McpOAuthReferenceStateCounts } from './oauth-reference.ts';
 
 export interface McpLabCleanupReport {
   readonly httpListenersClosed: number;

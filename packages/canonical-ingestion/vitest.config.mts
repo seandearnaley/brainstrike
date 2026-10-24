@@ -3,18 +3,7 @@ import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-repor
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
-const aliases = [
-  // Coverage includes the real native-process integration fixtures.
-  ...(process.argv.includes('--coverage')
-    ? [
-        {
-          find: /^@brainstrike\/indexer$/,
-          replacement: path.resolve(import.meta.dirname, '../indexer/dist/index.js'),
-        },
-      ]
-    : []),
-  ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
-];
+const aliases = [...workspaceSrcAliases(path.resolve(import.meta.dirname, '..'))];
 
 /** One project, `unit`, which runs in Node. */
 export default defineConfig({
@@ -27,7 +16,7 @@ export default defineConfig({
         resolve: { alias: aliases },
         test: {
           environment: 'node',
-          // The integration lane runs the built native-process fixtures (vitest.integration.config.mts).
+          // The integration lane runs the native-process fixtures (vitest.integration.config.mts).
           exclude: ['**/*.integration.test.ts', 'node_modules', 'dist'],
           globals: true,
           include: ['__tests__/**/*.test.ts'],

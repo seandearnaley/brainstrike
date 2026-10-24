@@ -24,8 +24,8 @@ import type {
   CanonicalOperationContext,
   CanonicalScanRequest,
   CanonicalSourceFile,
-} from './ports.js';
-import type { CanonicalWorkspaceSourceDependencies } from './workspace-source-ports.js';
+} from './ports.ts';
+import type { CanonicalWorkspaceSourceDependencies } from './workspace-source-ports.ts';
 
 export interface WorkspaceSourceDiscovery {
   readonly completion: CanonicalDiscoveryCompletion;

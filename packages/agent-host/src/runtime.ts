@@ -1,3 +1,4 @@
+import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   type HostRuntime,
@@ -17,12 +18,12 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import { serveHostCatalog } from './catalog/transport.js';
-import { bindHostConnection, type HostConnectionOptions } from './connection.js';
-import { HostCore } from './core.js';
-import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.js';
-import type { HostClientOrigin, HostPlatform } from './ports.js';
-import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
+import { serveHostCatalog } from './catalog/transport.ts';
+import { bindHostConnection, type HostConnectionOptions } from './connection.ts';
+import { HostCore } from './core.ts';
+import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
+import type { HostClientOrigin, HostPlatform } from './ports.ts';
+import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
 
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
@@ -42,12 +43,13 @@ export type HostPlatformInitializer =
   | ((context: HostStartupContext) => HostPlatform | Promise<HostPlatform>);
 /** Failed startup still owns its durable root when physical cleanup was not proven. */
 export class AgentHostStartupError extends AggregateError {
-  constructor(
-    causes: readonly unknown[],
-    readonly store: StateStore,
-    readonly core: HostCore | undefined
-  ) {
+  readonly store: StateStore;
+  readonly core: HostCore | undefined;
+
+  constructor(causes: readonly unknown[], store: StateStore, core: HostCore | undefined) {
     super(causes, 'Host startup cleanup failed; durable root ownership is retained');
+    this.store = store;
+    this.core = core;
   }
 }
 /** The owned facade forwards each optional capability the acquired platform supplies. */
@@ -276,11 +278,13 @@ export async function startAgentHost(
           try {
             store = await StateStore.open(options.root, {
               // The writer worker imports this module itself, outside any
-              // transform, so it names the emitted file in the package's dist
-              // whether the host runs built or from source (as host-state-index
-              // names its worker). A bundle that runs this host emits it there.
+              // transform: it has this module's extension, TypeScript source
+              // run by Node or the desktop bundle's emitted JS beside it.
               memoryCalculatorModule: fileURLToPath(
-                new URL('../dist/adapters/memory-storage-calculator.js', import.meta.url)
+                new URL(
+                  `./adapters/memory-storage-calculator${extname(fileURLToPath(import.meta.url))}`,
+                  import.meta.url
+                )
               ),
               // ADR-0017: the native processes this host starts inherit its Root.
               shareWithNativeChildren: true,

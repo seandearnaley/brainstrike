@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   __resetAssistantSubagentPreferencesStoreForTests,
   useAssistantSubagentPreferencesStore,
-} from '../stores/assistant-subagent-preferences-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/assistant-subagent-preferences-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useAssistantSubagentPreferencesStore as PersistApi<
   typeof useAssistantSubagentPreferencesStore

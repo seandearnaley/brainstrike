@@ -5,20 +5,20 @@
  * counting) for `@brainstrike/chunking-worker/node`.
  */
 
-export type { CodeLanguage } from './chunking-config';
+export type { CodeLanguage } from './chunking-config.ts';
 
 // Re-export chunking config for consumers
-export { CHUNKING_CONFIG } from './chunking-config';
+export { CHUNKING_CONFIG } from './chunking-config.ts';
 export type {
   ExtractedSymbols,
   PortableSymbol,
   PortableSymbolKind,
   PortableSymbolRef,
   PortableSymbolRefKind,
-} from './extract-symbols';
-export type { ChunkSkipCode, PortableChunkingResult } from './portable-chunking';
+} from './extract-symbols.ts';
+export type { ChunkSkipCode, PortableChunkingResult } from './portable-chunking.ts';
 // Re-export portable chunking for direct usage
-export { chunkContent } from './portable-chunking';
+export { chunkContent } from './portable-chunking.ts';
 // Re-export shared types
 export type {
   ChunkingRequestOptions,

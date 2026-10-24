@@ -4,7 +4,7 @@ import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { RootLock } from '@brainstrike/state-store';
-import { recordFixtureEvent } from './owned-fixture-process.js';
+import { recordFixtureEvent } from './owned-fixture-process.ts';
 
 export interface FixtureStartupObserver {
   readonly close: () => Promise<void>;

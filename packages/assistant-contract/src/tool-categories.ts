@@ -7,14 +7,14 @@
  * - Consistent tool organization across native and MCP tools
  */
 
-import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.js';
-import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.js';
+import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from './native-tool-catalog.ts';
+import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.ts';
 import type {
   NativeToolDefaultMetadata,
   ToolCategory,
   ToolLoadingTier,
-} from './native-tools/taxonomy.js';
-import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
+} from './native-tools/taxonomy.ts';
+import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.ts';
 
 export type { NativeToolDefaultMetadata, ToolCategory, ToolLoadingTier };
 

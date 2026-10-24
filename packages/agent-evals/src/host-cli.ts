@@ -11,7 +11,7 @@ import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/pr
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
-import { type CommandResult, runCommand } from './sandbox.js';
+import { type CommandResult, runCommand } from './sandbox.ts';
 
 const require = createRequire(import.meta.url);
 const BIN = join(

@@ -1,7 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type { DirectoryHandle, FileSystemChange, IFileNode } from '@brainstrike/types';
 import type { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils/background-indexing-policy';
-import type { FileSystemAdapter } from './types.js';
+import type { FileSystemAdapter } from './types.ts';
 import {
   countRelativePathSegments,
   getParentRelativePath,
@@ -11,7 +11,7 @@ import {
   normalizeScopedChangePath,
   toRootAnchoredPath,
   toRootRelativePath,
-} from './workspace-scan-paths.js';
+} from './workspace-scan-paths.ts';
 
 export interface WorkspaceDiscoveryDeps {
   fileSystemAdapter: Pick<

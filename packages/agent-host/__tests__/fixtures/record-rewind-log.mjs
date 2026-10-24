@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { StateStore } from '@brainstrike/state-store';
-import { HostCore } from '../../dist/core.js';
-import { scriptedModel } from '../../dist/test-fixtures/scripted-model.js';
+import { HostCore } from '../../src/core.ts';
+import { scriptedModel } from '../../src/test-fixtures/scripted-model.ts';
 
 // Explicit recording from the real SDK -> HostCore -> SQLite of one thread's
 // rewinds (gap 2): runs A and B; a conversation-only rewind to before B; its

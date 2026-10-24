@@ -6,18 +6,18 @@ import {
   type McpClientCapabilityLease,
   type McpClientCapabilityOptions,
   type McpClientCapabilityRuntime,
-} from './client-capabilities';
+} from './client-capabilities.ts';
 import type {
   McpClientExtensionRegistry,
   McpClientExtensionRequestContract,
-} from './client-extension-registry';
+} from './client-extension-registry.ts';
 import {
   createMcpResponseCacheStore,
   normalizeMcpCachePartition,
   normalizeMcpListMaxPages,
   normalizeMcpRequestOptions,
-} from './client-policy';
-import type { McpProtocol } from './config';
+} from './client-policy.ts';
+import type { McpProtocol } from './config.ts';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
@@ -41,33 +41,33 @@ import type {
   ExplicitHttpMcpSubscriptionFilter,
   ExplicitHttpMcpTool,
   NegotiatedProtocolFacts,
-} from './explicit-http-client';
+} from './explicit-http-client.ts';
 import {
   createExplicitMcpSdkClient,
   type McpCatalogKind,
   type McpClientInfo,
   resolveMcpClientInfo,
   validateNonEmptyMcpOption,
-} from './explicit-mcp-client-core';
+} from './explicit-mcp-client-core.ts';
 import {
   installRegisteredExtensionDispatch,
   RegisteredExtensionDispatchLedger,
-} from './registered-extension-dispatch';
-import { installMcpResultTypeCompatibility } from './result-type-compatibility';
+} from './registered-extension-dispatch.ts';
+import { installMcpResultTypeCompatibility } from './result-type-compatibility.ts';
 import {
   type McpServerFeatureEventDiagnosticSink,
   type McpServerFeatureEventHandlers,
   McpServerFeatureEventRegistry,
   resolveMcpServerFeatureEventDiagnosticSink,
-} from './server-feature-events';
-import { installMcpStdioSendClosure } from './stdio-send-closure';
+} from './server-feature-events.ts';
+import { installMcpStdioSendClosure } from './stdio-send-closure.ts';
 import {
   listenForMcpTasks,
   type McpTasksNotificationHandler,
   type McpTasksNotificationLease,
   requireMcpTasksRegistry,
-} from './tasks-extension';
-import { notifyUnexpectedClose } from './unexpected-close-observer';
+} from './tasks-extension.ts';
+import { notifyUnexpectedClose } from './unexpected-close-observer.ts';
 
 const CLOSED_ERROR_MESSAGE = 'Explicit stdio MCP client is closed';
 const DISCONNECTED_DURING_CONNECT_ERROR_MESSAGE =

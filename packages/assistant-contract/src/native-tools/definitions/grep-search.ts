@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { GrepSearchInputSchema } from '../schemas/schemas-search.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { GrepSearchInputSchema } from '../schemas/schemas-search.ts';
 
 export const grepSearch = defineNativeTool({
   defaults: {

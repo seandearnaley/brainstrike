@@ -11,11 +11,13 @@ interface ToolCallInputPart {
 export class ToolCallInputStreamingTimeoutError extends Error {
   readonly code = 'tool_call_input_streaming_timeout';
 
-  constructor(
-    public readonly timeoutMs: number,
-    public readonly toolCallId: string
-  ) {
+  public readonly timeoutMs: number;
+  public readonly toolCallId: string;
+
+  constructor(timeoutMs: number, toolCallId: string) {
     super(`Tool call "${toolCallId}" did not finish streaming its input within ${timeoutMs}ms`);
+    this.timeoutMs = timeoutMs;
+    this.toolCallId = toolCallId;
     this.name = 'ToolCallInputStreamingTimeoutError';
   }
 }

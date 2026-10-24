@@ -4,7 +4,7 @@ import {
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { followIndexConfig, useIndexConfigStore } from '../stores/index-config-store';
+import { followIndexConfig, useIndexConfigStore } from '../stores/index-config-store.ts';
 
 function capability() {
   let listener: ((config: IndexConfig) => void) | undefined;

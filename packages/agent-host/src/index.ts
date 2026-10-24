@@ -5,47 +5,47 @@ export {
   createCanonicalToolContext,
   platformToolInputSchema,
   validateCanonicalToolInput,
-} from './adapters/canonical-context.js';
+} from './adapters/canonical-context.ts';
 export {
   type AgentHostToolBinding,
   type AgentHostToolBindings,
   createAgentHostToolBindings,
-} from './adapters/canonical-tool-bindings.js';
-export { committedMemoryTranscript } from './adapters/committed-memory-transcript.js';
-export { hostToolDiscoveryEnabled } from './adapters/host-tool-discovery.js';
+} from './adapters/canonical-tool-bindings.ts';
+export { committedMemoryTranscript } from './adapters/committed-memory-transcript.ts';
+export { hostToolDiscoveryEnabled } from './adapters/host-tool-discovery.ts';
 export {
   createKeyringNativeBackend,
   type KeyringNativeBackend,
-} from './adapters/keyring-native-worker.js';
-export { createMcpHostToolAdapter } from './adapters/mcp.js';
+} from './adapters/keyring-native-worker.ts';
+export { createMcpHostToolAdapter } from './adapters/mcp.ts';
 export {
   HostMemory,
   type HostMemoryCapabilities,
   type HostMemoryIdentity,
   type HostMemoryStep,
-} from './adapters/memory.js';
-export { StateStoreMemoryStorage } from './adapters/memory-storage.js';
-export { type HostObservationSource, hostMemoryModels } from './adapters/observation-state.js';
+} from './adapters/memory.ts';
+export { StateStoreMemoryStorage } from './adapters/memory-storage.ts';
+export { type HostObservationSource, hostMemoryModels } from './adapters/observation-state.ts';
 export {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
-} from './adapters/state-store-host-memory.js';
-export { hostChildCallSign } from './child-presentation.js';
+} from './adapters/state-store-host-memory.ts';
+export { hostChildCallSign } from './child-presentation.ts';
 export {
   type HostCliDefaults,
   type HostCliOutput,
   runHostCli,
   runHostCliProcess,
-} from './cli.js';
-export { attachAgentHost, authenticateHostClient, type HostClient } from './client.js';
+} from './cli.ts';
+export { attachAgentHost, authenticateHostClient, type HostClient } from './client.ts';
 export {
   type CommittedRunIdentity,
   committedRowAddress,
   committedRunIdentity,
-} from './committed-identities.js';
-export { bindHostConnection } from './connection.js';
-export { HostCore, type HostEventStore } from './core.js';
-export { readHostRow } from './event-storage.js';
+} from './committed-identities.ts';
+export { bindHostConnection } from './connection.ts';
+export { HostCore, type HostEventStore } from './core.ts';
+export { readHostRow } from './event-storage.ts';
 export {
   type HostHookTrustStore,
   hostHookApprovalFor,
@@ -54,44 +54,44 @@ export {
   readHostHookTrust,
   trustHostHooks,
   untrustHostHooks,
-} from './hook-trust.js';
-export { createAgentHostSpawner } from './launcher.js';
+} from './hook-trust.ts';
+export { createAgentHostSpawner } from './launcher.ts';
 export {
   assertMcpAuthorityReconstruction,
   McpAuthorityReconstructionError,
-} from './mcp-authority.js';
+} from './mcp-authority.ts';
 export {
   type HostPermissionPolicyStore,
   hostPermissionGate,
   readHostPermissionPolicy,
   writeHostPermissionPolicy,
-} from './permission-policy.js';
+} from './permission-policy.ts';
 export {
   type HostEnvFileFailure,
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
-} from './platform-launch-options.js';
-export * from './ports.js';
+} from './platform-launch-options.ts';
+export * from './ports.ts';
 export {
   type HostPlatformFactory,
   type HostProcessParent,
   loadHostPlatform,
   runAgentHostProcess,
-} from './process-entry.js';
+} from './process-entry.ts';
 export {
   createProductionHostPlatform,
   type HostMemoryPreconditions,
   type HostMemoryReadiness,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
-} from './production-platform.js';
-export * from './protocol.js';
+} from './production-platform.ts';
+export * from './protocol.ts';
 export {
   type AgentHost,
   AgentHostStartupError,
   type HostPlatformInitializer,
   type HostStartupContext,
   startAgentHost,
-} from './runtime.js';
-export { pendingRewindSnapshotTargets } from './thread-rewind.js';
-export { nodePortConnection, stdioConnection } from './transports.js';
+} from './runtime.ts';
+export { pendingRewindSnapshotTargets } from './thread-rewind.ts';
+export { nodePortConnection, stdioConnection } from './transports.ts';

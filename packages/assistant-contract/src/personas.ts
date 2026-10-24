@@ -4,14 +4,14 @@
  * native/MCP tools. Runtime host capabilities and permissions remain the ceiling.
  */
 
-import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
-import { type RuntimeSubagentSettings, SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.js';
+import { NATIVE_TOOL_ID } from './native-tool-catalog.ts';
+import { type RuntimeSubagentSettings, SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.ts';
 import {
   getNativeToolDefaults,
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
-} from './tool-categories.js';
-import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.js';
+} from './tool-categories.ts';
+import { resolveToolRiskCategory, type ToolRiskCategory } from './tool-risk.ts';
 
 /** Ids of the personas that ship with the app. */
 export type AssistantBuiltInPersonaId = 'analyze' | 'explore' | 'worker';

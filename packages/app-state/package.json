@@ -1,6 +1,7 @@
 {
   "name": "@brainstrike/app-state",
   "version": "0.1.0",
+  "type": "module",
   "dependencies": {
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
@@ -25,184 +26,50 @@
     "node": ">=22"
   },
   "exports": {
-    "./automation-overrides": {
-      "types": "./src/automation-overrides.ts",
-      "import": "./dist/automation-overrides.js"
-    },
-    "./factory-reset": {
-      "types": "./src/factory-reset.ts",
-      "import": "./dist/factory-reset.js"
-    },
-    "./renderer-close": {
-      "types": "./src/renderer-close.ts",
-      "import": "./dist/renderer-close.js"
-    },
-    "./hooks/use-database-status-sync": {
-      "types": "./src/hooks/use-database-status-sync.ts",
-      "import": "./dist/hooks/use-database-status-sync.js"
-    },
-    "./hooks/use-local-runtime-embedding-model-catalog": {
-      "types": "./src/hooks/use-local-runtime-embedding-model-catalog.ts",
-      "import": "./dist/hooks/use-local-runtime-embedding-model-catalog.js"
-    },
-    "./hooks/use-model-registry": {
-      "types": "./src/hooks/use-model-registry.ts",
-      "import": "./dist/hooks/use-model-registry.js"
-    },
-    "./models/local-model-utils": {
-      "types": "./src/models/local-model-utils.ts",
-      "import": "./dist/models/local-model-utils.js"
-    },
-    "./notifications/notification-permission": {
-      "types": "./src/notifications/notification-permission.ts",
-      "import": "./dist/notifications/notification-permission.js"
-    },
-    "./notifications/run-notification-dispatcher": {
-      "types": "./src/notifications/run-notification-dispatcher.ts",
-      "import": "./dist/notifications/run-notification-dispatcher.js"
-    },
-    "./notifications/should-notify": {
-      "types": "./src/notifications/should-notify.ts",
-      "import": "./dist/notifications/should-notify.js"
-    },
-    "./stores/assistant-budget-preferences-store": {
-      "types": "./src/stores/assistant-budget-preferences-store.ts",
-      "import": "./dist/stores/assistant-budget-preferences-store.js"
-    },
-    "./stores/assistant-subagent-preferences-store": {
-      "types": "./src/stores/assistant-subagent-preferences-store.ts",
-      "import": "./dist/stores/assistant-subagent-preferences-store.js"
-    },
-    "./stores/assistant-memory-preferences-store": {
-      "types": "./src/stores/assistant-memory-preferences-store.ts",
-      "import": "./dist/stores/assistant-memory-preferences-store.js"
-    },
-    "./stores/assistant-preferences-store": {
-      "types": "./src/stores/assistant-preferences-store.ts",
-      "import": "./dist/stores/assistant-preferences-store.js"
-    },
-    "./stores/assistant-preferences-store-version": {
-      "types": "./src/stores/assistant-preferences-store-version.ts",
-      "import": "./dist/stores/assistant-preferences-store-version.js",
-      "require": "./dist/stores/assistant-preferences-store-version.js"
-    },
-    "./stores/context-explorer-layout-store": {
-      "types": "./src/stores/context-explorer-layout-store.ts",
-      "import": "./dist/stores/context-explorer-layout-store.js"
-    },
-    "./stores/database-status-store": {
-      "types": "./src/stores/database-status-store.ts",
-      "import": "./dist/stores/database-status-store.js"
-    },
-    "./stores/diagnostics-retention-store": {
-      "types": "./src/stores/diagnostics-retention-store.ts",
-      "import": "./dist/stores/diagnostics-retention-store.js"
-    },
-    "./stores/explorer-column-sizes-store": {
-      "types": "./src/stores/explorer-column-sizes-store.ts",
-      "import": "./dist/stores/explorer-column-sizes-store.js"
-    },
-    "./stores/explorer-column-visibility-store": {
-      "types": "./src/stores/explorer-column-visibility-store.ts",
-      "import": "./dist/stores/explorer-column-visibility-store.js"
-    },
-    "./stores/explorer-sort-state-store": {
-      "types": "./src/stores/explorer-sort-state-store.ts",
-      "import": "./dist/stores/explorer-sort-state-store.js"
-    },
-    "./stores/index-config-store": {
-      "types": "./src/stores/index-config-store.ts",
-      "import": "./dist/stores/index-config-store.js"
-    },
-    "./stores/indexing-activity-store": {
-      "types": "./src/stores/indexing-activity-store.ts",
-      "import": "./dist/stores/indexing-activity-store.js"
-    },
-    "./stores/logging-preferences-store": {
-      "types": "./src/stores/logging-preferences-store.ts",
-      "import": "./dist/stores/logging-preferences-store.js"
-    },
-    "./stores/model-registry-store": {
-      "types": "./src/stores/model-registry-store.ts",
-      "import": "./dist/stores/model-registry-store.js"
-    },
-    "./stores/native-tool-preferences-store": {
-      "types": "./src/stores/native-tool-preferences-store.ts",
-      "import": "./dist/stores/native-tool-preferences-store.js"
-    },
-    "./stores/notification-preferences-store": {
-      "types": "./src/stores/notification-preferences-store.ts",
-      "import": "./dist/stores/notification-preferences-store.js"
-    },
-    "./stores/panel-layout-store": {
-      "types": "./src/stores/panel-layout-store.ts",
-      "import": "./dist/stores/panel-layout-store.js"
-    },
-    "./stores/permission-policy-store": {
-      "types": "./src/stores/permission-policy-store.ts",
-      "import": "./dist/stores/permission-policy-store.js"
-    },
-    "./stores/secrets-store": {
-      "types": "./src/stores/secrets-store.ts",
-      "import": "./dist/stores/secrets-store.js"
-    },
-    "./stores/skills-preferences-store": {
-      "types": "./src/stores/skills-preferences-store.ts",
-      "import": "./dist/stores/skills-preferences-store.js"
-    },
-    "./stores/subagent-personas-store": {
-      "types": "./src/stores/subagent-personas-store.ts",
-      "import": "./dist/stores/subagent-personas-store.js"
-    },
-    "./stores/token-preferences-store": {
-      "types": "./src/stores/token-preferences-store.ts",
-      "import": "./dist/stores/token-preferences-store.js"
-    },
-    "./stores/tree-table-column-sizes-store": {
-      "types": "./src/stores/tree-table-column-sizes-store.ts",
-      "import": "./dist/stores/tree-table-column-sizes-store.js"
-    },
-    "./stores/vector-preferences-store-name": {
-      "types": "./src/stores/vector-preferences-store-name.ts",
-      "import": "./dist/stores/vector-preferences-store-name.js"
-    },
-    "./stores/vector-preferences-store": {
-      "types": "./src/stores/vector-preferences-store.ts",
-      "import": "./dist/stores/vector-preferences-store.js"
-    },
-    "./stores/workspace-collection-sync-status-helpers": {
-      "types": "./src/stores/workspace-collection-sync-status-helpers.ts",
-      "import": "./dist/stores/workspace-collection-sync-status-helpers.js"
-    },
-    "./stores/workspace-collection-sync-status-store": {
-      "types": "./src/stores/workspace-collection-sync-status-store.ts",
-      "import": "./dist/stores/workspace-collection-sync-status-store.js"
-    },
-    "./stores/workspace-instructions-preferences-store": {
-      "types": "./src/stores/workspace-instructions-preferences-store.ts",
-      "import": "./dist/stores/workspace-instructions-preferences-store.js"
-    },
-    "./stores/worktree-setup-consent-store": {
-      "types": "./src/stores/worktree-setup-consent-store.ts",
-      "import": "./dist/stores/worktree-setup-consent-store.js"
-    },
-    "./local-runtime-diagnostics": {
-      "types": "./src/local-runtime-diagnostics.ts",
-      "import": "./dist/local-runtime-diagnostics.js"
-    },
-    "./hooks/use-available-embedding-models": {
-      "types": "./src/hooks/use-available-embedding-models.ts",
-      "import": "./dist/hooks/use-available-embedding-models.js"
-    },
-    "./stores/assistant-preferences-store-name": {
-      "types": "./src/stores/assistant-preferences-store-name.ts",
-      "import": "./dist/stores/assistant-preferences-store-name.js",
-      "default": "./dist/stores/assistant-preferences-store-name.js"
-    }
+    "./automation-overrides": "./src/automation-overrides.ts",
+    "./factory-reset": "./src/factory-reset.ts",
+    "./renderer-close": "./src/renderer-close.ts",
+    "./hooks/use-database-status-sync": "./src/hooks/use-database-status-sync.ts",
+    "./hooks/use-local-runtime-embedding-model-catalog": "./src/hooks/use-local-runtime-embedding-model-catalog.ts",
+    "./hooks/use-model-registry": "./src/hooks/use-model-registry.ts",
+    "./models/local-model-utils": "./src/models/local-model-utils.ts",
+    "./notifications/notification-permission": "./src/notifications/notification-permission.ts",
+    "./notifications/run-notification-dispatcher": "./src/notifications/run-notification-dispatcher.ts",
+    "./notifications/should-notify": "./src/notifications/should-notify.ts",
+    "./stores/assistant-budget-preferences-store": "./src/stores/assistant-budget-preferences-store.ts",
+    "./stores/assistant-subagent-preferences-store": "./src/stores/assistant-subagent-preferences-store.ts",
+    "./stores/assistant-memory-preferences-store": "./src/stores/assistant-memory-preferences-store.ts",
+    "./stores/assistant-preferences-store": "./src/stores/assistant-preferences-store.ts",
+    "./stores/assistant-preferences-store-version": "./src/stores/assistant-preferences-store-version.ts",
+    "./stores/context-explorer-layout-store": "./src/stores/context-explorer-layout-store.ts",
+    "./stores/database-status-store": "./src/stores/database-status-store.ts",
+    "./stores/diagnostics-retention-store": "./src/stores/diagnostics-retention-store.ts",
+    "./stores/explorer-column-sizes-store": "./src/stores/explorer-column-sizes-store.ts",
+    "./stores/explorer-column-visibility-store": "./src/stores/explorer-column-visibility-store.ts",
+    "./stores/explorer-sort-state-store": "./src/stores/explorer-sort-state-store.ts",
+    "./stores/index-config-store": "./src/stores/index-config-store.ts",
+    "./stores/indexing-activity-store": "./src/stores/indexing-activity-store.ts",
+    "./stores/logging-preferences-store": "./src/stores/logging-preferences-store.ts",
+    "./stores/model-registry-store": "./src/stores/model-registry-store.ts",
+    "./stores/native-tool-preferences-store": "./src/stores/native-tool-preferences-store.ts",
+    "./stores/notification-preferences-store": "./src/stores/notification-preferences-store.ts",
+    "./stores/panel-layout-store": "./src/stores/panel-layout-store.ts",
+    "./stores/permission-policy-store": "./src/stores/permission-policy-store.ts",
+    "./stores/secrets-store": "./src/stores/secrets-store.ts",
+    "./stores/skills-preferences-store": "./src/stores/skills-preferences-store.ts",
+    "./stores/subagent-personas-store": "./src/stores/subagent-personas-store.ts",
+    "./stores/token-preferences-store": "./src/stores/token-preferences-store.ts",
+    "./stores/tree-table-column-sizes-store": "./src/stores/tree-table-column-sizes-store.ts",
+    "./stores/vector-preferences-store-name": "./src/stores/vector-preferences-store-name.ts",
+    "./stores/vector-preferences-store": "./src/stores/vector-preferences-store.ts",
+    "./stores/workspace-collection-sync-status-helpers": "./src/stores/workspace-collection-sync-status-helpers.ts",
+    "./stores/workspace-collection-sync-status-store": "./src/stores/workspace-collection-sync-status-store.ts",
+    "./stores/workspace-instructions-preferences-store": "./src/stores/workspace-instructions-preferences-store.ts",
+    "./stores/worktree-setup-consent-store": "./src/stores/worktree-setup-consent-store.ts",
+    "./local-runtime-diagnostics": "./src/local-runtime-diagnostics.ts",
+    "./hooks/use-available-embedding-models": "./src/hooks/use-available-embedding-models.ts",
+    "./stores/assistant-preferences-store-name": "./src/stores/assistant-preferences-store-name.ts"
   },
-  "files": [
-    "dist"
-  ],
   "license": "ISC",
   "peerDependencies": {
     "react": "^19.3.0",
@@ -210,9 +77,6 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",

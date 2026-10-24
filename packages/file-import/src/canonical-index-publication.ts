@@ -1,6 +1,6 @@
 import type { IndexerTextPublication } from '@brainstrike/indexing-contract/indexer-producer';
-import type { CanonicalChunkEvent } from './canonical-chunk-producer.js';
-import { toFileSymbolInserts } from './canonical-symbol-inserts.js';
+import type { CanonicalChunkEvent } from './canonical-chunk-producer.ts';
+import { toFileSymbolInserts } from './canonical-symbol-inserts.ts';
 
 export type CanonicalIndexPayload = Pick<
   IndexerTextPublication,

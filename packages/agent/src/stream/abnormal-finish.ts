@@ -7,7 +7,7 @@ import {
   type OpenAiReasoningEffort,
   type ProviderId,
 } from '@brainstrike/assistant-contract';
-import type { RuntimeData, StreamFinishReason } from '../types';
+import type { RuntimeData, StreamFinishReason } from '../types.ts';
 
 export interface OutputLimitContext {
   readonly model?: string;

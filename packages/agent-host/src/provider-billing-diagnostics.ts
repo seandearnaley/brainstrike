@@ -1,8 +1,8 @@
 import { readOpenRouterBilledCost } from '@brainstrike/agent/provider-runtime';
 import { createLogger } from '@brainstrike/logging';
-import { finishHostRun, type HostRunOwnerLifetime } from './core-run-lifecycle.js';
-import type { HostRunState } from './core-state.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
+import { finishHostRun, type HostRunOwnerLifetime } from './core-run-lifecycle.ts';
+import type { HostRunState } from './core-state.ts';
+import type { HostEvent, HostLogRow } from './protocol.ts';
 
 const logger = createLogger('AgentHost');
 

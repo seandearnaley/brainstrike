@@ -1,8 +1,8 @@
 import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
-import type { HostMethodHandler } from './auth-connection.js';
-import type { HostClientOrigin, HostMcpPresentationService } from './ports.js';
-import { MCP_PRESENTATION_EVENT } from './protocol-mcp-presentation.js';
-import { storeRefusal } from './store-refusals.js';
+import type { HostMethodHandler } from './auth-connection.ts';
+import type { HostClientOrigin, HostMcpPresentationService } from './ports.ts';
+import { MCP_PRESENTATION_EVENT } from './protocol-mcp-presentation.ts';
+import { storeRefusal } from './store-refusals.ts';
 
 const MAX_VISIBLE_ERROR_CHARS = 1000;
 

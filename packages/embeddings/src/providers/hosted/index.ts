@@ -1,4 +1,4 @@
-export { CohereEmbeddingProvider } from './cohere-provider.js';
-export { GoogleEmbeddingProvider } from './google-provider.js';
-export { OpenAIEmbeddingProvider } from './openai-provider.js';
-export { VoyageEmbeddingProvider } from './voyage-provider.js';
+export { CohereEmbeddingProvider } from './cohere-provider.ts';
+export { GoogleEmbeddingProvider } from './google-provider.ts';
+export { OpenAIEmbeddingProvider } from './openai-provider.ts';
+export { VoyageEmbeddingProvider } from './voyage-provider.ts';

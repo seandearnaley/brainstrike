@@ -4,7 +4,7 @@ import {
   isMarkdownBlockBoundaryLine,
   MARKDOWN_CODE_FENCE_PATTERN,
   RecursiveTextSplitter,
-} from './index.js';
+} from './index.ts';
 
 export type SharedCodeLanguage =
   | 'javascript'

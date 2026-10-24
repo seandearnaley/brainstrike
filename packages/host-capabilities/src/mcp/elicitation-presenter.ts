@@ -64,11 +64,11 @@ const ERROR_MESSAGES = {
 } satisfies Record<McpElicitationPresenterErrorCode, string>;
 export class McpElicitationPresenterError extends Error {
   readonly category = 'operation' as const;
-  constructor(
-    readonly code: McpElicitationPresenterErrorCode,
-    options?: ErrorOptions
-  ) {
+  readonly code: McpElicitationPresenterErrorCode;
+
+  constructor(code: McpElicitationPresenterErrorCode, options?: ErrorOptions) {
     super(ERROR_MESSAGES[code], options);
+    this.code = code;
     this.name = 'McpElicitationPresenterError';
   }
 }
@@ -247,7 +247,10 @@ export class McpElicitationPresenterAuthority {
   private readonly processNonce = randomUUID();
   private readonly urlGrants = new WeakMap<InvocationAuthority, Map<number | string, string>>();
   readonly presenter: McpElicitationPresenter;
-  constructor(private readonly options: McpElicitationPresenterAuthorityOptions) {
+  private readonly options: McpElicitationPresenterAuthorityOptions;
+
+  constructor(options: McpElicitationPresenterAuthorityOptions) {
+    this.options = options;
     this.createPresentationId = options.createPresentationId ?? randomUUID;
     this.presenter = {
       confirmUrl: (request, context) => this.present(request, context),

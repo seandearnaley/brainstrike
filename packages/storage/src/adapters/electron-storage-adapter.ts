@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import type { StorageAdapter } from '../types.js';
+import type { StorageAdapter } from '../types.ts';
 
 const logger = createLogger('ElectronStorageAdapter');
 

@@ -11,7 +11,7 @@ import { closeSync, constants, fstatSync, openSync, readFileSync, readSync } fro
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hostProjectHooksPath } from '@brainstrike/agent-host/hook-trust';
-import { sha256OfBuffer } from './trust.js';
+import { sha256OfBuffer } from './trust.ts';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
   type HookConfigError,
@@ -22,7 +22,7 @@ import {
   type HooksConfigLoadResult,
   type LoadedHook,
   type LoadedHooksByEvent,
-} from './types.js';
+} from './types.ts';
 
 const VALID_EVENTS: readonly HookEventName[] = [
   'PreToolUse',

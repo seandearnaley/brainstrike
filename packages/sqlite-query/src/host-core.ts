@@ -5,8 +5,8 @@ import {
   fault,
   readNativeCoverage,
 } from '@brainstrike/indexer/coverage-reader';
-import { decodeRequest, type QueryRequest, type QueryResponse } from './protocol.js';
-import { SqliteSandbox } from './sandbox.js';
+import { decodeRequest, type QueryRequest, type QueryResponse } from './protocol.ts';
+import { SqliteSandbox } from './sandbox.ts';
 
 function boundedResponse(response: QueryResponse): QueryResponse {
   // Retain the sandbox's incremental row guard and include all metadata/envelope bytes here.

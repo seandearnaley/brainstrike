@@ -14,7 +14,7 @@
  * and Electron.
  */
 
-import type { ToolRiskCategory } from './tool-risk.js';
+import type { ToolRiskCategory } from './tool-risk.ts';
 
 /**
  * A SERIALIZABLE snapshot of the permission posture plus the caller-provided

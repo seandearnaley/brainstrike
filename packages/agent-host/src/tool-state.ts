@@ -1,6 +1,6 @@
-import { type Json, jsonValue } from './json-value.js';
-import type { HostToolState } from './ports.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
+import { type Json, jsonValue } from './json-value.ts';
+import type { HostToolState } from './ports.ts';
+import type { HostEvent, HostLogRow } from './protocol.ts';
 
 type Updated = Extract<HostEvent, { type: 'tool.state.updated' }>;
 

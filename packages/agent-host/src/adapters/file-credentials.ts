@@ -1,14 +1,14 @@
 import { isAbsolute, resolve } from 'node:path';
-import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.js';
+import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.ts';
 import {
   readPrivateCredentialFile,
   writePrivateCredentialFile,
-} from './private-credential-file.js';
+} from './private-credential-file.ts';
 
 export {
   readPrivateCredentialFile,
   writePrivateCredentialFile,
-} from './private-credential-file.js';
+} from './private-credential-file.ts';
 
 interface FileCredentialRecords {
   readonly records: Readonly<Record<string, string>>;

@@ -3,7 +3,7 @@ import {
   listProviderEmbeddingModels,
   listProviderLlmModels,
 } from '@brainstrike/assistant-contract/provider-registry';
-import type { ModelPricingResolver } from '../assistant-cross-root-cost';
+import type { ModelPricingResolver } from '../assistant-cross-root-cost.ts';
 
 /**
  * Resolve a model's list price from the static provider registry. Returns

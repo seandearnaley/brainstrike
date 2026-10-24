@@ -229,7 +229,7 @@ export async function finalPromptAccountingHost(
     child.once('spawn', () => {
       if (
         !child.spawnargs.some((arg) =>
-          arg.replaceAll('\\', '/').endsWith('/indexer/dist/process-entry.js')
+          arg.replaceAll('\\', '/').endsWith('/indexer/src/process-entry.ts')
         )
       ) {
         return;

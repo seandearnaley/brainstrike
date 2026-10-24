@@ -22,63 +22,22 @@
     "node": ">=22"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./catalog-domains": {
-      "types": "./src/catalog-domains.mjs",
-      "default": "./dist/catalog-domains.mjs"
-    },
-    "./deletion-domain": {
-      "types": "./src/deletion-domain.mjs",
-      "default": "./dist/deletion-domain.mjs"
-    },
-    "./event-schema": {
-      "types": "./src/event-schema.ts",
-      "default": "./dist/event-schema.js"
-    },
-    "./large-text": {
-      "types": "./src/large-text.ts",
-      "default": "./dist/large-text.js"
-    },
-    "./native-children": {
-      "types": "./src/native-children.ts",
-      "default": "./dist/native-children.js"
-    },
-    "./run-log": {
-      "types": "./src/run-log.mjs",
-      "default": "./dist/run-log.mjs"
-    },
-    "./run-log-format": {
-      "types": "./src/run-log-format.mjs",
-      "default": "./dist/run-log-format.mjs"
-    },
-    "./schema": {
-      "types": "./src/schema.mjs",
-      "default": "./dist/schema.mjs"
-    },
-    "./sqlite-checkpoint": {
-      "types": "./src/sqlite-checkpoint.mjs",
-      "default": "./dist/sqlite-checkpoint.mjs"
-    },
-    "./state-deletion": {
-      "types": "./src/state-deletion.ts",
-      "default": "./dist/state-deletion.js"
-    },
-    "./state-truth-reader": {
-      "types": "./src/state-truth-reader.ts",
-      "default": "./dist/state-truth-reader.js"
-    }
+    ".": "./src/index.ts",
+    "./catalog-domains": "./src/catalog-domains.mjs",
+    "./deletion-domain": "./src/deletion-domain.mjs",
+    "./event-schema": "./src/event-schema.ts",
+    "./large-text": "./src/large-text.ts",
+    "./native-children": "./src/native-children.ts",
+    "./run-log": "./src/run-log.mjs",
+    "./run-log-format": "./src/run-log-format.mjs",
+    "./schema": "./src/schema.mjs",
+    "./sqlite-checkpoint": "./src/sqlite-checkpoint.mjs",
+    "./state-deletion": "./src/state-deletion.ts",
+    "./state-truth-reader": "./src/state-truth-reader.ts"
   },
-  "files": [
-    "dist"
-  ],
   "license": "MIT",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:stress": "node ../../scripts/run-env.mjs BRAINSTRIKE_TEST_STRESS=1 -- vitest run __tests__/d5-root-lock.test.ts -t \"8 processes racing\"",
@@ -86,6 +45,5 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,
-  "type": "module",
-  "types": "./src/index.ts"
+  "type": "module"
 }

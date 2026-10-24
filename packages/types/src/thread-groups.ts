@@ -1,4 +1,4 @@
-import type { AgentSemanticColor } from './agent-color.js';
+import type { AgentSemanticColor } from './agent-color.ts';
 export const ASSISTANT_THREAD_ICON_IDS = [
   'message',
   'bug',

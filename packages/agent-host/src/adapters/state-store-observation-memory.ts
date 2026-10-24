@@ -12,14 +12,17 @@ export interface StateStoreObservationPreparation {
 
 /** Calls the supported public primitive only inside its committed preparation. */
 export class StateStoreObservationMemory extends Memory {
+  private readonly observations: StateStoreObservationPreparation;
+
   constructor(
     native: NonNullable<ConstructorParameters<typeof Memory>[0]>,
-    private readonly observations: StateStoreObservationPreparation
+    observations: StateStoreObservationPreparation
   ) {
     if (!(native.vector && native.embedder) || typeof native.embedder === 'string') {
       throw new Error('Observation indexing requires the borrowed vector and concrete embedder');
     }
     super(native);
+    this.observations = observations;
   }
 
   override indexObservation(observation: NativeObservationInput): Promise<void> {

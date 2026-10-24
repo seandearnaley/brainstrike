@@ -1,7 +1,7 @@
 import type { WebExtractInput } from '@brainstrike/agent';
 import { WEB_EXTRACT_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
-import { refuseExtractUrl } from './extract-url-refusal.js';
+import { refuseExtractUrl } from './extract-url-refusal.ts';
 
 const logger = createLogger('AssistantWebExtractTool');
 

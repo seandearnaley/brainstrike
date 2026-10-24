@@ -1,6 +1,6 @@
 import type { DirectoryHandle, FileSystemChange } from '@brainstrike/types';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
-import type { WorkspaceScanScope } from './workspace-scan.js';
+import type { WorkspaceScanScope } from './workspace-scan.ts';
 
 interface WorkspaceIndexingRequest {
   enabled: boolean;

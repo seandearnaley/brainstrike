@@ -1,9 +1,9 @@
 import { refusalError } from '@brainstrike/assistant-contract';
-import type { HostChildRuns } from './core-child-runs.js';
-import type { HostRunState } from './core-state.js';
-import type { HostClientOrigin, HostPlatform, HostRunAdmissionRequest } from './ports.js';
-import type { HostParams, HostResults } from './protocol.js';
-import { hostRunIntentRequest, hostRunReopenRequest } from './run-admission.js';
+import type { HostChildRuns } from './core-child-runs.ts';
+import type { HostRunState } from './core-state.ts';
+import type { HostClientOrigin, HostPlatform, HostRunAdmissionRequest } from './ports.ts';
+import type { HostParams, HostResults } from './protocol.ts';
+import { hostRunIntentRequest, hostRunReopenRequest } from './run-admission.ts';
 
 type MemoryRead = HostResults['thread/memory/read'];
 type ActiveRun = Pick<

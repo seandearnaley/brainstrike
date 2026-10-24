@@ -208,20 +208,35 @@ function wildcardEntry({ name, srcDir }, key, target) {
 
 /**
  * The exact aliases an excluded package keeps for its listed self-references.
- * Each must be a dist-code export with a source file; anything else throws
- * (NO SILENT FALLBACKS), so a renamed or removed entry fails at config load.
+ * Each must be a code export naming a source file (directly, or through a dist
+ * stem); anything else throws (NO SILENT FALLBACKS), so a renamed or removed
+ * entry fails at config load.
  */
 function selfReferenceEntries({ exportsMap, name, srcDir }, keys) {
   return keys.map((key) => {
-    const stem = distTargetToStem(pickTarget(exportsMap[key]));
-    const file = stem ? resolveSrcFile(srcDir, stem) : null;
+    const target = pickTarget(exportsMap[key]);
+    const stem = distTargetToStem(target);
+    const file = stem ? resolveSrcFile(srcDir, stem) : sourceTargetFile(srcDir, target);
     if (!file) {
       throw new Error(
-        `workspaceSrcAliases: ${name} self-reference '${key}' is not a dist code export with a source file under ${srcDir}`
+        `workspaceSrcAliases: ${name} self-reference '${key}' is not a code export with a source file under ${srcDir}`
       );
     }
     return exactEntry(`${name}/${key.replace(/^\.\//, '')}`, file);
   });
+}
+
+/** The existing source file a `./src/...` code export names, or null. */
+function sourceTargetFile(srcDir, target) {
+  if (typeof target !== 'string' || target.includes('*')) {
+    return null;
+  }
+  const t = target.replace(/^\.\//, '');
+  if (!(t.startsWith('src/') && CODE_EXT_RE.test(t))) {
+    return null;
+  }
+  const file = join(srcDir, t.slice('src/'.length));
+  return existsSync(file) ? file : null;
 }
 
 /** Build alias entries for one workspace package: {exact: [], prefix: []}. */

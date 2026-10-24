@@ -27,17 +27,17 @@
 
 import { randomUUID } from 'node:crypto';
 import { refusalError } from '@brainstrike/assistant-contract';
-import type { HostRunState } from './core-state.js';
-import type { Json } from './json-value.js';
-import type { HostPlatform } from './ports.js';
+import type { HostRunState } from './core-state.ts';
+import type { Json } from './json-value.ts';
+import type { HostPlatform } from './ports.ts';
 import type {
   HostEvent,
   HostLogRow,
   HostParams,
   HostResults,
   HostTurnSnapshot,
-} from './protocol.js';
-import { assertHostThreadSettled } from './run-branch.js';
+} from './protocol.ts';
+import { assertHostThreadSettled } from './run-branch.ts';
 
 type Started = Extract<HostEvent, { type: 'thread.rewind.started' }>;
 type Preview = HostResults['thread/rewind/preview'];
@@ -187,7 +187,11 @@ export function pendingRewindSnapshotTargets(
 export class HostThreadRewinds {
   private readonly latest = new Map<string, ThreadRewind>();
 
-  constructor(private readonly ports: HostThreadRewindPorts) {}
+  private readonly ports: HostThreadRewindPorts;
+
+  constructor(ports: HostThreadRewindPorts) {
+    this.ports = ports;
+  }
 
   fold(row: HostLogRow): void {
     const next = foldRewind(this.latest.get(row.threadId), row.event);

@@ -3,8 +3,8 @@
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
 import { ForeignLockError, RootLockedError } from '@brainstrike/state-store';
-import { decodeStartOptions, type HostRuntime, startHost } from './runtime.js';
-import type { StartupMessage } from './startup-message.js';
+import { decodeStartOptions, type HostRuntime, startHost } from './runtime.ts';
+import type { StartupMessage } from './startup-message.ts';
 
 async function report(message: StartupMessage): Promise<void> {
   if (!(process.send && process.connected)) {

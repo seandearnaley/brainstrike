@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { decoder, IndexerError, vectorProfileSchema } from './contracts.js';
-import { supportedVectorProfile, vectorProfileHash } from './scope-authority.js';
+import { decoder, IndexerError, vectorProfileSchema } from './contracts.ts';
+import { supportedVectorProfile, vectorProfileHash } from './scope-authority.ts';
 
 const integer = Schema.Int.check(
   Schema.isGreaterThan(0),

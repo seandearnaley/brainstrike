@@ -1,5 +1,5 @@
-import { defineNativeTool } from '../define.js';
-import { RunPythonInputSchema } from '../schemas/schemas-execution.js';
+import { defineNativeTool } from '../define.ts';
+import { RunPythonInputSchema } from '../schemas/schemas-execution.ts';
 
 // Arbitrary agent-authored Python. Sandboxed (OS fence, no network, writes
 // confined to a per-call scratch dir), but still 'execute': the fence bounds

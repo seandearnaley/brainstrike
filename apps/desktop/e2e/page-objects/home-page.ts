@@ -1,7 +1,11 @@
 import type { Page } from 'playwright';
 
 export class HomePage {
-  constructor(private readonly page: Page) {}
+  private readonly page: Page;
+
+  constructor(page: Page) {
+    this.page = page;
+  }
 
   // Locators
   get appTitle() {

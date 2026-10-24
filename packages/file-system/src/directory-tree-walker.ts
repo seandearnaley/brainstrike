@@ -12,8 +12,8 @@ import { isAbortError } from '@brainstrike/utils/error-utils';
 import { fileFilter } from '@brainstrike/utils/path-filter';
 import { calculatePathDepth, finalPath as resolveFinalPath } from '@brainstrike/utils/path-utils';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
-import { fileNodeToDirectoryHandle } from './file-node-handles.js';
-import type { DirectoryHandle, FileSystemAdapter } from './types.js';
+import { fileNodeToDirectoryHandle } from './file-node-handles.ts';
+import type { DirectoryHandle, FileSystemAdapter } from './types.ts';
 
 /** Default number of concurrent directory reads */
 const DEFAULT_CONCURRENCY = 10;

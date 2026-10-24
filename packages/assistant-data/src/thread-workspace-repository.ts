@@ -1,4 +1,4 @@
-import type { WorkspaceSnapshotV1 } from './thread-workspace-snapshot';
+import type { WorkspaceSnapshotV1 } from './thread-workspace-snapshot.ts';
 
 /**
  * Per-thread workspace snapshot persistence (BST-1268, migration 094).
@@ -22,8 +22,11 @@ export interface ThreadWorkspaceRepository {
 
 /** A queued save lost its native owner through deletion or an ownership change. */
 export class ThreadWorkspaceUnavailableError extends Error {
-  constructor(readonly threadId: string) {
+  readonly threadId: string;
+
+  constructor(threadId: string) {
     super('The thread workspace owner no longer exists or its ownership changed.');
+    this.threadId = threadId;
     this.name = 'ThreadWorkspaceUnavailableError';
   }
 }

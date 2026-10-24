@@ -17,24 +17,24 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import { decodeVectorProfile, type VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
-import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
-import { createMcpHostToolAdapter } from './adapters/mcp.js';
-import type { HostMemory } from './adapters/memory.js';
-import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.js';
-import { hostMemoryTools } from './adapters/memory-tools.js';
+import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.ts';
+import { createMcpHostToolAdapter } from './adapters/mcp.ts';
+import type { HostMemory } from './adapters/memory.ts';
+import type { HostMemoryEmbedderIdentity } from './adapters/memory-failure.ts';
+import { hostMemoryTools } from './adapters/memory-tools.ts';
 import {
   admittedMemoryModels,
   type HostObservationSource,
   nativeObservationSource,
   readHostObservation,
-} from './adapters/observation-state.js';
+} from './adapters/observation-state.ts';
 import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
-} from './adapters/state-store-host-memory.js';
-import type { StateStoreMemoryVector } from './adapters/state-store-memory-vector.js';
-import { withHostDelegationTools } from './child-runs.js';
-import { type HostStateIndex, openHostStateIndex } from './host-state-index.js';
+} from './adapters/state-store-host-memory.ts';
+import type { StateStoreMemoryVector } from './adapters/state-store-memory-vector.ts';
+import { withHostDelegationTools } from './child-runs.ts';
+import { type HostStateIndex, openHostStateIndex } from './host-state-index.ts';
 import type {
   HostDelegation,
   HostMcpRuntime,
@@ -46,10 +46,10 @@ import type {
   HostRunHooks,
   HostRunIntentRequest,
   HostTool,
-} from './ports.js';
-import type { HostMemoryModels, HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
-import { prepareHostProviderTools } from './provider-schema-selection.js';
-import type { HostStartupContext } from './runtime.js';
+} from './ports.ts';
+import type { HostMemoryModels, HostObserverAwaitingReason, HostRunSnapshot } from './protocol.ts';
+import { prepareHostProviderTools } from './provider-schema-selection.ts';
+import type { HostStartupContext } from './runtime.ts';
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
   /** The platform's workspace snapshot owner, for each run's turn boundaries. */

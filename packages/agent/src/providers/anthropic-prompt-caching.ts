@@ -18,7 +18,7 @@ import {
   type PromptMessageLike,
   type PromptParamsLike,
   wrapModelWithPromptTransform,
-} from './prompt-transform-proxy';
+} from './prompt-transform-proxy.ts';
 
 const ANTHROPIC_NAMESPACE = 'anthropic';
 const CACHE_CONTROL_KEY = 'cacheControl';

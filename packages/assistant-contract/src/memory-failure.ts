@@ -3,8 +3,8 @@ import {
   type BoundaryFailureCategory,
   BoundaryFailureError,
   fault,
-} from './boundary-failure.js';
-import { getProviderDisplayName, isSupportedProvider } from './provider-metadata.js';
+} from './boundary-failure.ts';
+import { getProviderDisplayName, isSupportedProvider } from './provider-metadata.ts';
 
 /**
  * The typed memory boundary codes (BST-2202): which part of memory failed. The

@@ -1,4 +1,4 @@
-import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from './context-budget.js';
+import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from './context-budget.ts';
 
 /** Where a local model's window came from, for diagnostics. */
 export type LocalRuntimeContextWindowSource = 'capped' | 'default' | 'reported';

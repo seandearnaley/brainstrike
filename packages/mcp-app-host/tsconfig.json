@@ -1,17 +1,13 @@
 {
   "extends": "../config/tsconfig/base.json",
   "compilerOptions": {
-    "declaration": true,
-    "declarationMap": true,
-    "outDir": "dist",
-    "rootDir": "src",
+    "noEmit": true,
     "strictNullChecks": true
   },
   "include": [
     "src/**/*.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "__tests__"
   ]

@@ -1,5 +1,5 @@
-import { defineNativeTool } from '../define.js';
-import { SubmitPlanInputSchema } from '../schemas/schemas-tasks.js';
+import { defineNativeTool } from '../define.ts';
+import { SubmitPlanInputSchema } from '../schemas/schemas-tasks.ts';
 
 // Suspending tool: submits a structured plan and PAUSES for the user's
 // approve/reject decision. Risk bucket EXPLICITLY 'read' for the same reason as

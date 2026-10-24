@@ -17,8 +17,8 @@ import {
   parseMcpHostControlRequest,
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
-import type { McpHostRevisionPublisher } from './host-revision-publisher.js';
-import { settleOnAbort } from './server-actor.js';
+import type { McpHostRevisionPublisher } from './host-revision-publisher.ts';
+import { settleOnAbort } from './server-actor.ts';
 
 type ConfiguredServer = McpHostConfig['servers'][number];
 type Counter = Exclude<keyof McpHostCloseReport, 'failures'>;
@@ -79,11 +79,13 @@ const SERVICE_ERROR_MESSAGES = {
 } satisfies Record<McpHostServiceErrorCode, string>;
 export class McpHostServiceError extends Error {
   readonly category: 'configuration' | 'host-closed' | 'transport';
-  constructor(
-    readonly code: McpHostServiceErrorCode,
-    readonly report?: McpHostCloseReport
-  ) {
+  readonly code: McpHostServiceErrorCode;
+  readonly report: McpHostCloseReport | undefined;
+
+  constructor(code: McpHostServiceErrorCode, report?: McpHostCloseReport) {
     super(SERVICE_ERROR_MESSAGES[code]);
+    this.code = code;
+    this.report = report;
     this.name = 'McpHostServiceError';
     this.category =
       code === 'mcp-host-closed'
@@ -154,7 +156,11 @@ export class McpHostService implements McpHostPort {
   private pendingReplacements = 0;
   private replacementFailure: McpHostCloseReport | undefined;
   private replacementTail: Promise<void> = Promise.resolve();
-  constructor(private readonly options: McpHostServiceOptions) {}
+  private readonly options: McpHostServiceOptions;
+
+  constructor(options: McpHostServiceOptions) {
+    this.options = options;
+  }
   snapshot(): McpHostSnapshot {
     return this.options.publisher.snapshot();
   }

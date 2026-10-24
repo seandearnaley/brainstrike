@@ -1,8 +1,8 @@
 import { asSchema, type FlexibleSchema, jsonSchema, type ModelMessage } from 'ai';
-import { executableInputSchema } from './executable-input-schema.js';
-import { canonical, type Json, jsonValue } from './json-value.js';
-import type { HostTool } from './ports.js';
-import type { HostEvent } from './protocol.js';
+import { executableInputSchema } from './executable-input-schema.ts';
+import { canonical, type Json, jsonValue } from './json-value.ts';
+import type { HostTool } from './ports.ts';
+import type { HostEvent } from './protocol.ts';
 
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 interface Approval {

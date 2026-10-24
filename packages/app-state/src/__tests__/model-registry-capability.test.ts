@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
-} from '../stores/model-registry-store';
+} from '../stores/model-registry-store.ts';
 
 const { diagnosticError } = vi.hoisted(() => ({ diagnosticError: vi.fn() }));
 vi.mock('@brainstrike/logging', () => ({

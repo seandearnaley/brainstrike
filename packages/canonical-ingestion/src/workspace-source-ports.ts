@@ -13,7 +13,7 @@ import type {
   CanonicalScanRequest,
   CanonicalSourceFile,
   CanonicalSourceScope,
-} from './ports.js';
+} from './ports.ts';
 
 export interface CanonicalSourceSubscription {
   close(): Promise<void>;

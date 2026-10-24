@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { FindWorkspaceSymbolInputSchema } from '../schemas/schemas-workspace.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { FindWorkspaceSymbolInputSchema } from '../schemas/schemas-workspace.ts';
 
 export const findWorkspaceSymbol = defineNativeTool({
   defaults: {

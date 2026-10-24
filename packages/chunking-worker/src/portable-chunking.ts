@@ -20,17 +20,17 @@ import {
   type CanonicalChunkingRuntime,
   parseCanonicalSource,
   supportsCanonicalAst,
-} from './canonical-parser-runtime';
-import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
-import type { ExtractedSymbols } from './extract-symbols';
-import { createCooperativeYieldController } from './ordered-batch-map';
-import type { AstNode } from './parsers/types';
+} from './canonical-parser-runtime.ts';
+import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config.ts';
+import type { ExtractedSymbols } from './extract-symbols.ts';
+import { createCooperativeYieldController } from './ordered-batch-map.ts';
+import type { AstNode } from './parsers/types.ts';
 import type { ChunkingRequestOptions, ChunkType, PortableChunk } from './shared';
 import {
   computeCharsPerToken,
   resolveSourceRanges,
   type TokenCounter,
-} from './source-range-resolution';
+} from './source-range-resolution.ts';
 
 const BINARY_DETECTION_PROBE_BYTES = 4096;
 const TOKEN_COUNT_YIELD_CHECK_INTERVAL = 20;
@@ -54,9 +54,9 @@ export interface PortableChunkingResult {
   strategyUsed: ResolvedChunkingStrategy;
   /** Name-based references extracted from the same parse (BST-919). Absent
    * when the file was not AST-chunked or extraction degraded. */
-  symbolRefs?: import('./extract-symbols').PortableSymbolRef[];
+  symbolRefs?: import('./extract-symbols.ts').PortableSymbolRef[];
   /** Symbol definitions extracted from the same parse (BST-919). */
-  symbols?: import('./extract-symbols').PortableSymbol[];
+  symbols?: import('./extract-symbols.ts').PortableSymbol[];
   totalTokens: number;
 }
 

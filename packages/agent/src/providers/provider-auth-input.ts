@@ -19,8 +19,8 @@
  */
 import { isValidAwsRegion } from '@brainstrike/assistant-contract';
 import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import type { AwsCredentialIdentityProvider } from './aws-credential-identity';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
+import type { AwsCredentialIdentityProvider } from './aws-credential-identity.ts';
 
 /**
  * Actionable missing-region guidance (BST-1350). One string for every seam

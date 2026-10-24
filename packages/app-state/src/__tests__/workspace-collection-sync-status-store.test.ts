@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
-} from '../stores/workspace-collection-sync-status-store';
+} from '../stores/workspace-collection-sync-status-store.ts';
 
 describe('workspace-collection-sync-status-store', () => {
   beforeEach(() => {

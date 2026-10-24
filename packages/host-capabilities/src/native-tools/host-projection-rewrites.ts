@@ -8,12 +8,12 @@ import { denormalizeNativeToolName, isNativeToolId } from '@brainstrike/assistan
 import {
   type RecencyPruneInvocation,
   selectRecencyPruneCandidates,
-} from './tool-projection-prune.js';
+} from './tool-projection-prune.ts';
 import {
   collectSupersessionCandidates,
   type PersistedToolInvocation,
   TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS,
-} from './tool-projection-supersession.js';
+} from './tool-projection-supersession.ts';
 
 const PROJECTED_OUTPUT_TYPES: ReadonlySet<unknown> = new Set(['content', 'json', 'text']);
 

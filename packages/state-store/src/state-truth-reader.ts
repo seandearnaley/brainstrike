@@ -41,11 +41,15 @@ interface Row {
 export const READ_LIMIT = 2000;
 
 export class StateTruthReader {
+  private readonly connection: () => TruthConnection | null;
+
   /**
    * `connection` yields the state DB's connection, or null while no state DB
    * exists. The reader only borrows it: its owner opens and closes it.
    */
-  constructor(private readonly connection: () => TruthConnection | null) {}
+  constructor(connection: () => TruthConnection | null) {
+    this.connection = connection;
+  }
 
   private conn(): TruthConnection | null {
     return this.connection();

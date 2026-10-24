@@ -14,10 +14,10 @@ import type {
 } from '@brainstrike/types';
 import type { AgentMemoryOption } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
-import type { McpConfig } from './mcp/config';
-import type { RuntimeAssistantMemorySettings } from './memory-settings';
-import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request';
-import type { AgentHookRunner } from './tools/hook-runner';
+import type { McpConfig } from './mcp/config.ts';
+import type { RuntimeAssistantMemorySettings } from './memory-settings.ts';
+import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request.ts';
+import type { AgentHookRunner } from './tools/hook-runner.ts';
 
 interface ToolProjectionRewriteEntryBase {
   readonly markerText: string;

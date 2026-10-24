@@ -25,8 +25,8 @@
  */
 
 import { type Language, Query, type Node as TsNode } from 'web-tree-sitter';
-import { loadLanguage } from './tree-sitter-grammar-loader';
-import type { AstNode, ParseOptions, ParserAdapter } from './types';
+import { loadLanguage } from './tree-sitter-grammar-loader.ts';
+import type { AstNode, ParseOptions, ParserAdapter } from './types.ts';
 
 /**
  * Languages this adapter understands. Phase 1 ships Python only; follow-on

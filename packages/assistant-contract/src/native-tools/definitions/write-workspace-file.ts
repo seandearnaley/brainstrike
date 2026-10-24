@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { WriteWorkspaceFileInputSchema } from '../schemas/schemas-workspace.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { WriteWorkspaceFileInputSchema } from '../schemas/schemas-workspace.ts';
 
 // First mutation tool: writes/creates a workspace file. riskCategory 'edit' so
 // the Phase 1 permission engine gates it when enforcement is on.

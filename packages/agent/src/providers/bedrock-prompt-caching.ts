@@ -38,7 +38,7 @@ import {
   type PromptMessageLike,
   type PromptParamsLike,
   wrapModelWithPromptTransform,
-} from './prompt-transform-proxy';
+} from './prompt-transform-proxy.ts';
 
 /** The namespace we WRITE. */
 const BEDROCK_NAMESPACE = 'bedrock';

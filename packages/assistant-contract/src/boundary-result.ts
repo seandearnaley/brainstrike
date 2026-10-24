@@ -4,7 +4,7 @@ import {
   BoundaryFailureError,
   decodeBoundaryFailure,
   INTERNAL_FAULT,
-} from './boundary-failure.js';
+} from './boundary-failure.ts';
 
 /** IPC returns failures as data: Electron does not preserve custom Error fields. */
 export type BoundaryResult<T> =

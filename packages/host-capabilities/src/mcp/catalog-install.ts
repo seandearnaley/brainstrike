@@ -9,14 +9,14 @@ import { applyEdits, type FormattingOptions, modify } from 'jsonc-parser';
 import type {
   McpBearerCredentialReference,
   McpBearerCredentialWriter,
-} from './bearer-credential.js';
+} from './bearer-credential.ts';
 import {
   errorMessage,
   type McpConfigFile,
   type McpConfigWriteResult,
   parseMcpConfig,
-} from './config-file.js';
-import { type McpConfigWriteSync, syncFailureError } from './config-sync.js';
+} from './config-file.ts';
+import { type McpConfigWriteSync, syncFailureError } from './config-sync.ts';
 
 const CONFIG_FORMATTING: FormattingOptions = { eol: '\n', insertSpaces: true, tabSize: 2 };
 

@@ -255,7 +255,7 @@ async function cli(root: string): Promise<HostAttachment> {
   const attachment = await launchHost(root, {
     lifetime: 'persistent',
     spawn: createNodeHostSpawner({
-      entrypoint: resolve('../../packages/host-lease/dist/process-entry.js'),
+      entrypoint: resolve('../../packages/host-lease/src/process-entry.ts'),
     }),
   });
   cliPids.set(attachment.record.pid, attachment.record.start);
@@ -334,7 +334,7 @@ describe('real Electron host lease acquisition', () => {
       // entry, as the real CLI does, rather than a nonexistent sibling of .ts.
       spawn: createNodeHostSpawner({
         entryArgs: [agentPlatform],
-        entrypoint: resolve('../../packages/agent-host/dist/process-entry.js'),
+        entrypoint: resolve('../../packages/agent-host/src/process-entry.ts'),
         output: 'ignore',
       }),
     });

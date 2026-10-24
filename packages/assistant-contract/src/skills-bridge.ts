@@ -1,4 +1,4 @@
-import { type BoundaryTransport, callBoundary } from './boundary-result.js';
+import { type BoundaryTransport, callBoundary } from './boundary-result.ts';
 /**
  * Structural typing + capability resolution for the desktop `window.skills`
  * Agent Skills discovery bridge (Settings → Skills panel + the composer's "/"
@@ -18,7 +18,7 @@ import { type BoundaryTransport, callBoundary } from './boundary-result.js';
  */
 
 import { createLogger } from '@brainstrike/logging';
-import type { SkillsScanResultSummary } from './skills.js';
+import type { SkillsScanResultSummary } from './skills.ts';
 
 const logger = createLogger('SkillsBridge');
 

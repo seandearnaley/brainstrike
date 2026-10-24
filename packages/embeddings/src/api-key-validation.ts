@@ -4,13 +4,13 @@
  */
 
 import { providerVendorEnvKey } from '@brainstrike/assistant-contract/provider-metadata';
-import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types.js';
-import { isHostedProvider, parseProviderModelKey } from './provider-utils.js';
+import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types.ts';
+import { isHostedProvider, parseProviderModelKey } from './provider-utils.ts';
 import {
   detectDeprecatedHostedProviderEnvNames,
   HOSTED_PROVIDER_ENV_KEYS,
   resolveHostedProviderApiKey,
-} from './providers/hosted/api-key-resolver.js';
+} from './providers/hosted/api-key-resolver.ts';
 
 /**
  * Result of API key validation check

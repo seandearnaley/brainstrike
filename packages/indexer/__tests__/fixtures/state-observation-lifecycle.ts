@@ -27,7 +27,11 @@ export class ObservationLifecycle {
   private primary: unknown;
   private retirement: Promise<void> | undefined;
 
-  constructor(private readonly context: TestContext) {}
+  private readonly context: TestContext;
+
+  constructor(context: TestContext) {
+    this.context = context;
+  }
 
   check(): void {
     this.context.signal.throwIfAborted();

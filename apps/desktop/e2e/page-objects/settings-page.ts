@@ -2,7 +2,11 @@ import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 
 export class SettingsPage {
-  constructor(private readonly page: Page) {}
+  private readonly page: Page;
+
+  constructor(page: Page) {
+    this.page = page;
+  }
 
   get categoryNav(): Locator {
     return this.page.getByRole('navigation', { name: 'Settings categories' });

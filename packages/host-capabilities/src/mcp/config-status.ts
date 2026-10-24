@@ -1,5 +1,5 @@
 import type { McpConfigStatus } from '@brainstrike/agent-host/protocol';
-import type { LoadedMcpConfig } from './config-file.js';
+import type { LoadedMcpConfig } from './config-file.ts';
 
 /**
  * Settings' view of a loaded MCP config: path, load state and server

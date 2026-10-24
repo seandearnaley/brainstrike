@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/client';
-import type { McpProtocol } from './config.js';
+import type { McpProtocol } from './config.ts';
 
 type McpMessageHandler = NonNullable<Transport['onmessage']>;
 type McpMessageExtra = Parameters<McpMessageHandler>[1];

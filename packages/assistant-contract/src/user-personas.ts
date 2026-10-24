@@ -12,7 +12,7 @@
  * explicit worker mode selects an eligible host scope without granting authority.
  */
 
-import { NATIVE_TOOL_ID } from './native-tool-catalog.js';
+import { NATIVE_TOOL_ID } from './native-tool-catalog.ts';
 import {
   type AssistantPersonaDefinition,
   type AssistantPersonaMode,
@@ -20,10 +20,10 @@ import {
   assertPersonaToolScope,
   BUILT_IN_PERSONAS,
   SUBAGENT_DELEGATION_TOOL_PREFIX,
-} from './personas.js';
-import { isSupportedProvider } from './provider-metadata.js';
-import { SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.js';
-import { getNativeToolDefaults } from './tool-categories.js';
+} from './personas.ts';
+import { isSupportedProvider } from './provider-metadata.ts';
+import { SUBAGENT_SETTINGS_LIMITS } from './subagent-settings.ts';
+import { getNativeToolDefaults } from './tool-categories.ts';
 
 /** Directory (under `.brainstrike/`) scanned for persona `.md` files. */
 export const USER_PERSONA_DIRNAME = 'agents';

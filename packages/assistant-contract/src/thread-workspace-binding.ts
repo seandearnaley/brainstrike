@@ -1,5 +1,5 @@
 import { Schema, SchemaGetter } from 'effect';
-import { omitUndefinedOptional } from './schema-boundary.js';
+import { omitUndefinedOptional } from './schema-boundary.ts';
 
 const Id = Schema.String.check(
   Schema.makeFilter((value) =>

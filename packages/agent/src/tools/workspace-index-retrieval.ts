@@ -1,4 +1,4 @@
-import type { RuntimeData } from '../types';
+import type { RuntimeData } from '../types.ts';
 
 export interface WorkspaceIndexRetrievalStatus {
   blockedReason: string | null;

@@ -34,12 +34,11 @@ export class UserCancelledError extends FileSystemError {
  * Thrown when there are permission issues accessing files/directories
  */
 export class PermissionError extends FileSystemError {
-  constructor(
-    message: string,
-    public readonly path?: string,
-    asserter?: (...args: unknown[]) => unknown
-  ) {
+  public readonly path: string | undefined;
+
+  constructor(message: string, path?: string, asserter?: (...args: unknown[]) => unknown) {
     super(message, asserter);
+    this.path = path;
   }
 }
 
@@ -47,13 +46,18 @@ export class PermissionError extends FileSystemError {
  * Thrown when a directory/file cannot be accessed or read
  */
 export class AccessError extends FileSystemError {
+  public readonly path: string;
+  public readonly operation: 'read' | 'write' | 'access';
+
   constructor(
     message: string,
-    public readonly path: string,
-    public readonly operation: 'read' | 'write' | 'access',
+    path: string,
+    operation: 'read' | 'write' | 'access',
     asserter?: (...args: unknown[]) => unknown
   ) {
     super(message, asserter);
+    this.path = path;
+    this.operation = operation;
   }
 }
 

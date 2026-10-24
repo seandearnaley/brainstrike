@@ -63,9 +63,9 @@ import {
 } from '@brainstrike/assistant-contract';
 import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-credential-projection';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { TAVILY_SECRET_PROVIDER } from './native-tools/web-search-tool.js';
-import { resolveProviderBaseUrl } from './provider-base-url.js';
-import { createSharedFlights, leaveOnAbort } from './shared-flight.js';
+import { TAVILY_SECRET_PROVIDER } from './native-tools/web-search-tool.ts';
+import { resolveProviderBaseUrl } from './provider-base-url.ts';
+import { createSharedFlights, leaveOnAbort } from './shared-flight.ts';
 
 /** Tavily owns a Settings key slot but is not a chat provider in the registry. */
 export { TAVILY_SECRET_PROVIDER };

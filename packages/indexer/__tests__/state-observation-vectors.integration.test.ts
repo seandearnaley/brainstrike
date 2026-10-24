@@ -30,7 +30,7 @@ import { observationChunks } from './fixtures/state-observation-schema.mjs';
 const deadlines = { closeMs: 5000, exitMs: 5000 };
 // The production writer's native memory calculator, which also carries Mastra OM's token counter.
 const memoryCalculatorModule = fileURLToPath(
-  new URL('../../agent-host/dist/adapters/memory-storage-calculator.js', import.meta.url)
+  new URL('../../agent-host/src/adapters/memory-storage-calculator.ts', import.meta.url)
 );
 const profile = {
   dimensions: 8,

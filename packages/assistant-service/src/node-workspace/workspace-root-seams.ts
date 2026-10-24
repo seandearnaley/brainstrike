@@ -5,17 +5,16 @@ import {
   type PathValidationErrorCode,
   resolveValidatedPath,
 } from '@brainstrike/file-system/path-validation';
-import type { SecureWorkspaceRoot } from './workspace-root-types.js';
+import type { SecureWorkspaceRoot } from './workspace-root-types.ts';
 
 class WorkspaceReadPathValidationError extends AccessError {
   readonly readDenialCategory = 'path-validation' as const;
 
-  constructor(
-    message: string,
-    requestedPath: string,
-    readonly readDenialCode: PathValidationErrorCode
-  ) {
+  readonly readDenialCode: PathValidationErrorCode;
+
+  constructor(message: string, requestedPath: string, readDenialCode: PathValidationErrorCode) {
     super(message, requestedPath, 'read');
+    this.readDenialCode = readDenialCode;
   }
 }
 

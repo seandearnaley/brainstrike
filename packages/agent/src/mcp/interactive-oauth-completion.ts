@@ -176,18 +176,24 @@ type InteractiveOAuthProvider = OAuthClientProvider & {
 };
 
 class AuthorizationCallerFailure extends Error {
-  constructor(readonly failure: AggregateError) {
+  readonly failure: AggregateError;
+
+  constructor(failure: AggregateError) {
     super('MCP OAuth authorization caller failed');
+    this.failure = failure;
   }
 }
 
 class AuthorizationFlightFailure extends Error {
-  constructor(
-    readonly flight: AuthorizationFlight,
-    readonly failure: AggregateError,
-    readonly callerCancelled: boolean
-  ) {
+  readonly flight: AuthorizationFlight;
+  readonly failure: AggregateError;
+  readonly callerCancelled: boolean;
+
+  constructor(flight: AuthorizationFlight, failure: AggregateError, callerCancelled: boolean) {
     super('MCP OAuth authorization flight failed');
+    this.flight = flight;
+    this.failure = failure;
+    this.callerCancelled = callerCancelled;
   }
 }
 
@@ -264,12 +270,21 @@ class OwnedInteractiveOAuthCompletion implements InteractiveOAuthCompletion {
   private tokenExchangeSetup: AuthorizationSetup | undefined;
   readonly authProvider: OAuthClientProvider;
 
+  private readonly provider: InteractiveOAuthProvider;
+  private readonly callbackSource: ExplicitHttpMcpAuthorizationCallbackSource;
+  private readonly callbackTimeoutMs: number;
+  private readonly maxAuthorizationRequests: number;
+
   constructor(
-    private readonly provider: InteractiveOAuthProvider,
-    private readonly callbackSource: ExplicitHttpMcpAuthorizationCallbackSource,
-    private readonly callbackTimeoutMs: number,
-    private readonly maxAuthorizationRequests: number
+    provider: InteractiveOAuthProvider,
+    callbackSource: ExplicitHttpMcpAuthorizationCallbackSource,
+    callbackTimeoutMs: number,
+    maxAuthorizationRequests: number
   ) {
+    this.provider = provider;
+    this.callbackSource = callbackSource;
+    this.callbackTimeoutMs = callbackTimeoutMs;
+    this.maxAuthorizationRequests = maxAuthorizationRequests;
     this.authProvider = new Proxy(provider, {
       get: (target, property) => {
         const state = target.state;

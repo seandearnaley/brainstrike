@@ -18,7 +18,7 @@ import { byteSearch } from './helpers/testkit.js';
 import { TruthIndexer } from './helpers/truth-indexer.js';
 
 const calculator = fileURLToPath(
-  new URL('../../agent-host/dist/adapters/memory-storage-calculator.js', import.meta.url)
+  new URL('../../agent-host/src/adapters/memory-storage-calculator.ts', import.meta.url)
 );
 const resourceId = MEMORY_ERASURE_RESOURCE;
 const threadId = MEMORY_ERASURE_THREAD;

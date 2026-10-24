@@ -4,7 +4,7 @@ import {
   SUBSCRIPTION_ID_META_KEY,
   type Transport,
 } from '@modelcontextprotocol/client';
-import type { McpClientExtensionRegistry } from './client-extension-registry';
+import type { McpClientExtensionRegistry } from './client-extension-registry.ts';
 
 const BASE64_SENTINEL_PREFIX = '=?base64?';
 const BASE64_SENTINEL_SUFFIX = '?=';
@@ -47,10 +47,13 @@ class SubscriptionAcknowledgementClaim implements McpSubscriptionAcknowledgement
   boundClaims: Map<string, SubscriptionAcknowledgementClaim> | undefined = undefined;
   subscriptionId: string | undefined = undefined;
 
-  constructor(
-    readonly filter: object,
-    private readonly onRelease: (claim: SubscriptionAcknowledgementClaim) => void
-  ) {}
+  readonly filter: object;
+  private readonly onRelease: (claim: SubscriptionAcknowledgementClaim) => void;
+
+  constructor(filter: object, onRelease: (claim: SubscriptionAcknowledgementClaim) => void) {
+    this.filter = filter;
+    this.onRelease = onRelease;
+  }
 
   release(): void {
     this.onRelease(this);

@@ -5,11 +5,11 @@ import {
   type DbModel,
   type DbProvider,
   useModelRegistryStore,
-} from '../stores/model-registry-store';
+} from '../stores/model-registry-store.ts';
 import {
   __resetSettingsTestOverridesForTests,
   __setSettingsTestOverridesForTests,
-} from './settings-test-overrides-test-helper';
+} from './settings-test-overrides-test-helper.ts';
 
 // Mock @brainstrike/logging logger
 vi.mock('@brainstrike/logging', async (importOriginal) => {

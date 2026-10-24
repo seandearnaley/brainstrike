@@ -1,13 +1,15 @@
+import { extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 import { Schema } from 'effect';
-import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.js';
+import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.ts';
 import {
   type KeyringNativeBackend,
   type KeyringNativeRequest,
   KeyringNativeResponseSchema,
-} from './keyring-native-protocol.js';
+} from './keyring-native-protocol.ts';
 
-export type { KeyringNativeBackend } from './keyring-native-protocol.js';
+export type { KeyringNativeBackend } from './keyring-native-protocol.ts';
 export interface KeyringNativeWorkerOptions {
   /** Trusted fixture/composition seam; never accepted through the client protocol. */
   readonly createWorker?: (entry: URL, options: WorkerOptions) => Worker;
@@ -23,7 +25,9 @@ export function createKeyringNativeBackend(
   })(service);
   const worker = (
     options.createWorker ?? ((entry, workerOptions) => new Worker(entry, workerOptions))
-  )(new URL('./keyring-native-entry.js', import.meta.url), { workerData: { service } });
+  )(new URL(`./keyring-native-entry${extname(fileURLToPath(import.meta.url))}`, import.meta.url), {
+    workerData: { service },
+  });
   type Value = Extract<
     (typeof KeyringNativeResponseSchema)['Type'],
     {

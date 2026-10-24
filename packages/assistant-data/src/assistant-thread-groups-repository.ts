@@ -13,7 +13,10 @@ import type {
   AssistantThreadGroupRankEntry,
   AssistantThreadPlacement,
 } from '@brainstrike/types';
-import type { AssistantThreadColorId, AssistantThreadIconId } from './assistant-memory-repository';
+import type {
+  AssistantThreadColorId,
+  AssistantThreadIconId,
+} from './assistant-memory-repository.ts';
 
 export type {
   AssistantThreadGroup,

@@ -21,11 +21,15 @@
  * it, so region routing never costs a route its caching or reasoning.
  */
 import { createLogger } from '@brainstrike/logging';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching';
-import { stripCrossRegionPrefix } from './bedrock-model-id';
-import { wrapBedrockModelWithPromptCaching } from './bedrock-prompt-caching';
-import { findLlmModelDefinition, type LlmModelDefinition, type SupportedProvider } from './types';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
+import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching.ts';
+import { stripCrossRegionPrefix } from './bedrock-model-id.ts';
+import { wrapBedrockModelWithPromptCaching } from './bedrock-prompt-caching.ts';
+import {
+  findLlmModelDefinition,
+  type LlmModelDefinition,
+  type SupportedProvider,
+} from './types.ts';
 
 const logger = createLogger('PromptCaching');
 

@@ -18,7 +18,7 @@ import type * as Transport from '../src/transport.js';
 // The transport forks the process entry beside its own module, so this suite
 // drives the built transport; the source owns its type.
 const { createIndexerConnection }: typeof Transport = await import(
-  new URL('../dist/transport.js', import.meta.url).href
+  new URL('../src/transport.ts', import.meta.url).href
 );
 
 type Port = Awaited<ReturnType<typeof openIndexer>>;
@@ -87,7 +87,7 @@ process.send = (message, ...rest) => {
   }
   return send(message, ...rest);
 };
-await import(${JSON.stringify(new URL('../dist/process-entry.js', import.meta.url).href)});
+await import(${JSON.stringify(new URL('../src/process-entry.ts', import.meta.url).href)});
 `;
 
 /**

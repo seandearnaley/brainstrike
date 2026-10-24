@@ -1,9 +1,9 @@
-import type { ProviderModelDefaultPolicy } from './provider-model-default-policies.js';
+import type { ProviderModelDefaultPolicy } from './provider-model-default-policies.ts';
 import {
   listProviders,
   type ProviderDefinition,
   type ProviderModelDefinition,
-} from './provider-registry.js';
+} from './provider-registry.ts';
 
 export interface CatalogProvider {
   icon: string | null;

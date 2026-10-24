@@ -3,7 +3,7 @@ import {
   type McpHostPort,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import type { HostTool, HostToolContext } from '../ports.js';
+import type { HostTool, HostToolContext } from '../ports.ts';
 
 /** Executable bindings from the existing Node MCP authority, never discovery metadata. */
 export interface McpHostToolBinding {

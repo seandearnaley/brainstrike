@@ -1,4 +1,4 @@
-import type { DelegatedRunIdentity } from './delegated-conversation-stream.js';
+import type { DelegatedRunIdentity } from './delegated-conversation-stream.ts';
 
 export const ASSISTANT_TOOL_ACTION_ID_MAX_CHARS = 512;
 /** Wire-size ceiling only; the runtime's delegation budget may be stricter. */

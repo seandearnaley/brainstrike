@@ -13,12 +13,12 @@ export {
   removeEmbeddingTelemetrySource,
   subscribeEmbeddingTelemetry,
   subscribeEmbeddingTelemetryThrottled,
-} from './embedding-telemetry';
+} from './embedding-telemetry.ts';
 export {
   answerModelCacheStatus,
   type ModelCacheRegistry,
   readModelCacheStatus,
-} from './model-cache-status';
+} from './model-cache-status.ts';
 export {
   createEmbeddingPipelineCacheController,
   type EmbeddingPipelineCacheController,
@@ -27,7 +27,7 @@ export {
   MAX_GPU_PIPELINES,
   MAX_WASM_PIPELINES,
   type PipelineCacheDiagnosticSink,
-} from './pipeline-cache-controller';
+} from './pipeline-cache-controller.ts';
 export type {
   EmbeddingDevice,
   EmbeddingDeviceHint,
@@ -42,7 +42,7 @@ export type {
   EmbedWorkerRequest,
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
-} from './shared';
+} from './shared.ts';
 export {
   cloneAsFloat32,
   computeInitialBatchSize,
@@ -50,8 +50,8 @@ export {
   POWER_BROADCAST_CHANNEL,
   truncateVector,
   vectorsFromPipelineOutput,
-} from './shared';
+} from './shared.ts';
 export {
   StreamingEmbeddingWorkerClient,
   type StreamingEmbedOptions,
-} from './streaming-worker-client';
+} from './streaming-worker-client.ts';

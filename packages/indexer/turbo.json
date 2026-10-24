@@ -4,18 +4,16 @@
   ],
   "tasks": {
     "test": {
+      // The indexer process and its writer worker load the native add-ons.
       "dependsOn": [
         "topo",
-        "build"
+        "^build"
       ]
     },
     "test:integration": {
-      // state-observation-vectors starts the state-store writer worker, which
-      // imports agent-host's emitted memory calculator.
       "dependsOn": [
         "topo",
-        "build",
-        "@brainstrike/agent-host#build"
+        "^build"
       ]
     }
   }

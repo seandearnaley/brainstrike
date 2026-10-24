@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import type { StorageAdapter } from '../types.js';
+import type { StorageAdapter } from '../types.ts';
 
 /**
  * Memory Storage Adapter
