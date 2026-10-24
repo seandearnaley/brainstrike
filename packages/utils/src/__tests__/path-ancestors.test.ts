@@ -40,6 +40,20 @@ describe('getAncestorDirectoryPaths', () => {
     expect(cache.get('/src')).toEqual(['/', '/src']);
   });
 
+  it('walks a Windows path at its own separators up to its drive root', () => {
+    expect(getAncestorDirectoryPaths('C:\\src\\nested\\file.ts', { includeRoot: true })).toEqual([
+      'C:\\',
+      'C:\\src',
+      'C:\\src\\nested',
+    ]);
+    expect(getAncestorDirectoryPaths('C:\\file.ts', { includeRoot: true })).toEqual(['C:\\']);
+    expect(getAncestorDirectoryPaths('C:\\src\\file.ts')).toEqual(['C:\\src']);
+  });
+
+  it('keeps a backslash in a POSIX name inside its segment', () => {
+    expect(getAncestorDirectoryPaths('/src/a\\b.ts')).toEqual(['/src']);
+  });
+
   it('returns an empty array for top-level relative paths', () => {
     expect(getAncestorDirectoryPaths('index.ts')).toEqual([]);
   });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Locator } from '@playwright/test';
@@ -10,6 +10,7 @@ import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import type { ModelProviderRequest, ScriptedToolCall } from './utils/model-provider-shim';
 import { seedRoot } from './utils/seed-root';
+import { makeUnreadable } from './utils/unreadable-file';
 
 // The October 14 owner screenshot: a GPT-6 Luna run of sequential reads drew
 // one "Read · 1 step" group per model step, and opaque reasoning drew empty
@@ -39,7 +40,7 @@ for (const [index, file] of FILES.entries()) {
 }
 mkdirSync(path.join(root, 'notes'));
 writeFileSync(path.join(root, LOCKED), 'private\n');
-chmodSync(path.join(root, LOCKED), 0o000);
+makeUnreadable(path.join(root, LOCKED));
 // After the app's own teardown, which still reads the bound folder.
 test.afterAll(() => {
   rmSync(root, { force: true, recursive: true });
@@ -116,6 +117,11 @@ test('a long Luna run reads as one activity group: folded reads, its failure fir
     });
 
     await ensureAssistantShellVisible(page);
+    // The run strip leaves a header narrower than 26rem (overrides.css). Give the
+    // assistant the window's whole width, so the proof does not depend on how wide
+    // the host display lets the window be: its work area clamps it (window-state.ts).
+    await page.getByRole('button', { exact: true, name: 'Hide library panel' }).click();
+    await page.getByRole('button', { exact: true, name: 'Hide workspace panel' }).click();
     const region = page.getByRole('region', { exact: true, name: 'Assistant' });
     await region.getByRole('textbox', { name: 'Message input' }).fill('Tour the siphon sources.');
     await region.getByRole('button', { exact: true, name: 'Send' }).click();

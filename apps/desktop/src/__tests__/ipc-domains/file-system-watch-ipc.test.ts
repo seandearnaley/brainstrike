@@ -511,7 +511,7 @@ describe('file-system watch IPC domain', () => {
   it('registers a no-op watcher for e2e mock paths (no real fs watcher, still a watchId)', async () => {
     const owner = new FakeWebContents(1);
 
-    const { watchId } = await invokeWatch(owner, '/mock/test/directory');
+    const { watchId } = await invokeWatch(owner, path.resolve('/mock/test/directory'));
 
     expect(watchId).toBeTruthy();
     expect(harness.startedPaths).toEqual([]);

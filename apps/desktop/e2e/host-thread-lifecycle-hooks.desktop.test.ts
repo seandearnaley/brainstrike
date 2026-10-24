@@ -5,14 +5,15 @@ import { join } from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { homeEnvironment, nodeCommand, nodeText } from './utils/node-command';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const PROMPT_CONTEXT = 'USER-PROMPT-HOOK-CONTEXT-1789';
 const TOOL_CONTEXT = 'POST-TOOL-HOOK-CONTEXT-1789';
 const FINAL = 'Read the notes.';
-const echo = (stdout: unknown) => `printf '%s\\n' '${JSON.stringify(stdout)}'`;
+const print = (stdout: unknown) => `console.log(${nodeText(JSON.stringify(stdout))})`;
 
-// The global hooks file is `$HOME/.brainstrike/hooks.json`; the Stop hook
+// The global hooks file is `~/.brainstrike/hooks.json`; the Stop hook
 // records its stdin beside it so the spec can read what the hook was given.
 const home = mkdtempSync(join(tmpdir(), 'bs-e2e-lifecycle-hooks-home-'));
 const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-lifecycle-hooks-root-'));
@@ -24,22 +25,26 @@ writeFileSync(
   JSON.stringify({
     PostToolUse: [
       {
-        command: echo({ additionalContext: TOOL_CONTEXT }),
+        command: nodeCommand(print({ additionalContext: TOOL_CONTEXT })),
         matcher: { tool_name: '^brainstrike\\.readWorkspaceFile$' },
         type: 'command',
       },
     ],
     Stop: [
       {
-        command: `cat > '${stopInput}'; ${echo({ brainstrikeRunVerdict: { verdict: 'succeeded' } })}`,
+        command: nodeCommand(
+          `const input = []; process.stdin.on('data', (chunk) => input.push(chunk)).on('end', () => { require('node:fs').writeFileSync(${nodeText(stopInput)}, Buffer.concat(input)); ${print({ brainstrikeRunVerdict: { verdict: 'succeeded' } })} })`
+        ),
         type: 'command',
       },
     ],
-    UserPromptSubmit: [{ command: echo({ additionalContext: PROMPT_CONTEXT }), type: 'command' }],
+    UserPromptSubmit: [
+      { command: nodeCommand(print({ additionalContext: PROMPT_CONTEXT })), type: 'command' },
+    ],
   })
 );
 
-test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace, HOME: home } });
+test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace, ...homeEnvironment(home) } });
 test.afterAll(() => {
   rmSync(home, { force: true, recursive: true });
   rmSync(workspace, { force: true, recursive: true });

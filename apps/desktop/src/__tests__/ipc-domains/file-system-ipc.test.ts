@@ -341,16 +341,18 @@ describe('file system IPC domain', () => {
   });
 
   it('closes a native capability when canonical classification conflicts', async () => {
-    fileSystem = createFileSystem('/mock/test/directory');
+    // Test mode's default mock root, in the host's own grammar.
+    const mockRoot = path.resolve('/mock/test/directory');
+    fileSystem = createFileSystem(mockRoot);
     const closeNativeRoot = vi.fn();
     registerFileSystemIpcHandlers({
       fileSystem,
       getRootsCatalog,
-      isSyntheticFileSystemPath: (rootPath) => rootPath === '/mock/test/directory',
+      isSyntheticFileSystemPath: (rootPath) => rootPath === mockRoot,
       storage,
       workspaceRootRegistryFileSystemSeams: {
         createSecureRoot: async () => ({
-          canonicalPath: '/mock/test/directory',
+          canonicalPath: mockRoot,
           close: closeNativeRoot,
           listDir: async () => ({ entries: [], inspected: 0, truncated: false }),
           readFile: async () => ({ content: Buffer.alloc(0), status: 'ok' }),

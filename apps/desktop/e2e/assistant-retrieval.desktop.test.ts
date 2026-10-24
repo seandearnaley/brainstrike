@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -7,6 +7,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
 import { E2E_TIMEOUTS } from './utils/timeouts';
+import { makeUnreadable } from './utils/unreadable-file';
 
 const PROMPT_TEXT = 'Find relevant context';
 // `brainstrike.retrieveContext` was deleted with the agent-side retrieval tools
@@ -20,7 +21,7 @@ writeFileSync(join(workspace, 'context.txt'), 'const answer = 42;\n');
 // genuine filesystem fault, which the tool guard keeps redacted.
 const unreadable = join(workspace, 'unreadable.txt');
 writeFileSync(unreadable, 'private\n');
-chmodSync(unreadable, 0o000);
+makeUnreadable(unreadable);
 
 test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace } });
 test.afterAll(() => {

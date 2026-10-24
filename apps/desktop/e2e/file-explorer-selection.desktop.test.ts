@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   clickExplorerTreeAction,
   clickFileTreeCheckboxAndWaitForSelection,
@@ -15,6 +16,7 @@ import {
   installNestedFolderFixture,
   installNestedPackagesFixture,
   installWideExpandAllFixture,
+  mockRootPath,
   setFileExplorerMaxSelectionCount,
   test,
   WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT,
@@ -28,7 +30,7 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    await installNestedFolderFixture(electronApp.app, '/mock/desktop-selection-root-full');
+    await installNestedFolderFixture(electronApp.app, mockRootPath('desktop-selection-root-full'));
     await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
@@ -63,7 +65,10 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(60_000);
 
-    await installWideExpandAllFixture(electronApp.app, '/mock/desktop-expand-all-progressive');
+    await installWideExpandAllFixture(
+      electronApp.app,
+      mockRootPath('desktop-expand-all-progressive')
+    );
     await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
@@ -123,7 +128,7 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    await installNestedFolderFixture(electronApp.app, '/mock/desktop-context-deselect');
+    await installNestedFolderFixture(electronApp.app, mockRootPath('desktop-context-deselect'));
     await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
@@ -187,7 +192,10 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    await installNestedFolderFixture(electronApp.app, '/mock/desktop-selection-root-capped');
+    await installNestedFolderFixture(
+      electronApp.app,
+      mockRootPath('desktop-selection-root-capped')
+    );
     await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
@@ -223,7 +231,10 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    await installNestedFolderFixture(electronApp.app, '/mock/desktop-selection-root-limit-toast');
+    await installNestedFolderFixture(
+      electronApp.app,
+      mockRootPath('desktop-selection-root-limit-toast')
+    );
     await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
@@ -268,7 +279,10 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    await installNestedPackagesFixture(electronApp.app, '/mock/desktop-selection-root-packages');
+    await installNestedPackagesFixture(
+      electronApp.app,
+      mockRootPath('desktop-selection-root-packages')
+    );
     await ensureFileExplorerPanelVisible(window);
 
     const selectRootButton = window.getByTestId('select-root-button');
@@ -315,7 +329,7 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    const rootPath = '/mock/desktop-selection-root-toggle';
+    const rootPath = mockRootPath('desktop-selection-root-toggle');
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
     await ensureFileExplorerPanelVisible(window);
 
@@ -343,7 +357,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: 'hooks',
-      directoryPath: `${rootPath}/hooks`,
+      directoryPath: path.join(rootPath, 'hooks'),
       expectedChildText: 'src',
       fileTree,
     });
@@ -353,7 +367,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: 'src',
-      directoryPath: `${rootPath}/hooks/src`,
+      directoryPath: path.join(rootPath, 'hooks/src'),
       expectedChildText: '__tests__',
       fileTree,
     });
@@ -363,7 +377,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: '__tests__',
-      directoryPath: `${rootPath}/hooks/src/__tests__`,
+      directoryPath: path.join(rootPath, 'hooks/src/__tests__'),
       expectedChildText: 'use-file-filters.test.ts',
       fileTree,
     });
@@ -391,7 +405,7 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    const rootPath = '/mock/desktop-selection-root-e2e';
+    const rootPath = mockRootPath('desktop-selection-root-e2e');
     await installIncrementalFolderSelectionFixture(electronApp.app, rootPath);
     await ensureFileExplorerPanelVisible(window);
 
@@ -408,7 +422,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: 'e2e',
-      directoryPath: `${rootPath}/e2e`,
+      directoryPath: path.join(rootPath, 'e2e'),
       expectedChildText: 'page-objects',
       fileTree,
     });
@@ -448,7 +462,7 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    const rootPath = '/mock/desktop-selection-root-e2e-deselect';
+    const rootPath = mockRootPath('desktop-selection-root-e2e-deselect');
     await installIncrementalFolderSelectionFixture(electronApp.app, rootPath);
     await ensureFileExplorerPanelVisible(window);
 
@@ -462,7 +476,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: 'e2e',
-      directoryPath: `${rootPath}/e2e`,
+      directoryPath: path.join(rootPath, 'e2e'),
       expectedChildText: 'page-objects',
       fileTree,
     });
@@ -501,7 +515,7 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(FILE_TREE_MULTI_STEP_SELECTION_TEST_TIMEOUT_MS);
 
-    const rootPath = '/mock/desktop-selection-root-hooks-explicit';
+    const rootPath = mockRootPath('desktop-selection-root-hooks-explicit');
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
     await ensureFileExplorerPanelVisible(window);
 
@@ -515,19 +529,19 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: 'hooks',
-      directoryPath: `${rootPath}/hooks`,
+      directoryPath: path.join(rootPath, 'hooks'),
       expectedChildText: 'src',
       fileTree,
     });
     await expandNextDirectoryIfNeeded({
       directoryName: 'src',
-      directoryPath: `${rootPath}/hooks/src`,
+      directoryPath: path.join(rootPath, 'hooks/src'),
       expectedChildText: '__tests__',
       fileTree,
     });
     await expandNextDirectoryIfNeeded({
       directoryName: '__tests__',
-      directoryPath: `${rootPath}/hooks/src/__tests__`,
+      directoryPath: path.join(rootPath, 'hooks/src/__tests__'),
       expectedChildText: 'use-file-filters.test.ts',
       fileTree,
     });
@@ -582,7 +596,7 @@ test.describe('Desktop file explorer selection', () => {
   }) => {
     test.setTimeout(45_000);
 
-    const rootPath = '/mock/desktop-selection-root-hooks';
+    const rootPath = mockRootPath('desktop-selection-root-hooks');
     await installMixedHookSelectionFixture(electronApp.app, rootPath);
     await ensureFileExplorerPanelVisible(window);
 
@@ -608,7 +622,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: 'hooks',
-      directoryPath: `${rootPath}/hooks`,
+      directoryPath: path.join(rootPath, 'hooks'),
       expectedChildText: 'src',
       fileTree,
     });
@@ -621,7 +635,7 @@ test.describe('Desktop file explorer selection', () => {
 
     await expandNextDirectoryIfNeeded({
       directoryName: 'src',
-      directoryPath: `${rootPath}/hooks/src`,
+      directoryPath: path.join(rootPath, 'hooks/src'),
       expectedChildText: '__tests__',
       fileTree,
     });

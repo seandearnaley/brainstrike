@@ -1,6 +1,7 @@
 import { fileNodeToDirectoryHandle } from '@brainstrike/file-system/file-node-handles';
 import type { DirectoryHandle, FileSystemAdapter, IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
+import { isSeparatorCode, isWindowsPath } from '@brainstrike/utils/path-ancestors';
 
 const CONTEXT_IGNORED_PATH_SEGMENTS = [
   ...IGNORED_PATHS,
@@ -21,28 +22,24 @@ interface TraversalState {
   visitedPaths: Set<string>;
 }
 
-function pathHasSegment(path: string, segment: string): boolean {
+/** Whether one segment of `path`, split by its grammar, is exactly `segment`. */
+function pathHasSegment(path: string, segment: string, windows: boolean): boolean {
   let segmentStart = 0;
-
-  while (segmentStart <= path.length) {
-    const segmentEnd = path.indexOf('/', segmentStart);
-    const end = segmentEnd === -1 ? path.length : segmentEnd;
-
-    if (end - segmentStart === segment.length && path.startsWith(segment, segmentStart)) {
+  for (let index = 0; index <= path.length; index += 1) {
+    if (index < path.length && !isSeparatorCode(path.charCodeAt(index), windows)) {
+      continue;
+    }
+    if (index - segmentStart === segment.length && path.startsWith(segment, segmentStart)) {
       return true;
     }
-    if (segmentEnd === -1) {
-      return false;
-    }
-    segmentStart = segmentEnd + 1;
+    segmentStart = index + 1;
   }
-
   return false;
 }
 
 function shouldIgnorePath(path: string): boolean {
-  const normalizedPath = path.replace(/\/+/g, '/').replace(/^\/+/, '');
-  return CONTEXT_IGNORED_PATH_SEGMENTS.some((segment) => pathHasSegment(normalizedPath, segment));
+  const windows = isWindowsPath(path);
+  return CONTEXT_IGNORED_PATH_SEGMENTS.some((segment) => pathHasSegment(path, segment, windows));
 }
 
 function createFileNodeBase(node: IFileNode, state: TraversalState): IFileNode {

@@ -9,6 +9,7 @@ import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+import { nodeCommand } from './utils/node-command';
 
 async function openWorkerFromNewActivity(
   window: Page,
@@ -77,7 +78,15 @@ test('delegated command asks by default, then a per-tool grant streams output an
         finalText: `CHILD_${suffix}_COMMAND_COMPLETE`,
         toolCall: {
           arguments: {
-            command: `printf 'started' > started-${suffix.toLowerCase()}.txt; printf 'STREAM_STDOUT_${suffix}\\n'; printf 'STREAM_STDERR_${suffix}\\n' >&2; while test ! -f release-${suffix.toLowerCase()}.txt; do sleep 0.1; done; printf 'STREAM_DONE_${suffix}\\n'`,
+            command: nodeCommand(
+              [
+                "const fs = require('node:fs')",
+                `fs.writeFileSync('started-${suffix.toLowerCase()}.txt', 'started')`,
+                `console.log('STREAM_STDOUT_${suffix}')`,
+                `console.error('STREAM_STDERR_${suffix}')`,
+                `const wait = setInterval(() => { if (fs.existsSync('release-${suffix.toLowerCase()}.txt')) { clearInterval(wait); console.log('STREAM_DONE_${suffix}') } }, 100)`,
+              ].join('; ')
+            ),
           },
           name: 'brainstrike_executeCommand',
         },
@@ -167,10 +176,10 @@ test('delegated command asks by default, then a per-tool grant streams output an
       const review = window.getByRole('dialog', { name: 'Pending approvals' });
       await expect(review).toBeInViewport({ ratio: 1 });
       await expect(review.getByTestId('approval-command-code')).toContainText(
-        "printf 'started' > started-first.txt"
+        "fs.writeFileSync('started-first.txt', 'started')"
       );
       await expect(review.getByTestId('approval-command-code')).toContainText(
-        "printf 'STREAM_DONE_FIRST\\n'"
+        "console.log('STREAM_DONE_FIRST')"
       );
       expect(await viewport.evaluate((element) => element.scrollTop)).toBe(scrollTop);
       await testInfo.attach('pending-review-layout', {
@@ -215,7 +224,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
       await expect(history).toContainText('Approved');
       await history.getByRole('button', { name: /show approval details/i }).click();
       await expect(history.getByRole('button', { exact: true, name: approvalName })).toHaveCount(0);
-      await expect(history).toContainText("printf 'started' > started-first.txt");
+      await expect(history).toContainText("fs.writeFileSync('started-first.txt', 'started')");
       await testInfo.attach('answered-command-history', {
         body: await window.screenshot(),
         contentType: 'image/png',
