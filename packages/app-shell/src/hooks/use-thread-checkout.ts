@@ -163,7 +163,7 @@ export function useThreadCheckout(args: UseThreadCheckoutArgs): {
   );
 
   const handOffToLocal = useCallback(async () => {
-    await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
+    await enqueueThreadFoldersWrite(selectedMemoryThreadId, (current): ThreadCheckoutWrite => {
       const localId = current.checkoutLocalRootId;
       if (!localId) {
         logger.warn('Hand-off to Local has no recorded Local root; retaining the current folder');

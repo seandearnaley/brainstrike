@@ -53,64 +53,64 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./activity-trace-model": {
-      "types": "./dist/activity-trace-model.d.ts",
+      "types": "./src/activity-trace-model.ts",
       "import": "./dist/activity-trace-model.js"
     },
     "./assistant-link-capabilities": {
-      "types": "./dist/assistant-link-capabilities.d.ts",
+      "types": "./src/assistant-link-capabilities.ts",
       "import": "./dist/assistant-link-capabilities.js"
     },
     "./assistant-link-capabilities-provider": {
-      "types": "./dist/assistant-link-capabilities-provider.d.ts",
+      "types": "./src/assistant-link-capabilities-provider.tsx",
       "import": "./dist/assistant-link-capabilities-provider.js"
     },
     "./context-usage-store": {
-      "types": "./dist/context-usage-store.d.ts",
+      "types": "./src/context-usage-store.ts",
       "import": "./dist/context-usage-store.js"
     },
     "./thread-context-store": {
-      "types": "./dist/thread-context-store.d.ts",
+      "types": "./src/thread-context-store.ts",
       "import": "./dist/thread-context-store.js"
     },
     "./thread-context-fold": {
-      "types": "./dist/thread-context-fold.d.ts",
+      "types": "./src/thread-context-fold.ts",
       "import": "./dist/thread-context-fold.js"
     },
     "./follow-up-queue-store": {
-      "types": "./dist/follow-up-queue-store.d.ts",
+      "types": "./src/follow-up-queue-store.ts",
       "import": "./dist/follow-up-queue-store.js"
     },
     "./mcp-task-bridge-context": {
-      "types": "./dist/mcp-task-bridge-context.d.ts",
+      "types": "./src/mcp-task-bridge-context.tsx",
       "import": "./dist/mcp-task-bridge-context.js"
     },
     "./mcp-task-status-card": {
-      "types": "./dist/mcp-task-status-card.d.ts",
+      "types": "./src/mcp-task-status-card.tsx",
       "import": "./dist/mcp-task-status-card.js"
     },
     "./rewind-composer-store": {
-      "types": "./dist/rewind-composer-store.d.ts",
+      "types": "./src/rewind-composer-store.ts",
       "import": "./dist/rewind-composer-store.js"
     },
     "./styles.css": "./styles.css",
     "./tool-fallback": {
-      "types": "./dist/tool-fallback.d.ts",
+      "types": "./src/tool-fallback.tsx",
       "import": "./dist/tool-fallback.js"
     },
     "./tool-result-renderer-context": {
-      "types": "./dist/tool-result-renderer-context.d.ts",
+      "types": "./src/tool-result-renderer-context.tsx",
       "import": "./dist/tool-result-renderer-context.js"
     },
     "./tool-result-renderers": {
-      "types": "./dist/use-tool-result-renderers.d.ts",
+      "types": "./src/use-tool-result-renderers.ts",
       "import": "./dist/use-tool-result-renderers.js"
     },
     "./worktree-archive-confirmation-dialog": {
-      "types": "./dist/workspace-bar/worktree-archive-confirmation-dialog.d.ts",
+      "types": "./src/workspace-bar/worktree-archive-confirmation-dialog.tsx",
       "import": "./dist/workspace-bar/worktree-archive-confirmation-dialog.js"
     }
   },
@@ -120,11 +120,11 @@
   ],
   "main": "dist/index.js",
   "module": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "./src/index.ts",
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b . && node ../../scripts/copy-files.mjs src/overrides.css dist/overrides.css",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc && node ../../scripts/copy-files.mjs src/overrides.css dist/overrides.css",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "perf:streaming": "node streaming-perf.mjs",
     "test": "vitest run --project unit --project compiled",

@@ -179,7 +179,7 @@ describe('Node-side inference boundary', () => {
   });
 
   it('resolves packages as Node does, ignoring tsconfig paths to their source', async () => {
-    // apps/desktop/tsconfig.json maps @brainstrike/* to renderer SOURCE; Node never does.
+    // A tsconfig may map a package to its source; Node never applies that map.
     const root = await fixture({
       ...INSTALLED_INFERENCE_PACKAGES,
       ...EMBEDDING_BACKEND,

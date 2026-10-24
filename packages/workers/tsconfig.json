@@ -1,9 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "rootDir": "./",
     "outDir": "./dist",
     "declaration": true,
@@ -19,19 +16,5 @@
   "exclude": [
     "dist",
     "node_modules"
-  ],
-  "references": [
-    {
-      "path": "../types"
-    },
-    {
-      "path": "../file-system"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../utils"
-    }
   ]
 }

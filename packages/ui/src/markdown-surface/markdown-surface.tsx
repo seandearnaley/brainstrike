@@ -1,3 +1,4 @@
+/// <reference path="../vite-env.d.ts" />
 import 'katex/dist/katex.min.css';
 import {
   isValidElement,
