@@ -123,6 +123,16 @@ runs:
           echo "install-attempts must be at least 1, got '$INSTALL_ATTEMPTS'" >&2
           exit 1
         fi
+        # node-gyp compiles the native workspace packages during this install.
+        # Point it at the headers that ship inside the Node setup-node just
+        # installed (.nvmrc, the same version devEngines runs), so it does not
+        # download and extract them from nodejs.org on every job (about 9 s).
+        # Windows' Node zip ships no headers or node.lib, so node-gyp still
+        # fetches them there.
+        if [ "$RUNNER_OS" != Windows ]; then
+          npm_config_nodedir="$(dirname "$(dirname "$(command -v node)")")"
+          export npm_config_nodedir
+        fi
         attempt=1
         while true; do
           status=0
