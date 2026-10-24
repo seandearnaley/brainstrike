@@ -1,5 +1,9 @@
-import { createMcpLabFaultPlan } from './faults.js';
-import { type McpLabCleanupReport, type McpLabSession, startMcpLabScenario } from './lab.js';
+import {
+  createMcpOAuthAuthorizationHold,
+  type McpLabCleanupReport,
+  type McpLabSession,
+  startMcpLabScenario,
+} from './lab.js';
 import type { McpLabScenarioId } from './scenario.js';
 export type PackagedCoreFixtureId = Extract<
   McpLabScenarioId,
@@ -23,14 +27,14 @@ export interface PackagedCoreFixtureCleanupReport {
   };
 }
 export interface PackagedCoreFixture {
-  authorizationDelayObserved(): boolean;
-  authorizationDelaySettled(): boolean;
+  authorizationObserved(): boolean;
+  authorizationSettled(): boolean;
   close(): Promise<PackagedCoreFixtureCleanupReport>;
   readonly manifest: PackagedCoreFixtureManifest;
   releaseAuthorization(): void;
 }
 export interface PackagedCoreFixtureOptions {
-  readonly authorizationDelayMs?: number;
+  /** Park the first valid OAuth authorization until `releaseAuthorization()`. */
   readonly holdAuthorization?: boolean;
 }
 function assertLoopbackEndpoint(session: McpLabSession): URL {
@@ -47,7 +51,6 @@ function toCleanupReport(report: McpLabCleanupReport): PackagedCoreFixtureCleanu
   const clean =
     report.httpListenersClosed === 1 &&
     report.stdioTransportsClosed === 0 &&
-    report.untriggeredFaultIds.length === 0 &&
     (oauthState === undefined || Object.values(oauthState).every((count) => count === 0));
   return Object.freeze({
     clean,
@@ -59,40 +62,18 @@ export async function startPackagedCoreFixture(
   id: PackagedCoreFixtureId,
   options: PackagedCoreFixtureOptions = {}
 ): Promise<PackagedCoreFixture> {
-  if (options.holdAuthorization && options.authorizationDelayMs === undefined) {
-    throw new Error('Holding authorization requires a configured OAuth authorization delay');
+  if (options.holdAuthorization && id !== 'oauth-reference') {
+    throw new Error('Packaged core authorization hold is available only for the OAuth fixture');
   }
-  if (
-    options.authorizationDelayMs !== undefined &&
-    (!Number.isSafeInteger(options.authorizationDelayMs) ||
-      options.authorizationDelayMs < 100 ||
-      options.authorizationDelayMs > 10_000)
-  ) {
-    throw new Error('Packaged core authorization delay must be an integer from 100 to 10000 ms');
-  }
-  if (options.authorizationDelayMs !== undefined && id !== 'oauth-reference') {
-    throw new Error('Packaged core authorization delay is available only for the OAuth fixture');
-  }
-  const faultPlan =
-    options.authorizationDelayMs === undefined
-      ? undefined
-      : createMcpLabFaultPlan([
-          {
-            fault: { delayMs: options.authorizationDelayMs, kind: 'delay' },
-            id: 'packaged-core-authorization-delay',
-            match: { method: 'oauth/authorize', occurrence: 1, phase: 'authorization' },
-          },
-        ]);
-  // The Windows packaged cancellation proof outlasted the old one-second timer.
-  // Keep the existing fault/session owner pending until the UI actually cancels.
-  const releaseAuthorization = options.holdAuthorization
-    ? faultPlan?.holdDelay('packaged-core-authorization-delay')
+  // The packaged cancellation proof keeps authorization pending until the UI cancels it.
+  const authorizationHold = options.holdAuthorization
+    ? createMcpOAuthAuthorizationHold()
     : undefined;
   const session =
     id === 'oauth-reference'
       ? await startMcpLabScenario(id, {
           execution: 'loopback',
-          ...(faultPlan ? { faultPlan } : {}),
+          ...(authorizationHold ? { authorizationHold } : {}),
         })
       : await startMcpLabScenario(id, { execution: 'loopback' });
   try {
@@ -107,19 +88,15 @@ export async function startPackagedCoreFixture(
       url: endpoint.href,
     });
     return Object.freeze({
-      authorizationDelayObserved: () =>
-        faultPlan !== undefined &&
-        faultPlan.executionState('packaged-core-authorization-delay') !== 'unobserved',
-      authorizationDelaySettled: () => {
-        if (!faultPlan) {
-          return false;
-        }
-        const state = faultPlan.executionState('packaged-core-authorization-delay');
+      authorizationObserved: () =>
+        authorizationHold !== undefined && authorizationHold.state() !== 'unobserved',
+      authorizationSettled: () => {
+        const state = authorizationHold?.state();
         return state === 'aborted' || state === 'settled';
       },
       close: async () => toCleanupReport(await session.close()),
       manifest,
-      releaseAuthorization: () => releaseAuthorization?.(),
+      releaseAuthorization: () => authorizationHold?.release(),
     });
   } catch (error) {
     try {

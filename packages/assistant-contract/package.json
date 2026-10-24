@@ -69,11 +69,6 @@
       "import": "./dist/mcp-catalog.js",
       "require": "./dist/mcp-catalog.js"
     },
-    "./official-auth-conformance": {
-      "types": "./src/official-auth-conformance.ts",
-      "import": "./dist/official-auth-conformance.js",
-      "require": "./dist/official-auth-conformance.js"
-    },
     "./mcp-task-presentation": {
       "types": "./src/mcp-task-presentation.ts",
       "import": "./dist/mcp-task-presentation.js",
