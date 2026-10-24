@@ -14,8 +14,6 @@ import type { IndexSearchCapability } from '@brainstrike/indexing-contract/index
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { HomePage } from './page-objects/home-page';
-import { SettingsPage } from './page-objects/settings-page';
 import { seedRoot } from './utils/seed-root';
 import {
   getWorkspaceSemanticSearchSnapshot,
@@ -29,26 +27,6 @@ function workspaceFolder(prefix: string, file: string, word: string): string {
   const folder = realpathSync(mkdtempSync(path.join(os.tmpdir(), prefix)));
   writeFileSync(path.join(folder, file), `The ${word} line.\n`);
   return folder;
-}
-
-/** Text search through the visible Search & Indexing controls, then back to the workspace. */
-async function chooseTextSearch(page: Page): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  const section = await new SettingsPage(page).openCategory(
-    /Search & Indexing/i,
-    'search-indexing'
-  );
-  await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-  await page.getByRole('option', { name: /BGE Small/ }).click();
-  await section.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-  await expect(section.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-    'Workspace Index (BGE Small)',
-    { timeout: 15_000 }
-  );
-  await section.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text search' }).click();
-  await home.leaveSettings();
 }
 
 /** The native index's state: the folders it serves with a finished scan, or why it serves none. */
@@ -143,7 +121,6 @@ test('Explorer search follows a folder disconnected with its indexed data delete
       rootId: randomUUID(),
     });
     await addBravo();
-    await chooseTextSearch(page);
     await expect.poll(() => indexReadiness(page), { timeout: 120_000 }).toEqual({ folders: 2 });
     await expectSearchFinds(page, ALPHA_WORD, 'alpha.txt');
     await expectSearchFinds(page, BRAVO_WORD, 'bravo.txt');

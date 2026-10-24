@@ -53,6 +53,11 @@
       "import": "./dist/host-run-id.js",
       "require": "./dist/host-run-id.js"
     },
+    "./index-config": {
+      "types": "./dist/index-config.d.ts",
+      "import": "./dist/index-config.js",
+      "require": "./dist/index-config.js"
+    },
     "./mcp-host-status": {
       "types": "./dist/mcp-host-status.d.ts",
       "import": "./dist/mcp-host-status.js",

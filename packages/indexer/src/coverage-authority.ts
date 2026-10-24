@@ -19,7 +19,7 @@ export interface CoverageAuthorityPort {
 }
 /** Trusted coverage authority has its own bound; generic SQL budgets are unchanged. */
 export const MAX_NATIVE_COVERAGE_AUTHORITY_BYTES = 32 * 1024 * 1024;
-/** The desktop's native message codec; this module is also part of the browser's derived index. */
+/** The desktop's native message codec; `browser.ts` reaches this module too. */
 const v8 = globalThis.process?.getBuiltinModule?.('node:v8');
 export function assertCoverageAuthorityBound(input: unknown): number {
   if (!v8) {

@@ -9,7 +9,6 @@ export { default as path } from 'node:path';
 export type { Locator, Page } from '@playwright/test';
 export type { ElectronApplication } from 'playwright';
 export { expect, test } from '../fixtures/electron-fixture';
-export { showDatabaseDemoPanel } from '../utils/layout-helpers';
 
 const desktopDevRendererConfig = resolveDesktopDevRendererConfig(
   process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']

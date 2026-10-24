@@ -13,6 +13,7 @@ function fixture() {
     collections: vi.fn<HostCatalog['collections']>(unexpected),
     forgeCache: vi.fn<HostCatalog['forgeCache']>(unexpected),
     forgeCacheSnapshot: vi.fn<HostCatalog['forgeCacheSnapshot']>(unexpected),
+    indexConfig: vi.fn<HostCatalog['indexConfig']>(unexpected),
     modelChoices: vi.fn<HostCatalog['modelChoices']>(unexpected),
     promptLibrary: vi.fn<HostCatalog['promptLibrary']>(unexpected),
     sourceCatalog: vi.fn<HostCatalog['sourceCatalog']>(unexpected),

@@ -1,3 +1,4 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   embeddingProfileHash,
   type IndexerPort,
@@ -23,7 +24,12 @@ import type {
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
-import { NativeAuthorityTransitionError, NativeIndexRefusalError } from './errors.js';
+import {
+  NATIVE_SEARCH_FOLDER_NOT_INDEXED,
+  NATIVE_SEARCH_NO_FOLDERS,
+  NativeAuthorityTransitionError,
+  NativeIndexRefusalError,
+} from './errors.js';
 import { grepSnapshot } from './index-search.js';
 import type { NativeScopeReadiness } from './read-contracts.js';
 
@@ -156,7 +162,7 @@ function requestedScopes(
     new Set(request.rootIds).size !== request.rootIds.length ||
     request.rootIds.some((id) => !authority.rootIds.includes(id))
   ) {
-    throw new Error('Native search scope is duplicated or no longer authorized.');
+    throw new BoundaryFailureError(NATIVE_SEARCH_FOLDER_NOT_INDEXED);
   }
   if (request.collectionId !== undefined) {
     if (request.collectionId !== authority.collectionId) {
@@ -165,7 +171,7 @@ function requestedScopes(
     return [{ embeddingSetId: request.collectionId, kind: 'collection' }];
   }
   if (request.rootIds.length === 0) {
-    throw new Error('Native workspace search requires connected roots.');
+    throw new BoundaryFailureError(NATIVE_SEARCH_NO_FOLDERS);
   }
   return request.rootIds.map((rootId) => ({ kind: 'workspace', rootId }));
 }
@@ -452,69 +458,70 @@ export function createNativeScopedSearchCapability(
       storeId: info.storeId,
     };
   };
+  const readCoverageBatch = (
+    requests: readonly IndexerCoverageRequest[]
+  ): Promise<Extract<IndexerCoverageBatch, { kind: 'current' }>> =>
+    dependencies.withRead(async (read) => {
+      if (requests.length === 0) {
+        throw new TypeError('Native coverage batch requires at least one request.');
+      }
+      const snapshot = await capture(read);
+      const groups = requests.map((request) => requestedScopes(snapshot.authority, request));
+      const scopes = groups.flat();
+      const coverage = await snapshot.port.coverageBatch(
+        scopes.map((scope) => ({
+          scope,
+          ...(snapshot.authority.profile === null ? {} : { profile: snapshot.authority.profile }),
+        }))
+      );
+      assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
+      const observed = await snapshot.assertCurrent();
+      let offset = 0;
+      return {
+        coverage: groups.map((group) => {
+          const result = projectCoverage(
+            coverage.slice(offset, offset + group.length),
+            snapshot.storeId,
+            snapshot.embedding,
+            observed.readiness
+          );
+          offset += group.length;
+          return result;
+        }),
+        kind: 'current',
+        status: projectStatus(observed, snapshot.storeId, snapshot.embedding),
+      };
+    });
+  const isInvalidation = (error: NativeIndexRefusalError): boolean =>
+    error.refusal.kind === 'transitioning' || error.refusal.kind === 'closed';
   const coverageBatch = async (
     requests: readonly IndexerCoverageRequest[]
   ): Promise<IndexerCoverageBatch> => {
     try {
-      return await dependencies.withRead(async (read) => {
-        if (requests.length === 0) {
-          throw new TypeError('Native coverage batch requires at least one request.');
-        }
-        const snapshot = await capture(read);
-        const groups = requests.map((request) => requestedScopes(snapshot.authority, request));
-        const scopes = groups.flat();
-        const coverage = await snapshot.port.coverageBatch(
-          scopes.map((scope) => ({
-            scope,
-            ...(snapshot.authority.profile === null ? {} : { profile: snapshot.authority.profile }),
-          }))
-        );
-        assertCoverageBatch(coverage, scopes, snapshot.storeId, snapshot.authority.profile);
-        const observed = await snapshot.assertCurrent();
-        let offset = 0;
-        return {
-          coverage: groups.map((group) => {
-            const result = projectCoverage(
-              coverage.slice(offset, offset + group.length),
-              snapshot.storeId,
-              snapshot.embedding,
-              observed.readiness
-            );
-            offset += group.length;
-            return result;
-          }),
-          kind: 'current',
-          status: projectStatus(observed, snapshot.storeId, snapshot.embedding),
-        };
-      });
+      return await readCoverageBatch(requests);
     } catch (error) {
-      if (error instanceof NativeIndexRefusalError) {
-        if (error.refusal.kind === 'setup-required') {
-          throw error;
-        }
-        if (error.refusal.kind === 'transitioning' || error.refusal.kind === 'closed') {
-          return {
+      if (!(error instanceof NativeIndexRefusalError) || error.refusal.kind === 'setup-required') {
+        throw error;
+      }
+      return isInvalidation(error)
+        ? {
             cause: error.refusal,
             code: 'native-coverage-observation-invalidated',
             kind: 'invalidated',
-          };
-        }
-        return { cause: error.refusal, kind: 'blocked', reason: error.message };
-      }
-      throw error;
+          }
+        : { cause: error.refusal, kind: 'blocked', reason: error.message };
     }
   };
   return {
+    // A blocked index's typed refusal reaches the caller as itself (Off, rebuild-required, …).
     coverage: async (request): Promise<IndexerCoverage> => {
-      const observation = await coverageBatch([request]);
-      if (observation.kind === 'blocked') {
-        throw new Error(observation.reason);
-      }
-      if (observation.kind === 'invalidated') {
-        throw new NativeAuthorityTransitionError(
-          'Native source or saved profile changed during search.'
-        );
-      }
+      const observation = await readCoverageBatch([request]).catch((error: unknown) => {
+        throw error instanceof NativeIndexRefusalError && isInvalidation(error)
+          ? new NativeAuthorityTransitionError(
+              'Native source or saved profile changed during search.'
+            )
+          : error;
+      });
       const [result] = observation.coverage;
       if (!result) {
         throw new Error('Native singleton coverage returned no result.');

@@ -30,10 +30,6 @@ export default defineConfig({
         replacement: resolve(__dirname, '../hooks/src/index.ts'),
       },
       {
-        find: '@brainstrike/ui',
-        replacement: resolve(__dirname, '../ui/src/index.ts'),
-      },
-      {
         find: '@brainstrike/utils/create-debounce',
         replacement: resolve(__dirname, '../utils/src/create-debounce.ts'),
       },
@@ -89,19 +85,10 @@ export default defineConfig({
         find: '@brainstrike/embeddings/worker',
         replacement: resolve(__dirname, '../embeddings/src/worker-entry.ts'),
       },
-      {
-        find: '@brainstrike/queue/browser',
-        replacement: resolve(__dirname, '../queue/src/browser.ts'),
-      },
-      {
-        find: '@brainstrike/queue',
-        replacement: resolve(__dirname, '../queue/src/index.ts'),
-      },
       ...createAgentBrowserSafeAliasEntries(resolve(__dirname, '../agent')),
-      // Registry fills gaps (e.g. the @brainstrike/embeddings ROOT specifier,
-      // executed via importOriginal in vector-queue-service.test.ts — only the
-      // subpaths were aliased above). Hand-rolled entries win by first-match.
-      // See workspace-src-aliases (incident #1066/#1207).
+      // Registry fills gaps (e.g. the @brainstrike/embeddings ROOT specifier —
+      // only the subpaths were aliased above). Hand-rolled entries win by
+      // first-match. See workspace-src-aliases (incident #1066/#1207).
       ...workspaceSrcAliases(resolve(__dirname, '..')),
     ],
   },
@@ -122,7 +109,6 @@ export default defineConfig({
         '**/mockData/**',
         'src/**/__tests__/**',
         '**/index.ts', // Barrel files - re-exports are tested via their sources
-        'src/embedding-set-management/**', // UI dialog components - tested via integration
       ],
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

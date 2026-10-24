@@ -14,22 +14,9 @@ export interface CanonicalChunkingRuntime {
   readonly strict: boolean;
 }
 
-/**
- * Where the one-time first-parse audit goes. The chunking Web Worker's entry
- * routes it to its parent as a WorkerLog (`setParserAuditSink`), so
- * file-import's chunking-worker-port forwards it through the project's logger.
- * Any other host (desktop's utility, the browser's file index worker, tests)
- * logs it here: posting to a parent that speaks another protocol would corrupt
- * that parent's channel.
- */
-let auditSink = (message: string): void => {
+function auditSink(message: string): void {
   // biome-ignore lint/suspicious/noConsole: one-time operational signal
   console.info(message);
-};
-
-/** The chunking worker's entry routes the first-parse audit to its parent. */
-export function setParserAuditSink(sink: (message: string) => void): void {
-  auditSink = sink;
 }
 
 // Module-scoped flag for the one-shot "first parse audit" — see the
@@ -40,9 +27,7 @@ function auditFirstSuccessfulParse(adapterId: string): void {
     return;
   }
   auditFired = true;
-  auditSink(
-    `[chunking-parser] first parse succeeded using adapter "${adapterId}" — IPC chain confirmed`
-  );
+  auditSink(`[chunking-parser] first parse succeeded using adapter "${adapterId}"`);
 }
 
 export function supportsCanonicalAst(
@@ -94,7 +79,7 @@ export async function parseCanonicalSource(
       jsx: true,
       language: language === 'typescript' ? 'typescript' : 'javascript',
     });
-    // First-parse audit (logs once per worker session). This is the
+    // First-parse audit (logs once per process). This is the
     // operator's confirmation that selectAdapter picked the right adapter
     // AND that the first parse round-trip actually completed — without
     // this, "no errors in the log" is ambiguous between "oxc works" and

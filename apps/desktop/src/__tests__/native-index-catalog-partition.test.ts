@@ -3,21 +3,15 @@
 import type { SourceCatalogPort, SourceCatalogRecord } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { loadNativeGraphRecords, type NativeIndexActivationGraph } from '../native-index-graph';
+import type { NativeIndexSettings } from '../native-index-settings';
+import { SPACE, textSettings, vectorSettings } from './helpers/native-index-settings';
 
-function graph(collection: string | null): NativeIndexActivationGraph {
+function graph(settings: NativeIndexSettings): NativeIndexActivationGraph {
   return {
     controller: new AbortController(),
     generation: 1,
     leases: new Map(),
-    settings: {
-      enabled: true,
-      indexingPolicyPreset: 'balanced',
-      managedCollectionId: collection,
-      mode: 'TEXT',
-      paused: false,
-      selection: null,
-      worktreeOptIns: new Set(),
-    },
+    settings,
     watchFailures: new Map(),
   };
 }
@@ -39,10 +33,10 @@ function source(collection: string | null): SourceCatalogRecord {
 }
 test('uncollected rootless imports are outside TEXT workspace authority', async () => {
   const catalog: SourceCatalogPort = { sourceCatalog: async () => ({ files: [source(null)] }) };
-  expect(await loadNativeGraphRecords(graph(null), () => {}, catalog)).toEqual([]);
+  expect(await loadNativeGraphRecords(graph(textSettings()), () => {}, catalog)).toEqual([]);
 });
-test('a selected collection retains its rootless imported sources', async () => {
-  const imported = source('chosen');
+test('a semantic vector space retains its rootless imported sources', async () => {
+  const imported = source(SPACE);
   const catalog: SourceCatalogPort = { sourceCatalog: async () => ({ files: [imported] }) };
   const {
     createdAt: _createdAt,
@@ -50,5 +44,7 @@ test('a selected collection retains its rootless imported sources', async () => 
     chunksCount: _chunksCount,
     ...canonical
   } = imported;
-  expect(await loadNativeGraphRecords(graph('chosen'), () => {}, catalog)).toEqual([canonical]);
+  expect(await loadNativeGraphRecords(graph(vectorSettings()), () => {}, catalog)).toEqual([
+    canonical,
+  ]);
 });

@@ -65,8 +65,8 @@ SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
  * `twMerge`: a second `min-w-*` in the same call REPLACES the base
  * `min-w-[8rem]` rather than stacking with it, which would have handed every
  * narrow trigger a listbox narrower than the 8rem floor its sibling primitives
- * keep (`dropdown-menu.tsx`, `context-menu.tsx`). Measured case: db-explorer's
- * `w-[5.5rem]` token-cap preset trigger, 88px.
+ * keep (`dropdown-menu.tsx`, `context-menu.tsx`). Measured case: a
+ * `w-[5.5rem]` (88px) trigger.
  *
  * The Viewport's `h-[var(--radix-select-trigger-height)]` from shadcn is
  * dropped: Radix sets `flex: 1` inline on the Viewport and popper content is a

@@ -98,11 +98,6 @@ vi.mock('@brainstrike/db', () => ({
   makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
   usePGliteDatabase: () => usePGliteDatabaseMock(),
 }));
-vi.mock('@brainstrike/db/react', () => ({
-  makeLiveQueryKey: vi.fn((...args: unknown[]) => JSON.stringify(args)),
-  usePGliteDatabase: () => usePGliteDatabaseMock(),
-}));
-
 // Mock UI provider to avoid asynchronous provider effects in unit tests
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();

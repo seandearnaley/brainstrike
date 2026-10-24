@@ -7,6 +7,7 @@ import {
   type RendererWindowSamples,
   summarize,
 } from './foreground-latency-probes';
+import { updateIndexConfig } from './index-config';
 import { loadElectronHelpers } from './load-electron-helpers';
 
 /**
@@ -76,25 +77,11 @@ export async function seedPausedWorkspace(
           seeded.map((root, index) => ({ addedAt: 1_800_000_000_000 + index, ...root }))
         )
       );
-      // Paused, so the idle baseline is taken with the workspace open and nothing indexing.
-      await storage.setItem(
-        'background-indexing-preferences.v1',
-        JSON.stringify({
-          state: {
-            enabled: true,
-            indexingPolicyPreset: 'full-root',
-            managedCollectionId: null,
-            mode: 'root-folder-cache',
-            paused: true,
-            worktreeRootIndexingByAdapterRootId: {},
-            worktreeRootIndexingOptInById: {},
-          },
-          version: 5,
-        })
-      );
     },
     { first: firstRoot.path, seeded: roots }
   );
+  // Paused, so the idle baseline is taken with the workspace open and nothing indexing.
+  await updateIndexConfig(page, { paused: true, policy: 'full-root' });
   await setVectorDevicePreference(page, device);
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);

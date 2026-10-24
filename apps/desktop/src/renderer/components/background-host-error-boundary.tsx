@@ -5,7 +5,7 @@ const logger = createLogger('BackgroundHostErrorBoundary');
 
 interface BackgroundHostErrorBoundaryProps {
   readonly children: ReactNode;
-  readonly host: 'chunking-host' | 'embedding-host';
+  readonly host: 'embedding-host';
 }
 
 interface BackgroundHostErrorBoundaryState {

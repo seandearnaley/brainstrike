@@ -6,6 +6,7 @@ import type { Page } from 'playwright';
 import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
+import { updateIndexConfig } from './utils/index-config';
 
 // BST-2005: switching from one WebGPU embedding model to another in the same session left the
 // embedding host with a destroyed WebGPU device ("WebGPU device lost: Device was destroyed."),
@@ -15,32 +16,23 @@ const DOCUMENTS = {
   'release.md':
     '# Shipping\nBefore a build goes out, notarize it, upload the installer to the update server and announce the version.\n',
 } as const;
-const MODELS = [
-  { modelId: 'Xenova/bge-small-en-v1.5', name: 'BGE Small' },
-  { modelId: 'Xenova/all-MiniLM-L6-v2', name: 'all-MiniLM-L6-v2' },
-] as const;
-const EXECUTION = 'WebGPU · FP16';
+const MODELS = ['Xenova/bge-small-en-v1.5', 'Xenova/all-MiniLM-L6-v2'] as const;
 
 type Bridges = typeof globalThis & {
   readonly embeddingHost?: VisibleEmbeddingHostBridge;
   readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
 };
 
-async function chooseWebGpuModel(page: Page, name: string): Promise<void> {
-  await page.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-  await page.getByRole('option', { name: new RegExp(`^${name}`) }).click();
-  await page.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
-  await expect(page.getByRole('combobox', { name: 'Managed collection' })).toContainText(
-    `Workspace Index (${name})`,
-    { timeout: 15_000 }
-  );
-  const mode = page.getByRole('combobox', { name: 'Search mode' });
-  if (!((await mode.textContent()) ?? '').includes('Text and semantic search')) {
-    await mode.click();
-    await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
-  }
-  await page.getByRole('combobox', { name: 'Local model execution' }).click();
-  await page.getByRole('option', { exact: true, name: EXECUTION }).click();
+/** Semantic search with the model on WebGPU · FP16, saved through Main as Settings saves it. */
+async function chooseWebGpuModel(page: Page, modelId: string): Promise<void> {
+  await updateIndexConfig(page, {
+    mode: 'semantic',
+    model: {
+      dimensions: 384,
+      local: { device: 'webgpu', dtype: 'fp16' },
+      modelKey: `local::${modelId}`,
+    },
+  });
 }
 
 async function vectorsComplete(page: Page): Promise<boolean> {
@@ -147,21 +139,16 @@ test.describe('WebGPU embedding model switch (desktop)', () => {
       await expect(
         window.getByRole('treegrid', { name: 'File tree' }).getByText('release.md')
       ).toBeVisible({ timeout: 15_000 });
-      await window.getByTestId('indexing-status-trigger').click();
-      await window.getByRole('button', { name: 'Open indexing settings' }).click();
-      await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible({
-        timeout: 15_000,
-      });
 
-      for (const model of MODELS) {
-        await chooseWebGpuModel(window, model.name);
+      for (const modelId of MODELS) {
+        await chooseWebGpuModel(window, modelId);
         // Includes each model's first download into the fresh profile.
         await expect
           .poll(async () => await vectorsComplete(window), { timeout: 240_000 })
           .toBe(true);
         expect(await semanticSearch(window)).toEqual({
           device: 'webgpu',
-          modelKey: `local::${model.modelId}`,
+          modelKey: `local::${modelId}`,
           top: 'release.md',
         });
       }

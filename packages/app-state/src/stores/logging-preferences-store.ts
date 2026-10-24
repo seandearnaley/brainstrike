@@ -93,7 +93,7 @@ export const useLoggingPreferencesStore = create<LoggingPreferencesState>()(
        * zustand swallowed (it re-invokes the callback as `(undefined, error)`,
        * whose `if (!error)` guard then declines), so `hasHydrated` never became
        * true on the app's real hydration path. Same bug as #2086; see
-       * `import-settings-store.ts`.
+       * `token-preferences-store.ts`.
        *
        * `merge` needs no module binding and runs on every hydration, including
        * the version-matched case where `migrate` never runs. A storage read

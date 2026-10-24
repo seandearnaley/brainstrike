@@ -7,15 +7,16 @@ import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
+import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeRootRegistration } from '../native-root-registration';
+import { textCollectionSettings, unreadableSettings } from './helpers/native-index-settings';
 import {
   emptyCollection,
   fixture,
   mocks,
   requestedScope,
   resetActivationFixture,
-  saveSettingsChange,
   setCatalogRoot,
   storeId,
   unused,
@@ -28,31 +29,24 @@ it.each(['acquire', 'acquireRead'] as const)(
   'captures the initial saved-settings read before %s returns',
   async (method) => {
     const f = fixture();
-    const saved = JSON.parse(await f.storage.getItem()) as { state: { paused: boolean } };
-    saved.state.paused = true;
-    f.storage.getItem.mockClear().mockResolvedValue(JSON.stringify(saved));
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
     const acquired = f.activation[method]();
     onTestFinished(async () => {
       await acquired.catch(() => undefined);
       await f.activation.close();
     });
-    expect(f.storage.getItem).toHaveBeenCalledOnce();
+    expect(f.settings).toHaveBeenCalledOnce();
     await expect(acquired).resolves.toBeDefined();
   }
 );
 
 it('concurrent acquire and acquireRead share the first captured startup input', async () => {
   const f = fixture();
-  const saved = JSON.parse(await f.storage.getItem()) as {
-    state: { paused: boolean; indexingPolicyPreset: string };
-  };
-  saved.state.paused = true;
-  const captured = JSON.stringify(saved);
-  const held = Promise.withResolvers<string>();
-  f.storage.getItem.mockReturnValueOnce(held.promise);
+  const captured = textCollectionSettings({ paused: true });
+  const held = Promise.withResolvers<NativeIndexSettings>();
+  f.settings.mockReturnValueOnce(held.promise);
   const strict = f.activation.acquire();
-  saved.state.indexingPolicyPreset = 'full-root';
-  f.storage.getItem.mockResolvedValue(JSON.stringify(saved));
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true, policy: 'full-root' }));
   const reader = f.activation.acquireRead();
   onTestFinished(async () => {
     held.resolve(captured);
@@ -69,11 +63,11 @@ it('concurrent acquire and acquireRead share the first captured startup input', 
 
 it('a terminal command supersedes captured startup input before it can open', async () => {
   const f = fixture();
-  const captured = await f.storage.getItem();
-  const held = Promise.withResolvers<string>();
-  f.storage.getItem.mockClear().mockReturnValueOnce(held.promise);
+  const captured = textCollectionSettings();
+  const held = Promise.withResolvers<NativeIndexSettings>();
+  f.settings.mockReturnValueOnce(held.promise);
   const initial = f.activation.acquire().catch((error: unknown) => error);
-  expect(f.storage.getItem).toHaveBeenCalledOnce();
+  expect(f.settings).toHaveBeenCalledOnce();
   const closing = f.activation.close();
   onTestFinished(async () => {
     held.resolve(captured);
@@ -88,8 +82,8 @@ it('a terminal command supersedes captured startup input before it can open', as
 
 it('preserves a synchronously captured settings failure through asynchronous construction', async () => {
   const f = fixture();
-  const failure = new Error('Saved settings storage could not be read');
-  f.storage.getItem.mockRejectedValue(failure);
+  const failure = unreadableSettings();
+  f.settings.mockRejectedValue(failure);
   const initial = f.activation.acquire();
   onTestFinished(() => f.activation.close());
   await expect(initial).rejects.toBe(failure);
@@ -170,12 +164,9 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
   'cancels the held source receipt at graph invalidation before joining %s',
   async (operation) => {
     const f = heldWorkspace();
-    const settings = JSON.parse(await f.storage.getItem()) as { state: { paused: boolean } };
-    settings.state.paused = true;
-    f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
     await f.activation.acquire();
-    settings.state.paused = false;
-    f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    f.settings.mockResolvedValue(textCollectionSettings());
     let initialSettled = false;
     const initial = f.activation.reconfigure().catch((error: unknown) => {
       initialSettled = true;
@@ -190,18 +181,19 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
     await f.attached.promise;
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(initialSettled).toBe(false);
+    const unreadable = unreadableSettings();
     if (operation === 'invalid-settings') {
-      f.storage.getItem.mockResolvedValue('{}');
+      f.settings.mockRejectedValue(unreadable);
     }
     if (operation === 'reconfigure') {
-      await saveSettingsChange(f.storage, { indexingPolicyPreset: 'full-root' });
+      f.settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
     }
     next = Promise.resolve(
       operation === 'terminal' ? f.activation.fenceTerminal() : f.activation.reconfigure()
     ).catch((error: unknown) => error);
     await vi.waitFor(() => expect(initialSettled).toBe(true));
     if (operation === 'invalid-settings') {
-      expect(await initial).toEqual(new Error('Native index preferences have no state.'));
+      expect(await initial).toBe(unreadable);
     } else {
       expect(await initial).toMatchObject({ code: 'native-index-transitioning' });
     }
@@ -223,12 +215,9 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
 it('retains an independent physical source-close failure after graph invalidation', async () => {
   const f = heldWorkspace();
   const failure = new Error('Owned source failed to close');
-  const settings = JSON.parse(await f.storage.getItem()) as { state: { paused: boolean } };
-  settings.state.paused = true;
-  f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
   await f.activation.acquire();
-  settings.state.paused = false;
-  f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+  f.settings.mockResolvedValue(textCollectionSettings());
   const initial = f.activation.reconfigure().catch((error: unknown) => error);
   let replacing: Promise<unknown> | undefined;
   onTestFinished(async () => {
@@ -240,7 +229,7 @@ it('retains an independent physical source-close failure after graph invalidatio
   await f.attached.promise;
   await new Promise<void>((resolve) => setImmediate(resolve));
   f.close.mockRejectedValueOnce(failure);
-  await saveSettingsChange(f.storage, { indexingPolicyPreset: 'full-root' });
+  f.settings.mockResolvedValue(textCollectionSettings({ policy: 'full-root' }));
   replacing = f.activation.reconfigure().catch((error: unknown) => error);
   await vi.waitFor(() => expect(f.close).toHaveBeenCalledOnce());
   expect(await initial).toMatchObject({ code: 'native-index-transitioning' });
@@ -251,9 +240,7 @@ it('retains an independent physical source-close failure after graph invalidatio
 
 it('starts saved Pause cancellation while root registration owns an incomplete first receipt', async () => {
   const f = heldWorkspace();
-  const settings = JSON.parse(await f.storage.getItem()) as { state: { paused: boolean } };
-  settings.state.paused = true;
-  f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
   const reader = await f.activation.acquire();
   const captured = f.activation.captureAcknowledgedAuthority();
   const transitions = createNativeRootDataDeletion({
@@ -273,8 +260,7 @@ it('starts saved Pause cancellation while root registration owns an incomplete f
     reportError: vi.fn(),
     transition: transitions.transition,
   });
-  settings.state.paused = false;
-  f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+  f.settings.mockResolvedValue(textCollectionSettings());
   const registered = registration.rootsRegistered().catch((error: unknown) => error);
   let paused: Promise<unknown> | undefined;
   onTestFinished(async () => {
@@ -283,10 +269,9 @@ it('starts saved Pause cancellation while root registration owns an incomplete f
     await Promise.allSettled([registered, paused]);
   });
   await f.attached.promise;
-  settings.state.paused = true;
-  f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
-  // Main's current onStorageChanged callback places the entire reconfiguration
-  // behind the registration's first-receipt join in this existing FIFO.
+  f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
+  // Main's config owner applies a saved change through this FIFO, so the entire
+  // reconfiguration waits behind the registration's first-receipt join.
   paused = transitions
     .prepareTransition(
       () => f.activation.prepareSavedPause(),
@@ -309,10 +294,8 @@ it.each(['settings', 'graph', 'attachment'] as const)(
   async (phase) => {
     const gate = Promise.withResolvers<void>();
     const f = heldWorkspace(phase === 'attachment' ? () => gate.promise : undefined);
-    const saved = await f.storage.getItem();
-    const settings = JSON.parse(saved) as { state: { paused: boolean } };
     if (phase === 'settings') {
-      f.storage.getItem.mockReturnValueOnce(gate.promise.then(() => saved));
+      f.settings.mockReturnValueOnce(gate.promise.then(() => textCollectionSettings()));
     }
     if (phase === 'graph') {
       const restore = f.application.roots.restoreRoots;
@@ -325,8 +308,7 @@ it.each(['settings', 'graph', 'attachment'] as const)(
     if (phase === 'attachment') {
       await f.attached.promise;
     }
-    settings.state.paused = true;
-    f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
     let prepared = false;
     const preparation = f.activation.prepareSavedPause().then((value) => {
       prepared = true;
@@ -371,12 +353,9 @@ it.each(['invalid-settings', 'physical-failure'] as const)(
   'retains prepared %s admission closure and its actual failure through later reads',
   async (kind) => {
     const f = heldWorkspace();
-    const settings = JSON.parse(await f.storage.getItem()) as { state: { paused: boolean } };
-    settings.state.paused = true;
-    f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
     await f.activation.acquire();
-    settings.state.paused = false;
-    f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    f.settings.mockResolvedValue(textCollectionSettings());
     const initial = f.activation.reconfigure().catch((error: unknown) => error);
     onTestFinished(async () => {
       f.close.mockResolvedValue(undefined);
@@ -387,10 +366,9 @@ it.each(['invalid-settings', 'physical-failure'] as const)(
     await f.attached.promise;
     const failure = new Error('Independent prepared physical retirement failure');
     if (kind === 'invalid-settings') {
-      f.storage.getItem.mockResolvedValue('{}');
+      f.settings.mockRejectedValue(unreadableSettings());
     } else {
-      settings.state.paused = true;
-      f.storage.getItem.mockResolvedValue(JSON.stringify(settings));
+      f.settings.mockResolvedValue(textCollectionSettings({ paused: true }));
       f.close.mockRejectedValueOnce(failure);
     }
     const prepared = await f.activation.prepareSavedPause();

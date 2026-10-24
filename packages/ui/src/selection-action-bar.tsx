@@ -37,13 +37,6 @@ export interface SelectionActionBarProps {
   compact?: boolean;
   /** Clear the current selection. */
   onClear: () => void;
-  /**
-   * Render the clear control. Consumers that keep the bar open with an EMPTY
-   * selection (a pinned long-running action) pass `false` — a Clear button
-   * with nothing to clear is a dead control. Escape-to-clear is suppressed
-   * with it.
-   */
-  showClearButton?: boolean;
   /** Primary selection status. Strings and composed React content are supported. */
   summary: React.ReactNode;
   /** Optional secondary status content. */
@@ -106,14 +99,13 @@ export function SelectionActionBar({
   clearButtonLabel = 'Clear',
   compact = false,
   onClear,
-  showClearButton = true,
   summary,
   summaryDetail,
   summaryDetailTitle,
   trailingContent,
 }: SelectionActionBarProps): React.JSX.Element {
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
-    if (event.defaultPrevented || event.key !== 'Escape' || !showClearButton) {
+    if (event.defaultPrevented || event.key !== 'Escape') {
       return;
     }
 
@@ -184,23 +176,21 @@ export function SelectionActionBar({
         </>
       ) : null}
 
-      {showClearButton ? (
-        <Button
-          aria-label={clearButtonAriaLabel}
-          className="ml-auto gap-1 whitespace-nowrap motion-reduce:transition-none"
-          onClick={onClear}
-          onKeyDown={handleKeyDown}
-          size="sm"
-          title={clearButtonLabel}
-          type="button"
-          variant="ghost"
-        >
-          <X aria-hidden="true" className="h-4 w-4" />
-          <span className={compact ? SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS : undefined}>
-            {clearButtonLabel}
-          </span>
-        </Button>
-      ) : null}
+      <Button
+        aria-label={clearButtonAriaLabel}
+        className="ml-auto gap-1 whitespace-nowrap motion-reduce:transition-none"
+        onClick={onClear}
+        onKeyDown={handleKeyDown}
+        size="sm"
+        title={clearButtonLabel}
+        type="button"
+        variant="ghost"
+      >
+        <X aria-hidden="true" className="h-4 w-4" />
+        <span className={compact ? SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS : undefined}>
+          {clearButtonLabel}
+        </span>
+      </Button>
     </div>
   );
 }

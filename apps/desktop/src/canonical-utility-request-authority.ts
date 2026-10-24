@@ -8,7 +8,7 @@ import { type CanonicalFrame, canonicalOperations, decode } from './canonical-ut
 
 type Request = Extract<CanonicalFrame, { kind: 'call' }>;
 
-/** Pre-invocation authority checks shared by live admission and stopped refusals. */
+/** Pre-invocation authority checks: a request that fails them is never answered as cancelled. */
 export function assertCanonicalRequest(session: Session, frame: Request): void {
   if (!Object.hasOwn(canonicalOperations, frame.op)) {
     throw new Error('Unknown canonical utility operation.');
@@ -25,7 +25,6 @@ function assertLeaseRequest(session: Session, frame: Request): void {
   if (!['list-dir', 'read-file', 'subscribe'].includes(frame.op)) {
     return;
   }
-  capturedAuthority(session, frame).ownedLease();
   if (frame.op === 'subscribe') {
     if (session.subscriptionAcquired) {
       throw new Error('Canonical watcher already has an owner.');

@@ -63,27 +63,6 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       {
-        find: '@brainstrike/db-explorer/context-actions',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../db-explorer/src/context-actions/index.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/db-explorer/database-demo-panel',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../db-explorer/src/database-demo-panel.tsx'
-        ),
-      },
-      {
-        find: '@brainstrike/db-explorer/embedding-models',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../db-explorer/src/utils/embedding-models.ts'
-        ),
-      },
-      {
         find: '@brainstrike/workspace-search/chunk-selection-store',
         replacement: path.resolve(
           import.meta.dirname,
@@ -100,10 +79,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/workspace-search$/,
         replacement: path.resolve(import.meta.dirname, '../workspace-search/src/index.ts'),
-      },
-      {
-        find: /^@brainstrike\/db-explorer$/,
-        replacement: path.resolve(import.meta.dirname, '../db-explorer/src/index.ts'),
       },
       {
         find: /^@brainstrike\/db$/,
@@ -171,20 +146,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
-      },
-      {
-        find: '@brainstrike/file-import/chunking-worker-context',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../file-import/src/chunking-worker-context.tsx'
-        ),
-      },
-      {
-        // Regex-EXACT: a string find would also capture subpaths like
-        // file-import/browser-queue-port and rewrite them onto index.ts/<sub>
-        // (nonexistent). Subpaths resolve via the registry's exact entries.
-        find: /^@brainstrike\/file-import$/,
-        replacement: path.resolve(import.meta.dirname, '../file-import/src/index.ts'),
       },
       {
         find: /^@brainstrike\/vector-management$/,

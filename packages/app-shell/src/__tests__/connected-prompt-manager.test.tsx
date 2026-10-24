@@ -103,7 +103,7 @@ vi.mock('../prompt-library-repository', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/db-explorer/embedding-models', () => ({
+vi.mock('../embedding-models', () => ({
   buildLocalEmbeddingModelConfigMap: () =>
     new Map([['Xenova/all-MiniLM-L6-v2', { dimensions: 384, id: 'Xenova/all-MiniLM-L6-v2' }]]),
   resolveEmbeddingSetModelInfo: () => ({

@@ -18,7 +18,7 @@ describe('validateDesktopBridgeContract', () => {
       throw new Error('Expected contract validation to fail.');
     }
     expect(result.missing).toContain('window.electronAPI.fileSystem.requestDirectoryAccess');
-    expect(result.missing).toContain('window.sourceFiles.list');
+    expect(result.missing).toContain('window.modelCatalog.read');
     expect(result.missing).toContain('window.agentHost.onPrepareClose');
     expect(result.missing).toContain('window.logging.getPreferences');
   });
@@ -47,10 +47,9 @@ describe('validateDesktopBridgeContract', () => {
     }
   );
 
-  it('passes with current catalog/source owners and no retired database bridge', () => {
+  it('passes with the current owners and no retired database bridge', () => {
     const result = validateDesktopBridgeContract({
       agentHost: { onPrepareClose: () => () => undefined },
-      collectionCatalog: { snapshot: async () => [] },
       desktopLifecycle: { requestReload: async () => undefined },
       electronAPI: {
         content: { clear: async () => ({}) },
@@ -129,7 +128,6 @@ describe('validateDesktopBridgeContract', () => {
       },
       modelCatalog: { read: async () => ({}) },
       promptLibrary: { request: async () => ({}) },
-      sourceFiles: { chunks: async () => ({}), list: async () => [], read: async () => [] },
       threadGroups: { readRoots: async () => [], request: async () => ({}) },
       viewFilterPresets: { request: async () => ({}) },
     });

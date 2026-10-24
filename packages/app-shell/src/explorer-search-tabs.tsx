@@ -9,7 +9,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useMemo } from 'react';
 import { ExplorerThreadStatusProvider } from './context-map/explorer-thread-status-provider';
 import { ExplorerAttachAction } from './explorer-attach-action';
-import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
 import { useAttachFilesToThread } from './use-attach-files-to-thread';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 import { useWorkspaceRootActions } from './workspace-root-context-actions';
@@ -85,7 +84,6 @@ export function ExplorerSearchTabs(): ReactElement {
       <>
         {hasDurableAssistantUsageCapability() ? <ExplorerAttachAction /> : null}
         <ExplorerContextExportAction />
-        <ExplorerImportActionLazy />
       </>
     ),
     []

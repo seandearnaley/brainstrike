@@ -12,7 +12,6 @@ const {
   getRendererTimeOrigin,
   requestLocalQueryEmbedding,
   setVectorDevicePreference,
-  showDatabaseDemoPanel,
 } = shared;
 
 async function expectHostEmbedsQuery(window: Page): Promise<void> {
@@ -60,7 +59,7 @@ test.describe('Embedding Host Renderer - lifecycle', () => {
     window,
   }) => {
     test.setTimeout(180_000);
-    let activeWindow = await showDatabaseDemoPanel(window);
+    const activeWindow = window;
     const runtimeId = await startHostWithWorkingRuntime(activeWindow);
     const hostPage = await getEmbeddingHostPage(activeWindow);
     const hostTimeOrigin = await getRendererTimeOrigin(hostPage);
@@ -73,7 +72,7 @@ test.describe('Embedding Host Renderer - lifecycle', () => {
     const home = new HomePage(activeWindow);
     await home.openSettings();
     await home.leaveSettings();
-    activeWindow = await showDatabaseDemoPanel(activeWindow);
+    await activeWindow.getByTestId('threads-tab-trigger').click();
 
     // Same document, same host document, same runtime: navigation reached neither.
     expect(await getRendererTimeOrigin(activeWindow)).toBe(visibleTimeOrigin);

@@ -86,9 +86,9 @@ export const stateProjectionOptionsSchema = Schema.Struct({
 export type StateProjectionOptions = typeof stateProjectionOptionsSchema.Type;
 export const optionsSchema = Schema.Struct({
   /**
-   * The most chunks the scoped store holds (BST-1940: the browser's corpus
-   * cap). A scoped commit that would leave more stored refuses whole, with
-   * `corpus-cap`; what is already stored stays. Desktop sets none.
+   * The most chunks the scoped store holds. A scoped commit that would leave
+   * more stored refuses whole, with `corpus-cap`; what is already stored
+   * stays. Desktop sets none.
    */
   chunkCap: Schema.optional(positive),
   dbPath: nonblank,

@@ -16,13 +16,14 @@
  * the race. Both ledgers go in before the only boot that reads them.
  */
 import type { Page } from '@playwright/test';
+import { updateIndexConfig } from './index-config';
 import { loadElectronHelpers } from './load-electron-helpers';
 
 export interface SeedRootOptions {
   /**
-   * Seed the background-indexing store OFF. Callers that only exercise the
-   * `roots` table and the `git:`/`fs:` bridges want this: driving the
-   * embedding pipeline would add minutes and flake surface for no coverage.
+   * Pause the profile's search index through Main before the reload. Callers
+   * that only exercise the `roots` table and the `git:`/`fs:` bridges want
+   * this: indexing the seeded roots adds work and flake surface for no coverage.
    */
   readonly disableBackgroundIndexing?: boolean;
   /**
@@ -43,7 +44,6 @@ export interface SeededRoot {
 }
 
 interface SeedPayload {
-  readonly disableBackgroundIndexing: boolean;
   readonly recentPaths: readonly string[];
   readonly roots: readonly SeededRoot[];
 }
@@ -70,11 +70,7 @@ export async function seedRoots(
     throw new Error('seedRoots needs at least one root');
   }
   await page.evaluate(
-    async ({
-      disableBackgroundIndexing: disableIndexing,
-      recentPaths: recents,
-      roots: seeded,
-    }: SeedPayload) => {
+    async ({ recentPaths: recents, roots: seeded }: SeedPayload) => {
       const storage = (
         globalThis as typeof globalThis & {
           electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
@@ -100,24 +96,12 @@ export async function seedRoots(
           JSON.stringify(recents.map((recentPath) => ({ lastGrantedAt: 1, path: recentPath })))
         );
       }
-      if (disableIndexing) {
-        localStorage.setItem(
-          'background-indexing-preferences.v1',
-          JSON.stringify({
-            state: {
-              enabled: false,
-              indexingPolicyPreset: 'full-root',
-              managedCollectionId: null,
-              mode: 'root-folder-cache',
-              paused: true,
-            },
-            version: 4,
-          })
-        );
-      }
     },
-    { disableBackgroundIndexing, recentPaths, roots } satisfies SeedPayload
+    { recentPaths, roots } satisfies SeedPayload
   );
+  if (disableBackgroundIndexing) {
+    await updateIndexConfig(page, { paused: true });
+  }
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);
 }

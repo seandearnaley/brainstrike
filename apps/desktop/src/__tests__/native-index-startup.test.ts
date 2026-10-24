@@ -11,6 +11,8 @@ import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
+import type { NativeIndexSettings } from '../native-index-settings';
+import { textCollectionSettings } from './helpers/native-index-settings';
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -114,21 +116,8 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   };
 }
 function fixture(applicationOverride?: ApplicationIpcDomain) {
-  const storage = {
-    getItem: vi.fn(async () =>
-      JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: 'balanced',
-          managedCollectionId: 'selected',
-          nativeIndexMode: 'TEXT',
-          nativeLocalSelection: null,
-          paused: false,
-          worktreeRootIndexingOptInById: {},
-        },
-      })
-    ),
-  };
+  /** Main's config owner; a test saves a change by resolving the next read with it. */
+  const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textCollectionSettings());
   const application = {
     roots: { restoreRoots: async () => [] },
     watches: {},
@@ -144,9 +133,10 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     onError,
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
-    storage,
+    settings,
+    storage: { getItem: unused },
   });
-  return { activation, onError, onReceipt, storage, transport };
+  return { activation, onError, onReceipt, settings, transport };
 }
 beforeEach(() => {
   vi.resetAllMocks();
@@ -350,13 +340,10 @@ it.each([false, true])(
         };
       }
     );
-    const { activation, storage } = fixture();
-    const settings = JSON.parse(await storage.getItem()) as { state: { paused: boolean } };
-    settings.state.paused = true;
-    storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    const { activation, settings } = fixture();
+    settings.mockResolvedValue(textCollectionSettings({ paused: true }));
     await activation.acquire();
-    settings.state.paused = false;
-    storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    settings.mockResolvedValue(textCollectionSettings());
     const reconfiguration = activation.reconfigure().catch((error: unknown) => error);
     onTestFinished(async () => {
       canceled.resolve();

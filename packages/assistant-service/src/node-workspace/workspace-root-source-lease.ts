@@ -10,6 +10,7 @@ import { getFileSizeConfig } from '@brainstrike/file-system';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { NATIVE_MAX_READ_BYTES } from '@brainstrike/file-system/secure-file-read';
 import { MAX_DIRECTORY_ENTRIES } from '@brainstrike/file-system/workspace-root-nodes';
+import { NativeAuthorityTransitionError } from '../node-native-index/errors.js';
 import { resolveReadAgainstMountedRoot } from './workspace-root-read.js';
 import type { MountedWorkspaceRoot } from './workspace-root-types.js';
 
@@ -18,11 +19,6 @@ interface SourceLeaseDependencies {
   readonly mounted: MountedWorkspaceRoot;
   readonly resolveReadPath: (requestedPath: string, canonicalRoot: string) => Promise<string>;
   readonly subscribe: CanonicalWorkspaceLease['subscribe'];
-}
-
-interface PendingSourceOperation {
-  readonly promise: Promise<unknown>;
-  readonly signal: AbortSignal;
 }
 
 /** Borrowed operations never close or reopen the registry's mounted native handle. */
@@ -38,7 +34,7 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
   readonly rootId: string;
   readonly signal: AbortSignal;
   private readonly stopping = new AbortController();
-  private readonly pending = new Set<PendingSourceOperation>();
+  private readonly pending = new Set<Promise<unknown>>();
   private readonly subscriptions = new Set<CanonicalSourceSubscription>();
   private retirement: Promise<void> | undefined;
   private retired = false;
@@ -125,7 +121,9 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
     if (this.retired) {
       return Promise.resolve();
     }
-    this.stopping.abort(new Error('Mounted source lease was retired.'));
+    // The owner retired this mount (removal, replacement, reset) or the borrower ended its own
+    // lease: work still in flight is superseded, typed so.
+    this.stopping.abort(new NativeAuthorityTransitionError('Mounted source lease was retired.'));
     this.retirement ??= this.joinRetirement().finally(() => {
       this.retirement = undefined;
     });
@@ -176,25 +174,21 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
       this.dependencies.assertCurrent();
       return value;
     });
-    const pending = { promise, signal };
-    this.pending.add(pending);
+    this.pending.add(promise);
     try {
       return await promise;
     } finally {
-      this.pending.delete(pending);
+      this.pending.delete(promise);
     }
   }
 
+  /**
+   * Work in flight settles first, however it ends: its callers own its outcome. Only a watch that
+   * does not close fails the retirement.
+   */
   private async joinRetirement(): Promise<void> {
-    const pending = [...this.pending];
-    const results = await Promise.allSettled(pending.map((operation) => operation.promise));
+    await Promise.allSettled(this.pending);
     const errors: unknown[] = [];
-    results.forEach((result, index) => {
-      const signal = pending[index]?.signal;
-      if (result.status === 'rejected' && !(signal?.aborted && result.reason === signal.reason)) {
-        errors.push(result.reason);
-      }
-    });
     for (const subscription of this.subscriptions) {
       try {
         await subscription.close();

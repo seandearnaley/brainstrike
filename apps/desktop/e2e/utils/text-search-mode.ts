@@ -1,36 +1,35 @@
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, type Page } from '@playwright/test';
-import { HomePage } from '../page-objects/home-page';
-import { SettingsPage } from '../page-objects/settings-page';
 
-/** Text search through the visible Search & Indexing control, choosing no embedding model. */
-export async function chooseTextSearch(page: Page): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  const section = await new SettingsPage(page).openCategory(
-    /Search & Indexing/i,
-    'search-indexing'
+/** One call on the renderer's production `indexSearch` adapter, as the Search panel makes it. */
+export async function callIndexSearch<M extends keyof IndexSearchCapability>(
+  page: Page,
+  method: M,
+  ...args: Parameters<IndexSearchCapability[M]>
+): Promise<Awaited<ReturnType<IndexSearchCapability[M]>>> {
+  const result = await page.evaluate(
+    async (call) => {
+      const capability = (
+        window as Window & {
+          readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+        }
+      ).__brainstrikeTestHooks__?.indexSearch;
+      if (!capability) {
+        throw new Error('The native index capability is unavailable');
+      }
+      const run = capability[call.method] as (...values: unknown[]) => Promise<unknown>;
+      return await run.apply(capability, [...call.args]);
+    },
+    { args, method }
   );
-  await section.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text search' }).click();
-  await home.leaveSettings();
+  return result as Awaited<ReturnType<IndexSearchCapability[M]>>;
 }
 
 /** The renderer's native index status, as the Search panel and status bar read it. */
 export async function nativeStatus(
   page: Page
 ): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
-  return await page.evaluate(async () => {
-    const capability = (
-      window as Window & {
-        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-      }
-    ).__brainstrikeTestHooks__?.indexSearch;
-    if (!capability) {
-      throw new Error('The native index capability is unavailable');
-    }
-    return await capability.status();
-  });
+  return await callIndexSearch(page, 'status');
 }
 
 /**

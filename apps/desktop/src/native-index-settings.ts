@@ -1,41 +1,26 @@
-import {
-  NATIVE_INDEX_SETTINGS_KEY,
-  type NativeIndexSettings,
-  nativeIndexConfigurationIdentity,
-  readNativeIndexSettings as readSharedIndexSettings,
-  readNativeSavedPause as readSharedSavedPause,
-} from '@brainstrike/canonical-ingestion';
+import type { NativeIndexSettings } from '@brainstrike/canonical-ingestion';
 import type {
   NativeIndexLifecycle,
   PreparedNativeIndexPause,
 } from './native-index-lifecycle-owner';
-import { desktopSetupRequired } from './native-index-setup-required';
 
-export { NATIVE_INDEX_SETTINGS_KEY, type NativeIndexSettings, nativeIndexConfigurationIdentity };
+export {
+  type NativeIndexSettings,
+  nativeIndexConfigurationIdentity,
+} from '@brainstrike/canonical-ingestion';
 
-/** The shared decoder (`@brainstrike/canonical-ingestion`), refusing as desktop's settings surface it. */
-export function readNativeIndexSettings(value: string | null): NativeIndexSettings {
-  return readSharedIndexSettings(value, desktopSetupRequired);
-}
-
-export function readNativeSavedPause(value: string | null): NativeIndexSettings | null {
-  return readSharedSavedPause(value, desktopSetupRequired);
-}
-
-/** Read once; genuine read/parse failures still enter the existing lifecycle's
- * invalid-settings fence and physical cleanup before being reported.
- */
+/** Read once; a read failure still enters the lifecycle's invalid-settings fence and cleanup. */
 export async function prepareSavedNativeIndexPause(
-  storage: { getItem(key: string): Promise<string | null> },
+  read: () => Promise<NativeIndexSettings>,
   lifecycle: Promise<Pick<NativeIndexLifecycle, 'prepareSavedPause'>>
 ): Promise<PreparedNativeIndexPause | null> {
-  let settings: NativeIndexSettings | null;
+  let settings: NativeIndexSettings;
   try {
-    settings = readNativeSavedPause(await storage.getItem(NATIVE_INDEX_SETTINGS_KEY));
+    settings = await read();
   } catch (error) {
     return (await lifecycle).prepareSavedPause(() => Promise.reject(error));
   }
-  return settings === null
-    ? null
-    : (await lifecycle).prepareSavedPause(() => Promise.resolve(settings));
+  return settings.paused
+    ? (await lifecycle).prepareSavedPause(() => Promise.resolve(settings))
+    : null;
 }

@@ -294,11 +294,12 @@ test('source erasure preserves shared transcript bytes until the final transcrip
   }
 });
 
-test('forgetting a captured root erases its sources and bytes, but refuses another path', async () => {
+test('forgetting a captured root erases its sources and bytes, keeps the other root’s, and refuses another path', async () => {
   const directory = freshDir('source-catalog-forget-root');
   const indexer = new TruthIndexer(directory);
   const store = await StateStore.open(directory, { indexer });
   const original = source('Forget this managed source, not the other workspace.');
+  const kept = source('The other workspace keeps this source.');
   try {
     await store.workspaceRoots({
       operation: 'register',
@@ -314,6 +315,17 @@ test('forgetting a captured root erases its sources and bytes, but refuses anoth
       operation: 'prepare',
       rootId: 'root-alpha',
     });
+    const beta = (
+      await store.sourceCatalog({
+        embeddingSetId: null,
+        files: [kept],
+        operation: 'prepare',
+        rootId: 'root-beta',
+      })
+    ).files[0];
+    if (!beta) {
+      throw new Error('The other workspace source was not committed');
+    }
     await expect(
       store.workspaceRoots({
         operation: 'delete',
@@ -323,7 +335,7 @@ test('forgetting a captured root erases its sources and bytes, but refuses anoth
     ).rejects.toThrow();
     expect(
       (await store.sourceCatalog({ embeddingSetId: null, operation: 'inventory' })).files
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     await store.workspaceRoots({
       operation: 'delete',
       paths: ['/disposable/Alpha'],
@@ -333,9 +345,20 @@ test('forgetting a captured root erases its sources and bytes, but refuses anoth
       (await store.workspaceRoots({ operation: 'list' })).roots.map((root) => root.id)
     ).toEqual(['root-beta']);
     expect(
-      (await store.sourceCatalog({ embeddingSetId: null, operation: 'inventory' })).files
-    ).toEqual([]);
+      (await store.sourceCatalog({ embeddingSetId: null, operation: 'inventory' })).files.map(
+        (file) => file.fileId
+      )
+    ).toEqual([beta.fileId]);
     expect(existsSync(join(directory, BLOBS_DIR, original.contentHash))).toBe(false);
+    expect(
+      (
+        await store.sourceCatalog({
+          fileIds: [beta.fileId],
+          maxContentBytes: kept.stat.size,
+          operation: 'read',
+        })
+      ).files[0]
+    ).toMatchObject({ content: kept.content, rootId: 'root-beta' });
   } finally {
     await store.close();
     indexer.close();

@@ -2,25 +2,12 @@
 
 import { resolveNativeCanonicalProfile } from '@brainstrike/canonical-ingestion';
 import { describe, expect, it } from 'vitest';
-import { readNativeIndexSettings } from '../native-index-settings';
 import {
   desktopSetupRequired,
   NativeIndexSetupRequiredError,
 } from '../native-index-setup-required';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
-const saved = (changes: Record<string, unknown> = {}) =>
-  JSON.stringify({
-    state: {
-      enabled: true,
-      indexingPolicyPreset: 'balanced',
-      managedCollectionId: null,
-      nativeIndexMode: 'VECTOR',
-      nativeLocalSelection: null,
-      paused: false,
-      ...changes,
-    },
-  });
 const metadata = {
   dimensions: 384,
   distance: 'cosine',
@@ -33,28 +20,11 @@ const unused = async (): Promise<never> => {
 };
 
 describe('native index setup observation', () => {
-  it('distinguishes incomplete user choices from malformed settings and profiles', () => {
-    for (const value of [null, saved(), saved({ nativeIndexMode: null })]) {
-      expect(() => readNativeIndexSettings(value)).toThrow(NativeIndexSetupRequiredError);
-    }
+  it('distinguishes an incomplete profile choice from a malformed profile', () => {
     // Desktop's resolver and memory selection hand the shared profile desktop's refusal.
     expect(() =>
       resolveNativeCanonicalProfile(metadata, undefined, undefined, desktopSetupRequired)
     ).toThrow(NativeIndexSetupRequiredError);
-    for (const value of [
-      '{',
-      saved({ managedCollectionId: '' }),
-      saved({ enabled: 'true' }),
-      saved({ enabled: 'true', nativeIndexMode: null }),
-      JSON.stringify({ state: [] }),
-    ]) {
-      expect(() => readNativeIndexSettings(value)).toThrow();
-      try {
-        readNativeIndexSettings(value);
-      } catch (error) {
-        expect(error).not.toBeInstanceOf(NativeIndexSetupRequiredError);
-      }
-    }
     expect(() => resolveNativeCanonicalProfile({ ...metadata, dimensions: 0 })).not.toThrow(
       NativeIndexSetupRequiredError
     );

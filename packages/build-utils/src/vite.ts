@@ -71,21 +71,6 @@ export function isContextActionSystemModule(id: string): boolean {
 }
 
 /**
- * Pin the zero-dependency browser-events contract into its own chunk. It is
- * imported by five workspace packages, and letting rolldown fold it into a
- * reachability-based shared chunk created a circular chunk-init
- * ("L is not a function" at boot, blank startup shell) between the
- * preferences-store chunk and its store-factory helpers — the same class the
- * context-action-system group guards against (BST-580).
- */
-export function isBrowserEventsModule(id: string): boolean {
-  if (id.includes('node_modules')) {
-    return false;
-  }
-  return /[\\/]utils[\\/](?:src|dist)[\\/]browser-events/.test(id);
-}
-
-/**
  * Pin zustand itself into one vendor chunk. Rolldown's reachability splitting
  * can absorb zustand's module graph into whichever store chunk it meets
  * first; a sibling store chunk then imports `createWithEqualityFn` across a
@@ -160,8 +145,6 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
   '@shikijs/langs/yaml',
 ] as const;
 
-const DATABASE_OPTIMIZE_DEPS_INCLUDE = ['jszip', 'react-resizable-panels'] as const;
-
 /**
  * Third-party imports of workspace packages the app configs exclude from
  * dependency optimization. Vite's scan does not crawl an excluded package, so
@@ -199,6 +182,7 @@ const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
   '@brainstrike/ui > remark-math',
   '@brainstrike/ui > tailwind-merge',
   '@brainstrike/ui > yaml',
+  '@brainstrike/file-explorer-ui > react-resizable-panels',
   '@brainstrike/utils > @noble/hashes/sha2.js',
   '@brainstrike/utils > ignore',
   '@brainstrike/settings-ui > @tanstack/react-table',
@@ -216,7 +200,6 @@ const moduleDir =
 // for published/node_modules consumption without reworking the path contract.
 const appShellDir = path.resolve(moduleDir, '..', '..', 'app-shell', 'src');
 const assistantUiDir = path.resolve(moduleDir, '..', '..', 'assistant-ui', 'src');
-const dbExplorerDir = path.resolve(moduleDir, '..', '..', 'db-explorer', 'src');
 
 export function getAssistantOptimizeDepsInclude(): readonly string[] {
   return ASSISTANT_OPTIMIZE_DEPS_INCLUDE;
@@ -224,10 +207,6 @@ export function getAssistantOptimizeDepsInclude(): readonly string[] {
 
 export function getCoreAppOptimizeDepsInclude(): readonly string[] {
   return CORE_APP_OPTIMIZE_DEPS_INCLUDE;
-}
-
-export function getDatabaseOptimizeDepsInclude(): readonly string[] {
-  return DATABASE_OPTIMIZE_DEPS_INCLUDE;
 }
 
 export function getWorkspaceSourceOptimizeDepsInclude(): readonly string[] {
@@ -244,14 +223,10 @@ export function getLazySurfaceOptimizeDepsEntries(
 ): readonly string[] {
   const entries = [
     path.resolve(appRoot, 'index.html'),
-    path.resolve(appShellDir, 'database-panel.tsx'),
     path.resolve(appShellDir, 'assistant-chat-panel.tsx'),
     path.resolve(appShellDir, 'assistant-ui-panel-wrapper-lazy.tsx'),
-    path.resolve(appShellDir, 'database-tab.tsx'),
     path.resolve(assistantUiDir, 'assistant-ui-panel.tsx'),
     path.resolve(assistantUiDir, 'markdown-text.tsx'),
-    path.resolve(appShellDir, 'database-tab-chunk.tsx'),
-    path.resolve(dbExplorerDir, 'database-demo-panel.tsx'),
   ].map(toVitePath);
 
   for (const entry of entries) {

@@ -1,20 +1,18 @@
+import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type {
   NativeIndexAction,
   NativeIndexEvent,
   NativeIndexState,
 } from '../native-index-lifecycle';
 import { createNativeIndexLifecycle } from '../native-index-lifecycle-owner';
-import { readNativeIndexSettings } from '../native-index-settings';
 import { NativeIndexEventRefusedError } from '../native-index-workflow-errors';
+import { textSettings, vectorSettings } from './helpers/native-index-settings';
 
-// Recorded from Main's storage reads (BST-1988).
-const TEXT = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":null,"mode":"root-folder-cache","nativeIndexMode":"TEXT","nativeLocalSelection":null,"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
-const VECTOR = readNativeIndexSettings(
-  '{"state":{"enabled":true,"indexingPolicyPreset":"balanced","managedCollectionId":"3a48f02c-2c2a-4835-926d-59cbc286513a","mode":"root-folder-cache","nativeIndexMode":"VECTOR","nativeLocalSelection":{"device":"wasm","dimensions":384,"dtype":"q8","modelId":"Xenova/bge-small-en-v1.5"},"paused":false,"worktreeRootIndexingOptInById":{}},"version":6}'
-);
+const TEXT = textSettings();
+const VECTOR = vectorSettings();
 const ready: NativeIndexState = { generation: 1, kind: 'ready', settings: VECTOR };
 
 /** An executor whose opens report `opened` once they settle. */
@@ -99,6 +97,25 @@ it('a closed index refuses an event with its typed cause and performs nothing', 
     cause: { kind: 'closed', reason: 'shutdown' },
     event: 'settings-saved',
   });
+  expect(e.execute).not.toHaveBeenCalled();
+});
+
+it('a rebuild under Off is refused with the Off sentence and destroys nothing', async () => {
+  const e = executor();
+  const off = textSettings({ mode: 'off' });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await lifecycle.configure(() => Promise.resolve(off));
+  e.execute.mockClear();
+  const refused = await lifecycle
+    .rebuild(() => Promise.resolve(off))
+    .catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(NativeIndexRefusalError);
+  expect(refused).toMatchObject({ code: 'native-index-off' });
+  const log = vi.fn();
+  expect(describeBoundaryFailure(nativeIndexBoundaryFailure(refused, log))).toBe(
+    'Search is off. Turn it on in Settings, Search & Indexing.'
+  );
+  expect(log).not.toHaveBeenCalled();
   expect(e.execute).not.toHaveBeenCalled();
 });
 

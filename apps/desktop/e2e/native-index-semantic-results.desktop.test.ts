@@ -13,7 +13,6 @@ import {
 import {
   openWorkspaceSearchPanel,
   runWorkspaceSemanticSearch,
-  selectWorkspaceSearchCollection,
   waitForWorkspaceSemanticSearchResults,
 } from './utils/workspace-search-helpers';
 
@@ -82,7 +81,6 @@ test('@desktop-embedding-native-backfill semantic search renders results for a f
     });
 
   const panel = await openWorkspaceSearchPanel(page);
-  await selectWorkspaceSearchCollection(panel, 'Workspace Index (BGE Small)');
   await runWorkspaceSemanticSearch(panel, 'how do I keep my bread yeast culture healthy');
   const results = await waitForWorkspaceSemanticSearchResults(panel);
   expect(results.emptyState).toBe(false);

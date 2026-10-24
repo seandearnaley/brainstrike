@@ -1,30 +1,20 @@
 import { createSafeJsonStorageAdapter } from '@brainstrike/storage';
 import { TabPanelBoundary, Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { Database, LibraryBig, MessagesSquare } from 'lucide-react';
-import {
-  type ReactElement,
-  type ReactNode,
-  useCallback,
-  useRef,
-  useState,
-  useTransition,
-} from 'react';
-import { preloadDatabaseTab } from './database-tab';
+import { LibraryBig, MessagesSquare } from 'lucide-react';
+import { type ReactElement, type ReactNode, useCallback, useState, useTransition } from 'react';
 
 interface AgentSidebarPanelProps {
-  readonly databaseContent: ReactNode;
   readonly promptsContent: ReactNode | ((isActive: boolean) => ReactNode);
   readonly threadsContent: ReactNode;
 }
 
-type AgentSidebarTab = 'database' | 'prompts' | 'threads';
+type AgentSidebarTab = 'prompts' | 'threads';
 
-const AGENT_SIDEBAR_TAB_STORAGE_KEY = 'brainstrike.agent-sidebar-tab.v1';
-const LEGACY_TOOLS_PANEL_STORAGE_KEY = 'tools-panel.v1';
+const AGENT_SIDEBAR_TAB_STORAGE_KEY = 'brainstrike.agent-sidebar-tab.v2';
 const agentSidebarTabStorage = createSafeJsonStorageAdapter();
 
 function isAgentSidebarTab(value: string): value is AgentSidebarTab {
-  return value === 'threads' || value === 'database' || value === 'prompts';
+  return value === 'threads' || value === 'prompts';
 }
 
 function readStoredAgentSidebarTab(key: string): AgentSidebarTab | null {
@@ -41,33 +31,8 @@ function readStoredAgentSidebarTab(key: string): AgentSidebarTab | null {
   }
 }
 
-function migrateLegacyToolsPanelTab(): AgentSidebarTab | null {
-  const raw = agentSidebarTabStorage.getItem(LEGACY_TOOLS_PANEL_STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as { state?: { activeTab?: unknown } };
-    const legacyTab = parsed.state?.activeTab;
-    const migratedTab: AgentSidebarTab = legacyTab === 'database' ? 'database' : 'threads';
-    agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(migratedTab));
-    return migratedTab;
-  } catch {
-    return null;
-  } finally {
-    // Legacy migration is intentionally one-shot. Even malformed old state is removed so the
-    // sidebar can recover to the default tab instead of re-parsing bad data on every mount.
-    agentSidebarTabStorage.removeItem(LEGACY_TOOLS_PANEL_STORAGE_KEY);
-  }
-}
-
 function readInitialAgentSidebarTab(): AgentSidebarTab {
-  return (
-    readStoredAgentSidebarTab(AGENT_SIDEBAR_TAB_STORAGE_KEY) ??
-    migrateLegacyToolsPanelTab() ??
-    'threads'
-  );
+  return readStoredAgentSidebarTab(AGENT_SIDEBAR_TAB_STORAGE_KEY) ?? 'threads';
 }
 
 /**
@@ -94,42 +59,23 @@ function PromptsTabContent({
  */
 export function AgentSidebarPanel({
   threadsContent,
-  databaseContent,
   promptsContent,
 }: AgentSidebarPanelProps): ReactElement {
   const [activeTab, setActiveTab] = useState<AgentSidebarTab>(() => readInitialAgentSidebarTab());
   const [requestedTab, setRequestedTab] = useState<AgentSidebarTab | null>(null);
   const [isSwitching, startSwitch] = useTransition();
-  const hasPrefetchedDatabaseTabRef = useRef(false);
 
-  const requestDatabaseTabPrefetch = useCallback(() => {
-    if (hasPrefetchedDatabaseTabRef.current) {
+  const handleValueChange = useCallback((nextValue: string) => {
+    if (!isAgentSidebarTab(nextValue)) {
       return;
     }
-    hasPrefetchedDatabaseTabRef.current = true;
-    void preloadDatabaseTab().catch(() => {
-      hasPrefetchedDatabaseTabRef.current = false;
+
+    agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(nextValue));
+    setRequestedTab(nextValue);
+    startSwitch(() => {
+      setActiveTab(nextValue);
     });
   }, []);
-
-  const handleValueChange = useCallback(
-    (nextValue: string) => {
-      if (!isAgentSidebarTab(nextValue)) {
-        return;
-      }
-
-      agentSidebarTabStorage.setItem(AGENT_SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(nextValue));
-      if (nextValue === 'database') {
-        requestDatabaseTabPrefetch();
-      }
-
-      setRequestedTab(nextValue);
-      startSwitch(() => {
-        setActiveTab(nextValue);
-      });
-    },
-    [requestDatabaseTabPrefetch]
-  );
 
   const pendingMark = (tab: AgentSidebarTab): '' | undefined =>
     isSwitching && requestedTab === tab ? '' : undefined;
@@ -144,7 +90,7 @@ export function AgentSidebarPanel({
       <div className="@container/library-tabs flex h-9 shrink-0 items-center border-border border-b px-2">
         <TabsList
           aria-label="Library tabs"
-          className="grid w-full grid-cols-3"
+          className="grid w-full grid-cols-2"
           data-testid="agent-sidebar-tabs"
           size="sm"
         >
@@ -155,16 +101,6 @@ export function AgentSidebarPanel({
           >
             <MessagesSquare className="@max-[300px]/library-tabs:hidden size-3.5" />
             <span className="truncate">Threads</span>
-          </TabsTrigger>
-          <TabsTrigger
-            data-pending={pendingMark('database')}
-            data-testid="database-tab-trigger"
-            onFocus={requestDatabaseTabPrefetch}
-            onPointerEnter={requestDatabaseTabPrefetch}
-            value="database"
-          >
-            <Database className="@max-[300px]/library-tabs:hidden size-3.5" />
-            <span className="truncate">Collections</span>
           </TabsTrigger>
           <TabsTrigger
             data-pending={pendingMark('prompts')}
@@ -196,15 +132,6 @@ export function AgentSidebarPanel({
         <TabPanelBoundary label="Prompts">
           <PromptsTabContent isActive={activeTab === 'prompts'} promptsContent={promptsContent} />
         </TabPanelBoundary>
-      </TabsContent>
-
-      <TabsContent
-        className="min-h-0 flex-1 overflow-hidden"
-        data-testid="database-tab-content"
-        keepMounted
-        value="database"
-      >
-        <TabPanelBoundary label="Collections">{databaseContent}</TabPanelBoundary>
       </TabsContent>
     </Tabs>
   );

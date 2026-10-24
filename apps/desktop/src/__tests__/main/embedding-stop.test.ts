@@ -1,37 +1,25 @@
+import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
-  applicationDomainCapture,
   installMainBootFixture,
   nativeActualPrepareForPause,
   nativePrepareForPause,
   nativeReconfigureForReset,
   publicEmbeddingStop,
+  requireIndexConfig,
 } from './boot-order-fixture';
 
 describe('Main public embedding Stop', () => {
   installMainBootFixture();
   it.each([
-    null,
-    JSON.stringify({
-      state: {
-        enabled: false,
-        indexingPolicyPreset: 'balanced',
-        managedCollectionId: null,
-        nativeIndexMode: null,
-        nativeLocalSelection: null,
-        paused: false,
-        worktreeRootIndexingOptInById: {},
-      },
-    }),
-  ])('joins public host Stop before native search is configured (%s)', async (saved) => {
-    const { ElectronStorageAdapter } = await import('@brainstrike/storage/electron');
-    const storage = vi.spyOn(ElectronStorageAdapter.prototype, 'getItem').mockResolvedValue(saved);
+    { label: 'a fresh profile', saved: null },
+    { label: 'indexing off', saved: { ...DEFAULT_INDEX_CONFIG, mode: 'off' as const } },
+  ])('joins public host Stop when no Pause is saved ($label)', async ({ saved }) => {
     const { EmbeddingHostManager } = await import('../../embedding-host-manager');
     const physical =
       Promise.withResolvers<import('../../embedding-host-shared').EmbeddingHostStatus>();
     const stop = vi.spyOn(EmbeddingHostManager.prototype, 'stop').mockReturnValue(physical.promise);
     onTestFinished(() => {
-      storage.mockRestore();
       stop.mockRestore();
       physical.resolve({
         active: false,
@@ -45,6 +33,8 @@ describe('Main public embedding Stop', () => {
     if (!(nativeActualPrepareForPause.current && publicEmbeddingStop.current)) {
       throw new Error('Main stop composition missing');
     }
+    // The host's saved config, as Main's catalog borrow reads it.
+    vi.spyOn(requireIndexConfig().catalog, 'indexConfig').mockResolvedValue({ config: saved });
     nativePrepareForPause.mockImplementation(nativeActualPrepareForPause.current);
     stop.mockClear();
     let settled = false;
@@ -66,38 +56,6 @@ describe('Main public embedding Stop', () => {
       state: 'stopped',
     });
     await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
-  });
-
-  it('preserves an actual saved Pause setup refusal after native cleanup', async () => {
-    const { ElectronStorageAdapter } = await import('@brainstrike/storage/electron');
-    const storage = vi.spyOn(ElectronStorageAdapter.prototype, 'getItem').mockResolvedValue(
-      JSON.stringify({
-        state: {
-          enabled: true,
-          indexingPolicyPreset: 'balanced',
-          managedCollectionId: null,
-          nativeIndexMode: null,
-          paused: true,
-        },
-      })
-    );
-    const { EmbeddingHostManager } = await import('../../embedding-host-manager');
-    const stop = vi.spyOn(EmbeddingHostManager.prototype, 'stop');
-    onTestFinished(() => {
-      storage.mockRestore();
-      stop.mockRestore();
-    });
-    await import('../../main');
-    if (!(nativeActualPrepareForPause.current && publicEmbeddingStop.current)) {
-      throw new Error('Main stop composition missing');
-    }
-    nativePrepareForPause.mockImplementation(nativeActualPrepareForPause.current);
-    stop.mockClear();
-    await expect(publicEmbeddingStop.current()).rejects.toMatchObject({
-      code: 'native-index-setup-required',
-    });
-    // Actual invalid-settings retirement may stop its inference dependency.
-    // That cleanup must not turn the public command's refusal into success.
   });
 
   it.each(['none', 'native', 'host', 'both'] as const)(
@@ -125,8 +83,8 @@ describe('Main public embedding Stop', () => {
         });
       });
       await import('../../main');
-      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
-      applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+      // The same trigger Main's config owner uses once a change is saved.
+      await requireIndexConfig().reconfigure();
       await entered.promise;
       const complete = vi.fn(async () => physical.promise);
       nativePrepareForPause.mockImplementation(async () => ({
@@ -201,8 +159,8 @@ describe('Main public embedding Stop', () => {
       stop.mockRestore();
     });
     await import('../../main');
-    const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
-    applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+    // The same trigger Main's config owner uses once a change is saved.
+    await requireIndexConfig().reconfigure();
     await entered.promise;
     const publicStop = publicEmbeddingStop.current;
     if (!publicStop) {

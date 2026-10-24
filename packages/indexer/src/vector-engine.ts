@@ -27,12 +27,10 @@ export interface CoarseQuery {
  * The derived store's coarse vector search: each vector's sign code (one bit
  * per dimension) in a code table, the k nearest codes by Hamming distance as
  * candidates, then exact rescoring in SQL with `vec_distance_*` over the
- * stored float32 vectors. Desktop runs it on sqlite-vec's `vec0` tables; the
- * browser, which cannot load sqlite-vec into the official sqlite-wasm build,
- * on ordinary tables scanned in JavaScript (BST-1940).
+ * stored float32 vectors. Desktop runs it on sqlite-vec's `vec0` tables.
  *
  * Every other use of a code table (inserts through `vec_quantize_binary`,
- * deletes, joins and counts) is plain SQL on both.
+ * deletes, joins and counts) is plain SQL.
  */
 export interface CoarseVectorEngine {
   /**

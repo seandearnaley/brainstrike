@@ -1,9 +1,9 @@
+import type { PromptEmbeddingProfile } from '@brainstrike/types/prompt-item';
+import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
 import {
   type buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
-} from '@brainstrike/db-explorer/embedding-models';
-import type { PromptEmbeddingProfile } from '@brainstrike/types/prompt-item';
-import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
+} from './embedding-models';
 
 /**
  * Shared shape of the singleton embedding-profile rows (prompt library 051,

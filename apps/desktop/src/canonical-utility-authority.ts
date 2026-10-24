@@ -57,7 +57,8 @@ export interface Session {
   readonly lease: CanonicalWorkspaceLease | undefined;
   readonly pending: Map<number, { controller: AbortController; settled: Promise<void> }>;
   readonly publication: CanonicalPublicationPort;
-  stopping: boolean;
+  /** Main's retirement of this attachment: stop() aborts it with Main's typed reason. */
+  readonly retirement: AbortController;
   subscription?: CanonicalSourceSubscription | undefined;
   subscriptionAcquired: boolean;
   readonly transportErrors: Set<unknown>;
@@ -211,8 +212,8 @@ export function capturedAuthority(
     }
   };
   const ownedLease = (): NonNullable<typeof lease> => {
-    if (!lease || (lease.signal.aborted && !cleanup)) {
-      throw new Error('Canonical request has no live mounted lease.');
+    if (!lease) {
+      throw new Error('Canonical request has no mounted lease.');
     }
     return lease;
   };

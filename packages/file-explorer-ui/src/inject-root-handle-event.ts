@@ -10,7 +10,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
  * `useFileSystem`. It dispatches this CustomEvent instead; `useFileSystemInstance`
  * listens and routes the handle through the same reducer path a real "set root"
  * uses. Mirrors the codebase's existing custom-event idiom
- * (`brainstrike:file-explorer-refreshed`, `:queue-drained`).
+ * (`brainstrike:file-explorer-refreshed`).
  */
 export const INJECT_ROOT_HANDLE_EVENT = 'brainstrike:inject-root-handle' as const;
 

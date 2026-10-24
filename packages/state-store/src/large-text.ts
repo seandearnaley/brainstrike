@@ -1,6 +1,5 @@
 /**
- * M0-A2 Host.toBody's rule for a large text, with no Node module: desktop's
- * writer and the browser's (BST-1940) spool a text the same way.
+ * M0-A2 Host.toBody's rule for a large text, with no Node module.
  */
 import { sha256Hex } from '@brainstrike/utils/crypto';
 import { utf8ByteLength } from '@brainstrike/utils/utf8';

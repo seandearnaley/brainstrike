@@ -179,11 +179,9 @@ vi.mock('../thread-workspace/thread-workspace-coordinator', () => ({
 vi.mock('../agent-sidebar-panel', () => ({
   AgentSidebarPanel: ({
     threadsContent,
-    databaseContent,
     promptsContent,
   }: {
     threadsContent: React.ReactNode;
-    databaseContent: React.ReactNode;
     promptsContent: React.ReactNode | ((isActive: boolean) => React.ReactNode);
   }) => {
     const [promptsActive, setPromptsActive] = useState(false);
@@ -193,7 +191,6 @@ vi.mock('../agent-sidebar-panel', () => ({
           Select Prompts tab
         </button>
         <div data-testid="threads-tab-content">{threadsContent}</div>
-        <div data-testid="database-tab-content">{databaseContent}</div>
         <div data-testid="prompts-tab-content">
           {typeof promptsContent === 'function' ? promptsContent(promptsActive) : promptsContent}
         </div>
@@ -218,10 +215,6 @@ vi.mock('../connected-prompt-manager-lazy', () => ({
 
 vi.mock('../threads-panel', () => ({
   ThreadsPanel: () => <div data-testid="threads-shell" />,
-}));
-
-vi.mock('../database-panel', () => ({
-  DatabasePanel: () => <div data-testid="database-panel" />,
 }));
 
 // The root, app layout, shared filesystem instance and deletion context remain real.

@@ -139,12 +139,19 @@ describe('saved canonical profile identity', () => {
     }
   );
 
-  it.each([undefined, { ...selection, device: undefined }, { ...selection, dtype: undefined }])(
-    'refuses missing or unverified local pins %#',
-    (saved) => {
-      expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(/explicit|execution/);
-    }
-  );
+  const unverifiedPins =
+    'Catalog embedding execution requires exact model, dimensions, device, dtype and a valid optional revision.';
+  it.each([
+    [
+      'no local selection',
+      undefined,
+      'In Settings, Search & Indexing, choose a setting for Run it on.',
+    ],
+    ['no device', { ...selection, device: undefined }, unverifiedPins],
+    ['no dtype', { ...selection, dtype: undefined }, unverifiedPins],
+  ])('refuses missing or unverified local pins: %s', (_case, saved, message) => {
+    expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(message);
+  });
 
   it('preserves existing Jina model dimensions without fabricated pins', () => {
     const saved = {
@@ -498,7 +505,7 @@ describe('canonical inference ownership', () => {
     await expect(f.inference.close()).resolves.toBeUndefined();
   });
 
-  it('preserves failed cancellation through physical join then retires the settled request', async () => {
+  it('settles cancel and joins once a cancelled request ends, which only generate reports', async () => {
     const f = fixture();
     const admitted = deferred<void>();
     const held = deferred<number[][]>();
@@ -511,25 +518,26 @@ describe('canonical inference ownership', () => {
     const rejected = expect(generated).rejects.toBe(failure);
     await admitted.promise;
     const canceled = f.inference.cancel('request');
-    const cancelRejected = expect(canceled).rejects.toBe(failure);
     const joined = f.inference.join('request');
     const concurrentJoin = f.inference.join('request');
-    const joinRejected = expect(joined).rejects.toBe(failure);
-    const concurrentRejected = expect(concurrentJoin).rejects.toBe(failure);
     const retired = vi.fn();
     joined.then(retired, retired);
     await Promise.resolve();
     expect(retired).not.toHaveBeenCalled();
     held.reject(failure);
-    await Promise.all([rejected, cancelRejected, joinRejected, concurrentRejected]);
+    await rejected;
+    await expect(Promise.all([canceled, joined, concurrentJoin])).resolves.toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
     expect(retired).toHaveBeenCalledOnce();
-    // The original failure reached generate, cancel and both joins; no physical request
-    // remains to block a later explicit cleanup. Its ID still cannot be replayed.
+    // No physical request remains to block a later close. Its ID still cannot be replayed.
     await expect(f.inference.generate(request())).rejects.toThrow(/already/);
     await expect(f.inference.close()).resolves.toBeUndefined();
   });
 
-  it('close joins failed cancellation before consuming ownership and preserves its original cause', async () => {
+  it('closes once a request it cancelled settles, which only generate reports', async () => {
     const f = fixture();
     const admitted = deferred<AbortSignal>();
     const physical = deferred<number[][]>();
@@ -542,7 +550,6 @@ describe('canonical inference ownership', () => {
     const generatedFailure = expect(generated).rejects.toBe(failure);
     const signal = await admitted.promise;
     const closed = f.inference.close();
-    const closeFailure = closed.catch((error: unknown) => error);
     const retired = vi.fn();
     closed.then(retired, retired);
     expect(signal.aborted).toBe(true);
@@ -550,15 +557,8 @@ describe('canonical inference ownership', () => {
     expect(retired).not.toHaveBeenCalled();
     physical.reject(failure);
     await generatedFailure;
-    const error = await closeFailure;
-    expect(error).toBeInstanceOf(AggregateError);
-    if (!(error instanceof AggregateError)) {
-      throw new Error('Expected the physical retirement failure.');
-    }
-    expect(error.errors).toHaveLength(1);
-    expect(error.errors[0]).toBe(failure);
+    await expect(closed).resolves.toBeUndefined();
     expect(retired).toHaveBeenCalledOnce();
-    await expect(f.inference.close()).resolves.toBeUndefined();
   });
 
   it('does not let stale cancellation affect a different request', async () => {

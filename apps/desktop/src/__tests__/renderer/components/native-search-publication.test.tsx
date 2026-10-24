@@ -1,42 +1,58 @@
 // @vitest-environment jsdom
+import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
+import {
+  DEFAULT_INDEX_CONFIG,
+  type IndexConfig,
+} from '@brainstrike/assistant-contract/index-config';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/core';
 import { act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const preferences = vi.hoisted(() => ({
-  managedCollectionId: 'collection-a',
-  nativeIndexMode: 'VECTOR',
-  nativeLocalSelection: {
-    device: 'webgpu',
-    dimensions: 384,
-    dtype: 'fp16',
-    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-    revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  },
-}));
-vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', () => ({
-  useBackgroundIndexingPreferencesStore: Object.assign(
-    (selector: (state: typeof preferences) => unknown) => selector(preferences),
-    { getState: () => preferences }
-  ),
-}));
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   useIdeFileEditor: () => ({ openFileInTab: vi.fn(), registerOpenFileInTab: vi.fn() }),
 }));
+// The Search tab lives under the Explorer, whose store names each open folder.
+vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/file-explorer-ui/shell')>()),
+  useFileExplorerStoreSelector: <T,>(selector: (state: { rootDescriptors: object }) => T): T =>
+    selector({ rootDescriptors: {} }),
+}));
 
 import { mountNativeSearchController } from './native-search-controller-fixture';
 
-const profile = {
+const MODEL_ID = 'onnx-community/all-MiniLM-L6-v2-ONNX';
+const REVISION = 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f';
+/** Main's saved semantic search: the exact local execution the query plan must match. */
+const SAVED_SEMANTIC: IndexConfig = {
+  ...DEFAULT_INDEX_CONFIG,
+  mode: 'semantic',
+  model: {
+    dimensions: 384,
+    local: { device: 'webgpu', dtype: 'fp16', revision: REVISION },
+    modelKey: `local::${MODEL_ID}`,
+  },
+};
+
+const execution = {
   dimensions: 384,
   dtype: 'fp16' as const,
-  modelId: preferences.nativeLocalSelection.modelId,
-  revision: preferences.nativeLocalSelection.revision,
-  tokenCap: 256,
+  modelId: MODEL_ID,
+  revision: REVISION,
 };
+/**
+ * The index's profile as Main reports a local model: the saved key's provider, the collection's
+ * distance and the execution's pins. Main's catalog facts carry no context window, so no token cap.
+ */
+const profile = {
+  ...execution,
+  distance: 'cosine' as const,
+  provider: 'local' as const,
+};
+/** Main's query plan names the collection's model key verbatim. */
 const queryPlan = {
-  inferencePlan: { ...profile, device: 'webgpu' as const, dimensions: 384 as const },
-  modelKey: 'native:query-fixture',
+  inferencePlan: { ...execution, device: 'webgpu' as const },
+  modelKey: `local::${MODEL_ID}`,
 };
 const ready = {
   authorizedCollectionIds: ['collection-a'],
@@ -44,7 +60,7 @@ const ready = {
   embedding: {
     indexMode: 'vector-configured' as const,
     profile,
-    profileHash: '60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914',
+    profileHash: '654bee3466feeb474f0f1827badb57d458a679001b339ef3ab959eadbd2b6443',
   },
   kind: 'ready' as const,
   queryPlan,
@@ -55,6 +71,10 @@ const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<number[]>>();
 const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
 
 beforeEach(() => {
+  useIndexConfigStore.setState({
+    state: { config: SAVED_SEMANTIC, kind: 'ready' },
+    update: vi.fn(),
+  });
   queryEmbedding.mockReset();
   cancelQueryEmbedding.mockReset();
   Object.defineProperty(window, 'embeddingHost', {
@@ -199,58 +219,48 @@ describe('native source publication handoff', () => {
     }
   );
 
-  it.each(['root', 'collection'] as const)(
-    'waits for the selected %s source, not unrelated completion',
-    async (scope) => {
-      vi.useFakeTimers();
-      const mounted = mountController();
-      const incomplete = {
+  it('waits for the selected root source, not unrelated completion', async () => {
+    vi.useFakeTimers();
+    const mounted = mountController();
+    const incomplete = {
+      ...ready,
+      collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: false }],
+      rootReadiness: [{ rootId: 'root-a', scanComplete: false }],
+    };
+    try {
+      await vi.waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      mounted.refresh(incomplete);
+      mounted.response.sourceComplete = false;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      act(() => {
+        const store = useWorkspaceSearchStore.getState();
+        store.setQuery('notarize');
+        mounted.result.current.controller.runTextSearch();
+      });
+      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      mounted.refresh({
+        ...incomplete,
+        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000);
+      });
+      expect(mounted.capability.grep).toHaveBeenCalledOnce();
+      mounted.refresh({
         ...ready,
-        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: false }],
-        rootReadiness: [{ rootId: 'root-a', scanComplete: false }],
-      };
-      try {
-        await vi.waitFor(() =>
-          expect(mounted.result.current.dependencies?.profile).toEqual(profile)
-        );
-        mounted.refresh(incomplete);
-        mounted.response.sourceComplete = false;
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
-        act(() => {
-          const store = useWorkspaceSearchStore.getState();
-          if (scope === 'collection') {
-            store.setCollectionId('collection-a');
-          }
-          store.setQuery('notarize');
-          mounted.result.current.controller.runTextSearch();
-        });
-        await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
-        mounted.refresh({
-          ...incomplete,
-          ...(scope === 'root'
-            ? { collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }] }
-            : { rootReadiness: [{ rootId: 'root-a', scanComplete: true }] }),
-        });
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(4000);
-        });
-        expect(mounted.capability.grep).toHaveBeenCalledOnce();
-        mounted.refresh({
-          ...ready,
-          collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
-        });
-        mounted.response.sourceComplete = true;
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(2000);
-        });
-        await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
-      } finally {
-        mounted.unmount();
-      }
+        collectionReadiness: [{ embeddingSetId: 'collection-a', scanComplete: true }],
+      });
+      mounted.response.sourceComplete = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
+    } finally {
+      mounted.unmount();
     }
-  );
+  });
 
   it('does not rerun bounded results whose source is complete', async () => {
     vi.useFakeTimers();

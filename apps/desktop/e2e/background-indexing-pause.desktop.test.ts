@@ -1,14 +1,7 @@
 import { waitForPopupAnimations } from '@brainstrike/e2e-test-utils/popup-animations';
-import type { Locator, Page } from 'playwright';
+import type { Locator } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
-
-const BACKGROUND_INDEXING_PREFERENCES_KEY = 'background-indexing-preferences.v1' as const;
-
-interface PersistedBackgroundIndexingPreferences {
-  readonly managedCollectionId: string | null;
-  readonly nativeIndexMode: string | null;
-  readonly paused: boolean;
-}
+import { readIndexConfig } from './utils/index-config';
 
 async function requireBoundingBox(locator: Locator) {
   const box = await locator.boundingBox();
@@ -28,61 +21,11 @@ function expectStableRect(
   expect(Math.abs(after.height - before.height)).toBeLessThanOrEqual(1);
 }
 
-async function readBackgroundIndexingPreferences(
-  page: Page
-): Promise<PersistedBackgroundIndexingPreferences | null> {
-  const raw = await page.evaluate(async (key) => {
-    const api = (
-      window as Window & {
-        electronAPI?: {
-          storage?: {
-            getItem?: (storageKey: string) => Promise<string | null>;
-          };
-        };
-      }
-    ).electronAPI;
-    if (!api?.storage?.getItem) {
-      throw new Error('Desktop storage bridge is unavailable.');
-    }
-    return await api.storage.getItem(key);
-  }, BACKGROUND_INDEXING_PREFERENCES_KEY);
-  if (!raw) {
-    return null;
-  }
-  const parsed = JSON.parse(raw) as { state?: Partial<PersistedBackgroundIndexingPreferences> };
-  return {
-    managedCollectionId: parsed.state?.managedCollectionId ?? null,
-    nativeIndexMode: parsed.state?.nativeIndexMode ?? null,
-    paused: parsed.state?.paused === true,
-  };
-}
-
 test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
-  test('pause and resume an explicitly configured TEXT collection from settings', async ({
+  test('pause and resume a fresh profile Text index from settings', async ({
     homePage,
     window,
   }) => {
-    const collectionId = await window.evaluate(async () => {
-      if (!globalThis.window.collectionCatalog) {
-        throw new Error('Desktop collection catalog is unavailable');
-      }
-      return (
-        await globalThis.window.collectionCatalog
-          .create({
-            dimensions: 384,
-            distance: 'cosine',
-            metadata: { name: 'Pause control collection' },
-            modelId: 'Xenova/all-MiniLM-L6-v2',
-            modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-          })
-          .then((result) => {
-            if (!result.ok) {
-              throw new Error(result.error.message);
-            }
-            return result.value;
-          })
-      ).id;
-    });
     await homePage.openSettings();
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
 
@@ -93,18 +36,12 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
 
     const settingsPanel = window.getByTestId('settings-category-search-indexing');
     await expect(settingsPanel).toBeVisible();
-    await expect(window.getByRole('switch', { name: 'Workspace Index' })).toBeChecked({
-      timeout: 15_000,
-    });
-    const managedCollection = window.getByRole('combobox', { name: 'Managed collection' });
-    await expect(managedCollection).toContainText('No managed collection', { timeout: 15_000 });
-    await managedCollection.click();
-    await window.getByRole('option', { exact: true, name: 'Pause control collection' }).click();
-    await window.getByRole('combobox', { name: 'Search mode' }).click();
-    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
-    await expect
-      .poll(() => readBackgroundIndexingPreferences(window), { timeout: 15_000 })
-      .toMatchObject({ managedCollectionId: collectionId, nativeIndexMode: 'TEXT', paused: false });
+    await expect(
+      settingsPanel
+        .getByRole('group', { name: 'Search mode' })
+        .getByRole('button', { name: /^Text/ })
+    ).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
+    expect(await readIndexConfig(window)).toMatchObject({ mode: 'text', paused: false });
 
     const indexingTrigger = window.getByTestId('indexing-status-trigger');
     const statusBarRight = window.getByTestId('status-bar-right');
@@ -113,19 +50,19 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(indexingTrigger).toContainText('Ready', { timeout: 15_000 });
     const triggerBeforePause = await requireBoundingBox(indexingTrigger);
 
-    const pauseButton = settingsPanel.getByRole('button', { name: 'Pause workspace index' });
+    const pauseButton = settingsPanel.getByRole('button', { name: 'Pause indexing' });
     await expect(pauseButton).toBeVisible({ timeout: 15_000 });
     await pauseButton.focus();
     await window.keyboard.press('Enter');
 
-    const resumeButton = settingsPanel.getByRole('button', { name: 'Resume workspace index' });
+    const resumeButton = settingsPanel.getByRole('button', { name: 'Resume indexing' });
     await expect(resumeButton).toBeVisible({ timeout: 15_000 });
     await expect(indexingTrigger).toContainText('Paused', { timeout: 15_000 });
     expectStableRect(triggerBeforePause, await requireBoundingBox(indexingTrigger));
 
     await expect
-      .poll(async () => await readBackgroundIndexingPreferences(window), {
-        message: 'Expected activating Pause workspace index to persist paused=true.',
+      .poll(async () => await readIndexConfig(window), {
+        message: 'Expected activating Pause indexing to save paused=true.',
         timeout: 15_000,
       })
       .toMatchObject({ paused: true });
@@ -134,13 +71,13 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await window.keyboard.press('Enter');
 
     await expect
-      .poll(async () => await readBackgroundIndexingPreferences(window), {
-        message: 'Expected activating Resume workspace index to persist paused=false.',
+      .poll(async () => await readIndexConfig(window), {
+        message: 'Expected activating Resume indexing to save paused=false.',
         timeout: 15_000,
       })
       .toMatchObject({ paused: false });
 
-    await expect(settingsPanel.getByRole('button', { name: 'Pause workspace index' })).toBeVisible({
+    await expect(settingsPanel.getByRole('button', { name: 'Pause indexing' })).toBeVisible({
       timeout: 15_000,
     });
     await expect(indexingTrigger).not.toContainText('Paused', { timeout: 15_000 });
@@ -156,7 +93,7 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await waitForPopupAnimations(indexingPopover);
     const popoverBeforeDiagnostics = await requireBoundingBox(indexingPopover);
 
-    // An explicitly selected empty native collection is ready and pausable.
+    // The fresh profile's Text index is ready and pausable.
     await expect(indexingTrigger).toContainText('Ready');
     await expect(
       indexingPopover.getByRole('button', { name: 'Pause workspace index' })

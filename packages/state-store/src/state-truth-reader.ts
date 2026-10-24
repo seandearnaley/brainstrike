@@ -1,11 +1,11 @@
 // The run log's read-only truth reader (M0-A2 src/sqlite-log.ts SqliteReader), over a connection its caller owns: the
-// desktop indexer's own read-only connection (`SqliteReader`), or the browser writer's state DB connection. Damage is
-// reported as explicit gaps, never a silent skip.
+// desktop indexer's own read-only connection (`SqliteReader`). Damage is reported as explicit gaps, never a silent
+// skip.
 import type Database from 'better-sqlite3';
 import { isCorrupt } from './run-log.mjs';
 import { verified } from './run-log-format.mjs';
 
-/** The connection subset the reader uses: better-sqlite3's, or the browser writer's adapter of it. */
+/** The connection subset the reader uses: better-sqlite3's. */
 export type TruthConnection = Pick<Database.Database, 'prepare' | 'transaction'>;
 
 /** What a reader yields: a verified record, or an explicit gap where records could not be verified. */

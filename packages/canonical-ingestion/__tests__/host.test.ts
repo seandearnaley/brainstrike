@@ -548,7 +548,7 @@ describe('utility canonical retained-source ingestion', () => {
     expect(f.publication.commitTextFile).not.toHaveBeenCalled();
   });
 
-  it('preserves a physical publication failure when cancellation races it', async () => {
+  it('settles a cancellation once the scan it cancelled ends, which reports its own failure', async () => {
     const f = await fixture();
     const admitted = deferred();
     const release = deferred();
@@ -561,11 +561,15 @@ describe('utility canonical retained-source ingestion', () => {
     const scan = f.host.scan(f.request);
     const rejection = expect(scan).rejects.toBe(failure);
     await admitted.promise;
-    const cancel = f.host.cancel(f.request.requestId);
-    const cancelRejection = expect(cancel).rejects.toBe(failure);
+    let cancelled = false;
+    const cancel = f.host.cancel(f.request.requestId).then(() => {
+      cancelled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(cancelled).toBe(false);
     release.resolve();
     await rejection;
-    await cancelRejection;
+    await expect(cancel).resolves.toBeUndefined();
   });
 
   it('drains yielding finally cleanup before releasing cancellation without publishing cleanup batches', async () => {
@@ -615,7 +619,7 @@ describe('utility canonical retained-source ingestion', () => {
     expect(f.publication.commitTextFile).not.toHaveBeenCalled();
   });
 
-  it('preserves primary and yielding-cleanup failures when cancellation arrives during retirement', async () => {
+  it('reports primary and yielding-cleanup failures to the scan when cancellation arrives during retirement', async () => {
     const f = await fixture();
     const primary = new Error('Original read failed');
     const cleanup = new Error('Physical source retirement failed');
@@ -649,7 +653,7 @@ describe('utility canonical retained-source ingestion', () => {
     );
     retired.reject(cleanup);
     expect(await outcome).toMatchObject({ errors: [primary, cleanup] });
-    expect(await cancelOutcome).toMatchObject({ errors: [primary, cleanup] });
+    expect(await cancelOutcome).toBeUndefined();
     expect(f.publication.removeFile).not.toHaveBeenCalled();
     await expect(f.host.scan({ ...f.request, requestId: 'scan-2' })).rejects.toThrow('owned');
     await f.host.close();
@@ -664,6 +668,26 @@ describe('utility canonical retained-source ingestion', () => {
     expect(f.source.read).not.toHaveBeenCalled();
     expect(f.catalog.applyManagedCacheBatch).not.toHaveBeenCalled();
     expect(f.publication.commitTextFile).not.toHaveBeenCalled();
+  });
+
+  it('retires a scan whose abort notice failed, which the scan alone reports', async () => {
+    const f = await fixture();
+    const admitted = deferred();
+    const commit = deferred();
+    vi.mocked(f.publication.commitTextFile).mockImplementation(async () => {
+      admitted.resolve();
+      await commit.promise;
+    });
+    const refused = new Error('Canonical publication ticket is stale or belongs to another store.');
+    vi.mocked(f.publication.abortScan).mockRejectedValue(refused);
+    const scan = f.host.scan(f.request).catch((error: unknown) => error);
+    await admitted.promise;
+    const retirement = f.host.close();
+    commit.resolve();
+    await expect(retirement).resolves.toBeUndefined();
+    expect(await scan).toMatchObject({ errors: [expect.anything(), refused] });
+    expect(f.publication.abortScan).toHaveBeenCalledOnce();
+    expect(f.source.close).toHaveBeenCalledOnce();
   });
 
   it('keeps admission closed after failed source retirement and permits explicit cleanup retry', async () => {

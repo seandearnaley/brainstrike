@@ -167,7 +167,7 @@ export const useNativeToolPreferencesStore = create<NativeToolPreferencesStore>(
        * `state === undefined`, which then returns early), so retired tool ids
        * persisted at the CURRENT version were never dropped: `migrate` only
        * runs on a version mismatch. Same bug as #2086; see
-       * `import-settings-store.ts`.
+       * `token-preferences-store.ts`.
        */
       merge: createSanitizedPersistMerge<NativeToolPreferencesStore, NativeToolPreferencesData>(
         (persistedState) => ({
