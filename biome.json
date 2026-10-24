@@ -5,6 +5,9 @@
     "ultracite/biome/react",
     "./biome.base.json"
   ],
+  "plugins": [
+    "node_modules/@jacobwolf/biome-unnecessary-effect/grit/react-effects.grit"
+  ],
   "linter": {
     "rules": {
       "nursery": {

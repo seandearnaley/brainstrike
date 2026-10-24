@@ -29,7 +29,9 @@
 # CI Static still loads biome.json, which extends the base and adds those
 # rules back, so the policy is unchanged; only the commit hook skips them.
 # Biome does not follow an extended file's own `extends`, which is why
-# biome.json repeats the two ultracite presets ahead of the base.
+# biome.json repeats the two ultracite presets ahead of the base. The grit
+# plugin stays in biome.json too: @jacobwolf/biome-unnecessary-effect's
+# postinstall rewrites biome.json whenever its plugin is not listed there.
 
 pre-commit:
   parallel: true
