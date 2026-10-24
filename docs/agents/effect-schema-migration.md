@@ -73,12 +73,12 @@ have these owners:
 | Protocol-lab reference fixture | 1 | `mcp-test-lab/reference-server` uses the SDK/reference schema interface |
 
 The source census includes TS/JS module imports and excludes generated output and
-tests. Two additional JS servers (`agent/test-fixtures/mcp-stdio-handshake-exit-server.mjs`
-and `mcp-test-lab/fixtures/stdio-reference-server.mjs`) are test fixtures. The
-26 pure desktop IPC contract modules have no Zod import; they retain pure parsers.
+tests. One additional JS server (`mcp-test-lab/fixtures/stdio-reference-server.mjs`) is a
+test fixture. The 26 pure desktop IPC contract modules have no Zod import; they retain
+pure parsers.
 
 The date-time imports supply vendor patterns to Effect-authored grammars, not
-parallel production schemas. Frozen Zod fixtures under tests are parity oracles only.
+parallel production schemas.
 
 `host-conversation` no longer needs Zod in its manifest. Packages with a remaining
 vendor, qualification or test requirement retain their dependency.
