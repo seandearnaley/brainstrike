@@ -167,8 +167,7 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
     //     in the group and simply succeeds, so this arm is Darwin-observable
     //     only). But it ALSO covers a LIVE member we may not signal — a `sudo`
     //     or setuid process an arbitrary user command started — which is a real
-    //     orphan. Unlike the conformance driver's `killPosixProcessGroup`
-    //     (BST-1674), this tool runs arbitrary commands, so "every member is our
+    //     orphan. This tool runs arbitrary commands, so "every member is our
     //     own descendant running as us" does NOT hold here. EPERM is therefore
     //     inconclusive, never proof of success.
     // tree-kill below resolves most of that ambiguity: it signals the positive

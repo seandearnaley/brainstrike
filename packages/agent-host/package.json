@@ -12,10 +12,6 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./model-stream-telemetry": {
-      "types": "./src/model-stream-telemetry.ts",
-      "default": "./dist/model-stream-telemetry.js"
-    },
     "./protocol": {
       "types": "./src/protocol.ts",
       "default": "./dist/protocol.js"
@@ -32,10 +28,6 @@
       "types": "./src/child-answer.ts",
       "default": "./dist/child-answer.js"
     },
-    "./child-presentation": {
-      "types": "./src/child-presentation.ts",
-      "default": "./dist/child-presentation.js"
-    },
     "./canonical-tool-bindings": {
       "types": "./src/adapters/canonical-tool-bindings.ts",
       "default": "./dist/adapters/canonical-tool-bindings.js"
@@ -43,42 +35,6 @@
     "./state-projection": {
       "types": "./src/state-projection.ts",
       "default": "./dist/state-projection.js"
-    },
-    "./host-state-producer": {
-      "types": "./src/host-state-producer.ts",
-      "default": "./dist/host-state-producer.js"
-    },
-    "./event-storage": {
-      "types": "./src/event-storage.ts",
-      "default": "./dist/event-storage.js"
-    },
-    "./host-event-encoding": {
-      "types": "./src/host-event-encoding.ts",
-      "default": "./dist/host-event-encoding.js"
-    },
-    "./core-state": {
-      "types": "./src/core-state.ts",
-      "default": "./dist/core-state.js"
-    },
-    "./host-event-decoding": {
-      "types": "./src/host-event-decoding.ts",
-      "default": "./dist/host-event-decoding.js"
-    },
-    "./run-branch": {
-      "types": "./src/run-branch.ts",
-      "default": "./dist/run-branch.js"
-    },
-    "./telemetry-replay": {
-      "types": "./src/telemetry-replay.ts",
-      "default": "./dist/telemetry-replay.js"
-    },
-    "./thread-catalog": {
-      "types": "./src/thread-catalog.ts",
-      "default": "./dist/thread-catalog.js"
-    },
-    "./thread-presentation-state": {
-      "types": "./src/thread-presentation-state.ts",
-      "default": "./dist/thread-presentation-state.js"
     },
     "./run-verdicts": {
       "types": "./src/run-verdicts.ts",
@@ -120,21 +76,11 @@
       "types": "./src/browser-client.ts",
       "default": "./dist/browser-client.js"
     },
-    "./test-fixtures/host-state-index": {
-      "types": "./src/host-state-index.ts",
-      "default": "./dist/host-state-index.js"
-    },
     "./test-fixtures/scripted-model": {
       "types": "./src/test-fixtures/scripted-model.ts",
       "default": "./dist/test-fixtures/scripted-model.js"
     },
-    "./test-fixtures/owned-process": "./__tests__/fixtures/owned-fixture-process.ts",
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
-    "./test-fixtures/process-platform": "./__tests__/fixtures/process-platform.mjs",
-    "./workspace-state": {
-      "types": "./src/workspace-state.ts",
-      "default": "./dist/workspace-state.js"
-    },
     "./thread-view": {
       "types": "./src/thread-view.ts",
       "default": "./dist/thread-view.js"

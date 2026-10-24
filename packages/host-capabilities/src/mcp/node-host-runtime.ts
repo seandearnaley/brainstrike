@@ -195,7 +195,7 @@ export interface McpHostRuntimePlatform {
   readonly bearerCredentialAuthority: McpBearerCredentialAuthority;
   readonly oauthStore: McpOAuthStore;
   readonly openExternal: (url: string) => Promise<void>;
-  /** The host's one Tasks store (the StateStore on a host; PGlite only for the conformance client). */
+  /** The host's one Tasks store, kept in its StateStore. */
   readonly openTaskStorage: () => Promise<McpTaskStorage>;
   /** Core's ownership of the tasks its runs bound, once Core opens (BST-1930 c3). */
   readonly taskOwner?: Promise<McpHostTaskOwner>;
