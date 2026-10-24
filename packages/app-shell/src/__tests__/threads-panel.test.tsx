@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantMemoryThread,

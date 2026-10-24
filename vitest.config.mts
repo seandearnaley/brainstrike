@@ -48,6 +48,8 @@ export default defineConfig({
         client: { enabled: true },
       },
     },
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     projects: ['packages/*', 'apps/*'],
   },
 });

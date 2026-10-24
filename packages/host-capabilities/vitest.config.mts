@@ -22,6 +22,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: ['node_modules', 'dist'],
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     // Both scale with the real-process step budget (BST-2157): hookTimeout covers
     // cleanup's sequential waits, testTimeout a real-bin test's bin calls.

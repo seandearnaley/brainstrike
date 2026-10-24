@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
