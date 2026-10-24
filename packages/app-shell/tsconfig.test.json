@@ -6,9 +6,6 @@
       "node",
       "@brainstrike/test-utils/vitest-matchers"
     ],
-    "declaration": false,
-    "emitDeclarationOnly": false,
-    "declarationMap": false,
     "skipLibCheck": true,
     "noEmit": true,
     "strictNullChecks": true
@@ -19,7 +16,6 @@
     "../file-explorer-ui/src/types/**/*.d.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules"
   ]
 }

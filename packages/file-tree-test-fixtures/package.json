@@ -13,29 +13,15 @@
     "vitest": "catalog:"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    }
+    ".": "./src/index.ts"
   },
   "license": "MIT",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,
-  "turbo": {
-    "outputs": [
-      "dist/**"
-    ]
-  },
-  "type": "module",
-  "types": "./src/index.ts"
+  "type": "module"
 }
