@@ -21,7 +21,8 @@ vi.mock('@brainstrike/agent', () => ({
   isSupportedProvider: (value: string) => mockIsSupportedProvider(value),
 }));
 
-vi.mock('@brainstrike/agent/client', () => ({
+vi.mock('@brainstrike/assistant-contract/provider-metadata', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/assistant-contract/provider-metadata')>()),
   listProviders: () => mockListProviders().map((id: string) => ({ id })),
   providerEnvKeys: (provider: string) => mockProviderEnvKeys(provider),
 }));

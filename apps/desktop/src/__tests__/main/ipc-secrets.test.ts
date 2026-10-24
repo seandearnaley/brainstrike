@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { listProviders, providerEnvKeys } from '@brainstrike/agent/client';
+import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';

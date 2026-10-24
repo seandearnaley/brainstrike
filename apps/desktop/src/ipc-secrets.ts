@@ -1,4 +1,7 @@
-import { listProviders, type SupportedProvider } from '@brainstrike/agent/client';
+import {
+  listProviders,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract/provider-metadata';
 import {
   findProviderDefinition,
   MalformedCredentialError,

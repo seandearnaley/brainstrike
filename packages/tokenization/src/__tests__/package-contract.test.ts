@@ -4,17 +4,7 @@ import { describe, expect, it } from 'vitest';
 import * as tokenization from '../index.js';
 
 interface PackageJson {
-  readonly exports: Record<
-    string,
-    {
-      readonly default?: string;
-      readonly import?: string;
-      readonly require?: string;
-      readonly types?: string;
-    }
-  >;
-  readonly scripts: { readonly build?: string };
-  readonly type?: string;
+  readonly exports: Record<string, unknown>;
 }
 
 const packageRoot = path.resolve(import.meta.dirname, '..', '..');
@@ -37,15 +27,8 @@ function validateRuntimeSubpaths(exportsMap: PackageJson['exports']): string[] {
   }
 
   for (const exportName of actual) {
-    const exportConfig = exportsMap[`./${exportName}`];
-    if (exportConfig?.default !== `./dist/${exportName}.js`) {
-      violations.push(`${exportName} has a non-canonical default target`);
-    }
-    if (exportConfig?.types !== `./src/${exportName}.ts`) {
-      violations.push(`${exportName} has a non-canonical types target`);
-    }
-    if (exportConfig?.import !== undefined || exportConfig?.require !== undefined) {
-      violations.push(`${exportName} declares a second module condition`);
+    if (exportsMap[`./${exportName}`] !== `./src/${exportName}.ts`) {
+      violations.push(`${exportName} is not exported as its source module`);
     }
     if (!existsSync(path.join(packageRoot, 'src', `${exportName}.ts`))) {
       violations.push(`${exportName} has no source module`);
