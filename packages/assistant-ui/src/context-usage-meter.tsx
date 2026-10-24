@@ -228,7 +228,7 @@ export interface ContextUsageMeterProps {
    * stability across the panel layers.
    */
   omSegment?: OmMeterState | undefined;
-  /** Thread key — MUST match the key used by recordUsage writers (same as threadKey prop on AssistantUiPanel). Falls back to 'active'. */
+  /** Thread key — MUST match the key used by recordUsage writers (same as the conversation panel's threadKey). Falls back to 'active'. */
   threadKey?: string | undefined;
 }
 

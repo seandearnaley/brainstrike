@@ -1,17 +1,15 @@
 /**
  * Trigger source for assistant run-lifecycle OS notifications (run
  * finished/failed, tool approval required — see docs/agents/assistant-persistence.md "ASSISTANT RUN
- * NOTIFICATIONS"). This module only REPORTS raw events up via callback props,
- * mirroring the existing `onUsage` seam (`data-stream-runtime.ts` ->
- * `AssistantUiPanelProps.onUsage` -> app-shell's `handleUsage`) — the actual
- * notification DECISION (settings gate, permission, coalescing) lives in
+ * NOTIFICATIONS"). This module only REPORTS raw events up via callback props —
+ * the actual notification DECISION (settings gate, permission, coalescing) lives in
  * `@brainstrike/app-state/notifications/*`, composed by app-shell. This
  * package never touches `window.Notification` or the preferences store.
  *
- * `useRunLifecycleNotifications` is mounted exactly once per panel instance
- * (alongside `AssistantDataRendererRegistration` in `assistant-ui-panel.tsx`),
- * so it only ever runs inside the VISIBLE assistant surface — desktop's
- * hidden embedding/llm hosts never mount `AssistantUiPanel` at all, which is
+ * `useRunLifecycleNotifications` is mounted exactly once per thread surface
+ * (alongside `AssistantDataRendererRegistration` in `ChatThreadUI`), so it
+ * only ever runs inside the VISIBLE assistant surface — desktop's hidden
+ * embedding/llm hosts never mount `ChatThreadUI` at all, which is
  * what keeps them from ever notifying (verified: neither
  * `embedding-host-app.tsx` nor `llm-host-app.tsx` imports it).
  */
