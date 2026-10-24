@@ -5,6 +5,7 @@ import { productionDesktopCapabilities } from '../agent-host-platform/production
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { admissionCatalogFixture } from './fixtures/admission-catalog';
+import { restoredRoots } from './helpers/restored-roots';
 import { fixture, resetActivationFixture, unused } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
@@ -23,13 +24,13 @@ it('the admission’s index status read answers preparing during the first open,
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const { activation } = fixture({
-    roots: {
+    roots: restoredRoots({
       restoreRoots: async () => {
         entered.resolve();
         await release.promise;
         return [];
       },
-    },
+    }),
     watches: {},
   } as unknown as ApplicationIpcDomain);
   const admission = productionDesktopCapabilities({
