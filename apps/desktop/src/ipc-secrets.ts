@@ -7,8 +7,8 @@ import {
   type ProviderKeySource,
 } from '@brainstrike/assistant-contract';
 import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
+import { listProviders } from '@brainstrike/assistant-contract/provider-metadata';
 import { ipcMain } from 'electron';
-import { listAgentProviders } from './agent-client-loader';
 import type { DesktopEnvLoadFailure } from './desktop-env';
 import {
   decodeProviderArgs,
@@ -61,7 +61,7 @@ function isTestMode(): boolean {
 
 function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
   return (
-    value === TAVILY_SECRET_PROVIDER || listAgentProviders().some((provider) => provider === value)
+    value === TAVILY_SECRET_PROVIDER || listProviders().some((provider) => provider.id === value)
   );
 }
 
@@ -149,8 +149,7 @@ function resolveTavilyEnvVar(): string | undefined {
 function appendEnvConfiguredProviders(
   target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
 ) {
-  const supportedProviders = listAgentProviders();
-  for (const provider of supportedProviders) {
+  for (const { id: provider } of listProviders()) {
     const credential = resolveProviderEnvCredential(provider);
     if (credential) {
       target.set(provider, {
@@ -191,7 +190,7 @@ function appendEnvChainProviders(
   if (!envChain) {
     return;
   }
-  for (const provider of listAgentProviders()) {
+  for (const { id: provider } of listProviders()) {
     if (
       !isDesktopProviderKeyId(provider) ||
       findProviderDefinition(provider)?.authType !== 'aws' ||

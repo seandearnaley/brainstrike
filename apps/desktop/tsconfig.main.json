@@ -51,7 +51,6 @@
     "src/mcp/host-service.ts",
     "src/create-window.ts",
     "src/setup-security.ts",
-    "src/agent-client-loader.ts",
     "src/provider-api-key.ts",
     "src/types/**/*.d.ts",
     "src/indexer-host-entry.ts",
