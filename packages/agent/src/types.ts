@@ -3,27 +3,9 @@ import type {
   SharedV2ProviderOptions,
   SharedV3ProviderOptions,
 } from '@ai-sdk/provider';
-import type {
-  AssistantChildAttachment,
-  RuntimeData as ContractRuntimeData,
-} from '@brainstrike/assistant-contract';
-import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
-import type {
-  DelegatedConversationBaseline,
-  DelegatedRunIdentity,
-} from '@brainstrike/assistant-contract/delegated-conversation-stream';
-import type {
-  AssistantModelStepData,
-  AssistantModelStreamPart,
-} from '@brainstrike/assistant-contract/model-step';
+import type { RuntimeData as ContractRuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
-import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
-import type {
-  AssistantToolApprovalAnswered,
-  AssistantToolApprovalRequest,
-} from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
-import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import type {
   BedrockReasoningEffort,
   GoogleThinkingLevel,
@@ -35,7 +17,6 @@ import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { McpConfig } from './mcp/config';
 import type { RuntimeAssistantMemorySettings } from './memory-settings';
 import type { AssistantPermissionPolicyRequest } from './permissions/permission-policy-request';
-import type { AssistantRunEvent } from './run-events';
 import type { AgentHookRunner } from './tools/hook-runner';
 
 interface ToolProjectionRewriteEntryBase {
@@ -82,42 +63,6 @@ export interface AgentMessage {
   id: string;
   parts: AgentMessagePart[];
   role: 'user' | 'assistant' | 'system';
-}
-
-export type AssistantUiScalar = string | number | boolean | null;
-
-export interface AssistantUiNodeObject {
-  children?: AssistantUiNode;
-  content?: AssistantUiNode;
-  message?: AssistantUiNode;
-  messages?: AssistantUiNode;
-  parts?: AssistantUiNode;
-  result?: AssistantUiNode;
-  text?: AssistantUiScalar;
-  value?: AssistantUiScalar;
-  values?: AssistantUiNode;
-  [key: string]: AssistantUiScalar | AssistantUiNode | undefined;
-}
-
-export type AssistantUiNode =
-  | AssistantUiScalar
-  | AssistantUiNodeObject
-  | readonly AssistantUiNode[];
-
-// Recommended stricter message shape for first-party API boundaries.
-export interface AssistantUiMessageStrict {
-  id?: string | undefined;
-  role?: 'user' | 'assistant' | 'system' | undefined;
-  text?: string | undefined;
-}
-
-// Assistant UI input message (intentionally permissive; normalized at runtime)
-export interface AssistantUiMessage {
-  content?: AssistantUiNode;
-  id?: string | number | null;
-  parts?: AssistantUiNode;
-  role?: string | null;
-  text?: AssistantUiScalar | undefined;
 }
 
 /**
@@ -351,65 +296,6 @@ export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3Provider
   openrouter?: OpenRouterProviderOptions & JSONObject;
 };
 
-export interface StreamChunkText {
-  type: 'text-delta';
-  value: string;
-}
-export interface StreamChunkReasoning {
-  type: 'reasoning-delta';
-  value: string;
-}
-export interface StreamChunkRunEvent {
-  event: AssistantRunEvent;
-  type: 'run-event';
-}
-export interface StreamChunkTool {
-  name: string;
-  payload?: unknown;
-  /**
-   * `'declined'` is the approval lifecycle's DECLINE terminal (@mastra/core
-   * 1.59 `tool-output-denied`, BST-1282). It is its own status, not a flavour
-   * of `'error'`, precisely because the two must diverge downstream: both
-   * settle the call, but a decline must NOT queue the visible
-   * "I couldn't complete the tool action because it failed" fallback, and must
-   * not paint the tool card with destructive failure chrome. Nothing ran and
-   * nothing broke — the user made a choice.
-   */
-  status: 'start' | 'progress' | 'success' | 'error' | 'declined';
-  type: 'tool-event';
-}
-/**
- * A live, incremental slice of a running shell command's output. Transient
- * (never persisted — see SHELL_OUTPUT_DATA_NAME); the final captured output
- * still returns as the tool result.
- */
-export interface StreamChunkShellOutput {
-  chunk: string;
-  stream: 'stdout' | 'stderr';
-  toolCallId: string;
-  truncated?: boolean;
-  type: 'shell-output';
-}
-/**
- * Prompt-composition breakdown computed at prompt assembly, emitted once at run
- * start. Transient (never persisted — the run-event persistence tap ignores
- * non-run-event chunks; see CONTEXT_BREAKDOWN_DATA_NAME, mirroring the
- * shell-output precedent).
- */
-export interface StreamChunkContextBreakdown {
-  breakdown: AssistantContextBreakdown;
-  type: 'context-breakdown';
-}
-/**
- * Child model-call usage (BST-953): an OM observer/reflector cycle or a
- * subagent delegation leg. The desktop server persists it as a durable
- * `run_kind`-tagged usage row and forwards it to the renderer as a transient
- * `brainstrike.child-run-usage` aui-data part (display refresh only).
- */
-export interface StreamChunkChildRunUsage {
-  type: 'child-run-usage';
-  value: AssistantChildRunUsage;
-}
 /**
  * Internal run-end payload consumed by the desktop durable telemetry sink.
  * `occurredAt` is captured at the actual tool-call/projection moment (epoch
@@ -431,57 +317,6 @@ export interface ToolCallTelemetrySample {
   readonly truncated: boolean;
   readonly zeroMatch?: boolean;
 }
-export interface StreamChunkToolCallTelemetry {
-  readonly type: 'tool-call-telemetry';
-  readonly value: readonly ToolCallTelemetrySample[];
-}
-/**
- * Run-end calibration pair over the final prompt's estimator-visible share.
- * `estimatedPromptTokens` counts model-visible tool-output projections plus
- * tool definitions once; `finalStepPromptTokens` is the most recent provider
- * step's prompt size, which contains prior tool outputs once via Mastra's resend
- * behavior. Conversation/system-prompt text outside those shares is excluded.
- */
-export interface TokenEstimateCalibrationSample {
-  readonly estimatedPromptTokens: number;
-  readonly finalStepPromptTokens: number;
-  readonly model: string;
-  readonly modelVisibleProjectionCount: number;
-  readonly occurredAt: number;
-  /** System instructions + task list + tool definitions from this run's prompt breakdown. */
-  readonly promptBreakdownBaselineTokens?: number;
-  readonly provider: string;
-  readonly resolvedDomainBudgetTokens?: number;
-  readonly resolvedTransportBudgetTokens?: number;
-  readonly stepCount: number;
-}
-export interface StreamChunkTokenEstimateCalibration {
-  readonly type: 'token-estimate-calibration';
-  readonly value: TokenEstimateCalibrationSample;
-}
-export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
-  type: 'tool-approval-required';
-}
-/** A parked sibling approval the host answered under a session grant. */
-export interface StreamChunkToolApprovalAnswered extends AssistantToolApprovalAnswered {
-  type: 'tool-approval-answered';
-}
-export interface StreamChunkToolSuspendRequired extends AssistantToolSuspendRequest {
-  /**
-   * `false` when this build has no registered resume UI for the tool
-   * (`hasRegisteredSuspendResumeUi`). The mapper then SETTLES the tool call as
-   * an error instead of leaving a Running card nothing can ever resolve.
-   * Omitted (i.e. resumable) for the registered suspending tools, whose card is
-   * legitimately waiting for the user's answer.
-   */
-  resumeSupported?: false;
-  type: 'tool-suspend-required';
-}
-export interface StreamChunkFinish {
-  billedCostUsd?: number;
-  type: 'finish';
-  usage: { promptTokens: number; completionTokens: number };
-}
 
 export type StreamFinishReason =
   | 'absent'
@@ -493,96 +328,3 @@ export type StreamFinishReason =
   | 'other'
   | 'unknown'
   | 'unrecognized';
-
-export interface StreamChunkMessageFinish {
-  billedCostUsd?: number;
-  finishReason: StreamFinishReason;
-  path: readonly number[];
-  type: 'message-finish';
-  usage: {
-    promptTokens: number;
-    completionTokens: number;
-    /** Latest provider-step prompt size for context occupancy, not billed run input. */
-    contextInputTokens?: number;
-    /** Latest provider-step completion size for next-prompt occupancy. */
-    contextOutputTokens?: number;
-    /** Anthropic prompt-cache write tokens (billed at the cache-write rate). */
-    cacheCreationInputTokens?: number;
-    /** Anthropic prompt-cache read tokens (billed at the cache-read rate). */
-    cacheReadInputTokens?: number;
-  };
-}
-export interface StreamChunkChildUserMessage {
-  readonly attachments?: readonly AssistantChildAttachment[];
-  readonly createdAt: string;
-  readonly id: string;
-  readonly text: string;
-  readonly type: 'child-user-message';
-}
-
-/**
- * A completed step, for a client that records its runs (BST-1940): exactly
- * what the agent host commits as `model.step` for the same step result. Only a
- * turn asked to record its steps emits it.
- */
-export interface StreamChunkModelStep {
-  readonly messages: AssistantModelStepData['messages'];
-  readonly model: AssistantModelStepData['model'];
-  readonly stepNumber: number;
-  readonly type: 'model-step';
-  readonly usage: AssistantModelStepData['usage'];
-}
-
-/**
- * One AI SDK `fullStream` part of a recorded turn (BST-1940), JSON-safe, as
- * the host's run loop consumes it. Only a turn asked to record its steps emits it.
- */
-export interface StreamChunkModelStreamPart {
-  readonly part: AssistantModelStreamPart;
-  readonly type: 'model-stream-part';
-}
-
-export type ConversationStreamChunk =
-  | StreamChunkChildUserMessage
-  | StreamChunkModelStep
-  | StreamChunkModelStreamPart
-  | StreamChunkChildRunUsage
-  | StreamChunkContextBreakdown
-  | StreamChunkReasoning
-  | StreamChunkRunEvent
-  | StreamChunkShellOutput
-  | StreamChunkText
-  | StreamChunkTokenEstimateCalibration
-  | StreamChunkToolCallTelemetry
-  | StreamChunkTool
-  | StreamChunkToolApprovalRequired
-  | StreamChunkToolApprovalAnswered
-  | StreamChunkToolSuspendRequired
-  | StreamChunkFinish
-  | StreamChunkMessageFinish;
-
-export interface StreamChunkDelegatedConversation {
-  readonly baseline?: DelegatedConversationBaseline;
-  readonly chunk: ConversationStreamChunk;
-  readonly continuationId?: string;
-  readonly identity: DelegatedRunIdentity;
-  readonly messageId: string;
-  readonly partId?: string;
-  readonly type: 'delegated-conversation-chunk';
-}
-
-export interface StreamChunkChildContinuation {
-  readonly baseline?: DelegatedConversationBaseline;
-  readonly chunk: ConversationStreamChunk;
-  readonly continuationId: string;
-  readonly messageId: string;
-  readonly nativeRunId: string;
-  readonly threadId: string;
-  readonly type: 'child-continuation-chunk';
-}
-export type StreamChunk =
-  | ConversationStreamChunk
-  | StreamChunkDelegatedConversation
-  | StreamChunkChildContinuation;
-
-export type StreamIterator = AsyncIterable<StreamChunk>;
