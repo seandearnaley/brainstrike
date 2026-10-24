@@ -329,27 +329,28 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it.skipIf(!home || isWin32)('rejects symlinks pointing to sensitive directories', async () => {
-    const symlinkPath = path.join(tempDir, 'sneaky-link');
-    const sshDir = path.join(home!, '.ssh');
-
-    // Only run if ~/.ssh actually exists (most dev machines have it)
+  // A link inside the root that leads into the user's ~/.ssh is refused once resolved. The home is a fixture, so the
+  // test never reads the machine's real ~/.ssh; the link is a symlink on POSIX and a junction on Windows.
+  it('rejects links pointing to sensitive user directories', async () => {
+    const fakeHome = path.join(tempDir, 'home');
+    await fsPromises.mkdir(path.join(fakeHome, '.ssh'), { recursive: true });
+    const realHome = await fsPromises.realpath(fakeHome);
+    await fsPromises.symlink(
+      path.join(realHome, '.ssh'),
+      path.join(tempDir, 'sneaky-link'),
+      'junction'
+    );
+    vi.stubEnv('HOME', realHome);
+    vi.stubEnv('USERPROFILE', realHome);
     try {
-      await fsPromises.stat(sshDir);
-    } catch {
-      return;
-    }
+      const result = await resolveValidatedPath({
+        requestedPath: 'sneaky-link',
+        rootDir: tempDir,
+      });
 
-    await fsPromises.symlink(sshDir, symlinkPath);
-
-    const result = await resolveValidatedPath({
-      requestedPath: 'sneaky-link',
-      rootDir: tempDir,
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('sensitive-path');
+      expect(result).toMatchObject({ error: { code: 'sensitive-path' }, ok: false });
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 
@@ -549,24 +550,22 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it.skipIf(isWin32)(
-    'does not dereference symlinks on the rootless allowMissing fast path',
-    async () => {
-      // This pins the lexical no-realpath branch only. Trusted I/O callers must
-      // still bind paths to canonical roots before opening symlink targets (BST-1237).
-      const targetPath = path.join(tempDir, 'target');
-      const symlinkPath = path.join(tempDir, 'link');
-      await fsPromises.mkdir(targetPath);
-      await fsPromises.symlink(targetPath, symlinkPath);
+  it('does not dereference links on the rootless allowMissing fast path', async () => {
+    // This pins the lexical no-realpath branch only. Trusted I/O callers must
+    // still bind paths to canonical roots before opening symlink targets (BST-1237).
+    // A symlink on POSIX and a junction on Windows (`symlink` ignores the type elsewhere).
+    const targetPath = path.join(tempDir, 'target');
+    const symlinkPath = path.join(tempDir, 'link');
+    await fsPromises.mkdir(targetPath);
+    await fsPromises.symlink(targetPath, symlinkPath, 'junction');
 
-      const result = await resolveValidatedPath({
-        allowMissing: true,
-        requestedPath: symlinkPath,
-      });
+    const result = await resolveValidatedPath({
+      allowMissing: true,
+      requestedPath: symlinkPath,
+    });
 
-      expect(result).toEqual({ ok: true, path: symlinkPath });
-    }
-  );
+    expect(result).toEqual({ ok: true, path: symlinkPath });
+  });
 
   it('falls back to fallbackPath when requestedPath is a non-string type', async () => {
     // number

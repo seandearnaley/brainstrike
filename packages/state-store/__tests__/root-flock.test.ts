@@ -71,33 +71,33 @@ describe.skipIf(process.platform === 'win32')('Root flock', () => {
     expect(RootLock.isFlockHeld(root)).toBe(false);
     held.push(await RootLock.acquire(root));
   });
+});
 
-  test('a host spawn after its Root was released, or between two held Roots, is refused', async () => {
-    const first = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
-    const second = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
-    expect(() => sleeper()).toThrow(/several shared Root leases/);
-    second.release();
-    first.release();
-    expect(() => sleeper()).toThrow(/Root lease is released/);
-  });
+test('a host spawn after its Root was released, or between two held Roots, is refused', async () => {
+  const first = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
+  const second = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
+  expect(() => sleeper()).toThrow(/several shared Root leases/);
+  second.release();
+  first.release();
+  expect(() => sleeper()).toThrow(/Root lease is released/);
+});
 
-  test("the observer learns each native child's process group and its exit", async () => {
-    held.push(await RootLock.acquire(newRoot(), { shareWithNativeChildren: true }));
-    const events: [string, NativeChild][] = [];
-    unsubscribe.push(
-      observeNativeChildren({
-        exited: (child) => events.push(['exited', child]),
-        started: (child) => events.push(['started', child]),
-      })
-    );
-    const child = sleeper();
-    const identity = { group: true, pid: child.pid, start: processStartTime(child.pid ?? 0) };
-    expect(events).toEqual([['started', identity]]);
-    child.kill('SIGKILL');
-    await once(child, 'exit');
-    expect(events).toEqual([
-      ['started', identity],
-      ['exited', identity],
-    ]);
-  });
+test("the observer learns each native child's process group and its exit", async () => {
+  held.push(await RootLock.acquire(newRoot(), { shareWithNativeChildren: true }));
+  const events: [string, NativeChild][] = [];
+  unsubscribe.push(
+    observeNativeChildren({
+      exited: (child) => events.push(['exited', child]),
+      started: (child) => events.push(['started', child]),
+    })
+  );
+  const child = sleeper();
+  const identity = { group: true, pid: child.pid, start: processStartTime(child.pid ?? 0) };
+  expect(events).toEqual([['started', identity]]);
+  child.kill('SIGKILL');
+  await once(child, 'exit');
+  expect(events).toEqual([
+    ['started', identity],
+    ['exited', identity],
+  ]);
 });
