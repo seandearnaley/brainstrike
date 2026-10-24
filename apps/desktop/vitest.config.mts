@@ -321,6 +321,8 @@ export default defineConfig({
     // default (BST-2181). Integration and unit configs spread this test block;
     // a call's own options still win.
     expect: { poll: { timeout: getExpectPollTimeout() } },
+    // One module cache per package, so parallel lanes never clear a shared one.
+    fsModuleCachePath: 'node_modules/.vitest-cache',
     globals: true,
     // Desktop integration lanes do real database setup inside beforeEach
     // hooks; vitest's 10s default hook timeout flakes on loaded CI runners
