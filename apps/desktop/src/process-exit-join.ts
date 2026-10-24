@@ -29,3 +29,22 @@ export async function joinProcessExit(identity: ProcessIdentity | undefined): Pr
     await delay(PROCESS_EXIT_JOIN_POLL_MS);
   }
 }
+
+/**
+ * Ends what remains of a utility after Electron reported its exit, then joins its OS exit.
+ * The utility has already reported `process.exit()`; a Node teardown that has not finished
+ * (seen on hosted Windows: an indexer still running well after Stop released its Root) is
+ * terminated by the identity read while it was live, so nothing outlives its owner's close.
+ */
+export async function endExitedProcess(identity: ProcessIdentity | undefined): Promise<void> {
+  if (identity && processStartTime(identity.pid) === identity.start) {
+    try {
+      process.kill(identity.pid);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ESRCH') {
+        throw cause;
+      }
+    }
+  }
+  await joinProcessExit(identity);
+}

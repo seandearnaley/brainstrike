@@ -13,7 +13,7 @@ import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utili
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
-import { joinProcessExit, liveProcessIdentity, type ProcessIdentity } from './process-exit-join';
+import { endExitedProcess, liveProcessIdentity, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('IndexerHostManager');
 
@@ -156,8 +156,8 @@ export class IndexerHostManager {
         // Electron's `exit` precedes the OS exit; the utility has exited once that is joined.
         const exit = (): void => {
           this.#closed = true;
-          void joinProcessExit(identity).then(exited, (cause: unknown) => {
-            logger.error('Could not join the indexer utility OS exit', { cause });
+          void endExitedProcess(identity).then(exited, (cause: unknown) => {
+            logger.error('Could not end the indexer utility after its exit', { cause });
             exited();
           });
         };

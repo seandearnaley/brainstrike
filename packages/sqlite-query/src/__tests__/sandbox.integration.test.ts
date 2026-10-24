@@ -119,6 +119,9 @@ afterAll(async () => {
   rmSync(directory, { force: true, recursive: true });
 });
 
+/** A grep deadline no in-flight read reaches before the test stops it. */
+const IN_FLIGHT_DEADLINE_MS = 60_000;
+
 describe('grep reader over a real IndexerPort index', () => {
   it('runs every production grep statement shape through the real authorizer', async () => {
     // Fail closed: the authorizer admits only the functions and pragma grep's own
@@ -218,12 +221,13 @@ describe('grep reader over a real IndexerPort index', () => {
 
   it('owner close stops an in-flight grep and resolves only after the reader exits', async () => {
     // Host Stop, reset and shutdown stop index reads this way (closeAllIndexQueries).
-    const { client, pid } = await open(indexPath, 60_000);
+    const { client, pid } = await open(indexPath, IN_FLIGHT_DEADLINE_MS);
     const inflight = settle(client.grep(runaway));
     await new Promise((resolve) => setTimeout(resolve, 100));
     const started = performance.now();
     await client.close();
-    expect(performance.now() - started).toBeLessThan(1000);
+    // Close stops the read rather than waiting out its deadline (2 s on a loaded Windows runner).
+    expect(performance.now() - started).toBeLessThan(IN_FLIGHT_DEADLINE_MS / 10);
     expect(exited(pid)).toBe(true);
     expect(await inflight).toMatchObject({ message: 'SQLite query client is closed.' });
     expect(hash()).toBe(originalHash);
