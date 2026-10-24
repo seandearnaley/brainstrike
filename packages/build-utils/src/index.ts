@@ -1,5 +1,5 @@
-export * from './browser-bare-dynamic-import.js';
-export * from './build-id.js';
-export * from './onnx-runtime-wasm.js';
-export * from './vite.js';
-export { preserveWorkerEntryPlugin } from './worker-entry.js';
+export * from './browser-bare-dynamic-import.ts';
+export * from './build-id.ts';
+export * from './onnx-runtime-wasm.ts';
+export * from './vite.ts';
+export { preserveWorkerEntryPlugin } from './worker-entry.ts';

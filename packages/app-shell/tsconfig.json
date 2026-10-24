@@ -1,9 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
-    "declarationDir": "dist",
     "types": [
       "node"
     ],
@@ -25,14 +22,14 @@
           "unstableApiUsage": "error"
         }
       }
-    ]
+    ],
+    "noEmit": true
   },
   "include": [
     "src/**/*",
     "../ui/src/vite-env.d.ts"
   ],
   "exclude": [
-    "dist",
     "node_modules",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",

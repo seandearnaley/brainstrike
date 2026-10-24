@@ -16,21 +16,10 @@
     "vitest": "catalog:"
   },
   "exports": {
-    "./file-content-worker": {
-      "types": "./file-content-worker.ts",
-      "import": "./dist/file-content-worker.js",
-      "require": "./dist/file-content-worker.js"
-    }
+    "./file-content-worker": "./file-content-worker.ts"
   },
-  "files": [
-    "dist/**/*.js",
-    "dist/**/*.d.ts"
-  ],
   "private": true,
   "scripts": {
-    "build": "pnpm run clean && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "prepublishOnly": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit"

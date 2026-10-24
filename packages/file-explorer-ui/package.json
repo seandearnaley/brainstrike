@@ -41,66 +41,22 @@
     "node": ">=22"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "import": "./dist/index.js"
-    },
-    "./context-actions": {
-      "types": "./src/context-actions/index.ts",
-      "import": "./dist/context-actions/index.js"
-    },
-    "./indexing": {
-      "types": "./src/indexing/index.ts",
-      "import": "./dist/indexing/index.js"
-    },
-    "./thread-folder-scope-store": {
-      "types": "./src/thread-folder-scope-store.ts",
-      "import": "./dist/thread-folder-scope-store.js"
-    },
-    "./workspace-tab-selection-store": {
-      "types": "./src/workspace-tab-selection-store.ts",
-      "import": "./dist/workspace-tab-selection-store.js"
-    },
-    "./tab-manager-store": {
-      "types": "./src/tab-manager-store.ts",
-      "import": "./dist/tab-manager-store.js"
-    },
-    "./shell": {
-      "types": "./src/shell/index.ts",
-      "import": "./dist/shell/index.js"
-    },
-    "./shell/file-explorer-provider": {
-      "types": "./src/shell/file-explorer-provider.tsx",
-      "import": "./dist/shell/file-explorer-provider.js"
-    },
-    "./shell/file-system-provider": {
-      "types": "./src/shell/file-system-provider.tsx",
-      "import": "./dist/shell/file-system-provider.js"
-    },
-    "./shell/root-data-deletion-context": {
-      "types": "./src/shell/root-data-deletion-context.tsx",
-      "import": "./dist/shell/root-data-deletion-context.js"
-    },
+    ".": "./src/index.ts",
+    "./context-actions": "./src/context-actions/index.ts",
+    "./indexing": "./src/indexing/index.ts",
+    "./thread-folder-scope-store": "./src/thread-folder-scope-store.ts",
+    "./workspace-tab-selection-store": "./src/workspace-tab-selection-store.ts",
+    "./tab-manager-store": "./src/tab-manager-store.ts",
+    "./shell": "./src/shell/index.ts",
+    "./shell/file-explorer-provider": "./src/shell/file-explorer-provider.tsx",
+    "./shell/file-system-provider": "./src/shell/file-system-provider.tsx",
+    "./shell/root-data-deletion-context": "./src/shell/root-data-deletion-context.tsx",
     "./styles.css": "./styles.css",
-    "./tree": {
-      "types": "./src/tree/index.ts",
-      "import": "./dist/tree/index.js"
-    },
-    "./editor-view-state-store": {
-      "types": "./src/editor-view-state-store.ts",
-      "import": "./dist/editor-view-state-store.js"
-    },
-    "./file-tab-pane-store": {
-      "types": "./src/file-tab-pane-store.ts",
-      "import": "./dist/file-tab-pane-store.js"
-    }
+    "./tree": "./src/tree/index.ts",
+    "./editor-view-state-store": "./src/editor-view-state-store.ts",
+    "./file-tab-pane-store": "./src/file-tab-pane-store.ts"
   },
-  "files": [
-    "dist"
-  ],
   "license": "ISC",
-  "main": "dist/index.js",
-  "module": "dist/index.js",
   "peerDependencies": {
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -108,13 +64,10 @@
   },
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --watch --preserveWatchOutput",
     "lint": "pnpm -w lint",
     "test": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "node ../../scripts/run-env.mjs NODE_OPTIONS=--max-old-space-size=8192 -- vitest",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
-  "types": "./src/index.ts"
+  "type": "module"
 }

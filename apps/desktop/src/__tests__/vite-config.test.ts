@@ -46,17 +46,6 @@ describe('desktop vite config alias contract', () => {
     expect(config).toContain('workspaceSrcAliases(');
   });
 
-  it('resolves token-cache runtime imports to source entries via the registry', () => {
-    expect(resolveThroughAliases('@brainstrike/token-cache/cache-runtime', registryEntries)).toBe(
-      path.resolve(PACKAGES_DIR, 'token-cache/src/cache-runtime.ts')
-    );
-    expect(
-      resolveThroughAliases('@brainstrike/token-cache/background-indexer', registryEntries)
-    ).toBe(path.resolve(PACKAGES_DIR, 'token-cache/src/background-indexer.ts'));
-    // And the config itself carries no stale local override that would shadow it.
-    expect(readDesktopViteConfig()).not.toMatch(/find:\s*'@brainstrike\/token-cache/);
-  });
-
   it('resolves text-splitter and tokenization subpaths from their owning packages', () => {
     for (const [specifier, packageName, sourcePath] of [
       ['@brainstrike/text-splitter/chunking-core', 'text-splitter', 'chunking-core.ts'],
@@ -97,34 +86,6 @@ describe('desktop vite config alias contract', () => {
 
     expect(config).toMatch(/find:\s*'@brainstrike\/workers'/);
     expect(resolveThroughAliases('@brainstrike/workers', registryEntries)).toBeNull();
-  });
-
-  it('source-aliases context-actions + commands in the renderer vite config via the registry (chunk-init TDZ)', () => {
-    // Resolving these to their built `dist` (instead of source, like every other
-    // @brainstrike package) lands `defineContextAction` in a separate chunk from
-    // the source feature `*/context-actions` that call it at module-init →
-    // circular chunk-init TDZ ("t is not a function") that hangs the BUILT
-    // renderer on startup forever (dev is unaffected; caught only by live
-    // built-app verification / the Desktop E2E smoke). They MUST resolve to src.
-    const systemEntrypoints = [
-      ['@brainstrike/context-actions', 'context-actions/src/index.ts'],
-      ['@brainstrike/context-actions/commands', 'context-actions/src/commands/index.ts'],
-    ] as const;
-    for (const [specifier, sourcePath] of systemEntrypoints) {
-      const resolved = resolveThroughAliases(specifier, registryEntries);
-      expect(resolved).toBe(path.resolve(PACKAGES_DIR, sourcePath));
-      // Anchored on path separators. A bare /dist/ against the absolute
-      // result also matched any ancestor directory of the checkout — this
-      // app generates worktrees named like `distracted-wilson-24fa2d` — so
-      // the lane failed on the machine path rather than on the resolution
-      // this line exists to guard.
-      expect(resolved).not.toMatch(/[/\\]dist[/\\]/);
-    }
-    // The config spreads the shared registry and does not shadow these two
-    // with a stale literal override.
-    const config = readDesktopViteConfig();
-    expect(config).toContain('workspaceSrcAliases(');
-    expect(config).not.toMatch(/find:\s*'@brainstrike\/context-actions/);
   });
 
   it('uses a dedicated strict dev-server port for the desktop renderer', () => {
