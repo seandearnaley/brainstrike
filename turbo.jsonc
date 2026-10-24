@@ -346,6 +346,26 @@
       "outputLogs": "full"
     },
     // --- E2E Test Task --- //
+    // The smoke lane `pnpm check` runs. Cached like every task (AGENTS.md): it
+    // depends on desktop's build, whose hash carries every workspace dependency,
+    // so an unchanged app replays its green instead of relaunching Electron.
+    "test:e2e:lane:smoke": {
+      "dependsOn": [
+        "build"
+      ],
+      "env": [
+        "CI"
+      ],
+      "passThroughEnv": [
+        "pnpm_config_ci"
+      ],
+      "outputs": [
+        "test-results/**",
+        "playwright-report/**",
+        "blob-report/**"
+      ],
+      "outputLogs": "full"
+    },
     "test:e2e": {
       // E2E tests should run after the app is built
       "dependsOn": [
