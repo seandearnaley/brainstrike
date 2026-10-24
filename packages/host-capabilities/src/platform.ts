@@ -91,12 +91,12 @@ const standaloneCapabilities = {
  * and `execute` risk. This host ships the package's own Windows command
  * wrapper (as its hooks resolve it) and has no worktree ledger to correlate.
  */
+const standaloneWindowsCommandEntry = (): string =>
+  createRequire(import.meta.url).resolve('@brainstrike/host-capabilities/windows-command-entry');
+
 const STANDALONE_SHELL_EXECUTORS = {
   [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
-    windowsCommandEntry: () =>
-      createRequire(import.meta.url).resolve(
-        '@brainstrike/host-capabilities/windows-command-entry'
-      ),
+    windowsCommandEntry: standaloneWindowsCommandEntry,
   }),
 };
 
@@ -404,6 +404,7 @@ export async function createHostPlatform(
         maxHookTimeoutMs: toolTimeoutMs,
         roots: await trustedHookRoots(startup.store, workspaceRoots),
         sessionId: request.threadId,
+        windowsCommandEntry: standaloneWindowsCommandEntry,
       });
       return {
         configuration,

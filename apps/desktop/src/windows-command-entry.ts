@@ -4,7 +4,7 @@ import { runWindowsCommandWrapper } from '@brainstrike/host-capabilities/windows
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 
 const native = createRequire(
-  resolveBundledSiblingPath('Windows command wrapper', 'windows-command-entry.js')
+  resolveBundledSiblingPath('Windows command wrapper', 'windows-command-entry.cjs')
 )('@brainstrike/windows-job-native') as {
   getCurrentProcessIdentity(): { readonly creationTime: string; readonly pid: number };
 };

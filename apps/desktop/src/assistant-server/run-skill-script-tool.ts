@@ -237,7 +237,7 @@ export async function runSkillScript(
         timeoutMs: remainingTimeoutMs,
         // Desktop's own bundled wrapper, emitted beside this host bundle.
         windowsCommandEntry: () =>
-          resolveBundledSiblingPath('Windows command', 'windows-command-entry.js'),
+          resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),
       });
     } finally {
       if (!transferred) {

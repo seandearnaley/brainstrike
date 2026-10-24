@@ -52,12 +52,21 @@ const languageCache = new Map<TreeSitterLanguage, Promise<Language>>();
  */
 async function loadGrammarBytes(language: TreeSitterLanguage): Promise<Uint8Array> {
   if (typeof window === 'undefined' && typeof self === 'undefined') {
-    // Node environment (vitest, scripts). Read from vendored grammars dir.
+    // Node environment. From source (Vitest, scripts) and from the package's
+    // own `dist/node` build, both two levels under the package, read the
+    // vendored grammars directory; a Node bundle (desktop's indexer host) ships
+    // the same files in `grammars/` beside itself.
     const { readFile } = await import('node:fs/promises');
     const { fileURLToPath } = await import('node:url');
     const path = await import('node:path');
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const wasmPath = path.join(here, '..', '..', 'grammars', `${language}.wasm`);
+    const modulePath = fileURLToPath(import.meta.url);
+    const here = path.dirname(modulePath);
+    const isPackageModule =
+      modulePath.endsWith(path.join('src', 'parsers', 'tree-sitter-grammar-loader.ts')) ||
+      here.endsWith(path.join('dist', 'node'));
+    const wasmPath = isPackageModule
+      ? path.join(here, '..', '..', 'grammars', `${language}.wasm`)
+      : path.join(here, 'grammars', `${language}.wasm`);
     return new Uint8Array(await readFile(wasmPath));
   }
   // Browser / Web Worker. In development Vite serves this source module from

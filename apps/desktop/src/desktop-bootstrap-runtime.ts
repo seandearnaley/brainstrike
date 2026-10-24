@@ -236,7 +236,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
       },
       platformModule: resolveBundledSiblingPath(
         'Agent host platform',
-        'agent-host-platform-entry.mjs'
+        'agent-host-platform-entry.js'
       ),
       platformOptions: async () => ({
         appPaths: {

@@ -5,11 +5,11 @@
       "env": ["VITE_*", "EMBED_QUEUE_ENABLED", "NODE_ENV"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"]
     },
-    "desktop-dev-dependencies": {
-      // Synthetic transit task: build the complete desktop dependency graph
-      // without a shell-sensitive `^...` filter or the desktop app itself.
-      "dependsOn": ["^build"],
-      "cache": false
+    "dev": {
+      // Electron loads the native add-ons, and the renderer dev server's config
+      // loads compiled workspace packages under Node; Main bundles workspace
+      // code from source.
+      "dependsOn": ["^build"]
     },
     "type-check": {
       // The E2E fixture types the public built lab entry. Keep this test-only

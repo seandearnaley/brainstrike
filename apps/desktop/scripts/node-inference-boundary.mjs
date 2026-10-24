@@ -73,6 +73,9 @@ async function walk(absWorkingDir, entryPoints) {
     bundle: true,
     // No bundler-only `module` condition: `node`, `default` and the import's own kind.
     conditions: [],
+    // Never written; hashed names keep same-named entries (writer-worker.js and
+    // writer-worker.mjs) from colliding in the analysis output.
+    entryNames: '[name]-[hash]',
     entryPoints,
     format: 'esm',
     logLevel: 'silent',
