@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { findPackageJSON } from 'node:module';
 import { Client } from '@modelcontextprotocol/client';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type { McpLabFaultPlan } from '../src/faults';
 import { startMcpLabScenario } from '../src/lab';
 import {
   getMcpLabScenario,
@@ -23,18 +22,6 @@ type AcceptsHttpWithoutExecution = typeof startMcpLabScenario extends (
 type AcceptsStdioExecution = typeof startMcpLabScenario extends (
   id: 'stdio-reference',
   options: { readonly execution: 'loopback' }
-) => unknown
-  ? true
-  : false;
-type AcceptsStdioFaultAndExecution = typeof startMcpLabScenario extends (
-  id: 'stdio-reference',
-  options: { readonly execution: 'loopback'; readonly faultPlan: McpLabFaultPlan }
-) => unknown
-  ? true
-  : false;
-type AcceptsStdioUndefinedExecution = typeof startMcpLabScenario extends (
-  id: 'stdio-reference',
-  options: { readonly execution: undefined; readonly faultPlan: McpLabFaultPlan }
 ) => unknown
   ? true
   : false;
@@ -64,8 +51,6 @@ describe('MCP lab scenario manifest', () => {
     });
     expectTypeOf<AcceptsHttpWithoutExecution>().toEqualTypeOf<false>();
     expectTypeOf<AcceptsStdioExecution>().toEqualTypeOf<false>();
-    expectTypeOf<AcceptsStdioFaultAndExecution>().toEqualTypeOf<false>();
-    expectTypeOf<AcceptsStdioUndefinedExecution>().toEqualTypeOf<false>();
   });
 
   it('declares the pinned official modern fixture and version/tag metadata', () => {

@@ -1,6 +1,6 @@
 {
   "name": "@brainstrike/mcp-test-lab",
-  "description": "Deterministic MCP protocol fixtures and faults for Brainstrike tests",
+  "description": "Deterministic MCP protocol fixtures for Brainstrike tests",
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/mcp-tasks-extension": "workspace:*",
@@ -23,10 +23,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./faults": {
-      "types": "./dist/faults.d.ts",
-      "default": "./dist/faults.js"
     },
     "./lab": {
       "types": "./dist/lab.d.ts",
