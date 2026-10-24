@@ -1,14 +1,16 @@
 import type { PromptVectorReply, PromptVectorRequest } from '@brainstrike/state-store';
-import type { ScopedFileChunkBounds, ScopedFilePage } from './contracts.js';
+import type { ScopedFileChunkBounds, ScopedFilePage } from './contracts.ts';
 
 export type {
   ScopedFileChunkBounds,
   ScopedFileChunkBoundsRequest,
   ScopedFilePage,
   ScopedFilePageRequest,
-} from './contracts.js';
+} from './contracts.ts';
 
 import { fork } from 'node:child_process';
+import { extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
   CommitResult,
@@ -46,15 +48,15 @@ import type {
   StateSearchSimilarHit,
   StateSearchVectorBatch,
   StateSearchVectorsResult,
-} from './contracts.js';
-import type { CoverageAuthorityPort } from './coverage-authority.js';
+} from './contracts.ts';
+import type { CoverageAuthorityPort } from './coverage-authority.ts';
 import {
   createIndexerConnection,
   validateIndexerDeadlines,
   validateIndexerOptions,
-} from './transport.js';
+} from './transport.ts';
 
-export { embeddingProfileHash, fileChunks } from './chunks.js';
+export { embeddingProfileHash, fileChunks } from './chunks.ts';
 export type {
   CommitResult,
   EmbeddingProfile,
@@ -117,12 +119,12 @@ export type {
   StateSearchVectorsResult,
   TextFileCommit,
   VectorProfile,
-} from './contracts.js';
-export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.js';
-export { vectorProfileHash } from './scope-authority.js';
-export type { StateMessageEvent, StateProducerDecoder } from './state-projection.js';
-export type { IndexerDeadlines } from './transport.js';
-export { IndexerLifecycleError } from './transport.js';
+} from './contracts.ts';
+export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.ts';
+export { vectorProfileHash } from './scope-authority.ts';
+export type { StateMessageEvent, StateProducerDecoder } from './state-projection.ts';
+export type { IndexerDeadlines } from './transport.ts';
+export { IndexerLifecycleError } from './transport.ts';
 export interface IndexerPort {
   close(): Promise<void>;
   commitFile(commit: unknown): Promise<CommitResult>;
@@ -244,11 +246,15 @@ export async function openIndexer(
   }
   const options = validateIndexerOptions(input);
   const deadlines = validateIndexerDeadlines(deadlineInput);
-  const child = fork(new URL('./process-entry.js', import.meta.url), [], {
-    execArgv: [],
-    serialization: 'advanced',
-    stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
-  });
+  const child = fork(
+    new URL(`./process-entry${extname(fileURLToPath(import.meta.url))}`, import.meta.url),
+    [],
+    {
+      execArgv: [],
+      serialization: 'advanced',
+      stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    }
+  );
   const sendErrors = new Set<(error: unknown) => void>();
   const connection = createIndexerConnection(options, deadlines, {
     kill: () => child.kill(),

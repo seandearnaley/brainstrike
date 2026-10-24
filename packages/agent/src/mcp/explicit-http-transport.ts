@@ -25,9 +25,9 @@ import {
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
-import type { NormalizedHttpClientOptions } from './explicit-http-client-options';
-import { installRegisteredExtensionDispatch } from './registered-extension-dispatch';
-import { installMcpResultTypeCompatibility } from './result-type-compatibility';
+import type { NormalizedHttpClientOptions } from './explicit-http-client-options.ts';
+import { installRegisteredExtensionDispatch } from './registered-extension-dispatch.ts';
+import { installMcpResultTypeCompatibility } from './result-type-compatibility.ts';
 
 export type ExplicitHttpTransport = SSEClientTransport | StreamableHTTPClientTransport;
 

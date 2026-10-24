@@ -1,10 +1,10 @@
 import { writeFile } from 'node:fs/promises';
 import { getCompileCacheDir } from 'node:module';
 import { join } from 'node:path';
-import { openHostStateIndex } from '../../dist/host-state-index.js';
+import { openHostStateIndex } from '../../src/host-state-index.ts';
 
 /** @param {import('@brainstrike/host-lease').HostStartOptions} options
- * @param {import('../../src/runtime.js').HostStartupContext} context */
+ * @param {import('../../src/runtime.ts').HostStartupContext} context */
 export async function createHostPlatform(options, context) {
   const directory = process.env.BRAINSTRIKE_CACHE_PROBE;
   if (!directory) {

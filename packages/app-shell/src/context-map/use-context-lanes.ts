@@ -50,7 +50,11 @@ export class ContextLaneSources {
   private readonly listeners = new Set<() => void>();
   private snapshot: ReadonlyMap<string, AssistantThreadContextSnapshot> = NO_STATES;
 
-  constructor(private readonly open: OpenThreadContext) {}
+  private readonly open: OpenThreadContext;
+
+  constructor(open: OpenThreadContext) {
+    this.open = open;
+  }
 
   readonly getSnapshot = (): ReadonlyMap<string, AssistantThreadContextSnapshot> => this.snapshot;
 

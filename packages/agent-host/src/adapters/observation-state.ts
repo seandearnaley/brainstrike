@@ -5,9 +5,9 @@ import type {
   HostMemoryModels,
   HostObservationalMemoryState,
   HostObserverAwaitingReason,
-} from '../protocol.js';
-import type { HostMemoryCapabilities } from './memory.js';
-import { StateStoreMemoryStorage } from './memory-storage.js';
+} from '../protocol.ts';
+import type { HostMemoryCapabilities } from './memory.ts';
+import { StateStoreMemoryStorage } from './memory-storage.ts';
 
 /** Observational memory as an admission configures it; `on` names where its record lives. */
 export type HostObservationSource =

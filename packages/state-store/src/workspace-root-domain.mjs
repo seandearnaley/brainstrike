@@ -10,18 +10,18 @@ const projection = `id, path, display_name AS displayName, kind, status,
  */
 
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./workspace-root-types.js').WorkspaceRootRequest & {operation: 'register'}} request
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRequest & {operation: 'register'}} request
  * @param {RootPaths} paths
- * @returns {import('./workspace-root-types.js').WorkspaceRootReply} */
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */
 function register(db, request, paths) {
   const { root } = request;
   if (!(root.preferredId.trim() && root.displayName.trim() && paths.isGranted(root))) {
     throw new Error('Workspace registration requires the granted absolute path and identity');
   }
   return db.transaction(
-    /** @returns {import('./workspace-root-types.js').WorkspaceRootReply} */ () => {
+    /** @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */ () => {
       const existing =
-        /** @type {import('./workspace-root-types.js').WorkspaceRootRecord | undefined} */ (
+        /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord | undefined} */ (
           db.prepare(`SELECT ${projection} FROM roots WHERE path = ?`).get(root.path)
         );
       const now = Date.now();
@@ -66,15 +66,15 @@ function register(db, request, paths) {
 }
 
 /** @param {import('better-sqlite3').Database} db
- * @param {import('./workspace-root-types.js').WorkspaceRootRequest} request
+ * @param {import('./workspace-root-types.ts').WorkspaceRootRequest} request
  * @param {RootPaths} paths
- * @returns {import('./workspace-root-types.js').WorkspaceRootReply} */
+ * @returns {import('./workspace-root-types.ts').WorkspaceRootReply} */
 export function executeWorkspaceRootRequest(db, request, paths) {
   switch (request.operation) {
     case 'delete':
       return db.transaction(() => {
         const root =
-          /** @type {import('./workspace-root-types.js').WorkspaceRootRecord | undefined} */ (
+          /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord | undefined} */ (
             db.prepare(`SELECT ${projection} FROM roots WHERE id=?`).get(request.rootId)
           );
         if (!(root && request.paths.includes(root.path))) {
@@ -87,13 +87,13 @@ export function executeWorkspaceRootRequest(db, request, paths) {
       return register(db, request, paths);
     case 'list':
       return {
-        roots: /** @type {import('./workspace-root-types.js').WorkspaceRootRecord[]} */ (
+        roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
           db.prepare(`SELECT ${projection} FROM roots ORDER BY created_at, rowid`).all()
         ),
       };
     case 'disconnect-except':
       return {
-        roots: /** @type {import('./workspace-root-types.js').WorkspaceRootRecord[]} */ (
+        roots: /** @type {import('./workspace-root-types.ts').WorkspaceRootRecord[]} */ (
           db
             .prepare(`UPDATE roots SET status = 'disconnected'
           WHERE status = 'live' AND path NOT IN (SELECT value FROM json_each(?))

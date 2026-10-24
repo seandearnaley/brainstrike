@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { StateProjectionOptions } from './contracts.js';
-import { createStateProjection, type StateProjection } from './state-producer.js';
+import type { StateProjectionOptions } from './contracts.ts';
+import { createStateProjection, type StateProjection } from './state-producer.ts';
 
 export type {
   StateMessageEvent,
   StateProducerDecoder,
   StateProjection,
-} from './state-producer.js';
+} from './state-producer.ts';
 
 export function validateStateModule(module: string): string {
   const url = new URL(module);

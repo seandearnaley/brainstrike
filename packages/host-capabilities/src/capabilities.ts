@@ -4,10 +4,10 @@ import type {
   HostStartupContext,
 } from '@brainstrike/agent-host';
 import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credential-contract';
-import { createHostCredentials, type HostCredentials } from './credentials.js';
-import { createTavilyKeyResolver } from './native-tools/web-search-tool.js';
-import { createHostAuthority, type HostAuthority } from './provider-auth/host-authority.js';
-import { createHostProviderServices } from './provider-services.js';
+import { createHostCredentials, type HostCredentials } from './credentials.ts';
+import { createTavilyKeyResolver } from './native-tools/web-search-tool.ts';
+import { createHostAuthority, type HostAuthority } from './provider-auth/host-authority.ts';
+import { createHostProviderServices } from './provider-services.ts';
 
 /**
  * The Node capabilities every host composes, desktop and CLI alike. A shell

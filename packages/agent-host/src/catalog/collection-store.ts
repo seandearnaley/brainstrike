@@ -3,7 +3,7 @@ import type { CollectionPort, CollectionReply } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
-import { sendCatalogRequest } from './request.js';
+import { sendCatalogRequest } from './request.ts';
 
 const Id = Schema.String.check(Schema.isPattern(/\S/));
 const Metadata = Schema.Struct({

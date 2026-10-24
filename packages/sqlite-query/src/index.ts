@@ -6,13 +6,13 @@ export {
   SqliteQueryInputError,
   SqliteQueryProcessExitedError,
   SqliteQueryStartupCleanupError,
-} from './client.js';
+} from './client.ts';
 export {
   type QueryProcess,
   queryHostEntryPath,
   type SpawnQueryProcessOptions,
   spawnQueryProcess,
-} from './process.js';
-export type { SqliteGrepOptions, SqliteGrepRows, SqliteValue } from './protocol.js';
-export { SqliteRuntimeRefusedError } from './runtime-refusal.js';
-export { type QueryUtilityProcess, spawnUtilityQueryProcess } from './utility-process.js';
+} from './process.ts';
+export type { SqliteGrepOptions, SqliteGrepRows, SqliteValue } from './protocol.ts';
+export { SqliteRuntimeRefusedError } from './runtime-refusal.ts';
+export { type QueryUtilityProcess, spawnUtilityQueryProcess } from './utility-process.ts';

@@ -7,7 +7,7 @@ import {
   summarizeAssistantTaskList,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import type { TaskListStore } from './ports.js';
+import type { TaskListStore } from './ports.ts';
 
 export const MANAGE_TASK_LIST_TOOL_ID = NATIVE_TOOL_ID.manageTaskList;
 

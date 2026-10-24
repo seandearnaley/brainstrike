@@ -6,11 +6,11 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useEnsureModelRegistry } from '../hooks/use-model-registry';
+import { useEnsureModelRegistry } from '../hooks/use-model-registry.ts';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
-} from '../stores/model-registry-store';
+} from '../stores/model-registry-store.ts';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),

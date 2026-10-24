@@ -98,7 +98,7 @@ export { formatSkillActivation } from '@mastra/core/workspace';
 export {
   COMPACTION_SUMMARIZER_INSTRUCTIONS,
   hasCompactionSummarySchema,
-} from './compaction-summary-schema';
+} from './compaction-summary-schema.ts';
 export {
   type AssistantResilienceConfig,
   DEFAULT_APPROVAL_STALE_MS,
@@ -112,20 +112,20 @@ export {
   resolveStreamInactivityMs,
   resolveToolCallInputMs,
   resolveToolTimeoutMs,
-} from './config/resilience-config';
+} from './config/resilience-config.ts';
 export {
   ContextPacker,
   type ContextPackerChunk,
   type ContextPackerOptions,
   type ContextPackerResult,
   type PackedContextChunk,
-} from './context-packer';
+} from './context-packer.ts';
 export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
   type MastraAgentErrorCode,
-} from './mastra-boundary/mastra-agent-error';
+} from './mastra-boundary/mastra-agent-error.ts';
 // MCP config types and parser (desktop-only usage typically)
 export type {
   McpConfig,
@@ -136,7 +136,7 @@ export type {
   McpServerInput,
   ResolvedMcpConfig,
   ResolvedMcpServer,
-} from './mcp/config';
+} from './mcp/config.ts';
 export {
   isInteractiveMcpStdioServer,
   McpConfigSchema,
@@ -147,13 +147,13 @@ export {
   parseMcpConfigWithMigrations,
   resolveMcpStartupPolicy,
   toMcpVersionNegotiation,
-} from './mcp/config';
-export { readMcpCreatedTaskResult } from './mcp/mcp-task-tool-result';
+} from './mcp/config.ts';
+export { readMcpCreatedTaskResult } from './mcp/mcp-task-tool-result.ts';
 export {
   type CollectCombinedToolsOptions,
   type CollectCombinedToolsResult,
   collectCombinedTools,
-} from './mcp/mcp-tool-loader';
+} from './mcp/mcp-tool-loader.ts';
 export {
   createDefaultToolPreferences,
   deleteToolPreferences,
@@ -162,15 +162,15 @@ export {
   saveToolPreferences,
   type ToolPreferences,
   type ToolPreferencesLoadResult,
-} from './mcp/tool-persistence';
+} from './mcp/tool-persistence.ts';
 export {
   type McpToolMetadata,
   type McpToolsByServer,
   ToolRegistry as McpToolRegistry,
   toolRegistry as mcpToolRegistry,
-} from './mcp/tool-registry';
+} from './mcp/tool-registry.ts';
 // Memory store for early development
-export { InMemoryMemoryStore } from './memory/in-memory';
+export { InMemoryMemoryStore } from './memory/in-memory.ts';
 export {
   CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
@@ -181,13 +181,13 @@ export {
   type RuntimeAssistantObservationalMemorySettings,
   type RuntimeAssistantSemanticRecallSettings,
   resolveAutoObservationalMemoryModelTarget,
-} from './memory-settings';
+} from './memory-settings.ts';
 export {
   type AssistantPermissionPolicyRequest,
   isAssistantPermissionPolicyRequest,
   resolveRequestPermissionPolicy,
-} from './permissions/permission-policy-request';
-export { resolveSelfApprovalDecision } from './permissions/permission-tool-gate';
+} from './permissions/permission-policy-request.ts';
+export { resolveSelfApprovalDecision } from './permissions/permission-tool-gate.ts';
 export {
   extractProviderRunError,
   isContextOverflowProviderErrorCode,
@@ -207,7 +207,7 @@ export {
   type ProviderRunErrorResponseHeaders,
   providerRunErrorToEventMetadata,
   readProviderRunError,
-} from './provider-error-metadata';
+} from './provider-error-metadata.ts';
 // BST-1353: the AWS credential chain is exported from the ROOT (Node)
 // entrypoint only — never from browser-safe/client/provider-metadata — so a
 // renderer import cannot reach `@aws-sdk/credential-providers`.
@@ -220,34 +220,34 @@ export {
   describeAwsChainFailure,
   resolveAwsCredentialChain,
   verifyAwsCredentialChain,
-} from './providers/aws-credential-chain';
+} from './providers/aws-credential-chain.ts';
 export type {
   AwsCredentialIdentity,
   AwsCredentialIdentityProvider,
-} from './providers/aws-credential-identity';
+} from './providers/aws-credential-identity.ts';
 export {
   createLocalHostEmbeddingModel,
   type LocalEmbeddingHostClient,
   type LocalEmbeddingHostQuery,
-} from './providers/local/local-host-embedding-model';
+} from './providers/local/local-host-embedding-model.ts';
 export {
   applyProviderNativeWebSearch,
   createProviderNativeWebSearchTool,
   type NativeWebSearchProvider,
   providerSupportsNativeWebSearch,
   WEB_SEARCH_TOOL_ID,
-} from './providers/native-web-search';
+} from './providers/native-web-search.ts';
 export {
   apiKeyAuthInput,
   type ProviderAuthInput,
-} from './providers/provider-auth-input';
+} from './providers/provider-auth-input.ts';
 export {
   type ConcreteLanguageModel,
   createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
   getDefaultModel,
-} from './providers/provider-factory';
+} from './providers/provider-factory.ts';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
   getProviderDefaultModel,
@@ -259,7 +259,7 @@ export {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_MODELS,
   type SupportedProvider,
-} from './providers/types';
+} from './providers/types.ts';
 // Tool metadata (categories / native defaults; Mastra owns live tool assembly)
 export {
   compareByLoadPriority,
@@ -286,7 +286,7 @@ export {
   type ToolLoadingTier,
   type ToolLoadingTierInfo,
   type ToolSource,
-} from './registry';
+} from './registry/index.ts';
 export {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   ASSISTANT_RUN_EVENT_KINDS,
@@ -298,7 +298,7 @@ export {
   type AssistantRunEventStatus,
   createAssistantRunEvent,
   sanitizeAssistantRunEventMetadata,
-} from './run-events';
+} from './run-events.ts';
 // Agent Skills: the scan + WorkspaceSkills engine + tools (desktop wires these
 // over its SecureRoot fs adapter; web never constructs them). The Mastra
 // activation formatter and engine interface are re-exported so the desktop app
@@ -313,7 +313,7 @@ export {
   type ScannedWorkspaceSkillsConfig,
   type SkillContentDeps,
   type SkillScriptRuntime,
-} from './skills/scanned-workspace-skills';
+} from './skills/scanned-workspace-skills.ts';
 export {
   __resetSkillScanWarningsForTests,
   MAX_SKILL_DIR_ENTRIES,
@@ -329,16 +329,16 @@ export {
   type SkillScanResult,
   type SkillScanRoot,
   scanSkills,
-} from './skills/skill-scan';
+} from './skills/skill-scan.ts';
 export {
   BRAINSTRIKE_SKILL_EXECUTION_GUIDANCE,
   createAssistantSkillTools,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   SKILL_TOOL_IDS,
-} from './skills/skill-tools';
-export { SKILL_LIMITS, validateSkillMetadata } from './skills/skill-validation';
-export { outputLimitContextFor } from './stream/abnormal-finish';
-export { toJsonSafe } from './stream/json';
+} from './skills/skill-tools.ts';
+export { SKILL_LIMITS, validateSkillMetadata } from './skills/skill-validation.ts';
+export { outputLimitContextFor } from './stream/abnormal-finish.ts';
+export { toJsonSafe } from './stream/json.ts';
 export {
   APPROX_CHARS_PER_TOKEN,
   CEILING_SCALED_TOOL_RESULT_BUDGET,
@@ -353,7 +353,7 @@ export {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
   TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
-} from './stream/tool-output-limits';
+} from './stream/tool-output-limits.ts';
 export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
@@ -361,21 +361,21 @@ export {
   formatGrepProjectionPageRange,
   GREP_MATCH_LINE_MAX_CHARS,
   normalizeGrepProjectionLine,
-} from './tool-projection/grep-model-format';
+} from './tool-projection/grep-model-format.ts';
 export {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   type ShellOutputWriter,
   writeShellOutputChunk,
-} from './tool-projection/shell-output-stream';
-export type { ToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry';
+} from './tool-projection/shell-output-stream.ts';
+export type { ToolCallTelemetryMetadata } from './tool-projection/tool-call-telemetry.ts';
 export {
   attachToolCallTelemetryMetadata,
   readToolCallTelemetryMetadata,
-} from './tool-projection/tool-call-telemetry';
+} from './tool-projection/tool-call-telemetry.ts';
 export {
   applyToolModelOutputProjections,
   getActiveToolResultBudget,
-} from './tool-projection/tool-model-output';
+} from './tool-projection/tool-model-output.ts';
 export {
   projectToolOutputArtifactPage,
   type ReadToolOutputArtifactInput,
@@ -390,21 +390,21 @@ export {
   type ToolOutputArtifactReadFailureReason,
   type ToolOutputArtifactSearchProjection,
   type ToolOutputArtifactSearchResult,
-} from './tool-projection/tool-output-artifact-reader';
+} from './tool-projection/tool-output-artifact-reader.ts';
 
 export {
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
   TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES,
   ToolOutputArtifactSettlementError,
   type ToolOutputArtifactSettlementFailureReason,
-} from './tool-projection/tool-output-artifact-settlement';
+} from './tool-projection/tool-output-artifact-settlement.ts';
 export {
   isToolProjectionInputRejected,
   ToolProjectionInputRejectedError,
-} from './tool-projection/tool-projection-input-rejected';
-export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer';
+} from './tool-projection/tool-projection-input-rejected.ts';
+export { createSanitizedToolNameMap } from './tool-projection/tool-sanitizer.ts';
 // Suspending tools (plan mode + ask-user)
-export { ASK_USER_TOOL_ID, createAskUserTool, formatAskUserAnswer } from './tools/ask-user-tool';
+export { ASK_USER_TOOL_ID, createAskUserTool, formatAskUserAnswer } from './tools/ask-user-tool.ts';
 // System diagnostics tool factory (Tier 3)
 export {
   buildToolsWithDiagnostics,
@@ -420,7 +420,7 @@ export {
   SYSTEM_DIAGNOSTICS_TOOL_ID,
   type SystemDiagnosticsToolResult,
   type WorkerDiagnostics,
-} from './tools/diagnostics-tool';
+} from './tools/diagnostics-tool.ts';
 // Shared docs search helpers
 export {
   type DocSummaryResponse,
@@ -430,7 +430,7 @@ export {
   searchDocsExecute,
   searchDocsInputSchema,
   type WebDocEntry,
-} from './tools/docs-search';
+} from './tools/docs-search.ts';
 export {
   FILE_READ_STATE_MAX_ENTRIES,
   forgetFileReadScope,
@@ -438,7 +438,7 @@ export {
   getKnownFileMtime,
   recordKnownFileMtime,
   resetFileReadState,
-} from './tools/file-read-state';
+} from './tools/file-read-state.ts';
 // File tree tool factory (Tier 2)
 export {
   buildToolsWithFileTree,
@@ -449,16 +449,16 @@ export {
   QUERY_FILE_TREE_TOOL_ID,
   type QueryFileTreeToolResult,
   SAFE_FILE_TREE_ERRORS,
-} from './tools/file-tree-tool';
-export { withFileLock } from './tools/file-write-lock';
-export { guardToolExecution } from './tools/guard-tool-execution';
+} from './tools/file-tree-tool.ts';
+export { withFileLock } from './tools/file-write-lock.ts';
+export { guardToolExecution } from './tools/guard-tool-execution.ts';
 export {
   type AgentHookRunner,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
   type HookBlockedToolError,
   type HookToolGateResult,
-} from './tools/hook-runner';
-export { applyToolHooks } from './tools/hook-tool-wrap';
+} from './tools/hook-runner.ts';
+export { applyToolHooks } from './tools/hook-tool-wrap.ts';
 // Queue status tool factory
 export {
   buildToolsWithQueueStatus,
@@ -472,12 +472,12 @@ export {
   type QueueStatusToolResult,
   SAFE_QUEUE_STATUS_ERRORS,
   type VectorQueueSnapshot,
-} from './tools/queue-status-tool';
-export { readToolExecutionThreadId } from './tools/read-tool-call-id';
+} from './tools/queue-status-tool.ts';
+export { readToolExecutionThreadId } from './tools/read-tool-call-id.ts';
 export {
   computeExecutionContextFingerprint,
   resolveRunPythonExecutionContext,
-} from './tools/run-python-approval-context';
+} from './tools/run-python-approval-context.ts';
 export {
   createRunPythonTool,
   projectRunPythonStreams,
@@ -489,7 +489,7 @@ export {
   serializationOverhead,
   sliceTailCodePoints,
   toRunPythonResult,
-} from './tools/run-python-tool';
+} from './tools/run-python-tool.ts';
 export {
   type AskUserInput,
   AskUserInputSchema,
@@ -563,15 +563,15 @@ export {
   WebSearchInputSchema,
   type WriteWorkspaceFileInput,
   WriteWorkspaceFileInputSchema,
-} from './tools/schemas';
+} from './tools/schemas.ts';
 export {
   applyStringReplace,
   StringReplaceError,
   type StringReplaceFailureReason,
   type StringReplaceMatchType,
   type StringReplaceResult,
-} from './tools/string-replace';
-export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool';
+} from './tools/string-replace.ts';
+export { createSubmitPlanTool, SUBMIT_PLAN_TOOL_ID } from './tools/submit-plan-tool.ts';
 export {
   createWorkspaceIndexUnavailableResult,
   hasWorkspaceIndexRuntimeStatus,
@@ -580,7 +580,7 @@ export {
   type RetrievalUnavailableResult,
   resolveWorkspaceIndexEmbeddingSetId,
   type WorkspaceIndexRetrievalStatus,
-} from './tools/workspace-index-retrieval';
+} from './tools/workspace-index-retrieval.ts';
 export type {
   AgentMessage,
   AgentMessagePart,
@@ -605,4 +605,4 @@ export type {
   RuntimeWorkspaceRoot,
   ToolCallTelemetrySample,
   ToolProjectionRewriteEntry,
-} from './types';
+} from './types.ts';

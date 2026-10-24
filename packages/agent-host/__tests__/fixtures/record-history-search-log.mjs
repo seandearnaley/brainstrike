@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { z } from 'zod';
-import { attachAgentHost, startAgentHost } from '../../dist/index.js';
+import { attachAgentHost, startAgentHost } from '../../src/index.ts';
 
 // BST-1939: explicit recording from real SDK -> socket -> writer-worker SQLite
 // -> replay, in a fresh data root. Four threads, each one run whose read tool

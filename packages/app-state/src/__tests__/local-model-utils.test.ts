@@ -4,7 +4,7 @@ import {
   hasEnabledLocalLlmModels,
   isEnabledLocalLlmModel,
   isLocalModelProviderId,
-} from '../models/local-model-utils';
+} from '../models/local-model-utils.ts';
 
 describe('local-model-utils', () => {
   it('detects local provider ids', () => {

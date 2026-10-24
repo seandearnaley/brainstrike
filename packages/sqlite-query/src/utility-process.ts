@@ -1,5 +1,5 @@
-import { type QueryProcess, queryHostEntryPath } from './process.js';
-import type { QueryRequest } from './protocol.js';
+import { type QueryProcess, queryHostEntryPath } from './process.ts';
+import type { QueryRequest } from './protocol.ts';
 
 /** Electron's documented surface, injected to keep this library Node-only. */
 export interface QueryUtilityProcess {

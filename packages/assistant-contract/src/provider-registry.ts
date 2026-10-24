@@ -1,6 +1,6 @@
 import providerCatalog from './provider-catalog.json' with { type: 'json' };
-import { parseProviderCatalog } from './provider-catalog-schema.js';
-import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.js';
+import { parseProviderCatalog } from './provider-catalog-schema.ts';
+import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.ts';
 
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 

@@ -7,15 +7,15 @@
  * provider-schema source.
  */
 
-import { isNativeToolId, type NativeToolId } from './native-tool-catalog.js';
-import { type ToolSchemaDisplay, toToolSchemaDisplay } from './native-tools/display.js';
-import { NATIVE_TOOLS } from './native-tools/index.js';
+import { isNativeToolId, type NativeToolId } from './native-tool-catalog.ts';
+import { type ToolSchemaDisplay, toToolSchemaDisplay } from './native-tools/display.ts';
+import { NATIVE_TOOLS } from './native-tools/index.ts';
 
 export type {
   ParameterType,
   ToolParameterDisplay,
   ToolSchemaDisplay,
-} from './native-tools/display.js';
+} from './native-tools/display.ts';
 
 /**
  * Native tool schema display information, one entry per catalog definition.

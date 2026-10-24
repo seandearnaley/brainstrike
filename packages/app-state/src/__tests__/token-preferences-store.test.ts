@@ -3,7 +3,7 @@ import {
   __resetTokenPreferencesStoreForTests,
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
-} from '../stores/token-preferences-store';
+} from '../stores/token-preferences-store.ts';
 
 type PersistApi<T> = T & {
   persist?: {

@@ -14,16 +14,6 @@
         "!**/*.spec.*"
       ]
     },
-    "build": {
-      // tsconfig.json compiles src/**/*.ts only. Match topo's guarded private
-      // spec exclusion so build-only exception edges cannot carry a spec edit
-      // back into downstream test hashes.
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!**/*.test.*",
-        "!**/*.spec.*"
-      ]
-    },
     "test": {
       // vitest.config.mts loads ../test-utils/vitest-lost-file-reporter.mjs (the
       // BST-1221 lost-test-file reporter) by RELATIVE path rather than through a

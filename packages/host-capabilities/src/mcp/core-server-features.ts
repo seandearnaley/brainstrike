@@ -212,10 +212,10 @@ export class McpCoreServerFeatures {
   private readonly toolTimeoutMs: number | undefined;
   private unsubscribeEvents: (() => void) | undefined;
 
-  constructor(
-    private readonly client: McpCoreFeatureClient,
-    options: McpCoreServerFeaturesOptions = {}
-  ) {
+  private readonly client: McpCoreFeatureClient;
+
+  constructor(client: McpCoreFeatureClient, options: McpCoreServerFeaturesOptions = {}) {
+    this.client = client;
     this.backoff = options.backoff ?? defaultBackoff;
     this.extensionRegistry = options.extensionRegistry;
     this.onCatalogChanged = options.onCatalogChanged ?? (() => undefined);

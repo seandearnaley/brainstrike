@@ -4,8 +4,8 @@ import {
   type CanonicalIndexPayload,
   canonicalIndexPayload,
 } from '@brainstrike/file-import/canonical-index-publication';
-import type { CanonicalScanRequest, CanonicalSourceExclusion } from './ports.js';
-import type { CanonicalPreparedRead } from './source-preparation.js';
+import type { CanonicalScanRequest, CanonicalSourceExclusion } from './ports.ts';
+import type { CanonicalPreparedRead } from './source-preparation.ts';
 
 export type CanonicalChunkOutcome =
   | { readonly kind: 'excluded'; readonly exclusion: CanonicalSourceExclusion }

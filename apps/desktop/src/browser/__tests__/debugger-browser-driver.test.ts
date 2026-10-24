@@ -6,7 +6,11 @@ import { DebuggerBrowserDriver } from '../debugger-browser-driver';
 class FakeCdpSession implements CdpSession {
   readonly sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
   detached = false;
-  constructor(private readonly responses: Record<string, unknown> = {}) {}
+  private readonly responses: Record<string, unknown>;
+
+  constructor(responses: Record<string, unknown> = {}) {
+    this.responses = responses;
+  }
   send<T>(method: string, params?: Record<string, unknown>): Promise<T> {
     this.sent.push({ method, params });
     return Promise.resolve((this.responses[method] ?? {}) as T);

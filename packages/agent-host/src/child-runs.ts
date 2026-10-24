@@ -17,11 +17,11 @@ import {
 import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ModelMessage } from 'ai';
 import { Schema } from 'effect';
-import { hostAnswerText } from './child-answer.js';
-import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.js';
-import { canonical, jsonValue } from './json-value.js';
-import type { HostDelegation, HostRunAdmission, HostTool } from './ports.js';
-import type { HostEvent } from './protocol.js';
+import { hostAnswerText } from './child-answer.ts';
+import { type HostChildWorkQueue, hostPermitModel } from './child-work-queue.ts';
+import { canonical, jsonValue } from './json-value.ts';
+import type { HostDelegation, HostRunAdmission, HostTool } from './ports.ts';
+import type { HostEvent } from './protocol.ts';
 /**
  * The shipped Mastra delegation input, less its model-controlled memory/step
  * overrides. `_background` keeps the shipped foreground opt-out; retries and

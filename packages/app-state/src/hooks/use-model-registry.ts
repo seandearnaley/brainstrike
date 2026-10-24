@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect } from 'react';
-import { type ModelRegistrySource, useModelRegistryStore } from '../stores/model-registry-store';
+import { type ModelRegistrySource, useModelRegistryStore } from '../stores/model-registry-store.ts';
 
 const logger = createLogger('UseEnsureModelRegistry');
 

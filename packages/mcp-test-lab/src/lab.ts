@@ -4,7 +4,7 @@ import {
   isLegacyRequest,
   type McpHttpHandler,
 } from '@modelcontextprotocol/server';
-import { createMcpLabLoopback } from './loopback-http.js';
+import { createMcpLabLoopback } from './loopback-http.ts';
 import {
   createMcpOAuthReferenceEndpoint,
   createMcpOAuthReferenceHandler,
@@ -12,17 +12,17 @@ import {
   type McpOAuthReferenceEndpoint,
   type McpOAuthReferenceHandler,
   type McpOAuthReferenceStateCounts,
-} from './oauth-reference.js';
-import { createReferenceServerFactory } from './reference-server.js';
-import { getMcpLabScenario, type McpLabScenario, type McpLabScenarioId } from './scenario.js';
+} from './oauth-reference.ts';
+import { createReferenceServerFactory } from './reference-server.ts';
+import { getMcpLabScenario, type McpLabScenario, type McpLabScenarioId } from './scenario.ts';
 import {
   createMcpLabSessionCleanup,
   type McpLabCleanupReport,
   type McpLabCleanupResource,
-} from './session-cleanup.js';
-import { McpLabOwnedStdioTransport } from './stdio-transport.js';
+} from './session-cleanup.ts';
+import { McpLabOwnedStdioTransport } from './stdio-transport.ts';
 
-export type { McpLabCleanupReport } from './session-cleanup.js';
+export type { McpLabCleanupReport } from './session-cleanup.ts';
 
 export interface McpLabInProcessHttpEndpoint {
   readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -60,7 +60,7 @@ export {
   type McpOAuthAuthorizationHold,
   type McpOAuthAuthorizationHoldState,
   type McpOAuthAuthorizationResponseVerifierOptions,
-} from './oauth-reference.js';
+} from './oauth-reference.ts';
 
 export interface McpLabDiagnostic {
   readonly correlationId: string;

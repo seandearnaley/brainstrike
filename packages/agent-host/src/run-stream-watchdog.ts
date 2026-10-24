@@ -8,7 +8,7 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import { createLogger } from '@brainstrike/logging';
 import type { TextStreamPart, ToolSet } from 'ai';
-import type { HostRunState } from './core-state.js';
+import type { HostRunState } from './core-state.ts';
 
 const logger = createLogger('AgentHost');
 

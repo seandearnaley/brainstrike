@@ -4,9 +4,9 @@ import { decodeIndexIdentityRow, type IndexerIdentity } from '@brainstrike/index
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { planGrepTrigramCandidates } from '@brainstrike/utils/grep-trigram-plan';
 import { Schema } from 'effect';
-import type { SqliteGrepOptions, SqliteGrepRows, SqliteValue } from './protocol.js';
-import { REVIEWED_FUNCTIONS } from './reviewed-functions.js';
-import { SqliteRuntimeRefusedError } from './runtime-refusal.js';
+import type { SqliteGrepOptions, SqliteGrepRows, SqliteValue } from './protocol.ts';
+import { REVIEWED_FUNCTIONS } from './reviewed-functions.ts';
+import { SqliteRuntimeRefusedError } from './runtime-refusal.ts';
 
 const HEAP_LIMIT = 512 * 1024 * 1024;
 const LENGTH_LIMIT = 16 * 1024 * 1024;

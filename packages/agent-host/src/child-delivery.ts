@@ -5,7 +5,7 @@
  * dispatch acknowledgements in the parent's own tool results.
  */
 import type { ModelMessage, UserModelMessage } from 'ai';
-import type { HostChildDelivery, HostChildDeliveryEntry, HostLogRow } from './protocol.js';
+import type { HostChildDelivery, HostChildDeliveryEntry, HostLogRow } from './protocol.ts';
 
 export type HostChildLedgerState = HostChildDeliveryEntry['state'] | 'running';
 

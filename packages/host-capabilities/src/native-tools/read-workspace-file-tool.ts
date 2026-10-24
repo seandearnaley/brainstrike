@@ -26,29 +26,29 @@ import {
   resolveWorkspaceRoot,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import { assertNotAgentIgnored } from './agent-ignore-guard.js';
+import { assertNotAgentIgnored } from './agent-ignore-guard.ts';
 import {
   READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH,
   type ReadWorkspaceFileCursorRegistry,
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
-} from './read-workspace-file-cursor-registry.js';
-import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection.js';
+} from './read-workspace-file-cursor-registry.ts';
+import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection.ts';
 import {
   buildRepeatedCallRefusalResult,
   checkUnchangedReadWindow,
   type LoopGuardRefusalResult,
   readWindowKey,
   UNCHANGED_READ_STUB_MESSAGE,
-} from './tool-call-loop-guards.js';
-import { readStateScope } from './workspace-file-staleness.js';
-import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers.js';
+} from './tool-call-loop-guards.ts';
+import { readStateScope } from './workspace-file-staleness.ts';
+import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers.ts';
 import {
   missingWorkspacePathRefusal,
   WorkspacePathRefusal,
   withStableWorkspaceFileLock,
-} from './workspace-path-resolution.js';
-import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader.js';
+} from './workspace-path-resolution.ts';
+import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader.ts';
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const READ_WORKSPACE_FILE_CHUNK_BYTES = 64 * 1024;

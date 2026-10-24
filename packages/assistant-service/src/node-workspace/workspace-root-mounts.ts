@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
-import { isContained, pathsEqual } from './workspace-root-paths.js';
+import { isContained, pathsEqual } from './workspace-root-paths.ts';
 import type {
   MountedWorkspaceRoot,
   SecureWorkspaceRoot,
   StoredWorkspaceRoot,
-} from './workspace-root-types.js';
+} from './workspace-root-types.ts';
 
 // Shared with the registry so its own warnings stay under one scope.
 const logger = createLogger('WorkspaceRootRegistry');

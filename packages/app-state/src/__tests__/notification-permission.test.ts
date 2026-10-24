@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   getNotificationPermissionState,
   requestNotificationPermission,
-} from '../notifications/notification-permission';
+} from '../notifications/notification-permission.ts';
 
 function stubNotification(value: {
   permission: string;

@@ -1,10 +1,10 @@
-import { MCP_APPS_MIME_TYPE } from './capabilities.js';
+import { MCP_APPS_MIME_TYPE } from './capabilities.ts';
 import {
   expectEncodedSize,
   expectExactKeys,
   expectRecord,
   MCP_APP_MAX_METADATA_BYTES,
-} from './validation.js';
+} from './validation.ts';
 
 const MAX_URI_LENGTH = 2048;
 const MAX_METADATA_COLLECTION_ENTRIES = 32;

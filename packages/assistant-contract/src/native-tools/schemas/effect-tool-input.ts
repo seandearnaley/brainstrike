@@ -1,5 +1,5 @@
 import { JsonSchema, Schema } from 'effect';
-import { normalizeProviderNulls } from './provider-null-normalization.js';
+import { normalizeProviderNulls } from './provider-null-normalization.ts';
 
 /** A decode failure, with the path Standard Schema reports it at. */
 export interface EffectToolInputIssue {

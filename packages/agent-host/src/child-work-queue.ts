@@ -11,7 +11,10 @@ export class HostChildWorkQueue {
   private active = 0;
   private readonly waiting: (() => void)[] = [];
 
-  constructor(private readonly maxConcurrentWork: number) {
+  private readonly maxConcurrentWork: number;
+
+  constructor(maxConcurrentWork: number) {
+    this.maxConcurrentWork = maxConcurrentWork;
     if (!Number.isInteger(maxConcurrentWork) || maxConcurrentWork < 1) {
       throw new Error(
         `Delegated work concurrency must be a positive integer; received ${maxConcurrentWork}.`

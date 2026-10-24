@@ -80,7 +80,7 @@ import type {
   McpBoundTaskElicitationPresenter,
   McpElicitationPresenterAuthority,
   McpTaskElicitationBinding,
-} from './elicitation-presenter.js';
+} from './elicitation-presenter.ts';
 
 export const MCP_TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks';
 /** Reserved-name (RFC 2606) marker: a stdio child has no protected resource URL. */
@@ -266,7 +266,10 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
   private readonly runtimeId: string;
   private readonly sessions = new Map<ConfiguredMcpServerId, TaskSession>();
 
-  constructor(private readonly options: McpDesktopTaskHostOptions) {
+  private readonly options: McpDesktopTaskHostOptions;
+
+  constructor(options: McpDesktopTaskHostOptions) {
+    this.options = options;
     this.runtimeId = options.runtimeId ?? randomUUID();
   }
 

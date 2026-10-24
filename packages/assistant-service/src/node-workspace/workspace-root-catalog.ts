@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
-import type { StoredWorkspaceRoot } from './workspace-root-types.js';
-import { recordWorkspaceRootDisconnections } from './workspace-roots.js';
+import type { StoredWorkspaceRoot } from './workspace-root-types.ts';
+import { recordWorkspaceRootDisconnections } from './workspace-roots.ts';
 
 const logger = createLogger('WorkspaceRootCatalog');
 

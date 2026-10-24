@@ -7,13 +7,13 @@
  * Schema from these declarations.
  */
 import { Schema, type SchemaAST } from 'effect';
-import { effectToolInputSchema } from './effect-tool-input.js';
+import { effectToolInputSchema } from './effect-tool-input.ts';
 import {
   MAX_EXEC_CODE_LENGTH,
   MAX_EXEC_TIMEOUT_MS,
   MAX_POLICY_ENTRIES,
   policyDomainSchema,
-} from './exec-policy-domain.js';
+} from './exec-policy-domain.ts';
 
 /**
  * A length-bounded string whose ADVERTISED bounds are the ones it enforces.

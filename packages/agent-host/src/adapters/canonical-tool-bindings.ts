@@ -16,8 +16,8 @@ import {
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { HostTool, HostToolContext } from '../ports.js';
-import { canonicalToolModelOutput, createCanonicalToolContext } from './canonical-context.js';
+import type { HostTool, HostToolContext } from '../ports.ts';
+import { canonicalToolModelOutput, createCanonicalToolContext } from './canonical-context.ts';
 
 type CanonicalTools = HostToolDefinitions;
 

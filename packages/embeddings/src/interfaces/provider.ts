@@ -6,8 +6,8 @@ import type {
   LocalProviderType,
   ProviderMetadata,
   Result,
-} from '../provider-types.js';
-import type { ModelConfig } from '../types.js';
+} from '../provider-types.ts';
+import type { ModelConfig } from '../types.ts';
 
 // Re-export EmbeddingInput for convenience
 export type { EmbeddingInput };

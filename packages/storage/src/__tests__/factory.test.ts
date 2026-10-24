@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { WebStorageAdapter } from '../adapters/web-storage-adapter.js';
-import { createBrowserStorageAdapter } from '../factory.js';
+import { WebStorageAdapter } from '../adapters/web-storage-adapter.ts';
+import { createBrowserStorageAdapter } from '../factory.ts';
 
 describe('Storage Factory', () => {
   describe('createBrowserStorageAdapter', () => {

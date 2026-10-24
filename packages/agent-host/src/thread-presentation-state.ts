@@ -1,8 +1,8 @@
 import { createLogger } from '@brainstrike/logging';
 import { generateText } from 'ai';
-import type { HostRunState } from './core-state.js';
-import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
-import { hostTelemetry } from './telemetry/host-telemetry.js';
+import type { HostRunState } from './core-state.ts';
+import type { HostEvent, HostLogRow, HostParams } from './protocol.ts';
+import { hostTelemetry } from './telemetry/host-telemetry.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -56,14 +56,21 @@ export class HostThreadPresentationState {
   private readonly presentations = new Map<string, HostThreadPresentation>();
   private readonly pending = new Map<string, PendingTitle>();
 
-  constructor(
-    private readonly core: {
-      /** Core's admission queue: a generated title commits after any queued rename. */
-      readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
-      readonly append: (threadId: string, event: Updated) => Promise<void>;
-      readonly update: (params: HostParams<'thread/update'>, event: Updated) => Promise<void>;
-    }
-  ) {}
+  private readonly core: {
+    /** Core's admission queue: a generated title commits after any queued rename. */
+    readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
+    readonly append: (threadId: string, event: Updated) => Promise<void>;
+    readonly update: (params: HostParams<'thread/update'>, event: Updated) => Promise<void>;
+  };
+
+  constructor(core: {
+    /** Core's admission queue: a generated title commits after any queued rename. */
+    readonly admit: (threadId: string, perform: () => Promise<void>) => Promise<void>;
+    readonly append: (threadId: string, event: Updated) => Promise<void>;
+    readonly update: (params: HostParams<'thread/update'>, event: Updated) => Promise<void>;
+  }) {
+    this.core = core;
+  }
 
   fold(row: HostLogRow): void {
     if (row.event.type === 'thread.updated') {

@@ -14,7 +14,7 @@ import {
   stateMessageSourceSchema,
   stateObservationGroupSchema,
   stateSearchRowSchema,
-} from './contracts.js';
+} from './contracts.ts';
 
 const callable = Schema.declare<(...args: readonly unknown[]) => unknown>(
   (input): input is (...args: readonly unknown[]) => unknown => Predicate.isFunction(input)

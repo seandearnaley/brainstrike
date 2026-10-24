@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition';
+import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
 
 const logger = createLogger('ToolRegistry');
 

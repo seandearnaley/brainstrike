@@ -20,17 +20,17 @@ export {
   FenceUnsupportedPlatformError,
   INHERITED_ENV_VARS,
   isFenceSupported,
-} from './fence/fence-executor';
+} from './fence/fence-executor.ts';
 export {
   ALWAYS_DENY_READ_PATHS,
   buildSandboxRuntimeConfig,
   type FencePathResolver,
   FencePolicyError,
   isFencePolicyError,
-} from './fence/fence-policy';
+} from './fence/fence-policy.ts';
 
 export {
   FenceReadinessError,
   type FenceReadinessReason,
   isFenceReadinessError,
-} from './fence/fence-readiness-error';
+} from './fence/fence-readiness-error.ts';

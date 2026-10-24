@@ -3,8 +3,8 @@ import type {
   McpOAuthPersistedState,
   McpOAuthStore,
   McpOAuthStoreIdentity,
-} from './oauth-client-provider.js';
-import { registerMcpOAuthStore } from './oauth-client-provider.js';
+} from './oauth-client-provider.ts';
+import { registerMcpOAuthStore } from './oauth-client-provider.ts';
 
 /** The injected object is the same credential authority used by provider auth. */
 export interface McpOAuthCredentialStorage {

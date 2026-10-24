@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetNotificationPreferencesStoreForTests,
   useNotificationPreferencesStore,
-} from '../stores/notification-preferences-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/notification-preferences-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useNotificationPreferencesStore as PersistApi<
   typeof useNotificationPreferencesStore

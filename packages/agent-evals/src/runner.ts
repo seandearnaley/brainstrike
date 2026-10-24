@@ -14,18 +14,18 @@ import {
   type ProviderCassetteSubstitution,
   parseProviderCassette,
 } from '@brainstrike/test-utils/provider-cassette';
-import { driveEvalRun, type EvalHost, startEvalHost } from './host-cli.js';
-import { type ProviderBoundary, startProviderBoundary } from './provider-boundary.js';
-import type { EvalMode, EvalResult } from './results.js';
-import { createEvalSandbox, type EvalSandbox, runVerifier } from './sandbox.js';
+import { driveEvalRun, type EvalHost, startEvalHost } from './host-cli.ts';
+import { type ProviderBoundary, startProviderBoundary } from './provider-boundary.ts';
+import type { EvalMode, EvalResult } from './results.ts';
+import { createEvalSandbox, type EvalSandbox, runVerifier } from './sandbox.ts';
 import {
   type EvalAttempt,
   type EvalRunSummary,
   readRunFromLog,
   scoreEvalAttempt,
-} from './scoring.js';
-import { scriptedModelId } from './scripted-platform.js';
-import type { LoadedEvalTask } from './task.js';
+} from './scoring.ts';
+import { scriptedModelId } from './scripted-platform.ts';
+import type { LoadedEvalTask } from './task.ts';
 
 const require = createRequire(import.meta.url);
 

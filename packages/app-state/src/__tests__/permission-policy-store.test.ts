@@ -5,8 +5,8 @@ import {
   buildPermissionToolGateSnapshotInput,
   getPermissionToolGateSnapshotInput,
   usePermissionPolicyStore,
-} from '../stores/permission-policy-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/permission-policy-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = usePermissionPolicyStore as PersistApi<typeof usePermissionPolicyStore>;
 

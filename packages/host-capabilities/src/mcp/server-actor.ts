@@ -21,7 +21,7 @@ import {
   parseMcpNegotiatedStatus,
 } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { OAuthError, ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
-import { findBearerCredentialFailure, McpLifecycleFailure } from './lifecycle-errors.js';
+import { findBearerCredentialFailure, McpLifecycleFailure } from './lifecycle-errors.ts';
 
 type McpServerActorInvokeOptions = McpHostInvokeOptions & { signal: AbortSignal };
 export interface McpServerActorClient {
@@ -122,15 +122,17 @@ type McpServerActorErrorCode =
   | 'mcp-transport-operation-failed';
 type McpServerActorDiagnosticCode = McpServerActorErrorCode | 'mcp-snapshot-listener-failed';
 class ActorError extends Error {
-  constructor(
-    readonly category: McpStableErrorCategory,
-    readonly code: McpServerActorErrorCode
-  ) {
+  readonly category: McpStableErrorCategory;
+  readonly code: McpServerActorErrorCode;
+
+  constructor(category: McpStableErrorCategory, code: McpServerActorErrorCode) {
     super(
       code === 'mcp-authentication-required'
         ? 'MCP authentication required. Connect or reauthorize this server in Settings > AI Tools.'
         : 'MCP server actor operation failed'
     );
+    this.category = category;
+    this.code = code;
     this.name = 'McpServerActorError';
   }
 }
@@ -261,7 +263,10 @@ export class McpServerActor {
   private transportInvalidated = false;
   private consecutiveRequestTimeouts = 0;
   private status: ActorStatus;
-  constructor(private readonly options: McpServerActorOptions) {
+  private readonly options: McpServerActorOptions;
+
+  constructor(options: McpServerActorOptions) {
+    this.options = options;
     const auth = options.auth?.();
     const hasStoredOAuthCredentials =
       auth?.type === 'oauth-user' && auth.credentialState === 'stored';

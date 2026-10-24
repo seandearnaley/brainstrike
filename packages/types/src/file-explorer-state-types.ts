@@ -5,15 +5,15 @@
  * store shape, and the store's default-state constants.
  */
 
-import type { FolderState } from './file-explorer-persisted-state-types.js';
+import type { FolderState } from './file-explorer-persisted-state-types.ts';
 import {
   createEmptySelectionModel,
   type QuerySelectionManifest,
   type SelectionMode,
   type SelectionModel,
   type SelectionQueryDescriptor,
-} from './file-explorer-selection-types.js';
-import type { IFileNode } from './file-system.js';
+} from './file-explorer-selection-types.ts';
+import type { IFileNode } from './file-system.ts';
 
 // Multi-root types (Phase 4)
 
@@ -186,7 +186,7 @@ export interface FileExplorerState extends FileExplorerData {
   evictOldFileContents: (count?: number) => void;
 
   // New actions
-  expandAllDirectories: (fileTree: import('./file-system.js').IFileNode[]) => void;
+  expandAllDirectories: (fileTree: import('./file-system.ts').IFileNode[]) => void;
   getFileContent: (compositeKey: string) => string | undefined;
   getFileContentCacheStats: () => CacheStats;
   hydrateFolderState: (folderId: string) => void;

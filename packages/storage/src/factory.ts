@@ -1,6 +1,6 @@
-import { MemoryStorageAdapter } from './adapters/memory-storage-adapter.js';
-import { WebStorageAdapter } from './adapters/web-storage-adapter.js';
-import type { StorageAdapter } from './types.js';
+import { MemoryStorageAdapter } from './adapters/memory-storage-adapter.ts';
+import { WebStorageAdapter } from './adapters/web-storage-adapter.ts';
+import type { StorageAdapter } from './types.ts';
 
 export function createBrowserStorageAdapter(): StorageAdapter {
   return new WebStorageAdapter();

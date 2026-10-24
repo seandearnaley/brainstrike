@@ -11,13 +11,13 @@ import type * as SqliteQuery from '../index.js';
 import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
 
 // spawnQueryProcess forks the utility host beside its own module, so this suite
-// drives the built package; the source owns its type.
+// imports the entry by URL; the source owns its type.
 const {
   SqliteQueryClient,
   SqliteQueryDeadlineError,
   SqliteQueryProcessExitedError,
   spawnQueryProcess,
-}: typeof SqliteQuery = await import(new URL('../../dist/index.js', import.meta.url).href);
+}: typeof SqliteQuery = await import(new URL('../index.ts', import.meta.url).href);
 type SqliteQueryClient = SqliteQuery.SqliteQueryClient;
 type QueryProcess = SqliteQuery.QueryProcess;
 type SqliteGrepOptions = SqliteQuery.SqliteGrepOptions;

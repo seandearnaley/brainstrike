@@ -47,7 +47,7 @@ describe('security-sensitive store persistence during chunk evaluation', () => {
 
   it('keeps permission-policy persistence installed and retries a transient resolution failure', async () => {
     const createBrowserJsonStorage = await installTransientStorageFailure();
-    const { usePermissionPolicyStore } = await import('../stores/permission-policy-store');
+    const { usePermissionPolicyStore } = await import('../stores/permission-policy-store.ts');
     const persist = (
       usePermissionPolicyStore as typeof usePermissionPolicyStore & {
         persist?: PersistApi;

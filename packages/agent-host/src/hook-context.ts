@@ -1,9 +1,9 @@
 import type { ToolContent } from 'ai';
-import type { HostRunState } from './core-state.js';
-import { jsonValue } from './json-value.js';
-import type { HostRunAdmission } from './ports.js';
-import type { HostEvent } from './protocol.js';
-import { hostTurnEnd, hostTurnStart } from './turn-snapshots.js';
+import type { HostRunState } from './core-state.ts';
+import { jsonValue } from './json-value.ts';
+import type { HostRunAdmission } from './ports.ts';
+import type { HostEvent } from './protocol.ts';
+import { hostTurnEnd, hostTurnStart } from './turn-snapshots.ts';
 
 type HostToolResultOutput = Extract<ToolContent[number], { type: 'tool-result' }>['output'];
 type HookContextEvent = Extract<HostEvent, { type: 'hook.context' }>;

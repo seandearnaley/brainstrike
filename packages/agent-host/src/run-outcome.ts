@@ -24,8 +24,8 @@ import {
   type TextStreamPart,
   type ToolSet,
 } from 'ai';
-import { correlatedFailure } from './failure-correlation.js';
-import type { HostEvent } from './protocol.js';
+import { correlatedFailure } from './failure-correlation.ts';
+import type { HostEvent } from './protocol.ts';
 
 const logger = createLogger('AgentHost');
 
@@ -77,17 +77,24 @@ export class HostRunOutcome {
   /** A step that ended in a provider error was committed with its partial content. */
   private committedErrorStep: 'tool-parts' | 'committed-output' | undefined;
 
+  private readonly configuration: Readonly<RuntimeData> | undefined;
+  private readonly modelId: string;
+  /** The run a failure's diagnostic record correlates to (BST-2202). */
+  private readonly run: { readonly runId: string; readonly threadId: string };
+
   /**
    * @param resumed - The run leg began with committed model steps (an approval
    *   or restart continuation), so the model has contributed to it.
    */
   constructor(
-    private readonly configuration: Readonly<RuntimeData> | undefined,
-    private readonly modelId: string,
+    configuration: Readonly<RuntimeData> | undefined,
+    modelId: string,
     resumed: boolean,
-    /** The run a failure's diagnostic record correlates to (BST-2202). */
-    private readonly run: { readonly runId: string; readonly threadId: string }
+    run: { readonly runId: string; readonly threadId: string }
   ) {
+    this.configuration = configuration;
+    this.modelId = modelId;
+    this.run = run;
     this.contributed = resumed;
   }
 

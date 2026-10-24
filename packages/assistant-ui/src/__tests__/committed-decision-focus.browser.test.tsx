@@ -68,7 +68,11 @@ class RecordedPrefix {
   private length = 0;
   private readonly listeners = new Set<() => void>();
 
-  constructor(private readonly rows: readonly CommittedAssistantLogRow[]) {}
+  private readonly rows: readonly CommittedAssistantLogRow[];
+
+  constructor(rows: readonly CommittedAssistantLogRow[]) {
+    this.rows = rows;
+  }
 
   readonly getSnapshot = (): CommittedAssistantLogSourceSnapshot => ({
     connected: true,

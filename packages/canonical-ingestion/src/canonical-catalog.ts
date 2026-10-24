@@ -14,7 +14,7 @@ import type {
   CanonicalManifestFile,
   CanonicalOperationContext,
   CanonicalSourceScope,
-} from './ports.js';
+} from './ports.ts';
 
 const nullableText = Schema.NullOr(Schema.String);
 const statSchema = Schema.Struct({

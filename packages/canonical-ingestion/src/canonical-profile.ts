@@ -23,7 +23,7 @@ import type {
   CanonicalInferencePort,
   CanonicalOperationContext,
   CanonicalSourceScope,
-} from './ports.js';
+} from './ports.ts';
 
 const nonblank = Schema.String.check(Schema.isPattern(/\S/u));
 const metadataSchema = Schema.Struct({
@@ -136,7 +136,11 @@ export interface NativeCanonicalProfileDependencies {
 }
 
 export class NativeCanonicalProfileResolver {
-  constructor(private readonly dependencies: NativeCanonicalProfileDependencies) {}
+  private readonly dependencies: NativeCanonicalProfileDependencies;
+
+  constructor(dependencies: NativeCanonicalProfileDependencies) {
+    this.dependencies = dependencies;
+  }
 
   readonly resolveProfile: CanonicalCatalogPort<VectorProfile>['resolveProfile'] = async (
     { scope },
@@ -233,7 +237,10 @@ export class NativeCanonicalInference implements InferencePort {
   private readonly scope: CanonicalSourceScope;
   private closed = false;
 
-  constructor(private readonly dependencies: NativeCanonicalInferenceDependencies) {
+  private readonly dependencies: NativeCanonicalInferenceDependencies;
+
+  constructor(dependencies: NativeCanonicalInferenceDependencies) {
+    this.dependencies = dependencies;
     this.scope = { ...dependencies.scope };
   }
 

@@ -44,7 +44,9 @@ function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
  */
 export class ThreadRootsRemovedError extends BoundaryFailureError {
   override readonly name = 'ThreadRootsRemovedError';
-  constructor(readonly roots: readonly RemovedThreadRoot[]) {
+  readonly roots: readonly RemovedThreadRoot[];
+
+  constructor(roots: readonly RemovedThreadRoot[]) {
     super(
       refusal({
         category: 'conflict',
@@ -52,6 +54,7 @@ export class ThreadRootsRemovedError extends BoundaryFailureError {
         message: removedRootsMessage(roots),
       })
     );
+    this.roots = roots;
   }
 }
 export interface DesktopWorkspaceBindingBorrow {
@@ -65,7 +68,11 @@ export class DesktopWorkspaceBindingAuthority {
   private readonly pending = new Set<Promise<unknown>>();
   private readonly borrows = new Set<() => Promise<void>>();
   private closing: Promise<void> | undefined;
-  constructor(private readonly dependencies: DesktopWorkspaceBindingDependencies) {}
+  private readonly dependencies: DesktopWorkspaceBindingDependencies;
+
+  constructor(dependencies: DesktopWorkspaceBindingDependencies) {
+    this.dependencies = dependencies;
+  }
   readonly validateWorkspaceBinding: NonNullable<HostPlatform['validateWorkspaceBinding']> = async (
     request
   ) => {

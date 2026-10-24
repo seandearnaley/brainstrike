@@ -1,12 +1,12 @@
-import type { CanonicalSourceExclusion } from './ports.js';
+import type { CanonicalSourceExclusion } from './ports.ts';
 
 /** Filesystem content eligibility, never a read, authority, parser or cancellation failure. */
 export class CanonicalSourceContentExcludedError extends Error {
-  constructor(
-    readonly reason: CanonicalSourceExclusion['reason'],
-    message: string
-  ) {
+  readonly reason: CanonicalSourceExclusion['reason'];
+
+  constructor(reason: CanonicalSourceExclusion['reason'], message: string) {
     super(message);
+    this.reason = reason;
     this.name = 'CanonicalSourceContentExcludedError';
   }
 }

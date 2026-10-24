@@ -16,20 +16,20 @@ export {
   type Deliver,
   mergeChunk,
   type RunChunk,
-} from './coalescer.js';
+} from './coalescer.ts';
 export type {
   CollectionMetadata,
   CollectionPort,
   CollectionRecord,
   CollectionReply,
   CollectionRequest,
-} from './collection-types.js';
+} from './collection-types.ts';
 export {
   IndexerRequiredError,
   StateStoreReadOnlyError,
   ThreadDamagedError,
   ThreadReadOnlyError,
-} from './errors.js';
+} from './errors.ts';
 export {
   type Decoded,
   decodeEvent,
@@ -39,7 +39,7 @@ export {
   type Purged,
   UnknownEventError,
   type Unreadable,
-} from './event-schema.js';
+} from './event-schema.ts';
 export {
   ForeignLockError,
   type LockOptions,
@@ -48,7 +48,7 @@ export {
   type RootHolder,
   RootLock,
   RootLockedError,
-} from './lock.js';
+} from './lock.ts';
 export type {
   McpTaskDomainReply,
   McpTaskDomainRequest,
@@ -59,7 +59,7 @@ export type {
   McpTaskPatchWire,
   McpTaskScopeWire,
   McpTaskStatusWire,
-} from './mcp-task-types.js';
+} from './mcp-task-types.ts';
 export type {
   MemoryCalculation,
   MemoryDomainPort,
@@ -72,7 +72,7 @@ export type {
   MemoryNativeMethod,
   MemoryNativeRequest,
   MemorySnapshot,
-} from './memory-types.js';
+} from './memory-types.ts';
 export type {
   ModelChoice,
   ModelChoicePort,
@@ -80,24 +80,24 @@ export type {
   ModelChoiceResult,
   ModelChoiceSnapshot,
   ProviderChoice,
-} from './model-choice-types.js';
+} from './model-choice-types.ts';
 export {
   type NativeChild,
   type NativeChildObserver,
   observeNativeChildren,
   spawnNativeChild,
   trackNativeChild,
-} from './native-children.js';
+} from './native-children.ts';
 export type {
   PromptCatalogPort,
   PromptCatalogRecord,
   PromptCatalogReply,
   PromptCatalogRequest,
   PromptRevisionRecord,
-} from './prompt-catalog-types.js';
-export { canonicalRoot } from './root-identity.js';
+} from './prompt-catalog-types.ts';
+export { canonicalRoot } from './root-identity.ts';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
-export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
+export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
 export { SCHEMA_VERSION } from './schema.mjs';
 export type {
   SourceCatalogInput,
@@ -105,7 +105,7 @@ export type {
   SourceCatalogRecord,
   SourceCatalogReply,
   SourceCatalogRequest,
-} from './source-catalog-types.js';
+} from './source-catalog-types.ts';
 export { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 export {
   type MemoryObservationRecord,
@@ -113,8 +113,8 @@ export {
   type ReadItem,
   readAll,
   SqliteReader,
-} from './sqlite-reader.js';
-export type { ClearContentResult } from './state-store.js';
+} from './sqlite-reader.ts';
+export type { ClearContentResult } from './state-store.ts';
 export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
@@ -137,16 +137,16 @@ export {
   type SyncSpan,
   sha256Hex,
   type WriteSpan,
-} from './state-store.js';
-export { StateTruthReader, type TruthConnection } from './state-truth-reader.js';
-export { assertNotSyncedRoot, type SyncEnv, SyncedRootError } from './sync-roots.js';
-export type { ViewFilterPresetPort } from './view-filter-preset-types.js';
+} from './state-store.ts';
+export { StateTruthReader, type TruthConnection } from './state-truth-reader.ts';
+export { assertNotSyncedRoot, type SyncEnv, SyncedRootError } from './sync-roots.ts';
+export type { ViewFilterPresetPort } from './view-filter-preset-types.ts';
 export type {
   WorkspaceRootPort,
   WorkspaceRootRecord,
   WorkspaceRootReply,
   WorkspaceRootRequest,
-} from './workspace-root-types.js';
+} from './workspace-root-types.ts';
 export type {
   ForgeCacheEntry,
   ForgeCachePort,
@@ -155,4 +155,4 @@ export type {
   WorktreeLedgerPort,
   WorktreeLedgerReply,
   WorktreeLedgerRequest,
-} from './worktree-forge-types.js';
+} from './worktree-forge-types.ts';

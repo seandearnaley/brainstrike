@@ -2,8 +2,8 @@ import { TOMBSTONE_BODY, withSeq } from '@brainstrike/state-store/run-log-format
 import type { StateTruthReader } from '@brainstrike/state-store/state-truth-reader';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { checkedTruncateCheckpoint } from './checked-checkpoint.js';
-import { float32Bytes, sha256 } from './chunks.js';
+import { checkedTruncateCheckpoint } from './checked-checkpoint.ts';
+import { float32Bytes, sha256 } from './chunks.ts';
 import {
   authorize,
   decoder,
@@ -23,11 +23,11 @@ import {
   stateMessageUpsertSchema,
   type VectorProfile,
   vectorProfileSchema,
-} from './contracts.js';
-import { readIndexIdentity } from './index-metadata.js';
-import { vectorProfileHash } from './scope-authority.js';
-import { validateStoredVectorBytes } from './scoped-vector-validation.js';
-import type { StateMessageEvent, StateProjection } from './state-projection.js';
+} from './contracts.ts';
+import { readIndexIdentity } from './index-metadata.ts';
+import { vectorProfileHash } from './scope-authority.ts';
+import { validateStoredVectorBytes } from './scoped-vector-validation.ts';
+import type { StateMessageEvent, StateProjection } from './state-projection.ts';
 
 const rowSchema = Schema.Struct({
   dimensions: Schema.Int,
@@ -186,12 +186,21 @@ export class StateMessageVectors {
     db.exec('INSERT INTO state_message_generation VALUES(1,0,0)');
   }
 
+  private readonly db: Database.Database;
+  private readonly truth: StateTruthReader;
+  private readonly projection: StateProjection;
+  private readonly options: IndexerOptions;
+
   constructor(
-    private readonly db: Database.Database,
-    private readonly truth: StateTruthReader,
-    private readonly projection: StateProjection,
-    private readonly options: IndexerOptions
+    db: Database.Database,
+    truth: StateTruthReader,
+    projection: StateProjection,
+    options: IndexerOptions
   ) {
+    this.db = db;
+    this.truth = truth;
+    this.projection = projection;
+    this.options = options;
     StateMessageVectors.validateStorage(db);
   }
 

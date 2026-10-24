@@ -10,9 +10,9 @@ import { getFileSizeConfig } from '@brainstrike/file-system';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { NATIVE_MAX_READ_BYTES } from '@brainstrike/file-system/secure-file-read';
 import { MAX_DIRECTORY_ENTRIES } from '@brainstrike/file-system/workspace-root-nodes';
-import { NativeAuthorityTransitionError } from '../node-native-index/errors.js';
-import { resolveReadAgainstMountedRoot } from './workspace-root-read.js';
-import type { MountedWorkspaceRoot } from './workspace-root-types.js';
+import { NativeAuthorityTransitionError } from '../node-native-index/errors.ts';
+import { resolveReadAgainstMountedRoot } from './workspace-root-read.ts';
+import type { MountedWorkspaceRoot } from './workspace-root-types.ts';
 
 interface SourceLeaseDependencies {
   readonly assertCurrent: () => void;
@@ -39,7 +39,10 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
   private retirement: Promise<void> | undefined;
   private retired = false;
 
-  constructor(private readonly dependencies: SourceLeaseDependencies) {
+  private readonly dependencies: SourceLeaseDependencies;
+
+  constructor(dependencies: SourceLeaseDependencies) {
+    this.dependencies = dependencies;
     this.canonicalPath = dependencies.mounted.canonicalPath;
     this.rootId = dependencies.mounted.rootId;
     this.signal = this.stopping.signal;

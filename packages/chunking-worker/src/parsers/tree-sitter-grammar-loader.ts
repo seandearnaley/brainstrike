@@ -24,7 +24,7 @@
  */
 
 import { Language, Parser } from 'web-tree-sitter';
-import type { TreeSitterLanguage } from './tree-sitter-adapter';
+import type { TreeSitterLanguage } from './tree-sitter-adapter.ts';
 
 /** Module-level: ensure `Parser.init()` runs at most once per process. */
 let parserInitPromise: Promise<void> | null = null;
@@ -52,19 +52,18 @@ const languageCache = new Map<TreeSitterLanguage, Promise<Language>>();
  */
 async function loadGrammarBytes(language: TreeSitterLanguage): Promise<Uint8Array> {
   if (typeof window === 'undefined' && typeof self === 'undefined') {
-    // Node environment. From source (Vitest, scripts) and from the package's
-    // own `dist/node` build, both two levels under the package, read the
-    // vendored grammars directory; a Node bundle (desktop's indexer host) ships
-    // the same files in `grammars/` beside itself.
+    // Node environment. From source (Vitest, Node) read the vendored grammars
+    // directory; a Node bundle (desktop's indexer host) ships the same files in
+    // `grammars/` beside itself.
     const { readFile } = await import('node:fs/promises');
     const { fileURLToPath } = await import('node:url');
     const path = await import('node:path');
     const modulePath = fileURLToPath(import.meta.url);
     const here = path.dirname(modulePath);
-    const isPackageModule =
-      modulePath.endsWith(path.join('src', 'parsers', 'tree-sitter-grammar-loader.ts')) ||
-      here.endsWith(path.join('dist', 'node'));
-    const wasmPath = isPackageModule
+    const isSourceModule = modulePath.endsWith(
+      path.join('src', 'parsers', 'tree-sitter-grammar-loader.ts')
+    );
+    const wasmPath = isSourceModule
       ? path.join(here, '..', '..', 'grammars', `${language}.wasm`)
       : path.join(here, 'grammars', `${language}.wasm`);
     return new Uint8Array(await readFile(wasmPath));

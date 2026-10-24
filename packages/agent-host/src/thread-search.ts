@@ -8,9 +8,9 @@
  * BST-1939: the host also fuses the arms into one ranked list of threads.
  */
 import { fuseRankedLists, type RankedList } from '@brainstrike/utils/rrf';
-import { committedRunIdentity } from './committed-identities.js';
-import type { HostCore } from './core.js';
-import type { HostLogRow, HostParams, HostResults } from './protocol.js';
+import { committedRunIdentity } from './committed-identities.ts';
+import type { HostCore } from './core.ts';
+import type { HostLogRow, HostParams, HostResults } from './protocol.ts';
 
 /** Legacy `ThreadSearchService` pool sizes, per arm, and its fused list sizes. */
 const MESSAGE_SOURCE_LIMIT = 50;

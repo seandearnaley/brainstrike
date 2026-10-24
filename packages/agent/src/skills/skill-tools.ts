@@ -18,12 +18,12 @@ import { RequestContext } from '@mastra/core/request-context';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import { noopObserve, type ToolExecutionContext } from '@mastra/core/tools';
 import { createSkillTools } from '@mastra/core/workspace';
-import type { HostToolDefinition, HostToolExecutionContext } from '../host-tool-definition';
+import type { HostToolDefinition, HostToolExecutionContext } from '../host-tool-definition.ts';
 import {
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
-} from '../stream/tool-output-limits';
-import { sanitizeToolName } from '../tool-projection/tool-sanitizer';
+} from '../stream/tool-output-limits.ts';
+import { sanitizeToolName } from '../tool-projection/tool-sanitizer.ts';
 
 export { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET };
 

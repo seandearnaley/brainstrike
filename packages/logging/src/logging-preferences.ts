@@ -4,8 +4,8 @@ import {
   type FileTransportConfig,
   type LoggerConfig,
   LogLevel,
-} from './logger.js';
-import type { LoggerRuntime } from './logging-initializer.js';
+} from './logger.ts';
+import type { LoggerRuntime } from './logging-initializer.ts';
 
 export interface FileLoggingPreferences {
   append: boolean;

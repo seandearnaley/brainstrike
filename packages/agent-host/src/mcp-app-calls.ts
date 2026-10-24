@@ -4,11 +4,11 @@ import {
   readMcpAppToolInvocationResult,
   refusalError,
 } from '@brainstrike/assistant-contract';
-import type { HostThreadGrants } from './core-state.js';
-import { jsonValue } from './json-value.js';
-import type { HostPlatform } from './ports.js';
-import type { HostLogRow, HostParams, HostResults } from './protocol.js';
-import { hostPolicyDecision } from './run-admission.js';
+import type { HostThreadGrants } from './core-state.ts';
+import { jsonValue } from './json-value.ts';
+import type { HostPlatform } from './ports.ts';
+import type { HostLogRow, HostParams, HostResults } from './protocol.ts';
+import { hostPolicyDecision } from './run-admission.ts';
 
 /** An MCP App's own `tools/call`, from the app a thread's tool result mounted. */
 export interface HostMcpAppCall {

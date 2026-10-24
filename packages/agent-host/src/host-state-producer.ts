@@ -12,9 +12,9 @@ import {
 } from '@brainstrike/state-store/event-schema';
 import { modelMessageSchema } from 'ai';
 import { Schema } from 'effect';
-import { committedRowAddress, committedRunSource } from './committed-identities.js';
-import { decodeRunSnapshot, decodeStoredHostEvent, hostEventSpool } from './host-event-decoding.js';
-import { type HostEvent, HostEventSchema, type HostLogRow, HostLogRowSchema } from './protocol.js';
+import { committedRowAddress, committedRunSource } from './committed-identities.ts';
+import { decodeRunSnapshot, decodeStoredHostEvent, hostEventSpool } from './host-event-decoding.ts';
+import { type HostEvent, HostEventSchema, type HostLogRow, HostLogRowSchema } from './protocol.ts';
 export type DecodedHostEvent =
   | (HostEvent & {
       readonly seq: number;

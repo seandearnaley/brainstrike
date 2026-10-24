@@ -3,14 +3,14 @@ import path from 'node:path';
 import { threadId } from 'node:worker_threads';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { SqliteReader } from '@brainstrike/state-store';
-import { decoder, optionsSchema } from './contracts.js';
-import type { IndexConnection, IndexReaderConnection } from './index-connection.js';
-import { assertFreshOpen } from './options.js';
-import { ScopeAuthority } from './scope-authority.js';
-import { StateEventStore } from './state-event-store.js';
-import type { StateProjection } from './state-projection.js';
-import { validateIndexerOptions } from './transport.js';
-import { sqliteVecEngine } from './vector-engine.js';
+import { decoder, optionsSchema } from './contracts.ts';
+import type { IndexConnection, IndexReaderConnection } from './index-connection.ts';
+import { assertFreshOpen } from './options.ts';
+import { ScopeAuthority } from './scope-authority.ts';
+import { StateEventStore } from './state-event-store.ts';
+import type { StateProjection } from './state-projection.ts';
+import { validateIndexerOptions } from './transport.ts';
+import { sqliteVecEngine } from './vector-engine.ts';
 
 /**
  * The desktop writer's index: its options' file, opened by better-sqlite3

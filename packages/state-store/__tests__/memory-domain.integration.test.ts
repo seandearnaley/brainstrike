@@ -42,7 +42,7 @@ const observation: MemoryEntity = {
   threadId: null,
 };
 const calculator = new URL(
-  '../../agent-host/dist/adapters/memory-storage-calculator.js',
+  '../../agent-host/src/adapters/memory-storage-calculator.ts',
   import.meta.url
 ).href;
 

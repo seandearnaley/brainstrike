@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
-import type { StoredWorkspaceRoot } from './workspace-root-types.js';
+import type { StoredWorkspaceRoot } from './workspace-root-types.ts';
 
 const logger = createLogger('WorkspaceRootRegistry');
 

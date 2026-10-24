@@ -5,13 +5,13 @@ import {
   type WorkspaceIgnoreSources,
 } from '@brainstrike/utils';
 import type { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils/background-indexing-policy';
-import { fileNodeToFileHandle } from './file-node-handles.js';
-import type { WorkspaceDiscoveryDeps } from './workspace-scan-nodes.js';
+import { fileNodeToFileHandle } from './file-node-handles.ts';
+import type { WorkspaceDiscoveryDeps } from './workspace-scan-nodes.ts';
 import {
   getParentRelativePath,
   isUnderTruncatedDirectory,
   toRootRelativePath,
-} from './workspace-scan-paths.js';
+} from './workspace-scan-paths.ts';
 
 const IGNORE_FILES = [
   ['.gitignore', 'gitignore'],

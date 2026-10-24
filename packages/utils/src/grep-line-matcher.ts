@@ -1,4 +1,4 @@
-import { assertSafeRegexSource } from './filter-utils.js';
+import { assertSafeRegexSource } from './filter-utils.ts';
 
 /**
  * Per-line match predicate. Shared between the indexed grep path (this service)

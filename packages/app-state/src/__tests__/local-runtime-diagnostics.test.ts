@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
-} from '../stores/assistant-preferences-store';
+} from '../stores/assistant-preferences-store.ts';
 
 let records: LogRecord[];
 let unsubscribe: () => void;

@@ -10,7 +10,11 @@ export class HostedEmbeddingRequests {
     readonly controller: AbortController;
     readonly settled: Promise<void>;
   }>();
-  constructor(private readonly storage?: Pick<ElectronStorageAdapter, 'getItem'>) {}
+  private readonly storage: Pick<ElectronStorageAdapter, 'getItem'> | undefined;
+
+  constructor(storage?: Pick<ElectronStorageAdapter, 'getItem'>) {
+    this.storage = storage;
+  }
   get hasPending(): boolean {
     return this.requests.size > 0 || this.retirement !== null;
   }

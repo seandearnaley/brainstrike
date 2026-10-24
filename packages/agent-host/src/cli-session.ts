@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { Schema } from 'effect';
-import type { HostCliOutput } from './cli.js';
-import type { HostClient } from './client.js';
-import type { HostLogRow, HostRunTelemetry } from './protocol.js';
+import type { HostCliOutput } from './cli.ts';
+import type { HostClient } from './client.ts';
+import type { HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
   CommittedThreadView,
   committedAssistantText,
@@ -12,7 +12,7 @@ import {
   type HostRunView,
   isHostStepStart,
   type PendingHostApproval,
-} from './thread-view.js';
+} from './thread-view.ts';
 
 /** How each committed interaction kind is answered at the prompt. */
 const INTERACTION_PROMPTS: Readonly<Record<PendingHostApproval['kind'], string>> = {
@@ -25,11 +25,11 @@ function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 export class HostCliExitError extends Error {
-  constructor(
-    message: string,
-    readonly exitCode: number
-  ) {
+  readonly exitCode: number;
+
+  constructor(message: string, exitCode: number) {
     super(message);
+    this.exitCode = exitCode;
     this.name = 'HostCliExitError';
   }
 }

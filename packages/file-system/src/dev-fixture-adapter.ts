@@ -1,8 +1,8 @@
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils';
-import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types.js';
-import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture.js';
+import type { FixtureDefinition, FixtureLoadOptions, FixtureTree } from './dev-fixture-types.ts';
+import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture.ts';
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
@@ -13,7 +13,7 @@ import type {
   FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
-} from './types.js';
+} from './types.ts';
 
 const logger = createLogger('FixtureAdapter');
 

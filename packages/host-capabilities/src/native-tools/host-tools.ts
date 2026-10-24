@@ -23,13 +23,13 @@ import {
   SHARED_NATIVE_TOOL_EXECUTORS,
   SHARED_NATIVE_TOOL_IDS,
   type SharedNativeToolId,
-} from './executors.js';
-import { hostCanvasStore, hostTaskListNote, hostTaskListStore } from './host-stores.js';
-import type { FileMutationPorts } from './ports.js';
-import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.js';
-import { resetToolCallLoopGuards } from './tool-call-loop-guards.js';
-import type { WebExtractToolDependencies } from './web-extract-tool.js';
-import type { WebSearchToolDependencies } from './web-search-tool.js';
+} from './executors.ts';
+import { hostCanvasStore, hostTaskListNote, hostTaskListStore } from './host-stores.ts';
+import type { FileMutationPorts } from './ports.ts';
+import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.ts';
+import { resetToolCallLoopGuards } from './tool-call-loop-guards.ts';
+import type { WebExtractToolDependencies } from './web-extract-tool.ts';
+import type { WebSearchToolDependencies } from './web-search-tool.ts';
 
 /**
  * Purge a deleted thread's process-local tool state: its read cursors, its

@@ -18,7 +18,7 @@ import { createBrowserJsonStorage } from '@brainstrike/storage';
 import type { WorktreeRepositorySetupDecision } from '@brainstrike/types';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createSanitizedPersistMerge } from './sanitized-persist-merge';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
 
 export interface WorktreeSetupConsentRecord {
   readonly decidedAt: number;

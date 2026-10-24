@@ -1,4 +1,4 @@
-import { readToolCallId } from './read-tool-call-id';
+import { readToolCallId } from './read-tool-call-id.ts';
 
 /**
  * A guard deadline belongs to one forwarded execution context, not its provider

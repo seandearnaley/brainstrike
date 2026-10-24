@@ -24,7 +24,11 @@ const logger = createLogger('RendererHostLifecycle');
 const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
 
 class HostLoadFailure {
-  constructor(readonly cause: unknown) {}
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    this.cause = cause;
+  }
 }
 
 export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
@@ -103,7 +107,10 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   private startupPromise: Promise<TStatus> | null = null;
   private status: TStatus;
 
-  constructor(private readonly options: RendererHostLifecycleOptions<TStatus>) {
+  private readonly options: RendererHostLifecycleOptions<TStatus>;
+
+  constructor(options: RendererHostLifecycleOptions<TStatus>) {
+    this.options = options;
     this.status = options.createStoppedStatus();
   }
 

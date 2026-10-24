@@ -1,13 +1,13 @@
 import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
-import type { HostMethodHandler } from './auth-connection.js';
-import type { HostClientOrigin } from './ports.js';
+import type { HostMethodHandler } from './auth-connection.ts';
+import type { HostClientOrigin } from './ports.ts';
 import {
   type HostBrowserOriginAnswer,
   type HostBrowserOriginAnswers,
   HostBrowserOriginAnswersSchema,
   HostBrowserOriginSchema,
-} from './protocol-permission-policy.js';
+} from './protocol-permission-policy.ts';
 /**
  * BST-1178: the host's StateStore settings, where it alone keeps the answer a
  * person saved for each browser origin. Core saves Always allow and Don't

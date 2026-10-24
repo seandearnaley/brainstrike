@@ -38,8 +38,8 @@ import {
 import { createRequire } from 'node:module';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { replaceLockFileSync } from './lock-file-replacement.js';
-import { canonicalRoot } from './root-identity.js';
+import { replaceLockFileSync } from './lock-file-replacement.ts';
+import { canonicalRoot } from './root-identity.ts';
 
 export interface LockOwner {
   readonly host: string;

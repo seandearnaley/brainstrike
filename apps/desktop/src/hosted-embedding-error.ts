@@ -23,12 +23,11 @@ export const HOSTED_EMBEDDING_MISSING_KEY_MESSAGE =
  */
 export class HostedEmbeddingError extends Error {
   override readonly name = 'HostedEmbeddingError';
-  constructor(
-    readonly kind: HostedEmbeddingErrorKind,
-    message: string,
-    options?: { cause?: unknown }
-  ) {
+  readonly kind: HostedEmbeddingErrorKind;
+
+  constructor(kind: HostedEmbeddingErrorKind, message: string, options?: { cause?: unknown }) {
     super(message, options);
+    this.kind = kind;
   }
 }
 

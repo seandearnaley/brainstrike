@@ -8,8 +8,8 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 
-import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '../tools/hook-runner';
-import { toJsonSafe } from './json';
+import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '../tools/hook-runner.ts';
+import { toJsonSafe } from './json.ts';
 
 const logger = createLogger('ToolOutputLimits');
 

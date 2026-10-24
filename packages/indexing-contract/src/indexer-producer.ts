@@ -3,7 +3,7 @@ import type {
   IndexerEmbeddingState,
   IndexerRootReadiness,
   IndexerStatus,
-} from './indexer-client.js';
+} from './indexer-client.ts';
 
 /** Browser-safe write DTOs. Database paths, process policy and SQL stay in the main owner. */
 export interface IndexerManifestFile {

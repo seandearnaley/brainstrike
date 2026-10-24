@@ -17,7 +17,7 @@ import {
   normalizeSecretValue,
   normalizeStoredCredential,
   resolveAwsEnvChainCredential,
-} from './provider-credentials.js';
+} from './provider-credentials.ts';
 
 const logger = createLogger('ProviderApiKey');
 

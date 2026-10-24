@@ -6,7 +6,7 @@ import {
 import type { StateStore } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { sendCatalogRequest } from './request.js';
+import { sendCatalogRequest } from './request.ts';
 
 /** The StateStore setting holding the profile's one search index config. */
 export const INDEX_CONFIG_SETTING = 'index/config';

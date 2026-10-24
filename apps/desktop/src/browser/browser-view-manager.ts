@@ -133,7 +133,11 @@ export class BrowserViewManager {
   /** True while a renderer modal overlaps the pane — the native view must hide. */
   private occluded = false;
 
-  constructor(private readonly deps: BrowserViewManagerDeps) {}
+  private readonly deps: BrowserViewManagerDeps;
+
+  constructor(deps: BrowserViewManagerDeps) {
+    this.deps = deps;
+  }
 
   createTab(url?: string, owner: BrowserTabOwner = 'user'): string {
     const tabId = this.deps.mintTabId();

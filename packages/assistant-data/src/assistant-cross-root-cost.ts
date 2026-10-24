@@ -4,7 +4,7 @@ import {
   computeCost,
   type ModelTokenPricing,
 } from '@brainstrike/tokenization';
-import type { CrossRootUsageRow } from './assistant-memory-repository';
+import type { CrossRootUsageRow } from './assistant-memory-repository.ts';
 
 /** Label for the bucket of usage that had no focused root at request start. */
 export const UNATTRIBUTED_ROOT_LABEL = 'Unattributed';

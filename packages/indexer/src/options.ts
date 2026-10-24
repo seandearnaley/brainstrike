@@ -1,5 +1,5 @@
-import { decoder, IndexerError, type IndexerOptions, optionsSchema } from './contracts.js';
-import { configuredEmbedding } from './index-metadata.js';
+import { decoder, IndexerError, type IndexerOptions, optionsSchema } from './contracts.ts';
+import { configuredEmbedding } from './index-metadata.ts';
 
 /**
  * The indexer options' schema and consistency rules, wherever the store runs.

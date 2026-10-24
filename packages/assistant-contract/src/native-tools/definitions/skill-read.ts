@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
-import { defineNativeTool } from '../define.js';
-import { standardInputSchema } from '../schemas/standard-input-schema.js';
+import { defineNativeTool } from '../define.ts';
+import { standardInputSchema } from '../schemas/standard-input-schema.ts';
 
 // Agent Skills tool (https://agentskills.io). This is Mastra's OWN canonical
 // tool id (`skill_read`, deliberately NOT `brainstrike.*`-namespaced) created

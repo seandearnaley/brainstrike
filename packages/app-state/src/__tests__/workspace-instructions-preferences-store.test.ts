@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetWorkspaceInstructionsPreferencesStoreForTests,
   useWorkspaceInstructionsPreferencesStore,
-} from '../stores/workspace-instructions-preferences-store';
-import type { PersistApi } from './persist-api-test-helper';
+} from '../stores/workspace-instructions-preferences-store.ts';
+import type { PersistApi } from './persist-api-test-helper.ts';
 
 const storeWithPersist = useWorkspaceInstructionsPreferencesStore as PersistApi<
   typeof useWorkspaceInstructionsPreferencesStore

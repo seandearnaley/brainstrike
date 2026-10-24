@@ -1,16 +1,19 @@
-import { canonical, jsonValue } from './json-value.js';
-import type { McpToolAuthority } from './protocol.js';
+import { canonical, jsonValue } from './json-value.ts';
+import type { McpToolAuthority } from './protocol.ts';
 
 export class McpAuthorityReconstructionError extends Error {
   readonly code = 'mcp-authority-reconstruction-refused';
 
+  readonly reason:
+    | 'configuration-changed'
+    | 'legacy-missing-capture'
+    | 'private-comparison-unavailable';
+
   constructor(
-    readonly reason:
-      | 'configuration-changed'
-      | 'legacy-missing-capture'
-      | 'private-comparison-unavailable'
+    reason: 'configuration-changed' | 'legacy-missing-capture' | 'private-comparison-unavailable'
   ) {
     super('Persisted MCP approval authority cannot be reconstructed safely');
+    this.reason = reason;
     this.name = 'McpAuthorityReconstructionError';
   }
 }

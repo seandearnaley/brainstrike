@@ -325,7 +325,10 @@ export class CommittedAssistantLogProjection {
   private readonly rewinds = new CommittedRewindHead();
   private view: CommittedAssistantLogView;
 
-  constructor(private readonly options: CommittedAssistantLogProjectionOptions) {
+  private readonly options: CommittedAssistantLogProjectionOptions;
+
+  constructor(options: CommittedAssistantLogProjectionOptions) {
+    this.options = options;
     const repository = options.baseline ?? { headId: null, messages: [] };
     repository.messages.forEach(({ message }, index) => {
       this.messageIndexes.set(message.id, index);

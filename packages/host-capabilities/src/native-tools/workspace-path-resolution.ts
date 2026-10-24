@@ -14,7 +14,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { type RuntimeData, withFileLock } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.js';
+import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.ts';
 
 export function normalizeWorkspaceRootPath(value: string | undefined): string | undefined {
   if (typeof value !== 'string') {
@@ -81,11 +81,11 @@ export type WorkspacePathRefusalReason =
  * only the path the model sent.
  */
 export class WorkspacePathRefusal extends ToolInputError {
-  constructor(
-    readonly reason: WorkspacePathRefusalReason,
-    message: string
-  ) {
+  readonly reason: WorkspacePathRefusalReason;
+
+  constructor(reason: WorkspacePathRefusalReason, message: string) {
     super(message);
+    this.reason = reason;
     this.name = 'WorkspacePathRefusal';
   }
 }

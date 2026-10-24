@@ -36,12 +36,12 @@ import type {
   McpClientExtensionNotificationContract,
   McpClientExtensionRegistry,
   McpClientExtensionRequestContract,
-} from './client-extension-registry';
-import { REGISTERED_EXTENSION_RESULT_KEY } from './client-extension-registry';
+} from './client-extension-registry.ts';
+import { REGISTERED_EXTENSION_RESULT_KEY } from './client-extension-registry.ts';
 import type {
   McpSubscriptionAcknowledgementCapture,
   RegisteredExtensionDispatchLedger,
-} from './registered-extension-dispatch';
+} from './registered-extension-dispatch.ts';
 
 const TASKS_WIRE_IMPLEMENTATION = Object.freeze({ exactWireContracts: true as const });
 const NEGOTIATION_PROBE_TASK_ID = 'brainstrike-tasks-negotiation-probe';

@@ -1,12 +1,11 @@
 // A real client process for start-orders. Like the host it may fork
-// (dist/process-entry.js), it runs this package's built entry under plain Node,
-// as a shipped CLI does. A tsx loader in each of eight racing clients was the
+// (src/process-entry.ts), it runs this package from source under plain Node. A tsx loader in each of eight racing clients was the
 // cost that pushed the race past its attach deadline on a 2-vCPU runner
 // (BST-2106).
 import { fileURLToPath } from 'node:url';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { Schema } from 'effect';
-import { createNodeHostSpawner, launchHost } from '../../dist/index.js';
+import { createNodeHostSpawner, launchHost } from '../../src/index.ts';
 
 async function main() {
   const root = makeThrowingDecoder(Schema.String)(process.argv[2]);
@@ -14,7 +13,7 @@ async function main() {
   const client = await launchHost(root, {
     lifetime,
     spawn: createNodeHostSpawner({
-      entrypoint: fileURLToPath(new URL('../../dist/process-entry.js', import.meta.url)),
+      entrypoint: fileURLToPath(new URL('../../src/process-entry.ts', import.meta.url)),
     }),
   });
   const done = Promise.withResolvers();

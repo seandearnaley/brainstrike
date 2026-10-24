@@ -11,21 +11,21 @@ import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from '
 import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
-} from './approval-input.js';
-import type { HostBrowserOriginStore } from './browser-origin-answers.js';
+} from './approval-input.ts';
+import type { HostBrowserOriginStore } from './browser-origin-answers.ts';
 import {
   type HostContextCompactions,
   overflowCompaction,
   prepareCompactedContext,
   summarizeHostContext,
-} from './context-compaction.js';
-import { hostContextNotes } from './context-notes.js';
-import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.js';
-import type { HostRunState as Run } from './core-state.js';
-import { healInterruptedRunHistory } from './interrupted-history.js';
-import { jsonValue } from './json-value.js';
-import type { HostMcpInputState } from './mcp-input-state.js';
-import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.js';
+} from './context-compaction.ts';
+import { hostContextNotes } from './context-notes.ts';
+import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.ts';
+import type { HostRunState as Run } from './core-state.ts';
+import { healInterruptedRunHistory } from './interrupted-history.ts';
+import { jsonValue } from './json-value.ts';
+import type { HostMcpInputState } from './mcp-input-state.ts';
+import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.ts';
 import type {
   HostEnteredWorktree,
   HostPlatform,
@@ -33,13 +33,13 @@ import type {
   HostRunAdmission,
   HostRunOwner,
   HostTool,
-} from './ports.js';
+} from './ports.ts';
 import {
   applyProjectionRewrites,
   type HostProjectionRewrites,
   prepareProjectionRewrites,
-} from './projection-rewrites.js';
-import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.js';
+} from './projection-rewrites.ts';
+import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
   combineHostSystemContext,
   createAdmittedHostSdkTools,
@@ -50,15 +50,15 @@ import {
   hostRunTools,
   hostStepActiveTools,
   prepareHostProviderStep,
-} from './run-admission.js';
-import { hostRunAttemptEvent } from './run-attempts.js';
-import { hostRunAncestors, hostRunContext } from './run-branch.js';
-import { resolveHostApprovalInput } from './run-continuation.js';
-import { HostRunOutcome } from './run-outcome.js';
-import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.js';
-import { hostTelemetry } from './telemetry/host-telemetry.js';
-import { hostArtifactReader } from './tool-artifacts.js';
-import type { HostToolRecords } from './tool-records.js';
+} from './run-admission.ts';
+import { hostRunAttemptEvent } from './run-attempts.ts';
+import { hostRunAncestors, hostRunContext } from './run-branch.ts';
+import { resolveHostApprovalInput } from './run-continuation.ts';
+import { HostRunOutcome } from './run-outcome.ts';
+import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.ts';
+import { hostTelemetry } from './telemetry/host-telemetry.ts';
+import { hostArtifactReader } from './tool-artifacts.ts';
+import type { HostToolRecords } from './tool-records.ts';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
 

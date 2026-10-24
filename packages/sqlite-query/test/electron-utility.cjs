@@ -42,7 +42,7 @@ app
   .whenReady()
   .then(async () => {
     const { SqliteQueryClient, SqliteQueryDeadlineError, spawnUtilityQueryProcess } = await import(
-      '../dist/index.js'
+      '../src/index.ts'
     );
     const before = hash();
     const open = async (deadlineMs = 1000) => {

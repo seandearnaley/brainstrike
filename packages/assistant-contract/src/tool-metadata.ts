@@ -15,7 +15,7 @@ export {
   STALE_REPLAYABLE_NATIVE_TOOL_IDS,
   WEB_NATIVE_TOOL_IDS,
   type WebNativeToolId,
-} from './native-tool-catalog.js';
+} from './native-tool-catalog.ts';
 export {
   DEFERRED_CAPABILITY_FAMILY_PHRASES,
   DESKTOP_NATIVE_TOOLS,
@@ -44,7 +44,7 @@ export {
   type SkillNativeTool,
   type SkillNativeToolDefinition,
   toNativeToolKey,
-} from './native-tools/index.js';
+} from './native-tools/index.ts';
 
 export {
   DEFAULT_PERMISSION_POLICIES,
@@ -58,7 +58,7 @@ export {
   type PermissionToolGateSnapshot,
   type PerToolPermissionOverrides,
   resolvePermissionDecision,
-} from './permission-policy.js';
+} from './permission-policy.ts';
 export {
   buildNativeToolRiskMap,
   compareByLoadPriority,
@@ -79,11 +79,11 @@ export {
   type ToolSource,
   WEB_EXTRACT_TOOL_ID,
   WEB_SEARCH_TOOL_ID,
-} from './tool-categories.js';
+} from './tool-categories.ts';
 export {
   getNativeToolDescription,
   TOOL_DESCRIPTIONS,
-} from './tool-descriptions.js';
+} from './tool-descriptions.ts';
 export {
   isToolRiskCategory,
   resolveToolRiskCategory,
@@ -91,7 +91,7 @@ export {
   type ToolRiskCategory,
   type ToolRiskMetadata,
   UndeterminableToolRiskError,
-} from './tool-risk.js';
+} from './tool-risk.ts';
 export {
   generateExampleInput,
   getToolSchemaDisplay,
@@ -99,4 +99,4 @@ export {
   type ParameterType,
   type ToolParameterDisplay,
   type ToolSchemaDisplay,
-} from './tool-schemas-display.js';
+} from './tool-schemas-display.ts';

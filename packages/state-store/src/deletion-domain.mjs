@@ -60,7 +60,7 @@ export function deleteDeletionIntent(db, threadId, seq) {
  * @param {string} threadId
  * @param {number} seq
  * @param {'clear' | 'detach-thread'} sharedResource
- * @param {import('./memory-types.js').ObservationTokenCounter} [countTokens]
+ * @param {import('./memory-types.ts').ObservationTokenCounter} [countTokens]
  */
 export function eraseThreadMemory(db, threadId, seq, sharedResource, countTokens) {
   const intent = /** @type {{ memory_resources:string } | undefined} */ (
@@ -101,7 +101,7 @@ export function purgeEvent(db, log, threadId, seq, tombstone, inTransaction) {
  * @param {import('better-sqlite3').Database} db
  * @param {import('./run-log.mjs').RunLog} log
  * @param {string} threadId
- * @param {import('./memory-types.js').ObservationTokenCounter} [countTokens]
+ * @param {import('./memory-types.ts').ObservationTokenCounter} [countTokens]
  */
 export function deleteThreadTruth(db, log, threadId, countTokens) {
   log.deleteThread(threadId, () =>

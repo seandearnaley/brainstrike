@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { WebSearchInputSchema } from '../schemas/schemas-search.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { WebSearchInputSchema } from '../schemas/schemas-search.ts';
 
 // Read-only web retrieval via Tavily. riskCategory 'read' + requiresApproval
 // false: it does NOT mutate workspace state, so the permission engine allows

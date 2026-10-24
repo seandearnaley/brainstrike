@@ -1,6 +1,6 @@
-import type { CodeLanguage } from './chunking-config';
-import { type ExtractedSymbols, extractSymbols } from './extract-symbols';
-import type { AstNode, ParserAdapter } from './parsers/types';
+import type { CodeLanguage } from './chunking-config.ts';
+import { type ExtractedSymbols, extractSymbols } from './extract-symbols.ts';
+import type { AstNode, ParserAdapter } from './parsers/types.ts';
 
 /**
  * Host-local parser capability; never serialized as worker request options.

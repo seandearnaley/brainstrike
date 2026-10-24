@@ -30,7 +30,10 @@ export const PROCESS_COUNTER_RING_CAPACITY = 240;
 export class ProcessCounterRing {
   private readonly samples: ProcessCounterSample[] = [];
 
-  constructor(private readonly capacity: number) {
+  private readonly capacity: number;
+
+  constructor(capacity: number) {
+    this.capacity = capacity;
     if (!Number.isInteger(capacity) || capacity <= 0) {
       throw new Error(
         `Process counter ring capacity must be a positive integer, got ${String(capacity)}.`

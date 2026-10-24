@@ -1,6 +1,6 @@
-import { defineNativeTool } from '../define.js';
-import { effectToolInputSchema } from '../schemas/effect-tool-input.js';
-import { BrowserNavigateInputSchema } from '../schemas/schemas-browser.js';
+import { defineNativeTool } from '../define.ts';
+import { effectToolInputSchema } from '../schemas/effect-tool-input.ts';
+import { BrowserNavigateInputSchema } from '../schemas/schemas-browser.ts';
 
 export const browserNavigate = defineNativeTool({
   defaults: {

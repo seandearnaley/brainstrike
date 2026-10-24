@@ -1,12 +1,12 @@
 export { createNodeChunker, type NodeChunkerOptions } from '@brainstrike/chunking-worker/node';
-export { CanonicalOperationCancelledError } from './cancellation.js';
+export { CanonicalOperationCancelledError } from './cancellation.ts';
 export {
   createNativeCanonicalCatalog,
   decodeNativeCanonicalCatalogRecords,
   type NativeCanonicalCatalogDependencies,
   type NativeCanonicalCatalogRecord,
   type NativeCanonicalCatalogScope,
-} from './canonical-catalog.js';
+} from './canonical-catalog.ts';
 export {
   type CanonicalDocumentEmbeddingsPayload,
   type CanonicalHostedEmbeddings,
@@ -17,12 +17,12 @@ export {
   NativeCanonicalProfileResolver,
   type NativeCatalogModel,
   resolveNativeCanonicalProfile,
-} from './canonical-profile.js';
+} from './canonical-profile.ts';
 export {
   type CanonicalIngestionDependencies,
   CanonicalIngestionHost,
   CanonicalScanIncompleteError,
-} from './host.js';
+} from './host.ts';
 export {
   assertSavedCollection,
   isPartitionRoot,
@@ -33,23 +33,23 @@ export {
   retireUnownedRows,
   vectorCollectionId,
   workspaceRemoval,
-} from './index-partition.js';
+} from './index-partition.ts';
 export {
   type NativeIndexSettings,
   nativeIndexConfigurationIdentity,
   nativeIndexSettingsFromConfig,
-} from './index-settings.js';
-export * from './ports.js';
-export { createNativeScanAdmission } from './scan-admission.js';
+} from './index-settings.ts';
+export * from './ports.ts';
+export { createNativeScanAdmission } from './scan-admission.ts';
 export {
   createNativeCanonicalPublication,
   type NativeAcknowledgedPublication,
   type NativeScopeReadiness,
-} from './scoped-publication.js';
-export { createNativeSourceInventory } from './source-inventory.js';
+} from './scoped-publication.ts';
+export { createNativeSourceInventory } from './source-inventory.ts';
 export {
   CanonicalWorkspaceIngestionRuntime,
   type CanonicalWorkspaceRuntimeDependencies,
-} from './workspace-runtime.js';
-export { CanonicalWorkspaceSource } from './workspace-source.js';
-export * from './workspace-source-ports.js';
+} from './workspace-runtime.ts';
+export { CanonicalWorkspaceSource } from './workspace-source.ts';
+export * from './workspace-source-ports.ts';

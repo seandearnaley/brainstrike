@@ -1,3 +1,5 @@
+import { extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { Schema } from 'effect';
 import {
@@ -24,13 +26,13 @@ import {
   stateSearchSimilarHitSchema,
   stateSearchVectorsResultSchema,
   stateStatsSchema,
-} from './contracts.js';
-import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
-import { openDesktopIndexReader } from './desktop-index-connection.js';
-import { readScopedIdentity } from './index-metadata.js';
-import { promptVectorReplySchema } from './prompt-vector-contract.js';
-import { RpcClient } from './rpc-client.js';
-import { IndexReader } from './store.js';
+} from './contracts.ts';
+import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.ts';
+import { openDesktopIndexReader } from './desktop-index-connection.ts';
+import { readScopedIdentity } from './index-metadata.ts';
+import { promptVectorReplySchema } from './prompt-vector-contract.ts';
+import { RpcClient } from './rpc-client.ts';
+import { IndexReader } from './store.ts';
 
 export interface IndexerProcessEndpoint {
   finish(): void;
@@ -49,7 +51,10 @@ export async function runIndexerProcess(
   let closePromise: Promise<boolean> | undefined;
   try {
     const options = decoder(optionsSchema)(input);
-    worker = new Worker(new URL('./writer-worker.js', import.meta.url), { workerData: options });
+    worker = new Worker(
+      new URL(`./writer-worker${extname(fileURLToPath(import.meta.url))}`, import.meta.url),
+      { workerData: options }
+    );
     const writer = worker;
     const client = new RpcClient(
       (message) => writer.postMessage(message),

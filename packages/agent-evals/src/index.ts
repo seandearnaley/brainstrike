@@ -1,4 +1,4 @@
-export { assertLiveAllowed } from './live-gate.js';
+export { assertLiveAllowed } from './live-gate.ts';
 export {
   appendEvalResults,
   EVAL_MODES,
@@ -7,14 +7,14 @@ export {
   EvalResultSchema,
   formatEvalSummary,
   resultsFilePath,
-} from './results.js';
+} from './results.ts';
 export {
   attemptEvalTask,
   type EvalRunOptions,
   type EvalTaskOutcome,
   runEvalTask,
   WORKSPACE_PLACEHOLDER,
-} from './runner.js';
+} from './runner.ts';
 export {
   type EvalAttempt,
   type EvalRunMetrics,
@@ -22,7 +22,7 @@ export {
   type EvalRunVerdict,
   readRunFromLog,
   scoreEvalAttempt,
-} from './scoring.js';
+} from './scoring.ts';
 export {
   decodeEvalScript,
   decodeEvalTask,
@@ -33,4 +33,4 @@ export {
   type LoadedEvalTask,
   loadEvalTask,
   loadEvalTasks,
-} from './task.js';
+} from './task.ts';

@@ -1,16 +1,16 @@
 /** Trusted native coverage only; never an arbitrary SQL capability. */
-import { decoder, type ScopedCoverage } from './contracts.js';
-import { coverageAuthoritySchema } from './coverage-authority.js';
-import { openDesktopIndexReader } from './desktop-index-connection.js';
-import { scopeCoverageBatch } from './scoped-proofs.js';
-import { IndexReader } from './store.js';
+import { decoder, type ScopedCoverage } from './contracts.ts';
+import { coverageAuthoritySchema } from './coverage-authority.ts';
+import { openDesktopIndexReader } from './desktop-index-connection.ts';
+import { scopeCoverageBatch } from './scoped-proofs.ts';
+import { IndexReader } from './store.ts';
 
 export {
   fault,
   faultSchema,
   scopedCoverageBatchRequestSchema,
   scopedCoverageSchema,
-} from './contracts.js';
+} from './contracts.ts';
 export {
   assertCoverageAuthority,
   assertCoverageAuthorityBound,
@@ -18,7 +18,7 @@ export {
   type CoverageAuthorityPort,
   coverageAuthoritySchema,
   MAX_NATIVE_COVERAGE_AUTHORITY_BYTES,
-} from './coverage-authority.js';
+} from './coverage-authority.ts';
 export function readNativeCoverage(
   authorityInput: unknown,
   requests: unknown

@@ -14,9 +14,9 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { EditDiagnostic, LspUnavailableReason } from './ports.js';
-import { isWithinRoot } from './workspace-path.js';
-import { readWorkspaceTextFile } from './workspace-text-file-reader.js';
+import type { EditDiagnostic, LspUnavailableReason } from './ports.ts';
+import { isWithinRoot } from './workspace-path.ts';
+import { readWorkspaceTextFile } from './workspace-text-file-reader.ts';
 
 /** Overall budget for diagnostics to arrive after opening/updating a file. */
 export const DIAGNOSTIC_TIMEOUT_MS = 6000;

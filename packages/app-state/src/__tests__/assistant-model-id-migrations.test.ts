@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getModelIdMigrationTarget,
   isRetiredModelId,
-} from '../stores/assistant-model-id-migrations';
+} from '../stores/assistant-model-id-migrations.ts';
 
 describe('assistant model id migrations', () => {
   it('distinguishes retired ids from live ids without relying on the replacement value', () => {

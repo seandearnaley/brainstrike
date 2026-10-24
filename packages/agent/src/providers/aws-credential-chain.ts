@@ -68,8 +68,8 @@
  * proxy URLs. The raw text rides the typed error's `cause` for main-side logs.
  */
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
-import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error';
-import type { AwsCredentialIdentityProvider } from './aws-credential-identity';
+import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
+import type { AwsCredentialIdentityProvider } from './aws-credential-identity.ts';
 
 /**
  * Message substring shared by EVERY SSO failure variant the probe produced.

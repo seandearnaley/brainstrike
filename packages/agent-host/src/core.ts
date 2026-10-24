@@ -1,19 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import type { BlobContent } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
-import { acceptHostChildInput } from './child-input.js';
-import { HostContextCompactions } from './context-compaction.js';
-import { type HostChildRunPort, HostChildRuns, hostDeliveryPosition } from './core-child-runs.js';
-import { hostMcpTaskOwner } from './core-mcp-owner.js';
-import { readHostThreadMemory } from './core-memory-read.js';
-import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.js';
-import { HostRunEnds } from './core-run-end.js';
+import { acceptHostChildInput } from './child-input.ts';
+import { HostContextCompactions } from './context-compaction.ts';
+import { type HostChildRunPort, HostChildRuns, hostDeliveryPosition } from './core-child-runs.ts';
+import { hostMcpTaskOwner } from './core-mcp-owner.ts';
+import { readHostThreadMemory } from './core-memory-read.ts';
+import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.ts';
+import { HostRunEnds } from './core-run-end.ts';
 import {
   type HostRunAction as Action,
   executeHostAction,
   type HostRunExecutionPorts,
   runHostSdkLoop,
-} from './core-run-execution.js';
+} from './core-run-execution.ts';
 import {
   acceptHostRunStop,
   assertHostCommandAdmissible,
@@ -25,25 +25,23 @@ import {
   retainHostRunWork,
   steerHostRun,
   stopHostRunTree,
-} from './core-run-lifecycle.js';
+} from './core-run-lifecycle.ts';
 import {
   foldHostAcceptedCommand,
-  foldHostInteraction,
-  foldHostRunEffect,
   HostCommandLedger,
   HostRunMap,
   type HostRunState as Run,
   recordHostConversationId,
-} from './core-state.js';
-import { deleteHostThread } from './core-thread-deletion.js';
-import { nodeHostRowReader, readHostRow, storedHostEvent } from './event-storage.js';
-import { beginHostRun, foldHostHookContextEvent } from './hook-context.js';
-import { type Json, jsonValue } from './json-value.js';
-import { HostLogProjections } from './log-projections.js';
-import { HostMcpAppCalls } from './mcp-app-calls.js';
-import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
-import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
-import { HostProjectionRewrites } from './projection-rewrites.js';
+} from './core-state.ts';
+import { deleteHostThread } from './core-thread-deletion.ts';
+import { nodeHostRowReader, readHostRow, storedHostEvent } from './event-storage.ts';
+import { beginHostRun } from './hook-context.ts';
+import { type Json, jsonValue } from './json-value.ts';
+import { HostLogProjections } from './log-projections.ts';
+import { HostMcpAppCalls } from './mcp-app-calls.ts';
+import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.ts';
+import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.ts';
+import { HostProjectionRewrites } from './projection-rewrites.ts';
 import {
   type HostEvent,
   type HostLogRow,
@@ -51,7 +49,7 @@ import {
   type HostResults,
   type HostRunTelemetry,
   parseHostParams,
-} from './protocol.js';
+} from './protocol.ts';
 import {
   acquireHostRunAdmission,
   bindHostRunAdmission,
@@ -61,12 +59,12 @@ import {
   hostReferencedFileEvents,
   hostRunCommandRequest,
   openHostRunOwner,
-} from './run-admission.js';
+} from './run-admission.ts';
 import {
   admittedHostRun,
   assertHostRunAdmissible,
-  foldHostConversationMessages,
   foldHostRunAdmission,
+  foldHostRunEvent,
   foldHostStartedRun,
   type HostRunAdmissionCommand,
   type HostRunPosition,
@@ -74,7 +72,7 @@ import {
   hostRunInput,
   hostStartCommandRecord,
   hostStartPosition,
-} from './run-branch.js';
+} from './run-branch.ts';
 
 import {
   approveHostRunByPolicy,
@@ -82,19 +80,19 @@ import {
   commitHostModelMessages,
   continueHostRun,
   startHostNextRun,
-} from './run-continuation.js';
-import { userRunVerdict } from './run-verdicts.js';
-import { HostTelemetryReplay } from './telemetry-replay.js';
-import { type HostEventStore, HostThreadCatalog } from './thread-catalog.js';
-import { HostThreadPresentationState } from './thread-presentation-state.js';
-import { HostThreadRewinds } from './thread-rewind.js';
-import { HostThreadSelections } from './thread-selection-state.js';
-import { HostToolRecords } from './tool-records.js';
-import { revertHostRunEdits } from './workspace-edits.js';
-import { HostThreadWorkspaceState } from './workspace-state.js';
-import { hostWorktreeEntry } from './worktree-binding.js';
+} from './run-continuation.ts';
+import { userRunVerdict } from './run-verdicts.ts';
+import { HostTelemetryReplay } from './telemetry-replay.ts';
+import { type HostEventStore, HostThreadCatalog } from './thread-catalog.ts';
+import { HostThreadPresentationState } from './thread-presentation-state.ts';
+import { HostThreadRewinds } from './thread-rewind.ts';
+import { HostThreadSelections } from './thread-selection-state.ts';
+import { HostToolRecords } from './tool-records.ts';
+import { revertHostRunEdits } from './workspace-edits.ts';
+import { HostThreadWorkspaceState } from './workspace-state.ts';
+import { hostWorktreeEntry } from './worktree-binding.ts';
 
-export type { HostEventStore } from './thread-catalog.js';
+export type { HostEventStore } from './thread-catalog.ts';
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
@@ -200,11 +198,15 @@ export class HostCore {
   private closing = false;
   private closeTask?: Promise<void>;
 
-  private constructor(
-    readonly store: HostEventStore,
-    private readonly platform: HostPlatform,
-    private readonly retainRun: () => () => void
-  ) {}
+  readonly store: HostEventStore;
+  private readonly platform: HostPlatform;
+  private readonly retainRun: () => () => void;
+
+  private constructor(store: HostEventStore, platform: HostPlatform, retainRun: () => () => void) {
+    this.store = store;
+    this.platform = platform;
+    this.retainRun = retainRun;
+  }
 
   static async open(
     store: HostEventStore,
@@ -265,19 +267,8 @@ export class HostCore {
           (threadId) => this.children.isChild(threadId)
         );
         break;
-      case 'model.step':
-      case 'model.messages':
-        foldHostConversationMessages(this.runs, event);
-        break;
-      case 'interaction.requested':
-      case 'interaction.responded':
-        foldHostInteraction(this.runs, event);
-        break;
-      case 'hook.context':
-        foldHostHookContextEvent(this.runs, event);
-        break;
       default:
-        foldHostRunEffect(this.runs, event, row.ts);
+        foldHostRunEvent(this.runs, event, row.ts);
         break;
     }
     this.children.fold(row, this.runs);

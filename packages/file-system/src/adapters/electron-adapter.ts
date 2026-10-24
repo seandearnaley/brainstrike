@@ -3,15 +3,15 @@ import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { fileNodeCollator } from '@brainstrike/utils';
-import { isDurableRootId, isFullyQualifiedFileSystemPath } from '../absolute-read-path.js';
-import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.js';
+import { isDurableRootId, isFullyQualifiedFileSystemPath } from '../absolute-read-path.ts';
+import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors.ts';
 import {
   createMetadataCache,
   type MetadataCache,
   type MetadataCacheConfig,
   type MetadataCacheStats,
-} from '../metadata-cache.js';
-import { resolveValidatedPath } from '../path-validation.js';
+} from '../metadata-cache.ts';
+import { resolveValidatedPath } from '../path-validation.ts';
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
@@ -23,10 +23,10 @@ import type {
   FileSystemWatchSignal,
   StreamingDirectoryReadOptions,
   WatcherHealthTransition,
-} from '../types.js';
-import { validateDirectoryPath } from '../utils.js';
-import { normalizeDirectoryReadOptions } from '../utils-browser.js';
-import { assertValidParcelWatchFilterOptions, startParcelWatch } from './parcel-watchers.js';
+} from '../types.ts';
+import { validateDirectoryPath } from '../utils.ts';
+import { normalizeDirectoryReadOptions } from '../utils-browser.ts';
+import { assertValidParcelWatchFilterOptions, startParcelWatch } from './parcel-watchers.ts';
 
 const logger = createLogger('ElectronFileSystemAdapter');
 
@@ -492,7 +492,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
   async readFile(_handle: FileHandle): Promise<string> {
     // Import config dynamically to avoid circular dependencies
-    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
+    const { formatFileSize, getFileSizeConfig } = await import('../config.ts');
     const { maxFileSize } = getFileSizeConfig();
 
     try {
@@ -544,7 +544,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
    */
   async readFileByPath(absolutePath: string, rootPath?: string): Promise<string> {
     // Import config dynamically to avoid circular dependencies
-    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
+    const { formatFileSize, getFileSizeConfig } = await import('../config.ts');
     const { maxFileSize } = getFileSizeConfig();
 
     let validatedReadPath = absolutePath;

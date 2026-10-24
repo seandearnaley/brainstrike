@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearPersistentUiState } from '../factory-reset';
+import { clearPersistentUiState } from '../factory-reset.ts';
 import {
   __resetDiagnosticsRetentionStoreForTests,
   useDiagnosticsRetentionStore,
-} from '../stores/diagnostics-retention-store';
+} from '../stores/diagnostics-retention-store.ts';
 
 const globalWindow = window as Window &
   typeof globalThis & {

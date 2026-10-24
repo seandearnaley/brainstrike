@@ -37,12 +37,18 @@ export class HostChildSidebarStore {
   private snapshot: HostChildSidebarSnapshot = { children: new Map(), unread: new Set() };
   private sequence = 0;
 
+  private readonly host: Required<
+    Pick<AssistantThreadHostCapability, 'childThreads' | 'subscribeChildren'>
+  >;
+  private readonly selection: HostChildTabSelection;
+
   constructor(
-    private readonly host: Required<
-      Pick<AssistantThreadHostCapability, 'childThreads' | 'subscribeChildren'>
-    >,
-    private readonly selection: HostChildTabSelection
-  ) {}
+    host: Required<Pick<AssistantThreadHostCapability, 'childThreads' | 'subscribeChildren'>>,
+    selection: HostChildTabSelection
+  ) {
+    this.host = host;
+    this.selection = selection;
+  }
 
   /**
    * Follow the host's child notices and the tab selection until the returned

@@ -8,111 +8,37 @@
     "node": ">=24.20.0 <25 || >=26.8.2 <27"
   },
   "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./dist/index.js"
-    },
-    "./protocol": {
-      "types": "./src/protocol.ts",
-      "default": "./dist/protocol.js"
-    },
-    "./boundary-wire": {
-      "types": "./src/boundary-wire.ts",
-      "default": "./dist/boundary-wire.js"
-    },
-    "./hook-trust": {
-      "types": "./src/hook-trust.ts",
-      "default": "./dist/hook-trust.js"
-    },
-    "./child-answer": {
-      "types": "./src/child-answer.ts",
-      "default": "./dist/child-answer.js"
-    },
-    "./canonical-tool-bindings": {
-      "types": "./src/adapters/canonical-tool-bindings.ts",
-      "default": "./dist/adapters/canonical-tool-bindings.js"
-    },
-    "./state-projection": {
-      "types": "./src/state-projection.ts",
-      "default": "./dist/state-projection.js"
-    },
-    "./run-verdicts": {
-      "types": "./src/run-verdicts.ts",
-      "default": "./dist/run-verdicts.js"
-    },
-    "./memory-storage-calculator": {
-      "types": "./src/adapters/memory-storage-calculator.ts",
-      "default": "./dist/adapters/memory-storage-calculator.js"
-    },
-    "./committed-identities": {
-      "types": "./src/committed-identities.ts",
-      "default": "./dist/committed-identities.js"
-    },
-    "./client": {
-      "types": "./src/client.ts",
-      "default": "./dist/client.js"
-    },
-    "./cli": {
-      "types": "./src/cli.ts",
-      "default": "./dist/cli.js"
-    },
-    "./credential-contract": {
-      "types": "./src/adapters/credential-contract.ts",
-      "default": "./dist/adapters/credential-contract.js"
-    },
-    "./keyring-credentials": {
-      "types": "./src/adapters/keyring-credentials.ts",
-      "default": "./dist/adapters/keyring-credentials.js"
-    },
-    "./keyring-native": {
-      "types": "./src/adapters/keyring-native-worker.ts",
-      "default": "./dist/adapters/keyring-native-worker.js"
-    },
-    "./file-credentials": {
-      "types": "./src/adapters/file-credentials.ts",
-      "default": "./dist/adapters/file-credentials.js"
-    },
-    "./browser": {
-      "types": "./src/browser-client.ts",
-      "default": "./dist/browser-client.js"
-    },
-    "./test-fixtures/scripted-model": {
-      "types": "./src/test-fixtures/scripted-model.ts",
-      "default": "./dist/test-fixtures/scripted-model.js"
-    },
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol.ts",
+    "./boundary-wire": "./src/boundary-wire.ts",
+    "./hook-trust": "./src/hook-trust.ts",
+    "./child-answer": "./src/child-answer.ts",
+    "./canonical-tool-bindings": "./src/adapters/canonical-tool-bindings.ts",
+    "./state-projection": "./src/state-projection.ts",
+    "./run-verdicts": "./src/run-verdicts.ts",
+    "./memory-storage-calculator": "./src/adapters/memory-storage-calculator.ts",
+    "./committed-identities": "./src/committed-identities.ts",
+    "./client": "./src/client.ts",
+    "./cli": "./src/cli.ts",
+    "./credential-contract": "./src/adapters/credential-contract.ts",
+    "./keyring-credentials": "./src/adapters/keyring-credentials.ts",
+    "./keyring-native": "./src/adapters/keyring-native-worker.ts",
+    "./file-credentials": "./src/adapters/file-credentials.ts",
+    "./browser": "./src/browser-client.ts",
+    "./test-fixtures/scripted-model": "./src/test-fixtures/scripted-model.ts",
     "./test-fixtures/cooperative-host": "./__tests__/fixtures/cooperative-host-fixture.ts",
-    "./thread-view": {
-      "types": "./src/thread-view.ts",
-      "default": "./dist/thread-view.js"
-    },
-    "./ledger-projection": {
-      "types": "./src/ledger-projection.ts",
-      "default": "./dist/ledger-projection.js"
-    },
-    "./desktop-run-configuration": {
-      "types": "./src/desktop-run-configuration.ts",
-      "default": "./dist/desktop-run-configuration.js"
-    },
-    "./edit-checkpoint-view": {
-      "types": "./src/edit-checkpoint-view.ts",
-      "default": "./dist/edit-checkpoint-view.js"
-    },
-    "./standalone-workspace-input": {
-      "types": "./src/standalone-workspace-input.ts",
-      "default": "./dist/standalone-workspace-input.js"
-    },
-    "./catalog": {
-      "types": "./src/catalog/index.ts",
-      "default": "./dist/catalog/index.js"
-    }
+    "./thread-view": "./src/thread-view.ts",
+    "./ledger-projection": "./src/ledger-projection.ts",
+    "./desktop-run-configuration": "./src/desktop-run-configuration.ts",
+    "./edit-checkpoint-view": "./src/edit-checkpoint-view.ts",
+    "./standalone-workspace-input": "./src/standalone-workspace-input.ts",
+    "./catalog": "./src/catalog/index.ts"
   },
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:integration:routine": "vitest run --config vitest.integration.config.mts __tests__/host.integration.test.ts __tests__/permission-grant.integration.test.ts",
-    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo"
+    "test:integration:routine": "vitest run --config vitest.integration.config.mts __tests__/host.integration.test.ts __tests__/permission-grant.integration.test.ts"
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",

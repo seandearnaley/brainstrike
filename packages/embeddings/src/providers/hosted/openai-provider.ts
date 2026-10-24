@@ -1,13 +1,13 @@
-import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.js';
+import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.ts';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   HostedProviderType,
   ProviderMetadata,
   Result,
-} from '../../provider-types.js';
-import { STANDARD_EMBEDDING_DIMENSION } from '../../provider-types.js';
-import type { ModelConfig } from '../../types.js';
+} from '../../provider-types.ts';
+import { STANDARD_EMBEDDING_DIMENSION } from '../../provider-types.ts';
+import type { ModelConfig } from '../../types.ts';
 
 /** Default distance metric for OpenAI embeddings */
 const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';

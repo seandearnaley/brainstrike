@@ -1,6 +1,6 @@
-import type { HostRunState } from './core-state.js';
-import type { HostRunAdmission } from './ports.js';
-import type { HostEvent } from './protocol.js';
+import type { HostRunState } from './core-state.ts';
+import type { HostRunAdmission } from './ports.ts';
+import type { HostEvent } from './protocol.ts';
 
 type TurnSnapshotEvent = Extract<HostEvent, { type: 'workspace.snapshot.recorded' }>;
 type CaptureTurnBoundary = NonNullable<HostRunAdmission['captureTurnBoundary']>;

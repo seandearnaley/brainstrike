@@ -1,9 +1,9 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
-import type { HostMethodHandler } from './auth-connection.js';
-import type { HostClientOrigin, HostMcpSettingsService } from './ports.js';
-import { MCP_SETTINGS_EVENT } from './protocol-mcp-settings.js';
-import { storeRefusal } from './store-refusals.js';
+import type { HostMethodHandler } from './auth-connection.ts';
+import type { HostClientOrigin, HostMcpSettingsService } from './ports.ts';
+import { MCP_SETTINGS_EVENT } from './protocol-mcp-settings.ts';
+import { storeRefusal } from './store-refusals.ts';
 
 const APPLIED = { applied: true } as const;
 const MAX_VISIBLE_ERROR_CHARS = 1000;

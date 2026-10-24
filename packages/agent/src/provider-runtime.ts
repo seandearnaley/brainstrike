@@ -7,31 +7,31 @@
 export {
   COMPACTION_SUMMARIZER_INSTRUCTIONS,
   hasCompactionSummarySchema,
-} from './compaction-summary-schema';
+} from './compaction-summary-schema.ts';
 export {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
-} from './config/resilience-config';
-export { resolveProviderError } from './mastra-boundary/mastra-chunk-decoding';
+} from './config/resilience-config.ts';
+export { resolveProviderError } from './mastra-boundary/mastra-chunk-decoding.ts';
 export {
   extractProviderRunError,
   isContextOverflowProviderErrorCode,
   isLocalRunErrorClassification,
-} from './provider-error-metadata';
-export { createAwsCredentialChain } from './providers/aws-credential-chain';
-export type { LocalEmbeddingHostClient } from './providers/local/local-host-embedding-model';
+} from './provider-error-metadata.ts';
+export { createAwsCredentialChain } from './providers/aws-credential-chain.ts';
+export type { LocalEmbeddingHostClient } from './providers/local/local-host-embedding-model.ts';
 export {
   collectRouterGenerateResult,
   materializeHostProviderModel,
-} from './providers/model-router-sdk';
+} from './providers/model-router-sdk.ts';
 export {
   createProviderNativeWebSearchTool,
   providerSupportsNativeWebSearch,
-} from './providers/native-web-search';
+} from './providers/native-web-search.ts';
 export {
   apiKeyAuthInput,
   type ProviderAuthInput,
-} from './providers/provider-auth-input';
+} from './providers/provider-auth-input.ts';
 export {
   type ConcreteLanguageModel,
   createEmbeddingProvider,
@@ -39,31 +39,31 @@ export {
   createLocalHostMemoryEmbedder,
   createProvider,
   type ProviderModelConfiguration,
-} from './providers/provider-factory';
-export type { SupportedProvider } from './providers/types';
+} from './providers/provider-factory.ts';
+export type { SupportedProvider } from './providers/types.ts';
 export {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
-} from './runtime-configuration';
+} from './runtime-configuration.ts';
 export {
   describeEmptyModelResponse,
   getAbnormalFinishMessage,
   outputLimitContextFor,
-} from './stream/abnormal-finish';
-export { type ModelStepFields, modelStepFields } from './stream/model-step';
+} from './stream/abnormal-finish.ts';
+export { type ModelStepFields, modelStepFields } from './stream/model-step.ts';
 export {
   describeStreamStall,
   StreamStalledError,
   ToolExecutions,
   withInactivityTimeout,
-} from './stream/with-inactivity-timeout';
+} from './stream/with-inactivity-timeout.ts';
 export {
   describeToolCallInputTimeout,
   ToolCallInputStreamingTimeoutError,
   withToolCallInputTimeout,
-} from './stream/with-tool-call-input-timeout';
-export type { RuntimeData } from './types';
+} from './stream/with-tool-call-input-timeout.ts';
+export type { RuntimeData } from './types.ts';
 export {
   type BilledCostReading,
   readOpenRouterBilledCost,
-} from './usage-metering';
+} from './usage-metering.ts';

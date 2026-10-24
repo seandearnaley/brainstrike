@@ -10,18 +10,18 @@ import {
 } from '@brainstrike/assistant-contract';
 import { launchHost } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
-import { trustCliProjectHooks } from './cli-hooks-trust.js';
-import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.js';
-import { HostCliExitError, runHostCliSession } from './cli-session.js';
-import { attachAgentHost, type HostClient } from './client.js';
-import { createAgentHostSpawner } from './launcher.js';
-import type { HostPlatformLaunchOptions } from './platform-launch-options.js';
-import { isProcessEntrypoint } from './process-entrypoint.js';
-import { HOST_METHOD_SCHEMAS, type HostParams } from './protocol.js';
+import { trustCliProjectHooks } from './cli-hooks-trust.ts';
+import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.ts';
+import { HostCliExitError, runHostCliSession } from './cli-session.ts';
+import { attachAgentHost, type HostClient } from './client.ts';
+import { createAgentHostSpawner } from './launcher.ts';
+import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
+import { isProcessEntrypoint } from './process-entrypoint.ts';
+import { HOST_METHOD_SCHEMAS, type HostParams } from './protocol.ts';
 import {
   type CliWorkspaceRunInput,
   CliWorkspaceRunInputSchema,
-} from './standalone-workspace-input.js';
+} from './standalone-workspace-input.ts';
 export interface HostCliOutput {
   write(value: string): void;
 }

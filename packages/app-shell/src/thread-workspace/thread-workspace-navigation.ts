@@ -18,13 +18,19 @@ export class ThreadWorkspaceNavigation {
   /** The last attempt's failure, kept until the next attempt so a later join rejects with it. */
   private failure: { resourceId: string; threadId: string; error: unknown } | null = null;
 
-  constructor(
-    private readonly actions: {
-      activateThread: (resourceId: string, threadId: string) => void;
-      openApp: (appId: string) => void;
-      reportError: (error: unknown) => void;
-    }
-  ) {}
+  private readonly actions: {
+    activateThread: (resourceId: string, threadId: string) => void;
+    openApp: (appId: string) => void;
+    reportError: (error: unknown) => void;
+  };
+
+  constructor(actions: {
+    activateThread: (resourceId: string, threadId: string) => void;
+    openApp: (appId: string) => void;
+    reportError: (error: unknown) => void;
+  }) {
+    this.actions = actions;
+  }
 
   open(resourceId: string, threadId: string, appId: string): void {
     this.pending = { appId, resourceId, threadId };

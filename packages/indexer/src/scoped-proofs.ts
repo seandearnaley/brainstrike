@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { validateSnapshot } from './chunks.js';
+import { validateSnapshot } from './chunks.ts';
 import {
   decoder,
   IndexerError,
@@ -16,12 +16,12 @@ import {
   scopedManifestFileSchema,
   scopedManifestRequestSchema,
   scopedManifestResultSchema,
-} from './contracts.js';
-import { assertCoverageAuthority } from './coverage-authority.js';
-import { compareManifest } from './index-manifest.js';
-import { readScopedIdentity } from './index-metadata.js';
-import { type ScopeAuthority, vectorProfileHash } from './scope-authority.js';
-import { validateScopedStorage } from './scoped-vector-validation.js';
+} from './contracts.ts';
+import { assertCoverageAuthority } from './coverage-authority.ts';
+import { compareManifest } from './index-manifest.ts';
+import { readScopedIdentity } from './index-metadata.ts';
+import { type ScopeAuthority, vectorProfileHash } from './scope-authority.ts';
+import { validateScopedStorage } from './scoped-vector-validation.ts';
 
 function scopePredicate(scope: IndexScope): { predicate: string; value: string } {
   return scope.kind === 'workspace'

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
-import { HostCliExitError } from './cli-session.js';
-import type { HostClient } from './client.js';
-import { hostProjectHooksPath } from './hook-trust.js';
+import { HostCliExitError } from './cli-session.ts';
+import type { HostClient } from './client.ts';
+import { hostProjectHooksPath } from './hook-trust.ts';
 
 export interface CliHooksTrustOptions {
   readonly interactive: boolean;

@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MemoryStorageAdapter } from '../adapters/memory-storage-adapter.js';
+import { MemoryStorageAdapter } from '../adapters/memory-storage-adapter.ts';
 import {
   createWriteBehindStorageAdapter,
   createWriteBehindWriter,
-} from '../write-behind-writer.js';
+} from '../write-behind-writer.ts';
 
 function createSyncOwner() {
   const values = new Map<string, string>();

@@ -2,8 +2,8 @@ import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '@brainstrike/agent';
 import type { HostHookSkip, HostHookTrustStore, HostRunHooks } from '@brainstrike/agent-host';
 import { readHostHookApproval } from '@brainstrike/agent-host/hook-trust';
 import { createLogger } from '@brainstrike/logging';
-import { loadHooksConfig } from './config.js';
-import { HookManager } from './manager.js';
+import { loadHooksConfig } from './config.ts';
+import { HookManager } from './manager.ts';
 
 const logger = createLogger('HostHooks');
 

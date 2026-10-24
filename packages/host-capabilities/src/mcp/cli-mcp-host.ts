@@ -6,16 +6,16 @@ import {
   parseMcpConfigValue,
   type ResolvedMcpConfig,
 } from '@brainstrike/assistant-contract/mcp-config';
-import type { HostCredentials } from '../credentials.js';
-import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
-import { createCredentialMcpOAuthStore } from './credential-oauth-store.js';
-import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
+import type { HostCredentials } from '../credentials.ts';
+import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.ts';
+import { createCredentialMcpOAuthStore } from './credential-oauth-store.ts';
+import { createMcpHostServices, type McpHostServices } from './mcp-host-services.ts';
 import {
   createLazySafeStorageMcpOAuthStore,
   identityKey,
   parseRecords,
-} from './oauth-client-provider.js';
-import { stateStoreMcpTaskStorage } from './state-store-task-storage.js';
+} from './oauth-client-provider.ts';
+import { stateStoreMcpTaskStorage } from './state-store-task-storage.ts';
 
 export class CliMcpCapabilityUnavailableError extends Error {
   readonly code = 'mcp-cli-capability-unavailable';

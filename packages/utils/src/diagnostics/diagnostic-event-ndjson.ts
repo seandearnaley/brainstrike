@@ -2,7 +2,7 @@ import type {
   DiagnosticCauseEntry,
   DiagnosticEvent,
   DiagnosticSeverity,
-} from './diagnostic-events.js';
+} from './diagnostic-events.ts';
 
 /**
  * Fixed key order for the NDJSON wire format. Declared explicitly (rather

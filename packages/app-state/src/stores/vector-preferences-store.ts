@@ -1,8 +1,8 @@
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import { createSanitizedPersistMerge } from './sanitized-persist-merge';
-import { VECTOR_PREFERENCES_STORE_NAME } from './vector-preferences-store-name';
+import { createSanitizedPersistMerge } from './sanitized-persist-merge.ts';
+import { VECTOR_PREFERENCES_STORE_NAME } from './vector-preferences-store-name.ts';
 
 type DevicePref = 'webgpu' | 'wasm';
 
@@ -33,7 +33,7 @@ const STORE_NAME = VECTOR_PREFERENCES_STORE_NAME;
 const AUTOMATIC_WASM_DETECTION_ERROR =
   'Automatic vector device detection cannot persist WASM. Configure WASM explicitly if you need the slow/debug backend.';
 
-export { VECTOR_PREFERENCES_STORE_NAME } from './vector-preferences-store-name';
+export { VECTOR_PREFERENCES_STORE_NAME } from './vector-preferences-store-name.ts';
 export const VECTOR_PREFERENCES_CAPABILITY_ERROR =
   'This desktop renderer exposes no vector preferences capability. The visible UI reads electronAPI.storage and hidden hosts read electronAPI.vectorPreferences; with neither present the canonical device preference cannot be resolved.';
 

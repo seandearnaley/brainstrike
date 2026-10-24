@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-let rendererClose: typeof import('../renderer-close');
+let rendererClose: typeof import('../renderer-close.ts');
 
 describe('document unload flush registry', () => {
   beforeEach(async () => {
     vi.resetModules();
     document.body.inert = false;
-    rendererClose = await import('../renderer-close');
+    rendererClose = await import('../renderer-close.ts');
   });
 
   it('fences the UI, then joins every durable flush', async () => {

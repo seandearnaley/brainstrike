@@ -71,8 +71,8 @@ import {
   stateStatsSchema,
   stateThreadsSchema,
   textCommitSchema,
-} from './contracts.js';
-import { type CoverageAuthorityPort, coverageAuthoritySchema } from './coverage-authority.js';
+} from './contracts.ts';
+import { type CoverageAuthorityPort, coverageAuthoritySchema } from './coverage-authority.ts';
 import type {
   IndexerPort,
   PurgeIndexerPort,
@@ -80,11 +80,11 @@ import type {
   StateIndexerPort,
   StateMessageVectorPort,
   StateObservationVectorPort,
-} from './index.js';
-import { decodeIndexerOptions } from './options.js';
-import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.js';
-import { RpcClient } from './rpc-client.js';
-import { validateStateModule } from './state-projection.js';
+} from './index.ts';
+import { decodeIndexerOptions } from './options.ts';
+import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.ts';
+import { RpcClient } from './rpc-client.ts';
+import { validateStateModule } from './state-projection.ts';
 
 const duration = Schema.Finite.check(Schema.isGreaterThan(0));
 /**
@@ -124,14 +124,14 @@ export interface IndexerTransport {
   send(message: object): void;
 }
 export class IndexerLifecycleError extends AggregateError {
-  constructor(
-    errors: unknown[],
-    readonly close: () => Promise<void>
-  ) {
+  readonly close: () => Promise<void>;
+
+  constructor(errors: unknown[], close: () => Promise<void>) {
     super(
       errors,
       'Indexer failed and process cleanup is incomplete; retry close before replacing its owner.'
     );
+    this.close = close;
     this.name = 'IndexerLifecycleError';
   }
 }

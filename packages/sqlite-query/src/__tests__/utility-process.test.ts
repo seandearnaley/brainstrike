@@ -17,7 +17,7 @@ describe('utility reader ownership', () => {
     const host = utilityHost();
     const fork = vi.fn(() => host);
     const process = spawnUtilityQueryProcess(fork);
-    expect(fork).toHaveBeenCalledWith(expect.stringMatching(/utility-query-host\.js$/u));
+    expect(fork).toHaveBeenCalledWith(expect.stringMatching(/utility-query-host\.ts$/u));
     expect(process.pid).toBe(host.pid);
     const request: QueryRequest = { databasePath: '/owned/index.sqlite', id: 1, kind: 'open' };
     process.postMessage(request);

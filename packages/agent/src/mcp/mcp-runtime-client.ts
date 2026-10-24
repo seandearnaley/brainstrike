@@ -16,30 +16,30 @@ import { toStandardSchema } from '@mastra/schema-compat/schema';
 import type {
   HostToolExecutionContext,
   HostToolDefinitions as ToolsInput,
-} from '../host-tool-definition';
-import { readToolCallId } from '../tools/read-tool-call-id';
-import { type McpConfigInput, parseMcpConfigValue } from './config';
+} from '../host-tool-definition.ts';
+import { readToolCallId } from '../tools/read-tool-call-id.ts';
+import { type McpConfigInput, parseMcpConfigValue } from './config.ts';
 import type {
   ExplicitHttpMcpCallToolParams,
   ExplicitHttpMcpCallToolResult,
   ExplicitHttpMcpListToolsResult,
   ExplicitHttpMcpRequestOptions,
   ExplicitHttpMcpTool,
-} from './explicit-http-client';
+} from './explicit-http-client.ts';
 import {
   createMcpAppToolResult,
   hasMcpAppToolMeta,
   projectMcpAppOrTaskToolModelOutput,
   readMcpAppToolResourceUri,
-} from './mcp-app-tool-result';
-import { readMcpMultimodalOutput } from './mcp-multimodal-output';
+} from './mcp-app-tool-result.ts';
+import { readMcpMultimodalOutput } from './mcp-multimodal-output.ts';
 import {
   createMcpTaskToolTracking,
   type McpTaskToolTracking,
   readMcpCreatedTaskResult,
   settleMcpTaskToolResult,
-} from './mcp-task-tool-result';
-import type { McpTaskTrackingCapability } from './task-tracking';
+} from './mcp-task-tool-result.ts';
+import type { McpTaskTrackingCapability } from './task-tracking.ts';
 
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 const rawCallToolResultSignals = new WeakSet<AbortSignal>();
@@ -252,7 +252,10 @@ function resolveTaskTracking(
 class CompositeMcpRuntimeClient implements McpRuntimeClient {
   readonly configuredServers: readonly { enabledTools?: string[]; name: string }[];
   private closing: Promise<void> | undefined;
-  constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {
+  private readonly serverClients: readonly TransportOwnedServerClient[];
+
+  constructor(serverClients: readonly TransportOwnedServerClient[]) {
+    this.serverClients = serverClients;
     this.configuredServers = serverClients.map(({ server }) => structuredClone(server));
   }
 
@@ -525,12 +528,13 @@ async function executeMcpTool(
  */
 export class McpToolResultError extends Error {
   readonly code = 'mcp-tool-error-result';
-  constructor(
-    readonly serverName: string,
-    readonly toolName: string,
-    reason: string
-  ) {
+  readonly serverName: string;
+  readonly toolName: string;
+
+  constructor(serverName: string, toolName: string, reason: string) {
     super(reason);
+    this.serverName = serverName;
+    this.toolName = toolName;
     this.name = 'McpToolResultError';
   }
 }

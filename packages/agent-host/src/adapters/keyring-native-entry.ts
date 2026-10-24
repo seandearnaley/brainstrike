@@ -4,7 +4,7 @@ import { Schema } from 'effect';
 import {
   type KeyringNativeRequest,
   KeyringNativeRequestSchema,
-} from './keyring-native-protocol.js';
+} from './keyring-native-protocol.ts';
 
 const { service } = Schema.decodeUnknownSync(
   Schema.Struct({ service: Schema.String.check(Schema.isMinCodePoints(1)) }),

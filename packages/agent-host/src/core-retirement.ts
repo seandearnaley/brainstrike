@@ -1,5 +1,5 @@
-import { joinHostClosingRun } from './core-run-lifecycle.js';
-import type { HostRunState } from './core-state.js';
+import { joinHostClosingRun } from './core-run-lifecycle.ts';
+import type { HostRunState } from './core-state.ts';
 
 /** Core emits this only after its admission fence and every physical owner joined.
  * Incident: https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6053571110

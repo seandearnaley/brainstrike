@@ -14,7 +14,11 @@ class FakeSender {
   #destroyed = false;
   readonly #listeners = new Set<() => void>();
 
-  constructor(readonly id: number) {}
+  readonly id: number;
+
+  constructor(id: number) {
+    this.id = id;
+  }
 
   destroy(): void {
     this.#destroyed = true;

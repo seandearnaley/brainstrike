@@ -1,8 +1,8 @@
-import type { AssistantMemoryThread } from './assistant-memory-repository';
+import type { AssistantMemoryThread } from './assistant-memory-repository.ts';
 import type {
   AssistantThreadGroup,
   AssistantThreadPlacement,
-} from './assistant-thread-groups-repository';
+} from './assistant-thread-groups-repository.ts';
 
 export type ThreadsPanelGroupBy = 'custom-groups' | 'folder' | 'none';
 export type ThreadsPanelSortBy = 'custom' | 'name' | 'recency';

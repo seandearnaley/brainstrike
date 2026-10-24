@@ -2,15 +2,15 @@
 // the state DB exists. The reads themselves are `StateTruthReader`'s.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Db, openRo } from './sqlite.js';
-import { StateTruthReader } from './state-truth-reader.js';
+import { type Db, openRo } from './sqlite.ts';
+import { StateTruthReader } from './state-truth-reader.ts';
 
 export {
   type MemoryObservationRecord,
   type MemoryThreadBinding,
   type ReadItem,
   readAll,
-} from './state-truth-reader.js';
+} from './state-truth-reader.ts';
 
 export class SqliteReader extends StateTruthReader {
   readonly #file: { db: Db | null; readonly path: string };

@@ -11,7 +11,7 @@ import type {
   ProviderApiKeyReader,
   ProviderCredentialReader,
   ResolvedProviderCredential,
-} from './ports.js';
+} from './ports.ts';
 
 /**
  * A typed credential reached a consumer that can only use bearer-key strings.

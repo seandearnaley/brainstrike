@@ -10,17 +10,17 @@ import {
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
 import { Schema } from 'effect';
-import type { McpHostCatalog, McpHostCloseReport, McpHostOperationResult } from './mcp-host.js';
-import { MCP_HOST_LISTED_CATALOG_SECTIONS, McpHostErrorSchema } from './mcp-host.js';
+import type { McpHostCatalog, McpHostCloseReport, McpHostOperationResult } from './mcp-host.ts';
+import { MCP_HOST_LISTED_CATALOG_SECTIONS, McpHostErrorSchema } from './mcp-host.ts';
 import {
   assertMcpHostStrictJson,
   McpHostCatalogErrorsSchema,
   McpHostServerFeaturesSchema,
   McpHostSubscriptionStatusSchema,
   McpNegotiatedStatusSchema,
-} from './mcp-host-status.js';
-import type { McpNegotiatedStatus } from './mcp-status.js';
-import { sdkSchema } from './sdk-schema.js';
+} from './mcp-host-status.ts';
+import type { McpNegotiatedStatus } from './mcp-status.ts';
+import { sdkSchema } from './sdk-schema.ts';
 
 const McpHostOperationResultEnvelopeSchema = Schema.Union(
   [

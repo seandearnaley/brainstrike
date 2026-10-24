@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import type { AppendItem, BlobContent } from '@brainstrike/state-store';
 import { largeText } from '@brainstrike/state-store/large-text';
 import { Schema } from 'effect';
-import { type HostEvent, HostEventSchema } from './protocol.js';
+import { type HostEvent, HostEventSchema } from './protocol.ts';
 /**
  * ADR-0011 amendment: a committed run.started keeps its run snapshot (the run
  * configuration: system prompt, child system, captured intent, tool

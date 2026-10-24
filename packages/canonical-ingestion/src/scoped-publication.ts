@@ -16,7 +16,7 @@ import type {
   CanonicalScanTicket,
   CanonicalSourceScope,
   CanonicalVectorPublicationPort,
-} from './ports.js';
+} from './ports.ts';
 
 export interface NativeScopeReadiness {
   readonly generation: number;

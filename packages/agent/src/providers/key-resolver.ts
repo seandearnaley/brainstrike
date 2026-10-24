@@ -1,10 +1,10 @@
-import type { RuntimeData } from '../types';
-import { getProviderEnvKeys } from './registry';
-import type { SupportedProvider } from './types';
-import { isSupportedProvider } from './types';
+import type { RuntimeData } from '../types.ts';
+import { getProviderEnvKeys } from './registry.ts';
+import type { SupportedProvider } from './types.ts';
+import { isSupportedProvider } from './types.ts';
 
-export type { SupportedProvider } from './types';
-export { isSupportedProvider } from './types';
+export type { SupportedProvider } from './types.ts';
+export { isSupportedProvider } from './types.ts';
 
 /**
  * Resolves the API key for a given provider from runtime data or environment variables

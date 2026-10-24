@@ -15,8 +15,8 @@
  * it never reaches the model, and a key that names no parameter throws at
  * derivation time.
  */
-import { InvalidNativeToolDefinitionError, type NativeToolDefinition } from './define.js';
-import { toToolInputJsonSchema } from './schemas/tool-input-schema.js';
+import { InvalidNativeToolDefinitionError, type NativeToolDefinition } from './define.ts';
+import { toToolInputJsonSchema } from './schemas/tool-input-schema.ts';
 
 /** Parameter type for display purposes. */
 export type ParameterType = 'string' | 'number' | 'boolean' | 'array' | 'object' | 'enum';

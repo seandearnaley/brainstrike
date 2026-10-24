@@ -10,12 +10,12 @@
  * Zod input schemas (zod is browser-safe) and nothing Mastra/Node-only.
  */
 
-import type { NativeToolSurface } from './native-tools/define.js';
+import type { NativeToolSurface } from './native-tools/define.ts';
 import {
   type DesktopNativeTool,
   NATIVE_TOOL_REGISTRIES,
   type NativeTool,
-} from './native-tools/index.js';
+} from './native-tools/index.ts';
 
 export const NATIVE_TOOL_ID = NATIVE_TOOL_REGISTRIES.nativeToolId;
 

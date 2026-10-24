@@ -2,7 +2,7 @@
 // creates is owned by the user even when an elevated token defaults to
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
-import { runIndexerProcess } from './process-core.js';
+import { runIndexerProcess } from './process-core.ts';
 
 process.once('message', (input: unknown) => {
   void runIndexerProcess(input, {

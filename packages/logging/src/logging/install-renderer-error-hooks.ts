@@ -1,4 +1,4 @@
-import { createLogger } from '../logger.js';
+import { createLogger } from '../logger.ts';
 
 export interface RendererErrorEventPayload {
   column?: number;

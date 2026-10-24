@@ -1,7 +1,7 @@
 import type { FindWorkspaceSymbolInput, RuntimeData } from '@brainstrike/agent';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
-import { findSymbolMatches } from './find-workspace-symbol.js';
-import { readWorkspaceTextFile } from './workspace-text-file-reader.js';
+import { findSymbolMatches } from './find-workspace-symbol.ts';
+import { readWorkspaceTextFile } from './workspace-text-file-reader.ts';
 
 /** findWorkspaceSymbol: a bounded textual symbol scan of one file through the checked reader. */
 export async function runFindWorkspaceSymbol(

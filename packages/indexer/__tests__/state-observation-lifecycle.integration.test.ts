@@ -13,7 +13,7 @@ import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js'
 // The transport forks the process entry beside its own module, so this suite
 // drives the built transport; the source owns its type.
 const { createIndexerConnection, IndexerLifecycleError }: typeof Transport = await import(
-  new URL('../dist/transport.js', import.meta.url).href
+  new URL('../src/transport.ts', import.meta.url).href
 );
 
 const deadlines = { closeMs: 5000, exitMs: 5000 };
@@ -202,7 +202,7 @@ if (probeReceipt === undefined) {
       // Actual native indexer/IPC/writer; only its process-disconnect acknowledgement is refused.
       await writeFile(
         entry,
-        `process.disconnect = () => {};\nawait import(${JSON.stringify(new URL('../dist/process-entry.js', import.meta.url).href)});\n`
+        `process.disconnect = () => {};\nawait import(${JSON.stringify(new URL('../src/process-entry.ts', import.meta.url).href)});\n`
       );
       let output = '';
       const host = await owner.acquire(

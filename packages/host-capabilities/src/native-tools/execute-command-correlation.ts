@@ -40,8 +40,8 @@ import {
   type ExecuteCommandToolResult,
   runExecuteCommand,
   type WindowsCommandEntry,
-} from './execute-command-tool.js';
-import type { ShellOutputStreamer } from './tool-execute-support.js';
+} from './execute-command-tool.ts';
+import type { ShellOutputStreamer } from './tool-execute-support.ts';
 
 const logger = createLogger('ExecuteCommandCorrelation');
 

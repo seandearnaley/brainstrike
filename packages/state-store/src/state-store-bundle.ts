@@ -13,11 +13,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { isAbsolute, join, relative, sep, win32 } from 'node:path';
-import type { RootLock } from './lock.js';
+import type { RootLock } from './lock.ts';
 import { blobsOf } from './run-log-format.mjs';
-import { openRo, vacuumInto } from './sqlite.js';
-import { readAll, SqliteReader } from './sqlite-reader.js';
-import type { ExportedThread, Manifest } from './state-store-types.js';
+import { openRo, vacuumInto } from './sqlite.ts';
+import { readAll, SqliteReader } from './sqlite-reader.ts';
+import type { ExportedThread, Manifest } from './state-store-types.ts';
 export const STATE_DB = 'state.db';
 export const BLOBS_DIR = 'blobs';
 export const sha256Hex = (b: Buffer | string): string =>

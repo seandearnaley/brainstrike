@@ -43,7 +43,11 @@ export interface McpServerFeatureEventHandlers {
 export class McpServerFeatureEventRegistry {
   private readonly subscribers = new Set<McpServerFeatureEventHandlers>();
 
-  constructor(private readonly onDiagnostic: McpServerFeatureEventDiagnosticSink) {}
+  private readonly onDiagnostic: McpServerFeatureEventDiagnosticSink;
+
+  constructor(onDiagnostic: McpServerFeatureEventDiagnosticSink) {
+    this.onDiagnostic = onDiagnostic;
+  }
 
   install(client: Client): void {
     client.setNotificationHandler('notifications/tools/list_changed', async () => {

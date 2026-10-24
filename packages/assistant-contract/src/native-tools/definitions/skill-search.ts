@@ -1,6 +1,6 @@
 import { Schema } from 'effect';
-import { defineNativeTool } from '../define.js';
-import { standardInputSchema } from '../schemas/standard-input-schema.js';
+import { defineNativeTool } from '../define.ts';
+import { standardInputSchema } from '../schemas/standard-input-schema.ts';
 
 // Agent Skills tool (https://agentskills.io) — see `skill.ts` for the shared
 // rationale: Mastra's own canonical id, folded into the runtime tool map

@@ -1,11 +1,11 @@
 // Purge, thread deletion and blob GC, in the order that keeps a crash recoverable and a referenced blob alive. The
 // desktop StateStore runs this orchestration: it supplies its writer's deletion ops (`deletion-domain.mjs`
 // underneath), its derived index and its write chain.
-import { IndexerRequiredError } from './errors.js';
+import { IndexerRequiredError } from './errors.ts';
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
-import type { IndexerPort, PurgeReport } from './state-store-types.js';
+import type { IndexerPort, PurgeReport } from './state-store-types.ts';
 
-export type { IndexerPort, PurgeReport } from './state-store-types.js';
+export type { IndexerPort, PurgeReport } from './state-store-types.ts';
 
 /** A purge (`event`) or thread delete recorded before it started; `hashes` are the blobs it may free. */
 export interface DeletionIntent {

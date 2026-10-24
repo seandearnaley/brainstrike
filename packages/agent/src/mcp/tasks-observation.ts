@@ -20,12 +20,13 @@ export interface McpTaskObservationPortOptions {
 }
 
 export class McpTaskObservationError extends Error {
-  constructor(
-    readonly taskId: string,
-    readonly failures: number,
-    cause: unknown
-  ) {
+  readonly taskId: string;
+  readonly failures: number;
+
+  constructor(taskId: string, failures: number, cause: unknown) {
     super(`MCP task "${taskId}" observation failed after ${failures} bounded attempts.`, { cause });
+    this.taskId = taskId;
+    this.failures = failures;
     this.name = 'McpTaskObservationError';
   }
 }

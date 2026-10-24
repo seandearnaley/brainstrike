@@ -1,4 +1,4 @@
-import type { DirectoryReadOptions } from './types.js';
+import type { DirectoryReadOptions } from './types.ts';
 
 /**
  * Concurrency limiter shared across adapters.

@@ -8,12 +8,12 @@
  * hidden columns and dragged widths straight through a factory reset.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { clearPersistentUiState } from '../factory-reset';
+import { clearPersistentUiState } from '../factory-reset.ts';
 import {
   EXPLORER_COLUMN_BOUNDS,
   useExplorerColumnSizesStore,
-} from '../stores/explorer-column-sizes-store';
-import { useExplorerColumnVisibilityStore } from '../stores/explorer-column-visibility-store';
+} from '../stores/explorer-column-sizes-store.ts';
+import { useExplorerColumnVisibilityStore } from '../stores/explorer-column-visibility-store.ts';
 
 const globalWindow = window as Window &
   typeof globalThis & {

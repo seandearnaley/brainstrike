@@ -5,8 +5,8 @@ import {
   type ToolApprovalRequest,
   type ToolApprovalResponse,
 } from 'ai';
-import { committedRowAddress, committedRunIdentity } from '../committed-identities.js';
-import type { HostLogRow } from '../protocol.js';
+import { committedRowAddress, committedRunIdentity } from '../committed-identities.ts';
+import type { HostLogRow } from '../protocol.ts';
 
 type CommittedModelRow = HostLogRow & {
   readonly event: Extract<HostLogRow['event'], { type: 'model.step' | 'model.messages' }>;

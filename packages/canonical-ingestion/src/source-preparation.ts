@@ -12,8 +12,8 @@ import type {
   CanonicalSourceFile,
   CanonicalSourcePort,
   CanonicalSourceStat,
-} from './ports.js';
-import { CanonicalSourceContentExcludedError } from './source-content-exclusion.js';
+} from './ports.ts';
+import { CanonicalSourceContentExcludedError } from './source-content-exclusion.ts';
 
 export interface CanonicalPreparedRead {
   readonly content: string;

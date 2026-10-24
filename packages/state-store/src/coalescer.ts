@@ -11,7 +11,7 @@
 //
 // Chunks are AI SDK `UIMessageChunk`s; only the fields the merge reads are typed here, so the store does not depend on
 // the AI SDK.
-import type { AppendItem, LogRow, RunEvent } from './run-log-types.js';
+import type { AppendItem, LogRow, RunEvent } from './run-log-types.ts';
 
 /** A UI stream chunk: `type` plus the chunk's fields. */
 export type RunChunk = Readonly<Record<string, unknown>> & { readonly type: string };

@@ -1,4 +1,4 @@
-import type { TurnSubagentLimits } from './subagent-settings.js';
+import type { TurnSubagentLimits } from './subagent-settings.ts';
 
 /*
  * Delegation budget TYPES. The limits themselves — tree and per-child — are

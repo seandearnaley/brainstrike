@@ -1,5 +1,5 @@
 import { buildTokenUsageCounts, computeCost } from '@brainstrike/tokenization';
-import type { ModelPricingResolver } from '../assistant-cross-root-cost';
+import type { ModelPricingResolver } from '../assistant-cross-root-cost.ts';
 
 /**
  * Rolling last-24h spend aggregation for the budget guardrail (see

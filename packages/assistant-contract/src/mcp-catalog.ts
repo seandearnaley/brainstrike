@@ -1,5 +1,5 @@
-import type { McpServerInput } from './mcp-config.js';
-import type { McpCredentialReferenceSchema } from './mcp-host.js';
+import type { McpServerInput } from './mcp-config.ts';
+import type { McpCredentialReferenceSchema } from './mcp-host.ts';
 
 /**
  * Curated official remote MCP servers that Settings installs in one click

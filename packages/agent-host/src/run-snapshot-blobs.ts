@@ -1,10 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BLOBS_DIR } from '@brainstrike/state-store';
-import { decodeRunSnapshot } from './host-event-decoding.js';
-import type { HostRunSnapshot } from './protocol.js';
+import { decodeRunSnapshot } from './host-event-decoding.ts';
+import type { HostRunSnapshot } from './protocol.ts';
 
-export { takeRunSnapshotRef } from './host-event-decoding.js';
+export { takeRunSnapshotRef } from './host-event-decoding.ts';
 
 /**
  * Resolved snapshots by store root and content hash. Blobs are immutable, so a

@@ -6,11 +6,11 @@ import {
   IndexerError,
   requestSchema,
   STATE_CATCH_UP_STEP_EVENTS,
-} from './contracts.js';
-import { openDesktopIndex } from './desktop-index-connection.js';
-import { loadStateProjection } from './state-projection.js';
-import { IndexWriter } from './store.js';
-import { validateIndexerOptions } from './transport.js';
+} from './contracts.ts';
+import { openDesktopIndex } from './desktop-index-connection.ts';
+import { loadStateProjection } from './state-projection.ts';
+import { IndexWriter } from './store.ts';
+import { validateIndexerOptions } from './transport.ts';
 
 const port = parentPort;
 if (!port) {
