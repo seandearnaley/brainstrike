@@ -35,50 +35,42 @@
     // through devEngines. One platform's result or native binary is never
     // replayed on another.
     "env": ["RUNNER_OS", "RUNNER_ARCH", "npm_config_user_agent"],
-    // Files that, when changed, should invalidate caches globally
-    // These files affect all tasks and will cause cache misses when modified.
+    // Files that, when changed, invalidate every task's cache. Keep this list
+    // to files that really are read by every task: one edit here re-runs all
+    // ~140 build/test/type-check tasks for everyone who pulls main.
     //
-    // tsconfig invalidation contract (Series B2 — do NOT "tidy" the two kept
-    // tsconfig globs back to the broad per-package form; that recreates the
-    // over-invalidation this change removed):
-    //   The repo's entire tsconfig `extends` graph terminates at a SINGLE shared
-    //   preset, packages/config/tsconfig/base.json (it has no `extends`). Every
-    //   package/app main tsconfig extends it by a RAW RELATIVE PATH
-    //   ("../../packages/config/tsconfig/base.json"), NOT a package import — so
-    //   no package.json dependency edge and no build-task edge carries base.json
-    //   into consumers' hashes (packages/config has no build script; only web +
-    //   desktop even depend on @brainstrike/config). The two globs below are the
-    //   SOLE hash carriers for the only two tsconfig files that escape their
-    //   consuming package's own $TURBO_DEFAULT$ input directory:
-    //     - "tsconfig*.json" (root): matches the repo-root tsconfig.json, which
-    //       packages/config/tsconfig.json extends ("../../tsconfig.json"). That
-    //       is a genuine cross-package input for config#type-check (root tsconfig
-    //       lives OUTSIDE the config package's default inputs). KEEP.
-    //     - "packages/*/tsconfig/*.json": matches ONLY packages/config/tsconfig/
-    //       (the sole tsconfig/ dir in the repo) → carries base.json (+ presets)
-    //       into all ~40 consumers. Removing it would make base.json an INVISIBLE
-    //       input: a strict/target/etc. edit would replay stale-green caches
-    //       repo-wide — the exact #1066/#1207 landmine. KEEP.
-    //   DELIBERATELY NOT LISTED: each package's / app's OWN local tsconfig*.json
-    //   (e.g. packages/types/tsconfig.test.json, apps/desktop/tsconfig.json).
-    //   Those live inside their package dir and are already $TURBO_DEFAULT$
-    //   inputs of that package's own build/type-check/test tasks, so they still
-    //   invalidate the package that owns them. Listing them globally (the removed
-    //   "apps/*/tsconfig*.json" + "packages/*/tsconfig*.json" entries) only added
-    //   cross-package OVER-invalidation: any one of ~75 per-package tsconfig
-    //   edits busted every cache in the repo for zero correctness benefit.
-    //   The only cross-package tsconfig reads are the extends chains into
-    //   base.json and config→root — the two kept globs above. A package's
-    //   type-check reads its dependencies' SOURCE (their `types` exports) under
-    //   its own tsconfig, never a foreign one; the `topo` cascade carries those
-    //   source hashes. No other mechanism reads a foreign tsconfig (no
-    //   vite-tsconfig-paths anywhere; tsup/vite configs use only local tsconfig).
+    // Deliberately NOT listed, because Turbo already hashes them per task:
+    //   - pnpm-lock.yaml: each task hash carries `hashOfExternalDependencies`,
+    //     the package's own resolved dependency closure read from the lockfile,
+    //     and the global hash carries the root package's. A version bump in one
+    //     package's dependency re-hashes that package and its dependents only; a
+    //     root devDependency bump re-hashes everything (both measured with
+    //     `turbo run test --dry=json` against an edited lockfile). Patched
+    //     dependencies are covered too: the patch hash is part of the resolved
+    //     version.
+    //   - turbo.jsonc: each task hash includes its resolved task definition
+    //     (dependsOn, env, inputs, outputs) and the global hash includes this
+    //     block's env and inputs. Listing the file only made comment edits and
+    //     edits to unrelated tasks bust every cache.
+    //   - the root tsconfig.json: only packages/config/tsconfig.json extends it,
+    //     so packages/config/turbo.json lists it for that package's tasks.
+    //
+    // pnpm-workspace.yaml IS listed: its allowBuilds, overrides and pnpm
+    // settings change what an install builds and links, and those do not all
+    // appear in any package's resolved dependency closure.
+    //
+    // tsconfig invalidation contract (Series B2): the repo's tsconfig `extends`
+    // graph terminates at packages/config/tsconfig/base.json, which every
+    // package extends by a RAW RELATIVE PATH, not a package import, so no
+    // dependency edge carries it into consumers' hashes. The
+    // "packages/*/tsconfig/*.json" glob is that carrier. Removing it would make
+    // base.json an invisible input and replay stale-green caches repo-wide (the
+    // #1066/#1207 landmine). Each package's own tsconfig*.json is already a
+    // $TURBO_DEFAULT$ input of that package, so it is not listed here.
     "inputs": [
-      "pnpm-lock.yaml", // Package dependencies
+      "pnpm-workspace.yaml", // allowBuilds, overrides and install settings
       "package.json", // Root devEngines pins the Node version (native ABI)
-      "tsconfig*.json", // Root TS config — config/tsconfig.json extends it (genuinely global)
       "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers
-      "turbo.jsonc", // Turborepo configuration
       ".nvmrc", // Node version specification
       "scripts/prune-stale-dist.mjs" // Stale-dist pruner (2026-07-30 cache-poisoning class); wired into the `build` of every non-cleaning tsc package — must invalidate their build cache when edited
     ]
