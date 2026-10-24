@@ -53,6 +53,14 @@ describe('tree-operations', () => {
       expect(isDescendantPath('/root/components/file.ts', '/root/com')).toBe(false);
       expect(isDescendantPath('/root/com', '/root/com')).toBe(false);
     });
+
+    it('splits a Windows path at its own separators, and a POSIX path only at /', () => {
+      expect(isDescendantPath('C:\\root\\com\\file.ts', 'C:\\root\\com')).toBe(true);
+      expect(isDescendantPath('C:\\root\\components\\file.ts', 'C:\\root\\com')).toBe(false);
+      expect(isDescendantPath('\\\\server\\share\\file.ts', '\\\\server\\share')).toBe(true);
+      // A POSIX name may contain a backslash: it is not a separator there.
+      expect(isDescendantPath('/root/com\\file.ts', '/root/com')).toBe(false);
+    });
   });
 
   describe('getPathDepth', () => {
@@ -60,6 +68,11 @@ describe('tree-operations', () => {
       expect(getPathDepth('')).toBe(0);
       expect(getPathDepth('/')).toBe(0);
       expect(getPathDepth('///')).toBe(0);
+    });
+
+    it('counts a Windows path by its own separators', () => {
+      expect(getPathDepth('C:\\src\\components\\Button.tsx')).toBe(4);
+      expect(getPathDepth('/src/a\\b.ts')).toBe(2);
     });
 
     it('counts only real path segments', () => {

@@ -1,7 +1,10 @@
 /**
  * Mock data for file system testing.
- * Used by both main process (IPC handlers) and E2E tests.
+ * Used by both main process (IPC handlers) and E2E tests. Children are joined
+ * by the host's rules, as Main joins a real folder's, so a Windows mock tree is
+ * separated by `\`.
  */
+import { hostJoin } from '@brainstrike/utils/host-path';
 
 export const TEST_DIRECTORY_PATH = '/mock/test/directory';
 export const TEST_DIRECTORY_HANDLE_ID = 'mock-directory-handle';
@@ -40,11 +43,11 @@ export function getTestDirectoryStructure(
         id: 'mock-file-1',
         kind: 'file',
         name: 'mock-file1.txt',
-        path: `${rootPath}/mock-file1.txt`,
+        path: hostJoin(rootPath, 'mock-file1.txt'),
         platform: 'electron',
       },
       name: 'mock-file1.txt',
-      path: `${rootPath}/mock-file1.txt`,
+      path: hostJoin(rootPath, 'mock-file1.txt'),
       rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       selectionState: 'unchecked',
       size: 100,
@@ -56,11 +59,11 @@ export function getTestDirectoryStructure(
         id: 'mock-file-2',
         kind: 'file',
         name: 'mock-file2.ts',
-        path: `${rootPath}/mock-file2.ts`,
+        path: hostJoin(rootPath, 'mock-file2.ts'),
         platform: 'electron',
       },
       name: 'mock-file2.ts',
-      path: `${rootPath}/mock-file2.ts`,
+      path: hostJoin(rootPath, 'mock-file2.ts'),
       rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       selectionState: 'unchecked',
       size: 250,
@@ -73,11 +76,11 @@ export function getTestDirectoryStructure(
         id: 'mock-subfolder',
         kind: 'directory',
         name: 'mock-subfolder',
-        path: `${rootPath}/mock-subfolder`,
+        path: hostJoin(rootPath, 'mock-subfolder'),
         platform: 'electron',
       },
       name: 'mock-subfolder',
-      path: `${rootPath}/mock-subfolder`,
+      path: hostJoin(rootPath, 'mock-subfolder'),
       rootFolderId: TEST_DIRECTORY_HANDLE_ID,
       selectionState: 'unchecked',
       type: 'directory',

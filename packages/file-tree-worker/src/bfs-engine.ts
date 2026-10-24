@@ -8,6 +8,7 @@
 
 // Worker bundles must use the crypto subpath to avoid pulling the full utils barrel into esbuild.
 import { generateUUID } from '@brainstrike/utils/crypto';
+import { getAncestorDirectoryPaths } from '@brainstrike/utils/path-ancestors';
 import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { getPathDepth, isDescendantPath } from './generic-tree-operations';
 
@@ -73,26 +74,6 @@ export const MAX_EXPAND_DIRECTORIES = 10_000;
 async function yieldControl(): Promise<void> {
   // Workers don't have scheduler.yield, use setTimeout
   return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-function getAncestorPaths(path: string): string[] {
-  const ancestors: string[] = [];
-  let currentPath = path;
-
-  while (true) {
-    const separatorIndex = currentPath.lastIndexOf('/');
-    if (separatorIndex < 0) {
-      break;
-    }
-    if (separatorIndex === 0) {
-      break;
-    }
-
-    currentPath = currentPath.slice(0, separatorIndex);
-    ancestors.push(currentPath);
-  }
-
-  return ancestors;
 }
 
 /**
@@ -763,7 +744,7 @@ export class BFSEngine {
     }
 
     this.expandedPaths.add(path);
-    for (const ancestorPath of getAncestorPaths(path)) {
+    for (const ancestorPath of getAncestorDirectoryPaths(path)) {
       const descendants = this.expandedDescendantsByPath.get(ancestorPath) ?? new Set<string>();
       descendants.add(path);
       this.expandedDescendantsByPath.set(ancestorPath, descendants);
@@ -775,7 +756,7 @@ export class BFSEngine {
       return;
     }
 
-    for (const ancestorPath of getAncestorPaths(path)) {
+    for (const ancestorPath of getAncestorDirectoryPaths(path)) {
       const descendants = this.expandedDescendantsByPath.get(ancestorPath);
       if (!descendants) {
         continue;

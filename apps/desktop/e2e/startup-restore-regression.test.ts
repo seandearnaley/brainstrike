@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testing';
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
@@ -17,7 +18,8 @@ interface PersistedEnvelope<TState> {
   readonly version: number;
 }
 
-const RESTORED_FOLDER_PATH = '/mock/test/directory';
+/** Test mode's default mock root, in the host's own grammar (see file-system-ipc.ts). */
+const RESTORED_FOLDER_PATH = path.resolve('/mock/test/directory');
 /** Display name of the restored root (handle.name) — NOT its identity. */
 const RESTORED_FOLDER_NAME = 'directory';
 /**
@@ -29,7 +31,7 @@ const RESTORED_FOLDER_NAME = 'directory';
 const RESTORED_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000002';
 const RESTORED_ROOT_ADDED_AT = 1_700_000_000_000;
 const RESTORED_FILE_NAME = 'mock-file1.txt';
-const RESTORED_FILE_PATH = `${RESTORED_FOLDER_PATH}/${RESTORED_FILE_NAME}`;
+const RESTORED_FILE_PATH = path.join(RESTORED_FOLDER_PATH, RESTORED_FILE_NAME);
 const RESTORED_COMPOSITE_KEY = `${RESTORED_ROOT_ID}|@|${RESTORED_FILE_PATH}`;
 const RESTORED_TAB_ID = `${RESTORED_ROOT_ID}:${RESTORED_COMPOSITE_KEY}`;
 

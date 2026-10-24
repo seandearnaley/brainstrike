@@ -10,25 +10,69 @@ interface AncestorCountOptions {
   includeRoot?: boolean;
 }
 
+/** A Windows drive or UNC path, whose backslashes are separators too. */
+const WINDOWS_PATH = /^(?:[A-Za-z]:[\\/]|\\\\)/u;
+const WINDOWS_DRIVE_ROOT = /^[A-Za-z]:[\\/]/u;
+const SLASH = 47;
+const BACKSLASH = 92;
+
+/**
+ * Whether `path` follows Windows grammar. A path's own grammar decides what
+ * separates its segments, never the platform reading it: desktop tree paths are
+ * the host's native paths, so a Windows tree is separated by `\`, while a
+ * backslash inside a POSIX name is just a character.
+ */
+export function isWindowsPath(path: string): boolean {
+  return WINDOWS_PATH.test(path);
+}
+
+/** The last segment separator of `path` at or before `fromIndex`, by its grammar; -1 if none. */
+export function lastPathSeparatorIndex(path: string, fromIndex = path.length - 1): number {
+  const slash = path.lastIndexOf('/', fromIndex);
+  return isWindowsPath(path) ? Math.max(slash, path.lastIndexOf('\\', fromIndex)) : slash;
+}
+
+/** Whether the code unit at `index` separates two segments of `path`. */
+export function isPathSeparatorAt(path: string, index: number): boolean {
+  const code = path.charCodeAt(index);
+  return code === SLASH || (code === BACKSLASH && isWindowsPath(path));
+}
+
+/** Length of the root a path cannot be walked above: `/`, `C:\` or a UNC path's `\\`. */
+function rootLength(path: string): number {
+  if (WINDOWS_DRIVE_ROOT.test(path)) {
+    return 3;
+  }
+  if (path.startsWith('\\\\')) {
+    return 2;
+  }
+  return path.startsWith('/') ? 1 : 0;
+}
+
 function normalizePath(path: string): string {
-  if (path.length > 1 && path.endsWith('/')) {
+  if (path.length > Math.max(1, rootLength(path)) && isPathSeparatorAt(path, path.length - 1)) {
     return path.slice(0, -1);
   }
   return path;
 }
 
+function isRootPath(path: string): boolean {
+  return path.length > 0 && path.length === rootLength(path);
+}
+
 function getParentDirectoryPath(path: string): string | null {
   const normalizedPath = normalizePath(path);
-  if (normalizedPath === '/') {
+  if (isRootPath(normalizedPath)) {
     return null;
   }
-  const separatorIndex = normalizedPath.lastIndexOf('/');
+  const separatorIndex = lastPathSeparatorIndex(normalizedPath);
 
   if (separatorIndex < 0) {
     return null;
   }
-  if (separatorIndex === 0) {
-    return '/';
+  const root = rootLength(normalizedPath);
+  if (separatorIndex < root) {
+    return normalizedPath.slice(0, root);
   }
   return normalizedPath.slice(0, separatorIndex);
 }
@@ -64,7 +108,7 @@ function buildAncestorDirectoryChain(
 
   for (let index = missingPaths.length - 1; index >= 0; index -= 1) {
     const path = missingPaths[index] as string;
-    if (path !== '/' || options.includeRoot) {
+    if (!isRootPath(path) || options.includeRoot) {
       chain.push(path);
     }
 

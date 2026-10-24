@@ -1,4 +1,5 @@
 import { fileNodeCollator } from '@brainstrike/utils/collator';
+import { isPathSeparatorAt, isWindowsPath } from '@brainstrike/utils/path-ancestors';
 import type { DirectoryLoadState } from './types';
 
 /**
@@ -24,19 +25,22 @@ export interface TreeNode {
   type: 'file' | 'directory' | 'loadMore' | 'truncated';
 }
 
-const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
+const SLASH_CODE = '/'.charCodeAt(0);
+const BACKSLASH_CODE = '\\'.charCodeAt(0);
 
 /**
  * Returns true only when targetPath is nested under ancestorPath on a path boundary.
  *
  * Invariant: shared prefixes like `/src/com` and `/src/components` are not treated
- * as ancestor/descendant matches. Keep the cheap guards ahead of `startsWith()` to
- * avoid extra work in the tree traversal hot path.
+ * as ancestor/descendant matches. The boundary is a separator by the path's own
+ * grammar, so a Windows tree's `\` counts (see `isPathSeparatorAt`). Keep the
+ * cheap guards ahead of `startsWith()` to avoid extra work in the tree traversal
+ * hot path.
  */
 export function isDescendantPath(targetPath: string, ancestorPath: string): boolean {
   return (
     targetPath.length > ancestorPath.length &&
-    targetPath.charCodeAt(ancestorPath.length) === PATH_SEPARATOR_CODE &&
+    isPathSeparatorAt(targetPath, ancestorPath.length) &&
     targetPath.startsWith(ancestorPath)
   );
 }
@@ -344,10 +348,12 @@ export function resetDirectoryNode<T extends TreeNode>(node: T): T {
  * ```
  */
 export function getPathDepth(path: string): number {
+  const windows = isWindowsPath(path);
   let count = 0;
   let inSegment = false;
   for (let i = 0; i < path.length; i++) {
-    if (path.charCodeAt(i) === PATH_SEPARATOR_CODE) {
+    const code = path.charCodeAt(i);
+    if (code === SLASH_CODE || (windows && code === BACKSLASH_CODE)) {
       inSegment = false;
     } else if (!inSegment) {
       count++;

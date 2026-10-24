@@ -106,4 +106,40 @@ describe('BFSEngine expanded-path index', () => {
 
     expect(treeOperationCounters.isDescendantPathCalls).toBeGreaterThan(0);
   });
+
+  it.each([
+    { name: 'POSIX', root: '/root', separator: '/' },
+    { name: 'Windows', root: 'C:\\root', separator: '\\' },
+  ])(
+    'retires a nested expanded folder its reloaded parent dropped ($name paths)',
+    ({ root, separator }) => {
+      const target = `${root}${separator}target`;
+      const child = `${target}${separator}child`;
+      engine.setTree(
+        [
+          createDirectoryNode({
+            children: [
+              createDirectoryNode({
+                children: [createDirectoryNode({ depth: 2, name: 'child', path: child })],
+                name: 'target',
+                path: target,
+              }),
+            ],
+            depth: 0,
+            name: 'root',
+            path: root,
+          }),
+        ],
+        'root'
+      );
+      messages = [];
+
+      engine.handleLoadResult(target, []);
+
+      const removed = messages.flatMap((message) =>
+        message.type === 'expandedPathsDelta' ? message.payload.removed : []
+      );
+      expect(removed).toEqual([child]);
+    }
+  );
 });
