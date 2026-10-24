@@ -27,10 +27,9 @@ export async function prepareOrdinaryDevApp(application: string): Promise<string
   await cp(path.join(desktop, 'resources'), path.join(application, 'resources'), {
     recursive: true,
   });
-  const configuration: Record<
-    'MAIN_PROCESS_BUILD_OPTIONS' | 'AGENT_HOST_PLATFORM_BUILD_OPTIONS',
-    BuildOptions
-  > = await import(pathToFileURL(path.join(desktop, 'scripts/build-main-config.mjs')).href);
+  const configuration: Record<'NODE_PROCESS_BUILD_OPTIONS', BuildOptions> = await import(
+    pathToFileURL(path.join(desktop, 'scripts/build-main-config.mjs')).href
+  );
   const credentialModule = path.join(desktop, 'src/desktop-credential-selection.ts');
   const matched = new Set<string>();
   const credentials: Plugin = {
@@ -56,18 +55,16 @@ export async function prepareOrdinaryDevApp(application: string): Promise<string
       );
     },
   };
+  // Every Node process entry is one split build, so Main and the processes it starts share
+  // the substituted module, as they share the real one in the app's own dist/.
   await build({
-    ...configuration.MAIN_PROCESS_BUILD_OPTIONS,
+    ...configuration.NODE_PROCESS_BUILD_OPTIONS,
     outdir: path.join(application, 'dist'),
-    plugins: [...(configuration.MAIN_PROCESS_BUILD_OPTIONS.plugins ?? []), credentials],
+    plugins: [...(configuration.NODE_PROCESS_BUILD_OPTIONS.plugins ?? []), credentials],
   });
   if (matched.size !== 1) {
     throw new Error('Ordinary dev proof did not substitute the credential owner');
   }
-  await build({
-    ...configuration.AGENT_HOST_PLATFORM_BUILD_OPTIONS,
-    outdir: path.join(application, 'dist'),
-  });
   return application;
 }
 
