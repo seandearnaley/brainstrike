@@ -228,7 +228,12 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
         await sendControl('close');
       }
       const code = await runWithTimeout(() => exited, {
-        onTimeout: () => new Error('Electron did not close'),
+        // The fixture reports `closed` before app.exit: its presence says whether the
+        // lease's close or Electron's own exit is the part that did not finish.
+        onTimeout: () =>
+          new Error(
+            `Electron did not close; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`
+          ),
         timeoutMs: 5000,
       });
       activeApps.delete(app);

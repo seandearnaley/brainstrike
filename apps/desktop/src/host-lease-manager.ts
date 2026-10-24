@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import { isPeerReset } from '@brainstrike/agent-host/boundary-wire';
 import { attachAgentHost, attachStartedAgentHost } from '@brainstrike/agent-host/client';
@@ -139,6 +140,8 @@ interface OwnedChild {
   readonly exited: Promise<number>;
   readonly exitListener: (code: number) => void;
   readonly handle: HostLeaseUtilityProcess;
+  /** The OS identity its trusted ready record proved: what joining its real exit waits on. */
+  identity?: { readonly pid: number; readonly start: string };
   /** This owner escalated its close to `kill()`: its exit code is the kill's, not a failure. */
   killed: boolean;
   /** It exited before this owner closed it. */
@@ -233,7 +236,24 @@ function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
   if (record.pid !== pid || record.start !== start) {
     throw new Error(`Host utility pid ${pid} reported ready with another process's record`);
   }
+  child.identity = { pid, start };
   return record;
+}
+/** How often the exit join re-reads the utility's OS identity, as host-native-children does. */
+const PROCESS_EXIT_JOIN_POLL_MS = 25;
+/**
+ * Electron emits a utility's `exit` as soon as its Node service reports `process.exit()`
+ * (the pipe's "process_exit_termination" reason), before Node's teardown and the OS exit
+ * have run: on a loaded Windows machine the process is measurably still running then.
+ * Main never holds the utility's process handle, so the owner joins its real exit by the
+ * identity its ready record proved (a POSIX zombie, or a Windows process object whose
+ * handle Electron still holds, has no start time).
+ */
+async function joinProcessExit(child: OwnedChild): Promise<void> {
+  const identity = child.identity;
+  while (identity && processStartTime(identity.pid) === identity.start) {
+    await delay(PROCESS_EXIT_JOIN_POLL_MS);
+  }
 }
 interface CloseLadder {
   readonly cooperativeMs: number;
@@ -268,9 +288,10 @@ async function escalateUnlessExited(
     logger.error('Could not kill the owned agent host; still waiting for it to exit', { pid });
   }
 }
-/** The child's exit as Main observes it: one shared promise per child. */
+/** The child's exit as Main observes it, joined at the OS: one shared promise per child. */
 function observedExit(child: OwnedChild, ladder: CloseLadder): Promise<number> {
   child.observedExit ??= child.exited.then(async (code) => {
+    await joinProcessExit(child);
     // E2E seam: Main observes the exit this much later, still inside the ladder.
     await ladder.delays?.delay('child-exit');
     return code;
