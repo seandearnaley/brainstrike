@@ -145,9 +145,9 @@ jobs:
             core.notice(`PR #${pullNumber} head ${runHead} remained quiet for 120 seconds; releasing the full test graph.`);
             return 'true';
 
-  # Unit selection needs only a checkout and an install, so it runs beside
-  # Static rather than inside it: the shards start minutes earlier instead of
-  # waiting for lint and type-check, which gate nothing they read.
+  # Unit selection needs only a checkout and the turbo CLI, so it runs beside
+  # Static rather than inside it and skips the workspace install: the shards
+  # start minutes earlier instead of waiting for lint, type-check or pnpm.
   unit-plan:
     name: Unit plan
     outputs:
@@ -171,10 +171,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          turbo-cache: 'true'
+          node-version-file: .nvmrc
+
+      # A dry run reads git, the lockfile and package manifests, never
+      # node_modules, so only the CLI at the root package.json's exact pin is
+      # installed, outside the workspace.
+      - name: Install the pinned turbo CLI
+        id: turbo
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').devDependencies.turbo")"
+          npm install --prefix "$RUNNER_TEMP/turbo" --no-save --no-package-lock --no-audit --no-fund "turbo@${version}"
+          echo "entry=$RUNNER_TEMP/turbo/node_modules/turbo/bin/turbo" >> "$GITHUB_OUTPUT"
 
       # BST-2188: a merge-queue batch is a branch Mergify builds on main's tip,
       # one merge per queued PR on top, and pushes. With one batch under test
@@ -190,8 +201,8 @@ jobs:
           echo "sha=$base" >> "$GITHUB_OUTPUT"
 
       # Preview exactly the Unit task/filter selection before allocating any
-      # shard runner. Reuse Static's installation; no additional runner or
-      # package/command registry. Nightly and manual runs retain every row.
+      # shard runner. No additional runner or package/command registry.
+      # Nightly and manual runs retain every row.
       - name: Select affected Unit shards
         id: unit-shards
         env:
@@ -262,6 +273,7 @@ jobs:
           COVERAGE: "false"
           TEST_TIMEOUT_MULTIPLIER: "2"
           TURBO_TEST_MODE: unit
+          TURBO_ENTRY: ${{ steps.turbo.outputs.entry }}
         run: node scripts/select-unit-shards.mjs
 
 
@@ -621,17 +633,6 @@ jobs:
           TAILWIND_DEBUG: '1'
         run: pnpm turbo run build --summarize --log-order=grouped --continue=dependencies-successful
 
-      - name: Upload build artifacts
-        if: github.event_name != 'workflow_dispatch' || inputs.merge-queue
-        uses: actions/upload-artifact@v7
-        with:
-          name: build-artifacts
-          path: |
-            apps/desktop/dist/
-            packages/*/dist/
-          retention-days: 1
-          if-no-files-found: error
-
   native-electron:
     name: Native Electron Package
     if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue
@@ -889,7 +890,6 @@ jobs:
       matrix:
         shard: ['1/2', '2/2']
     env:
-      NODE_ENV: test
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
@@ -906,11 +906,12 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
+      # Build has just written every build output to the remote Turbo cache, so
+      # the same command replays it here instead of downloading an artifact.
+      # The job's env must hash like Build's: NODE_ENV is a desktop build input,
+      # so it is set on the test step only.
+      - name: Restore build outputs from the Turbo cache
+        run: pnpm turbo run build --log-order=grouped
 
       # Desktop E2E drives the app through Playwright's Electron API
       # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
@@ -959,6 +960,8 @@ jobs:
       # on the ubuntu-latest runner.
       - name: Run desktop smoke
         working-directory: apps/desktop
+        env:
+          NODE_ENV: test
         run: dbus-run-session -- pnpm run test:e2e:lane:smoke --shard=${{ matrix.shard }}
 
       - name: Upload desktop smoke traces
@@ -996,7 +999,6 @@ jobs:
       matrix:
         shard: ['1/2', '2/2']
     env:
-      NODE_ENV: test
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
@@ -1013,11 +1015,8 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-          path: .
+      - name: Restore build outputs from the Turbo cache
+        run: pnpm turbo run build --log-order=grouped
 
       - name: Drop unused apt sources
         uses: ./.github/actions/apt-drop-unused-sources
@@ -1043,6 +1042,8 @@ jobs:
 
       - name: Run desktop delegated smoke
         working-directory: apps/desktop
+        env:
+          NODE_ENV: test
         run: dbus-run-session -- pnpm run test:e2e:lane:smoke-delegated --shard=${{ matrix.shard }}
 
       - name: Upload desktop delegated smoke traces
