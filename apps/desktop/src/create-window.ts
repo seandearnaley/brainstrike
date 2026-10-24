@@ -273,7 +273,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       experimentalFeatures: false,
       navigateOnDragDrop: false,
       nodeIntegration: false,
-      preload: path.join(resolveDistRoot(), 'preload.js'),
+      preload: path.join(resolveDistRoot(), 'preload.cjs'),
       safeDialogs: true,
       sandbox: enableSandbox,
       webSecurity: true,

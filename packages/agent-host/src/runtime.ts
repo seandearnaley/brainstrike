@@ -1,4 +1,4 @@
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import {
   type HostRuntime,
   type HostStartOptions,
@@ -276,10 +276,11 @@ export async function startAgentHost(
           try {
             store = await StateStore.open(options.root, {
               // The writer worker imports this module itself, outside any
-              // transform: the package's published export names the built file
-              // whether the host runs from dist or from source.
-              memoryCalculatorModule: createRequire(import.meta.url).resolve(
-                '@brainstrike/agent-host/memory-storage-calculator'
+              // transform, so it names the emitted file in the package's dist
+              // whether the host runs built or from source (as host-state-index
+              // names its worker). A bundle that runs this host emits it there.
+              memoryCalculatorModule: fileURLToPath(
+                new URL('../dist/adapters/memory-storage-calculator.js', import.meta.url)
               ),
               // ADR-0017: the native processes this host starts inherit its Root.
               shareWithNativeChildren: true,

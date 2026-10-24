@@ -12,6 +12,7 @@ import { StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { createHostRunHooks, trustedHookRoots } from '../../src/hooks/host-run-hooks.js';
 import { writeStdoutHook } from '../fixtures/native-hook-command.js';
+import { windowsCommandEntry } from '../fixtures/windows-command-entry.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -48,6 +49,7 @@ test('a project hook runs only at the hash the host trusted its root at', async 
         maxHookTimeoutMs: 30_000,
         roots: await trustedHookRoots(store, [{ path: workspace, rootId: 'root-a' }]),
         sessionId: 'thread-1',
+        windowsCommandEntry,
       });
     const read = { input: { path: 'notes.txt' }, toolName: 'brainstrike.readFile' };
 

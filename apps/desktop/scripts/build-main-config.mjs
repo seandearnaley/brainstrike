@@ -1,186 +1,191 @@
 /**
- * Pure config for the bundled main-process build — no esbuild import, so the
+ * Pure config for the bundled Node-side build — no esbuild import, so the
  * unit test (src/__tests__/build-main-config.test.ts) can pin the contract
  * without loading esbuild inside the jsdom test environment.
  *
- * Output layout is a runtime contract:
- * - dist/main.js            small package.json "main" bootstrap
- * - dist/main-runtime.js    full Main, loaded after utility fork
- * - dist/desktop-*.js       shared bootstrap/profile process owners
- * - dist/lifecycle-delay-seam.js  Main's one E2E delay seam, shared by every Main bundle
- * - dist/preload.js         visible BrowserWindow preload
- * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
- * - dist/host-lease-entry.js  shared root-discovery utility process
- * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
- * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
- * - dist/windows-command-entry.js  self-contained Windows command wrapper
+ * Desktop compiles every workspace package it runs from source
+ * (workspace-source-bundling.mjs): `@brainstrike/*` is bundled, and only
+ * third-party packages, `electron` and the two native add-ons stay runtime
+ * imports, resolved from this app's own node_modules. Desktop loads no
+ * workspace package's `dist`.
  *
- * This single-file-per-entry-point (`bundle: true`) output is why resolving
- * a sibling output file from the running bundled module's own on-disk path
- * is safe: the file that's actually running always sits directly in
- * `dist/`, regardless of how Electron was launched. That's load-bearing
- * (BST-1459 — `app.getAppPath()` returns launch-mode-dependent values and
- * cannot substitute for this) at every call site consolidated into
- * `apps/desktop/src/bundled-sibling-path.ts` (see its docblock for why it
- * uses `__filename`, not `module.filename` — empty under Vitest's module
- * transform — or `import.meta.filename` — empty in this esbuild `cjs`
- * output), among them:
- * - `resolveMainWatchdogWorkerPath` (diagnostics/main-watchdog-path.ts)
- * - `resolveMainLogTransportPath` (diagnostics/main-log-transport-path.ts)
- * - `resolveDesktopPythonRuntimeResourcesDir` (python-runtime/resources-dir.ts) —
- *   takes `path.dirname()` TWICE (dist/ → its parent apps/desktop/) to
- *   reach `resources/python-runtime`, a sibling of `dist/` rather than a
- *   sibling of `main.js` itself, and additionally requires that immediate
- *   parent directory to be literally NAMED `dist` — an identity check on
- *   that one path segment, not a depth check (e.g. `out/dist/main.js`
- *   still resolves correctly; only the parent's basename is compared, not
- *   how many levels it sits below the app root). The other two sites need
- *   no name assumption at all. This one enforces its identity assumption
- *   at runtime — it throws if that parent directory isn't named `dist`,
- *   rather than silently pointing at the wrong directory if a future
- *   change renames or restructures the bundled output.
+ * Output layout is a runtime contract. Everything sits directly in `dist/`:
+ * - dist/main.js            package.json "main" (ESM; desktop is `type: module`)
+ * - dist/*-entry.js         utility-process entries Main forks by sibling path;
+ *   the order-sensitive ones are launchers (`PROCESS_LAUNCHERS`)
+ * - dist/<chunk>-<hash>.js  modules shared by those entries. One process loads
+ *   one instance of each module, however many entries it loads (Main loads its
+ *   bootstrap and runtime; the agent host loads its launcher and platform).
+ * - dist/<package entry>.js  worker and module entries the bundled packages
+ *   name by path (`PACKAGE_RUNTIME_ENTRY_POINTS`)
+ * - dist/writer-worker.mjs  the state-store writer worker, self-contained
+ * - dist/main-log-transport.js, main-watchdog-worker.js  self-contained ESM,
+ *   unpacked beside app.asar, so they cannot share chunks inside it
+ * - dist/preload.cjs, hidden-preload.cjs  sandboxed preloads (CommonJS)
+ * - dist/windows-command-entry.cjs  self-contained Windows command wrapper
+ *
+ * Resolving a sibling output from the running module's own path is therefore
+ * safe: the running file always sits directly in `dist/`, however Electron was
+ * launched (BST-1459 — `app.getAppPath()` is launch-mode-dependent). See
+ * `apps/desktop/src/bundled-sibling-path.ts` and
+ * `resolveDesktopPythonRuntimeResourcesDir` (python-runtime/resources-dir.ts),
+ * which additionally requires that parent directory to be named `dist`.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { workspaceSourceBundling } from './workspace-source-bundling.mjs';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const packagesRoot = path.resolve(appRoot, '../../packages');
 
-export const MAIN_PROCESS_ENTRY_POINTS = {
-  'agent-egress-entry': 'src/agent-egress-entry.ts',
-  'agent-host-entry': 'src/agent-host-entry.ts',
-  'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
-  'desktop-database-location': 'src/desktop-database-location.ts',
-  'desktop-env': 'src/desktop-env.ts',
-  'desktop-shutdown-state': 'src/desktop-shutdown-state.ts',
-  'hidden-preload': 'src/hidden-preload.ts',
-  'host-lease-entry': 'src/host-lease-entry.ts',
-  'indexer-host-entry': 'src/indexer-host-entry.ts',
-  'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
-  main: 'src/main-bootstrap.ts',
-  'main-log-transport': 'src/diagnostics/main-log-transport.ts',
-  'main-runtime': 'src/main.ts',
-  'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
-  preload: 'src/preload.ts',
-  'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
+/**
+ * Workspace source may call `require` (through `createRequire` or a dependency's
+ * CommonJS interop); give every ESM output a real one.
+ */
+const ESM_REQUIRE_BANNER = {
+  js: "import { createRequire as __bundleCreateRequire } from 'node:module'; const require = __bundleCreateRequire(import.meta.url);",
 };
 
-/** Each existing process-wide owner is emitted once, shared by bootstrap and Main. */
-const sharedMainModules = new Map(
-  [
-    ['main', 'main-runtime'],
-    ['desktop-bootstrap-runtime', 'desktop-bootstrap-runtime'],
-    ['desktop-database-location', 'desktop-database-location'],
-    ['desktop-env', 'desktop-env'],
-    ['desktop-shutdown-state', 'desktop-shutdown-state'],
-    ['lifecycle-delay-seam', 'lifecycle-delay-seam'],
-  ].map(([source, output]) => [path.join(appRoot, 'src', `${source}.ts`), output])
-);
-
-/** @type {import('esbuild').Plugin} */
-const sharedMainOwners = {
-  name: 'shared-main-owners',
-  setup(build) {
-    build.onResolve({ filter: /^\./ }, (args) => {
-      const source = path.resolve(args.resolveDir, args.path).replace(/\.js$/, '');
-      const output = sharedMainModules.get(`${source}.ts`);
-      if (!output) {
-        return;
-      }
-      return { external: true, path: `./${output}.js` };
-    });
-  },
-};
-
-/** @type {import('esbuild').BuildOptions} */
-export const MAIN_PROCESS_BUILD_OPTIONS = {
+const shared = {
   absWorkingDir: appRoot,
-  // Narrow exceptions to packages:'external' (aliases are applied before
-  // external classification):
-  // - @brainstrike/assistant-data is ESM-only. Main inlines the canonical
-  //   history-mapper and memory-resource subpaths from source rather than
-  //   requiring an export Node cannot execute from this CJS bundle.
-  // - @brainstrike/workspace-search/core is a browser ESM barrel with
-  //   extensionless relative imports. Inline this exact public subpath for
-  //   the native assistant consumer; retain the shared fusion implementation.
-  alias: {
-    '@brainstrike/assistant-data/assistant-memory-repository': path.resolve(
-      appRoot,
-      '../../packages/assistant-data/src/assistant-memory-repository.ts'
-    ),
-    // The host platform entry acquires memory vectors for this resource (BST-1928).
-    '@brainstrike/assistant-data/assistant-memory-resource': path.resolve(
-      appRoot,
-      '../../packages/assistant-data/src/assistant-memory-resource.ts'
-    ),
-    // Shared request parsing is pure and must be bundled into the sandbox preload.
-    '@brainstrike/types/catalog-args': path.resolve(
-      appRoot,
-      '../../packages/types/src/catalog-args/index.ts'
-    ),
-    '@brainstrike/workspace-search/core': path.resolve(
-      appRoot,
-      '../../packages/workspace-search/src/core/index.ts'
-    ),
-  },
   bundle: true,
-  entryPoints: MAIN_PROCESS_ENTRY_POINTS,
-  format: 'cjs',
   logLevel: 'info',
   minify: false,
-  outbase: path.join(appRoot, 'src'),
   outdir: path.join(appRoot, 'dist'),
-  // Bare imports (electron, node-pty, @brainstrike/* dist packages, every
-  // node_modules dep) stay external requires: bundling them would change
-  // runtime resolution (native modules, agent-client-loader's require.resolve
-  // probing) and duplicate prebuilt workspace bundles. Only relative app code
-  // is bundled.
-  packages: 'external',
   platform: 'node',
-  plugins: [sharedMainOwners],
   sourcemap: false,
   // Electron 43 ships Node 24.
   target: 'node24',
   // Do NOT let esbuild pick up apps/desktop/tsconfig.json: it configures the
-  // renderer's type-check, not this Node bundle. Bare imports stay external and
-  // resolve at runtime exactly like the previous tsc output.
+  // renderer's type-check, not this Node bundle.
   tsconfigRaw: '{}',
 };
 
 /**
- * The platform shares the Node kernel's ESM dependencies. Emitting CJS here
- * loads a second agent/Mastra runtime through their conditional exports.
- * Its utility launcher stays CJS so compile caching precedes all host imports.
- * Main and both sandboxed preloads retain their existing CJS contract.
+ * Worker and module entries the bundled packages name by path, emitted where
+ * that path resolves from a chunk in dist/. Each name is unique in dist/.
+ * - agent-host's keyring worker and the indexer's writer pool name a sibling:
+ *   `./keyring-native-entry.js`, `./writer-worker.js`.
+ * - agent-host names its emitted modules in its package `dist/` from a module
+ *   directly in src/ or dist/ (`../dist/<file>`, BST-1977). From a chunk in
+ *   this app's dist/, that is this dist/.
+ */
+export const PACKAGE_RUNTIME_ENTRY_POINTS = {
+  'adapters/memory-storage-calculator': path.join(
+    packagesRoot,
+    'agent-host/src/adapters/memory-storage-calculator.ts'
+  ),
+  'host-state-index-worker': path.join(packagesRoot, 'agent-host/src/host-state-index-worker.ts'),
+  'keyring-native-entry': path.join(packagesRoot, 'agent-host/src/adapters/keyring-native-entry.ts'),
+  'state-projection': path.join(packagesRoot, 'agent-host/src/state-projection.ts'),
+  'writer-worker': path.join(packagesRoot, 'indexer/src/writer-worker.ts'),
+};
+
+/** Entries a process loads, and the package entries those modules name. */
+export const NODE_PROCESS_ENTRY_POINTS = {
+  'agent-egress-entry': 'src/agent-egress-entry.ts',
+  'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
+  'agent-host-process': 'src/agent-host-entry.ts',
+  // The app-close integration proof loads it by path before Main.
+  'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
+  'desktop-env': 'src/desktop-env.ts',
+  'host-lease-process': 'src/host-lease-entry.ts',
+  'indexer-host-process': 'src/indexer-host-entry.ts',
+  'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
+  'main-process': 'src/main-bootstrap.ts',
+  'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
+  ...PACKAGE_RUNTIME_ENTRY_POINTS,
+};
+
+const DEFAULT_OWNER = '@brainstrike/secure-fs-native/default-owner';
+
+/**
+ * Code splitting hoists shared-chunk imports above an entry's own first import
+ * (https://esbuild.github.io/api/#splitting), so a process whose first module
+ * must evaluate before anything else starts from a launcher: static imports, in
+ * order. The default owner (BST-2246) evaluates before any module that can
+ * create a file; Main's environment and delay seam modules precede its
+ * bootstrap. No step moves behind a dynamic import, so Main's pre-`ready` work
+ * stays in its static graph. build-main.mjs writes each as dist/<name>.js.
+ */
+export const PROCESS_LAUNCHERS = {
+  'agent-host-entry': [DEFAULT_OWNER, './agent-host-process.js'],
+  'host-lease-entry': [DEFAULT_OWNER, './host-lease-process.js'],
+  'indexer-host-entry': [DEFAULT_OWNER, './indexer-host-process.js'],
+  main: [DEFAULT_OWNER, './desktop-env.js', './lifecycle-delay-seam.js', './main-process.js'],
+};
+
+/**
+ * One ESM build with code splitting, so every module shared by entries that run
+ * in one process exists once there. Main's pre-`ready` work runs in the static
+ * import graph of dist/main.js; only Main's runtime loads after `ready`, through
+ * the dynamic import it always used.
  * @type {import('esbuild').BuildOptions}
  */
-export const AGENT_HOST_PLATFORM_BUILD_OPTIONS = {
-  ...MAIN_PROCESS_BUILD_OPTIONS,
+export const NODE_PROCESS_BUILD_OPTIONS = {
+  ...shared,
+  banner: ESM_REQUIRE_BANNER,
+  // Chunks stay in dist/ beside the entries (see the layout contract above).
   chunkNames: '[name]-[hash]',
   define: { __dirname: 'import.meta.dirname', __filename: 'import.meta.filename' },
-  entryPoints: { 'agent-host-platform-entry': 'src/agent-host-platform-entry.ts' },
+  entryPoints: NODE_PROCESS_ENTRY_POINTS,
   format: 'esm',
-  outExtension: { '.js': '.mjs' },
-  plugins: [],
+  plugins: [workspaceSourceBundling({ packagesRoot, thirdParty: 'external' })],
   splitting: true,
 };
 
 /**
- * dist/windows-command-entry.js, the trusted Windows command wrapper. It inlines
+ * The state-store writer worker is plain ESM (`.mjs`) that state-store names
+ * beside its own module, so its bundled entry keeps that extension.
+ * @type {import('esbuild').BuildOptions}
+ */
+export const STATE_STORE_WRITER_BUILD_OPTIONS = {
+  ...shared,
+  banner: ESM_REQUIRE_BANNER,
+  entryPoints: { 'writer-worker': path.join(packagesRoot, 'state-store/src/writer-worker.mjs') },
+  format: 'esm',
+  outExtension: { '.js': '.mjs' },
+  plugins: [workspaceSourceBundling({ packagesRoot, thirdParty: 'external' })],
+};
+
+/**
+ * Worker threads Main starts from beside app.asar: each is one self-contained file.
+ * @type {import('esbuild').BuildOptions}
+ */
+export const UNPACKED_WORKER_BUILD_OPTIONS = {
+  ...shared,
+  entryPoints: {
+    'main-log-transport': 'src/diagnostics/main-log-transport.ts',
+    'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
+  },
+  format: 'esm',
+  plugins: [workspaceSourceBundling({ packagesRoot, thirdParty: 'external' })],
+};
+
+/**
+ * The sandboxed preloads: CommonJS that requires nothing but `electron`
+ * (preload-bundle-contract.mjs).
+ * @type {import('esbuild').BuildOptions}
+ */
+export const PRELOAD_BUILD_OPTIONS = {
+  ...shared,
+  entryPoints: { 'hidden-preload': 'src/hidden-preload.ts', preload: 'src/preload.ts' },
+  format: 'cjs',
+  outExtension: { '.js': '.cjs' },
+  plugins: [workspaceSourceBundling({ packagesRoot, thirdParty: 'external' })],
+};
+
+/**
+ * dist/windows-command-entry.cjs, the trusted Windows command wrapper. It inlines
  * every package; only the native Job addon stays a runtime require.
  * @type {import('esbuild').BuildOptions}
  */
 export const WINDOWS_COMMAND_BUILD_OPTIONS = {
-  absWorkingDir: appRoot,
-  bundle: true,
+  ...shared,
   entryPoints: { 'windows-command-entry': 'src/windows-command-entry.ts' },
-  external: ['@brainstrike/windows-job-native'],
   format: 'cjs',
-  logLevel: 'info',
-  outdir: path.join(appRoot, 'dist'),
-  packages: 'bundle',
-  platform: 'node',
-  target: 'node24',
-  tsconfigRaw: '{}',
+  outExtension: { '.js': '.cjs' },
+  plugins: [workspaceSourceBundling({ packagesRoot, thirdParty: 'bundle' })],
 };
 
 /**
@@ -188,7 +193,9 @@ export const WINDOWS_COMMAND_BUILD_OPTIONS = {
  * inference gate scans all of them (BST-2148); nothing Node loads is emitted later.
  */
 export const NODE_BUILDS = [
-  MAIN_PROCESS_BUILD_OPTIONS,
-  AGENT_HOST_PLATFORM_BUILD_OPTIONS,
+  NODE_PROCESS_BUILD_OPTIONS,
+  STATE_STORE_WRITER_BUILD_OPTIONS,
+  UNPACKED_WORKER_BUILD_OPTIONS,
+  PRELOAD_BUILD_OPTIONS,
   WINDOWS_COMMAND_BUILD_OPTIONS,
 ];

@@ -121,7 +121,7 @@ describe('createWindow', () => {
           experimentalFeatures: false,
           navigateOnDragDrop: false,
           nodeIntegration: false,
-          preload: expect.stringContaining('preload.js'),
+          preload: expect.stringContaining('preload.cjs'),
           safeDialogs: true,
           sandbox: true,
           webSecurity: true,
