@@ -1,18 +1,16 @@
 {
   "name": "@brainstrike/mcp-test-lab",
-  "description": "Deterministic MCP protocol fixtures, faults, and verification evidence for Brainstrike tests",
+  "description": "Deterministic MCP protocol fixtures for Brainstrike tests",
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/mcp-tasks-extension": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/node": "catalog:",
     "@modelcontextprotocol/server": "catalog:",
-    "entities": "8.1.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@modelcontextprotocol/conformance": "0.2.0-alpha.12",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -26,21 +24,9 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./evidence": {
-      "types": "./dist/evidence.d.ts",
-      "default": "./dist/evidence.js"
-    },
-    "./faults": {
-      "types": "./dist/faults.d.ts",
-      "default": "./dist/faults.js"
-    },
     "./lab": {
       "types": "./dist/lab.d.ts",
       "default": "./dist/lab.js"
-    },
-    "./runner": {
-      "types": "./dist/runner.d.ts",
-      "default": "./dist/runner.js"
     },
     "./scenario": {
       "types": "./dist/scenario.d.ts",
@@ -58,8 +44,7 @@
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
-    "verify": "pnpm --filter @brainstrike/mcp-test-lab... build && node dist/runner-cli.js"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "sideEffects": false,
   "type": "module",

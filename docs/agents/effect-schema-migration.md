@@ -63,7 +63,7 @@ tabs/newlines, protocol restrictions and credential refusal.
 
 This census counts import files, not schemas. The E05 scope froze 46 owner/consumer
 files at `9e733d679`: 44 declaration/mixed files and two type consumers. Their
-receiving/composition closure moved together. The remaining 21 production imports
+receiving/composition closure moved together. The remaining 20 production imports
 have these owners:
 
 | Category | Files | Reason |
@@ -71,7 +71,7 @@ have these owners:
 | Vendor date-time format patterns | 8 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,prompt-library,view-filter-preset,worktree-forge}-store` |
 | SDK schema/type adapters | 5 | `assistant-contract/{sdk-schema,mcp-host}` invokes/infers actual SDK validation; `mcp-tasks-extension/schema` composes SDK sampling/roots/elicitation validators with JSON extension checks; `agent/providers/provider-tool-schema` adapts genuine third-party Zod inputs; `agent-host/provider-schema-selection` selects that vendor branch |
 | Offline retrieval qualification | 6 | desktop `qualification/retrieval/{arms,bootstrap-margin,evidence,native-grep,produce-hidden-host-vectors,produce-product-path-vectors}` owns separate evaluation envelopes |
-| Protocol-lab reference fixtures | 2 | `mcp-test-lab/{reference-server,reference-runner}` uses the SDK/reference schema interface |
+| Protocol-lab reference fixture | 1 | `mcp-test-lab/reference-server` uses the SDK/reference schema interface |
 
 The source census includes TS/JS module imports and excludes generated output and
 tests. Two additional JS servers (`agent/test-fixtures/mcp-stdio-handshake-exit-server.mjs`

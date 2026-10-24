@@ -95,8 +95,6 @@
     "src/host-lease-entry.ts",
     "src/host-lease-manager.ts",
     "src/diagnostics/main-watchdog-worker.ts",
-    "src/official-conformance-client-entry.ts",
-    "src/official-conformance-client-process.ts",
     "src/ipc-handlers.ts",
     "src/ipc-secrets.ts",
     "src/ipc-agent.ts",
