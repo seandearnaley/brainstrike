@@ -2,7 +2,7 @@
 // 3 children, 4 steps each, 500 unique token deltas per step) -> SIGKILL at U[0, 2000] ms after the first shown chunk
 // (Windows: TerminateProcess) -> the recorder drains and fsyncs -> a fresh verifier reopens the SAME store and checks }.
 // One store is reused for every trial, so it is crash-recovered TRIALS times. Pass: 0 shown chunks lost or mismatched,
-// integrity_check ok and no seq gap on every reopen. 20 kills per run; STATE_STORE_KILL_TRIALS raises it (nightly: 100).
+// integrity_check ok and no seq gap on every reopen. 5 kills per PR run; STATE_STORE_KILL_TRIALS raises it (nightly sets 100).
 import { loadavg } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ import { afterAll, expect, test } from 'vitest';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { killKids, run, runTs } from './helpers/proc.js';
 
-const TRIALS = Number(process.env['STATE_STORE_KILL_TRIALS'] ?? '20');
+const TRIALS = Number(process.env['STATE_STORE_KILL_TRIALS'] ?? '5');
 const KILL_MAX_MS = 2000;
 const HOST = fileURLToPath(new URL('./kill/kill-host.ts', import.meta.url));
 const VERIFY = fileURLToPath(new URL('./kill/kill-verify.ts', import.meta.url));

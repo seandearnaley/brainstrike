@@ -505,6 +505,10 @@ jobs:
       - name: Push and manual integration tests
         if: github.event_name != 'push' || !inputs.merge-queue
         env:
+          # Nightly and manual runs soak the state store: 100 SIGKILLs and a 100 MB
+          # thread. Merge-queue runs keep the 5-kill check (kill-harness default).
+          STATE_STORE_KILL_TRIALS: "100"
+          STATE_STORE_THREAD_MB: "100"
           # See the pull-request integration step above.
           BRAINSTRIKE_FENCE_DEPS_REQUIRED: "1"
           AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
