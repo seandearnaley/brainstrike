@@ -165,8 +165,6 @@ if (typeof window !== 'undefined') {
   });
 }
 
-process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '1';
-
 const mockProviderDefinitions = [
   {
     capabilities: { embeddings: true, llm: true, streaming: true },

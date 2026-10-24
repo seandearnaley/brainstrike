@@ -131,9 +131,8 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
   outdir: path.join(appRoot, 'dist'),
   // Bare imports (electron, node-pty, @brainstrike/* dist packages, every
   // node_modules dep) stay external requires: bundling them would change
-  // runtime resolution (native modules, agent-client-loader's require.resolve
-  // probing) and duplicate prebuilt workspace bundles. Only relative app code
-  // is bundled.
+  // runtime resolution (native modules) and duplicate prebuilt workspace
+  // bundles. Only relative app code is bundled.
   packages: 'external',
   platform: 'node',
   plugins: [sharedMainOwners],

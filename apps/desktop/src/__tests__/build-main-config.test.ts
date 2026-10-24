@@ -169,8 +169,8 @@ describe('main-process bundle config', () => {
     expect(MAIN_PROCESS_BUILD_OPTIONS.platform).toBe('node');
     // Bare imports (electron, node-pty, @brainstrike/* dist packages, every
     // node_modules dep) must stay external requires — bundling them would
-    // change runtime resolution (native modules, agent-client-loader's
-    // require.resolve probing) and duplicate prebuilt workspace bundles.
+    // change runtime resolution (native modules) and duplicate prebuilt
+    // workspace bundles.
     expect(MAIN_PROCESS_BUILD_OPTIONS.packages).toBe('external');
     // Flat output directory keeps the fork-entry sibling lookups valid.
     expect(MAIN_PROCESS_BUILD_OPTIONS.outdir?.endsWith('dist')).toBe(true);
