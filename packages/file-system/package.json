@@ -21,76 +21,76 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
     "./electron": {
-      "types": "./dist/electron.d.ts",
+      "types": "./src/electron.ts",
       "default": "./dist/electron.js"
     },
     "./file-node-handles": {
-      "types": "./dist/file-node-handles.d.ts",
+      "types": "./src/file-node-handles.ts",
       "default": "./dist/file-node-handles.js"
     },
     "./path-validation": {
-      "types": "./dist/path-validation.d.ts",
+      "types": "./src/path-validation.ts",
       "default": "./dist/path-validation.js"
     },
     "./testing/watcher-liveness": {
-      "types": "./dist/testing/watcher-liveness.d.ts",
+      "types": "./src/testing/watcher-liveness.ts",
       "default": "./dist/testing/watcher-liveness.js"
     },
     "./testing/parcel-producer": {
-      "types": "./dist/testing/parcel-producer.d.ts",
+      "types": "./src/testing/parcel-producer.ts",
       "default": "./dist/testing/parcel-producer.js"
     },
     "./directory-tree": {
-      "types": "./dist/directory-tree.d.ts",
+      "types": "./src/directory-tree.ts",
       "default": "./dist/directory-tree.js"
     },
     "./workspace-root-nodes": {
-      "types": "./dist/workspace-root-nodes.d.ts",
+      "types": "./src/workspace-root-nodes.ts",
       "default": "./dist/workspace-root-nodes.js"
     },
     "./config": {
-      "types": "./dist/config.d.ts",
+      "types": "./src/config.ts",
       "default": "./dist/config.js"
     },
     "./secure-file-read": {
-      "types": "./dist/secure-file-read.d.ts",
+      "types": "./src/secure-file-read.ts",
       "default": "./dist/secure-file-read.js"
     },
     "./workspace-scan": {
-      "types": "./dist/workspace-scan.d.ts",
+      "types": "./src/workspace-scan.ts",
       "default": "./dist/workspace-scan.js"
     },
     "./workspace-scan-paths": {
-      "types": "./dist/workspace-scan-paths.d.ts",
+      "types": "./src/workspace-scan-paths.ts",
       "default": "./dist/workspace-scan-paths.js"
     },
     "./workspace-source-content": {
-      "types": "./dist/workspace-source-content.d.ts",
+      "types": "./src/workspace-source-content.ts",
       "default": "./dist/workspace-source-content.js"
     },
     "./workspace-scan-reconciliation": {
-      "types": "./dist/workspace-scan-reconciliation.d.ts",
+      "types": "./src/workspace-scan-reconciliation.ts",
       "default": "./dist/workspace-scan-reconciliation.js"
     },
     "./workspace-indexing-coordinator": {
-      "types": "./dist/workspace-indexing-coordinator.d.ts",
+      "types": "./src/workspace-indexing-coordinator.ts",
       "default": "./dist/workspace-indexing-coordinator.js"
     },
     "./native-watch": {
-      "types": "./dist/native-watch.d.ts",
+      "types": "./src/native-watch.ts",
       "default": "./dist/native-watch.js"
     }
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "scripts": {
-    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "tsc --build --watch --preserveWatchOutput",
+    "dev": "tsc --watch --preserveWatchOutput",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:packaged": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- pnpm --filter @brainstrike/desktop exec electron ../../packages/file-system/test/parcel-packaged-smoke.cjs",
     "test:watch": "vitest",
@@ -98,5 +98,5 @@
     "validate:parcel-binding": "node scripts/validate-parcel-binding.mjs"
   },
   "type": "module",
-  "types": "./dist/index.d.ts"
+  "types": "./src/index.ts"
 }

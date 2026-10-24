@@ -1,19 +1,8 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "paths": {
-      "@brainstrike/utils/crypto": [
-        "../utils/dist/crypto.d.ts"
-      ],
-      "@brainstrike/utils/*": [
-        "../utils/dist/*.d.ts"
-      ]
-    },
     "rootDir": "src",
     "outDir": "dist",
-    "composite": true,
-    "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "declarationDir": "dist",
     "types": [
@@ -28,40 +17,5 @@
     "dist",
     "node_modules",
     "**/__tests__/**"
-  ],
-  "references": [
-    {
-      "path": "../context-actions"
-    },
-    {
-      "path": "../file-explorer"
-    },
-    {
-      "path": "../file-explorer-hooks"
-    },
-    {
-      "path": "../hooks"
-    },
-    {
-      "path": "../platform-utils"
-    },
-    {
-      "path": "../ui"
-    },
-    {
-      "path": "../app-state"
-    },
-    {
-      "path": "../tokenization"
-    },
-    {
-      "path": "../logging"
-    },
-    {
-      "path": "../utils"
-    },
-    {
-      "path": "../types"
-    }
   ]
 }

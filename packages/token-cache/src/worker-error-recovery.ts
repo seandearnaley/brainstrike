@@ -7,7 +7,7 @@
  * use-background-token-indexer.ts (BST-1127).
  */
 
-import type { WorkerLog } from './background-indexer.worker';
+import type { WorkerLog } from './background-indexer-protocol';
 
 export const TERMINAL_WORKER_ERROR_KEY = '__worker__';
 // Tunable only if future environments show different restart characteristics.

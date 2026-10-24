@@ -32,37 +32,37 @@
   },
   "exports": {
     "./mcp-content-application-port": {
-      "types": "./dist/mcp-content-application-port.d.ts",
+      "types": "./src/mcp-content-application-port.ts",
       "import": "./dist/mcp-content-application-port.mjs",
       "require": "./dist/mcp-content-application-port.js"
     },
     "./memory-model-targets": {
-      "types": "./dist/memory-model-targets.d.ts",
+      "types": "./src/memory-model-targets.ts",
       "import": "./dist/memory-model-targets.mjs",
       "require": "./dist/memory-model-targets.js"
     },
     "./node-native-text-services": {
-      "types": "./dist/node-native-text-services.d.ts",
+      "types": "./src/node-native-text-services.ts",
       "import": "./dist/node-native-text-services.mjs",
       "require": "./dist/node-native-text-services.js"
     },
     "./node-workspace-services": {
-      "types": "./dist/node-workspace-services.d.ts",
+      "types": "./src/node-workspace-services.ts",
       "import": "./dist/node-workspace-services.mjs",
       "require": "./dist/node-workspace-services.js"
     },
     "./ports": {
-      "types": "./dist/ports.d.ts",
+      "types": "./src/ports.ts",
       "import": "./dist/ports.mjs",
       "require": "./dist/ports.js"
     },
     "./provider-credential-projection": {
-      "types": "./dist/provider-credential-projection.d.ts",
+      "types": "./src/provider-credential-projection.ts",
       "import": "./dist/provider-credential-projection.mjs",
       "require": "./dist/provider-credential-projection.js"
     },
     "./secret-errors": {
-      "types": "./dist/secret-errors.d.ts",
+      "types": "./src/secret-errors.ts",
       "import": "./dist/secret-errors.mjs",
       "require": "./dist/secret-errors.js"
     }
@@ -73,9 +73,9 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "build": "node ../../scripts/rimraf.mjs dist && tsc -b . && tsup",
+    "build": "node ../../scripts/rimraf.mjs dist && tsc && tsup",
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
-    "dev": "concurrently --kill-others --names types,bundle \"tsc --build --watch --preserveWatchOutput\" \"tsup --watch\"",
+    "dev": "concurrently --kill-others --names types,bundle \"tsc --watch --preserveWatchOutput\" \"tsup --watch\"",
     "lint": "pnpm -w lint",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:watch": "vitest",
