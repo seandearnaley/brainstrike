@@ -49,6 +49,10 @@ on:
         value: ${{ jobs.unit-shard.result }}
       unit-result:
         value: ${{ jobs.unit.result }}
+      windows-shard-result:
+        value: ${{ jobs.windows-shard.result }}
+      windows-result:
+        value: ${{ jobs.windows.result }}
       build-result:
         value: ${{ jobs.build.result }}
       native-electron-result:
@@ -654,6 +658,115 @@ jobs:
             '' | *[!0-9]*) echo "::error::Missing or invalid shard count"; exit 1 ;;
           esac
           echo "unit-shard result: $SHARD_RESULT ($SHARD_COUNT selected)"
+          if [ "$SHARD_COUNT" = "0" ] && [ "$SHARD_RESULT" = "skipped" ]; then
+            echo "Turbo verified that no Unit tasks are affected."
+          elif [ "$SHARD_COUNT" = "0" ] || [ "$SHARD_RESULT" != "success" ]; then
+            exit 1
+          fi
+
+  # Windows unit and integration (owner decision 2026-10-24): the same shards
+  # and selection as Unit, on hosted Windows runners, so a Windows-only failure
+  # cannot land. Hosted runners run elevated; test processes take the user as
+  # default owner like the app's process entries (BST-2246), so private
+  # directories stay theirs. ripgrep is a host dependency (live grep), as the
+  # Linux test host installs it.
+  windows-shard:
+    name: Windows (${{ matrix.shard }})
+    if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0' && !inputs.nightly
+    needs: [admission, unit-plan]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.unit-plan.outputs.unit-matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      AGENT_TEST_SHARD: ${{ matrix.partition == 'agent' && matrix.vitest_shard || '' }}
+      AGENT_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'agent' && 'true' || 'false' }}
+      APP_SHELL_TEST_SHARD: ${{ matrix.partition == 'app-shell' && matrix.vitest_shard || '' }}
+      APP_SHELL_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'app-shell' && 'true' || 'false' }}
+      DESKTOP_TEST_SHARD: ${{ matrix.partition == 'desktop' && matrix.vitest_shard || '' }}
+      DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
+      DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
+      COVERAGE: "false"
+      TEST_TIMEOUT_MULTIPLIER: "2"
+      TURBO_TEST_MODE: unit
+    steps:
+      # See Unit's checkout: affected selection needs the batch base.
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      # node-gyp fetches Node's headers on Windows (setup-workspace), which
+      # flakes; the bounded install retry covers that download.
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+          install-attempts: '3'
+
+      - name: Provision the Electron binary
+        uses: ./.github/actions/provision-electron
+
+      - name: Install ripgrep
+        shell: pwsh
+        run: choco install ripgrep --no-progress -y
+
+      - name: Affected unit tests
+        if: inputs.merge-queue && github.event_name == 'push'
+        env:
+          TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
+        run: pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
+
+      - name: Affected integration tests
+        if: inputs.merge-queue && github.event_name == 'push'
+        env:
+          TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
+          TURBO_SCM_HEAD: ${{ github.sha }}
+        run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
+
+      - name: Unit tests
+        if: github.event_name != 'push' || !inputs.merge-queue
+        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
+
+      - name: Integration tests
+        if: github.event_name != 'push' || !inputs.merge-queue
+        run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+
+  # Fan-in over the Windows shards, like Unit over unit-shard.
+  windows:
+    name: Windows
+    if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    needs: [admission, unit-plan, windows-shard]
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    steps:
+      - name: Require successful admission
+        if: needs.admission.result != 'success'
+        run: |
+          echo "::error::Quiet-head admission failed; refusing to skip the required Windows check."
+          exit 1
+
+      - name: Check shard results
+        env:
+          PLAN_RESULT: ${{ needs.unit-plan.result }}
+          SHARD_COUNT: ${{ needs.unit-plan.outputs.unit-shard-count }}
+          SHARD_RESULT: ${{ needs.windows-shard.result }}
+        run: |
+          set -euo pipefail
+          if [ "$PLAN_RESULT" != "success" ]; then
+            echo "::error::Affected Unit selection failed; Windows cannot pass."
+            exit 1
+          fi
+          case "$SHARD_COUNT" in
+            '' | *[!0-9]*) echo "::error::Missing or invalid shard count"; exit 1 ;;
+          esac
+          echo "windows-shard result: $SHARD_RESULT ($SHARD_COUNT selected)"
           if [ "$SHARD_COUNT" = "0" ] && [ "$SHARD_RESULT" = "skipped" ]; then
             echo "Turbo verified that no Unit tasks are affected."
           elif [ "$SHARD_COUNT" = "0" ] || [ "$SHARD_RESULT" != "success" ]; then
