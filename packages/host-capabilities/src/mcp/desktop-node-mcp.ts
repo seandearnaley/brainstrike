@@ -102,16 +102,6 @@ export function createDesktopMcpDiagnostics(request: Request) {
       );
       await drain();
     },
-    async shutdown(hostCloseReport: McpHostCloseReport): Promise<void> {
-      await drain();
-      enqueue(
-        wireDecoder(McpDiagnosticEventSchema, { errors: 'all', onExcessProperty: 'error' })({
-          hostCloseReport,
-          type: 'shutdown',
-        })
-      );
-      await drain();
-    },
   };
 }
 
@@ -288,21 +278,13 @@ export async function createDesktopNodeMcpHost(
         } catch (cause) {
           failures.push(cause);
         }
+        // The close asks Main for nothing (ADR-0031): its records stop here.
+        diagnostics.dispose();
         try {
           const report = await closeServices(services);
           failures.push(...report.failures);
-          if (failures.length === 0) {
-            await diagnostics.shutdown(report);
-          }
         } catch (cause) {
           failures.push(cause);
-        }
-        try {
-          await diagnostics.drain();
-        } catch (cause) {
-          failures.push(cause);
-        } finally {
-          diagnostics.dispose();
         }
         if (failures.length > 0) {
           throw new AggregateError(failures, 'Desktop MCP host cleanup failed');

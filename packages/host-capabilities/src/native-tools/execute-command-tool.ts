@@ -20,6 +20,7 @@ import {
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
 import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store/native-children';
+import { trackChildProcessGroup } from '@brainstrike/utils/process-groups';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.ts';
@@ -513,6 +514,7 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
       reject(new Error('Failed to spawn shell process (no pid).'));
       return;
     }
+    trackChildProcessGroup(child);
     const closed = Promise.withResolvers<void>();
     const owner = {
       retire: () => {

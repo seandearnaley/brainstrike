@@ -5,6 +5,7 @@ import '@brainstrike/secure-fs-native/default-owner';
 import { enableCompileCache } from 'node:module';
 import type { OpenedAgentHost } from '@brainstrike/agent-host';
 import { configureLogger } from '@brainstrike/logging';
+import { onProcessGroup } from '@brainstrike/utils/process-groups';
 import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
 import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
 import {
@@ -17,8 +18,8 @@ import { openHostStdio } from './host-stdio';
 /**
  * The agent host as a headless program, as `codex app-server` is Codex Desktop's: it
  * runs under plain Node or Electron's Node, speaks JSON-RPC on stdin and stdout, and
- * closes when its client asks or its stdin ends. It opens the profile's root, reports `ready` once, and
- * serves each channel its client opens: Main's platform first, then each client.
+ * closes when its stdin ends, without its client. It opens the profile's root, reports `ready`
+ * once, and serves each channel its client opens: Main's platform first, then each client.
  * Every write is already committed, so a client killing it loses nothing.
  */
 async function main(): Promise<void> {
@@ -64,10 +65,7 @@ async function main(): Promise<void> {
     },
     message: (input) => {
       try {
-        if (decodeHostChildControl(input).method === 'close') {
-          close();
-          return;
-        }
+        decodeHostChildControl(input);
         if (!host) {
           throw new Error('Content clear requires a ready host');
         }
@@ -95,6 +93,10 @@ async function main(): Promise<void> {
     },
   });
   const report = (message: HostChildMessage): Promise<void> => stdio.message(message);
+  // Every command group this host starts, so its client can end any this host leaves behind.
+  onProcessGroup((group) => {
+    report({ event: 'command-group', ...group }).catch(failed);
+  });
   // stdin's end is the client gone: this host closes without it.
   void stdio.ended.then(close);
   process.once('SIGTERM', close);

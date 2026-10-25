@@ -132,6 +132,8 @@ function ownChild(handle: HostChildProcess, lost: () => void): OwnedChild {
   const completion = Promise.withResolvers<number>();
   const messages = new Set<(message: HostChildMessage) => void>();
   const failures = new Set<(cause: unknown) => void>();
+  // The POSIX command groups the host reported and has not seen end (ADR-0031).
+  const commandGroups = new Set<number>();
   const broken = (cause: unknown): void => {
     for (const failed of failures) {
       failed(cause);
@@ -149,6 +151,14 @@ function ownChild(handle: HostChildProcess, lost: () => void): OwnedChild {
         decoded = decodeHostChildMessage(input);
       } catch (cause) {
         broken(cause);
+        return;
+      }
+      if (decoded.event === 'command-group') {
+        if (decoded.state === 'started') {
+          commandGroups.add(decoded.pgid);
+        } else {
+          commandGroups.delete(decoded.pgid);
+        }
         return;
       }
       for (const received of messages) {
@@ -172,6 +182,12 @@ function ownChild(handle: HostChildProcess, lost: () => void): OwnedChild {
       return;
     }
     child.exitCode = code;
+    // However the host ended, no command group it started outlives it: a kill of the host
+    // never reaches another group, and every report it wrote has been read by now.
+    for (const pgid of commandGroups) {
+      killCommandGroup(pgid);
+    }
+    commandGroups.clear();
     completion.resolve(code);
   };
   // The host is lost once its protocol stream ends: it reports nothing and serves no channel
@@ -228,18 +244,27 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
     void child.exited.then((code) => failed(new Error(`Agent host exited before ready (${code})`)));
   });
 }
-/** Ask the child to close, kill it if it is still running after `graceMs`, and join its exit. */
+function killCommandGroup(pgid: number): void {
+  try {
+    process.kill(-pgid, 'SIGKILL');
+  } catch (cause) {
+    // A group whose every member has exited is gone; that is the outcome asked for.
+    if (!(cause instanceof Error && 'code' in cause && cause.code === 'ESRCH')) {
+      logger.error('Could not end a command group the agent host left running', { cause, pgid });
+    }
+  }
+}
+/** End the child's stdin, kill it if it is still running after `graceMs`, and join its exit. */
 function stopChild(child: OwnedChild, graceMs: number): Promise<number> {
   child.closing = true;
   child.stopping ??= (async () => {
     if (child.exitCode !== undefined) {
       return child.exitCode;
     }
-    const close: HostChildControl = { method: 'close' };
-    // A host whose pipe already broke is exiting; its exit is the answer.
-    child.stdio.message(close).catch(() => undefined);
+    // Its stdin's end asks the host to close; it needs nothing from Main to do so.
+    child.stdio.end();
     const grace = setTimeout(() => {
-      logger.warn('The agent host did not exit after close; killing it', {
+      logger.warn('The agent host did not exit after its stdin ended; killing it', {
         graceMs,
         pid: child.handle.pid,
       });

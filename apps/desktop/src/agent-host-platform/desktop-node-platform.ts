@@ -278,7 +278,7 @@ export async function createDesktopHostConfiguration(
   const diagnostics = forwardHostDiagnostics((record) =>
     connection.sendRequest(PLATFORM_DIAGNOSTICS_RECORD_METHOD, record)
   );
-  await startup.register(() => diagnostics.close());
+  await startup.register(async () => diagnostics.stop());
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
   // Its servers connect after readiness, so bearer reads wait for a pending
   // legacy import like every other credential use. Its OAuth records live in
@@ -335,24 +335,22 @@ export async function createDesktopHostConfiguration(
   return {
     attachThreadReads: (reads) => gitWorkspace.attachThreadReads(reads),
     auth: host.auth,
+    // ADR-0031: the close asks Main for nothing, so the end of stdin alone closes the host.
+    // Main closes its side of the platform when this connection closes.
     close: async () => {
-      // The MCP runtime joins while Main's platform connection is still open.
-      await mcpHost.close();
-      // The terminals, language servers, command trees and command sessions this host spawned.
-      const reaped = await Promise.allSettled([terminals.close(), disposeHostTools()]);
-      const reapFailures = reaped.flatMap((outcome) =>
+      diagnostics.stop();
+      const closed = await Promise.allSettled([
+        mcpHost.close(),
+        // The terminals, language servers, command trees and command sessions this host spawned.
+        terminals.close(),
+        disposeHostTools(),
+        gitWorkspace.close(),
+      ]);
+      const failures = closed.flatMap((outcome) =>
         outcome.status === 'rejected' ? [outcome.reason] : []
       );
-      if (reapFailures.length > 0) {
-        throw new AggregateError(reapFailures, 'Host process cleanup failed');
-      }
-      // The git cluster retires while Main can still refresh a rewound root's index.
-      await gitWorkspace.close();
-      // Accepted error records are delivered while Main's connection is open.
-      const [delivered] = await Promise.allSettled([diagnostics.close()]);
-      await request('platform/close', {});
-      if (delivered.status === 'rejected') {
-        throw delivered.reason;
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'Host process cleanup failed');
       }
     },
     confirmMainReady: async () => {

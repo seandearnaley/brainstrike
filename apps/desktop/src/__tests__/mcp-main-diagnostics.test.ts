@@ -69,7 +69,6 @@ it('emits typed MCP records and real shutdown/reset receipts through the existin
       timestamp: 123,
     };
     await h.send({ record, type: 'record' });
-    await h.send({ hostCloseReport: report, type: 'shutdown' });
     await h.send({
       hostCloseReport: report,
       snapshot: { revision: 3, servers: [] },
@@ -81,13 +80,6 @@ it('emits typed MCP records and real shutdown/reset receipts through the existin
           args: record.args,
           level: LogLevel.WARN,
           scope: 'DesktopMcpHostConnection',
-        }),
-        expect.objectContaining({
-          args: [
-            'MCP runtime shutdown cleanup completed',
-            { hostCloseReport: report, legacyClientsClosed: true },
-          ],
-          message: 'MCP runtime shutdown cleanup completed',
         }),
         expect.objectContaining({
           args: [
@@ -127,13 +119,15 @@ it.each([
     },
     type: 'record',
   },
-  { hostCloseReport: { ...report, clientsClosed: -1 }, type: 'shutdown' },
+  // A host's close sends Main nothing (ADR-0031), so a shutdown receipt is refused.
+  { hostCloseReport: report, type: 'shutdown' },
   {
     hostCloseReport: {
       ...report,
       failures: [{ category: 'transport', code: 'mcp-child-exited', message: 'not joined' }],
     },
-    type: 'shutdown',
+    snapshot: { revision: 3, servers: [] },
+    type: 'reset',
   },
   { hostCloseReport: report, snapshot: { servers: 'invalid' }, type: 'reset' },
 ])('rejects malformed/unrelated diagnostic delivery without logging success: %j', async (input) => {

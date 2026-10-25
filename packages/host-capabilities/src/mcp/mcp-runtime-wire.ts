@@ -68,10 +68,6 @@ export const McpDiagnosticEventSchema = Schema.Union(
     Schema.Struct({ record: McpDiagnosticRecordSchema, type: Schema.Literal('record') }),
     Schema.Struct({
       hostCloseReport: McpSuccessfulCloseReportSchema,
-      type: Schema.Literal('shutdown'),
-    }),
-    Schema.Struct({
-      hostCloseReport: McpSuccessfulCloseReportSchema,
       snapshot: McpResetSnapshotSchema,
       type: Schema.Literal('reset'),
     }),

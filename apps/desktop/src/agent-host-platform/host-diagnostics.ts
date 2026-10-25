@@ -35,14 +35,11 @@ function forwarded(record: LogRecord): boolean {
  * through a forwarded scope would feed them back to this tap.
  */
 export function forwardHostDiagnostics(send: (record: unknown) => Promise<unknown>): {
-  /** Stop forwarding, deliver what was accepted, and report any delivery failure. */
-  close(): Promise<void>;
+  /** Stop forwarding. A record already sent reaches Main or fails on its own. */
+  stop(): void;
 } {
   const deliveryLogger = createLogger(DELIVERY_SCOPE);
-  const failures: unknown[] = [];
-  let tail = Promise.resolve();
   const failed = (cause: unknown): void => {
-    failures.push(cause);
     deliveryLogger.error('Agent host diagnostic delivery failed', { error: cause });
   };
   const remove = addLogListener((record) => {
@@ -65,30 +62,10 @@ export function forwardHostDiagnostics(send: (record: unknown) => Promise<unknow
           )
         ),
       });
-      tail = tail
-        .then(async () => {
-          await send(wire);
-        })
-        .catch(failed);
+      send(wire).catch(failed);
     } catch (cause) {
       failed(cause);
     }
   });
-  let closing: Promise<void> | undefined;
-  return {
-    close: () => {
-      closing ??= (async () => {
-        remove();
-        let joined: Promise<void>;
-        do {
-          joined = tail;
-          await joined;
-        } while (joined !== tail);
-        if (failures.length > 0) {
-          throw new AggregateError(failures, 'Agent host diagnostic delivery failed');
-        }
-      })();
-      return closing;
-    },
-  };
+  return { stop: remove };
 }
