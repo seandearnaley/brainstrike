@@ -1,5 +1,6 @@
 import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
+import { literalFilterPattern } from '@brainstrike/utils/path-filter';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useFileFilters } from '../use-file-filters.js';
@@ -169,6 +170,42 @@ describe('useFileFilters', () => {
     expect(spy).toHaveBeenCalledTimes(1);
 
     globalThis.RegExp = OriginalRegExp;
+  });
+
+  it('keeps exactly the listed files of a Windows tree, as the "Touched in this thread" filter asks', () => {
+    // A desktop tree on Windows is keyed by native paths, and the renderer's
+    // minimatch runs without `process`, so it splits paths on `/` alone.
+    const src = 'C:\\Users\\dev\\Temp\\bs-root\\src';
+    const tree: IFileNode[] = [
+      dirNode('bs-root', 'C:\\Users\\dev\\Temp\\bs-root', [
+        dirNode('src', src, [
+          fileNode('alpha.ts', `${src}\\alpha.ts`),
+          fileNode('beta.ts', `${src}\\beta.ts`),
+          fileNode('gamma.ts', `${src}\\gamma.ts`),
+        ]),
+      ]),
+    ];
+    const includes = [`${src}\\alpha.ts`, `${src}\\beta.ts`].map(literalFilterPattern);
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, includes, []);
+
+    const names = (filtered[0]?.children?.[0]?.children ?? []).map((node) => node.name);
+    expect(names).toEqual(['alpha.ts', 'beta.ts']);
+  });
+
+  it('matches a recursive glob across the segments of a Windows path', () => {
+    const tree: IFileNode[] = [
+      dirNode('root', 'C:\\work', [
+        fileNode('a.test.ts', 'C:\\work\\__tests__\\a.test.ts'),
+        fileNode('b.ts', 'C:\\work\\src\\b.ts'),
+      ]),
+    ];
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, [], ['__tests__/**']);
+
+    expect((filtered[0]?.children ?? []).map((node) => node.name)).toEqual(['b.ts']);
   });
 
   it('should handle paths with and without leading slash', () => {
