@@ -16,11 +16,13 @@ import {
   normalizeRefreshPath,
 } from '../use-changes-live-refresh';
 
+let bridge: ChangesBridge | null = null;
+
 function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
   readonly listeners: ((event: ChangesInvalidationEvent) => void)[];
 } {
   const listeners: ((event: ChangesInvalidationEvent) => void)[] = [];
-  (window as unknown as { changes?: ChangesBridge }).changes = {
+  bridge = {
     fileDiff: vi.fn(),
     inventory: vi.fn(),
     onInvalidated,
@@ -30,7 +32,7 @@ function stubBridge(onInvalidated: ChangesBridge['onInvalidated']): {
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  bridge = null;
   useChangesLiveRefreshStore.getState().reset();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -42,8 +44,8 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     const onInvalidated = vi.fn(() => unsubscribe);
     stubBridge(onInvalidated);
 
-    const releaseA = acquireChangesLiveRefreshSubscription();
-    const releaseB = acquireChangesLiveRefreshSubscription();
+    const releaseA = acquireChangesLiveRefreshSubscription(bridge);
+    const releaseB = acquireChangesLiveRefreshSubscription(bridge);
     expect(onInvalidated).toHaveBeenCalledTimes(1);
 
     releaseA();
@@ -51,7 +53,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     releaseB();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
 
-    const releaseC = acquireChangesLiveRefreshSubscription();
+    const releaseC = acquireChangesLiveRefreshSubscription(bridge);
     expect(onInvalidated).toHaveBeenCalledTimes(2);
     releaseC();
     expect(unsubscribe).toHaveBeenCalledTimes(2);
@@ -61,8 +63,8 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     const unsubscribe = vi.fn();
     stubBridge(vi.fn(() => unsubscribe));
 
-    const releaseA = acquireChangesLiveRefreshSubscription();
-    const releaseB = acquireChangesLiveRefreshSubscription();
+    const releaseA = acquireChangesLiveRefreshSubscription(bridge);
+    const releaseB = acquireChangesLiveRefreshSubscription(bridge);
     releaseA();
     releaseA();
     // B is still mounted — a double release of A must not have unsubscribed.
@@ -79,7 +81,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       })
     );
 
-    const release = acquireChangesLiveRefreshSubscription();
+    const release = acquireChangesLiveRefreshSubscription(bridge);
     stub.listeners[0]?.({ generation: 1, gitCommonDir: '/r/.git', repositoryRoot: '/r' });
     expect(useChangesLiveRefreshStore.getState().anyInvalidationNonce).toBe(1);
     release();
@@ -89,12 +91,12 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
 
-    const releaseA = acquireChangesLiveRefreshSubscription({
+    const releaseA = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo-a',
       rootId: 'root-1',
       worktreePath: '/workspace/repo-a',
     });
-    const releaseB = acquireChangesLiveRefreshSubscription({
+    const releaseB = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo-b',
       rootId: 'root-1',
       worktreePath: '/workspace/repo-b',
@@ -148,17 +150,17 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
   it('maps filtered-boundary evidence only to intersecting repositories in the named root', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
-    const releaseA = acquireChangesLiveRefreshSubscription({
+    const releaseA = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo-a',
       rootId: 'root-1',
       worktreePath: '/workspace/repo-a',
     });
-    const releaseB = acquireChangesLiveRefreshSubscription({
+    const releaseB = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo-b',
       rootId: 'root-1',
       worktreePath: '/workspace/repo-b',
     });
-    const releaseOtherRoot = acquireChangesLiveRefreshSubscription({
+    const releaseOtherRoot = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/other/repo',
       rootId: 'root-2',
       worktreePath: '/other/repo',
@@ -201,17 +203,17 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
   it('fails open within only the named root when filtered-boundary evidence overflows', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
-    const releaseA = acquireChangesLiveRefreshSubscription({
+    const releaseA = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo-a',
       rootId: 'root-1',
       worktreePath: '/workspace/repo-a',
     });
-    const releaseB = acquireChangesLiveRefreshSubscription({
+    const releaseB = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo-b',
       rootId: 'root-1',
       worktreePath: '/workspace/repo-b',
     });
-    const releaseOtherRoot = acquireChangesLiveRefreshSubscription({
+    const releaseOtherRoot = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/other/repo',
       rootId: 'root-2',
       worktreePath: '/other/repo',
@@ -252,12 +254,12 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
   it('normalizes each changed path once when equivalent registrations share one repository scan', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
-    const releaseChangesSurface = acquireChangesLiveRefreshSubscription({
+    const releaseChangesSurface = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo',
       rootId: 'root-1',
       worktreePath: '/workspace/repo',
     });
-    const releaseGitPanel = acquireChangesLiveRefreshSubscription({
+    const releaseGitPanel = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo/',
       rootId: 'root-1',
       worktreePath: '/workspace/repo/',
@@ -300,12 +302,12 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
   it('keeps full refreshes root-scoped and honors the canonical manual all-roots broadcast', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
-    const releaseA = acquireChangesLiveRefreshSubscription({
+    const releaseA = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/repo-a',
       rootId: 'root-a',
       worktreePath: '/repo-a',
     });
-    const releaseB = acquireChangesLiveRefreshSubscription({
+    const releaseB = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/repo-b',
       rootId: 'root-b',
       worktreePath: '/repo-b',
@@ -346,7 +348,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
         return () => {};
       })
     );
-    const release = acquireChangesLiveRefreshSubscription({
+    const release = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/repo',
       rootId: 'root-1',
       worktreePath: '/repo',
@@ -390,7 +392,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
         return () => {};
       })
     );
-    const release = acquireChangesLiveRefreshSubscription({
+    const release = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/repo',
       rootId: 'root-1',
       worktreePath: '/repo',
@@ -458,13 +460,13 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
 
     // First acquire: subscribe throws — must be LOUD, and must not escape
     // (an exception out of a useEffect body would skip React's cleanup).
-    const releaseA = acquireChangesLiveRefreshSubscription();
+    const releaseA = acquireChangesLiveRefreshSubscription(bridge);
     expect(errorSpy).toHaveBeenCalledTimes(1);
     releaseA();
 
     // Back at zero holders: the next acquire attempts a fresh subscribe
     // instead of treating the failed one as live forever.
-    const releaseB = acquireChangesLiveRefreshSubscription();
+    const releaseB = acquireChangesLiveRefreshSubscription(bridge);
     expect(onInvalidated).toHaveBeenCalledTimes(2);
     releaseB();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
@@ -473,7 +475,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
   it('fails open within the durable root when presentation and canonical path vocabularies cannot intersect lexically', () => {
     vi.useFakeTimers();
     stubBridge(vi.fn(() => () => {}));
-    const release = acquireChangesLiveRefreshSubscription({
+    const release = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/real/workspace/repo',
       rootId: 'root-1',
       worktreePath: '/real/workspace/repo',
@@ -517,7 +519,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
         return () => {};
       })
     );
-    const release = acquireChangesLiveRefreshSubscription({
+    const release = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/presentation/repo',
       rootId: 'root-1',
       worktreePath: '/presentation/repo',
@@ -564,7 +566,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
         return () => {};
       })
     );
-    const release = acquireChangesLiveRefreshSubscription({
+    const release = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/repo',
       rootId: 'root-1',
       worktreePath: '/repo',
@@ -612,7 +614,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
     vi.useFakeTimers();
     vi.setSystemTime(0);
     stubBridge(vi.fn(() => () => {}));
-    const release = acquireChangesLiveRefreshSubscription({
+    const release = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/repo',
       rootId: 'root-1',
       worktreePath: '/repo',

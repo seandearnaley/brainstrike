@@ -27,7 +27,7 @@ import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
-import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
+import { useWorktreesBridge } from '../workspace-git-services';
 import { useWorktreeMap } from './use-worktree-map';
 import { useWorktreeMapCardActions } from './use-worktree-map-card-actions';
 import { WorktreeMapCard } from './worktree-map-card';
@@ -78,7 +78,7 @@ export function WorktreeMapSurface(): ReactElement {
   // the platform bridge above. Web has no `window.terminal`, so no item exists.
   const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
   const openTerminalAt = useTerminalTargetStore((state) => state.openTerminalAt);
-  const worktrees = useMemo(() => resolveWorktreesBridge(), []);
+  const worktrees = useWorktreesBridge();
   // Desktop-only, `undefined` on web (`use-workspace-bar.ts:918` is the precedent).
   const addRootDirectoryByPath = useFileSystem().addRootDirectoryByPath;
   const hostRuns = useAssistantThreadHostRuns();

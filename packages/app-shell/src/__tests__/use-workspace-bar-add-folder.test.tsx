@@ -142,7 +142,7 @@ const THREAD_ID = 'thread-1';
 // The DURABLE `roots.id` per path. Deliberately DIFFERENT from the adapter
 // rootIds above (`adapter-*`) and from the descriptor id below: the two id
 // spaces share only the path, and everything downstream of this hook
-// (window.git.status, secondaryRootIds) speaks the DB space.
+// (the Git bridge's status, secondaryRootIds) speaks the DB space.
 const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: string }>> = {
   'r-alpha-db': { displayName: 'alpha', path: '/ws/alpha' },
   'r-docs': { displayName: 'docs', path: '/ws/docs' },
@@ -257,7 +257,6 @@ async function setup(
 }
 
 beforeEach(() => {
-  Reflect.deleteProperty(window, 'worktrees');
   (window as Window & { platform?: unknown }).platform = {
     openExternal: vi.fn(async () => ({ ok: true })),
     openPath: vi.fn(async () => ({ ok: true })),
@@ -334,7 +333,6 @@ beforeEach(() => {
 afterEach(() => {
   Reflect.deleteProperty(window, 'threadGroups');
   Reflect.deleteProperty(window, 'platform');
-  Reflect.deleteProperty(window, 'worktrees');
   vi.useRealTimers();
 });
 

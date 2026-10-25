@@ -153,6 +153,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
 }));
 
 import { GitPanel } from '../git-panel/git-panel';
+import type { WorkspaceGitServices } from '../workspace-git-services';
+import { workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 // ── Bridge fixtures ───────────────────────────────────────────────────────────
 function ok<T>(value: T): GitResult<T> {
@@ -221,6 +223,14 @@ function makeStructuredFileDiff(overrides: Partial<StructuredFileDiff> = {}): St
   };
 }
 
+/** The bridges the host serves in the current test; reset after each. */
+let installed: Partial<WorkspaceGitServices> = {};
+
+/** Wraps a render in the host as it stands: serving the installed bridges only. */
+function workspaceHost() {
+  return workspaceGitWrapper(installed);
+}
+
 function installBridge(bridge: Partial<GitBridge>): GitBridge {
   const full: GitBridge = {
     aheadBehind: vi.fn(async () =>
@@ -248,17 +258,17 @@ function installBridge(bridge: Partial<GitBridge>): GitBridge {
     unstage: vi.fn(async () => ok(null)),
     ...bridge,
   };
-  (window as unknown as { git?: GitBridge }).git = full;
+  installed = { ...installed, git: full };
   return full;
 }
 
 /**
- * Fixture for the `window.changes` bridge (BST-1116 W6 Task A): the Changes
- * tab's diff pane resolves through `useChangeset` over this bridge instead of
- * `window.git.diff`/`parseUnifiedDiff`. Mirrors `installBridge`'s shape —
+ * Fixture for the Changes bridge (BST-1116 W6 Task A): the Changes tab's diff
+ * pane resolves through `useChangeset` over this bridge instead of the Git
+ * bridge's `diff`/`parseUnifiedDiff`. Mirrors `installBridge`'s shape —
  * defaults every method, `bridge` overrides win. `resolveView`'s return value
- * is not asserted on by any test (the panel keeps its own file list from
- * `window.git` status — see `git-changes-view.tsx`'s doc comment); the
+ * is not asserted on by any test (the panel keeps its own file list from the
+ * Git bridge's status — see `git-changes-view.tsx`'s doc comment); the
  * default just echoes back an empty view for whatever changeset it was
  * called with, since `useChangeset` always resolves it once a changeset is
  * pinned.
@@ -274,7 +284,7 @@ function installChangesBridge(bridge: Partial<ChangesBridge>): ChangesBridge {
     ),
     ...bridge,
   };
-  (window as unknown as { changes?: ChangesBridge }).changes = full;
+  installed = { ...installed, changes: full };
   return full;
 }
 
@@ -307,16 +317,14 @@ describe('GitPanel', () => {
   });
 
   afterEach(() => {
-    // `delete` (not `= undefined`) to satisfy exactOptionalPropertyTypes.
-    Reflect.deleteProperty(window as unknown as { git?: GitBridge }, 'git');
-    Reflect.deleteProperty(window as unknown as { changes?: ChangesBridge }, 'changes');
+    installed = {};
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
   it('renders the changed-file list grouped into staged / unstaged / untracked', async () => {
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(await screen.findByTestId('git-panel')).toBeInTheDocument();
     expect(screen.getByText('Staged (1)')).toBeInTheDocument();
@@ -336,7 +344,7 @@ describe('GitPanel', () => {
 
   it('reserves forty percent of the workbench for browsing changed files', async () => {
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     const filter = await screen.findByLabelText('Filter changed files');
     expect(filter.closest('aside')).toHaveClass('w-[40%]');
@@ -344,7 +352,7 @@ describe('GitPanel', () => {
 
   it('renders ahead/behind badges from status', async () => {
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(await screen.findByTestId('ahead-badge')).toHaveTextContent('2');
     expect(screen.getByTestId('behind-badge')).toHaveTextContent('1');
@@ -368,7 +376,7 @@ describe('GitPanel', () => {
         )
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(
       await screen.findByRole('checkbox', { name: 'Stage all 1 changed files' })
@@ -378,7 +386,7 @@ describe('GitPanel', () => {
   it('stages a file and refreshes status', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     const stageStatusCalls = (bridge.status as ReturnType<typeof vi.fn>).mock.calls.length;
@@ -397,7 +405,7 @@ describe('GitPanel', () => {
   it('unstages a staged file', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'Unstage staged.ts' }));
@@ -408,7 +416,7 @@ describe('GitPanel', () => {
   it('commits with a summary and description, then clears both fields', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     const summary = screen.getByPlaceholderText('Summary (required)');
@@ -428,7 +436,7 @@ describe('GitPanel', () => {
   it('pushes and pulls via the bridge', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'Push to upstream' }));
@@ -450,7 +458,7 @@ describe('GitPanel', () => {
         )
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     // The status letter span is aria-hidden, so the file-ROW button's accessible
@@ -469,7 +477,7 @@ describe('GitPanel', () => {
     installBridge({});
     const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff()));
     installChangesBridge({ fileDiff });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'staged.ts' }));
@@ -522,7 +530,7 @@ describe('GitPanel', () => {
     });
     const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff()));
     installChangesBridge({ fileDiff });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'staged.ts' }));
@@ -574,7 +582,7 @@ describe('GitPanel', () => {
     });
     const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff({ path: 'moving.ts' })));
     installChangesBridge({ fileDiff });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'moving.ts' }));
@@ -621,7 +629,7 @@ describe('GitPanel', () => {
     });
     const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff({ path: 'both.ts' })));
     installChangesBridge({ fileDiff });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     // Staged section renders first, so index 1 is the Unstaged row.
@@ -678,7 +686,7 @@ describe('GitPanel', () => {
       ),
     });
     installChangesBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'gone.ts' }));
@@ -698,7 +706,7 @@ describe('GitPanel', () => {
     const user = userEvent.setup();
     installBridge({});
     const changes = installChangesBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     // Mount effects have run by now — an eager load would already have fired.
@@ -714,7 +722,7 @@ describe('GitPanel', () => {
     installBridge({});
     const fileDiff = vi.fn(async () => ok(makeStructuredFileDiff()));
     installChangesBridge({ fileDiff });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('button', { name: 'staged.ts' }));
     await screen.findByTestId('diff-view-stub');
@@ -749,7 +757,7 @@ describe('GitPanel', () => {
       }),
     });
 
-    const { rerender } = render(<GitPanel />);
+    const { rerender } = render(<GitPanel />, { wrapper: workspaceHost() });
     await screen.findByTestId('git-panel');
 
     // Root-1: select staged.ts → its diff renders.
@@ -815,7 +823,7 @@ describe('GitPanel', () => {
         return ok(makeStatus());
       }),
     });
-    const { rerender } = render(<GitPanel />);
+    const { rerender } = render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.type(screen.getByPlaceholderText('Summary (required)'), 'root-1 draft');
@@ -876,7 +884,7 @@ describe('GitPanel', () => {
       )
     );
     installChangesBridge({ fileDiff });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'new.ts' }));
@@ -902,7 +910,7 @@ describe('GitPanel', () => {
     installChangesBridge({
       fileDiff: vi.fn(async (): Promise<GitResult<never>> => ({ error: 'diff boom', ok: false })),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'staged.ts' }));
@@ -924,7 +932,7 @@ describe('GitPanel', () => {
     const bridge = installBridge({
       status: vi.fn(async () => ok(makeStatus({ ahead: null, behind: null, upstream: null }))),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     expect(screen.queryByRole('button', { name: 'Push to upstream' })).not.toBeInTheDocument();
@@ -945,7 +953,7 @@ describe('GitPanel', () => {
         })
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     const box = screen.getByPlaceholderText('Summary (required)');
@@ -962,7 +970,7 @@ describe('GitPanel', () => {
 
   it('renders repository, worktree, branch, and fetch controls from repository metadata', async () => {
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(await screen.findByText('Current Repository')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Current repository repo' })).toBeInTheDocument();
@@ -995,7 +1003,7 @@ describe('GitPanel', () => {
         )
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(await screen.findByTestId('git-panel-clean')).toBeInTheDocument();
     externalChange = true;
@@ -1009,7 +1017,7 @@ describe('GitPanel', () => {
   it('filters the changed-file list without changing the underlying status', async () => {
     const user = userEvent.setup();
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.type(screen.getByPlaceholderText('Filter changed files'), 'unstaged');
@@ -1022,7 +1030,7 @@ describe('GitPanel', () => {
   it('stages every changed file from the tri-state stage-all control', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('checkbox', { name: 'Stage all 3 changed files' }));
@@ -1033,7 +1041,7 @@ describe('GitPanel', () => {
   it('stages only files visible through an active filter', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.type(screen.getByPlaceholderText('Filter changed files'), 'unstaged');
@@ -1059,7 +1067,7 @@ describe('GitPanel', () => {
         )
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.type(screen.getByPlaceholderText('Filter changed files'), 'ready');
@@ -1074,7 +1082,7 @@ describe('GitPanel', () => {
   it('fetches the configured remote explicitly', async () => {
     const user = userEvent.setup();
     const bridge = installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await screen.findByTestId('git-panel');
     await user.click(screen.getByRole('button', { name: 'Fetch origin' }));
@@ -1127,7 +1135,7 @@ describe('GitPanel', () => {
       // `clean` — an empty list is what actually makes every row switchable.
       status: vi.fn(async () => ok(makeStatus({ clean: true, files: [] }))),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('button', { name: 'Current branch main' }));
     await user.click(screen.getByRole('menuitem', { name: 'feature/search' }));
@@ -1187,7 +1195,7 @@ describe('GitPanel', () => {
         return ok({ branch });
       }),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     expect(await screen.findByRole('button', { name: /main branch commit/ })).toBeInTheDocument();
@@ -1265,7 +1273,7 @@ describe('GitPanel', () => {
         return ok({ branch });
       }),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('button', { name: 'untracked.ts' }));
     expect(await screen.findByTestId('diff-view-stub')).toBeInTheDocument();
@@ -1281,7 +1289,7 @@ describe('GitPanel', () => {
   it('switches Changes and History on the shared panel-header switcher, manually activated', async () => {
     const user = userEvent.setup();
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     const tablist = await screen.findByRole('tablist', { name: 'Changes and history' });
     const changesTab = within(tablist).getByRole('tab', { name: 'Changes, 3 changed files' });
@@ -1329,7 +1337,7 @@ describe('GitPanel', () => {
 
   it('provides a persistent accessible label for the commit summary', async () => {
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(
       await screen.findByRole('textbox', { name: 'Commit summary (required)' })
@@ -1375,7 +1383,7 @@ describe('GitPanel', () => {
         })
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('button', { name: 'Current worktree repo' }));
 
@@ -1389,7 +1397,7 @@ describe('GitPanel', () => {
 
   it('uses the repository, worktree, and branch buttons as the actual accessible menu triggers', async () => {
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     for (const name of [
       'Current repository repo',
@@ -1435,7 +1443,7 @@ describe('GitPanel', () => {
         )
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     await user.click(
@@ -1474,7 +1482,7 @@ describe('GitPanel', () => {
         ok: false as const,
       })),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     await user.click(
@@ -1513,7 +1521,7 @@ describe('GitPanel', () => {
             });
       }),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     expect(await screen.findByText('Could not load commit history.')).toBeInTheDocument();
@@ -1544,7 +1552,7 @@ describe('GitPanel', () => {
         })
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     await user.click(await screen.findByRole('button', { name: /commit with files/ }));
@@ -1574,7 +1582,7 @@ describe('GitPanel', () => {
           })
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     expect(await screen.findByRole('button', { name: /newer commit/ })).toBeInTheDocument();
@@ -1613,7 +1621,7 @@ describe('GitPanel', () => {
         })
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     await user.click(await screen.findByRole('button', { name: /first commit/ }));
@@ -1681,7 +1689,7 @@ describe('GitPanel', () => {
         );
       }),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     await user.click(await screen.findByRole('tab', { name: 'History' }));
     await user.click(await screen.findByRole('button', { name: /first diff commit/ }));
@@ -1732,7 +1740,7 @@ describe('GitPanel', () => {
         })
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(await screen.findByText('Showing changes for packages/app only.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pull from upstream' })).toBeDisabled();
@@ -1761,7 +1769,7 @@ describe('GitPanel', () => {
         )
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(await screen.findByTestId('git-panel-not-a-repo')).toHaveTextContent(
       'not a Git repository'
@@ -1771,18 +1779,18 @@ describe('GitPanel', () => {
   it('renders the no-root empty state when no workspace is focused', async () => {
     mockRoot.handle = null;
     installBridge({});
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     expect(await screen.findByTestId('git-panel-no-root')).toBeInTheDocument();
   });
 
   it('surfaces a status load error with a retry affordance', async () => {
-    installBridge({
+    const bridge = installBridge({
       status: vi.fn(
         async (): Promise<GitResult<GitStatus>> => ({ error: 'git exploded', ok: false })
       ),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     const error = await screen.findByTestId('git-panel-error');
     expect(within(error).getByText('git exploded')).toBeInTheDocument();
@@ -1791,9 +1799,7 @@ describe('GitPanel', () => {
       expect.objectContaining({ title: 'Git status failed', variant: 'destructive' })
     );
     // A real git failure surfaces immediately — no silent retry loop.
-    expect(
-      (window as unknown as { git: GitBridge }).git.status as ReturnType<typeof vi.fn>
-    ).toHaveBeenCalledTimes(1);
+    expect(bridge.status).toHaveBeenCalledTimes(1);
   });
 
   it('silently retries when the workspace root has not reconciled into the DB yet', async () => {
@@ -1812,31 +1818,12 @@ describe('GitPanel', () => {
     status.mockResolvedValueOnce({ error: 'Workspace roots are unavailable.', ok: false });
     status.mockResolvedValue(ok(makeStatus({ branch: 'main', clean: true, files: [] })));
     installBridge({ status });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: workspaceHost() });
 
     const panel = await screen.findByTestId('git-panel');
     await waitFor(() => expect(panel).toHaveTextContent('main'), { timeout: 5000 });
     expect(status.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByTestId('git-panel-error')).not.toBeInTheDocument();
     expect(toastSpy).not.toHaveBeenCalled();
-  });
-
-  it('treats a bridge missing structuredFileDiff as absent (malformed bridge, no calls into it)', async () => {
-    // `structuredFileDiff` is a REQUIRED_METHODS entry (git-bridge.ts) — a
-    // bridge lacking it must fail resolveGitBridge()'s shape check the same
-    // way a bridge missing any other required method does, so a stale preload
-    // build never lets the panel half-function against a broken bridge.
-    const full = installBridge({});
-    Reflect.deleteProperty(full as Partial<GitBridge>, 'structuredFileDiff');
-    render(<GitPanel />);
-
-    // Never settles into the loaded panel, an error state, or the not-a-repo
-    // state — `resolveGitBridge()` returned null, so `status`/`repository`
-    // were never even called.
-    await waitFor(() => expect(screen.getByText('Loading Git workbench…')).toBeInTheDocument());
-    expect(screen.queryByTestId('git-panel')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('git-panel-error')).not.toBeInTheDocument();
-    expect(full.status).not.toHaveBeenCalled();
-    expect(full.repository).not.toHaveBeenCalled();
   });
 });

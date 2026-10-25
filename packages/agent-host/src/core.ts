@@ -225,6 +225,12 @@ export class HostCore {
     await core.rewinds.recover();
     // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
     platform.attachMcpTaskOwner?.(hostMcpTaskOwner(core.executionPorts()));
+    // ADR-0029: the platform's workspace services ask Core which runs are live.
+    platform.attachThreadReads?.({
+      listThreads: () => core.listThreads(),
+      read: (threadId, fromSeq) => core.read(threadId, fromSeq),
+      readLedger: () => core.readLedger(),
+    });
     for (const run of core.runs.values()) {
       const recovery = recoverHostRun(run);
       if (recovery?.kind === 'finish') {

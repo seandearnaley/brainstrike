@@ -2,8 +2,8 @@
  * The composer Branch chip's interactive half (spec §4.2).
  *
  * Reads the SAME data path the git panel's workbench header uses —
- * `window.git.repository(rootId)` for the recency-sorted local branches
- * (`for-each-ref --sort=-committerdate`), PLUS its own `window.git.status(rootId)`
+ * the Git bridge's `repository(rootId)` for the recency-sorted local branches
+ * (`for-each-ref --sort=-committerdate`), PLUS its own Git bridge `status(rootId)`
  * read (the header already had one as a prop; this hook has no equivalent
  * parent, so it fetches its own) — and shapes both through the shared
  * `buildBranchSwitchModel` / `deriveBranchSwitchDirty`. No polling: both reads
@@ -35,14 +35,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useGitInventory } from '../changes/use-git-inventory';
 import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';
-import { resolveGitBridge } from '../git-panel/git-bridge';
+import { useGitBridge } from '../workspace-git-services';
 
 const logger = createLogger('BranchSwitcher');
 
 export interface UseBranchSwitcherArgs {
   /** Gates whether a menu exists at all; its `dirty` field is NOT read for the switch gate (see the ruling above). */
   readonly checkout: WorkspaceBarCheckout | undefined;
-  /** The durable `roots.id` — the only id `window.git` understands. */
+  /** The durable `roots.id` — the only id the Git bridge understands. */
   readonly dbRootId: string | null;
   /** Supplied once the worktree capability exists (W3 Layer 6). */
   readonly onSwitchInNewWorktree?: ((branch: string) => void) | undefined;
@@ -57,7 +57,7 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
   const { checkout, dbRootId, onSwitchInNewWorktree } = args;
   // Resolved ONCE per hook instance, not per render — the bridge identity is
   // an effect input (same discipline as useGitInventory).
-  const bridge = useMemo(() => resolveGitBridge(), []);
+  const bridge = useGitBridge();
   const { refresh: refreshInventory } = useGitInventory({ deferInitialLoad: true });
   const anyInvalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
   const [query, setQuery] = useState('');

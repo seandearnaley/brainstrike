@@ -20,10 +20,10 @@
  * git failures are logged and surfaced, never thrown across IPC and never
  * silently swallowed.
  */
-import { spawn } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import type { StructuredFileDiffParams } from '@brainstrike/types';
 import {
   createGitService,
@@ -195,7 +195,7 @@ function runGitProcess({
   readonly timeoutMs: number;
 }): Promise<GitCommandRun> {
   return new Promise<GitCommandRun>((resolve) => {
-    const child = spawn('git', [...args], { cwd, env, signal, timeout: timeoutMs });
+    const child = spawnNativeChild('git', args, { cwd, env, signal, timeout: timeoutMs });
     const stdout = captureBounded(child.stdout);
     const stderr = captureBounded(child.stderr);
     let spawnError: NodeJS.ErrnoException | undefined;

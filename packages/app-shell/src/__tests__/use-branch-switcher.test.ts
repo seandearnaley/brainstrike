@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubGitBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const {
   createBranchSpy,
@@ -33,15 +34,15 @@ const {
   toastSpy: vi.fn(),
 }));
 
-vi.mock('../git-panel/git-bridge', () => ({
-  resolveGitBridge: () => ({
+const wrapper = workspaceGitWrapper({
+  git: stubGitBridge({
     createBranch: createBranchSpy,
     fetch: fetchSpy,
     repository: repositorySpy,
     status: statusSpy,
     switchBranch: switchBranchSpy,
   }),
-}));
+});
 vi.mock('../changes/use-git-inventory', () => ({
   useGitInventory: () => ({ refresh: refreshInventorySpy }),
 }));
@@ -116,7 +117,10 @@ describe('useBranchSwitcher', () => {
   });
 
   it('returns undefined without a root or a checkout', () => {
-    const { result } = renderHook(() => useBranchSwitcher({ checkout: undefined, dbRootId: null }));
+    const { result } = renderHook(
+      () => useBranchSwitcher({ checkout: undefined, dbRootId: null }),
+      { wrapper }
+    );
     expect(result.current).toBeUndefined();
   });
 
@@ -130,8 +134,9 @@ describe('useBranchSwitcher', () => {
     // the initial render or on any later invalidation.
     statusSpy.mockResolvedValue({ ok: true, value: NON_REPO_STATUS });
     repositorySpy.mockResolvedValue({ error: 'not a git repository', ok: false });
-    const { rerender, result } = renderHook(() =>
-      useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' })
+    const { rerender, result } = renderHook(
+      () => useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' }),
+      { wrapper }
     );
     await act(async () => {
       await Promise.resolve();
@@ -162,8 +167,9 @@ describe('useBranchSwitcher', () => {
     // late-arriving invalidation refreshes stale state), the gate must
     // release and spawn the deferred `repository()` read.
     statusSpy.mockResolvedValue({ ok: true, value: NON_REPO_STATUS });
-    const { rerender } = renderHook(() =>
-      useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' })
+    const { rerender } = renderHook(
+      () => useBranchSwitcher({ checkout: undefined, dbRootId: 'r-1' }),
+      { wrapper }
     );
     await act(async () => {
       await Promise.resolve();
@@ -184,8 +190,10 @@ describe('useBranchSwitcher', () => {
     await waitFor(() => expect(repositorySpy).toHaveBeenCalledWith('r-1'));
   });
 
-  it('builds rows from window.git.repository for the primary root', async () => {
-    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }));
+  it('builds rows from the Git bridge repository for the primary root', async () => {
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current?.rows).toHaveLength(2));
     expect(repositorySpy).toHaveBeenCalledWith('r-1');
     expect(statusSpy).toHaveBeenCalledWith('r-1');
@@ -193,7 +201,9 @@ describe('useBranchSwitcher', () => {
   });
 
   it('switches, then refreshes the inventory so the next open is not pre-switch', async () => {
-    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }));
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current).toBeDefined());
     await act(async () => {
       result.current?.onSwitch('feature/alpha');
@@ -204,7 +214,9 @@ describe('useBranchSwitcher', () => {
 
   it('surfaces a switch failure as a toast and never leaves `pending` stuck', async () => {
     switchBranchSpy.mockResolvedValue({ error: 'index.lock exists', ok: false });
-    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }));
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current).toBeDefined());
     await act(async () => {
       result.current?.onSwitch('feature/alpha');
@@ -219,7 +231,9 @@ describe('useBranchSwitcher', () => {
 
   it('omits onFetch when the repository has no default remote', async () => {
     repositorySpy.mockResolvedValue({ ok: true, value: { ...REPOSITORY, defaultRemote: null } });
-    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }));
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current).toBeDefined());
     expect(result.current?.onFetch).toBeUndefined();
   });
@@ -228,7 +242,9 @@ describe('useBranchSwitcher', () => {
     statusSpy.mockResolvedValue({ ok: true, value: TRACKED_STATUS });
     // checkout.dirty is FALSE here on purpose — if the hook still read it,
     // this row would wrongly stay switchable despite the tracked change.
-    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }));
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current?.rows).toHaveLength(2));
     const alpha = result.current?.rows.find((row) => row.name === 'feature/alpha');
     expect(alpha?.switchable).toBe(false);
@@ -240,8 +256,9 @@ describe('useBranchSwitcher', () => {
     // can be lit (`checkout.dirty: true`, e.g. from an untracked file) while
     // the switch gate — reading its own tracked-only status — stays open.
     statusSpy.mockResolvedValue({ ok: true, value: CLEAN_STATUS });
-    const { result } = renderHook(() =>
-      useBranchSwitcher({ checkout: { ...CLEAN, dirty: true }, dbRootId: 'r-1' })
+    const { result } = renderHook(
+      () => useBranchSwitcher({ checkout: { ...CLEAN, dirty: true }, dbRootId: 'r-1' }),
+      { wrapper }
     );
     await waitFor(() => expect(result.current?.rows).toHaveLength(2));
     const alpha = result.current?.rows.find((row) => row.name === 'feature/alpha');

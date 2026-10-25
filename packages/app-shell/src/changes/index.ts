@@ -3,8 +3,8 @@
  *
  * Desktop lazy-mounts `ChangesSurface` from here (see
  * `apps/desktop/src/renderer/components/changes-page-content.tsx`); the
- * startup capability check must go through `./availability` instead, which is
- * dependency-light and does not pull the surface's UI into the startup chunk.
+ * bridge itself arrives through `WorkspaceGitServicesProvider`
+ * (`workspace-git-services.tsx`).
  *
  * Nothing INSIDE `packages/app-shell` may import this barrel — a package that
  * imports its own barrel creates the module-scope chunk-init cycle class that
@@ -16,7 +16,6 @@ export type {
   RewindPreviewPayload,
   RewindRedoPayload,
 } from './changes-bridge';
-export { isChangesBridgeAvailable, resolveChangesBridge } from './changes-bridge';
 export type { ChangesStoreState } from './changes-store';
 export { changedFileKey, selectRenderedFiles, useChangesStore } from './changes-store';
 export type {

@@ -1,7 +1,14 @@
 // Native processes a Root's host starts (ADR-0017). Each one inherits the Root's flock as an extra stdio slot, so a
 // command that outlives a crashed host keeps the Root refused until it exits; an observer (desktop Main, the host's
 // supervisor) learns each process's identity so it can end the process group after the host dies.
-import { type ChildProcess, type SpawnOptions, type StdioOptions, spawn } from 'node:child_process';
+import {
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+  type SpawnOptions,
+  type SpawnOptionsWithoutStdio,
+  type StdioOptions,
+  spawn,
+} from 'node:child_process';
 import { processStartTime, sharedRootLeases } from './lock.ts';
 
 /** One supervised native process. `group`: it leads its own process group, which is signalled as a whole. */
@@ -63,8 +70,19 @@ function stdioSlots(stdio: StdioOptions | undefined): Exclude<StdioOptions, stri
  * `child_process.spawn` for every native process a host starts. While this process shares a held Root lease, the
  * child inherits the Root's flock (POSIX) in the first stdio slot after the ones given. Once every shared lease was
  * released the spawn is refused, and so is a spawn that would have to choose between several held leases. A process
- * that never shared a lease (desktop Main, which owns its own children) spawns plainly.
+ * that never shared a lease (desktop Main, which owns its own children) spawns plainly. Like `spawn`, piped stdio
+ * keeps its streams: the Root's descriptor only ever takes a slot after them.
  */
+export function spawnNativeChild(
+  command: string,
+  args: readonly string[],
+  options: SpawnOptionsWithoutStdio
+): ChildProcessWithoutNullStreams;
+export function spawnNativeChild(
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions
+): ChildProcess;
 export function spawnNativeChild(
   command: string,
   args: readonly string[],

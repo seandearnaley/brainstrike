@@ -36,7 +36,7 @@ export function selectRewindComposerText(role: string, text: string): string | n
  * Conversation Rewind (BST-1115).
  *
  * Renders null when there is no `RewindProvider` binding (web, or a desktop
- * build without the `window.changes` bridge), when the active thread id is
+ * build without the Changes bridge), when the active thread id is
  * unknown, when this is not a user message, or while a run is in flight —
  * capability gating and a safety gate, never a disabled stub. Rewinding out
  * from under a live run would revert files the run is still writing.

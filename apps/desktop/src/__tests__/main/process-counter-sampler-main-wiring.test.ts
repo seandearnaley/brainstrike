@@ -52,13 +52,10 @@ describe('Main process sampler owner composition', () => {
         'embedding-host': () => {},
         'factory-reset': () => {},
         'file-system': () => {},
-        forge: () => {},
-        'git-inventory': () => {},
         'main-catalog': () => {},
         'mcp-runtime': () => {},
         'native-index': () => {},
         renderers: () => {},
-        'snapshot-maintenance': () => {},
       };
       steps['native-index'] = () => {
         if (failEarlierOwner) {
