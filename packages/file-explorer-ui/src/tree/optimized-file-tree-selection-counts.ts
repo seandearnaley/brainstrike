@@ -170,11 +170,13 @@ export function isSameOrDescendantSelectionPath(path: string, candidatePath: str
   if (normalizedCandidate === '') {
     return true;
   }
+  // Both sides in the slash-separated form: a desktop selection keeps its host's native `\`.
+  const normalizedPath = normalizeDirectoryCountPath(path);
   if (normalizedCandidate === '/') {
-    return path === '/' || path.startsWith('/');
+    return normalizedPath === '/' || normalizedPath.startsWith('/');
   }
   const candidatePrefix = `${normalizedCandidate}/`;
-  return path === normalizedCandidate || path.startsWith(candidatePrefix);
+  return normalizedPath === normalizedCandidate || normalizedPath.startsWith(candidatePrefix);
 }
 
 function addUniqueAncestorPath(
