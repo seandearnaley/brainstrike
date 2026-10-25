@@ -30,12 +30,18 @@ const emptySnapshot = () => 0;
 const logger = createLogger('ThreadWorkspaceCoordinator');
 
 /**
- * A refusal (the profile closed for a reset or quit, or this view closing) is
- * unavailability, kept at warn; anything else is a failure.
+ * The write's owner is unavailable: the profile closed for a reset or quit (a host lost just
+ * before quit, whose relaunch quit refuses, included), the store opened read-only, or this view
+ * is closing. The write settled as a refusal, with nothing left to deliver or join, so it is
+ * kept at warn; anything else is a failure.
  */
+function isOwnerUnavailable(error: unknown): boolean {
+  return isBoundaryRefusal(error) && error.failure.category === 'availability';
+}
+
 function logFailure(message: string, error: unknown, fields: Record<string, unknown> = {}): void {
   const details = { error: error instanceof Error ? error.message : String(error), ...fields };
-  if (isBoundaryRefusal(error)) {
+  if (isOwnerUnavailable(error)) {
     logger.warn(message, details);
   } else {
     logger.error(message, details);
@@ -470,7 +476,8 @@ export function useThreadWorkspaceCoordinator({
   });
   // Document unload (ADR-0026 R1): send the one dirty snapshot, then join the writes this owner
   // admitted until none is pending, so a write a hydration read admits while the flush waits is
-  // joined too. Reads are not durable and are never joined.
+  // joined too. Reads are not durable and are never joined. A write refused because its owner is
+  // unavailable was logged where it settled and is not a flush failure; any other rejection is.
   const flush = useEffectEvent(async () => {
     closePreparedRef.current = true;
     const dirty = saveTimerRef.current !== null;
@@ -490,13 +497,19 @@ export function useThreadWorkspaceCoordinator({
     while (pendingWritesRef.current.size > 0) {
       const results = await Promise.allSettled([...pendingWritesRef.current]);
       for (const result of results) {
-        if (result.status === 'rejected') {
+        if (result.status === 'rejected' && !isOwnerUnavailable(result.reason)) {
           failures.push(result.reason);
         }
       }
     }
     if (failures.length > 0) {
-      throw new AggregateError(failures, 'Thread workspace snapshot writes failed before unload');
+      const causes = failures.map((failure) =>
+        failure instanceof Error ? failure.message : String(failure)
+      );
+      throw new AggregateError(
+        failures,
+        `Thread workspace snapshot writes failed before unload: ${causes.join('; ')}`
+      );
     }
   });
   useEffect(() => {

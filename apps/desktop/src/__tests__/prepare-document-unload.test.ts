@@ -110,6 +110,22 @@ test.each(['negative ACK', 'port loss', 'send failure'])(
   }
 );
 
+test("a negative ACK names each producer failure the renderer's preload reported", async () => {
+  const window = windowFixture();
+  const preparing = prepareDocumentUnload(window, noDelays);
+  const rejected = expect(preparing).rejects.toThrow(
+    'Renderer producers did not acknowledge close preparation: Durable writers failed to flush before unload (thread workspace write refused)'
+  );
+  channels.created[0]?.port1.emit('message', {
+    data: {
+      failures: ['Durable writers failed to flush before unload (thread workspace write refused)'],
+      prepared: false,
+    },
+  });
+  await rejected;
+  expectReleased(window);
+});
+
 test.each([
   ['render-process-gone', 'Renderer exited before acknowledging its producers'],
   ['unresponsive', 'Renderer became unresponsive before acknowledging its producers'],
