@@ -861,7 +861,9 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Page was closed before app could become ready');
     }
 
-    await page.waitForFunction(() => document.readyState === 'complete', {
+    // Options are waitForFunction's THIRD argument; the second is the predicate's `arg`.
+    await page.waitForFunction(() => document.readyState === 'complete', undefined, {
+      polling: 100,
       timeout: appReadyTimeoutMs,
     });
 
@@ -899,7 +901,10 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Timed out waiting for app readiness in Codex environment');
     }
 
-    await page.waitForFunction(readinessCheck, { polling: 100, timeout: appReadyTimeoutMs });
+    await page.waitForFunction(readinessCheck, undefined, {
+      polling: 100,
+      timeout: appReadyTimeoutMs,
+    });
     verboseLog('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
