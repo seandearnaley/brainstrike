@@ -1,14 +1,12 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract/tool-metadata';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetPermissionPolicyStoreForTests,
   buildPermissionToolGateSnapshotInput,
   getPermissionToolGateSnapshotInput,
+  restorePersistedPermissionPolicy,
   usePermissionPolicyStore,
 } from '../stores/permission-policy-store.ts';
-import type { PersistApi } from './persist-api-test-helper.ts';
-
-const storeWithPersist = usePermissionPolicyStore as PersistApi<typeof usePermissionPolicyStore>;
 
 const STORE_KEY = 'permission-policy.v1';
 
@@ -41,23 +39,23 @@ describe('permission-policy-store', () => {
     expect(state.perToolOverrides).toEqual({});
   });
 
-  it('setEnforce toggles the enforcement switch (users can opt out)', () => {
+  it('setEnforce toggles the enforcement switch (users can opt out)', async () => {
     expect(usePermissionPolicyStore.getState().enforce).toBe(true);
-    usePermissionPolicyStore.getState().setEnforce(false);
+    await usePermissionPolicyStore.getState().setEnforce(false);
     expect(usePermissionPolicyStore.getState().enforce).toBe(false);
-    usePermissionPolicyStore.getState().setEnforce(true);
+    await usePermissionPolicyStore.getState().setEnforce(true);
     expect(usePermissionPolicyStore.getState().enforce).toBe(true);
   });
 
-  it('setCategoryPolicy updates one category only', () => {
-    usePermissionPolicyStore.getState().setCategoryPolicy('execute', 'deny');
+  it('setCategoryPolicy updates one category only', async () => {
+    await usePermissionPolicyStore.getState().setCategoryPolicy('execute', 'deny');
     const { policies } = usePermissionPolicyStore.getState();
     expect(policies.execute).toBe('deny');
     expect(policies.read).toBe('allow');
   });
 
-  it('setYolo toggles the master override', () => {
-    usePermissionPolicyStore.getState().setYolo(true);
+  it('setYolo toggles the master override', async () => {
+    await usePermissionPolicyStore.getState().setYolo(true);
     expect(usePermissionPolicyStore.getState().yolo).toBe(true);
   });
 
@@ -140,19 +138,19 @@ describe('permission-policy-store', () => {
     expect(usePermissionPolicyStore.getState().sessionGrants).toBe(first);
   });
 
-  it('setToolOverride sets and clears a per-tool override', () => {
-    usePermissionPolicyStore.getState().setToolOverride('brainstrike.tool', 'deny');
+  it('setToolOverride sets and clears a per-tool override', async () => {
+    await usePermissionPolicyStore.getState().setToolOverride('brainstrike.tool', 'deny');
     expect(usePermissionPolicyStore.getState().perToolOverrides['brainstrike.tool']).toBe('deny');
 
-    usePermissionPolicyStore.getState().setToolOverride('brainstrike.tool', null);
+    await usePermissionPolicyStore.getState().setToolOverride('brainstrike.tool', null);
     expect(
       usePermissionPolicyStore.getState().perToolOverrides['brainstrike.tool']
     ).toBeUndefined();
   });
 
-  it('does NOT persist sessionGrants (session-lived; excluded from partialize)', () => {
+  it('does NOT persist sessionGrants (session-lived)', async () => {
     usePermissionPolicyStore.getState().grantSessionCategory('edit');
-    usePermissionPolicyStore.getState().setCategoryPolicy('execute', 'deny');
+    await usePermissionPolicyStore.getState().setCategoryPolicy('execute', 'deny');
 
     const state = readPersistedState();
     // Persisted slice carries policies but never sessionGrants.
@@ -160,10 +158,13 @@ describe('permission-policy-store', () => {
     expect('sessionGrants' in state).toBe(false);
   });
 
-  it('persists enforce, policies, yolo, and perToolOverrides', () => {
-    usePermissionPolicyStore.getState().setEnforce(true);
-    usePermissionPolicyStore.getState().setYolo(true);
-    usePermissionPolicyStore.getState().setToolOverride('brainstrike.tool', 'allow');
+  it('persists enforce, policies, yolo, and perToolOverrides', async () => {
+    const store = usePermissionPolicyStore.getState();
+    await Promise.all([
+      store.setEnforce(true),
+      store.setYolo(true),
+      store.setToolOverride('brainstrike.tool', 'allow'),
+    ]);
 
     const state = readPersistedState();
     expect(state.enforce).toBe(true);
@@ -171,86 +172,33 @@ describe('permission-policy-store', () => {
     expect(state.perToolOverrides).toEqual({ 'brainstrike.tool': 'allow' });
   });
 
-  it('migrate self-heals malformed persisted policies and drops unknown categories', () => {
-    const options = storeWithPersist.persist?.getOptions?.();
-    if (!options?.migrate) {
-      throw new Error('persist migrate unavailable for test');
-    }
-
-    const migrated = options.migrate(
+  it('restoring self-heals malformed persisted policies and drops unknown categories', () => {
+    const restored = restorePersistedPermissionPolicy(
       {
         perToolOverrides: { 'brainstrike.bad': 'maybe', 'brainstrike.ok': 'deny' },
         policies: { bogus: 'allow', edit: 'prompt', read: 'allow' },
-        yolo: 'yes',
-      },
-      0
-    ) as {
-      enforce: boolean;
-      policies: Record<string, string>;
-      yolo: boolean;
-      perToolOverrides: Record<string, string>;
-      sessionGrants: Set<string>;
-    };
-
-    // edit:'prompt' is invalid -> default 'ask'; bogus dropped; mcp/execute defaulted.
-    expect(migrated.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
-    // enforce absent from the legacy slice -> adopts the new secure default (ON).
-    expect(migrated.enforce).toBe(true);
-    // yolo:'yes' is not a boolean -> false.
-    expect(migrated.yolo).toBe(false);
-    // invalid override dropped, valid kept.
-    expect(migrated.perToolOverrides).toEqual({ 'brainstrike.ok': 'deny' });
-    // sessionGrants always start empty after rehydration.
-    expect(migrated.sessionGrants.size).toBe(0);
-  });
-
-  it('sanitizes malformed current-version policy data without dropping session grants', async () => {
-    const options = storeWithPersist.persist?.getOptions?.();
-    if (
-      !(
-        options?.storage &&
-        options.name &&
-        options.version !== undefined &&
-        storeWithPersist.persist?.rehydrate
-      )
-    ) {
-      throw new Error('persist storage unavailable for test');
-    }
-
-    usePermissionPolicyStore.getState().grantSessionCategory('read');
-    await options.storage.setItem(options.name, {
-      state: {
-        enforce: 0,
-        perToolOverrides: {
-          'brainstrike.bad': 'maybe',
-          'brainstrike.ok': 'deny',
-        },
-        policies: { bogus: 'allow', edit: 'prompt', read: 'deny' },
         sessionGrants: ['execute'],
         yolo: 'yes',
       },
-      version: options.version,
-    });
+      0
+    );
 
-    await storeWithPersist.persist.rehydrate();
-
-    const state = usePermissionPolicyStore.getState();
-    expect(state.enforce).toBe(true);
-    expect(state.policies).toEqual({
-      edit: 'ask',
-      execute: 'ask',
-      mcp: 'allow',
-      read: 'deny',
-    });
-    expect(state.perToolOverrides).toEqual({ 'brainstrike.ok': 'deny' });
-    expect(state.yolo).toBe(false);
-    expect(state.sessionGrants).toEqual(new Set(['read']));
+    // edit:'prompt' is invalid -> default 'ask'; bogus dropped; mcp/execute defaulted.
+    expect(restored.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
+    // enforce absent from the legacy slice -> adopts the new secure default (ON).
+    expect(restored.enforce).toBe(true);
+    // yolo:'yes' is not a boolean -> false.
+    expect(restored.yolo).toBe(false);
+    // invalid override dropped, valid kept.
+    expect(restored.perToolOverrides).toEqual({ 'brainstrike.ok': 'deny' });
+    // session grants are never restored.
+    expect('sessionGrants' in restored).toBe(false);
   });
 
-  it('reset clears both in-memory state and persisted storage', () => {
-    usePermissionPolicyStore.getState().setEnforce(false);
-    usePermissionPolicyStore.getState().setYolo(true);
-    usePermissionPolicyStore.getState().grantSessionCategory('edit');
+  it('reset clears both in-memory state and persisted storage', async () => {
+    const store = usePermissionPolicyStore.getState();
+    await Promise.all([store.setEnforce(false), store.setYolo(true)]);
+    store.grantSessionCategory('edit');
     expect(window.localStorage.getItem(STORE_KEY)).not.toBeNull();
 
     __resetPermissionPolicyStoreForTests();
@@ -261,46 +209,27 @@ describe('permission-policy-store', () => {
     expect(state.yolo).toBe(false);
     expect(state.sessionGrants.size).toBe(0);
     expect(state.policies).toEqual({ edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' });
-    // clearStorage() wipes the prior slice; the subsequent default setState
-    // re-persists the DEFAULT posture (not the customized one).
-    const persisted = readPersistedState();
-    expect(persisted.enforce).toBe(true);
-    expect(persisted.yolo).toBe(false);
-    expect(persisted.policies).toEqual({
-      edit: 'ask',
-      execute: 'ask',
-      mcp: 'allow',
-      read: 'allow',
-    });
-    expect(persisted.perToolOverrides).toEqual({});
+    await vi.waitFor(() => expect(window.localStorage.getItem(STORE_KEY)).toBeNull());
   });
 
-  it('migrate adopts the secure default (enforce:true) for a PRE-V2 enforce:false slice', () => {
-    const options = storeWithPersist.persist?.getOptions?.();
-    if (!options?.migrate) {
-      throw new Error('persist migrate unavailable for test');
-    }
+  it('restoring adopts the secure default (enforce:true) for a PRE-V2 enforce:false slice', () => {
     // Under v1, `false` was the OLD DEFAULT (always written), indistinguishable
     // from an opt-out — a security fix adopts the secure default for pre-v2.
-    const migrated = options.migrate(
+    const restored = restorePersistedPermissionPolicy(
       { enforce: false, policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' } },
       1
-    ) as { enforce: boolean };
-    expect(migrated.enforce).toBe(true);
+    );
+    expect(restored.enforce).toBe(true);
   });
 
-  it('migrate preserves an explicit V2+ persisted enforce:false (post-default-on opt-out)', () => {
-    const options = storeWithPersist.persist?.getOptions?.();
-    if (!options?.migrate) {
-      throw new Error('persist migrate unavailable for test');
-    }
+  it('restoring preserves an explicit V2+ persisted enforce:false (post-default-on opt-out)', () => {
     // A v2 slice with enforce:false is a real opt-out made AFTER enforce went on
     // by default, so it is honored verbatim.
-    const migrated = options.migrate(
+    const restored = restorePersistedPermissionPolicy(
       { enforce: false, policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' } },
       2
-    ) as { enforce: boolean };
-    expect(migrated.enforce).toBe(false);
+    );
+    expect(restored.enforce).toBe(false);
   });
 });
 
@@ -309,11 +238,14 @@ describe('buildPermissionToolGateSnapshotInput / getPermissionToolGateSnapshotIn
     __resetPermissionPolicyStoreForTests();
   });
 
-  it('produces the serializable gate-input shape from store state (sessionGrants as array)', () => {
-    usePermissionPolicyStore.getState().setEnforce(true);
-    usePermissionPolicyStore.getState().setCategoryPolicy('edit', 'deny');
-    usePermissionPolicyStore.getState().setToolOverride('brainstrike.tool', 'allow');
-    usePermissionPolicyStore.getState().grantSessionCategory('execute');
+  it('produces the serializable gate-input shape from store state (sessionGrants as array)', async () => {
+    const store = usePermissionPolicyStore.getState();
+    await Promise.all([
+      store.setEnforce(true),
+      store.setCategoryPolicy('edit', 'deny'),
+      store.setToolOverride('brainstrike.tool', 'allow'),
+    ]);
+    store.grantSessionCategory('execute');
 
     const input = getPermissionToolGateSnapshotInput();
 
