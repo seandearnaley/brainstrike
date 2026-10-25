@@ -1,12 +1,9 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserIpcHandlers } from '../../browser-ipc-handlers';
-import type { CommandSessionIpcHandlers } from '../../command-session-ipc-handlers';
 import { registerBrowserIpcHandlers } from '../../ipc-browser';
 import { registerShellIpcHandlers } from '../../ipc-shell';
 import type { ShellIpcHandlers } from '../../ipc-shell-handlers';
-import { registerTerminalIpc } from '../../ipc-terminal';
-import { registerTerminalIpcHandlers, type TerminalIpcHandlers } from '../../terminal-ipc-handlers';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createAllowlistedSenderFrame,
@@ -14,8 +11,6 @@ import {
   trackTestWindowRole,
 } from '../helpers/desktop-ipc-sender-test-helpers';
 import { mockIpcMain, resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
-
-vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 
 /**
  * BST-1641: every channel these registrars own must be sender-authorized
@@ -25,8 +20,6 @@ vi.mock('node-pty', () => ({ spawn: vi.fn() }));
  * hidden-sender rejection below instead of slipping past a stale allowlist.
  */
 interface PrivilegedDomainCase {
-  /** Channels a sibling registrar registers in the same call (asserted present, exercised under their own case). */
-  readonly alsoRegisters?: readonly string[];
   readonly channels: readonly string[];
   readonly domain: string;
   readonly register: (stub: () => unknown) => () => void;
@@ -49,51 +42,7 @@ function createRecordingStub<T extends object>(): {
   return { calls, stub };
 }
 
-function contractDomainInvokeArgs(channel: string): readonly unknown[] {
-  switch (channel) {
-    case 'terminal:create':
-    case 'command-sessions:list':
-      return [{ rootId: 'r1' }];
-    case 'terminal:write':
-      return [{ data: 'pwd\n', terminalId: 'terminal-1' }];
-    case 'terminal:resize':
-      return [{ cols: 80, rows: 24, terminalId: 'terminal-1' }];
-    case 'terminal:destroy':
-      return [{ terminalId: 'terminal-1' }];
-    case 'command-sessions:read':
-    case 'command-sessions:remove':
-    case 'command-sessions:stop':
-      return [{ rootId: 'r1', sessionId: 'session-1' }];
-    case 'command-sessions:write':
-      return [{ data: 'continue', rootId: 'r1', sessionId: 'session-1' }];
-    default:
-      return [{ rootId: 'r1' }];
-  }
-}
-
 const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
-  {
-    channels: ['terminal:create', 'terminal:write', 'terminal:resize', 'terminal:destroy'],
-    domain: 'terminal',
-    register: (stub) => registerTerminalIpcHandlers(stub() as TerminalIpcHandlers),
-  },
-  {
-    alsoRegisters: ['terminal:create', 'terminal:write', 'terminal:resize', 'terminal:destroy'],
-    channels: [
-      'command-sessions:list',
-      'command-sessions:read',
-      'command-sessions:write',
-      'command-sessions:stop',
-      'command-sessions:remove',
-    ],
-    domain: 'commandSessions',
-    register: (stub) =>
-      registerTerminalIpc(
-        stub() as Parameters<typeof registerTerminalIpc>[0],
-        stub() as TerminalIpcHandlers,
-        stub() as CommandSessionIpcHandlers
-      ),
-  },
   {
     channels: ['shell:show-item-in-folder', 'shell:open-path', 'shell:open-external'],
     domain: 'shell',
@@ -142,11 +91,11 @@ describe('privileged desktop IPC domains are visible-UI-only (BST-1641)', () => 
     }
   });
 
-  describe.each(DOMAIN_CASES)('$domain', ({ alsoRegisters = [], channels, register }) => {
+  describe.each(DOMAIN_CASES)('$domain', ({ channels, register }) => {
     it('registers exactly the expected invoke channels', () => {
       const { stub } = createRecordingStub();
       const dispose = register(() => stub);
-      expect(registeredChannels().sort()).toEqual([...channels, ...alsoRegisters].sort());
+      expect(registeredChannels().sort()).toEqual([...channels].sort());
       dispose();
     });
 
@@ -155,9 +104,7 @@ describe('privileged desktop IPC domains are visible-UI-only (BST-1641)', () => 
       const dispose = register(() => stub);
       const event = createTrustedInvokeEvent('visible-ui', VISIBLE_SENDER_ID);
 
-      await expect(
-        registeredHandler(channel)(event, ...contractDomainInvokeArgs(channel))
-      ).resolves.toEqual({
+      await expect(registeredHandler(channel)(event, { rootId: 'r1' })).resolves.toEqual({
         ok: true,
       });
       expect(calls).toHaveBeenCalledTimes(1);

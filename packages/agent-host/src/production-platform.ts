@@ -161,6 +161,8 @@ export interface ProductionHostPlatformOptions {
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
+  /** ADR-0029 stage 3: the desktop's Terminal panel. */
+  readonly terminals?: HostPlatform['terminals'];
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
   /** ADR-0029 stage 2: skills and user slash commands on the live roots. */
   readonly workspaceDiscovery?: HostPlatform['workspaceDiscovery'];
@@ -285,6 +287,7 @@ type ProductionClientService =
   | 'mcpPresentation'
   | 'mcpSettings'
   | 'providers'
+  | 'terminals'
   | 'workspaceDiscovery';
 /** The services clients call on the host directly; each is absent where the platform has none. */
 function productionClientServices(
@@ -297,6 +300,7 @@ function productionClientServices(
     ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),
     ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
+    ...(options.terminals ? { terminals: options.terminals } : {}),
     ...(options.workspaceDiscovery ? { workspaceDiscovery: options.workspaceDiscovery } : {}),
   };
 }

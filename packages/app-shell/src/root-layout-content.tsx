@@ -188,7 +188,7 @@ export interface RootLayoutContentProps {
   readonly stateHealth?: StateHealthCapability | null;
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
-   * when the `window.terminal` bridge is present; web never constructs it
+   * when its agent host provides a terminal bridge; web never constructs it
    * (capability gating, not an isElectron check). Registered as a closable
    * singleton workspace app tab (BST-1270); when absent, no Terminal tab,
    * launcher card, or "+"-menu entry renders at all.

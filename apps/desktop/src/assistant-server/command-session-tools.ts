@@ -19,13 +19,12 @@ import {
   type CommandSessionManager,
   type CommandSessionRead,
   type ExitedCommandSession,
-  getDesktopCommandSessionManager,
   type RunningCommandSession,
 } from './command-session-manager';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 export interface CommandSessionToolDependencies {
-  readonly manager?: CommandSessionManager;
+  readonly manager: CommandSessionManager;
   /** Start sessions in the run's own admitted roots rather than the manager's resolver. */
   readonly rootsFromRuntime?: boolean;
 }
@@ -353,10 +352,6 @@ export const MANAGE_COMMAND_SESSION_TRANSFORM: CommandSessionPayloadTransform = 
   ),
 };
 
-function resolveManager(dependencies: CommandSessionToolDependencies): CommandSessionManager {
-  return dependencies.manager ?? getDesktopCommandSessionManager();
-}
-
 function resolveRootId(runtimeData: RuntimeData | undefined, root: string | undefined): string {
   return resolveWorkspaceRoot(runtimeData, root).rootId;
 }
@@ -368,9 +363,9 @@ function unsupportedOperation(operation: never): never {
 export function runInspectCommandSessions(
   input: InspectCommandSessionsInput,
   runtimeData: RuntimeData | undefined,
-  dependencies: CommandSessionToolDependencies = {}
+  dependencies: CommandSessionToolDependencies
 ): InspectCommandSessionsResult {
-  const manager = resolveManager(dependencies);
+  const { manager } = dependencies;
   const rootId = resolveRootId(runtimeData, input.root);
   if (input.operation.action === 'list') {
     // Offsets are best-effort over the live, mutable in-memory session inventory.
@@ -391,9 +386,9 @@ export async function runManageCommandSession(
   dependencies: CommandSessionToolDependencies & {
     readonly signal?: AbortSignal;
     readonly executionThreadId?: string | undefined;
-  } = {}
+  }
 ): Promise<ManageCommandSessionResult> {
-  const manager = resolveManager(dependencies);
+  const { manager } = dependencies;
   const rootId = resolveRootId(runtimeData, input.root);
   const operation = input.operation;
   if (operation.action === 'start') {

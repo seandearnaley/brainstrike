@@ -283,10 +283,8 @@ let nextRecordingWindowId = 1;
  * `BrowserWindow.getAllWindows()` (`ipc-mcp.ts`, `mcp/lifecycle-control.ts`,
  * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-broadcast.ts` and
  * eight sites in `main.ts`), and every one is a `for (const window of …)` loop.
- * That is not every send site in the app (BST-1624). `terminal-ipc-handlers.ts`
- * sends to a `WebContents` held in its own live-terminal registry, so it never
- * consults the listing and this harness has nothing to say about it. Check the
- * call site rather than the file: `chunking-host-manager.ts` DOES reach
+ * That is not every send site in the app (BST-1624). Check the call site
+ * rather than the file: `chunking-host-manager.ts` DOES reach
  * `getAllWindows()` despite reading as
  * point-to-point, and `renderer-host-lifecycle.ts` and the mcp bridges iterate
  * the separate `getTrackedWindowsByRole('visible-ui')` registry.

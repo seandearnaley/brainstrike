@@ -61,6 +61,7 @@ import type {
 import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol-git-workspace.ts';
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
+import type { TERMINAL_METHOD_SCHEMAS, TerminalEvent } from './protocol-terminals.ts';
 import type { HostStateSearch, HostStateSearchVectors } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -627,6 +628,35 @@ export type HostGitWorkspace = HostGitWorkspaceMethods & {
   subscribe(listener: (event: GitWorkspaceEvent) => void): () => void;
 };
 
+type HostTerminalWireMethod = keyof typeof TERMINAL_METHOD_SCHEMAS;
+export type HostTerminalMethod = Extract<HostTerminalWireMethod, `terminal/${string}`>;
+export type HostCommandSessionMethod = Extract<
+  HostTerminalWireMethod,
+  `command-sessions/${string}`
+>;
+
+export type HostTerminalSessionMethods = {
+  readonly [M in HostTerminalMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+export type HostCommandSessionMethods = {
+  readonly [M in HostCommandSessionMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+
+/** One client's terminals: their events go only to it, and they end when it closes. */
+export type HostTerminalSession = HostTerminalSessionMethods & {
+  /** Ends every terminal this client started and joins their exits. */
+  close(): Promise<void>;
+};
+
+/**
+ * ADR-0029 stage 3: the Terminal panel's interactive terminals and the
+ * inventory of the command sessions the host's runs start.
+ */
+export type HostTerminals = HostCommandSessionMethods & {
+  /** Opens one client's terminals; each of their events goes to `send`. */
+  open(send: (event: TerminalEvent) => void): HostTerminalSession;
+};
+
 /** Core's reads of its threads, for a platform service that asks which runs are live. */
 export interface HostThreadReads {
   listThreads(): HostResults['thread/list']['threads'];
@@ -818,6 +848,8 @@ export interface HostPlatform {
   ): readonly HostProjectionRewrite[];
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
+  /** The desktop's Terminal panel; absent where no window opens terminals (the CLI). */
+  readonly terminals?: HostTerminals;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;

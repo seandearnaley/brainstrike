@@ -8,6 +8,7 @@ import {
   stubWorktreesBridge,
   workspaceGitWrapper,
 } from '../../__tests__/helpers/workspace-git-services-wrapper';
+import { TerminalHost } from '../../__tests__/helpers/workspace-terminal-services-wrapper';
 
 const useWorktreeMapMock = vi.fn();
 vi.mock('../use-worktree-map', () => ({ useWorktreeMap: () => useWorktreeMapMock() }));
@@ -27,11 +28,6 @@ vi.mock('../../stores/terminal-target-store', () => ({
       selector({ openTerminalAt: openTerminalAtMock }),
     { getState: () => ({ openTerminalAt: openTerminalAtMock }) }
   ),
-}));
-
-let mockTerminalAvailable = true;
-vi.mock('../../terminal-panel/terminal-bridge', () => ({
-  isTerminalBridgeAvailable: () => mockTerminalAvailable,
 }));
 
 // The context the surface resolves for itself. Distinct mocks per action so a
@@ -112,9 +108,11 @@ function Surface() {
   );
   return (
     <WorktreesHost>
-      <AssistantThreadHostContext.Provider value={host}>
-        <WorktreeMapSurface />
-      </AssistantThreadHostContext.Provider>
+      <TerminalHost>
+        <AssistantThreadHostContext.Provider value={host}>
+          <WorktreeMapSurface />
+        </AssistantThreadHostContext.Provider>
+      </TerminalHost>
     </WorktreesHost>
   );
 }
@@ -192,7 +190,6 @@ describe('WorktreeMapSurface', () => {
     }
     useIndexConfigStore.setState({ update: updateIndexConfigMock.mockResolvedValue(undefined) });
     mockSelectedThreadByResourceId = {};
-    mockTerminalAvailable = true;
     addRootDirectoryByPathMock.mockResolvedValue({ kind: 'directory', name: 'wt' });
     adoptMock.mockResolvedValue({ ok: true, value: {} });
     archiveMock.mockResolvedValue({ ok: true, value: {} });
@@ -969,8 +966,8 @@ describe('WorktreeMapSurface', () => {
   });
 
   it('omits Open in Terminal entirely when the platform has no terminal bridge', async () => {
-    mockTerminalAvailable = false;
-    render(<Surface />);
+    // No terminal provider in the tree, as on web.
+    render(<WorktreeMapSurface />, { wrapper: WorktreesHost });
 
     await userEvent.click(screen.getByTestId('worktree-map-card-actions'));
 

@@ -7,10 +7,7 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import {
-  clearReadWorkspaceFileCursorRegistry,
-  disposeLiveChildProcesses,
-} from '@brainstrike/host-capabilities/native-tools';
+import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import {
   addLogListener,
   createLogger,
@@ -31,11 +28,6 @@ import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspa
 import { restartLaunchedAgentHost } from './agent-host-restart';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
-import {
-  configureDesktopCommandSessionManager,
-  disposeDesktopCommandSessions,
-} from './assistant-server/command-session-manager';
-import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import { hasHostRunInWorktree } from './assistant-server/worktree-host-activity';
@@ -137,7 +129,6 @@ import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
-import { registerTerminalIpc } from './ipc-terminal';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
@@ -182,7 +173,6 @@ import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
-import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
 import { getWindowRole, resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
@@ -403,22 +393,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       }
     },
     steps: {
-      'child-processes': async () => {
-        // Every reaper settles in one batch: a hung or rejected one must never
-        // prevent shell, terminal, command-session or LSP cleanup.
-        const results = await Promise.allSettled([
-          Promise.resolve().then(disposeLiveChildProcesses),
-          Promise.resolve().then(disposeAllTerminals),
-          Promise.resolve().then(disposeDesktopCommandSessions),
-          Promise.resolve().then(disposeLspServers),
-        ]);
-        const causes = results.flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : []
-        );
-        if (causes.length > 0) {
-          throw new AggregateError(causes, 'Child process shutdown cleanup failed');
-        }
-      },
       // Stops everything that issues database work. It does NOT close the
       // database: that is `closeDatabase` below, a slice that always runs.
       'database-drain': () => {
@@ -621,34 +595,6 @@ const handleResetLocal = createDesktopFactoryResetHandler({
         return Promise.resolve();
       },
     },
-    // Reap any shell command the assistant left running so a factory reset is a
-    // true fresh start with no orphaned subprocess surviving the wipe.
-    {
-      name: 'shell-children',
-      stop: async () => {
-        await disposeLiveChildProcesses();
-      },
-    },
-    // Reap any live terminal pty so a factory reset is a true fresh start with
-    // no orphaned interactive shell surviving the wipe.
-    {
-      name: 'terminals',
-      stop: async () => {
-        await disposeAllTerminals();
-      },
-    },
-    // Reap persistent assistant command sessions and clear retained output so
-    // reset leaves no process or in-memory session inventory behind.
-    {
-      name: 'command-sessions',
-      stop: disposeDesktopCommandSessions,
-    },
-    // Reap any pooled LSP language-server child processes (report R2) so a
-    // factory reset is a true fresh start with no orphaned server surviving.
-    {
-      name: 'lsp-servers',
-      stop: () => disposeLspServers(),
-    },
     {
       name: 'read-workspace-file-cursors',
       stop: clearReadWorkspaceFileCursorRegistry,
@@ -706,9 +652,6 @@ const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(() =>
   nativeIndexActivation.acquireProfile()
 );
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
-configureDesktopCommandSessionManager({
-  resolver: createWorkspaceRootResolver(workspaceRootCatalog),
-});
 const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
   embeddingHostManager,
   getRootsCatalog: async () => workspaceRootCatalog,
@@ -1026,7 +969,6 @@ ipcDisposers.add(
   'user-personas',
   registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)
 );
-ipcDisposers.add('terminal', registerTerminalIpc(workspaceRootCatalog));
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
