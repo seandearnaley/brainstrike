@@ -242,11 +242,24 @@ it('refuses unowned roots and a different root during failed cleanup', async () 
   expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
 });
 
-it('refuses a writer whose acknowledged scope no longer owns the captured root', async () => {
+it('deletes and disconnects a folder the index does not own, then reopens admission', async () => {
   const f = fixture();
-  f.authority.scopes.length = 0;
-  await expect(f.service.deleteRootData('root')).rejects.toThrow(/scope/);
-  expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
+  f.authority.rootIds = ['other'];
+  f.authority.scopes = [{ embeddingSetId: 'collection', kind: 'collection' }];
+  f.authority.fileBindings = f.authority.fileBindings.filter(({ rootId }) => rootId !== 'root');
+  await f.service.deleteRootData('root');
+  expect(f.removeScopedFile).not.toHaveBeenCalled();
+  expect(f.events).toEqual([
+    'sources-readers-inference-joined',
+    'root-sources-joined',
+    'writer-exited',
+    'pg-cascade',
+    'disconnect',
+    'release',
+    'resume',
+    'acquire',
+  ]);
+  await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
 });
 
 it('uses final acknowledged bindings after admitted work joins, including late rooted membership', async () => {
