@@ -2,11 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ProcessCounterRing } from '../../diagnostics/process-counter-ring';
 import { createProcessCounterSampler } from '../../diagnostics/process-counter-sampler';
 import { installWebAssemblyCounter } from '../../diagnostics/webassembly-counter';
-import {
-  createDesktopGracefulShutdown,
-  type DesktopShutdownStepName,
-  type DesktopShutdownStepRun,
-} from '../../main/desktop-graceful-shutdown';
+import { createDesktopGracefulShutdown } from '../../main/desktop-graceful-shutdown';
 
 function createObservation() {
   const target = Object.create(WebAssembly) as typeof WebAssembly;
@@ -46,33 +42,26 @@ describe('Main process sampler owner composition', () => {
       const exit = vi.fn();
       const closeLog = vi.fn();
       const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
-      const steps: Record<DesktopShutdownStepName, DesktopShutdownStepRun> = {
-        'database-drain': () => {},
-        'embedding-host': () => {},
-        'factory-reset': () => {},
-        'file-system': () => {},
-        'main-catalog': () => {},
-        'mcp-runtime': () => {},
-        'native-index': () => {},
-        renderers: () => {},
-      };
-      steps['native-index'] = () => {
-        if (failEarlierOwner) {
-          throw new Error('Recorded native owner retirement failure');
-        }
-      };
-      steps['database-drain'] = () => sampler.stop();
       const shutdown = createDesktopGracefulShutdown({
         exitProcess: exit,
         logger,
         markShuttingDown: vi.fn(),
         planRun: () => ({
-          closeDatabase: async () => {
-            enteredClose.resolve();
-            await releaseClose.promise;
-          },
           closeErrorLogSink: closeLog,
-          steps,
+          'factory-reset': () => undefined,
+          owners: {
+            // The agent host's close is still in flight while the sampler has stopped.
+            'native-index': async () => {
+              enteredClose.resolve();
+              await releaseClose.promise;
+            },
+            'process-sampler': () => sampler.stop(),
+          },
+          renderers: () => {
+            if (failEarlierOwner) {
+              throw new Error('Recorded renderer close failure');
+            }
+          },
         }),
         retireBackgroundAdmission: vi.fn(),
       });

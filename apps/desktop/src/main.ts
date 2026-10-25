@@ -355,26 +355,11 @@ function reloadVisibleDocument(window: BrowserWindow, reason: string, source: 'm
 
 let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
 
-// One shutdown run's step BODIES, built when the run starts so they capture
-// its state. They live here beside the module state they read and clear. The
-// keys are sorted, not ordered: the run ORDER, failure isolation and logs are
-// `main/desktop-graceful-shutdown.ts`'s
-// `DESKTOP_SHUTDOWN_STEP_ORDER`, which is where a new step is ordered.
+// One quit run's step BODIES, built when the run starts so they capture its
+// state. They live here beside the module state they read and clear; the run
+// itself, its failure isolation and its logs are `main/desktop-graceful-shutdown.ts`'s.
 function planDesktopShutdownRun(): DesktopShutdownRunPlan {
-  let embeddingRetirement: Promise<void> | undefined;
-  const retireEmbeddings = (): Promise<void> => {
-    if (!embeddingRetirement) {
-      embeddingRetirement = embeddingHostManager.dispose();
-      // The later named step reports this same retained outcome.
-      embeddingRetirement.catch(() => undefined);
-    }
-    return embeddingRetirement;
-  };
   return {
-    // `desktop-graceful-shutdown.ts` runs it after every ordered step settled.
-    // `database-drain` has already stopped what issues database work, so this
-    // is the host close alone.
-    closeDatabase: () => nativeIndexActivation.close(),
     // Runs last, after the aggregate failure warn (the shutdown module logs
     // it first): the durable NDJSON file is the last writer standing, so it
     // stays open to capture every earlier failure. The handle is nulled from
@@ -389,66 +374,61 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         errorLogSink = null;
       }
     },
-    steps: {
-      // Stops everything that issues database work. It does NOT close the
-      // database: that is `closeDatabase` below, a slice that always runs.
-      'database-drain': () => {
-        processCounterSampler.stop();
-      },
-      'embedding-host': () => retireEmbeddings(),
-      // Finish accepted deletion; terminal quit cancels replacement startup.
-      'factory-reset': () => handleResetLocal.close(),
+    // Finish accepted deletion; terminal quit cancels replacement startup.
+    'factory-reset': () => handleResetLocal.close(),
+    owners: {
+      'embedding-host': () => embeddingHostManager.dispose(),
       'file-system': () => applicationIpcDomain.close(),
       'main-catalog': () =>
         prepareMainCatalogClose(applicationIpcDomain.roots, workspaceRootCatalog),
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
+      // The agent host: its stdin ends, a 5 s grace, then a kill.
       'native-index': async () => {
-        // Fence profile admission before joining the renderer's in-flight host connect:
-        // a host start that fails during shutdown is then never retried as a second host.
-        const nativeRetirement = nativeIndexActivation.close();
-        void retireEmbeddings();
-        await nativeRetirement;
+        await nativeIndexActivation.close();
         await agentHostClientIpc.close();
       },
-      // before-quit postpones Electron's own window close. Join the renderer
-      // producers first, while their DB/chunking/assistant dependencies still
-      // live. Hidden renderer hosts must retain command listeners until their
-      // own stop. Every window is joined to `closed`: a renderer that cannot
-      // answer is destroyed by its own ladder, never abandoned (ADR-0026).
-      renderers: async () => {
-        // The admitted reset has joined. Fence new profile work while an
-        // initial load finishes, before closing the window it is creating.
-        nativeIndexActivation.fenceTerminal();
-        await initialWindowCreation;
-        const windows = BrowserWindow.getAllWindows();
-        const preparations = await Promise.allSettled(
-          windows
-            .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
-            .map((window) => prepareDocumentUnload(window))
-        );
-        // Prepared or not, quit closes them: past the user-close interception.
-        for (const window of windows) {
-          admitDocumentClose(window);
-        }
-        const closes = await Promise.allSettled([
-          closeDesktopRenderers(windows, (window) => embeddingHostManager.isHostWindow(window)),
-        ]);
-        const rejections = [...preparations, ...closes].flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : []
-        );
-        // A renderer that a signal to Main's process group ended is retired, not failed (BST-2285).
-        const retired = rejections.filter(isExpectedShutdownRefusal);
-        if (retired.length > 0) {
-          logger.info('Renderers ended before acknowledging their producers; retired', {
-            errors: retired,
-          });
-        }
-        const failures = rejections.filter((error) => !isExpectedShutdownRefusal(error));
-        if (failures.length > 0) {
-          throw new AggregateError(failures, 'Desktop renderer producers failed to close');
-        }
+      'process-sampler': () => {
+        processCounterSampler.stop();
       },
+    },
+    // before-quit postpones Electron's own window close. Join the renderer
+    // producers before the owners close, while their DB/chunking/assistant
+    // dependencies still live. Hidden renderer hosts must retain command listeners until their
+    // own stop. Every window is joined to `closed`: a renderer that cannot
+    // answer is destroyed by its own ladder, never abandoned (ADR-0026).
+    renderers: async () => {
+      // The admitted reset has joined. Fence new profile work while an
+      // initial load finishes, before closing the window it is creating.
+      nativeIndexActivation.fenceTerminal();
+      await initialWindowCreation;
+      const windows = BrowserWindow.getAllWindows();
+      const preparations = await Promise.allSettled(
+        windows
+          .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
+          .map((window) => prepareDocumentUnload(window))
+      );
+      // Prepared or not, quit closes them: past the user-close interception.
+      for (const window of windows) {
+        admitDocumentClose(window);
+      }
+      const closes = await Promise.allSettled([
+        closeDesktopRenderers(windows, (window) => embeddingHostManager.isHostWindow(window)),
+      ]);
+      const rejections = [...preparations, ...closes].flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      // A renderer that a signal to Main's process group ended is retired, not failed (BST-2285).
+      const retired = rejections.filter(isExpectedShutdownRefusal);
+      if (retired.length > 0) {
+        logger.info('Renderers ended before acknowledging their producers; retired', {
+          errors: retired,
+        });
+      }
+      const failures = rejections.filter((error) => !isExpectedShutdownRefusal(error));
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'Desktop renderer producers failed to close');
+      }
     },
   };
 }

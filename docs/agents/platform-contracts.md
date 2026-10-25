@@ -67,15 +67,14 @@ closing mounted capabilities (BST-2251). Read errors remain owned by their calle
 
 ## Graceful shutdown ownership
 
-Quit is one ordered, joined retirement with no global deadline
-([ADR-0026](../adr/0026-lifecycle-readiness-liveness-joined-quit.md) R4, as amended
-by [ADR-0027](../adr/0027-canonical-electron-quit.md)). Main runs
-`DESKTOP_SHUTDOWN_STEP_ORDER` once as plain ordered awaits, each step until it settles,
-then the database close, then exits 0. A failed step is recorded and the next step
-still runs. A slow step is waited for, never abandoned, so a later physical join is
-never skipped; its duration is in the completion record. Only an orchestration that breaks before its
-steps can run exits 1. The sequence is finite because each owner's close is a bounded
-ladder it owns, not because a clock gives up on it.
+Quit is one joined retirement with no global deadline
+([ADR-0031](../adr/0031-canonical-process-model.md)). Main finishes a content clear
+in flight, then the visible renderers flush their durable writers and close while
+the agent host still serves them. Then every other owner closes together, the agent
+host included: none waits on another, because the host closes at the end of its
+stdin whatever Main has closed. Main then exits 0. A failed step is recorded and the
+rest still run. A slow step is waited for, never abandoned; its duration is in the
+completion record. Only an orchestration that breaks before its steps can run exits 1.
 
 A timeout on this path may only escalate a cooperative close of a child Main owns to
 a kill Main owns, after which the exit or `closed` is still joined (R5(b)); each such
@@ -86,8 +85,9 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
   it; either way its `closed` is joined before the preparation reports the failure.
   The window close that follows overrides a page's beforeunload veto and destroys a
   renderer that crashes or hangs mid-close: app-owned quit is terminal.
-- The agent host is asked to close and its exit joined; after 30 s Main calls
-  `kill()` and joins the exit. A content clear is never killed: its deletion
+- The agent host's stdin ends and its exit is joined; after 5 s Main kills it
+  and joins the exit. On POSIX, Main then SIGKILLs every command process group the
+  host reported and has not seen end. A content clear is never killed: its deletion
   completes under the lease, whose exit is joined without a rung.
 - Hidden renderer hosts are destroyed and their `closed` joined.
 

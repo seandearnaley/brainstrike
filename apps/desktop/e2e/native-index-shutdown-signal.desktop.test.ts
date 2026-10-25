@@ -210,7 +210,7 @@ async function signalAfterScan(
   );
   expect(reports).toHaveLength(1);
   expect(reports[0]?.map((step) => step.step)).toEqual(
-    expect.arrayContaining(['renderers', 'native-index', 'embedding-host', 'database-close'])
+    expect.arrayContaining(['renderers', 'native-index', 'embedding-host'])
   );
   expect(reports[0]?.filter((step) => step.failed)).toEqual([]);
 }
