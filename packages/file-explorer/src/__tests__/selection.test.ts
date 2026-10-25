@@ -1,3 +1,4 @@
+import { win32 } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   countSelectedInDirectory,
@@ -85,6 +86,17 @@ describe('file-selection-utils', () => {
       expect(countSelectedInDirectory(selectedPaths, folderId, 'src/components/ui')).toBe(2);
       // Count all under src
       expect(countSelectedInDirectory(selectedPaths, folderId, 'src')).toBe(4);
+    });
+
+    it('counts selected files under a Windows folder by its native separators', () => {
+      const srcPath = win32.join('C:\\mock\\root', 'src');
+      const selectedPaths = [
+        encodeFileSelection(folderId, win32.join(srcPath, 'index.ts')),
+        encodeFileSelection(folderId, win32.join(srcPath, 'nested', 'extra.ts')),
+        encodeFileSelection(folderId, win32.join('C:\\mock\\root', 'src-other', 'a.ts')),
+      ];
+
+      expect(countSelectedInDirectory(selectedPaths, folderId, srcPath)).toBe(2);
     });
   });
 
