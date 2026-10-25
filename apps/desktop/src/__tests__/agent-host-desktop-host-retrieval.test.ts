@@ -7,28 +7,31 @@ import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { embeddingProfileHash } from '@brainstrike/indexer';
 import {
+  type IndexerCoverageBatch,
   type IndexerCoverageRequest,
+  type IndexerGrepRequest,
+  type IndexerSearchRequest,
   type IndexerSearchResult,
   type IndexerStatus,
-  type IndexSearchCapability,
   NO_WORKSPACE_FOLDER_MESSAGE,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { Schema } from 'effect';
 import { expect, test, vi } from 'vitest';
 import { mainPlatformConnection } from '../agent-host-platform/connection';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
+import type { HostRetrieval } from '../agent-host-platform/host-executed-tools';
 import type { MainRequest } from '../agent-host-platform/host-retrieval-clients';
 import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
-import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { UtilityPort } from './fixtures/admitted-host-tools';
 import { mainReads as admissionReads } from './fixtures/desktop-admission-reads';
 
-// The native index and catalog answer the way Main's IndexSearchCapability and
-// PGlite catalog do; only their transport (Main's typed reads) is under test.
+// The native index and catalog answer the way the host's IndexSearchCapability and
+// catalog store do (ADR-0029 stage 4: both are the host's own, read in its process);
+// only the query embedding still crosses to Main.
 const profile = {
   dimensions: 384,
   dtype: 'q8',
@@ -52,7 +55,9 @@ const embedding = {
   // The indexer's own identity rule, never a copy of its formula.
   profileHash: embeddingProfileHash(profile),
 } as const;
-const status: IndexerStatus = {
+/** The native index once its folders are scanned: the status a current coverage read carries. */
+type ReadyIndexerStatus = Extract<IndexerStatus, { readonly kind: 'ready' }>;
+const status: ReadyIndexerStatus = {
   authorizedCollectionIds: ['selected'],
   authorizedRootIds: ['root-a'],
   embedding,
@@ -133,7 +138,7 @@ const otherFileRecord = {
   rootId: 'root-c',
   rootName: 'C',
 };
-/** Main's index over A and C; a search answers the folders it names. */
+/** The host's index over A and C; a search answers the folders it names. */
 const twoFolderIndex = {
   hits: [...result.hits, otherFolderHit],
   status: {
@@ -143,7 +148,7 @@ const twoFolderIndex = {
       { rootId: 'root-a', scanComplete: true },
       { rootId: 'root-c', scanComplete: true },
     ],
-  } as IndexerStatus,
+  } as ReadyIndexerStatus,
 };
 function coverage(scope: IndexerCoverageRequest) {
   const folders = scope.rootIds.length;
@@ -151,62 +156,62 @@ function coverage(scope: IndexerCoverageRequest) {
     embedding,
     roots: scope.rootIds.map((rootId) => ({ ...counts, rootId })),
     storeId: result.storeId,
-    // Main sums its folders' counts.
+    // The index sums its folders' counts.
     totals: { chunks: folders, indexedFiles: folders, missingVectors: 0, vectors: folders },
     vectorCoverageComplete: true,
   };
 }
-/** Main's typed reads for one host thread, as host-tool-services answers them; and the admission's roots. */
-function mainReads(
-  index: { readonly hits: IndexerSearchResult['hits']; readonly status: IndexerStatus } = {
+/** The host's own index and retrieval catalog, answering as the native index does. */
+function hostRetrieval(
+  index: { readonly hits: IndexerSearchResult['hits']; readonly status: ReadyIndexerStatus } = {
     hits: result.hits,
     status,
   },
-  threadRoots: readonly (typeof roots)[number][] = roots
+  catalog: Partial<HostRetrieval['store']> = {}
 ) {
   const scoped = (request: { readonly rootIds: readonly string[] }): IndexerSearchResult => ({
     ...result,
     hits: index.hits.filter((hit) => request.rootIds.includes(hit.rootId ?? '')),
   });
-  return vi.fn(async (method: string, input: unknown): Promise<unknown> => {
-    const { request, threadId } = (input ?? {}) as {
-      request?: unknown;
-      threadId?: string;
-    };
-    // Every index and catalog read names the thread it serves.
-    if (method.startsWith('desktop-read/') && threadId !== 'host-thread') {
-      throw new Error(`Unscoped read ${method}`);
-    }
+  return {
+    indexSearch: {
+      coverage: vi.fn(async (scope: IndexerCoverageRequest) => coverage(scope)),
+      coverageBatch: vi.fn(
+        async (requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch> => {
+          // The index refuses a read naming no folder, as a typed refusal.
+          if (requests.some((scope) => scope.rootIds.length === 0)) {
+            throw refusalError('input', 'native-search.no-folders', NO_WORKSPACE_FOLDER_MESSAGE);
+          }
+          return { coverage: requests.map(coverage), kind: 'current', status: index.status };
+        }
+      ),
+      grep: vi.fn(async (request: IndexerGrepRequest) => scoped(request)),
+      rebuild: vi.fn(() => Promise.reject(new Error('A host read never rebuilds the index'))),
+      search: vi.fn(async (request: IndexerSearchRequest) => scoped(request)),
+      status: vi.fn(async () => index.status),
+    },
+    store: {
+      embeddingSet: vi.fn(catalog.embeddingSet ?? (async () => embeddingSetRow)),
+      embeddingSpaces: vi.fn(catalog.embeddingSpaces ?? (async () => [space])),
+      fileRecords: vi.fn(
+        catalog.fileRecords ??
+          (async (ids: readonly string[]) =>
+            new Map(
+              [fileRecord, otherFileRecord]
+                .filter((row) => ids.includes(row.id))
+                .map((row) => [row.id, row] as const)
+            ))
+      ),
+    },
+  } satisfies HostRetrieval;
+}
+/** The host's Main connection: the admission's roots and the renderer query embedding. */
+function mainRequests(threadRoots: readonly (typeof roots)[number][] = roots) {
+  return vi.fn(async (method: string, _input: unknown): Promise<unknown> => {
     switch (method) {
       case 'admission/fresh-roots':
         return threadRoots;
-      case 'desktop-read/index/status':
-        return index.status;
-      case 'desktop-read/index/search':
-      case 'desktop-read/index/grep':
-        return scoped(request as IndexerCoverageRequest);
-      case 'desktop-read/index/coverage':
-        return coverage(request as IndexerCoverageRequest);
-      case 'desktop-read/index/coverage-batch': {
-        const requests = request as IndexerCoverageRequest[];
-        // Main's index refuses a read naming no folder, as a typed refusal.
-        if (requests.some((scope) => scope.rootIds.length === 0)) {
-          throw refusalError('input', 'native-search.no-folders', NO_WORKSPACE_FOLDER_MESSAGE);
-        }
-        return { coverage: requests.map(coverage), kind: 'current', status: index.status };
-      }
-      // Reads that can refuse answer with an outcome (BST-1996).
-      case 'desktop-read/retrieval/embedding-set':
-        return { ok: true, result: embeddingSetRow };
-      case 'desktop-read/retrieval/file-records':
-        return {
-          ok: true,
-          result: [fileRecord, otherFileRecord].filter((row) =>
-            (request as { readonly ids: readonly string[] }).ids.includes(row.id)
-          ),
-        };
-      case 'desktop-read/retrieval/embedding-spaces':
-        return { ok: true, result: [space] };
+      // A read that can refuse answers with an outcome (BST-1996).
       case 'platform/embedding/query':
         return { ok: true, result: queryVector };
       default:
@@ -214,7 +219,10 @@ function mainReads(
     }
   });
 }
-function hostTools(request: MainRequest): Record<string, HostTool> {
+function hostTools(
+  request: MainRequest,
+  retrieval: HostRetrieval = hostRetrieval()
+): Record<string, HostTool> {
   const descriptor = (id: string) => ({
     description: id,
     identity: id,
@@ -228,6 +236,7 @@ function hostTools(request: MainRequest): Record<string, HostTool> {
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
+    retrieval,
     selected: Schema.decodeUnknownSync(PlatformSelectionSchema, {
       errors: 'all',
       onExcessProperty: 'error',
@@ -292,16 +301,14 @@ function tool(tools: Record<string, HostTool>, name: string): HostTool {
   }
   return found;
 }
-/** Only the admission's roots, Main's typed reads and the renderer query embedding are asked for. */
-function expectOnlyReads(request: ReturnType<typeof mainReads>): void {
+/** Only the admission's roots and the renderer query embedding cross to Main. */
+function expectOnlyReads(request: ReturnType<typeof mainRequests>): void {
   for (const [method] of request.mock.calls) {
-    expect(method).toMatch(
-      /^(admission\/fresh-roots|desktop-read\/(index|retrieval)\/.+|platform\/embedding\/query)$/u
-    );
+    expect(method).toMatch(/^(admission\/fresh-roots|platform\/embedding\/query)$/u);
   }
 }
-test('the desktop host runs queryEmbeddingSpace in its own process over Main’s index reads', async () => {
-  const request = mainReads();
+test('the desktop host runs queryEmbeddingSpace in its own process over its own index', async () => {
+  const request = mainRequests();
   const output = await tool(hostTools(request), 'brainstrike_queryEmbeddingSpace').execute(
     { embeddingSetId: 'selected', query: 'marker' },
     execution()
@@ -314,22 +321,24 @@ test('the desktop host runs queryEmbeddingSpace in its own process over Main’s
   );
   expectOnlyReads(request);
 });
-test('the desktop host runs hybridSearch in its own process over Main’s index reads', async () => {
-  const request = mainReads();
-  const output = await tool(hostTools(request), 'brainstrike_hybridSearch').execute(
+test('the desktop host runs hybridSearch in its own process over its own index', async () => {
+  const request = mainRequests();
+  const retrieval = hostRetrieval();
+  const output = await tool(hostTools(request, retrieval), 'brainstrike_hybridSearch').execute(
     { embeddingSetId: 'selected', query: 'marker' },
     execution()
   );
   expect(output).toMatchObject({
     results: [expect.objectContaining({ filePath: 'a.txt', rootName: 'A' })],
   });
-  expect(request.mock.calls.map(([method]) => method)).toContain('desktop-read/index/grep');
+  expect(retrieval.indexSearch.grep).toHaveBeenCalled();
   expectOnlyReads(request);
 });
 test('hybridSearch without an explicit set searches the native index’s one authorized collection', async () => {
   // Host runs carry no renderer-sent workspace-index set: the native index status names it.
-  const request = mainReads();
-  const output = await tool(hostTools(request), 'brainstrike_hybridSearch').execute(
+  const request = mainRequests();
+  const retrieval = hostRetrieval();
+  const output = await tool(hostTools(request, retrieval), 'brainstrike_hybridSearch').execute(
     { query: 'marker' },
     execution()
   );
@@ -337,11 +346,8 @@ test('hybridSearch without an explicit set searches the native index’s one aut
     results: [expect.objectContaining({ filePath: 'a.txt', rootName: 'A' })],
   });
   // The default came from the index status's one authorized collection.
-  expect(request.mock.calls.map(([method]) => method)).toContain('desktop-read/index/status');
-  expect(request).toHaveBeenCalledWith('desktop-read/retrieval/embedding-set', {
-    request: { embeddingSetId: 'selected' },
-    threadId: 'host-thread',
-  });
+  expect(retrieval.indexSearch.status).toHaveBeenCalled();
+  expect(retrieval.store.embeddingSet).toHaveBeenCalledWith('selected');
   expectOnlyReads(request);
 });
 const folderB = { displayName: 'B', path: '/workspace/b', rootId: 'root-b' };
@@ -349,8 +355,8 @@ test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
   '%s without a folder searches this thread’s indexed folders and names one left out',
   async (name) => {
     // A is indexed; B (say, a worktree not opted in) is not; C is open in the app, not this thread.
-    const request = mainReads(twoFolderIndex, [...roots, folderB]);
-    const output = await tool(hostTools(request), name).execute({ query: 'marker' }, execution());
+    const tools = hostTools(mainRequests([...roots, folderB]), hostRetrieval(twoFolderIndex));
+    const output = await tool(tools, name).execute({ query: 'marker' }, execution());
     expect(JSON.stringify(output)).toContain('Selected A marker');
     expect(JSON.stringify(output)).not.toContain('Other folder C marker');
     expect(output).toMatchObject({
@@ -361,8 +367,8 @@ test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
 test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
   '%s with no folder open in the thread says to add one',
   async (name) => {
-    const request = mainReads(twoFolderIndex, []);
-    const output = await tool(hostTools(request), name).execute({ query: 'marker' }, execution());
+    const tools = hostTools(mainRequests([]), hostRetrieval(twoFolderIndex));
+    const output = await tool(tools, name).execute({ query: 'marker' }, execution());
     expect(output).toEqual(
       refusal(
         name === 'brainstrike_hybridSearch'
@@ -373,9 +379,10 @@ test.each(['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'])(
     );
   }
 );
-test('the desktop host runs listEmbeddingSpaces in its own process over Main’s catalog read', async () => {
+test('the desktop host runs listEmbeddingSpaces in its own process over its own catalog', async () => {
   // The space's stats are its indexed folders' files: A, scanned, and C, still scanning.
-  const request = mainReads({
+  const request = mainRequests();
+  const retrieval = hostRetrieval({
     ...twoFolderIndex,
     status: {
       ...twoFolderIndex.status,
@@ -383,12 +390,12 @@ test('the desktop host runs listEmbeddingSpaces in its own process over Main’s
         { rootId: 'root-a', scanComplete: true },
         { rootId: 'root-c', scanComplete: false },
       ],
-    } as IndexerStatus,
+    } as ReadyIndexerStatus,
   });
-  const output = await tool(hostTools(request), 'brainstrike_listEmbeddingSpaces').execute(
-    { includeStats: true },
-    execution()
-  );
+  const output = await tool(
+    hostTools(request, retrieval),
+    'brainstrike_listEmbeddingSpaces'
+  ).execute({ includeStats: true }, execution());
   expect(output).toMatchObject({
     count: 1,
     spaces: [
@@ -407,42 +414,33 @@ test('the desktop host runs listEmbeddingSpaces in its own process over Main’s
       }),
     ],
   });
-  expect(request).toHaveBeenCalledWith('desktop-read/retrieval/embedding-spaces', {
-    request: { includeStats: true },
-    threadId: 'host-thread',
-  });
+  expect(retrieval.store.embeddingSpaces).toHaveBeenCalledWith({ includeStats: true });
   expectOnlyReads(request);
 });
 test('listEmbeddingSpaces stats with no folder in the index say to add one', async () => {
-  const request = mainReads({
+  const retrieval = hostRetrieval({
     hits: [],
-    status: { ...status, authorizedRootIds: [], rootReadiness: [] } as IndexerStatus,
+    status: { ...status, authorizedRootIds: [], rootReadiness: [] } as ReadyIndexerStatus,
   });
-  const output = await tool(hostTools(request), 'brainstrike_listEmbeddingSpaces').execute(
-    { includeStats: true },
-    execution()
-  );
+  const output = await tool(
+    hostTools(mainRequests(), retrieval),
+    'brainstrike_listEmbeddingSpaces'
+  ).execute({ includeStats: true }, execution());
   expect(output).toEqual(refusal(NATIVE_TOOL_ID.listEmbeddingSpaces, NO_WORKSPACE_FOLDER_MESSAGE));
 });
 const GENERIC_FAILURE = 'The tool did not complete successfully. Try another approach.';
-/** Main's workspace index, answering as the typed reads above do. */
-const mainIndex: IndexSearchCapability = {
-  coverage: async (scope) => coverage(scope),
-  coverageBatch: async (scopes) => ({ coverage: scopes.map(coverage), kind: 'current', status }),
-  grep: async () => result,
-  rebuild: () => Promise.reject(new Error('A host read never rebuilds the index')),
-  search: async () => result,
-  status: async () => status,
-};
+/** Main's embedding host: only its query embedding serves the retrieval tools. */
+function mainEmbedding(queryEmbedding: () => Promise<number[]>) {
+  const unused = () => Promise.reject(new Error('The retrieval tools only query embeddings'));
+  return { destroyAndRestart: unused, documentEmbeddings: unused, queryEmbedding, stop: unused };
+}
 /**
  * Main's real platform server over a real port pair, as the host's connection
- * reaches it in the app. JSON-RPC carries an error's message but never its
+ * reaches it in the app. The index and catalog are the host's own; the query
+ * embedding crosses to Main. JSON-RPC carries an error's message but never its
  * type, so only a refusal Main answers as data can reach the model typed.
  */
-function servedMain(main: {
-  readonly embeddingSpaces?: RetrievalStore['embeddingSpaces'];
-  readonly queryEmbedding?: () => Promise<number[]>;
-}) {
+function servedMain(main: { readonly queryEmbedding?: () => Promise<number[]> }) {
   const channel = new MessageChannel();
   const mainPort = new UtilityPort(channel.port1);
   const hostPort = new UtilityPort(channel.port2);
@@ -450,19 +448,11 @@ function servedMain(main: {
   const client = mainPlatformConnection(hostPort);
   const owner = serveDesktopPlatform(server, {
     admission: admissionReads(),
-    hostTools: {
-      indexSearch: mainIndex,
-      retrievalStore: {
-        embeddingSet: async () => embeddingSetRow,
-        embeddingSpaces: main.embeddingSpaces ?? (async () => [space]),
-        fileRecords: async () => new Map([[fileRecord.id, fileRecord]]),
-      },
-    },
-    localEmbedding: { queryEmbedding: main.queryEmbedding ?? (async () => queryVector) },
+    localEmbedding: mainEmbedding(main.queryEmbedding ?? (async () => queryVector)),
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
   });
   client.listen();
-  // The admission's roots are the host's own; every other read crosses to Main.
+  // The admission's roots are the host's own; the query embedding crosses to Main.
   const request: MainRequest = async (method, input) =>
     method === 'admission/fresh-roots' ? roots : await client.sendRequest(method, input);
   return {
@@ -552,40 +542,33 @@ test.each([
     await main.close();
   }
 });
-test('a refusal Main’s retrieval catalog raises reaches the model verbatim', async () => {
-  const refused = new ToolInputError('Main refused this catalog read; retry without stats.');
-  const main = servedMain({ embeddingSpaces: () => Promise.reject(refused) });
-  try {
-    const output = await tool(main.tools, 'brainstrike_listEmbeddingSpaces').execute(
-      {},
-      execution()
-    );
-    expect(output).toEqual(refusal(NATIVE_TOOL_ID.listEmbeddingSpaces, refused.message));
-  } finally {
-    await main.close();
-  }
+test('a refusal the retrieval catalog raises reaches the model verbatim', async () => {
+  const refused = new ToolInputError('The catalog refused this read; retry without stats.');
+  const retrieval = hostRetrieval(undefined, { embeddingSpaces: () => Promise.reject(refused) });
+  const output = await tool(
+    hostTools(mainRequests(), retrieval),
+    'brainstrike_listEmbeddingSpaces'
+  ).execute({}, execution());
+  expect(output).toEqual(refusal(NATIVE_TOOL_ID.listEmbeddingSpaces, refused.message));
 });
-test('an unexpected Main retrieval catalog fault stays redacted', async () => {
+test('an unexpected retrieval catalog fault stays redacted', async () => {
   const fault = new Error(`relation "embedding_sets" is unreadable: ${LEAK}`);
-  const main = servedMain({ embeddingSpaces: () => Promise.reject(fault) });
-  try {
-    const output = await tool(main.tools, 'brainstrike_listEmbeddingSpaces').execute(
-      {},
-      execution()
-    );
-    expect(output).toEqual({
-      error: {
-        code: 'tool_failed',
-        message: GENERIC_FAILURE,
-        toolName: NATIVE_TOOL_ID.listEmbeddingSpaces,
-      },
-      ok: false,
-    });
-  } finally {
-    await main.close();
-  }
+  const retrieval = hostRetrieval(undefined, { embeddingSpaces: () => Promise.reject(fault) });
+  const output = await tool(
+    hostTools(mainRequests(), retrieval),
+    'brainstrike_listEmbeddingSpaces'
+  ).execute({}, execution());
+  expect(output).toEqual({
+    error: {
+      code: 'tool_failed',
+      message: GENERIC_FAILURE,
+      toolName: NATIVE_TOOL_ID.listEmbeddingSpaces,
+    },
+    ok: false,
+  });
+  expect(JSON.stringify(output)).not.toContain('BST1996LEAK');
 });
-test('Main’s real reads answer the host’s retrieval as in the app', async () => {
+test('Main’s real query embedding answers the host’s retrieval as in the app', async () => {
   const main = servedMain({});
   try {
     const output = await tool(main.tools, 'brainstrike_queryEmbeddingSpace').execute(

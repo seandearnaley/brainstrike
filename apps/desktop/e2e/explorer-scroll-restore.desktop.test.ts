@@ -11,8 +11,8 @@ import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { updateIndexConfig } from './utils/index-config';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { seedRoot } from './utils/seed-root';
 
 let ROOT_DIR: string;
 
@@ -73,28 +73,11 @@ test.describe('Explorer scroll restore', () => {
   }) => {
     test.setTimeout(3 * 60 * 1000);
 
-    await page.evaluate(
-      async ({ root }) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-          }
-        ).electronAPI?.storage;
-        if (!storage?.setItem) {
-          throw new Error('electronAPI.storage.setItem is unavailable');
-        }
-        await storage.setItem('lastFolderPath', root);
-        await storage.setItem(
-          'rootsList',
-          JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId: 'scroll-root-1' }])
-        );
-      },
-      { root: ROOT_DIR }
-    );
-    await updateIndexConfig(page, { paused: true });
-
-    const { reloadRenderer } = await loadElectronHelpers();
-    await reloadRenderer(page, 'scroll-restore-seeded');
+    await seedRoot(page, ROOT_DIR, {
+      disableBackgroundIndexing: true,
+      reloadReason: 'scroll-restore-seeded',
+      rootId: 'scroll-root-1',
+    });
     await expect(page.getByText('file-000.ts').first()).toBeVisible({ timeout: 60_000 });
 
     const scroller = page.locator(SCROLL_SELECTOR).first();
@@ -123,6 +106,7 @@ test.describe('Explorer scroll restore', () => {
     // The capture commits the resting offset through the explorer's durable writer.
     await expect.poll(() => persistedScrollTop(page)).toBe(savedOffset);
 
+    const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'scroll-restore-reloaded');
     await expect(scroller).toBeVisible({ timeout: 60_000 });
 

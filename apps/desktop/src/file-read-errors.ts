@@ -23,15 +23,3 @@ export function createFileReadErrorPayload(
 ): FileReadErrorPayload {
   return { code, message };
 }
-
-export function isFileReadErrorPayload(value: unknown): value is FileReadErrorPayload {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as { code?: unknown; message?: unknown };
-  return (
-    (candidate.code === FILE_READ_ERROR_CODE_TOO_LARGE ||
-      candidate.code === FILE_READ_ERROR_CODE_NOT_FOUND) &&
-    typeof candidate.message === 'string'
-  );
-}

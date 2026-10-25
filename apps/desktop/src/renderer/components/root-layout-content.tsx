@@ -13,7 +13,6 @@ import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { WorkspaceGitServicesProvider } from '@brainstrike/app-shell/workspace-git-services';
 import { WorkspaceTerminalServicesProvider } from '@brainstrike/app-shell/workspace-terminal-services';
-import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
@@ -22,8 +21,8 @@ import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrik
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { GitBranch, Globe } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
-import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
+import { windowHostConnection } from '../desktop-host-connection';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import { createDesktopStateHealth } from '../desktop-state-health';
 import { resolveDesktopWorkspaceGitServices } from '../host-git-workspace';
@@ -35,7 +34,7 @@ import {
   resolveDesktopMcpToolsCapability,
 } from '../host-mcp-settings';
 import { resolveDesktopWorkspaceTerminalServices } from '../host-terminals';
-import { createIpcCapability } from '../ipc-capability';
+import { resolveDesktopWorkspaceIndex } from '../host-workspace-index';
 import { createDesktopLocalSearchEmbedder } from '../local-search-embedder';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 // Task A's changes-page-content.tsx exports this by name (not default,
@@ -82,11 +81,8 @@ const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 export default function RootLayoutContent() {
   // The one writer of the window title, keyed on the route on screen.
   useDocumentTitle(DESKTOP_DOCUMENT_META);
-  const nativeSearch = useMemo(
-    () =>
-      window.indexSearch ? createIpcCapability(window.indexSearch, indexSearchContract) : null,
-    []
-  );
+  // The agent host owns the native search index (ADR-0029 stage 4).
+  const nativeSearch = useMemo(() => resolveDesktopWorkspaceIndex(), []);
   const activeToolsTabRef = useRef('host-owned');
 
   // The agent host owns the git cluster (ADR-0029): the Git panel, Changes,
@@ -137,12 +133,9 @@ export default function RootLayoutContent() {
     // on desktop — no bridge gate.
     canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
     createLocalSearchEmbedder: createDesktopLocalSearchEmbedder,
-    deleteRootData: (rootId) => {
-      const bridge = window.electronAPI;
-      if (!(bridge && 'fileSystem' in bridge)) {
-        throw new Error('Desktop root data deletion bridge is unavailable.');
-      }
-      return callBoundary(() => bridge.fileSystem.deleteRootData(rootId));
+    // The agent host owns the folder registry and its data (ADR-0029 stage 4).
+    deleteRootData: async (rootId) => {
+      await (await windowHostConnection().current()).request('files/delete-root-data', { rootId });
     },
     // Every desktop window has its own log buffer and Electron main's (BST-1791).
     logsPageContent: <LogsPageContent />,

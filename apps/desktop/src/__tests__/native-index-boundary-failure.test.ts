@@ -25,9 +25,11 @@ import { nativeIndexClosedError, nativeIndexStateError } from '../native-index-l
 import { NativeIndexEventRefusedError } from '../native-index-workflow-errors';
 import { textSettings } from './helpers/native-index-settings';
 
-vi.mock('../secrets', () => ({
-  getSecretsService: () => ({ getKey: async () => 'fake-boundary-test' }),
-}));
+/** A fake stored key; no local runtime URL. */
+const credentials = {
+  readRuntimePreferences: async (): Promise<string | null> => null,
+  readSecret: async (): Promise<string | null> => 'fake-boundary-test',
+};
 afterEach(() => {
   vi.unstubAllGlobals();
   clearHostedProviderApiKeyCache();
@@ -175,7 +177,7 @@ it.each([
       provider: 'openai',
     } as const;
     const inference = new NativeCanonicalInference({
-      hostedEmbeddings: generateHostedEmbeddings,
+      hostedEmbeddings: (input) => generateHostedEmbeddings({ ...input, credentials }),
       resolver: {
         resolve: async () => ({
           modelKey: 'openai::text-embedding-3-small',
@@ -252,6 +254,7 @@ it('retains provider diagnostic facts privately through the real redacting logge
   let failure: unknown;
   try {
     failure = await generateHostedEmbeddings({
+      credentials,
       dimensions: 1536,
       modelId: 'text-embedding-3-small',
       provider: 'openai',

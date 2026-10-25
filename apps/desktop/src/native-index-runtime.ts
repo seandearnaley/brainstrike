@@ -45,7 +45,10 @@ interface Dependencies<Attachment> {
   getAuthority(): Promise<NativeIndexAuthority>;
   getFileInvalidator(): ((file: IndexFileBinding) => void) | undefined;
   installQueryTarget(owner: IndexOwner): void;
-  readonly profile: DesktopProfileRuntime<Attachment>;
+  readonly profile: Pick<
+    DesktopProfileRuntime<Attachment>,
+    'acquire' | 'isRetiring' | 'retire' | 'retireFailed'
+  >;
 }
 interface CapturedNativeIndexAuthority {
   readonly port: NativePort;

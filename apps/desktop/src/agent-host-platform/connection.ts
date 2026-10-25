@@ -1,4 +1,4 @@
-import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
+import { wireDecoder, wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
 import {
   AbstractMessageReader,
@@ -9,12 +9,19 @@ import {
   type Message,
   type MessageConnection,
 } from 'vscode-jsonrpc/node';
+import type { LentUtilityPort } from '../lent-utility';
+import { UtilityPortFrameSchema } from './utility-lending-wire';
 
+/** A platform frame, with the ports it transferred (Electron's `MessageEvent`). */
+interface PlatformFrame {
+  readonly data: unknown;
+  readonly ports?: readonly LentUtilityPort[];
+}
 export interface PlatformMessagePort {
   close(): void;
-  off(event: 'message', listener: (event: { readonly data: unknown }) => void): unknown;
+  off(event: 'message', listener: (event: PlatformFrame) => void): unknown;
   off(event: 'close', listener: () => void): unknown;
-  on(event: 'message', listener: (event: { readonly data: unknown }) => void): unknown;
+  on(event: 'message', listener: (event: PlatformFrame) => void): unknown;
   on(event: 'close', listener: () => void): unknown;
   postMessage(message: unknown): void;
   start(): void;
@@ -35,15 +42,30 @@ export const PlatformMessagePortSchema = Schema.declare<PlatformMessagePort>(
     'start' in value &&
     typeof value.start === 'function'
 );
+const decodeUtilityPortFrame = wireResultDecoder(UtilityPortFrameSchema, { errors: 'all' });
+/** Receives a utility channel end Main transferred on the platform port. */
+export type ReceiveUtilityPort = (utilityId: string, port: LentUtilityPort) => void;
 class MainPortReader extends AbstractMessageReader {
   private readonly port: PlatformMessagePort;
+  private readonly receivePort: ReceiveUtilityPort | undefined;
 
-  constructor(port: PlatformMessagePort) {
+  constructor(port: PlatformMessagePort, receivePort: ReceiveUtilityPort | undefined) {
     super();
     this.port = port;
+    this.receivePort = receivePort;
   }
   listen(callback: DataCallback): Disposable {
-    const receive = (event: { readonly data: unknown }): void => {
+    const receive = (event: PlatformFrame): void => {
+      const utilityPort = this.receivePort ? decodeUtilityPortFrame(event.data) : undefined;
+      if (utilityPort?._tag === 'Success') {
+        const transferred = event.ports?.[0];
+        if (event.ports?.length !== 1 || !transferred) {
+          this.fireError(new Error('A utility port frame must carry exactly one port'));
+          return;
+        }
+        this.receivePort?.(utilityPort.success.utilityId, transferred);
+        return;
+      }
       try {
         callback(
           wireDecoder(
@@ -90,7 +112,13 @@ class MainPortWriter extends AbstractMessageWriter {
     this.port.close();
   }
 }
-/** Private platform capabilities never share the visible client's authority channel. */
-export function mainPlatformConnection(port: PlatformMessagePort): MessageConnection {
-  return createMessageConnection(new MainPortReader(port), new MainPortWriter(port));
+/**
+ * Private platform capabilities never share the visible client's authority channel. The host's
+ * end also takes the utility channels Main lends it (`receivePort`).
+ */
+export function mainPlatformConnection(
+  port: PlatformMessagePort,
+  receivePort?: ReceiveUtilityPort
+): MessageConnection {
+  return createMessageConnection(new MainPortReader(port, receivePort), new MainPortWriter(port));
 }

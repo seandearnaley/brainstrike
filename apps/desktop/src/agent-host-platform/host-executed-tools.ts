@@ -8,6 +8,7 @@ import {
   type NativeToolExecutor,
   type ShellCorrelationDependencies,
 } from '@brainstrike/host-capabilities/native-tools';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   type BrowserToolRunner,
   browserToolExecutors,
@@ -32,6 +33,7 @@ import {
 import { worktreeToolExecutors } from '../assistant-server/native-tool-executors-worktree';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
+import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index-summary';
 import {
@@ -45,7 +47,7 @@ import {
   resolveDesktopPythonRuntimeResourcesDir,
 } from '../python-runtime/resources-dir';
 import { resolveDesktopSeccompApplyPath } from '../sandbox-runtime-path';
-import { hostIndexSearch, hostQueryEmbedding, hostRetrievalStore } from './host-retrieval-clients';
+import { hostQueryEmbedding } from './host-retrieval-clients';
 import { hostCommandSessionManager } from './host-tool-process';
 import {
   BrowserNavigateResultSchema,
@@ -220,6 +222,12 @@ function hostSkillExecutors(
   };
 }
 
+/** The retrieval tools' reads, all this host's own. */
+export interface HostRetrieval {
+  readonly indexSearch: IndexSearchCapability;
+  readonly store: RetrievalStore;
+}
+
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
@@ -228,13 +236,14 @@ export function desktopHostToolExecutors(
   threadId: string,
   /** The run's admitted native runtime: its roots, retrieval scope and skills. */
   native: PlatformSelection['nativeRuntime'],
+  /** This host's workspace index and the retrieval catalog over its own store. */
+  retrieval: HostRetrieval,
   /** Absent without a launching desktop; then run_python has no interpreter here. */
   appPaths?: HostAppPaths
 ): Readonly<Record<string, NativeToolExecutor>> {
   const retrievalRootsOnly = native.retrievalRootsOnly === true;
-  const nativeIndexSearch = hostIndexSearch(request, threadId);
+  const { indexSearch: nativeIndexSearch, store } = retrieval;
   const embeddingHostManager = hostQueryEmbedding(request);
-  const store = hostRetrievalStore(request, threadId);
   return {
     ...retrievalToolExecutors(({ runtimeData }) => ({
       dependencies: {

@@ -1,16 +1,7 @@
 import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
-import type {
-  ContentClearCapability,
-  FileSystemWatchEvent,
-  IFileNode,
-  RecentRootEntry,
-  RootDescriptor,
-  WatcherHealthEvent,
-  WatcherHealthTransition,
-} from '@brainstrike/types';
+import type { ContentClearCapability } from '@brainstrike/types';
 import type {
   EmbeddingHostModelCacheRequest,
   EmbeddingHostModelCacheResponseReport,
@@ -32,7 +23,8 @@ import type {
   EmbeddingHostWebGpuAdapterRequest,
   EmbeddingHostWebGpuAdapterResponseReport,
 } from '../embedding-host-webgpu-adapter';
-import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
+import type { folderPickerContract } from '../ipc-domains/folder-picker.contract';
+import type { TransportBridge } from '../platform/ipc-contract';
 
 export interface DesktopStorageBridge {
   clear: () => Promise<void>;
@@ -40,54 +32,6 @@ export interface DesktopStorageBridge {
   getItem: (key: string) => Promise<string | null>;
   removeItem: (key: string) => Promise<void>;
   setItem: (key: string, value: string) => Promise<void>;
-}
-
-export interface DesktopFileSystemBridge {
-  addRoot: () => Promise<RootDescriptor>;
-  addRootByPath: (path: string) => Promise<RootDescriptor>;
-  deleteRootData: (rootId: string) => Promise<void>;
-  exists: (path: string) => Promise<boolean>;
-  getWatcherTelemetry: () => Promise<{
-    activeWatchers: number;
-    batches: number;
-    cleanups: number;
-    degradedTransitions: number;
-    duplicateRegistrations: number;
-    events: number;
-    failures: number;
-    healthPushes: number;
-    lastSetupLatencyMs: number;
-    retries: number;
-    setupLatencySamples: number;
-  }>;
-  listRecentRoots: () => Promise<readonly RecentRootEntry[]>;
-  onWatchEvent: (callback: (event: FileSystemWatchEvent) => void) => () => void;
-  onWatchHealth: (callback: (event: WatcherHealthEvent) => void) => () => void;
-  readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
-  readFile: (handle: FileHandle) => Promise<string>;
-  readFileByAbsolutePath: (
-    absolutePath: string,
-    rootPath: string,
-    rootId: string
-  ) => Promise<string>;
-  readFileByPath: (absolutePath: string) => Promise<string>;
-  removeRoot: (rootId: string) => Promise<void>;
-  requestDirectoryAccess: () => Promise<DirectoryHandle>;
-  restoreLastFolder: () => Promise<DirectoryHandle | null>;
-  restoreRoots: () => Promise<RootDescriptor[]>;
-  retryWatch: (watchId: string) => Promise<
-    | { retried: true }
-    | {
-        reason: 'in-flight' | 'not-failed' | 'terminal' | 'throttled' | 'unknown';
-        retried: false;
-        retryAfterMs?: number;
-      }
-  >;
-  saveLastFolder: (folderPath: string) => Promise<void>;
-  unwatchDirectory: (watchId: string) => Promise<void>;
-  watchDirectory: (
-    handle: DirectoryHandle
-  ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
 }
 
 interface DesktopFactoryResetBridge {
@@ -98,7 +42,8 @@ interface DesktopFactoryResetBridge {
 export interface VisibleDesktopElectronApi {
   content: ContentClearCapability;
   factoryReset: DesktopFactoryResetBridge;
-  fileSystem: DesktopFileSystemTransport;
+  /** The native folder pickers; folders, reads and watchers belong to the agent host. */
+  folderPicker: TransportBridge<typeof folderPickerContract>;
   getUserDataPath: () => Promise<string>;
   storage: DesktopStorageBridge;
 }
@@ -198,7 +143,7 @@ function defineExactKeys<Shape>() {
 const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
   'content',
   'factoryReset',
-  'fileSystem',
+  'folderPicker',
   'getUserDataPath',
   'storage',
 ]);

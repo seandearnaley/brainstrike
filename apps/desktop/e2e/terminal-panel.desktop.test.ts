@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { seedRoot } from './utils/seed-root';
 
 const tempDirs: string[] = [];
 function freshRootDir(label: string): string {
@@ -27,27 +27,8 @@ function freshRootDir(label: string): string {
 
 const ROOT_ID = 'p4-terminal-panel-root-00000000-0000-4000-8000-000000000011';
 
-async function seedRoot(page: Page, rootPath: string): Promise<void> {
-  await page.evaluate(
-    async ({ rootPath: p, rootId }) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', p);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: p, rootId }])
-      );
-    },
-    { rootId: ROOT_ID, rootPath }
-  );
-  const { reloadRenderer } = await loadElectronHelpers();
-  await reloadRenderer(page, 'p4-terminal-seed-root');
+async function seedTerminalRoot(page: Page, rootPath: string): Promise<void> {
+  await seedRoot(page, rootPath, { reloadReason: 'p4-terminal-seed-root', rootId: ROOT_ID });
 }
 
 async function openTerminalPanel(page: Page): Promise<void> {
@@ -86,7 +67,7 @@ test.describe('Terminal panel (desktop)', () => {
   test('@smoke spawns a shell and shows the root cwd in the header', async ({ window: page }) => {
     test.setTimeout(90_000);
     const dir = freshRootDir('smoke');
-    await seedRoot(page, dir);
+    await seedTerminalRoot(page, dir);
     await openTerminalPanel(page);
     // The header swaps the 'Terminal' placeholder for the resolved cwd; the temp
     // dir's basename survives realpath (e.g. /var → /private/var on macOS).
@@ -96,7 +77,7 @@ test.describe('Terminal panel (desktop)', () => {
   test('runs a command and renders its output in the xterm surface', async ({ window: page }) => {
     test.setTimeout(90_000);
     const dir = freshRootDir('output');
-    await seedRoot(page, dir);
+    await seedTerminalRoot(page, dir);
     await openTerminalPanel(page);
     await waitForShellReady(page, dir);
 
@@ -111,7 +92,7 @@ test.describe('Terminal panel (desktop)', () => {
   }) => {
     test.setTimeout(90_000);
     const dir = freshRootDir('exit');
-    await seedRoot(page, dir);
+    await seedTerminalRoot(page, dir);
     await openTerminalPanel(page);
     await waitForShellReady(page, dir);
 
@@ -123,7 +104,7 @@ test.describe('Terminal panel (desktop)', () => {
   test('restart after exit spawns a fresh, working shell', async ({ window: page }) => {
     test.setTimeout(120_000);
     const dir = freshRootDir('restart');
-    await seedRoot(page, dir);
+    await seedTerminalRoot(page, dir);
     await openTerminalPanel(page);
     await waitForShellReady(page, dir);
 
@@ -143,7 +124,7 @@ test.describe('Terminal panel (desktop)', () => {
   test('has no pin control when opened from the workspace + menu', async ({ window: page }) => {
     test.setTimeout(90_000);
     const dir = freshRootDir('unpinned');
-    await seedRoot(page, dir);
+    await seedTerminalRoot(page, dir);
     await openTerminalPanel(page);
     await waitForShellReady(page, dir);
 

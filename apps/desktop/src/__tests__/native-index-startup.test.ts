@@ -1,4 +1,4 @@
-import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
+import { createActivationCatalogFixture, forkNoUtility } from './native-activation-catalog-fixture';
 // @vitest-environment node
 
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
@@ -9,11 +9,14 @@ import { createIndexerConnection, type IndexerConnection } from '@brainstrike/in
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { textSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -29,9 +32,6 @@ const mocks = vi.hoisted(() => ({
     start: vi.fn(),
   },
   readyPort: vi.fn(),
-}));
-vi.mock('../desktop-database-location', () => ({
-  resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
 vi.mock('../host-lease-manager', () => ({
   createDesktopHostLease: () => ({ acquire: async () => {}, close: mocks.closeProfile }),
@@ -115,26 +115,28 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     }),
   };
 }
-function fixture(applicationOverride?: ApplicationIpcDomain) {
+function fixture(applicationOverride?: HostFolders) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
   const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const onError = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: catalogFixture.catalog,
+    databasePath: '/owned/profile/index.sqlite',
     embedding: transport,
+    forkLentUtility: forkNoUtility,
+    hostedEmbeddings: unused,
     modelCatalog: catalogFixture.modelCatalog,
     onError,
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     settings,
-    storage: { getItem: unused },
   });
   return { activation, onError, onReceipt, settings, transport };
 }
@@ -157,7 +159,7 @@ afterEach(() => {
 });
 
 /** Main's application domain with the one granted folder `root` mounted. */
-function mountedRoot(): ApplicationIpcDomain {
+function mountedRoot(): HostFolders {
   const lease: CanonicalWorkspaceLease = {
     canonicalPath: '/actual/root',
     generation: 'actual-generation',
@@ -174,7 +176,7 @@ function mountedRoot(): ApplicationIpcDomain {
       restoreRoots: async () => [{ permissionState: 'granted', rootId: workspace.rootId }],
     }),
     watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
 }
 
 it.each(['startup', 'cleanup'] as const)(

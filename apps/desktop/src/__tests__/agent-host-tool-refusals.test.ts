@@ -15,6 +15,7 @@ import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
+import { unusedHostRetrieval } from './fixtures/host-retrieval';
 
 const GENERIC_FAILURE = 'The tool did not complete successfully. Try another approach.';
 const directories: string[] = [];
@@ -102,6 +103,7 @@ function hostTools(
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected,
     threadId: 'host-thread',
   });

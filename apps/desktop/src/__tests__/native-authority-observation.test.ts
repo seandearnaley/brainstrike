@@ -1,4 +1,4 @@
-import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
+import { createActivationCatalogFixture, forkNoUtility } from './native-activation-catalog-fixture';
 // @vitest-environment node
 
 import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
@@ -8,20 +8,16 @@ import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader
 import { beforeEach, expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
 import { createNativeIndexActivation } from '../native-index-activation';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
-import { assignWindowRole, clearWindowRoleByWebContentsId } from '../window-role';
-import { createAllowlistedSenderFrame } from './helpers/desktop-ipc-sender-frame-test-allowlist';
-import {
-  getRegisteredIpcMainHandler,
-  resetElectronMainTestHarness,
-} from './helpers/electron-main-test-harness';
 import { textSettings, unreadableSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -39,9 +35,6 @@ const mocks = vi.hoisted(() => ({
     start: vi.fn(),
   },
   readyPort: vi.fn(),
-}));
-vi.mock('../desktop-database-location', () => ({
-  resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
 vi.mock('../host-lease-manager', () => ({
   createDesktopHostLease: () => ({ acquire: mocks.acquireProfile, close: mocks.closeProfile }),
@@ -126,7 +119,7 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   };
 }
 /** Main's application domain with the one granted folder `root` mounted. */
-function mountedRoot(): ApplicationIpcDomain {
+function mountedRoot(): HostFolders {
   const lease: CanonicalWorkspaceLease = {
     canonicalPath: '/actual/root',
     generation: 'actual-generation',
@@ -143,27 +136,29 @@ function mountedRoot(): ApplicationIpcDomain {
       restoreRoots: async () => [{ permissionState: 'granted', rootId: workspace.rootId }],
     }),
     watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
 }
-function fixture(applicationOverride?: ApplicationIpcDomain) {
+function fixture(applicationOverride?: HostFolders) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
   const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: catalogFixture.catalog,
+    databasePath: '/owned/profile/index.sqlite',
     embedding: transport,
+    forkLentUtility: forkNoUtility,
+    hostedEmbeddings: unused,
     modelCatalog: catalogFixture.modelCatalog,
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     settings,
-    storage: { getItem: unused },
   });
   return { activation, onReceipt, settings, transport };
 }
@@ -234,8 +229,7 @@ it.each(['reconfigure', 'rebuild', 'resume'] as const)(
   }
 );
 
-it('keeps IPC status connected while a saved TEXT change recovers activation through the serialized transition', async () => {
-  resetElectronMainTestHarness();
+it('keeps status readable while a saved TEXT change recovers activation through the serialized transition', async () => {
   const f = fixture();
   const unreadable = unreadableSettings();
   f.settings.mockRejectedValue(unreadable);
@@ -266,26 +260,6 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
     rebuild: f.activation.rebuild,
     withRead: f.activation.withRead,
   });
-  const unregisterSearch = registerIndexSearchIpcHandlers(
-    capability,
-    {
-      rootsRegistered: async () => {
-        throw new Error('Unexpected root registration in read-only test');
-      },
-    },
-    {
-      retryIndexing: async () => {
-        throw new Error('Unexpected Retry indexing in read-only test');
-      },
-    },
-    { read: unused, update: unused }
-  );
-  const senderId = 9498;
-  assignWindowRole(
-    { isDestroyed: () => false, once: vi.fn(), webContents: { id: senderId } } as never,
-    'visible-ui'
-  );
-  const event = { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
   let changing: Promise<void> | undefined;
   try {
     await expect(f.activation.acquire()).rejects.toBe(unreadable);
@@ -296,8 +270,7 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
     await entered.promise;
     expect(events.indexOf('readers-joined')).toBeLessThan(events.indexOf('profile-acquire'));
     expect(mocks.acquire).not.toHaveBeenCalled();
-    const status = getRegisteredIpcMainHandler('index-search:status');
-    const observation = await status(event);
+    const observation = await capability.status();
     release.resolve();
     await changing;
     expect(await capability.status()).toMatchObject({
@@ -306,13 +279,11 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
     });
     expect(mocks.acquire).toHaveBeenCalledOnce();
     expect(f.transport.documentEmbeddings).not.toHaveBeenCalled();
-    expect(observation).toMatchObject({ ok: true, value: { kind: 'unavailable' } });
+    expect(observation).toMatchObject({ kind: 'unavailable' });
   } finally {
     release.resolve();
     await changing?.catch(() => undefined);
     await f.activation.close();
-    unregisterSearch();
-    clearWindowRoleByWebContentsId(senderId);
   }
 });
 

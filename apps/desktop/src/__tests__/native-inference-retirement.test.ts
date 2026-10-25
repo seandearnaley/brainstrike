@@ -10,7 +10,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { generateHostedEmbeddings } from '../hosted-embeddings';
 
-vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => undefined }) }));
+/** No stored key and no local runtime URL. */
+const credentials = {
+  readRuntimePreferences: async (): Promise<string | null> => null,
+  readSecret: async (): Promise<string | null> => null,
+};
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
@@ -49,7 +53,7 @@ it('retires an already physically settled missing-key request after generate del
   const documentEmbeddings = vi.fn(async () => []);
   // Desktop's composition hands the shared inference its own hosted embeddings.
   const inference = new NativeCanonicalInference({
-    hostedEmbeddings: generateHostedEmbeddings,
+    hostedEmbeddings: (input) => generateHostedEmbeddings({ ...input, credentials }),
     resolver,
     scope,
     transport: { documentEmbeddings },

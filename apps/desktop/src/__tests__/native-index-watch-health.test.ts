@@ -6,7 +6,7 @@ import type {
 } from '@brainstrike/canonical-ingestion';
 import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import { restoredRoots } from './helpers/restored-roots';
 import {
   fixture,
@@ -18,6 +18,9 @@ import {
   unused,
   writer,
 } from './native-index-activation-fixture';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 beforeEach(resetActivationFixture);
 
@@ -38,7 +41,7 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
     }),
     watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   setCatalogRoot();
   let workspace: CanonicalWorkspaceRuntimeDependencies | undefined;
   const trigger = vi.fn(async () => undefined);

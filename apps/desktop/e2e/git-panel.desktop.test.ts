@@ -8,8 +8,8 @@
  * Isolation: EACH test gets its OWN freshly-`git init`'d repo (via `freshRepo`),
  * so a throwing assertion can never leave shared state dirty for the next test;
  * all temp dirs are tracked and removed in `afterAll`. Root setup mirrors
- * mid-session-add-root.desktop.test.ts: seed `rootsList` (the repo's real path)
- * into `electronAPI.storage`, then reload — the main process restores the root
+ * mid-session-add-root.desktop.test.ts: seed the root (the repo's real path)
+ * into the agent host's folder ledger, then reload — the host restores the root
  * and inserts the DB `roots` row the git bridge resolves against.
  */
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';

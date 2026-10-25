@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import type { WorkspaceRootRegistry } from '@brainstrike/assistant-service/node-workspace-services';
 import type {
+  CanonicalHostedEmbeddings,
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
@@ -9,19 +11,18 @@ import type {
 import {
   loadPartitionRecords,
   type NativeCanonicalCatalogRecord,
+  type NativeCanonicalInferenceDependencies,
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,
 } from '@brainstrike/canonical-ingestion';
-import type { HostAttachment } from '@brainstrike/host-lease';
 import type {
   CollectionPort,
   SourceCatalogPort,
   WorkspaceRootPort,
 } from '@brainstrike/state-store';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
-import type { EmbeddingHostManager } from './embedding-host-manager';
-import type { ApplicationIpcDomain } from './ipc-handlers';
+import type { WorkspaceRootWatchOwner } from './ipc-domains/workspace-root-watch-owner';
+import type { ForkLentUtility } from './lent-utility';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
@@ -86,19 +87,37 @@ export async function loadNativeGraphRecords(
   );
 }
 
+/** The index's life inside its profile's host: it opens with the host and closes with it. */
+export type NativeIndexProfile = Pick<
+  DesktopProfileRuntime<unknown>,
+  'acquire' | 'isRetiring' | 'retire' | 'retireFailed'
+>;
+
 export interface NativeIndexActivationDependencies {
-  readonly application: ApplicationIpcDomain;
+  /** The host's mounted folders and their one watcher each, which the index borrows. */
+  readonly application: {
+    readonly roots: WorkspaceRootRegistry;
+    readonly watches: WorkspaceRootWatchOwner;
+  };
   readonly catalog: SourceCatalogPort & WorkspaceRootPort & CollectionPort;
-  readonly embedding: Pick<EmbeddingHostManager, 'destroyAndRestart' | 'documentEmbeddings'>;
+  /** The index database, in the profile directory. */
+  readonly databasePath: string;
+  /** Main's embedding renderer, lent to the index: its document embeddings and its restart. */
+  readonly embedding: NativeCanonicalInferenceDependencies['transport'] & {
+    destroyAndRestart(): Promise<unknown>;
+  };
+  /** Main's fork of the index utilities (ADR-0030 decision 1). */
+  readonly forkLentUtility: ForkLentUtility;
+  /** Hosted providers' document embeddings, with this host's credentials. */
+  readonly hostedEmbeddings: CanonicalHostedEmbeddings;
   /** Main's E2E delay seam accessor for the indexer host, read at its boundaries; absent, none. */
   readonly lifecycleDelays?: () => LifecycleDelaySeam;
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;
-  readonly profile: DesktopProfileRuntime<HostAttachment>;
+  readonly profile: NativeIndexProfile;
   /** Waits before each automatic re-open of a transient startup failure; defaults apply. */
   readonly reopenDelaysMs?: readonly number[];
   /** Main's search index config, as the native index runs it. */
   readonly settings: () => Promise<NativeIndexSettings>;
-  readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;
 }

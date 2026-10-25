@@ -21,6 +21,7 @@ import {
   type SkillsScanResultSummary,
   serializeSkillDirective,
 } from '@brainstrike/assistant-contract';
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
@@ -131,7 +132,11 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
         }
       })
       .catch((error: unknown) => {
-        logger.error('Failed to load skills for the slash menu', { error });
+        if (isOwnerUnavailable(error)) {
+          logger.warn('Skills for the slash menu are unavailable', { error });
+        } else {
+          logger.error('Failed to load skills for the slash menu', { error });
+        }
       });
     return () => {
       generationRef.current += 1;

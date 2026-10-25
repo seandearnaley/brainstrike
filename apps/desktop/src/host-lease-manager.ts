@@ -436,7 +436,15 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
                   ? []
                   : ['--platform-options', JSON.stringify(platformOptions)]),
               ],
-              { ...process.env, ...options.lifecycleDelays?.childEnv(['host-ready']) }
+              {
+                ...process.env,
+                ...options.lifecycleDelays?.childEnv([
+                  'host-ready',
+                  'parcel-subscribe',
+                  'indexer-request',
+                  'canonical-attach',
+                ]),
+              }
             ),
             (code) => {
               // A lost host leaves its native processes to Main (ADR-0017).

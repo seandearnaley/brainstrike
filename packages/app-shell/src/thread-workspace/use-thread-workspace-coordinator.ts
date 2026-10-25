@@ -6,7 +6,7 @@ import {
   hasRendererClosePreparationStarted,
   registerDurableFlush,
 } from '@brainstrike/app-state/renderer-close';
-import { isBoundaryRefusal } from '@brainstrike/assistant-contract/boundary-failure';
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   ThreadWorkspaceRepository,
   WorkspaceSnapshotEditor,
@@ -30,15 +30,10 @@ const emptySnapshot = () => 0;
 const logger = createLogger('ThreadWorkspaceCoordinator');
 
 /**
- * The write's owner is unavailable: the profile closed for a reset or quit (a host lost just
- * before quit, whose relaunch quit refuses, included), the store opened read-only, or this view
- * is closing. The write settled as a refusal, with nothing left to deliver or join, so it is
- * kept at warn; anything else is a failure.
+ * A write whose owner is unavailable (the profile closed for a reset or quit, the store opened
+ * read-only, or this view is closing) settled as a refusal, with nothing left to deliver or join,
+ * so it is kept at warn; anything else is a failure.
  */
-function isOwnerUnavailable(error: unknown): boolean {
-  return isBoundaryRefusal(error) && error.failure.category === 'availability';
-}
-
 function logFailure(message: string, error: unknown, fields: Record<string, unknown> = {}): void {
   const details = { error: error instanceof Error ? error.message : String(error), ...fields };
   if (isOwnerUnavailable(error)) {

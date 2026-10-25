@@ -5,6 +5,7 @@ import {
   type UserSlashCommandRoot,
   type UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
@@ -130,7 +131,11 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
         }
       })
       .catch((error: unknown) => {
-        logger.error('Failed to load user-defined slash commands', { error });
+        if (isOwnerUnavailable(error)) {
+          logger.warn('User-defined slash commands are unavailable', { error });
+        } else {
+          logger.error('Failed to load user-defined slash commands', { error });
+        }
       });
     return () => {
       generationRef.current += 1;

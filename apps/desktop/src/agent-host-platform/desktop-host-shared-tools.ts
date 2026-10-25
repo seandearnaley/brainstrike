@@ -14,6 +14,7 @@ import { agentNavigationTarget } from '../browser/browser-url';
 import {
   desktopHostToolExecutors,
   type HostAppPaths,
+  type HostRetrieval,
   isHostExecutedNativeToolId,
 } from './host-executed-tools';
 import type { PlatformSelection } from './platform-wire';
@@ -44,6 +45,7 @@ export function desktopHostSharedTools(options: {
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
   /** The host's own Tavily key owner, never Main's view of the store. */
   readonly resolveTavilyApiKey: () => Promise<string | undefined>;
+  readonly retrieval: HostRetrieval;
   readonly selected: Omit<PlatformSelection, 'delegation'>;
   readonly threadId: string;
 }): Record<string, HostTool> {
@@ -70,6 +72,7 @@ export function desktopHostSharedTools(options: {
       options.gitWorkspace,
       options.threadId,
       selected.nativeRuntime,
+      options.retrieval,
       options.appPaths
     ),
     freshRoots: async () =>
