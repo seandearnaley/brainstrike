@@ -33,6 +33,7 @@ describe('MCP tool preferences', () => {
     await h.writeConfig([stdioServer('fs')]);
 
     await h.authority.start();
+    await h.discovered();
 
     expect(enabledById()).toEqual({ 'fs.read': true, 'fs.write': false });
   });
@@ -42,6 +43,7 @@ describe('MCP tool preferences', () => {
     await h.writeConfig([stdioServer('fs')]);
 
     await h.authority.start();
+    await h.discovered();
 
     expect(enabledById()).toEqual({ 'fs.read': true, 'fs.write': true });
     await expect(h.authority.toolStats()).resolves.toEqual({
@@ -57,6 +59,7 @@ describe('MCP tool preferences', () => {
     await h.writePreferences({ ...stored({ disabledTools: [], enabledTools: [] }), version: 1 });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     const before = h.toolsEvents().length;
 
     await h.authority.setToolsEnabled({ enabled: false, toolIds: ['fs.read'] });
@@ -74,6 +77,7 @@ describe('MCP tool preferences', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
 
     await h.authority.setServerToolsEnabled({ enabled: false, serverName: 'fs' });
 
@@ -94,6 +98,7 @@ describe('MCP tool preferences', () => {
     await h.writePreferences(stored({ disabledTools: ['git.push'], enabledTools: [] }));
     await h.writeConfig([stdioServer('fs'), stdioServer('git')]);
     await h.authority.start();
+    await h.discovered();
 
     await h.authority.setToolsEnabled({ enabled: false, toolIds: ['fs.read'] });
 
@@ -110,6 +115,7 @@ describe('MCP tool preferences', () => {
     await h.writeConfig([stdioServer('fs')]);
 
     await h.authority.start();
+    await h.discovered();
 
     expect(await h.readPreferences()).toMatchObject({
       disabledTools: ['fs.write'],
@@ -128,6 +134,7 @@ describe('MCP tool preferences', () => {
       await h.writeConfig([stdioServer('fs')]);
 
       await h.authority.start();
+      await h.discovered();
 
       expect(enabledById()).toEqual({ 'fs.read': false, 'fs.write': false });
       const stats = await h.authority.toolStats();
@@ -147,6 +154,7 @@ describe('MCP tool preferences', () => {
     await h.writeConfig([stdioServer('fs')]);
 
     await h.authority.start();
+    await h.discovered();
 
     expect(enabledById()).toEqual({ 'fs.read': false, 'fs.write': false });
     await expect(h.authority.toolStats()).resolves.toMatchObject({
@@ -159,6 +167,7 @@ describe('MCP tool preferences', () => {
     await h.writePreferences('{ not json');
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
 
     await h.writeConfig([]);
     await h.fireWatch();
@@ -173,6 +182,7 @@ describe('MCP tool preferences', () => {
     await h.writePreferences('{ not json');
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
 
     await h.authority.resetTools();
 
@@ -187,6 +197,7 @@ describe('MCP tool preferences', () => {
     await h.writePreferences('{ not json');
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     const repaired = JSON.stringify(stored({ disabledTools: ['fs.write'], enabledTools: [] }));
     await writeFile(h.preferencesPath, repaired, 'utf8');
 
@@ -201,6 +212,7 @@ describe('MCP tool preferences', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     await h.writePreferences(stored({ disabledTools: ['fs.read'], enabledTools: ['fs.read'] }));
 
     await h.authority.reloadToolPreferences();
@@ -212,6 +224,7 @@ describe('MCP tool preferences', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     await h.writePreferences('{ broken');
 
     await expect(h.authority.reloadToolPreferences()).rejects.toThrow(
@@ -228,6 +241,7 @@ describe('MCP settings factory reset', () => {
     await h.writeStoredExtensions({ v1: { apps: false, tasks: false } });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
 
     await h.authority.reset();
 
@@ -248,6 +262,7 @@ describe('MCP settings factory reset', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     await h.authority.reset();
 
     await h.authority.resume('succeeded');
@@ -262,6 +277,7 @@ describe('MCP settings factory reset', () => {
     await h.writePreferences(stored({ disabledTools: ['fs.write'], enabledTools: [] }));
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     await h.authority.reset();
 
     await h.authority.resume('failed');
@@ -279,6 +295,7 @@ describe('MCP settings factory reset', () => {
     await h.writePreferences('{ not json');
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     await h.authority.reset();
 
     await h.authority.resume('failed');
@@ -292,6 +309,7 @@ describe('MCP settings factory reset', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     await h.authority.reset();
     await h.authority.reset();
 
@@ -306,6 +324,7 @@ describe('MCP settings factory reset', () => {
   it('refuses to restore after a failed reset when no snapshot exists', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     await h.authority.close();
 
     await expect(h.authority.resume('failed')).rejects.toThrow(

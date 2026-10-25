@@ -34,6 +34,7 @@ describe('MCP settings authority startup', () => {
     await h.writeConfig([stdioServer('fs')]);
 
     await h.authority.start();
+    await h.discovered();
 
     expect(h.setMcpExtensionPreferences).toHaveBeenCalledWith({ apps: false, tasks: true });
     expect(h.setMcpExtensionPreferences.mock.invocationCallOrder[0]).toBeLessThan(
@@ -61,6 +62,7 @@ describe('MCP settings authority startup', () => {
     h.settings.values.set('mcp.extensionPreferences', '{not json');
 
     await h.authority.start();
+    await h.discovered();
 
     expect(h.setMcpExtensionPreferences).toHaveBeenCalledWith({ apps: false, tasks: false });
   });
@@ -69,6 +71,7 @@ describe('MCP settings authority startup', () => {
     const h = await setup();
 
     await h.authority.start();
+    await h.discovered();
 
     expect(h.replaceResolvedConfig).toHaveBeenCalledWith({ servers: [] });
     expect(h.events[0]).toEqual({
@@ -93,6 +96,7 @@ describe('MCP settings authority startup', () => {
     ]);
 
     await h.authority.start();
+    await h.discovered();
 
     expect(listTools.mock.calls).toEqual([[parseConfiguredMcpServerId('fs')]]);
     expect(enabledById()).toEqual({ 'fs.read': true });
@@ -106,6 +110,7 @@ describe('MCP settings authority startup', () => {
     await h.writeConfig([stdioServer('dup'), stdioServer('fs')]);
 
     await h.authority.start();
+    await h.discovered();
 
     expect(enabledById()).toEqual({ 'fs.ok': true });
   });
@@ -116,9 +121,11 @@ describe('MCP settings authority watched config changes', () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
 
     await h.writeConfig([stdioServer('fs'), stdioServer('git')]);
     await h.fireWatch();
+    await h.discovered();
 
     expect(h.replaceResolvedConfig).toHaveBeenLastCalledWith({
       servers: [expect.objectContaining({ name: 'fs' }), expect.objectContaining({ name: 'git' })],
@@ -130,6 +137,7 @@ describe('MCP settings authority watched config changes', () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     const commits = h.replaceResolvedConfig.mock.calls.length;
 
     await writeFile(h.configPath, '{ invalid json }', 'utf8');
@@ -147,6 +155,7 @@ describe('MCP settings authority watched config changes', () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
 
     await rm(h.configPath);
     await h.fireWatch();
@@ -170,6 +179,7 @@ describe('MCP settings authority watched config changes', () => {
     await h.fireWatch();
     slow.resolve(toolList('stale'));
     await started;
+    await h.discovered();
 
     expect(enabledById()).toEqual({ 'quick.fast': true });
   });
@@ -177,12 +187,27 @@ describe('MCP settings authority watched config changes', () => {
 
 describe('MCP settings authority config text and path', () => {
   it('saves valid text, reloads it, and keeps a watcher on the file', async () => {
-    const h = await setup({ listTools: async () => toolList('read') });
+    // The server answers discovery only when the test lets it: the save must not wait for it.
+    const serverAnswers = Promise.withResolvers<void>();
+    const h = await setup({
+      listTools: async () => {
+        await serverAnswers.promise;
+        return toolList('read');
+      },
+    });
     await h.authority.start();
+    await h.discovered();
     const firstWatcher = h.activeWatcher();
     const content = JSON.stringify({ servers: [stdioServer('fs')] });
 
     const result = await h.authority.writeConfigText({ baseRevision: EMPTY_REVISION, content });
+    expect(enabledById()).toEqual({});
+    expect(h.events.at(-1)).toEqual({
+      config: expect.objectContaining({ exists: true, path: h.configPath }),
+      type: 'config',
+    });
+    serverAnswers.resolve();
+    await h.discovered();
 
     const written = await readFile(h.configPath, 'utf8');
     expect(written).toBe(content);
@@ -200,6 +225,7 @@ describe('MCP settings authority config text and path', () => {
   it('returns a validation failure without saving or reloading', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const commits = h.replaceResolvedConfig.mock.calls.length;
 
     const result = await h.authority.writeConfigText({
@@ -215,6 +241,7 @@ describe('MCP settings authority config text and path', () => {
   it('refuses empty and oversized text before writing', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
 
     await expect(
       h.authority.writeConfigText({ baseRevision: EMPTY_REVISION, content: '   ' })
@@ -239,6 +266,7 @@ describe('MCP settings authority config text and path', () => {
   it('refuses saved text holding a safeStorage-encrypted value', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const content = JSON.stringify({
       servers: [{ ...stdioServer('local'), env: { TOKENEncrypted: 'c2VjcmV0' } }],
     });
@@ -254,6 +282,7 @@ describe('MCP settings authority config text and path', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('before')]);
     await h.authority.start();
+    await h.discovered();
     const { revision } = await h.authority.readConfigText();
     await h.writeConfig([stdioServer('external')]);
     const external = await readFile(h.configPath, 'utf8');
@@ -276,6 +305,7 @@ describe('MCP settings authority config text and path', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('before')]);
     await h.authority.start();
+    await h.discovered();
     const { revision } = await h.authority.readConfigText();
     await h.writeConfig([stdioServer('external')]);
     const reloadFailure = new Error('runtime refused the config');
@@ -296,6 +326,7 @@ describe('MCP settings authority config text and path', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('before')]);
     await h.authority.start();
+    await h.discovered();
     const { revision } = await h.authority.readConfigText();
     await h.writeConfig([stdioServer('external')]);
     vi.mocked(h.configFile.watch).mockRejectedValueOnce(new Error('watch failed'));
@@ -323,6 +354,7 @@ describe('MCP settings authority config text and path', () => {
   it('restores the default path, reloads it and watches it', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const custom = path.join(h.userDataDir, 'mcp', 'custom.json');
     await mkdir(path.dirname(custom), { recursive: true });
     await writeFile(custom, JSON.stringify({ servers: [stdioServer('fs')] }), 'utf8');
@@ -339,6 +371,7 @@ describe('MCP settings authority config text and path', () => {
   it('accepts a path inside the profile mcp directory', async () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.authority.start();
+    await h.discovered();
     const custom = path.join(h.userDataDir, 'mcp', 'custom.json');
     await mkdir(path.dirname(custom), { recursive: true });
     await writeFile(custom, JSON.stringify({ servers: [stdioServer('fs')] }), 'utf8');
@@ -347,12 +380,14 @@ describe('MCP settings authority config text and path', () => {
       path: custom,
       success: true,
     });
+    await h.discovered();
     expect(enabledById()).toEqual({ 'fs.read': true });
   });
 
   it('refuses an arbitrary path the native picker did not choose', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const elsewhere = path.join(path.dirname(h.userDataDir), 'elsewhere.json');
 
     await expect(h.authority.setConfigPath({ path: elsewhere })).rejects.toThrow(
@@ -367,6 +402,7 @@ describe('MCP settings authority config text and path', () => {
   it('selects a picked file and allows naming it again later', async () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.authority.start();
+    await h.discovered();
     const picked = path.join(h.userDataDir, 'picked', 'mcp.json');
     await mkdir(path.dirname(picked), { recursive: true });
     await writeFile(picked, JSON.stringify({ servers: [stdioServer('fs')] }), 'utf8');
@@ -375,6 +411,7 @@ describe('MCP settings authority config text and path', () => {
       path: picked,
       success: true,
     });
+    await h.discovered();
     expect(enabledById()).toEqual({ 'fs.read': true });
     await h.authority.setConfigPath({ path: null });
     await expect(h.authority.setConfigPath({ path: picked })).resolves.toEqual({
@@ -386,6 +423,7 @@ describe('MCP settings authority config text and path', () => {
   it('writes the sample config and refuses to overwrite an existing file', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
 
     await expect(h.authority.createSampleConfig()).resolves.toEqual({
       path: h.configPath,
@@ -407,6 +445,7 @@ describe('MCP settings authority extension dials', () => {
   it('persists, applies and announces a change', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
 
     await expect(h.authority.setExtensions({ apps: false, tasks: true })).resolves.toEqual({
       apps: false,
@@ -427,6 +466,7 @@ describe('MCP settings authority extension dials', () => {
   it('rejects a malformed change without persisting or applying it', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const applied = h.setMcpExtensionPreferences.mock.calls.length;
 
     await expect(h.authority.setExtensions({ apps: 1 } as never)).rejects.toThrow();
@@ -438,6 +478,7 @@ describe('MCP settings authority extension dials', () => {
   it('never applies a change whose write failed', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const applied = h.setMcpExtensionPreferences.mock.calls.length;
     h.settings.store.setSetting.mockRejectedValueOnce(new Error('state store closed'));
 
@@ -455,6 +496,7 @@ describe('MCP settings authority lifecycle control', () => {
     const h = await setup({ listTools });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     const discoveries = listTools.mock.calls.length;
     h.control.mockImplementationOnce(async (request) => ({
       configuredProtocol: 'legacy',
@@ -479,6 +521,7 @@ describe('MCP settings authority lifecycle control', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     const commits = h.replaceResolvedConfig.mock.calls.length;
     h.control.mockRejectedValueOnce(new Error('disconnect failed'));
 
@@ -496,6 +539,7 @@ describe('MCP settings authority lifecycle control', () => {
     const h = await setup();
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     h.control.mockRejectedValueOnce(new Error('reauthorize failed'));
     h.replaceResolvedConfig.mockRejectedValueOnce(new Error('reload failed'));
 
@@ -537,6 +581,7 @@ describe('MCP settings authority shutdown and snapshot', () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
 
     await expect(h.authority.snapshot()).resolves.toEqual({
       config: expect.objectContaining({ exists: true, path: h.configPath }),
@@ -550,6 +595,7 @@ describe('MCP settings authority shutdown and snapshot', () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
+    await h.discovered();
     const watcher = h.activeWatcher();
 
     await h.authority.close();

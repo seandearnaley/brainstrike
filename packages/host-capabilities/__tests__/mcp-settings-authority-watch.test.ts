@@ -42,6 +42,7 @@ function failNextWatch(h: SettingsHarness): void {
 async function watcherDiedWhileRunning(h: SettingsHarness): Promise<void> {
   await h.writeConfig([stdioServer('fs')]);
   await h.authority.start();
+  await h.discovered();
   h.failWatch(new Error(RUNTIME_FAILURE));
 }
 
@@ -59,6 +60,7 @@ function failNextClose(h: SettingsHarness): void {
 /** Starts the authority, then saves one server while the watcher cannot restart. */
 async function savedWithoutWatcher(h: SettingsHarness) {
   await h.authority.start();
+  await h.discovered();
   failNextWatch(h);
   return await h.authority.writeConfigText({
     baseRevision: EMPTY_REVISION,
@@ -156,6 +158,7 @@ describe('MCP settings authority config watcher health', () => {
   it('restarts the watcher after a write that threw', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     vi.spyOn(h.configFile, 'writeText').mockRejectedValueOnce(new Error('EACCES'));
 
     await expect(
@@ -168,6 +171,7 @@ describe('MCP settings authority config watcher health', () => {
   it('never retries the watcher once closed, even for a write closing interrupted', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const writeText = h.configFile.writeText;
     const held = Promise.withResolvers<void>();
     vi.spyOn(h.configFile, 'writeText').mockImplementationOnce(async (content, baseRevision) => {
@@ -198,6 +202,7 @@ describe('MCP settings authority config watcher health', () => {
   it('never wants a watcher for a path change that closing interrupted', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const load = h.configFile.load;
     const held = Promise.withResolvers<void>();
     vi.spyOn(h.configFile, 'load').mockImplementationOnce(async () => {
@@ -232,6 +237,7 @@ describe('MCP settings authority config watcher health', () => {
   it('drops a watcher failure that a reset retired before it settled', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const watch = Promise.withResolvers<never>();
     vi.mocked(h.configFile.watch).mockImplementationOnce(async () => await watch.promise);
     const save = h.authority.writeConfigText({
@@ -436,6 +442,7 @@ describe('MCP settings authority config watcher that fails while held', () => {
   it('ignores a failure from the watcher of a retired lifecycle', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     const retired = h.activeWatcher();
     expect(retired).toBeDefined();
     await h.authority.reset();
@@ -450,6 +457,7 @@ describe('MCP settings authority config watcher that fails while held', () => {
   it('keeps a save whose watcher cannot be stopped, reporting watchError until a read restarts it', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     failNextClose(h);
 
     await expect(
@@ -474,6 +482,7 @@ describe('MCP settings authority config watcher that fails while held', () => {
   it('keeps a path change whose watcher cannot be stopped, and reports watchError', async () => {
     const h = await setup();
     await h.authority.start();
+    await h.discovered();
     failNextClose(h);
 
     await expect(h.authority.setConfigPath({ path: null })).resolves.toEqual({

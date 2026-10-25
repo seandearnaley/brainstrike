@@ -1,11 +1,53 @@
+import { appendFileSync } from 'node:fs';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
-import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/client/stdio';
-import { McpServer } from '@modelcontextprotocol/server';
-import { serveStdio } from '@modelcontextprotocol/server/stdio';
-import { z } from 'zod';
 
+function absoluteArgument(prefix, label) {
+  const argument = process.argv.slice(2).find((value) => value.startsWith(prefix));
+  const candidate = argument?.slice(prefix.length);
+  if (candidate !== undefined && !isAbsolute(candidate)) {
+    throw new Error(`MCP lab stdio ${label} must be an absolute path`);
+  }
+  return candidate;
+}
+
+// The client's version probe runs on a sibling process whose stderr it discards, so the
+// process's own life is recorded here: when Node reached this module, how long the SDK
+// imports took, when it served, its first request, and how it ended.
+const traceFile = absoluteArgument('--brainstrike-trace-file=', 'trace file');
+function trace(event, details = {}) {
+  if (traceFile) {
+    appendFileSync(
+      traceFile,
+      `${JSON.stringify({ at: new Date().toISOString(), event, pid: process.pid, uptimeMs: Math.round(process.uptime() * 1000), ...details })}\n`,
+      { encoding: 'utf8', mode: 0o600 }
+    );
+  }
+}
+trace('evaluating');
+process.on('exit', (code) => trace('exit', { code }));
+
+let imported;
+try {
+  imported = await Promise.all([
+    import('@modelcontextprotocol/client/stdio'),
+    import('@modelcontextprotocol/server'),
+    import('@modelcontextprotocol/server/stdio'),
+    import('zod'),
+  ]);
+} catch (error) {
+  trace('import-failed', { error: String(error?.stack ?? error) });
+  throw error;
+}
+const [{ DEFAULT_INHERITED_ENV_VARS }, { McpServer }, { serveStdio }, { z }] = imported;
+trace('imported');
+
+let requested = false;
 function createReferenceServer() {
+  if (!requested) {
+    requested = true;
+    trace('first-request');
+  }
   const server = new McpServer({
     name: 'brainstrike-sdk-v2-reference',
     version: '2.0.0',
@@ -33,13 +75,7 @@ function faultConfigurationPath() {
 }
 
 function pidFilePath() {
-  const prefix = '--brainstrike-pid-file=';
-  const argument = process.argv.slice(2).find((value) => value.startsWith(prefix));
-  const candidate = argument?.slice(prefix.length);
-  if (candidate !== undefined && !isAbsolute(candidate)) {
-    throw new Error('MCP lab stdio PID file must be an absolute path');
-  }
-  return candidate;
+  return absoluteArgument('--brainstrike-pid-file=', 'PID file');
 }
 
 // libuv writes these into every Windows child environment block that omits them, copying
@@ -96,9 +132,17 @@ async function readFaultConfiguration(path) {
   return { ...parsed, directory: dirname(path) };
 }
 
+function serve() {
+  trace('serving');
+  void serveStdio(createReferenceServer, {
+    legacy: 'reject',
+    onerror: (error) => trace('serve-error', { error: String(error?.stack ?? error) }),
+  });
+}
+
 function startFaultControl(configuration) {
   if (!configuration) {
-    void serveStdio(createReferenceServer, { legacy: 'reject' });
+    serve();
     return;
   }
   const state = { lastSequence: 0, mcpStarted: false };
@@ -132,7 +176,7 @@ function startFaultControl(configuration) {
     }
     if (command === 'start-mcp' && !state.mcpStarted) {
       state.mcpStarted = true;
-      void serveStdio(createReferenceServer, { legacy: 'reject' });
+      serve();
     }
     await writeFile(`${configuration.directory}/ack-${sequenceText}`, '', {
       encoding: 'utf8',
@@ -182,6 +226,10 @@ if (
   inheritedEnvironmentKeys.length !== expectedEnvironmentKeys.length ||
   inheritedEnvironmentKeys.some((key, index) => key !== expectedEnvironmentKeys[index])
 ) {
+  trace('environment-mismatch', {
+    expected: expectedEnvironmentKeys,
+    received: inheritedEnvironmentKeys,
+  });
   throw new Error(
     `MCP lab stdio fixture inherited ambient environment mismatch: expected [${expectedEnvironmentKeys.join(', ')}], received [${inheritedEnvironmentKeys.join(', ')}]`
   );

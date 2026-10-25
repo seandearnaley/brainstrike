@@ -120,6 +120,8 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   #projectedAuthorityEpoch = 0;
   #lastToolDiscoveries: DiscoveredServerTools[] = [];
   #lastCommittedResolvedConfig: ResolvedMcpConfig = { servers: [] };
+  /** The latest committed config's tool discovery; it settles, logging any failure. */
+  #projection: Promise<void> = Promise.resolve();
   #pendingFactoryResetSnapshot: McpFactoryResetSnapshot | null = null;
   /** Unreadable preferences fail closed; only recovery or explicit reset reopens writes. */
   #toolPreferencesFault: McpToolPreferencesFault | null = null;
@@ -360,7 +362,9 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
 
   reloadToolPreferences(): Promise<void> {
     return this.#trackOperation(async (lifecycleEpoch) => {
-      // Earlier queued config work has settled; fence changes after recovery starts.
+      // Earlier queued config work and its discovery have settled; fence changes
+      // after recovery starts.
+      await this.#projection;
       const authorityEpoch = this.#latestAuthorityEpoch;
       await withToolPreferencesFileLock(async () => {
         const assertCurrent = (): void => {
@@ -635,15 +639,32 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
       this.#emit({ config: this.#toConfigStatus(cfg), type: 'config' });
     }
 
-    const discoveries = cfg.config
-      ? await discoverToolsFromConfig(this.options.runtime, cfg.config, committed)
+    // The change is committed: a save, path change or reload answers now, and
+    // server connections report through status. Discovery waits on servers, so
+    // it runs on the barrier, where cleanup and content reads still join it.
+    this.#projection = this.#registerChange(
+      this.#projectTools(cfg.config, committed, authorityEpoch, lifecycleEpoch)
+    ).catch((error: unknown) => {
+      logger.error('MCP tool discovery could not be projected', { error, path: cfg.path });
+    });
+  }
+
+  /** Discovers the committed config's tools and publishes them with the saved preferences. */
+  async #projectTools(
+    config: ResolvedMcpConfig | undefined,
+    committed: McpHostSnapshot,
+    authorityEpoch: number,
+    lifecycleEpoch: number
+  ): Promise<void> {
+    const discoveries = config
+      ? await discoverToolsFromConfig(this.options.runtime, config, committed)
       : [];
     if (!this.#isCurrentAuthority(authorityEpoch, lifecycleEpoch)) {
       return;
     }
     const toolIds = new Set(discoveries.flatMap((discovery) => Object.keys(discovery.tools)));
     // Discovery failure never retires preferences; only config removal can.
-    const configuredServerNames = new Set(config.servers.map((server) => server.name));
+    const configuredServerNames = new Set((config?.servers ?? []).map((server) => server.name));
     await withToolPreferencesFileLock(async () => {
       if (!this.#isCurrentAuthority(authorityEpoch, lifecycleEpoch)) {
         return;

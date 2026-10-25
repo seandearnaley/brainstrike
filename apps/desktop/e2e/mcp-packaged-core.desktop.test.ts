@@ -156,6 +156,7 @@ function oauthServer(url: string) {
 function buildConfig(options: {
   readonly diagnosticControlPath: string;
   readonly diagnosticPidFile: string;
+  readonly fixtureStateDir: string;
   readonly legacyUrl: string;
   readonly modernUrl: string;
   readonly oauthUrl: string;
@@ -180,6 +181,7 @@ function buildConfig(options: {
           stdioFixturePath(),
           inheritedStdioEnvironmentArgument(),
           `--brainstrike-pid-file=${options.stdioPidFile}`,
+          `--brainstrike-trace-file=${path.join(options.fixtureStateDir, 'stdio.trace.ndjson')}`,
         ],
         command: process.execPath,
         env: { BRAINSTRIKE_STDIO_FIXTURE: '1' },
@@ -194,6 +196,7 @@ function buildConfig(options: {
           inheritedStdioEnvironmentArgument(),
           `--brainstrike-fault-control=${options.diagnosticControlPath}`,
           `--brainstrike-pid-file=${options.diagnosticPidFile}`,
+          `--brainstrike-trace-file=${path.join(options.fixtureStateDir, 'diagnostic-stdio.trace.ndjson')}`,
         ],
         command: process.execPath,
         env: { BRAINSTRIKE_STDIO_FIXTURE: '1' },
@@ -631,10 +634,22 @@ async function findLogRecords(
 async function attachFailureDiagnostics(
   testFailed: boolean,
   testInfo: TestInfo,
-  userDataDir: string
+  userDataDir: string,
+  fixtureStateDir: string
 ): Promise<void> {
   if (!testFailed) {
     return;
+  }
+  // Each stdio fixture process, the client's version-probe sibling included, records its
+  // life in a trace beside its PID file; the probe discards the sibling's stderr.
+  const fixtureState = await readdir(fixtureStateDir).catch(() => []);
+  for (const entry of fixtureState
+    .filter((name) => /\.(?:pid|trace\.ndjson)$/u.test(name))
+    .sort()) {
+    await testInfo.attach(`fixture-state-${entry}`, {
+      body: await readFile(path.join(fixtureStateDir, entry), 'utf8').catch(String),
+      contentType: 'text/plain',
+    });
   }
   const contents = await Promise.all(
     ['brainstrike-errors.ndjson', 'brainstrike.log'].map(
@@ -671,7 +686,9 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     deferCleanup(async () => await rm(userDataDir, { force: true, recursive: true }));
     const fixtureStateDir = await mkdtemp(path.join(os.tmpdir(), 'bst-1577-fixture-state-'));
     deferCleanup(async () => await rm(fixtureStateDir, { force: true, recursive: true }));
-    cleanup.defer(async () => await attachFailureDiagnostics(testFailed, testInfo, userDataDir));
+    cleanup.defer(
+      async () => await attachFailureDiagnostics(testFailed, testInfo, userDataDir, fixtureStateDir)
+    );
     const ownFixture = async (
       fixturePromise: Promise<PackagedFixture>,
       oauth = false
@@ -742,6 +759,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       buildConfig({
         diagnosticControlPath,
         diagnosticPidFile,
+        fixtureStateDir,
         legacyUrl: legacy.manifest.url,
         modernUrl: modern.manifest.url,
         oauthUrl: oauth.manifest.url,

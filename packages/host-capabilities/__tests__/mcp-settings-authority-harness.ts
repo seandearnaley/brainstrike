@@ -203,6 +203,10 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
       mcpToolRegistry.clear();
       await rm(userDataDir, { force: true, recursive: true });
     },
+    /** Tool discovery follows a committed change on the barrier that content reads wait out. */
+    async discovered(): Promise<void> {
+      await authority.admitContent();
+    },
     /** Fail a watcher while it runs, as a dying fs watcher does: it closes itself, then reports. */
     failWatch(error: unknown, watcher?: (typeof watchers)[number]): void {
       const failing = watcher ?? this.activeWatcher();
