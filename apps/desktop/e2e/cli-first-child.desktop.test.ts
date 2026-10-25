@@ -16,6 +16,12 @@ const executable = path.join(
   '../bin/brainstrike.mjs'
 );
 const execute = promisify(execFile);
+// A CLI command lives no longer than its test: Playwright runs afterEach after a timeout too.
+let commands = new AbortController();
+test.afterEach(() => {
+  commands.abort();
+  commands = new AbortController();
+});
 test.use({ electronEnv: { BRAINSTRIKE_OPENAI_API_KEY: 'offline-cli-first-fixture' } });
 test('CLI-created children and their CLI follow-up appear in the GUI', async ({
   electron,
@@ -33,7 +39,7 @@ test('CLI-created children and their CLI follow-up appear in the GUI', async ({
     (
       await execute(process.execPath, [executable, '--data-root', root, ...args], {
         env: environment,
-        timeout: 20_000,
+        signal: commands.signal,
       })
     ).stdout;
   modelProvider.setScript(({ messages, requestBody, toolNames }) => {
@@ -47,7 +53,8 @@ test('CLI-created children and their CLI follow-up appear in the GUI', async ({
       return { finalText: 'CLI child parent' };
     }
     const history = JSON.stringify(messages);
-    if (history.includes('CLI_CHILD_TASK')) {
+    // The Explorer child has no agent-explore tool; the parent's own history names its task too.
+    if (!toolNames.includes('agent-explore') && history.includes('CLI_CHILD_TASK')) {
       return {
         finalText: history.includes('CLI_CHILD_FOLLOWUP')
           ? 'CLI CHILD FOLLOWUP RESPONSE'
@@ -62,6 +69,9 @@ test('CLI-created children and their CLI follow-up appear in the GUI', async ({
       history.includes('<child_continuation_result>')
     ) {
       return { finalText: 'CLI parent received child' };
+    }
+    if (history.includes('Background task started.')) {
+      return { finalText: 'CLI parent started its child' };
     }
     return {
       finalText: 'CLI parent started its child',
