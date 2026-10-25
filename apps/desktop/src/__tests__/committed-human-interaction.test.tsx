@@ -111,6 +111,8 @@ test.each([
         })
       ).toBeNull();
     } finally {
+      // The conversation unmounts before the store it reads is disposed.
+      cleanup();
       store.dispose();
     }
   }
@@ -190,6 +192,8 @@ test('replays a run_python network card: facts, ticked domains, the approval gra
     expect(store.getCommittedView().pendingInteractions).toHaveLength(0);
     expect(screen.queryByTestId('committed-network-consent')).toBeNull();
   } finally {
+    // The conversation unmounts before the store it reads is disposed.
+    cleanup();
     store.dispose();
   }
 });
@@ -269,6 +273,8 @@ test("replays a browser origin card: the origin, Don't allow first, then Always 
     expect(store.getCommittedView().pendingInteractions).toHaveLength(0);
     expect(screen.queryByTestId('committed-origin-consent')).toBeNull();
   } finally {
+    // The conversation unmounts before the store it reads is disposed.
+    cleanup();
     store.dispose();
   }
 });

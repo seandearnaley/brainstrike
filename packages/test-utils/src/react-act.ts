@@ -1,5 +1,5 @@
 import { act as testingLibraryAct } from '@testing-library/react';
-import { TestRunner } from 'vitest';
+import { TestRunner, vi } from 'vitest';
 
 /**
  * React Testing Library's `act`, whose async scope ends with the test that
@@ -40,4 +40,24 @@ function endedBy<T>(signal: AbortSignal, work: Promise<T>): Promise<T> {
     signal.addEventListener('abort', abort, { once: true });
     work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
   });
+}
+
+/**
+ * Testing Library's `waitFor` for a test on Vitest's fake timers, which
+ * Testing Library's own `waitFor` cannot advance. As there, React does not
+ * expect act while the condition is polled, and the work the poll set off
+ * settles before act is expected again.
+ */
+export async function waitForOnFakeTimers<T>(callback: () => T | Promise<T>): Promise<T> {
+  const expected = Reflect.get(globalThis, 'IS_REACT_ACT_ENVIRONMENT');
+  Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', false);
+  try {
+    const result = await vi.waitFor(callback);
+    await (vi.isFakeTimers()
+      ? vi.advanceTimersByTimeAsync(0)
+      : new Promise((resolve) => setTimeout(resolve, 0)));
+    return result;
+  } finally {
+    Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', expected);
+  }
 }
