@@ -712,7 +712,7 @@ export type HostWorkspaceIndexMethods = {
  * answers its own wire method.
  */
 export type HostWorkspaceIndex = HostWorkspaceIndexMethods & {
-  /** Lifecycle and settings changes, for every subscribed client. */
+  /** The current lifecycle and settings, then each change, for every subscribed client. */
   subscribe(listener: (event: WorkspaceIndexEvent) => void): () => void;
 };
 

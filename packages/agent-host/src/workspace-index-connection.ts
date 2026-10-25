@@ -21,8 +21,8 @@ const logger = createLogger('AgentHostWorkspaceIndex');
 /**
  * ADR-0029 stage 4: the desktop's native search index and its settings on one
  * authenticated connection. Only the desktop's private clients reach them; a
- * subscribed connection receives every lifecycle and settings change until it
- * closes.
+ * subscribed connection receives the current lifecycle and settings, then every
+ * change until it closes.
  */
 export function bindHostWorkspaceIndexMethods(
   handle: HostMethodHandler,

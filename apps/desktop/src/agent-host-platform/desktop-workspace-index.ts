@@ -81,7 +81,16 @@ export function createDesktopWorkspaceIndex(
 ): DesktopWorkspaceIndex {
   const { folders, store } = options;
   const listeners = new Set<(event: WorkspaceIndexEvent) => void>();
+  // A subscriber starts from the index's current state: a window that outlived its host learns
+  // the replacement's settings and lifecycle without waiting for the next change.
+  let observation: Extract<WorkspaceIndexEvent, { type: 'lifecycle' }> | undefined;
+  let configChanges = 0;
   const publish = (event: WorkspaceIndexEvent): void => {
+    if (event.type === 'lifecycle') {
+      observation = event;
+    } else {
+      configChanges += 1;
+    }
     for (const listener of listeners) {
       listener(event);
     }
@@ -215,6 +224,19 @@ export function createDesktopWorkspaceIndex(
     'index/status': () => search.status(),
     subscribe: (listener) => {
       listeners.add(listener);
+      if (observation) {
+        listener(observation);
+      }
+      // A change saved during this read reaches the listener itself, and is newer than the read.
+      const changesBefore = configChanges;
+      indexConfig.read().then(
+        (config) => {
+          if (listeners.has(listener) && configChanges === changesBefore) {
+            listener({ config, type: 'config' });
+          }
+        },
+        (error: unknown) => reportError('Search index settings could not be read', error)
+      );
       return () => listeners.delete(listener);
     },
   };

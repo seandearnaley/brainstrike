@@ -339,6 +339,10 @@ export async function createDesktopHostConfiguration(
     synthetic,
   });
   await startup.register(() => folders.close());
+  // The registry lives and dies with this host. A replacement mounts the saved folders before
+  // any client asks for one, whatever the index mode, since a surviving window does not restore.
+  // The window's own restore still owns the saved preferences, so a read-only store starts too.
+  await folders.roots.restoreRoots({ persistPreferences: false });
   // ADR-0029 stage 4: the native search index, over this host's store and folders. Main lends
   // it the index utilities and the embedding renderer.
   let closing = false;
