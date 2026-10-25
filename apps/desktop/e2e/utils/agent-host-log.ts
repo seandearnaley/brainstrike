@@ -10,7 +10,7 @@ import { decodeHostRecord } from '@brainstrike/host-lease';
 import type { Page } from '@playwright/test';
 
 /** One committed MCP input fact, reduced to the fields a spec asserts on. */
-export interface McpInputFact {
+interface McpInputFact {
   readonly action?: string;
   readonly status?: string;
   readonly type: string;

@@ -55,8 +55,8 @@ const copyThreadId: ContextAction<AssistantThreadTargetKind> = {
   run: (target, services) => copyThreadValue(services, target.id, 'Thread ID copied'),
 };
 
-export const copyThreadTitleAction = defineContextAction(copyThreadTitle);
-export const copyThreadIdAction = defineContextAction(copyThreadId);
+const copyThreadTitleAction = defineContextAction(copyThreadTitle);
+const copyThreadIdAction = defineContextAction(copyThreadId);
 
 export const assistantThreadActions: readonly AnyContextAction[] = [
   copyThreadTitleAction,

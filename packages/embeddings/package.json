@@ -11,11 +11,9 @@
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "effect": "catalog:",
     "glob": "catalog:"
   },
   "devDependencies": {

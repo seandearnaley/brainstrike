@@ -6,7 +6,7 @@ import { expect, type Page } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import { SettingsPage } from '../page-objects/settings-page';
 
-export const PENDING_INPUT_SERVER_ID = 'pending-input';
+const PENDING_INPUT_SERVER_ID = 'pending-input';
 export const PENDING_INPUT_TOOL_NAME = 'pending-input_start_task';
 
 /** Configure the fixture as a 2026-07-28 streamable-http server, with MCP calls set to ask. */

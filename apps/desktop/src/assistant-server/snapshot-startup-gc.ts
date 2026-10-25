@@ -15,7 +15,7 @@ function isPathAccessible(path: string): Promise<boolean> {
 }
 
 /** The plan's retention ring: newest 50 turns per thread. */
-export const DEFAULT_SNAPSHOT_TURN_RING = 50;
+const DEFAULT_SNAPSHOT_TURN_RING = 50;
 
 export interface SnapshotStartupGcDeps {
   /**

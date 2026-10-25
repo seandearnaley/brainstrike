@@ -39,7 +39,7 @@ function rowIndex(predicate: (row: CommittedAssistantLogRow) => boolean, label: 
 }
 
 /** Index of the first recorded row with this host event type. */
-export function eventIndex(type: string): number {
+function eventIndex(type: string): number {
   return rowIndex(({ event }) => event['type'] === type, type);
 }
 

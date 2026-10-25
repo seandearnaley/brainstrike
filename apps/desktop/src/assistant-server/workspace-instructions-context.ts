@@ -148,7 +148,7 @@ function sliceWithoutSplittingSurrogate(text: string, maxChars: number): string 
   return text.slice(0, isHighSurrogate ? maxChars - 1 : maxChars);
 }
 
-export interface FoundContextFile {
+interface FoundContextFile {
   content: string;
   path: string;
   size: number;

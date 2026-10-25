@@ -2,7 +2,7 @@ import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('CommandSessionInventory');
 
-export type CommandSessionErrorCode =
+type CommandSessionErrorCode =
   | 'aborted'
   | 'cursor-out-of-range'
   | 'cwd-not-found'

@@ -19,7 +19,7 @@ export type PromptLibraryEmbeddingRepository = Pick<
   | 'storeEmbedding'
 >;
 
-export type PromptLibraryEmbedder = Pick<
+type PromptLibraryEmbedder = Pick<
   UseSearchEmbedderResult,
   'embedDocumentWithRecovery' | 'embedQueryWithRecovery'
 >;

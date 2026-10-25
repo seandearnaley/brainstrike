@@ -32,7 +32,7 @@ export interface StateStoreHooks {
   readonly purgeAfterTruth?: () => void;
 }
 
-export interface CheckpointRow {
+interface CheckpointRow {
   readonly busy: number;
   readonly checkpointed: number;
   readonly log: number;

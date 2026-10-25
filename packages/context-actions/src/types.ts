@@ -15,7 +15,7 @@ export interface FileContextIdentity {
   rootFolderId: string;
 }
 
-export interface AssistantThreadContextIdentity {
+interface AssistantThreadContextIdentity {
   readonly id: string;
   /** Stable assistant-memory owner; thread operations are always resource-scoped. */
   readonly resourceId: string;

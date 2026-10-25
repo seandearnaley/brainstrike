@@ -23,7 +23,7 @@ export interface HostRowReader {
 export type HostCatalogStore = Pick<StateStore, 'holdBlobGc' | 'readHydration'>;
 
 /** A damaged thread's refusal: its text is written for the person who opened or ran it. */
-export class HostThreadDamagedRefusal extends BoundaryFailureError {
+class HostThreadDamagedRefusal extends BoundaryFailureError {
   override readonly name = 'HostThreadDamagedRefusal';
 
   constructor(message: string) {

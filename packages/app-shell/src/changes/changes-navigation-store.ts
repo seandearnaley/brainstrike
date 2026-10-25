@@ -77,7 +77,7 @@ import { create } from 'zustand';
  * ruling that shaped the previous `activeWorkspacePanelTab` field carries
  * over unchanged).
  */
-export interface ChangesHandoffThreadIdentity {
+interface ChangesHandoffThreadIdentity {
   readonly latestRunId: string;
   readonly threadId: string;
 }
@@ -87,7 +87,7 @@ export interface ChangesHandoffThreadIdentity {
  * comment above. `latestRunId` is `null` until a run has been OBSERVED to
  * finish/fail for this thread in this session.
  */
-export interface ChangesActiveThreadIdentity {
+interface ChangesActiveThreadIdentity {
   readonly latestRunId: string | null;
   readonly threadId: string;
 }

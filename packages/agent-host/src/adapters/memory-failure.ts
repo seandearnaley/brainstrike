@@ -40,7 +40,7 @@ export function* memoryFailureCauses(value: unknown): Generator<object> {
 }
 
 /** A platform's model-safe reading of one of its embedder's failures (BST-2202). */
-export interface HostMemoryEmbedderFailure {
+interface HostMemoryEmbedderFailure {
   /** No keys, host paths or provider body: shown to the user as is. */
   readonly detail: string;
   readonly httpStatus?: number;

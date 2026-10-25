@@ -114,12 +114,3 @@ export class HostChildDetailsFold {
     };
   }
 }
-
-/** One child log's toolbar facts, folded from its first row.
- * @internal Host-child integration regressions verify the folded child details.
- */
-export function foldHostChildDetails(
-  rows: readonly HostLogRow[]
-): HostChildToolbarDetails | undefined {
-  return new HostChildDetailsFold().apply(rows);
-}

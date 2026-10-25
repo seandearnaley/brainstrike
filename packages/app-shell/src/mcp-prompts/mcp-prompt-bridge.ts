@@ -27,7 +27,7 @@ const logger = createLogger('McpPromptBridge');
  * Mirrors the assistant-service content application port's authority
  * structurally; app-shell depends only on assistant-contract.
  */
-export interface McpPromptAuthority {
+interface McpPromptAuthority {
   readonly configuredServerId: ConfiguredMcpServerId;
   readonly generation: number;
 }
@@ -50,7 +50,7 @@ export type McpPromptCompleteResult = Extract<
   { type: 'completion/complete' }
 >;
 
-export interface McpPromptBridge {
+interface McpPromptBridge {
   readonly complete: (request: McpPromptCompleteRequest) => Promise<McpPromptCompleteResult>;
   readonly getPrompt: (request: McpPromptGetRequest) => Promise<McpPromptGetResult>;
   readonly getServerStatusSnapshot: () => Promise<McpHostSnapshot>;

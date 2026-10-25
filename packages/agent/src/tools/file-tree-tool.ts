@@ -238,7 +238,7 @@ export function createQueryFileTreeTool(deps: FileTreeToolDependencies): MastraT
 /**
  * Type for tools input (matching Mastra pattern).
  */
-export type ToolsInput = Record<string, MastraTool>;
+type ToolsInput = Record<string, MastraTool>;
 
 /**
  * Builds a tools object with the file tree tool added to a base set.

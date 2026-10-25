@@ -14,7 +14,7 @@ import type { CatalogSortColumn } from './catalog-sections';
 
 export type CatalogWidthTier = 'medium' | 'narrow' | 'wide';
 
-export type CatalogColumnId =
+type CatalogColumnId =
   | 'actions'
   | 'capabilities'
   | 'context'

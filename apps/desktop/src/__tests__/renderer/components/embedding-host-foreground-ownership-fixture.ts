@@ -12,8 +12,6 @@ const {
   retireEmbeddingQueueMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
-  generateQueryEmbeddingMock,
-  initializeWithModelMock,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
@@ -223,14 +221,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
 
 export {
   commandListenerRef,
-  createHostWindowMock,
-  detectDeviceCapabilitiesMock,
-  embeddingQueueBootstrapMock,
-  ensureVectorPreferencesHydratedMock,
-  generateQueryEmbeddingMock,
-  getEmbeddingQueueMock,
   hostWindow,
-  initializeWithModelMock,
   ipcHandlers,
   queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
@@ -239,8 +230,5 @@ export {
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
   retireEmbeddingQueueMock,
-  setDetectedDevicePrefMock,
-  startEmbeddingWorkerMock,
-  stopMock,
   storeState,
 };

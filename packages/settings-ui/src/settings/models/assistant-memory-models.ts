@@ -37,7 +37,7 @@ function compareOptions(providers: Map<string, DbProvider>, left: DbModel, right
   );
 }
 
-export function toMastraModelTarget(providerId: string, modelId: string): string {
+function toMastraModelTarget(providerId: string, modelId: string): string {
   if (providerId === 'openrouter') {
     return `openrouter/${modelId}`;
   }

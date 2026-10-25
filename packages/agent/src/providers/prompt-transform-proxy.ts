@@ -28,7 +28,7 @@ export interface PromptParamsLike {
   prompt?: readonly PromptMessageLike[];
 }
 
-export type ModelProviderOptions = Record<string, Record<string, unknown>>;
+type ModelProviderOptions = Record<string, Record<string, unknown>>;
 
 export interface ModelCallParamsLike extends PromptParamsLike {
   abortSignal?: AbortSignal;

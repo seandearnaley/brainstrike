@@ -17,22 +17,22 @@ import { hostedEmbeddingFailure } from './hosted-embedding-error';
 export const CANONICAL_CHANNEL = 'canonical-ingestion-v1';
 export const MAX_CANONICAL_MESSAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_CANONICAL_PENDING = 64;
-export const positive = Schema.Int.check(
+const positive = Schema.Int.check(
   Schema.isGreaterThan(0),
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
 );
-export const nonnegative = Schema.Int.check(
+const nonnegative = Schema.Int.check(
   Schema.isGreaterThanOrEqualTo(0),
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
 );
-export const identifier = Schema.String.check(
+const identifier = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(4096),
   Schema.isPattern(/\S/u)
 );
-export const hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
+const hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 export const scopeSchema = Schema.Struct({ kind: Schema.Literal('workspace'), rootId: identifier });
-export const statSchema = Schema.Struct({
+const statSchema = Schema.Struct({
   mtimeMs: Schema.NullOr(Schema.Finite),
   size: nonnegative,
 });
@@ -44,9 +44,9 @@ export const identitySchema = Schema.Struct({
   rootId: Schema.NullOr(identifier),
   sourcePath: Schema.NullOr(identifier),
 });
-export const sourceFileSchema = Schema.Struct({ ...identitySchema.fields, stat: statSchema });
-export const manifestSchema = Schema.Struct({ ...identitySchema.fields, contentHash: hash });
-export const catalogFileSchema = Schema.Struct({
+const sourceFileSchema = Schema.Struct({ ...identitySchema.fields, stat: statSchema });
+const manifestSchema = Schema.Struct({ ...identitySchema.fields, contentHash: hash });
+const catalogFileSchema = Schema.Struct({
   ...sourceFileSchema.fields,
   chunksProcessed: Schema.Boolean,
   contentHash: Schema.NullOr(hash),
@@ -86,14 +86,14 @@ export const receiptSchema = Schema.Struct({
   scanComplete: Schema.Boolean,
   ticket: ticketSchema,
 });
-export const manifestResultSchema = Schema.Struct({
+const manifestResultSchema = Schema.Struct({
   changed: Schema.Array(manifestSchema),
   complete: Schema.Boolean,
   missing: Schema.Array(manifestSchema),
   storeId: identifier,
   unexpected: Schema.Array(manifestSchema),
 });
-export const listSchema = Schema.NullOr(
+const listSchema = Schema.NullOr(
   Schema.Struct({
     entries: Schema.Array(
       Schema.Struct({
@@ -109,11 +109,11 @@ export const listSchema = Schema.NullOr(
     truncated: Schema.Boolean,
   })
 );
-export const fileReadSchema = Schema.Union([
+const fileReadSchema = Schema.Union([
   Schema.Struct({ content: Schema.String, status: Schema.Literal('ok') }),
   Schema.Struct({ status: Schema.Literals(['not-found', 'oversized', 'unreadable']) }),
 ]);
-export const changesSchema = Schema.Array(
+const changesSchema = Schema.Array(
   Schema.Struct({
     kind: Schema.Literals(['file', 'directory']),
     path: identifier,
@@ -276,7 +276,7 @@ const nativeChunkSchema = Schema.Struct({
   startLine: positive,
 });
 const proofFields = { authorityEpoch: hash, authorityRevision: nonnegative, storeId: hash };
-export const scopedPlanSchema: Schema.Codec<ScopedFilePlan> = Schema.Struct({
+const scopedPlanSchema: Schema.Codec<ScopedFilePlan> = Schema.Struct({
   ...proofFields,
   chunks: Schema.Array(nativeChunkSchema),
   contentHash: hash,

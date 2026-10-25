@@ -12,7 +12,7 @@ export interface WebAssemblyFailure {
   readonly message: string;
 }
 
-export interface WebAssemblyCounterSnapshot {
+interface WebAssemblyCounterSnapshot {
   readonly counts: WebAssemblyCounts;
   readonly installedAt: string;
   readonly recentFailures: WebAssemblyFailure[];

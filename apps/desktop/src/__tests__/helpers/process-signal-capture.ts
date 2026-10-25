@@ -1,6 +1,6 @@
 import { type MockInstance, vi } from 'vitest';
 
-export type CapturedSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM';
+type CapturedSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM';
 
 const CAPTURED_SIGNALS: ReadonlySet<string | symbol | undefined> = new Set<CapturedSignal>([
   'SIGHUP',

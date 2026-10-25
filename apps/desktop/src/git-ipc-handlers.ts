@@ -61,7 +61,7 @@ const PRESERVED_GIT_ENV_KEYS = new Set([
  * Caller overrides win for ordinary environment entries, but these values are
  * part of the runner's safety contract and are re-applied after every merge.
  */
-export const SAFETY_PINNED_GIT_ENVIRONMENT: readonly (readonly [string, string])[] = [
+const SAFETY_PINNED_GIT_ENVIRONMENT: readonly (readonly [string, string])[] = [
   // An interactive credential prompt would wedge a headless main-process call.
   ['GIT_TERMINAL_PROMPT', '0'],
   // Git path arguments assembled by services must remain literal pathspecs.
@@ -78,7 +78,7 @@ export const SAFETY_PINNED_GIT_ENVIRONMENT: readonly (readonly [string, string])
  * helpers stays removed. Ordinary environment, including SSH agent/socket
  * configuration, also remains intact for explicit network actions.
  */
-export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const environment = { ...source };
   const preservedGitEnvironment = new Map<string, string>();
   for (const key of Object.keys(environment)) {
@@ -109,7 +109,7 @@ export function createPinnedGitEnvironment(source: NodeJS.ProcessEnv): NodeJS.Pr
 }
 
 /** Merge ordinary per-command overrides, then restore non-overridable safety pins. */
-export function createGitCommandEnvironment(
+function createGitCommandEnvironment(
   source: NodeJS.ProcessEnv,
   envOverride?: Readonly<Record<string, string>>
 ): NodeJS.ProcessEnv {

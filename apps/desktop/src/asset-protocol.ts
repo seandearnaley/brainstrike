@@ -35,7 +35,7 @@ import type { WorkspaceRootResolver } from './workspace-root-cwd';
 
 const logger = createLogger('AssetProtocol');
 
-export const ASSET_PROTOCOL_SCHEME = 'brainstrike-asset';
+const ASSET_PROTOCOL_SCHEME = 'brainstrike-asset';
 
 /**
  * Privilege descriptor for the scheme. Registered via the SINGLE

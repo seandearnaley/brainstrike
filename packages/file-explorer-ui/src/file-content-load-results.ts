@@ -39,7 +39,7 @@ export function createFileContentLoadError(failures: readonly unknown[]): Error 
   return new AggregateError(failures, 'One or more file-content reads failed.');
 }
 
-export function toFileContentError(error: unknown): Error {
+function toFileContentError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }

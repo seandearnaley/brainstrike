@@ -22,7 +22,7 @@ import { unwrapContent } from './mcp-content-outcome';
 const logger = createLogger('DesktopHostMcpSettings');
 
 /** The host methods behind the desktop's MCP settings, server status and presentations. */
-export type DesktopMcpSettingsMethod = Extract<
+type DesktopMcpSettingsMethod = Extract<
   HostMethod,
   | `mcp/config/${string}`
   | `mcp/content/${string}`

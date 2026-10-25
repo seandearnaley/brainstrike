@@ -96,7 +96,7 @@ class McpTaskInputWithdrawnError extends Error {
  * automatically (L377: the ack is eventually consistent, so a poll that still
  * lists the key proves nothing; L379: ignoring an answered key is only a SHOULD).
  */
-export class McpTaskInputDeliveryUnknownError extends Error {
+class McpTaskInputDeliveryUnknownError extends Error {
   readonly taskId: string;
   readonly inputKey: string;
 

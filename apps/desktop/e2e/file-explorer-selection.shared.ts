@@ -14,12 +14,10 @@ import { expect, test } from './fixtures/electron-fixture';
 export { expect, test };
 
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
-
 // NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
 // that a harness-owned app must only be closed via `closeForStateSeeding()`, so
 // it should not also hand callers `closeElectronApp`. Specs that genuinely need
 // the helpers import './utils/load-electron-helpers' directly.
-export { getContextExplorerFileExplorerPanel };
 
 /**
  * Harness surface the seeding helpers need.
@@ -37,7 +35,7 @@ export interface SeedableElectronHarness {
   }>;
 }
 
-export interface ElectronE2eFileSystemFixture {
+interface ElectronE2eFileSystemFixture {
   directoriesByPath: Record<string, unknown[]>;
   /**
    * Opt-in per-read delay (ms) honored by the main-process `fs:readDirectory`
@@ -60,27 +58,27 @@ export interface ElectronE2eFileSystemFixture {
   };
 }
 
-export interface FileExplorerTestSnapshot {
+interface FileExplorerTestSnapshot {
   materializedPathCount: number;
   selectedFilePathCount: number;
   treeRootCount: number;
 }
 
-export interface FileExplorerTestHooksWindow {
+interface FileExplorerTestHooksWindow {
   __brainstrikeFileExplorerTestHooks__?: {
     getSnapshot: () => FileExplorerTestSnapshot;
   };
 }
 
 export const FILE_EXPLORER_CLICK_TIMEOUT_MS = 15_000;
-export const FILE_EXPLORER_SETTLE_TIMEOUT_MS = 15_000;
-export const FILE_EXPLORER_SETTLE_POLL_MS = 100;
-export const FILE_EXPLORER_SETTLE_STABLE_SAMPLES = 3;
-export const FILE_TREE_CHECKBOX_INTERACTION_TIMEOUT_MS = 45_000;
+const FILE_EXPLORER_SETTLE_TIMEOUT_MS = 15_000;
+const FILE_EXPLORER_SETTLE_POLL_MS = 100;
+const FILE_EXPLORER_SETTLE_STABLE_SAMPLES = 3;
+const FILE_TREE_CHECKBOX_INTERACTION_TIMEOUT_MS = 45_000;
 export const FILE_TREE_MULTI_STEP_SELECTION_TEST_TIMEOUT_MS = 90_000;
-export const MIN_PLAYWRIGHT_STEP_TIMEOUT_MS = 1000;
-export const RENDERER_FRAME_SETTLE_COUNT = 2;
-export const RENDERER_FRAME_SETTLE_TIMEOUT_MS = 5000;
+const MIN_PLAYWRIGHT_STEP_TIMEOUT_MS = 1000;
+const RENDERER_FRAME_SETTLE_COUNT = 2;
+const RENDERER_FRAME_SETTLE_TIMEOUT_MS = 5000;
 
 export async function ensureFileExplorerPanelVisible(page: Page): Promise<void> {
   const explorerPanel = getContextExplorerFileExplorerPanel(page);
@@ -128,16 +126,16 @@ export async function expandDirectoryIfNeeded(args: {
   await expect(childLocator).toBeVisible({ timeout: 15_000 });
 }
 
-export async function clickExpandButton(expandButton: Locator): Promise<void> {
+async function clickExpandButton(expandButton: Locator): Promise<void> {
   await expect(expandButton).toBeVisible({ timeout: 15_000 });
   await expandButton.click({ noWaitAfter: true, timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS });
 }
 
-export function escapeRegExp(value: string): string {
+function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function cssString(value: string): string {
+function cssString(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
@@ -227,7 +225,7 @@ async function dismissBlockingToastNotifications(page: Page): Promise<void> {
   await expect(notificationItems).toHaveCount(0, { timeout: 5000 });
 }
 
-export async function waitForRendererFrames(page: Page, timeoutMs: number): Promise<void> {
+async function waitForRendererFrames(page: Page, timeoutMs: number): Promise<void> {
   await page.evaluate(
     ({ frameCount, timeoutMs }) =>
       new Promise<void>((resolve, reject) => {
@@ -260,7 +258,7 @@ export async function waitForRendererFrames(page: Page, timeoutMs: number): Prom
   );
 }
 
-export async function readFileExplorerSnapshot(page: Page): Promise<FileExplorerTestSnapshot> {
+async function readFileExplorerSnapshot(page: Page): Promise<FileExplorerTestSnapshot> {
   return page.evaluate(() => {
     const hooks = (window as FileExplorerTestHooksWindow).__brainstrikeFileExplorerTestHooks__;
     if (!hooks?.getSnapshot) {
@@ -270,7 +268,7 @@ export async function readFileExplorerSnapshot(page: Page): Promise<FileExplorer
   });
 }
 
-export function getRemainingInteractionTimeout(args: { deadline: number; label: string }): number {
+function getRemainingInteractionTimeout(args: { deadline: number; label: string }): number {
   const remainingMs = args.deadline - Date.now();
   if (remainingMs < MIN_PLAYWRIGHT_STEP_TIMEOUT_MS) {
     throw new Error(`Timed out before ${args.label}; remainingMs=${remainingMs}`);
@@ -568,12 +566,12 @@ export function mockRootPath(name: string): string {
  * the seed functions below write a matching `rootsList` entry — the restored
  * root then carries this exact id and the seeded folder state hydrates.
  */
-export const E2E_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000001';
+const E2E_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000001';
 
 /** Fixed addedAt for the seeded rootsList entry — deterministic fixture data. */
 const E2E_ROOT_ADDED_AT = 1_700_000_000_000;
 
-export function createBaseExplorerState(rootPath: string): FileExplorerState {
+function createBaseExplorerState(rootPath: string): FileExplorerState {
   return {
     ...DEFAULT_STATE,
     // Storage v5: identity is the RootId UUID; the path lives in rootDescriptors.
@@ -597,7 +595,7 @@ export function createBaseExplorerState(rootPath: string): FileExplorerState {
   } as unknown as FileExplorerState;
 }
 
-export function createRestoredExplicitSelectionSnapshot(args: {
+function createRestoredExplicitSelectionSnapshot(args: {
   expandedDirectoryPaths: string[];
   rootPath: string;
   selectedFilePaths: string[];
@@ -650,7 +648,7 @@ export function createRestoredExplicitSelectionSnapshot(args: {
   };
 }
 
-export function createRestoredQuerySelectionSnapshot(args: {
+function createRestoredQuerySelectionSnapshot(args: {
   coveredDirectoryPaths: string[];
   expandedDirectoryPaths: string[];
   excludeFilters?: string[];
@@ -837,7 +835,7 @@ export async function seedRestoredQuerySelectionState(args: {
   await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
 }
 
-export async function writeLive3dmolRestoreFixture(args: {
+async function writeLive3dmolRestoreFixture(args: {
   filePaths: string[];
   rootPath: string;
 }): Promise<void> {
@@ -1018,8 +1016,8 @@ export async function installNestedFolderFixture(
   }, fixture);
 }
 
-export const WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT = 30;
-export const WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT = 8;
+const WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT = 30;
+const WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT = 8;
 /** Every directory expand-all must read: the root folders plus their children. */
 export const WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT =
   WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT +
@@ -1041,7 +1039,7 @@ export const WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT =
  * budget even if cancellation never lands. Matches the browser lane's constant
  * (apps/web/e2e/performance/tree-rendering.test.ts, BST-1044).
  */
-export const WIDE_EXPAND_ALL_DIRECTORY_READ_DELAY_MS = 250;
+const WIDE_EXPAND_ALL_DIRECTORY_READ_DELAY_MS = 250;
 
 export async function installWideExpandAllFixture(
   electronApp: ElectronApplication,

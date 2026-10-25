@@ -72,7 +72,7 @@ function resolveToolGateDecision(
 }
 
 /** Per-tool risk metadata recorded for an `'ask'`-gated tool. */
-export interface PermissionAskToolMetadata {
+interface PermissionAskToolMetadata {
   /** The original (pre-sanitization) tool name, for logging/diagnostics. */
   originalName: string;
   /** The risk bucket that resolved to `'ask'`. */
@@ -80,7 +80,7 @@ export interface PermissionAskToolMetadata {
 }
 
 /** Per-tool risk metadata recorded for a `'deny'` tool the gate omitted. */
-export interface PermissionDeniedToolMetadata {
+interface PermissionDeniedToolMetadata {
   /** The original (pre-sanitization) tool name, for logging/diagnostics. */
   originalName: string;
   /** The risk bucket that resolved to `'deny'`. */
