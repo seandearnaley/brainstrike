@@ -16,10 +16,19 @@ Main's own child; a Root lock inherited by grandchildren; Main supervising grand
 pid; `host/closing` and `host/drained` frames; startup and close deadlines. Shutdown became
 load-bearing: a failed cleanup keeps the Root, and quit has no deadline.
 
-The products we compete with do not work this way. Claude Code and the Codex CLI run their
-agent in their own process. The Codex IDE extension starts `codex app-server` over stdio and it
-ends at stdin EOF. VS Code and Cursor give the extension host at most 5 seconds to deactivate,
-then exit (`extHostExtensionService.terminate`: `Promise.race([timeout(5000), ...])`).
+The products we compete with do not work this way. Each ships its CLI and its desktop app as
+separate products over one headless engine:
+
+- Claude Code and the Codex CLI run their agent in their own process.
+- Codex Desktop is an Electron shell over the bundled `codex` binary: the app launches
+  `codex app-server` as a long-running child process and keeps a bidirectional stdio channel open
+  for JSON-RPC (JSONL). ([Unlocking the Codex harness](https://openai.com/index/unlocking-the-codex-harness/),
+  [App Server docs](https://learn.chatgpt.com/docs/app-server))
+- Claude Code Desktop is an Electron app whose Main process parents the bundled Claude Code
+  runtime, started as `claude --input-format stream-json --output-format stream-json` and driven
+  over stdio, as the Claude Agent SDK does (observed in the app's process list; not documented).
+- VS Code and Cursor give the extension host at most 5 seconds to deactivate, then exit
+  (`extHostExtensionService.terminate`: `Promise.race([timeout(5000), ...])`).
 
 ## Decision
 
@@ -28,15 +37,16 @@ then exit (`extHostExtensionService.terminate`: `Promise.race([timeout(5000), ..
 2. **The CLI runs its host in its own process.** The host lives exactly as long as the command
    (`openStandaloneHost`). A data root another process holds is refused by its lock; the CLI
    never attaches to a running desktop host.
-3. **The host is a headless program, and Electron is only its client.** The same host runs
-   without Electron: a stdio entry that ends at stdin EOF, as `codex app-server` does. The
-   desktop app forks it as a plain child of Main and connects to it; the host is never folded
-   into Main. Startup is one step: Main forks it, it sends one `ready` message, and its exit event
-   is the only other outcome. No record file, token, socket, polling or readiness timeout.
+3. **The host is a headless program, and Electron is only its client**, as in Codex Desktop.
+   The host entry runs without Electron and speaks JSON-RPC on stdin and stdout; it ends at
+   stdin EOF. The desktop app spawns it as a plain child of Main with piped stdio and connects to
+   it; the host is never folded into Main. Startup is one step: Main spawns it, it sends one
+   `ready` message, and its exit is the only other outcome. No record file, token, socket,
+   polling or readiness timeout.
 4. **One OS file lock per data root, held only by the host process** and not inherited by its
    children. A second instance is refused.
-5. **Quit and stop are ask, 5 seconds, kill.** That 5 s grace is the only number in startup or
-   shutdown. Children die with their owner: a kill-on-close Job on Windows, a process group on
+5. **Quit and stop are ask (close the host's stdin), 5 seconds, kill.** That 5 s grace is the
+   only number in startup or shutdown. Children die with their owner: a kill-on-close Job on Windows, a process group on
    POSIX, SIGHUP for a pty. Factory reset writes a marker, relaunches, and wipes on next start.
 
 No polling loop, readiness timeout or retry timer exists in startup or shutdown.
@@ -65,5 +75,5 @@ Each stage deletes more code than it adds.
   until the resumed run ends or pauses again. MCP input is answered in an interactive terminal.
 - The CLI and the headless host both remain products. The CLI runs its own host for its own
   commands; Electron, an IDE or any other client spawns the headless host and talks to it over
-  its stdio, the way the Codex IDE extension uses `codex app-server` and the Claude Agent SDK
-  uses its CLI process.
+  its stdio, the way Codex Desktop uses `codex app-server`. The two are not coupled: the CLI never
+  attaches to the desktop's host.
