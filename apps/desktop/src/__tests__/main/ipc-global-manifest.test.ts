@@ -398,7 +398,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     expect([...new Set(contracts.map(({ file }) => file))]).toEqual([
       'agent-host-recovery.contract.ts',
       'clipboard.contract.ts',
-      'command-sessions.contract.ts',
       'content-clear.contract.ts',
       'context-files.contract.ts',
       'database.contract.ts',
@@ -409,7 +408,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'model-catalog.contract.ts',
       'prompt-library.contract.ts',
       'storage-preferences.contract.ts',
-      'terminal.contract.ts',
       'thread-groups.contract.ts',
       'user-personas.contract.ts',
       'view-filter-presets.contract.ts',

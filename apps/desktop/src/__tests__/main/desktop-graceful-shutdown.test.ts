@@ -107,7 +107,6 @@ describe('desktop graceful shutdown', () => {
       'factory-reset',
       'renderers',
       'main-catalog',
-      'child-processes',
       'native-index',
       'mcp-runtime',
       'file-system',

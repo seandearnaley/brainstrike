@@ -64,6 +64,7 @@ type PlatformClientService =
   | 'searchState'
   | 'searchStateVectors'
   | 'searchWorkspace'
+  | 'terminals'
   | 'workspaceDiscovery';
 function platformClientServices(
   platform: HostPlatform | undefined
@@ -81,6 +82,7 @@ function platformClientServices(
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
     ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
+    ...(platform?.terminals ? { terminals: platform.terminals } : {}),
     ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
   };
 }

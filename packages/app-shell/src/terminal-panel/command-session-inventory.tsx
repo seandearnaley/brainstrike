@@ -1,7 +1,8 @@
 import { Button } from '@brainstrike/ui';
 import { CircleStop, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { type FormEvent, type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
-import { type CommandSessionInfo, resolveCommandSessionBridge } from './command-session-bridge';
+import { useCommandSessionBridge } from '../workspace-terminal-services';
+import type { CommandSessionInfo } from './command-session-bridge';
 
 const MAX_DISPLAY_CHARS = 128 * 1024;
 
@@ -22,7 +23,7 @@ interface CommandSessionInventoryProps {
 }
 
 export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps): ReactElement {
-  const bridge = resolveCommandSessionBridge();
+  const bridge = useCommandSessionBridge();
   const cursorRef = useRef<number | undefined>(undefined);
   const readRequestVersionRef = useRef(0);
   const [error, setError] = useState<string | undefined>(undefined);

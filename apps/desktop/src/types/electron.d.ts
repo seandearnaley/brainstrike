@@ -15,13 +15,11 @@ import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/m
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
-import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
 import type { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import type { settingsContract } from '../ipc-domains/storage-preferences.contract';
-import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
@@ -76,8 +74,6 @@ declare global {
     commandPalette?: {
       onOpen: (callback: () => void) => () => void;
     };
-    /** Desktop-only view/control bridge for assistant-owned persistent commands. */
-    commandSessions?: TransportBridge<typeof commandSessionsContract>;
     /**
      * Desktop-only workspace context-files scan bridge (Settings → Workspace
      * Instructions), derived from its contract (BST-1648) and pinned equal
@@ -179,16 +175,6 @@ declare global {
     secrets: import('@brainstrike/assistant-contract/secrets-bridge').SecretsBridge;
     /** Desktop settings reset capability, derived from its pure contract. */
     settings?: TransportBridge<typeof settingsContract>;
-    /**
-     * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
-     * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
-     * validated workspace `rootId` (main resolves + containment-checks it). pty
-     * output/exit are pushed one-way to THIS renderer; `onData`/`onExit` register
-     * a listener and return an unsubscribe fn. Valid invoke calls resolve to a
-     * structured `TerminalResult`; structurally malformed direct IPC rejects
-     * before handler entry.
-     */
-    terminal?: TransportBridge<typeof terminalContract>;
     threadGroups?: TransportBridge<typeof threadGroupsContract>;
     viewFilterPresets?: TransportBridge<typeof viewFilterPresetsContract>;
     /**

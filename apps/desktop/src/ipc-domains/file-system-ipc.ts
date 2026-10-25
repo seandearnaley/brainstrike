@@ -26,8 +26,10 @@ import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
-import { disposeDesktopAndHostCommandSessionsForRoot } from '../agent-host-platform/host-command-session-client';
-import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
+import {
+  disposeHostCommandSessionsForRoot,
+  evictHostLspServersForRoot,
+} from '../agent-host-platform/host-root-cleanup-client';
 import { isDesktopShuttingDown, isExpectedShutdownRefusal } from '../desktop-shutdown-state';
 import {
   createFileReadErrorPayload,
@@ -432,8 +434,8 @@ export function registerFileSystemIpcHandlers(
 }
 
 export function createFileSystemIpcDomain({
-  disposeCommandSessionsForRoot = disposeDesktopAndHostCommandSessionsForRoot,
-  evictLspServersForRoot: evictLspServersForRootOverride,
+  disposeCommandSessionsForRoot = disposeHostCommandSessionsForRoot,
+  evictLspServersForRoot = evictHostLspServersForRoot,
   fileSystem,
   getRootsCatalog,
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
@@ -451,7 +453,6 @@ export function createFileSystemIpcDomain({
       logger.warn('workspace-root grant subscriber threw', { error });
     }
   };
-  const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
   const syntheticFileSystemClassifications = new Map<string, boolean>();
   const bindSyntheticFileSystemClassification = (
@@ -547,7 +548,7 @@ export function createFileSystemIpcDomain({
       return root;
     },
     disposeCommandSessionsForRoot,
-    evictLspServersForRoot: evictLspServerForRoot,
+    evictLspServersForRoot,
     getRootsCatalog,
     // ADR-0015: the catalog refuses once the app quits during a reset; that is
     // expected. So is a damaged store, which opened read-only (BST-2144).
