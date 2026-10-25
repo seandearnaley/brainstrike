@@ -206,13 +206,12 @@ export class RotatingFileSink {
    * CHOSEN, NOT ACCIDENTAL, and reachable via two different desktop callers
    * with two different intents:
    *
-   * - Graceful shutdown (`main.ts`'s `error-log-sink` shutdown step) calls
+   * - Graceful shutdown (`main.ts`'s `closeErrorLogSink`) calls
    *   `close()` and then sets its `errorLogSink` handle to `null` in the
    *   SAME step (see the comment there), so `recordDurableLog` becomes a
    *   permanent no-op after that point rather than exercising this reopen
-   *   path — e.g. a shutdown-timeout error logged later by the forced-exit
-   *   deadline (`main/desktop-graceful-shutdown.ts`) reaches console/`brainstrike.log` but NOT
-   *   this NDJSON file. That null-out is deliberate (see
+   *   path — e.g. an error logged after it reaches console/`brainstrike.log`
+   *   but NOT this NDJSON file. That null-out is deliberate (see
    *   `docs/agents/platform-contracts.md`'s P2a section).
    * - Factory reset (`main.ts`'s `error-log-sink` reset-runtime disposer)
    *   calls `close()` WITHOUT nulling `errorLogSink`, specifically so this

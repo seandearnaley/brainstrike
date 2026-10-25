@@ -1,49 +1,28 @@
 import { type SerializedDesktopError, serializeDesktopError } from '../desktop-error-serialization';
 
 /**
- * The ONE order desktop main tears down in. Each owner stops while everything
- * it depends on is still alive: a factory reset in flight finishes first (it
- * needs its replacement renderer and reopens the agent host), renderers before
- * the hosts they call, the agent host's admission fenced before Main's
- * MCP control closes (a host starting after it would be refused), each
- * @parcel/watcher owner (Explorer roots) joining its native subscribes and
- * unsubscribes before Electron frees Main's Node environment (BST-2244), and
- * `database-drain` last: it stops everything that issues database work. The
- * git cluster, its snapshot maintenance, terminals, command sessions, language
- * servers and shell commands are the agent host's, which retires them with its
- * own platform (ADR-0029). Two things deliberately sit OUTSIDE this sequence: the
- * database close itself (`DesktopShutdownRunPlan.closeDatabase`, which always
- * runs after it) and the durable error-log close (last of all, so the log can
- * record every earlier failure). See platform-contracts.md § "Graceful
- * shutdown ownership" and ADR-0026.
+ * Desktop quit (ADR-0031). A content clear in flight finishes first, then the
+ * visible renderers flush their durable writers and close while the agent host
+ * still serves them. Every other owner then closes together, the agent host
+ * included (its stdin ends, a 5 s grace, then a kill): none waits on another,
+ * because the host closes at the end of its stdin whatever Main has closed. The
+ * durable error log closes last, so it records every earlier failure. See
+ * platform-contracts.md § "Graceful shutdown ownership".
  */
-export const DESKTOP_SHUTDOWN_STEP_ORDER = [
-  'factory-reset',
-  'renderers',
-  'main-catalog',
-  'native-index',
-  'mcp-runtime',
-  'file-system',
-  'embedding-host',
-  'database-drain',
-] as const;
-
-export type DesktopShutdownStepName = (typeof DESKTOP_SHUTDOWN_STEP_ORDER)[number];
-
 type DesktopShutdownTrigger = 'before-quit' | 'signal';
 
 export type DesktopShutdownStepRun = () => Promise<void> | void;
 
 /** One run's step bodies, built when that run starts so they capture its state. */
 export interface DesktopShutdownRunPlan {
-  /**
-   * The database close. Runs after the ordered steps settle, whatever their
-   * outcome; a failure is recorded as the `database-close` step.
-   */
-  readonly closeDatabase: () => Promise<void>;
   /** Closes the durable NDJSON error log. Runs last, after the aggregate failure warn. */
   readonly closeErrorLogSink: () => void;
-  readonly steps: Readonly<Record<DesktopShutdownStepName, DesktopShutdownStepRun>>;
+  /** Finishes a content clear in flight; runs first. */
+  readonly 'factory-reset': DesktopShutdownStepRun;
+  /** Every other owner, closed together once the renderers have closed. */
+  readonly owners: Readonly<Record<string, DesktopShutdownStepRun>>;
+  /** The visible renderers flush and close, while the agent host still serves them. */
+  readonly renderers: DesktopShutdownStepRun;
 }
 
 interface DesktopShutdownLogger {
@@ -66,7 +45,7 @@ export interface DesktopGracefulShutdownOptions {
 
 export interface DesktopGracefulShutdown {
   /**
-   * Runs the ordered steps once, each until it settles. A later call, from any
+   * Runs the quit once, each step until it settles. A later call, from any
    * trigger, joins the first run. Never rejects: step failures are logged, and
    * an orchestration failure is logged and exits 1.
    */
@@ -80,10 +59,10 @@ interface DesktopShutdownStepRecord {
 }
 
 /**
- * Builds desktop main's one graceful-shutdown runner: plain ordered awaits. Each
- * step runs until it settles, and a failed step is recorded while the next one
- * still runs. Then the database closes, the failures are logged at warn, and the
- * durable error log closes last. The per-step durations are logged once at the end.
+ * Builds desktop main's one quit runner. Each step runs until it settles, and a
+ * failed step is recorded while the rest still run. Then the failures are logged
+ * at warn and the durable error log closes last. The per-step durations are
+ * logged once at the end.
  */
 export function createDesktopGracefulShutdown(
   options: DesktopGracefulShutdownOptions
@@ -108,12 +87,12 @@ export function createDesktopGracefulShutdown(
       }
     };
 
-    // Ordered, not independent: each step stops an owner the later ones still use.
-    for (const name of DESKTOP_SHUTDOWN_STEP_ORDER) {
-      await runStep(name, plan.steps[name]);
-    }
-    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- ordered after the steps, not independent of them: `database-drain` stops everything that still issues database work, so it must finish before the close.
-    await runStep('database-close', plan.closeDatabase);
+    await runStep('factory-reset', plan['factory-reset']);
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- not independent: a content clear in flight finishes before its renderers close.
+    await runStep('renderers', plan.renderers);
+    // The renderers' last writes go through the agent host, so it closes after them.
+    // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- not independent: see above.
+    await Promise.all(Object.entries(plan.owners).map(([name, body]) => runStep(name, body)));
 
     // The warn is the only log of the failures, so it precedes the sink close.
     try {

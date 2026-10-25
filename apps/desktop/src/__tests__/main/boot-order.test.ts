@@ -19,10 +19,19 @@ import {
   shutdownPlanCapture,
 } from './boot-order-fixture';
 
+/** One named owner step of Main's quit plan; a missing one fails the test. */
+function shutdownOwner(name: string): () => Promise<void> | void {
+  const step = shutdownPlanCapture.current?.().owners[name];
+  if (!step) {
+    throw new Error(`Main's quit plan has no ${name} owner`);
+  }
+  return step;
+}
+
 describe('main boot order', () => {
   installMainBootFixture();
   it.each([false, true])(
-    'starts and retains hidden disposal beside native close with independent failure=%s',
+    'closes the hidden embedding host beside the agent host, each keeping its own failure=%s',
     async (fail) => {
       const native = Promise.withResolvers<void>();
       const physical = Promise.withResolvers<void>();
@@ -36,26 +45,24 @@ describe('main boot order', () => {
       if (!plan) {
         throw new Error('Missing actual Main shutdown plan');
       }
-      let nativeSettled = false;
-      const nativeStep = Promise.resolve(plan.steps['native-index']()).then(
-        () => {
-          nativeSettled = true;
-          return null;
-        },
-        (error: unknown) => {
-          nativeSettled = true;
-          return error;
-        }
-      );
+      const settle = (step: () => Promise<void> | void) =>
+        Promise.resolve()
+          .then(step)
+          .then(
+            () => null,
+            (error: unknown) => error
+          );
+      // The quit runs its owners together: neither waits for the other.
+      const nativeStep = settle(shutdownOwner('native-index'));
+      const embeddingStep = settle(shutdownOwner('embedding-host'));
       onTestFinished(async () => {
         native.resolve();
         physical.resolve();
-        await nativeStep;
+        await Promise.all([nativeStep, embeddingStep]);
         dispose.mockRestore();
       });
       await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
       await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
-      expect(nativeSettled).toBe(false);
       const nativeError = new Error('Independent native retirement failure');
       const embeddingError = new Error('Independent physical embedding retirement failure');
       if (fail) {
@@ -66,10 +73,7 @@ describe('main boot order', () => {
         physical.resolve();
       }
       expect(await nativeStep).toBe(fail ? nativeError : null);
-      const embeddingStep = Promise.resolve(plan.steps['embedding-host']()).catch(
-        (error: unknown) => error
-      );
-      expect(await embeddingStep).toBe(fail ? embeddingError : undefined);
+      expect(await embeddingStep).toBe(fail ? embeddingError : null);
       expect(dispose).toHaveBeenCalledOnce();
     }
   );
@@ -115,7 +119,7 @@ describe('main boot order', () => {
     await entered.promise;
     const reset = options.onResetLocal();
     let closed = false;
-    const close = Promise.resolve(plan.steps['factory-reset']()).then(() => {
+    const close = Promise.resolve(plan['factory-reset']()).then(() => {
       closed = true;
     });
     onTestFinished(async () => {
@@ -206,7 +210,7 @@ describe('main boot order', () => {
         if (!plan) {
           throw new Error('Missing actual Main shutdown plan');
         }
-        closing = Promise.resolve(plan.steps['factory-reset']());
+        closing = Promise.resolve(plan['factory-reset']());
       }
       if (outcome === 'replacement-failed') {
         replacement.reject(failure);
@@ -437,14 +441,10 @@ describe('main boot order', () => {
 
   it('joins native retirement before acknowledging the native shutdown step', async () => {
     await import('../../main');
-    const plan = shutdownPlanCapture.current?.();
-    if (!plan) {
-      throw new Error('Shutdown plan was not registered');
-    }
     const held = Promise.withResolvers<void>();
     nativeCloseForShutdown.mockReturnValue(held.promise);
     let settled = false;
-    const step = Promise.resolve(plan.steps['native-index']()).then(() => {
+    const step = Promise.resolve(shutdownOwner('native-index')()).then(() => {
       settled = true;
     });
     await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
@@ -456,15 +456,14 @@ describe('main boot order', () => {
 
   it('joins the actual application IPC resource from its filesystem shutdown step', async () => {
     await import('../../main');
-    const planRun = shutdownPlanCapture.current;
     const close = applicationDomainCapture.close;
-    if (!(planRun && close)) {
+    if (!close) {
       throw new Error('Application filesystem shutdown owner was not registered.');
     }
     const retirement = Promise.withResolvers<void>();
     close.mockReturnValueOnce(retirement.promise);
     let settled = false;
-    const step = Promise.resolve(planRun().steps['file-system']()).then(() => {
+    const step = Promise.resolve(shutdownOwner('file-system')()).then(() => {
       settled = true;
     });
     expect(close).toHaveBeenCalledTimes(1);
@@ -475,40 +474,35 @@ describe('main boot order', () => {
     expect(settled).toBe(true);
   });
 
-  it('reserved close joins the existing native owner and preserves failure identity', async () => {
+  it('the agent host step joins the existing native owner and preserves failure identity', async () => {
     await import('../../main');
-    const plan = shutdownPlanCapture.current?.();
-    if (!plan) {
-      throw new Error('Shutdown plan was not registered');
-    }
-    await plan.closeDatabase();
+    const closeHost = shutdownOwner('native-index');
+    await closeHost();
     expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
     const failure = new Error('Native physical close failed');
     nativeCloseForShutdown.mockRejectedValueOnce(failure);
-    await expect(plan.closeDatabase()).rejects.toBe(failure);
+    await expect(Promise.resolve().then(closeHost)).rejects.toBe(failure);
   });
 
-  it('retains undefined IPC cleanup failure while reserved native retirement remains available', async () => {
+  it('retains undefined IPC cleanup failure while the agent host close remains available', async () => {
     await import('../../main');
-    const plan = shutdownPlanCapture.current?.();
     const close = applicationDomainCapture.close;
-    if (!(plan && close)) {
+    const closeFiles = shutdownOwner('file-system');
+    const closeHost = shutdownOwner('native-index');
+    if (!close) {
       throw new Error('Shutdown plan was not registered');
     }
     close.mockRejectedValueOnce(undefined);
-    await expect(plan.steps['file-system']()).rejects.toBeUndefined();
-    await plan.closeDatabase();
+    await expect(Promise.resolve().then(closeFiles)).rejects.toBeUndefined();
+    await closeHost();
     expect(nativeCloseForShutdown).toHaveBeenCalledOnce();
   });
 
-  it('keeps a failed reserved native join failed rather than reopening PG', async () => {
+  it('keeps a failed native join failed rather than reopening PG', async () => {
     await import('../../main');
-    const plan = shutdownPlanCapture.current?.();
-    if (!plan) {
-      throw new Error('Shutdown plan was not registered');
-    }
+    const closeHost = shutdownOwner('native-index');
     nativeCloseForShutdown.mockRejectedValueOnce(undefined);
-    await expect(plan.closeDatabase()).rejects.toBeUndefined();
+    await expect(Promise.resolve().then(closeHost)).rejects.toBeUndefined();
   });
 
   describe('shutdown signal registration', () => {

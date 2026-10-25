@@ -1,17 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createDesktopGracefulShutdown,
-  DESKTOP_SHUTDOWN_STEP_ORDER,
   type DesktopGracefulShutdownOptions,
-  type DesktopShutdownStepName,
   type DesktopShutdownStepRun,
 } from '../../main/desktop-graceful-shutdown';
 
-type StepOverrides = Partial<Record<DesktopShutdownStepName, DesktopShutdownStepRun>>;
+/** Main's quit owners, as main.ts plans them. */
+const OWNERS = [
+  'embedding-host',
+  'file-system',
+  'main-catalog',
+  'mcp-runtime',
+  'native-index',
+  'process-sampler',
+] as const;
+
+type StepName = 'factory-reset' | 'renderers' | (typeof OWNERS)[number];
+type StepOverrides = Partial<Record<StepName, DesktopShutdownStepRun>>;
 
 interface HarnessExtras {
-  /** The database close; it runs after every step settled. */
-  readonly closeDatabase?: () => Promise<void> | void;
   readonly closeErrorLogSink?: () => void;
   readonly now?: () => number;
 }
@@ -34,27 +41,22 @@ function createHarness(overrides: StepOverrides = {}, extra: HarnessExtras = {})
     info: vi.fn((message: string) => void events.push(`log:info:${message}`)),
     warn: vi.fn((message: string) => void events.push(`log:warn:${message}`)),
   };
+  const step =
+    (name: StepName): DesktopShutdownStepRun =>
+    () => {
+      events.push(`step:${name}`);
+      return overrides[name]?.();
+    };
   const planRun = vi.fn(() => {
     events.push('plan');
-    const steps = Object.fromEntries(
-      DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => [
-        name,
-        () => {
-          events.push(`step:${name}`);
-          return overrides[name]?.();
-        },
-      ])
-    ) as Record<DesktopShutdownStepName, DesktopShutdownStepRun>;
     return {
-      closeDatabase: async () => {
-        events.push('close:database');
-        await extra.closeDatabase?.();
-      },
       closeErrorLogSink: () => {
         events.push('close:error-log-sink');
         extra.closeErrorLogSink?.();
       },
-      steps,
+      'factory-reset': step('factory-reset'),
+      owners: Object.fromEntries(OWNERS.map((name) => [name, step(name)])),
+      renderers: step('renderers'),
     };
   });
   const options: DesktopGracefulShutdownOptions = {
@@ -71,103 +73,105 @@ function createHarness(overrides: StepOverrides = {}, extra: HarnessExtras = {})
 const stepEvents = (events: readonly string[]): string[] =>
   events.filter((event) => event.startsWith('step:'));
 
+const EVERY_STEP = ['factory-reset', 'renderers', ...OWNERS].map((name) => `step:${name}`);
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe('desktop graceful shutdown', () => {
-  it('retires admission, runs every step once in the canonical order, then closes the database and the log sink', async () => {
+  it('retires admission, closes a reset in flight, then the renderers, then every owner, then the log sink', async () => {
     const { events, logger, options } = createHarness();
 
     await createDesktopGracefulShutdown(options).run('before-quit');
 
     expect(events.slice(0, 3)).toEqual(['mark-shutting-down', 'retire-admission', 'plan']);
-    expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
-    // The database close follows the last sequence step; the sink closes last of all.
-    expect(events.slice(-3)).toEqual([
-      'close:database',
+    expect(stepEvents(events)).toEqual(EVERY_STEP);
+    // The sink closes last of all.
+    expect(events.slice(-2)).toEqual([
       'close:error-log-sink',
       'log:info:Graceful shutdown completed',
     ]);
-    expect(events.indexOf('close:database')).toBeGreaterThan(events.indexOf('step:database-drain'));
     expect(logger.warn).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith('Graceful shutdown completed', {
-      steps: [
-        ...DESKTOP_SHUTDOWN_STEP_ORDER.map((step) => ({ elapsedMs: 0, failed: false, step })),
-        { elapsedMs: 0, failed: false, step: 'database-close' },
-      ],
+      steps: ['factory-reset', 'renderers', ...OWNERS].map((step) => ({
+        elapsedMs: 0,
+        failed: false,
+        step,
+      })),
       stepsMs: 0,
       trigger: 'before-quit',
     });
     expect(options.exitProcess).not.toHaveBeenCalled();
   });
 
-  it('pins the documented order: a reset in flight first, the database drain last, no log-sink step', () => {
-    expect(DESKTOP_SHUTDOWN_STEP_ORDER).toEqual([
-      'factory-reset',
-      'renderers',
-      'main-catalog',
-      'native-index',
-      'mcp-runtime',
-      'file-system',
-      'embedding-host',
-      'database-drain',
-    ]);
-  });
-
-  it('joins filesystem retirement before stopping inference hosts or closing the database', async () => {
-    const retirement = Promise.withResolvers<void>();
+  it('closes no owner before the renderers have closed, and every owner without waiting on another', async () => {
+    const renderers = Promise.withResolvers<void>();
+    const host = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const { events, options } = createHarness({
-      'file-system': async () => {
+      'native-index': async () => {
         entered.resolve();
-        await retirement.promise;
+        await host.promise;
       },
+      renderers: () => renderers.promise,
     });
 
     const shutdown = createDesktopGracefulShutdown(options).run('before-quit');
-    // If the filesystem step is absent, the run completes and the assertions
-    // still report the skipped ownership boundary instead of hanging this test.
-    await Promise.race([entered.promise, shutdown]);
+    await vi.waitFor(() => expect(events).toContain('step:renderers'));
+    expect(stepEvents(events)).toEqual(['step:factory-reset', 'step:renderers']);
 
-    expect(events).toContain('step:file-system');
-    expect(events).not.toContain('step:embedding-host');
-    expect(events).not.toContain('close:database');
+    renderers.resolve();
+    await entered.promise;
+    // The agent host's close is held; every other owner closes beside it.
+    expect(stepEvents(events)).toEqual(EVERY_STEP);
+    expect(events).not.toContain('close:error-log-sink');
 
-    retirement.resolve();
+    host.resolve();
     await shutdown;
-
-    expect(events.indexOf('step:embedding-host')).toBeGreaterThan(
-      events.indexOf('step:file-system')
-    );
-    expect(events).toContain('close:database');
+    expect(events).toContain('close:error-log-sink');
   });
 
-  it('isolates a failing step and logs every failure once, after the database close and before the sink closes', async () => {
+  it('joins a reset in flight before the renderers close', async () => {
+    const reset = Promise.withResolvers<void>();
+    const { events, options } = createHarness({ 'factory-reset': () => reset.promise });
+
+    const shutdown = createDesktopGracefulShutdown(options).run('before-quit');
+    await vi.waitFor(() => expect(events).toContain('step:factory-reset'));
+    await Promise.resolve();
+    expect(events).not.toContain('step:renderers');
+
+    reset.resolve();
+    await shutdown;
+    expect(stepEvents(events)).toEqual(EVERY_STEP);
+  });
+
+  it('isolates a failing step and logs every failure once, before the sink closes', async () => {
     const { events, logger, options } = createHarness({
       'embedding-host': () => Promise.reject(new Error('stop failed')),
       'mcp-runtime': () => {
         throw new TypeError('unregister threw');
       },
+      renderers: () => Promise.reject(new Error('flush failed')),
     });
 
     await createDesktopGracefulShutdown(options).run('signal');
 
-    expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
+    expect(stepEvents(events)).toEqual(EVERY_STEP);
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith('Graceful shutdown completed with cleanup failures', {
-      failures: [
+      failures: expect.arrayContaining([
+        expect.objectContaining({ message: 'flush failed', step: 'renderers' }),
         expect.objectContaining({
           message: 'unregister threw',
           name: 'TypeError',
           step: 'mcp-runtime',
         }),
         expect.objectContaining({ message: 'stop failed', step: 'embedding-host' }),
-      ],
+      ]),
       trigger: 'signal',
     });
     const warnAt = events.indexOf('log:warn:Graceful shutdown completed with cleanup failures');
-    expect(warnAt).toBeGreaterThan(events.indexOf('close:database'));
     expect(warnAt).toBeLessThan(events.indexOf('close:error-log-sink'));
     expect(logger.info).toHaveBeenCalledWith(
       'Graceful shutdown completed',
@@ -175,45 +179,8 @@ describe('desktop graceful shutdown', () => {
         steps: expect.arrayContaining([
           { elapsedMs: 0, failed: true, step: 'embedding-host' },
           { elapsedMs: 0, failed: true, step: 'mcp-runtime' },
+          { elapsedMs: 0, failed: true, step: 'renderers' },
         ]),
-      })
-    );
-    expect(options.exitProcess).not.toHaveBeenCalled();
-  });
-
-  it('closes the database even when the drain step failed, and reports both', async () => {
-    const { events, logger, options } = createHarness({
-      'database-drain': () => Promise.reject(new Error('idle join failed')),
-    });
-
-    await createDesktopGracefulShutdown(options).run('before-quit');
-
-    expect(events).toContain('close:database');
-    expect(logger.warn).toHaveBeenCalledWith('Graceful shutdown completed with cleanup failures', {
-      failures: [expect.objectContaining({ message: 'idle join failed', step: 'database-drain' })],
-      trigger: 'before-quit',
-    });
-  });
-
-  it('records a failed database close as the database-close step in the aggregate warn', async () => {
-    const { events, logger, options } = createHarness(
-      {},
-      { closeDatabase: () => Promise.reject(new Error('DB host failed to close')) }
-    );
-
-    await createDesktopGracefulShutdown(options).run('signal');
-
-    expect(logger.warn).toHaveBeenCalledWith('Graceful shutdown completed with cleanup failures', {
-      failures: [
-        expect.objectContaining({ message: 'DB host failed to close', step: 'database-close' }),
-      ],
-      trigger: 'signal',
-    });
-    expect(events).toContain('close:error-log-sink');
-    expect(logger.info).toHaveBeenCalledWith(
-      'Graceful shutdown completed',
-      expect.objectContaining({
-        steps: expect.arrayContaining([{ elapsedMs: 0, failed: true, step: 'database-close' }]),
       })
     );
     expect(options.exitProcess).not.toHaveBeenCalled();
@@ -221,9 +188,8 @@ describe('desktop graceful shutdown', () => {
 
   it('logs a failed sink close on its own and keeps it out of the aggregate failures', async () => {
     const { logger, options } = createHarness(
-      {},
+      { 'native-index': () => Promise.reject(new Error('close failed')) },
       {
-        closeDatabase: () => Promise.reject(new Error('close failed')),
         closeErrorLogSink: () => {
           throw new Error('sink close failed');
         },
@@ -233,7 +199,7 @@ describe('desktop graceful shutdown', () => {
     await createDesktopGracefulShutdown(options).run('signal');
 
     expect(logger.warn).toHaveBeenCalledWith('Graceful shutdown completed with cleanup failures', {
-      failures: [expect.objectContaining({ message: 'close failed', step: 'database-close' })],
+      failures: [expect.objectContaining({ message: 'close failed', step: 'native-index' })],
       trigger: 'signal',
     });
     expect(logger.error).toHaveBeenCalledWith('Failed to close the durable NDJSON error log', {
@@ -255,49 +221,15 @@ describe('desktop graceful shutdown', () => {
     expect(options.markShuttingDown).toHaveBeenCalledTimes(2);
     expect(options.retireBackgroundAdmission).toHaveBeenCalledTimes(1);
     expect(planRun).toHaveBeenCalledTimes(1);
-    expect(stepEvents(events)).toHaveLength(DESKTOP_SHUTDOWN_STEP_ORDER.length);
-    expect(events.filter((event) => event === 'close:database')).toHaveLength(1);
+    expect(stepEvents(events)).toEqual(EVERY_STEP);
     // A later trigger after the run finished joins it too.
     await shutdown.run('signal');
     expect(planRun).toHaveBeenCalledTimes(1);
   });
 
-  it('a renderers step that takes 15 s still runs file-system and exits 0', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
-    const { events, logger, options } = createHarness(
-      { renderers: () => new Promise<void>((resolve) => setTimeout(resolve, 15_000)) },
-      { now: () => Date.now() }
-    );
-
-    const running = createDesktopGracefulShutdown(options).run('before-quit');
-    await vi.advanceTimersByTimeAsync(15_000);
-    await running;
-
-    expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
-    expect(events).toContain('step:file-system');
-    expect(events.slice(-2)).toEqual([
-      'close:error-log-sink',
-      'log:info:Graceful shutdown completed',
-    ]);
-    // Exit 0: Main quits normally once every owner settled; nothing forces an exit.
-    expect(options.exitProcess).not.toHaveBeenCalled();
-    expect(logger.error).not.toHaveBeenCalled();
-    // A slow step is only waited for: nothing warns, fails or forces an exit.
-    expect(logger.warn).not.toHaveBeenCalled();
-    expect(logger.info).toHaveBeenCalledWith(
-      'Graceful shutdown completed',
-      expect.objectContaining({
-        steps: expect.arrayContaining([
-          { elapsedMs: 15_000, failed: false, step: 'renderers' },
-          { elapsedMs: 0, failed: false, step: 'file-system' },
-        ]),
-      })
-    );
-  });
-
   // The steps a 2-core Windows run found in flight when the old deadline forced exit 1.
-  it.each(['main-catalog', 'native-index'] as const)(
-    'a %s step that takes 15 s is joined, every later step runs, and nothing forces an exit',
+  it.each(['renderers', 'main-catalog', 'native-index'] as const)(
+    'a %s step that takes 15 s is joined, every other step runs, and nothing forces an exit',
     async (slow) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
       const { events, logger, options } = createHarness(
@@ -309,11 +241,22 @@ describe('desktop graceful shutdown', () => {
       await vi.advanceTimersByTimeAsync(15_000);
       await running;
 
-      expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
-      expect(events).toContain('close:database');
+      expect(stepEvents(events)).toEqual(EVERY_STEP);
+      expect(events.slice(-2)).toEqual([
+        'close:error-log-sink',
+        'log:info:Graceful shutdown completed',
+      ]);
+      // Exit 0: Main quits normally once every owner settled; nothing forces an exit.
       expect(options.exitProcess).not.toHaveBeenCalled();
       expect(logger.error).not.toHaveBeenCalled();
+      // A slow step is only waited for: nothing warns, fails or forces an exit.
       expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalledWith(
+        'Graceful shutdown completed',
+        expect.objectContaining({
+          steps: expect.arrayContaining([{ elapsedMs: 15_000, failed: false, step: slow }]),
+        })
+      );
     }
   );
 
@@ -367,10 +310,9 @@ describe('desktop graceful shutdown', () => {
   });
 
   it('still closes the error-log sink when the failure warn throws', async () => {
-    const { events, logger, options } = createHarness(
-      {},
-      { closeDatabase: () => Promise.reject(new Error('close failed')) }
-    );
+    const { events, logger, options } = createHarness({
+      'native-index': () => Promise.reject(new Error('close failed')),
+    });
     logger.warn.mockImplementation(() => {
       throw new Error('logger broke');
     });

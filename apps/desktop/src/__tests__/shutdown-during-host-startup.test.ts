@@ -7,7 +7,7 @@ import { createDesktopWorkspaceRootCatalog } from '../agent-host-platform/worksp
 // BST-2247: quitting while the agent host is still starting. Main's real shutdown runner and
 // the owners its steps call (native index activation, its profile runtime, the desktop
 // catalog client and Main's own host client), over a host start-up that never completes on
-// its own. The step order mirrors main.ts.
+// its own. The plan mirrors main.ts.
 import {
   HOST_LEASE_CLOSED,
   isRetirementRefusal,
@@ -16,8 +16,6 @@ import {
 } from '../desktop-shutdown-state';
 import {
   createDesktopGracefulShutdown,
-  DESKTOP_SHUTDOWN_STEP_ORDER,
-  type DesktopShutdownStepName,
   type DesktopShutdownStepRun,
 } from '../main/desktop-graceful-shutdown';
 import { prepareMainCatalogClose } from '../main/main-catalog-close';
@@ -47,14 +45,6 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
   await vi.waitFor(() => expect(mocks.acquireProfile).toHaveBeenCalledOnce());
 
   const noop: DesktopShutdownStepRun = () => undefined;
-  const steps = Object.fromEntries(
-    DESKTOP_SHUTDOWN_STEP_ORDER.map((step) => [step, noop])
-  ) as Record<DesktopShutdownStepName, DesktopShutdownStepRun>;
-  steps['main-catalog'] = () =>
-    prepareMainCatalogClose({ prepareClose: async () => undefined }, workspaceRoots);
-  steps['native-index'] = async () => {
-    await activation.close();
-  };
   const exitProcess = vi.fn();
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   await createDesktopGracefulShutdown({
@@ -62,9 +52,16 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     logger,
     markShuttingDown: markDesktopShuttingDown,
     planRun: () => ({
-      closeDatabase: () => activation.close(),
       closeErrorLogSink: () => undefined,
-      steps,
+      'factory-reset': noop,
+      owners: {
+        'main-catalog': () =>
+          prepareMainCatalogClose({ prepareClose: async () => undefined }, workspaceRoots),
+        'native-index': async () => {
+          await activation.close();
+        },
+      },
+      renderers: noop,
     }),
     retireBackgroundAdmission: () => {
       activation.fenceTerminal();
