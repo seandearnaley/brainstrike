@@ -76,3 +76,28 @@ test('an unrelated outside pointer still dismisses the menu', async () => {
   await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
   expect(screen.getByTestId('selection').textContent).toBe('none');
 });
+
+test('focus a selection moves during the exit animation stays; dropped focus returns', async () => {
+  render(<ReopeningMenu />);
+  const trigger = screen.getByRole('button', { name: 'Choose item' });
+  const outside = screen.getByRole('button', { name: 'Outside' });
+
+  // The item's result takes focus while the menu is still animating out, as a
+  // terminal opened from the workspace "+" menu does once its shell is ready.
+  await click(trigger);
+  await click(screen.getByRole('menuitem', { name: 'First' }));
+  expect(document.querySelector('[role="menu"][data-state="closed"]')).not.toBeNull();
+  act(() => outside.focus());
+  await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+  // Radix restores focus from a timeout it queues at unmount; let that run first.
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+  expect(document.activeElement).toBe(outside);
+
+  // An item that moves no focus still hands it back to the trigger.
+  await click(trigger);
+  await click(screen.getByRole('menuitem', { name: 'Second' }));
+  await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+});

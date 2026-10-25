@@ -1,12 +1,7 @@
 import { useEventCallback } from '@brainstrike/hooks';
 import { type FocusEvent, type RefObject, useEffect, useRef } from 'react';
-import {
-  findSelectedTab,
-  findTab,
-  focusFirstTrailingControl,
-  isFocusLost,
-  revealTab,
-} from './tab-strip-dom';
+import { isFocusLost } from '../lib/focus';
+import { findSelectedTab, findTab, focusFirstTrailingControl, revealTab } from './tab-strip-dom';
 
 export interface TabStripFocus {
   readonly focusAfterPointerClose: () => void;
