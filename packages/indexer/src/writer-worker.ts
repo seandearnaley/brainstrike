@@ -1,3 +1,4 @@
+import { enableCompileCache } from 'node:module';
 import { parentPort, workerData } from 'node:worker_threads';
 import { Schema } from 'effect';
 import {
@@ -12,6 +13,10 @@ import { loadStateProjection } from './state-projection.ts';
 import { IndexWriter } from './store.ts';
 import { validateIndexerOptions } from './transport.ts';
 
+// A worker does not inherit its parent's compile cache. On before the state
+// producer module loads, the largest graph this thread evaluates.
+// https://nodejs.org/api/module.html#moduleenablecompilecacheoptions
+enableCompileCache();
 const port = parentPort;
 if (!port) {
   throw new Error('Indexer writer requires a worker parent port.');
