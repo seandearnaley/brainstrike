@@ -45,6 +45,7 @@ import {
   type DesktopAdmissionReads,
   type DesktopRunSelection,
 } from './desktop-run-admission';
+import { desktopWorkspaceDiscovery } from './desktop-workspace-discovery';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import { mainQueryEmbedding } from './host-retrieval-clients';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
@@ -579,5 +580,9 @@ export async function createDesktopHostConfiguration(
         onExcessProperty: 'error',
       })(await request('platform/workspace/validate', { binding, threadId }, signal));
     },
+    // ADR-0029 stage 2: Settings and the "/" menu read these here, not from Main.
+    workspaceDiscovery: desktopWorkspaceDiscovery((signal) =>
+      admissionReads.liveWorkspaceRoots(signal)
+    ),
   };
 }

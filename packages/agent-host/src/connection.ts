@@ -28,6 +28,7 @@ import type {
   HostMcpSettingsService,
   HostPlatform,
   HostProviderService,
+  HostWorkspaceDiscovery,
 } from './ports.ts';
 import {
   HOST_CHILDREN_CHANGED,
@@ -77,6 +78,8 @@ export interface HostConnectionOptions {
   /** The semantic arm's index operations, where the host owns a state index. */
   readonly searchStateVectors?: HostPlatform['searchStateVectors'];
   readonly searchWorkspace?: HostPlatform['searchWorkspace'];
+  /** ADR-0029 stage 2: skills and user slash commands, where the host scans roots. */
+  readonly workspaceDiscovery?: HostWorkspaceDiscovery;
 }
 
 /** All transports enter this same authenticated method dispatcher. */
@@ -118,6 +121,7 @@ export function bindHostConnection(
     searchState,
     searchStateVectors,
     searchWorkspace,
+    workspaceDiscovery,
   } = options;
   let initialized = false;
   let disposed = false;
@@ -326,6 +330,18 @@ export function bindHostConnection(
     signal.throwIfAborted();
     return result;
   });
+  const discovery = (): HostWorkspaceDiscovery => {
+    if (!workspaceDiscovery) {
+      throw refusalError(
+        'configuration',
+        'workspace.discovery-unavailable',
+        'Skills and user commands are unavailable on this host'
+      );
+    }
+    return workspaceDiscovery;
+  };
+  handle('workspace/skills', (_params, signal) => discovery().skills(signal));
+  handle('workspace/commands', (_params, signal) => discovery().commands(signal));
   handle('thread/search', (params) =>
     searchHostThreads(core, searchState, searchStateVectors, params)
   );

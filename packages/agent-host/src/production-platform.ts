@@ -158,6 +158,8 @@ export interface ProductionHostPlatformOptions {
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
+  /** ADR-0029 stage 2: skills and user slash commands on the live roots. */
+  readonly workspaceDiscovery?: HostPlatform['workspaceDiscovery'];
 }
 function rootModel(
   configuration: RuntimeData,
@@ -272,6 +274,26 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
  * thread/memory/read: the preconditions, then the observation record they
  * locate; and the embedder `memory/embedder/probe` tests (BST-2227).
  */
+type ProductionClientService =
+  | 'auth'
+  | 'mcpContent'
+  | 'mcpPresentation'
+  | 'mcpSettings'
+  | 'providers'
+  | 'workspaceDiscovery';
+/** The services clients call on the host directly; each is absent where the platform has none. */
+function productionClientServices(
+  options: Pick<ProductionHostPlatformOptions, ProductionClientService>
+): Pick<HostPlatform, ProductionClientService> {
+  return {
+    ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),
+    ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),
+    ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
+    ...(options.providers ? { providers: options.providers } : {}),
+    ...(options.workspaceDiscovery ? { workspaceDiscovery: options.workspaceDiscovery } : {}),
+  };
+}
 function productionMemoryReadiness(
   options: Pick<
     ProductionHostPlatformOptions,
@@ -683,11 +705,7 @@ export async function createProductionHostPlatform<Configuration extends Product
       ? { selectProjectionRewrites: options.selectProjectionRewrites }
       : {}),
     stateIndexer: index.indexer,
-    ...(options.auth ? { auth: options.auth } : {}),
-    ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),
-    ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),
-    ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
-    ...(options.providers ? { providers: options.providers } : {}),
+    ...productionClientServices(options),
   };
   return 'configure' in input ? { configuration: configured.value, platform } : platform;
 }

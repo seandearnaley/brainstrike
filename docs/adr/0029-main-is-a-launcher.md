@@ -70,6 +70,7 @@ its Main side and quit step:
 2. Worktrees, snapshots and rewind, and skills, commands and personas. The host calls
    these back today, and the Worktrees and Changes panels read them over IPC; both
    callers move to the host, and their `platform/*` methods and IPC domains go.
+   Personas report availability against Main's model catalog, so they move with it.
 3. Git, changes and forge. Their IPC domains and the `git-inventory` and `forge` steps go.
 4. Terminals and LSP. The `child-processes` step goes.
 5. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
