@@ -28,8 +28,10 @@ then exit (`extHostExtensionService.terminate`: `Promise.race([timeout(5000), ..
 2. **The CLI runs its host in its own process.** The host lives exactly as long as the command
    (`openStandaloneHost`). A data root another process holds is refused by its lock; the CLI
    never attaches to a running desktop host.
-3. **The desktop host is a plain `utilityProcess` child of Main.** Startup is one step: Main
-   forks it, it sends one `ready` message, and Main talks to it over MessagePorts. Its exit event
+3. **The host is a headless program, and Electron is only its client.** The same host runs
+   without Electron: a stdio entry that ends at stdin EOF, as `codex app-server` does. The
+   desktop app forks it as a plain child of Main and connects to it; the host is never folded
+   into Main. Startup is one step: Main forks it, it sends one `ready` message, and its exit event
    is the only other outcome. No record file, token, socket, polling or readiness timeout.
 4. **One OS file lock per data root, held only by the host process** and not inherited by its
    children. A second instance is refused.
@@ -46,7 +48,7 @@ Each stage deletes more code than it adds.
 1. The CLI runs its host in-process. Deletes `host start`, `host status` and `host stop`, the
    CLI's daemon launcher and its process entry, `run start`, `child send`, `log follow` and
    `mcp input` (each attached to a host another process owned).
-2. The desktop host is a plain child. Deletes `host.json`, the token handshake, the socket, the
+2. The desktop host is a plain child running the headless host entry. Deletes `host.json`, the token handshake, the socket, the
    lifetime port, `host/closing`, `host/drained`, `host/stop`, the Node host starter and the
    startup waits; `host-lease` goes.
 3. One OS lock. Deletes the inherited flock, takeover, `HostNativeChildren` and OS-exit polling.
@@ -61,5 +63,7 @@ Each stage deletes more code than it adds.
 - A CLI `run` keeps its host open until its run and every background child have ended. An
   interaction answered with `interaction respond` or `resume` is followed in the same command
   until the resumed run ends or pauses again. MCP input is answered in an interactive terminal.
-- External clients that need a long-lived host use a stdio host that ends at stdin EOF, as
-  `codex app-server` does.
+- The CLI and the headless host both remain products. The CLI runs its own host for its own
+  commands; Electron, an IDE or any other client spawns the headless host and talks to it over
+  its stdio, the way the Codex IDE extension uses `codex app-server` and the Claude Agent SDK
+  uses its CLI process.
