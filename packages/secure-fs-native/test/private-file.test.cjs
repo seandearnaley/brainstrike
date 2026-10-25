@@ -341,3 +341,49 @@ test('failed Windows replacement retains the previous file and joins temp cleanu
     root.close();
   }
 });
+
+test('Windows replacement publishes over a target another process is reading', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const root = fixture();
+  let child;
+  let exited;
+  try {
+    await root.writePrivateFileAsync('credential.json', Buffer.from('fake previous'));
+    // A reader that shares delete access, as a concurrent read or a Defender scan does.
+    child = spawn(
+      'powershell.exe',
+      [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        "$ErrorActionPreference='Stop'; $share=[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete; $file=[IO.File]::Open($env:BS_PRIVATE_TEST_PATH,[IO.FileMode]::Open,[IO.FileAccess]::Read,$share); try { [Console]::Out.WriteLine('ready'); [Console]::Out.Flush(); [void][Console]::In.ReadLine() } finally { $file.Dispose() }",
+      ],
+      {
+        env: { ...process.env, BS_PRIVATE_TEST_PATH: join(directory, 'credential.json') },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      }
+    );
+    exited = once(child, 'exit');
+    await new Promise((resolve, reject) => {
+      child.stdout.once('data', (data) =>
+        data.toString().trim() === 'ready'
+          ? resolve()
+          : reject(new Error('Fixture did not open the target'))
+      );
+      child.once('error', reject);
+      child.once('exit', (code) => reject(new Error(`Fixture exited before opening: ${code}`)));
+    });
+    await root.writePrivateFileAsync('credential.json', Buffer.from('fake replacement'));
+    assert.equal(readFileSync(join(directory, 'credential.json'), 'utf8'), 'fake replacement');
+    assert.deepEqual(readdirSync(directory), ['credential.json']);
+  } finally {
+    if (child) {
+      child.stdin.end('done\n');
+      await exited;
+    }
+    root.close();
+  }
+});
