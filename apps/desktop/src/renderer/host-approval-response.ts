@@ -22,7 +22,7 @@ export interface HostApprovalTarget {
  */
 function keepToolOverride(grant: CommittedApprovalGrant): void {
   if (grant.scope === 'tool') {
-    usePermissionPolicyStore.getState().setToolOverride(grant.toolId, 'allow');
+    void usePermissionPolicyStore.getState().setToolOverride(grant.toolId, 'allow');
   }
 }
 

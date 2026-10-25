@@ -39,11 +39,13 @@ describe('factory reset wires the permission policy store', () => {
   it('resets in-memory policy state and session grants during clearPersistentUiState', async () => {
     const store = usePermissionPolicyStore.getState();
     // Customize AWAY from defaults (enforce now defaults ON, so flip it off).
-    store.setEnforce(false);
-    store.setYolo(true);
-    store.setCategoryPolicy('edit', 'deny');
+    await Promise.all([
+      store.setEnforce(false),
+      store.setYolo(true),
+      store.setCategoryPolicy('edit', 'deny'),
+      store.setToolOverride('brainstrike.tool', 'allow'),
+    ]);
     store.grantSessionCategory('execute');
-    store.setToolOverride('brainstrike.tool', 'allow');
 
     await clearPersistentUiState({ skipIndexedDb: true });
 

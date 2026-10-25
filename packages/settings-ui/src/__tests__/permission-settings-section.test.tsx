@@ -4,7 +4,7 @@ import {
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { PermissionSettingsSection } = await import(
   '../settings/system/permission-settings-section'
@@ -13,64 +13,6 @@ const { PermissionSettingsSection } = await import(
 describe('PermissionSettingsSection', () => {
   beforeEach(() => {
     __resetPermissionPolicyStoreForTests();
-  });
-
-  it('waits for the saved policy before accepting changes', async () => {
-    const storage = usePermissionPolicyStore.persist.getOptions().storage;
-    const read = Promise.withResolvers<null>();
-    usePermissionPolicyStore.persist.setOptions({
-      storage: {
-        getItem: () => read.promise,
-        removeItem: () => undefined,
-        setItem: () => undefined,
-      },
-    });
-    try {
-      const hydration = usePermissionPolicyStore.persist.rehydrate();
-      render(<PermissionSettingsSection />);
-      expect(screen.queryByTestId('permission-policy-edit')).toBeNull();
-      expect(screen.getByRole('status')).not.toBeNull();
-      await act(async () => {
-        read.resolve(null);
-        await hydration;
-      });
-      expect((screen.getByTestId('permission-policy-edit') as HTMLSelectElement).disabled).toBe(
-        false
-      );
-    } finally {
-      read.resolve(null);
-      usePermissionPolicyStore.persist.setOptions({ storage });
-      await act(async () => usePermissionPolicyStore.persist.rehydrate());
-    }
-  });
-
-  it('shows a failed policy read and lets the user retry before editing', async () => {
-    const storage = usePermissionPolicyStore.persist.getOptions().storage;
-    let failing = true;
-    usePermissionPolicyStore.persist.setOptions({
-      storage: {
-        getItem: async () => {
-          if (failing) {
-            throw new Error('Policy connection closed');
-          }
-          return null;
-        },
-        removeItem: () => undefined,
-        setItem: () => undefined,
-      },
-    });
-    try {
-      await usePermissionPolicyStore.persist.rehydrate();
-      render(<PermissionSettingsSection />);
-      expect(screen.queryByTestId('permission-policy-edit')).toBeNull();
-      expect(screen.getByRole('alert')).not.toBeNull();
-      failing = false;
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      await waitFor(() => expect(screen.getByTestId('permission-policy-edit')).not.toBeNull());
-    } finally {
-      usePermissionPolicyStore.persist.setOptions({ storage });
-      await act(async () => usePermissionPolicyStore.persist.rehydrate());
-    }
   });
 
   it('renders the enforce toggle, four category controls, and the YOLO toggle', () => {
@@ -171,7 +113,9 @@ describe('PermissionSettingsSection', () => {
     });
 
     it('lists overrides with a decision select and updates the store on change', async () => {
-      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
+      await usePermissionPolicyStore
+        .getState()
+        .setToolOverride('brainstrike.executeCommand', 'allow');
       render(<PermissionSettingsSection />);
 
       const select = screen.getByTestId(
@@ -188,8 +132,10 @@ describe('PermissionSettingsSection', () => {
     });
 
     it('allows removing an override even when enforcement is off (cleanup path)', async () => {
-      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
-      usePermissionPolicyStore.getState().setEnforce(false);
+      await usePermissionPolicyStore
+        .getState()
+        .setToolOverride('brainstrike.executeCommand', 'allow');
+      await usePermissionPolicyStore.getState().setEnforce(false);
       render(<PermissionSettingsSection />);
 
       const removeButton = screen.getByTestId(
@@ -206,7 +152,9 @@ describe('PermissionSettingsSection', () => {
     });
 
     it('removes an override via its Remove button', async () => {
-      usePermissionPolicyStore.getState().setToolOverride('brainstrike.executeCommand', 'allow');
+      await usePermissionPolicyStore
+        .getState()
+        .setToolOverride('brainstrike.executeCommand', 'allow');
       render(<PermissionSettingsSection />);
 
       fireEvent.click(
@@ -277,5 +225,99 @@ describe('PermissionSettingsSection', () => {
 
       expect(screen.queryByTestId('permission-session-grants-revoke-all')).toBeNull();
     });
+  });
+});
+
+/** A window whose agent host keeps the policy (the desktop): Settings edits only what it loaded. */
+describe('PermissionSettingsSection with a host-kept policy', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'agentHost');
+    vi.resetModules();
+  });
+
+  async function withHostStorage(storage: {
+    getItem: () => Promise<string | null>;
+    removeItem: () => Promise<void>;
+    setItem: (name: string, value: string) => Promise<void>;
+  }) {
+    vi.resetModules();
+    (window as Window & { agentHost?: unknown }).agentHost = {};
+    const store = await import('@brainstrike/app-state/stores/permission-policy-store');
+    const section = await import('../settings/system/permission-settings-section');
+    store.provideHostPermissionPolicyPersistence(storage);
+    return { section, store };
+  }
+
+  it('waits for the saved policy before accepting changes', async () => {
+    const read = Promise.withResolvers<string | null>();
+    const { section } = await withHostStorage({
+      getItem: () => read.promise,
+      removeItem: async () => undefined,
+      setItem: async () => undefined,
+    });
+    render(<section.PermissionSettingsSection />);
+    expect(screen.queryByTestId('permission-policy-edit')).toBeNull();
+    expect(screen.getByRole('status')).not.toBeNull();
+    await act(async () => {
+      read.resolve(null);
+      await read.promise;
+    });
+    await waitFor(() =>
+      expect((screen.getByTestId('permission-policy-edit') as HTMLSelectElement).disabled).toBe(
+        false
+      )
+    );
+  });
+
+  it('shows a failed policy read and lets the user retry before editing', async () => {
+    let failing = true;
+    const { section } = await withHostStorage({
+      getItem: async () => {
+        if (failing) {
+          throw new Error('Policy connection closed');
+        }
+        return null;
+      },
+      removeItem: async () => undefined,
+      setItem: async () => undefined,
+    });
+    render(<section.PermissionSettingsSection />);
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBeNull());
+    expect(screen.queryByTestId('permission-policy-edit')).toBeNull();
+    failing = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.getByTestId('permission-policy-edit')).not.toBeNull());
+  });
+
+  it('shows a choice once the host saved it, and why when it did not', async () => {
+    const commit = Promise.withResolvers<void>();
+    let refuse = false;
+    const { section } = await withHostStorage({
+      getItem: async () => null,
+      removeItem: async () => undefined,
+      setItem: async () => {
+        if (refuse) {
+          throw new Error('The agent host is closing');
+        }
+        await commit.promise;
+      },
+    });
+    render(<section.PermissionSettingsSection />);
+    const edit = (await screen.findByTestId('permission-policy-edit')) as HTMLSelectElement;
+
+    fireEvent.change(edit, { target: { value: 'deny' } });
+    expect(edit.value).toBe('ask');
+    await act(async () => {
+      commit.resolve();
+      await commit.promise;
+    });
+    await waitFor(() => expect(edit.value).toBe('deny'));
+
+    refuse = true;
+    fireEvent.change(edit, { target: { value: 'allow' } });
+    expect((await screen.findByTestId('permission-policy-save-error')).textContent).toContain(
+      'The agent host is closing'
+    );
+    expect(edit.value).toBe('deny');
   });
 });
