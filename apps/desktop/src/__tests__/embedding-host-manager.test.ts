@@ -1,3 +1,4 @@
+import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   createDarwinManager,
@@ -268,7 +269,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     );
     expect(lifecycleState.waitForStatus).toHaveBeenCalledExactlyOnceWith(
       expect.any(Function),
-      10_000
+      CHILD_CLOSE_BUDGET_MS
     );
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
     expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
@@ -888,7 +889,7 @@ describe('EmbeddingHostManager teardown ownership', () => {
     await Promise.resolve();
     expect(lifecycleState.waitForStatus).toHaveBeenCalledExactlyOnceWith(
       expect.any(Function),
-      3000
+      CHILD_CLOSE_BUDGET_MS
     );
 
     // A backfill arriving mid-teardown must not restart (replace) the host that

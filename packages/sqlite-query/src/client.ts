@@ -8,6 +8,7 @@ import {
   assertCoverageAuthorityBound,
   type CoverageAuthority,
 } from '@brainstrike/indexer/coverage-reader';
+import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store';
 import type { QueryProcess } from './process.ts';
 import {
   decodeRequest,
@@ -26,12 +27,6 @@ function startupError(reply: { readonly message: string; readonly name: string }
     : new Error(reply.message);
 }
 
-/**
- * R5(b): how long after its kill a query process may take to exit before the exit, which close
- * still joins however long it takes, is reported late through `onSlowExit`.
- */
-export const SQLITE_QUERY_EXIT_REPORT_MS = 5000;
-
 export interface OpenSqliteQueryOptions {
   readonly databasePath: string;
   /**
@@ -40,7 +35,7 @@ export interface OpenSqliteQueryOptions {
    * R2): the process's exit is its only end.
    */
   readonly deadlineMs?: number | undefined;
-  /** The owner's log of an exit still pending `SQLITE_QUERY_EXIT_REPORT_MS` after the kill. */
+  /** The owner's log of an exit still pending `CHILD_SIGNAL_GRACE_MS` after the kill (ADR-0030). */
   readonly onSlowExit?: ((elapsedMs: number) => void) | undefined;
   readonly spawn: () => QueryProcess;
   /** R5(a): the bound of the startup such a read waits on, as `deadlineMs`. Absent, none. */
@@ -206,10 +201,7 @@ export class SqliteQueryClient {
     if (this.#hasExited) {
       return;
     }
-    const late = setTimeout(
-      () => this.#onSlowExit?.(SQLITE_QUERY_EXIT_REPORT_MS),
-      SQLITE_QUERY_EXIT_REPORT_MS
-    );
+    const late = setTimeout(() => this.#onSlowExit?.(CHILD_SIGNAL_GRACE_MS), CHILD_SIGNAL_GRACE_MS);
     try {
       await this.#exited;
     } finally {

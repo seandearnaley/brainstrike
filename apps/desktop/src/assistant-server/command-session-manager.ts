@@ -20,7 +20,11 @@ import {
   resolveShellInvocation,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { terminateTree, trackNativeChild } from '@brainstrike/state-store/native-children';
+import {
+  CHILD_SIGNAL_GRACE_MS,
+  terminateTree,
+  trackNativeChild,
+} from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
@@ -34,7 +38,6 @@ const DEFAULT_EXITED_RETENTION = 25;
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const MAX_DIMENSION = 5000;
-const PROCESS_EXIT_TIMEOUT_MS = 5000;
 const BUFFER_BLOCK_CHARS = 16 * 1024;
 const BUFFER_BLOCK_COMPACTION_THRESHOLD = 1024;
 const EMPTY_BUFFER = Buffer.alloc(0);
@@ -126,8 +129,6 @@ export interface CommandSessionManagerOptions {
   readonly idFactory?: () => string;
   /** Maximum retained UTF-16 code units per session. */
   readonly maxBufferChars?: number;
-  /** Maximum wait for a PTY exit acknowledgement after reaping. */
-  readonly processExitTimeoutMs?: number;
   /** Every known root (Main's roots store); absent where each start names its own roots. */
   readonly resolver?: WorkspaceRootResolver;
   readonly spawn?: typeof pty.spawn;
@@ -281,7 +282,6 @@ export function createCommandSessionManager({
   exitedRetention: configuredExitedRetention,
   idFactory = () => `command-session-${randomUUID()}`,
   maxBufferChars: configuredMaxBufferChars,
-  processExitTimeoutMs: configuredProcessExitTimeoutMs,
   resolver,
   spawn = pty.spawn,
   terminateTree: endTree = terminateTree,
@@ -295,11 +295,6 @@ export function createCommandSessionManager({
     configuredExitedRetention,
     DEFAULT_EXITED_RETENTION,
     'exitedRetention'
-  );
-  const processExitTimeoutMs = positiveInteger(
-    configuredProcessExitTimeoutMs,
-    PROCESS_EXIT_TIMEOUT_MS,
-    'processExitTimeoutMs'
   );
   const sessions = new Map<string, SessionEntry>();
 
@@ -576,30 +571,22 @@ export function createCommandSessionManager({
     return entry.reaping;
   }
 
+  /** The PTY's exit is the only end of a session (ADR-0030); a late one is logged, still joined. */
   async function waitForExit(entry: SessionEntry): Promise<void> {
     if (entry.info.status === 'exited') {
       return;
     }
-    let timeout: NodeJS.Timeout | undefined;
+    const late = setTimeout(() => {
+      logger.warn('Command session has not exited after its kill; still joining it', {
+        pid: entry.info.pid,
+        sessionId: entry.info.id,
+      });
+    }, CHILD_SIGNAL_GRACE_MS);
+    late.unref();
     try {
-      await Promise.race([
-        entry.exitPromise,
-        new Promise<never>((_resolve, reject) => {
-          timeout = setTimeout(() => {
-            reject(
-              new CommandSessionError(
-                'stop-failed',
-                `Command session "${entry.info.id}" did not report exit within ${processExitTimeoutMs}ms.`
-              )
-            );
-          }, processExitTimeoutMs);
-          timeout.unref();
-        }),
-      ]);
+      await entry.exitPromise;
     } finally {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      clearTimeout(late);
     }
   }
 
@@ -902,8 +889,6 @@ export function createCommandSessionManager({
         return;
       }
       const entry = running[index]?.[1];
-      // A timeout is not process exit: recordExit must retain the observer and
-      // release the workspace lease only when the owned PTY actually settles.
       logger.error('Command session did not finish disposal for workspace root', {
         errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
         rootId: trimmed,
@@ -941,8 +926,6 @@ export function createCommandSessionManager({
         return;
       }
       const entry = running[index];
-      // A timeout is not process exit: recordExit must retain the observer and
-      // release the workspace lease only when the owned PTY actually settles.
       logger.error('Command session did not finish disposal', {
         errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
         sessionId: entry?.info.id,
