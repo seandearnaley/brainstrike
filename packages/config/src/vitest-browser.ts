@@ -22,12 +22,12 @@ export interface BrowserTestConfig {
   /** Test file pattern for browser tests (default: '**\/*.browser.test.{ts,tsx}') */
   testPattern?: string;
   /**
-   * Playwright trace mode for debugging failed tests
-   * - 'off': No traces (default for local dev)
+   * Playwright trace mode for debugging failed tests (default: 'off')
+   * - 'off': No traces
    * - 'on': Always generate traces (performance impact)
    * - 'on-first-retry': Capture traces only when test is retried first time
    * - 'on-all-retries': Capture traces on every retry
-   * - 'retain-on-failure': Keep traces only for failed tests (recommended for CI)
+   * - 'retain-on-failure': Record every test and keep failed tests' traces
    * @see https://vitest.dev/config/browser/trace
    */
   trace?: 'off' | 'on' | 'on-first-retry' | 'on-all-retries' | 'retain-on-failure';
@@ -387,10 +387,13 @@ function resolveSetupFiles(setupFiles: readonly string[]): string[] {
 export function createBrowserProject(config: BrowserProjectConfig) {
   const testPattern = config.testPattern ?? '**/*.browser.test.{ts,tsx}';
   const headless = config.headless ?? true;
-  const isCI = resolveIsCI(config);
-
-  // Enable traces on failure in CI by default for debugging
-  const trace = config.trace ?? (isCI ? 'retain-on-failure' : 'off');
+  // Off unless a caller asks, in CI too. 'retain-on-failure' records every
+  // test (DOM snapshots and network, zipped) to keep the few that fail: in the
+  // assistant-ui lane that was about 45% of the work in the one Vitest process
+  // every browser worker shares, and the lane took 98 s instead of 123 s without it.
+  // Playwright's own CI default records only retried tests, and this repo does
+  // not retry. Failure screenshots stay on.
+  const trace = config.trace ?? 'off';
   const traceOutputDir = config.traceOutputDir ?? 'test-results';
 
   const { asyncUtilTimeout } = config;

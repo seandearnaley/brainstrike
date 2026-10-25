@@ -164,27 +164,13 @@ describe('createBrowserProject', () => {
     expect(project.test.browser.provider).toBeDefined();
   });
 
-  it('defaults trace mode to retain-on-failure when CI is true', () => {
+  it('records no traces in CI unless asked', () => {
     const project = createBrowserProject({
       asyncUtilTimeout: 1000,
       isCI: true,
       setupFiles: SETUP_FILES,
     });
-    expect(project.test.browser.trace).toEqual({
-      mode: 'retain-on-failure',
-      tracesDir: 'test-results',
-    });
-  });
-
-  it('uses CI defaults when inferred from environment', () => {
-    Reflect.deleteProperty(process.env, 'CI');
-    process.env['GITHUB_ACTIONS'] = 'true';
-
-    const project = createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: SETUP_FILES });
-    expect(project.test.browser.trace).toEqual({
-      mode: 'retain-on-failure',
-      tracesDir: 'test-results',
-    });
+    expect(project.test.browser.trace).toBe('off');
   });
 
   it('re-exports playwright provider', () => {
