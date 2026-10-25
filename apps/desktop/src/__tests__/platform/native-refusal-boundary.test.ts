@@ -302,7 +302,7 @@ it.each([false, true])(
 /** What a SQLite query client rejects a read with when its process exits under it, unasked. */
 async function sqliteExitUnderRead(): Promise<unknown> {
   let reply: (message: unknown) => void = () => undefined;
-  let exit: () => void = () => undefined;
+  let exit: (code: number | null) => void = () => undefined;
   const posted = Promise.withResolvers<void>();
   const queryProcess: QueryProcess = {
     kill: vi.fn(),
@@ -336,7 +336,7 @@ async function sqliteExitUnderRead(): Promise<unknown> {
       (error: unknown) => error
     );
   await posted.promise;
-  exit();
+  exit(1);
   return read;
 }
 
