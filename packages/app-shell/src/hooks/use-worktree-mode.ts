@@ -34,7 +34,8 @@ import { summarizeGitFailure } from '../git-failure-summary';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
-import { resolveWorktreesBridge, type WorktreesBridge } from '../worktrees/worktrees-bridge';
+import { useWorktreesBridge } from '../workspace-git-services';
+import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 import {
   errorMessage,
   toastFailure,
@@ -387,7 +388,7 @@ export function unavailableRepositoryReason(statusFailure: string | null): strin
 }
 
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
-  const bridge = useMemo(() => resolveWorktreesBridge(), []);
+  const bridge = useWorktreesBridge();
   const platform = useMemo(() => resolvePlatformBridge(), []);
   const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
   const fileSystem = useFileSystem();

@@ -21,8 +21,8 @@
 import type { Changeset, ChangesetView, GitInventory } from '@brainstrike/types';
 import { Button, Input } from '@brainstrike/ui';
 import { GitCommitHorizontal, History, Loader2, RefreshCw, Upload } from 'lucide-react';
-import { type ReactElement, useMemo, useState } from 'react';
-import { resolveGitBridge } from '../../git-panel/git-bridge';
+import { type ReactElement, useState } from 'react';
+import { useGitBridge } from '../../workspace-git-services';
 import { useRewindStore } from '../rewind-store';
 import { useRewindPortFor } from '../use-rewind-port-for';
 import { ChangesetSourcePicker } from './changeset-source-picker';
@@ -172,7 +172,7 @@ function StatsReadout({ view }: { readonly view: ChangesetView | null }): ReactE
 
 /**
  * True when the active workspace root's CURRENT worktree is the one the
- * `git-scope` changeset scopes. `window.git`'s commit/push always operate on
+ * `git-scope` changeset scopes. The Git bridge's commit/push always operate on
  * the active root's own repo — offering Commit/Push for a DIFFERENT
  * repository/worktree than the one being viewed would silently commit or
  * push the wrong tree. When it does not match, the actions stay absent
@@ -185,7 +185,7 @@ function StatsReadout({ view }: { readonly view: ChangesetView | null }): ReactE
  * worktree from a DIFFERENT repository than `repositoryRoot` — most
  * orderings fail closed (actions hidden), but the case where that first
  * containment match happens to equal `changeset.worktreePath` while
- * `window.git`'s `rootId`-resolved cwd is a different repo would show the
+ * the Git bridge's `rootId`-resolved cwd is a different repo would show the
  * buttons and commit/push the wrong tree. Filtering to `repositoryRoot`
  * before scanning worktrees establishes the invariant the doc comment
  * above actually claims.
@@ -214,7 +214,7 @@ function isViewingActiveWorktree(
 }
 
 /**
- * Commit + Push, wired directly to the EXISTING `window.git` bridge
+ * Commit + Push, wired directly to the EXISTING Git bridge
  * (`git-panel/git-bridge.ts`) rather than through `useGitPanel` or a link to
  * the Git panel: both calls here are genuinely thin (one bridge call each,
  * no staging workflow, no branch/remote selection UI), so reusing
@@ -227,7 +227,7 @@ function isViewingActiveWorktree(
  * which is outside this task's file list.
  */
 function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement | null {
-  const bridge = useMemo(() => resolveGitBridge(), []);
+  const bridge = useGitBridge();
   const [commitOpen, setCommitOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [committing, setCommitting] = useState(false);
@@ -237,8 +237,7 @@ function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement 
   const [pushResult, setPushResult] = useState<string | null>(null);
 
   if (!bridge) {
-    // Capability gate: no `window.git` bridge (web, or a malformed bridge) —
-    // absent, not a disabled stub.
+    // Capability gate: no Git bridge (web) — absent, not a disabled stub.
     return null;
   }
 

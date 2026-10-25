@@ -1,6 +1,6 @@
 /**
  * Register the desktop `browser` IPC domain (BST-1174) — thin registrar over
- * {@link createBrowserIpcHandlers}, mirroring `ipc-changes.ts`.
+ * {@link createBrowserIpcHandlers}.
  *
  * Every renderer arg arrives as `unknown` and is narrowed inside the handler.
  * `tabsChanged` is a one-way main→renderer push (see desktop-ipc-channels) and

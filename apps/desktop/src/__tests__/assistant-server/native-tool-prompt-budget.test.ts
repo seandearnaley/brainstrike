@@ -309,6 +309,7 @@ function buildPromptBudgetDesktopTools(
     executors: {
       ...desktopHostToolExecutors(
         unexpectedMainRequest,
+        {},
         'prompt-budget-thread',
         nativeRuntimeFor(runtimeData),
         PROMPT_BUDGET_APP_PATHS

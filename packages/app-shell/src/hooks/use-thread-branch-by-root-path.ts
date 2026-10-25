@@ -61,7 +61,7 @@
  *    only for a legacy thread with no durable root id. It must never override
  *    a present id: a replacement root may be mounted at the same display path.
  *
- * Desktop only: without the `window.changes` bridge `available` is false and
+ * Desktop only: without the Changes bridge `available` is false and
  * all three maps are empty. Web omits the chip rather than inventing one.
  */
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';

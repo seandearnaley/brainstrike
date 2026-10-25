@@ -1,10 +1,4 @@
-import {
-  HOST_OBSERVER_AWAITING_REASONS,
-  HostRewindConflictSchema,
-  HostRewindFileOutcomeSchema,
-  HostTurnSnapshotRootSchema,
-  HostTurnSnapshotSchema,
-} from '@brainstrike/agent-host/protocol';
+import { HOST_OBSERVER_AWAITING_REASONS } from '@brainstrike/agent-host/protocol';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
   ReferencedFileFailureSchema,
@@ -163,55 +157,15 @@ export const PlatformSelectionSchema = Schema.Struct({
  * (`RefusableOutcomeSchema`, BST-1996).
  */
 export const PlatformEmbeddingQuerySchema = Schema.Struct({ request: QueryEmbeddingPayloadSchema });
-/**
- * A host run's turn boundary, with the roots it snapshots: at its start the
- * roots its admission holds, at its end the start's roots. The host's
- * admission owns them; Main snapshots what it is sent.
- */
-export const PlatformTurnSnapshotRequestSchema = Schema.Union(
-  [
-    Schema.Struct({
-      boundary: Schema.Literal('turn-start'),
-      roots: Schema.mutable(Schema.Array(HostTurnSnapshotRootSchema)),
-      runId: Id,
-      threadId: Id,
-    }),
-    Schema.Struct({
-      boundary: Schema.Literal('turn-end'),
-      roots: Schema.mutable(Schema.Array(HostTurnSnapshotRootSchema)).check(Schema.isMinLength(1)),
-      runId: Id,
-      threadId: Id,
-    }),
-  ],
-  { mode: 'oneOf' }
-);
-export const PlatformTurnSnapshotResultSchema = Schema.mutable(
-  Schema.Array(HostTurnSnapshotSchema)
-);
-/** A host rewind's restore requests over Main's snapshot owner (`HostRewindFiles`). */
-const RewindTargets = Schema.mutable(Schema.Array(HostTurnSnapshotSchema));
-export const PlatformRewindPreviewSchema = Schema.Struct({ targets: RewindTargets, threadId: Id });
-export const PlatformRewindDriftSchema = Schema.Struct({ previewId: Id, threadId: Id });
-export const PlatformRewindApplySchema = Schema.Struct({
-  previewId: Id,
-  rewindId: Id,
-  targets: RewindTargets,
-  threadId: Id,
+/** A worktree an agent created, mounted by Main as a workspace folder (ADR-0028 step 3). */
+export const PlatformWorktreeFolderSchema = Schema.Struct({ path: Id });
+export const PlatformWorktreeFolderResultSchema = Schema.Struct({
+  displayName: Schema.String,
+  path: Id,
+  rootId: Id,
 });
-export const PlatformRewindRedoConflictsSchema = Schema.Struct({
-  rewindId: Id,
-  targets: RewindTargets,
-  threadId: Id,
-});
-export const PlatformRewindRedoSchema = Schema.Struct({
-  ...PlatformRewindRedoConflictsSchema.fields,
-  ...{ acknowledged: Schema.mutable(Schema.Array(HostRewindConflictSchema)) },
-});
-export const PlatformRewindPreviewResultSchema = Schema.Struct({ previewId: Id });
-export const PlatformRewindConflictsSchema = Schema.mutable(Schema.Array(HostRewindConflictSchema));
-export const PlatformRewindOutcomesSchema = Schema.mutable(
-  Schema.Array(HostRewindFileOutcomeSchema)
-);
+/** A root a rewind restored, for Main's native index to rescan. */
+export const PlatformIndexRefreshSchema = Schema.Struct({ rootId: Id });
 export type PlatformSelection = (typeof PlatformSelectionSchema)['Type'];
 /**
  * thread/memory/read: the admission's pure preconditions, with nothing

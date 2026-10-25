@@ -67,15 +67,17 @@ Each stage ships alone, runs the Windows queue lane and the quit E2E specs, and 
 its Main side and quit step:
 
 1. This ADR.
-2. Worktrees, snapshots and rewind, and skills, commands and personas. The host calls
-   these back today, and the Worktrees and Changes panels read them over IPC; both
-   callers move to the host, and their `platform/*` methods and IPC domains go.
-   Personas report availability against Main's model catalog, so they move with it.
-3. Git, changes and forge. Their IPC domains and the `git-inventory` and `forge` steps go.
-4. Terminals and LSP. The `child-processes` step goes.
-5. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
+2. Skills, commands and personas (2a), then the whole git cluster (2b): worktrees,
+   snapshots and rewind, Git, Changes and forge. The host called these back, and the
+   panels read them over IPC; both callers now use host methods, gated to the
+   desktop's private client, and the `platform/*` methods, IPC domains and the
+   `snapshot-maintenance`, `git-inventory` and `forge` steps go. Personas report
+   availability against Main's model catalog, so they move with it. The git cluster
+   moves as one stage because its services share one inventory, ledger and resolver.
+3. Terminals and LSP. The `child-processes` step goes.
+4. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
    step and ADR-0027's native-thread join go.
-6. MCP control, then index activation if the retrieval decision keeps it.
+5. MCP control, then index activation if the retrieval decision keeps it.
 
 Quit then ends as: factory reset, renderers, `host/stop`, join utility and hidden
 renderer exits, database close.

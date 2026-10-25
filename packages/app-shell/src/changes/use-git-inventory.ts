@@ -1,6 +1,6 @@
 /**
  * `useGitInventory` (BST-1114 T0): load the repository/worktree topology over
- * the desktop `window.changes` bridge.
+ * the Changes bridge from `useChangesBridge()`.
  *
  * The Changes surface needs this for two things `ChangesetView` cannot answer:
  * which git scopes are offerable (per repo × worktree) in the source picker,
@@ -8,13 +8,10 @@
  * carries each worktree's `trust`/`trustReason`, which the UI must render for
  * unvalidated worktrees rather than quietly presenting them as ordinary.
  *
- * Discipline copied from `use-changeset.ts`:
- * - the bridge is resolved ONCE per hook instance (`useMemo` with an empty
- *   dependency array), never per render — `isChangesBridgeAvailable()`
- *   re-resolves and re-logs on every call;
- * - loads are generation-guarded: the counter increments BEFORE the await, is
- *   captured, and every `setState` (including error branches) checks it, so a
- *   slow in-flight load can never overwrite a newer one's result.
+ * Discipline copied from `use-changeset.ts`: loads are generation-guarded —
+ * the counter increments BEFORE the await, is captured, and every `setState`
+ * (including error branches) checks it, so a slow in-flight load can never
+ * overwrite a newer one's result.
  *
  * `inventory` stays `null` until a load succeeds. `null` is "not yet
  * resolved" — NOT the same fact as a resolved inventory with zero
@@ -35,7 +32,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type { GitInventory } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { resolveChangesBridge } from './changes-bridge';
+import { useChangesBridge } from '../workspace-git-services';
 import { useChangesLiveRefreshStore } from './changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from './use-changes-live-refresh';
 
@@ -72,7 +69,7 @@ export interface UseGitInventoryOptions {
 }
 
 export interface UseGitInventoryResult {
-  /** True when the desktop `window.changes` bridge is present and well-formed. */
+  /** True when the host serves the Changes bridge. */
   readonly available: boolean;
   /** The most recent load failure, or `null`. Cleared by a successful load. */
   readonly error: string | null;
@@ -96,7 +93,7 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
   // so the React Compiler (which memoizes on what a body reads) re-creates it.
   const activation = useMemo<object>(() => ({ active }), [active]);
   // Resolved ONCE per hook instance, not per render — see doc comment.
-  const bridge = useMemo(() => resolveChangesBridge(), []);
+  const bridge = useChangesBridge();
   const [inventory, setInventory] = useState<GitInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

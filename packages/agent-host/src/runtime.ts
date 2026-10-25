@@ -52,6 +52,38 @@ export class AgentHostStartupError extends AggregateError {
     this.core = core;
   }
 }
+/** The services a client calls on the host directly, each absent where the platform has none. */
+type PlatformClientService =
+  | 'auth'
+  | 'gitWorkspace'
+  | 'mcpContent'
+  | 'mcpPresentation'
+  | 'mcpSettings'
+  | 'providers'
+  | 'resolveMemoryEmbedder'
+  | 'searchState'
+  | 'searchStateVectors'
+  | 'searchWorkspace'
+  | 'workspaceDiscovery';
+function platformClientServices(
+  platform: HostPlatform | undefined
+): Pick<HostConnectionOptions, PlatformClientService> {
+  return {
+    ...(platform?.auth ? { auth: platform.auth } : {}),
+    ...(platform?.gitWorkspace ? { gitWorkspace: platform.gitWorkspace } : {}),
+    ...(platform?.mcpContent ? { mcpContent: platform.mcpContent } : {}),
+    ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
+    ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
+    ...(platform?.providers ? { providers: platform.providers } : {}),
+    ...(platform?.resolveMemoryEmbedder
+      ? { resolveMemoryEmbedder: platform.resolveMemoryEmbedder }
+      : {}),
+    ...(platform?.searchState ? { searchState: platform.searchState } : {}),
+    ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
+    ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
+    ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
+  };
+}
 /** The owned facade forwards each optional capability the acquired platform supplies. */
 function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
   if (acquired.openRun) {
@@ -62,6 +94,9 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
   }
   if (acquired.attachMcpTaskOwner) {
     owned.attachMcpTaskOwner = acquired.attachMcpTaskOwner.bind(acquired);
+  }
+  if (acquired.attachThreadReads) {
+    owned.attachThreadReads = acquired.attachThreadReads.bind(acquired);
   }
   if (acquired.forgetThread) {
     owned.forgetThread = acquired.forgetThread.bind(acquired);
@@ -122,17 +157,7 @@ export async function startAgentHost(
   let catalogStore: StateStore | undefined;
   const clientCapabilities = (): Pick<
     HostConnectionOptions,
-    | 'bindCatalog'
-    | 'auth'
-    | 'mcpContent'
-    | 'mcpPresentation'
-    | 'mcpSettings'
-    | 'providers'
-    | 'resolveMemoryEmbedder'
-    | 'searchState'
-    | 'searchStateVectors'
-    | 'searchWorkspace'
-    | 'workspaceDiscovery'
+    'bindCatalog' | PlatformClientService
   > => ({
     bindCatalog: async (connection) => {
       if (!catalogStore) {
@@ -153,18 +178,7 @@ export async function startAgentHost(
         throw cause;
       }
     },
-    ...(platform?.auth ? { auth: platform.auth } : {}),
-    ...(platform?.mcpContent ? { mcpContent: platform.mcpContent } : {}),
-    ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
-    ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
-    ...(platform?.providers ? { providers: platform.providers } : {}),
-    ...(platform?.resolveMemoryEmbedder
-      ? { resolveMemoryEmbedder: platform.resolveMemoryEmbedder }
-      : {}),
-    ...(platform?.searchState ? { searchState: platform.searchState } : {}),
-    ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
-    ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
-    ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
+    ...platformClientServices(platform),
   });
   const ownedPlatform: HostPlatform = {
     close: closePlatform,

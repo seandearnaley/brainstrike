@@ -8,6 +8,10 @@ import type {
 } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  stubChangesBridge,
+  workspaceGitWrapper,
+} from '../../__tests__/helpers/workspace-git-services-wrapper';
 import type { ChangesBridge } from '../changes-bridge';
 import {
   REPOSITORY_REFRESH_BATCH_MS,
@@ -52,6 +56,8 @@ function viewFixture(overrides: Partial<ChangesetView> = {}): ChangesetView {
   };
 }
 
+let installedChanges: ChangesBridge | null = null;
+
 /**
  * Installs the desktop changes projection and its invalidation subscription.
  */
@@ -59,14 +65,16 @@ function stubBridge(
   bridge: Pick<ChangesBridge, 'fileDiff' | 'inventory' | 'resolveView'> &
     Partial<Pick<ChangesBridge, 'onInvalidated'>>
 ): void {
-  (window as unknown as { changes?: ChangesBridge }).changes = {
-    onInvalidated: vi.fn(() => () => {}),
-    ...bridge,
-  };
+  installedChanges = stubChangesBridge(bridge);
+}
+
+/** Wraps a render in the host as it stands: serving `installedChanges`, or none (web). */
+function changesHost() {
+  return workspaceGitWrapper({ changes: installedChanges });
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  installedChanges = null;
   useRewindStore.getState().reset();
   useChangesNavigationStore.getState().reset();
   useChangesLiveRefreshStore.getState().reset();
@@ -75,7 +83,9 @@ afterEach(() => {
 
 describe('useChangeset', () => {
   it('reports a typed error (never silent loading) with the bridge absent and a changeset selected', async () => {
-    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(result.current.available).toBe(false);
@@ -103,7 +113,9 @@ describe('useChangeset', () => {
       inventory: vi.fn(),
       resolveView: vi.fn(async () => ({ ok: true as const, value: viewFixture() })),
     });
-    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
 
     expect(await result.current.fileDiff('src/file.ts')).toEqual(failure);
     expect(loggerWarnSpy).toHaveBeenCalledWith('File diff failed', {
@@ -115,7 +127,7 @@ describe('useChangeset', () => {
   it('reports a typed error when no root can resolve the selected changeset', async () => {
     const resolveView = vi.fn();
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
-    const { result } = renderHook(() => useChangeset(null, CHANGESET));
+    const { result } = renderHook(() => useChangeset(null, CHANGESET), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.error).toBe(
@@ -131,7 +143,9 @@ describe('useChangeset', () => {
     const resolveView = vi.fn(() => new Promise<GitResult<ChangesetView>>(() => undefined));
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
 
-    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1);
     });
@@ -161,7 +175,7 @@ describe('useChangeset', () => {
       useChangesNavigationStore.getState().selectLastTurn();
     });
 
-    renderHook(() => useChangeset('root-1', CHANGESET));
+    renderHook(() => useChangeset('root-1', CHANGESET), { wrapper: changesHost() });
     await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -216,7 +230,9 @@ describe('useChangeset', () => {
       );
       const pushed = stubBridgeWithInvalidations(resolveView);
 
-      const { unmount } = renderHook(() => useChangeset('root-1', GIT_CHANGESET));
+      const { unmount } = renderHook(() => useChangeset('root-1', GIT_CHANGESET), {
+        wrapper: changesHost(),
+      });
       await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
       expect(pushed.onInvalidated).toHaveBeenCalledTimes(1);
 
@@ -247,7 +263,7 @@ describe('useChangeset', () => {
       );
       const pushed = stubBridgeWithInvalidations(resolveView);
 
-      renderHook(() => useChangeset('root-1', CHANGESET));
+      renderHook(() => useChangeset('root-1', CHANGESET), { wrapper: changesHost() });
       await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
 
       act(() => {
@@ -268,7 +284,9 @@ describe('useChangeset', () => {
       );
       stubBridgeWithInvalidations(resolveView);
 
-      const { unmount } = renderHook(() => useChangeset('root-1', GIT_CHANGESET));
+      const { unmount } = renderHook(() => useChangeset('root-1', GIT_CHANGESET), {
+        wrapper: changesHost(),
+      });
       expect(resolveView).toHaveBeenCalledTimes(1);
       await act(async () => {
         pendingResolves[0]?.({
@@ -330,7 +348,7 @@ describe('useChangeset', () => {
   it('is inert with a null changeset even when the bridge is present', async () => {
     const resolveView = vi.fn();
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
-    const { result } = renderHook(() => useChangeset('root-1', null));
+    const { result } = renderHook(() => useChangeset('root-1', null), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.available).toBe(true);
@@ -358,7 +376,9 @@ describe('useChangeset', () => {
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: view })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
-    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(result.current.view).toEqual(view);
@@ -375,7 +395,9 @@ describe('useChangeset', () => {
       })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
-    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(result.current.error).toBe('changeset-snapshot-missing: no snapshot covers this turn');
@@ -400,7 +422,9 @@ describe('useChangeset', () => {
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
-    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(result.current.view).not.toBeNull();
@@ -430,7 +454,9 @@ describe('useChangeset', () => {
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff, inventory: vi.fn(), resolveView });
-    const { result } = renderHook(() => useChangeset('root-focused', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-focused', CHANGESET), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(result.current.view).not.toBeNull();
@@ -448,7 +474,9 @@ describe('useChangeset', () => {
         })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
-    const { result } = renderHook(() => useChangeset('root-1', CHANGESET));
+    const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(deferred.length).toBeGreaterThan(0);
@@ -509,7 +537,7 @@ describe('useChangeset', () => {
     const { rerender } = renderHook(
       ({ runId }: { runId: string }) =>
         useChangeset('root-1', { kind: 'agent-run', runId, threadId: 'thread-1' }),
-      { initialProps: { runId: 'run-1' } }
+      { initialProps: { runId: 'run-1' }, wrapper: changesHost() }
     );
 
     await waitFor(() => {
@@ -549,7 +577,7 @@ describe('useChangeset — rewind invalidation', () => {
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
-    renderHook(() => useChangeset('root-1', CHANGESET));
+    renderHook(() => useChangeset('root-1', CHANGESET), { wrapper: changesHost() });
 
     await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
 
@@ -566,7 +594,7 @@ describe('useChangeset — rewind invalidation', () => {
       async (): Promise<GitResult<ChangesetView>> => ({ ok: true, value: viewFixture() })
     );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
-    renderHook(() => useChangeset('root-1', CHANGESET));
+    renderHook(() => useChangeset('root-1', CHANGESET), { wrapper: changesHost() });
 
     await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
 

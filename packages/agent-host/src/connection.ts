@@ -14,6 +14,7 @@ import { bindHostBrowserOriginMethods } from './browser-origin-answers.ts';
 import type { HostCore } from './core.ts';
 import { hostChildStatusChanged } from './core-child-runs.ts';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.ts';
+import { bindHostGitWorkspaceMethods } from './git-workspace-connection.ts';
 import { bindHostHookTrustMethods } from './hook-trust.ts';
 import { bindHostMcpContentMethods } from './mcp-content-connection.ts';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.ts';
@@ -23,6 +24,7 @@ import { bindHostPermissionPolicyMethods } from './permission-policy.ts';
 import type {
   HostAuthService,
   HostClientOrigin,
+  HostGitWorkspace,
   HostMcpContentService,
   HostMcpPresentationService,
   HostMcpSettingsService,
@@ -58,6 +60,8 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
+  /** ADR-0029 stage 2: the desktop's git cluster, where the host owns one. */
+  readonly gitWorkspace?: HostGitWorkspace;
   readonly lifecycle?: HostConnectionLifecycle;
   /** The desktop's MCP content browsing, where the host serves it. */
   readonly mcpContent?: HostMcpContentService;
@@ -110,6 +114,7 @@ export function bindHostConnection(
 ): () => void {
   const {
     auth,
+    gitWorkspace,
     lifecycle,
     mcpContent,
     mcpPresentation,
@@ -284,6 +289,7 @@ export function bindHostConnection(
   disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
   disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
   bindHostMcpContentMethods(handle, mcpContent, origin);
+  disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
   bindHostHookTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
   bindHostBrowserOriginMethods(handle, core.store, origin);

@@ -4,6 +4,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useMemo } from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  stubWorktreesBridge,
+  workspaceGitWrapper,
+} from '../../__tests__/helpers/workspace-git-services-wrapper';
 
 const useWorktreeMapMock = vi.fn();
 vi.mock('../use-worktree-map', () => ({ useWorktreeMap: () => useWorktreeMapMock() }));
@@ -69,13 +73,14 @@ vi.mock('../../platform-bridge', () => ({
 const adoptMock = vi.fn();
 const archiveMock = vi.fn();
 const inspectArchiveMock = vi.fn();
-vi.mock('../../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({
+/** The host serving the worktrees bridge, as the desktop shell provides it. */
+const WorktreesHost = workspaceGitWrapper({
+  worktrees: stubWorktreesBridge({
     adopt: adoptMock,
     archive: archiveMock,
     inspectArchive: inspectArchiveMock,
   }),
-}));
+});
 
 const addRootDirectoryByPathMock = vi.fn();
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -106,9 +111,11 @@ function Surface() {
     []
   );
   return (
-    <AssistantThreadHostContext.Provider value={host}>
-      <WorktreeMapSurface />
-    </AssistantThreadHostContext.Provider>
+    <WorktreesHost>
+      <AssistantThreadHostContext.Provider value={host}>
+        <WorktreeMapSurface />
+      </AssistantThreadHostContext.Provider>
+    </WorktreesHost>
   );
 }
 
@@ -516,7 +523,8 @@ describe('WorktreeMapSurface', () => {
     render(
       <AssistantThreadHostContext.Provider value={host}>
         <WorktreeMapSurface />
-      </AssistantThreadHostContext.Provider>
+      </AssistantThreadHostContext.Provider>,
+      { wrapper: WorktreesHost }
     );
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
@@ -607,7 +615,7 @@ describe('WorktreeMapSurface', () => {
     // (onNewThread's repository guard, added beside the existing !worktreeId
     // guard, must fail LOUD — a stated actionError, never a silent return —
     // and createThread must never be reached.)
-    render(<WorktreeMapSurface />);
+    render(<WorktreeMapSurface />, { wrapper: WorktreesHost });
 
     await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
 
