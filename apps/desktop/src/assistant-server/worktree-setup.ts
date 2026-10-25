@@ -529,6 +529,7 @@ async function executeSetupCommand(
     let escalationTimer: ReturnType<typeof setTimeout> | undefined;
     let exitStatus: { code: number | null; signal: NodeJS.Signals | null } | undefined;
     let processTreeExitTimer: ReturnType<typeof setTimeout> | undefined;
+    let processTreeKilled = false;
     const child = spawnNativeChild(file, args, {
       cwd: input.worktree.path,
       detached: !isWindows,
@@ -587,7 +588,9 @@ async function executeSetupCommand(
       if (settled) {
         return;
       }
-      if (!isProcessTreeAlive(child)) {
+      // After SIGKILL no member of the group runs again; one left as a zombie waits only on its
+      // new parent's reaping, which is not this setup's exit to join.
+      if (processTreeKilled || !isProcessTreeAlive(child)) {
         settle(code, signal);
         return;
       }
@@ -616,6 +619,8 @@ async function executeSetupCommand(
       signalProcessTree(child, 'SIGTERM');
       escalationTimer = setTimeout(() => {
         signalProcessTree(child, 'SIGKILL');
+        processTreeKilled = true;
+        settleAfterTermination();
       }, CHILD_SIGNAL_GRACE_MS);
       escalationTimer.unref?.();
       settleAfterTermination();
