@@ -6,6 +6,12 @@ export interface WindowsProcessIdentity {
 
 /** Native live-process FILETIME, or null for a missing/exited PID. Other failures throw. */
 export function getProcessCreationTime(pid: number): string | null;
+/**
+ * Settles when the process `pid`, started at `creationTime` (from getProcessCreationTime), has
+ * exited: at once if it already has or the PID names another process, otherwise when the OS
+ * signals its handle. Windows only.
+ */
+export function waitForProcessExit(pid: number, creationTime: string): Promise<void>;
 
 export interface CommandJob {
   /** Verify the wrapper's private READY identity on an opened handle before assignment. */
