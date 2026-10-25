@@ -147,20 +147,23 @@ export class IndexerHostManager {
         };
       },
       onExit: (listener) => {
-        const exited = (): void => {
+        const exited = (code: number): void => {
           this.#exitCleanup ??= canonical.exited(new IndexerUtilityExitedError());
           void this.#exitCleanup.catch(() => {
             this.#exitCleanupFailed = true;
           });
-          listener();
+          listener(code);
         };
         // Electron's `exit` precedes the OS exit; the utility has exited once that is joined.
-        const exit = (): void => {
+        const exit = (code: number): void => {
           this.#closed = true;
-          void endExitedProcess(identity).then(exited, (cause: unknown) => {
-            logger.error('Could not end the indexer utility after its exit', { cause });
-            exited();
-          });
+          void endExitedProcess(identity).then(
+            () => exited(code),
+            (cause: unknown) => {
+              logger.error('Could not end the indexer utility after its exit', { cause });
+              exited(code);
+            }
+          );
         };
         child.on('exit', exit);
         return () => child.off('exit', exit);

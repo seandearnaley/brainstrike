@@ -218,7 +218,7 @@ it.each(['validated', 'slow-startup', 'slow-request'] as const)(
   async (scenario) => {
     vi.useFakeTimers();
     let message: ((frame: unknown) => void) | undefined;
-    let exited: (() => void) | undefined;
+    let exited: ((code: number | null) => void) | undefined;
     let connection: IndexerConnection | undefined;
     const sent: unknown[] = [];
     const kill = vi.fn(() => true);
@@ -288,7 +288,7 @@ it.each(['validated', 'slow-startup', 'slow-request'] as const)(
         await expect(request).resolves.toEqual(info);
       }
     } finally {
-      exited?.();
+      exited?.(0);
       await vi.advanceTimersByTimeAsync(0);
       await read;
       await activation.close();

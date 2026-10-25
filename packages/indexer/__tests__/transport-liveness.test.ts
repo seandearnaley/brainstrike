@@ -35,9 +35,13 @@ function slowProcess(timing: {
   readonly exitAfterCloseMs?: number;
   /** Its kill is refused, as Windows refuses to terminate a process that is already exiting. */
   readonly refusesKill?: boolean;
+  /** Its close answer never arrives, as when the process exits right after sending it. */
+  readonly losesCloseAnswer?: boolean;
+  /** The code it exits with after `close` (0 by default). */
+  readonly closeExitCode?: number;
 }) {
   const messages = new Set<(message: unknown) => void>();
-  const exits = new Set<() => void>();
+  const exits = new Set<(code: number | null) => void>();
   const deliver = (frame: unknown, afterMs: number): void => {
     setTimeout(() => {
       for (const listener of messages) {
@@ -47,10 +51,10 @@ function slowProcess(timing: {
   };
   let started = false;
   let kills = 0;
-  const exit = (afterMs: number): void => {
+  const exit = (afterMs: number, code: number | null): void => {
     setTimeout(() => {
       for (const listener of exits) {
-        listener();
+        listener(code);
       }
     }, afterMs);
   };
@@ -60,7 +64,7 @@ function slowProcess(timing: {
       if (timing.refusesKill) {
         return false;
       }
-      exit(timing.exitAfterKillMs ?? 0);
+      exit(timing.exitAfterKillMs ?? 0, null);
       return true;
     },
     onError: () => () => {},
@@ -85,8 +89,10 @@ function slowProcess(timing: {
       const { id, op } = message as { readonly id: number; readonly op: string };
       if (op === 'close') {
         if (!timing.ignoresClose) {
-          deliver({ id, kind: 'response', ok: true, value: true }, 0);
-          exit(timing.exitAfterCloseMs ?? 0);
+          if (!timing.losesCloseAnswer) {
+            deliver({ id, kind: 'response', ok: true, value: true }, 0);
+          }
+          exit(timing.exitAfterCloseMs ?? 0, timing.closeExitCode ?? 0);
         }
         return;
       }
@@ -100,7 +106,7 @@ function slowProcess(timing: {
   transport.onStall = (stage, elapsedMs) => stalls.push(`${stage}:${elapsedMs}`);
   const refusals: unknown[] = [];
   transport.onKillRefused = (cause) => refusals.push(cause);
-  return { exitNow: () => exit(0), kills: () => kills, refusals, stalls, transport };
+  return { exitNow: () => exit(0, null), kills: () => kills, refusals, stalls, transport };
 }
 
 afterEach(() => {
@@ -225,6 +231,34 @@ it('closes cooperatively with no stall when the process answers and exits', asyn
   await expect(closing).resolves.toBeUndefined();
   expect(process.kills()).toBe(0);
   expect(process.stalls).toEqual([]);
+});
+
+// ADR-0030: the exit is the close's completion. A process exits right after it answers close,
+// and its answer can be lost behind that exit (seen on Windows with the Electron utility).
+it('completes a close on the clean exit of a process whose answer never arrived', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ losesCloseAnswer: true, readyMs: 0, replyMs: 0 });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  await connection.ready;
+  const closing = connection.close();
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(closing).resolves.toBeUndefined();
+  expect(process.kills()).toBe(0);
+  expect(connection.exited).toBe(true);
+});
+
+it('fails a close whose process exits with a failure before it answered', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ closeExitCode: 1, losesCloseAnswer: true, readyMs: 0, replyMs: 0 });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  await connection.ready;
+  const closing = connection.close();
+  closing.catch(() => undefined);
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(closing).rejects.toThrow('Indexer close failed; process exit was joined.');
+  expect(connection.exited).toBe(true);
 });
 
 // ADR-0030: the close window runs from the request to the exit, and a refused kill is not a fault.

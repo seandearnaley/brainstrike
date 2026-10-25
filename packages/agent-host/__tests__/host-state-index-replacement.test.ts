@@ -56,7 +56,7 @@ function fake(
 }
 
 function transport(worker: FakeWorker): IndexerTransport {
-  const exits = new Set<() => void>();
+  const exits = new Set<(code: number | null) => void>();
   const messages = new Set<(message: unknown) => void>();
   const deliver = (frame: unknown): void =>
     queueMicrotask(() => {
@@ -64,13 +64,13 @@ function transport(worker: FakeWorker): IndexerTransport {
         listener(frame);
       }
     });
-  const exit = (): void =>
+  const exit = (code: number | null): void =>
     queueMicrotask(() => {
       for (const listener of exits) {
-        listener();
+        listener(code);
       }
     });
-  worker.crash = exit;
+  worker.crash = () => exit(1);
   let started = false;
   let served = 0;
   return {
@@ -79,7 +79,7 @@ function transport(worker: FakeWorker): IndexerTransport {
       if (!worker.killable) {
         return false;
       }
-      exit();
+      exit(null);
       return true;
     },
     onError: () => () => {},
@@ -111,7 +111,7 @@ function transport(worker: FakeWorker): IndexerTransport {
       const { id, op } = message as { readonly id: number; readonly op: string };
       if (op === 'close') {
         deliver({ id, kind: 'response', ok: true, value: true });
-        exit();
+        exit(0);
         return;
       }
       const answer = worker.answers[Math.min(served++, worker.answers.length - 1)];
@@ -132,7 +132,7 @@ function transport(worker: FakeWorker): IndexerTransport {
       } else if (answer === 'garble') {
         deliver({ id: id + 1000, kind: 'response', ok: true, value: healthy });
       } else {
-        exit();
+        exit(1);
       }
     },
   };
