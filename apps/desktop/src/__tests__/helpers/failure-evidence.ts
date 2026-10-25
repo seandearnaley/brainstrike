@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { attachAgentHost } from '@brainstrike/agent-host';
+import type { HostClient } from '@brainstrike/agent-host/client';
 
 /**
  * Each committed row carries its time, so the rows show which phase of a failed run stalled.
@@ -8,7 +8,7 @@ import type { attachAgentHost } from '@brainstrike/agent-host';
  * the close settles its pending requests.
  */
 export async function writeCommittedThreadRows(
-  client: Awaited<ReturnType<typeof attachAgentHost>> | undefined,
+  client: HostClient | undefined,
   evidence: string
 ): Promise<void> {
   if (!client) {

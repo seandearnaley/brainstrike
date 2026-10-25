@@ -15,7 +15,7 @@ import { readHostProcess, waitForAppHost } from './utils/agent-host-log';
  */
 test.use({
   electronEnv: {
-    BRAINSTRIKE_E2E_LIFECYCLE_DELAYS: 'host-ready:5000,platform-ready:3000,record-read:3000',
+    BRAINSTRIKE_E2E_LIFECYCLE_DELAYS: 'host-ready:5000,platform-ready:3000',
   },
 });
 

@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { HostClient } from '@brainstrike/agent-host/client';
 import type { HostCredentialStoreSelection } from '@brainstrike/host-capabilities/credentials';
-import type { HostAttachment } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
-import { app, MessageChannelMain, type MessagePortMain } from 'electron';
+import { app } from 'electron';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
+import type { PlatformMessagePort } from './agent-host-platform/connection';
 import type { HostNativeChildren } from './agent-host-platform/host-native-children';
 import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
@@ -34,7 +35,7 @@ import {
 const logger = createLogger('DesktopBootstrap');
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 type BindPlatform = (
-  port: MessagePortMain,
+  port: PlatformMessagePort,
   children: HostNativeChildren
 ) => { close(): Promise<void> };
 interface PendingPlatform {
@@ -48,9 +49,9 @@ export interface DesktopBootstrapRuntime {
   readonly environment: ReturnType<typeof getDesktopEnvironmentBootstrapResult>;
   readonly mainEntryPath: string;
   readonly privateClients: ReturnType<typeof createAgentHostPrivateClients>;
-  readonly profile: DesktopProfileRuntime<HostAttachment>;
+  readonly profile: DesktopProfileRuntime<HostClient>;
   readonly singleInstanceLockAcquired: boolean;
-  waitForProfileLaunch(acquisition: Promise<HostAttachment>): Promise<void>;
+  waitForProfileLaunch(acquisition: Promise<HostClient>): Promise<void>;
   readonly workspaceOpenQueue: ReturnType<typeof createWorkspaceOpenQueue>;
 }
 function readExplicitE2eUserDataDir(): string | null {
@@ -197,18 +198,16 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
         }
         lost();
       },
-      platform: (children) => {
-        const channel = new MessageChannelMain();
+      platform: (children, port) => {
         let owner: ReturnType<BindPlatform> | undefined;
         const closeUnbound = (): void => {
           pending.delete(platform);
-          channel.port1.close();
-          channel.port2.close();
+          port.close();
           unbound.delete(closeUnbound);
         };
         const platform: PendingPlatform = {
           bind: (bind) => {
-            owner = bind(channel.port1, children);
+            owner = bind(port, children);
             unbound.delete(closeUnbound);
           },
         };
@@ -227,11 +226,9 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
               try {
                 await owner?.close();
               } finally {
-                channel.port1.close();
-                channel.port2.close();
+                port.close();
               }
             })()),
-          port: channel.port2,
         };
       },
       platformModule: resolveBundledSiblingPath(

@@ -2,19 +2,20 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
-import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
+import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host';
+import type { HostClient } from '@brainstrike/agent-host/client';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
 import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-result-contract';
-import { decodeHostRecord } from '@brainstrike/host-lease';
 import { joinProcessExit, processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron, type ElectronApplication } from 'playwright';
 import { expect, onTestFinished } from 'vitest';
 import { z } from 'zod';
+import { attachHostThroughWindow } from '../../../e2e/utils/agent-host-log';
 import { closeElectronApp } from '../../../e2e/utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from '../../../e2e/utils/layout-helpers';
 import {
@@ -98,7 +99,7 @@ export async function qualifyOrdinaryAppIndexedText(
   let workspaceRootId: string | undefined;
   let activeThreadId: string | undefined;
   let application: ElectronApplication | undefined;
-  let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
+  let client: HostClient | undefined;
   let failure: unknown;
   const errors: unknown[] = [];
   const owners: OwnedTestProcess[] = [];
@@ -315,15 +316,15 @@ export async function qualifyOrdinaryAppIndexedText(
     await page.reload();
     await ensureAssistantShellVisible(page);
     workspaceRootId = await addWorkspaceFolder(page, workspace);
-    const record = decodeHostRecord(JSON.parse(await readFile(join(profile, 'host.json'), 'utf8')));
+    // Observe the host created by the app, through its own window's connect.
+    client = await attachHostThroughWindow(page);
+    const record = client.host;
     expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
     expect(record.pid).not.toBe(process.pid);
     const start = processStartTime(record.pid);
     if (start) {
       owners.push({ kind: 'child', pid: record.pid, start });
     }
-    // Observe the host created by the app; never pre-start a replacement host.
-    client = await attachAgentHost(record);
     const mountedRootId = workspaceRootId;
     if (!mountedRootId) {
       throw new Error('The ordinary workspace has no mounted root identity');
@@ -381,13 +382,8 @@ export async function qualifyOrdinaryAppIndexedText(
       )
       .toBe(true);
     await capture(application);
-    const afterSetup = decodeHostRecord(
-      JSON.parse(await readFile(join(profile, 'host.json'), 'utf8'))
-    );
-    expect({ pid: afterSetup.pid, start: afterSetup.start }).toEqual({
-      pid: record.pid,
-      start: record.start,
-    });
+    // Indexing setup ran in the one host the app started.
+    expect(processStartTime(record.pid)).toBe(record.start);
     await ensureAssistantShellVisible(page);
     checkpoint('ordinary-native-text-publication-ready');
     // The startup thread is already open and visible; New Thread's own thread
@@ -503,25 +499,33 @@ export async function qualifyOrdinaryAppIndexedText(
         )
         .map(({ pid, name }) => ({ name, pid, start: processStartTime(pid) }));
       expect(nativeOwners.some(({ name }) => name === 'brainstrike-indexer')).toBe(true);
-      const stopped = await client.request('host/stop', {});
-      const stillLive = nativeOwners.filter(
+      // Quit is the one stop: Main asks its host to close, joins it and the
+      // native owners, and only then exits.
+      await client.close();
+      await client.closed;
+      client = undefined;
+      await capture(application);
+      await closeElectronApp({ app: application });
+      application = undefined;
+      await within(output.expectCleanShutdown(), 'The app output close');
+      const stillLive = [...nativeOwners, { name: 'agent-host', ...record }].filter(
         ({ pid, start }) => start && processStartTime(pid) === start
       );
+      const rootReleased = RootLock.inspect(profile)?.owner.released;
       await writeFile(
         join(evidence, 'host-stop-verdict.json'),
         JSON.stringify(
           {
             beforeStop,
             nativeOwners,
-            rootReleased: RootLock.inspect(profile)?.owner.released,
+            rootReleased,
             stillLive,
-            stopped,
           },
           null,
           2
         )
       );
-      expect(stopped.rootReleased).toBe(true);
+      expect(rootReleased).toBe(true);
       expect(stillLive).toEqual([]);
     }
   } catch (cause) {

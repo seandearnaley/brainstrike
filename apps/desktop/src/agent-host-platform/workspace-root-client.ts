@@ -1,7 +1,7 @@
 import { isUnsentRequest } from '@brainstrike/agent-host/boundary-wire';
 import type { HostCatalog } from '@brainstrike/agent-host/catalog';
+import type { HostClient } from '@brainstrike/agent-host/client';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
-import type { HostAttachment } from '@brainstrike/host-lease';
 import { HOST_LEASE_CLOSED } from '../desktop-shutdown-state';
 
 interface DesktopWorkspaceRootCatalog extends HostCatalog {
@@ -11,17 +11,14 @@ interface DesktopWorkspaceRootCatalog extends HostCatalog {
 
 /** A borrow of the current authenticated attachment, never another catalog or writer. */
 export function createDesktopWorkspaceRootCatalog(
-  acquireProfile: () => Promise<HostAttachment>
+  acquireProfile: () => Promise<Pick<HostClient, 'catalog' | 'closed'>>
 ): DesktopWorkspaceRootCatalog {
   let current: HostCatalog | undefined;
   let closing: Promise<void> | undefined;
   const pending = new Set<Promise<unknown>>();
   const acquire = async (): Promise<HostCatalog> => {
     const attachment = await acquireProfile();
-    if (!('catalog' in attachment)) {
-      throw new Error('The authenticated host has no catalog capability');
-    }
-    const client = attachment.catalog as HostCatalog;
+    const client = attachment.catalog;
     current = client;
     const detach = (): void => {
       if (current === client) {

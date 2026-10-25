@@ -75,6 +75,7 @@ export {
   type HostPlatformFactory,
   type HostProcessParent,
   loadHostPlatform,
+  openHostProcess,
   runAgentHostProcess,
 } from './process-entry.ts';
 export {
@@ -90,6 +91,8 @@ export {
   AgentHostStartupError,
   type HostPlatformInitializer,
   type HostStartupContext,
+  type OpenedAgentHost,
+  openAgentHost,
   startAgentHost,
 } from './runtime.ts';
 export { pendingRewindSnapshotTargets } from './thread-rewind.ts';

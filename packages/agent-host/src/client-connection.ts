@@ -51,6 +51,8 @@ export interface HostClient {
   readonly catalog: HostCatalog;
   close(): Promise<void>;
   readonly closed: Promise<void>;
+  /** The host this client initialized with: its process and versions. */
+  readonly host: HostResults['initialize'];
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
@@ -206,8 +208,9 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     }
   });
   connection.listen();
+  let reply: HostResults['initialize'];
   try {
-    const reply = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS.initialize, {
+    reply = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS.initialize, {
       errors: 'all',
       onExcessProperty: 'error',
     })(
@@ -237,6 +240,7 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     catalog: createHostCatalogClient(connection),
     close: closeConnection,
     closed: transportClosed,
+    host: reply,
     onChildrenChanged: (listener) => {
       childListeners.add(listener);
       return () => childListeners.delete(listener);

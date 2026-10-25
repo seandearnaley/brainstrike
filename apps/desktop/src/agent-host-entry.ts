@@ -3,126 +3,130 @@
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
 import { enableCompileCache } from 'node:module';
-import type { AgentHost } from '@brainstrike/agent-host';
-import type { StartupMessage } from '@brainstrike/host-lease';
+import type { OpenedAgentHost } from '@brainstrike/agent-host';
 import { lifecycleDelay, takeLifecycleDelays } from '@brainstrike/host-lease/lifecycle-delays';
-import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
+import { configureLogger } from '@brainstrike/logging';
+import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
+import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
+import {
+  decodeHostChildArgs,
+  decodeHostChildControl,
+  type HostChildMessage,
+} from './host-child-messages';
+import { openHostStdio } from './host-stdio';
 
-/** Electron provides a launcher channel; all agent work stays in the Node kernel. */
+/**
+ * The agent host as a headless program, as `codex app-server` is Codex Desktop's: it
+ * runs under plain Node or Electron's Node, speaks JSON-RPC on stdin and stdout, and
+ * closes when its client asks or its stdin ends. It opens the profile's root, reports `ready` once, and
+ * serves each channel its client opens: Main's platform first, then each client.
+ * Every write is already committed, so a client killing it loses nothing.
+ */
 async function main(): Promise<void> {
   // Node's on-disk compile cache, on before the host's module graph loads (the
   // dynamic imports below), as the CLI does. Worker threads enable their own.
   // https://nodejs.org/api/module.html#moduleenablecompilecacheoptions
   enableCompileCache();
-  const parent = process.parentPort;
-  if (!parent) {
-    throw new Error('Agent host utility has no parent channel');
-  }
-  // Only Main's fork env carries it (the E2E seam); removed so no host descendant inherits it.
+  // stdout carries only the protocol; this process's log goes to stderr.
+  configureLogger({ console: { destination: 2 }, includeTimestamp: true });
+  // Electron's Node runs this entry as Node; nothing this host starts inherits that.
+  Reflect.deleteProperty(process.env, 'ELECTRON_RUN_AS_NODE');
+  // Only Main's spawn env carries it (the E2E seam); removed so no host descendant inherits it.
   const lifecycleDelays = takeLifecycleDelays();
-  // BST-1977: CJS dependency evaluation used to precede the parent listener.
-  // Capture first, then install the existing decoders before loading Core.
-  const inbox = createUtilityParentInbox(parent);
   const controller = new AbortController();
-  let cancelKernel: (() => void) | undefined;
-  const cancel = (): void => {
-    controller.abort(new Error('Host process cancelled'));
-    cancelKernel?.();
+  let host: OpenedAgentHost | undefined;
+  let exiting = false;
+  const exit = (code: number): void => {
+    exiting = true;
+    process.exit(code);
   };
-  process.once('SIGTERM', cancel);
-  process.once('SIGINT', cancel);
-  const release = (): void => {
-    inbox.close();
-    process.off('SIGTERM', cancel);
-    process.off('SIGINT', cancel);
+  const failed = (cause: unknown): void => {
+    process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
   };
-  let retained = false;
-  let kernelStarted = false;
-  let controlFailure: unknown;
-  let host: AgentHost | undefined;
-  let terminalControl: Promise<void> | undefined;
-  try {
-    // Wait for the parent's existing lifetime channel before evaluating the
-    // dependency graph. An initial setImmediate can precede Electron's first
-    // native message dispatch, leaving an already queued Close behind imports.
-    await loadUtilityStartup(() => inbox.received, controller.signal);
-    const { receiveAgentHostParentMessage } = await loadUtilityStartup(
-      () => import('./agent-host-parent-control'),
-      controller.signal
-    );
-    inbox.bind((input) => {
-      try {
-        const clearing = receiveAgentHostParentMessage(input, host, cancel);
-        if (clearing) {
-          terminalControl = clearing.then((receipt) => {
-            parent.postMessage({ event: 'content-cleared', ...receipt });
-          });
-          terminalControl.catch((cause: unknown) => {
-            controlFailure ??= cause;
-          });
-        }
-      } catch (cause) {
-        controlFailure ??= cause;
-        cancel();
+  const close = (): void => {
+    if (exiting) {
+      return;
+    }
+    exiting = true;
+    controller.abort(new Error('Host process closed'));
+    if (!host) {
+      process.exit(0);
+    }
+    host.close().then(
+      () => process.exit(0),
+      (cause: unknown) => {
+        failed(cause);
+        process.exit(1);
       }
-    });
-    // Deliver queued native parent/port events before synchronous CJS evaluation.
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    controller.signal.throwIfAborted();
-    const { runAgentHostProcess } = await loadUtilityStartup(
-      () => import('@brainstrike/agent-host'),
-      controller.signal
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    controller.signal.throwIfAborted();
-    kernelStarted = true;
-    await runAgentHostProcess(process.argv.slice(2), {
-      listen: (stop) => {
-        cancelKernel = stop;
-        if (controller.signal.aborted) {
-          stop();
+  };
+  const stdio = openHostStdio(process.stdin, process.stdout, {
+    invalid: (cause) => {
+      failed(cause);
+      close();
+    },
+    message: (input) => {
+      try {
+        if (decodeHostChildControl(input).method === 'close') {
+          close();
+          return;
         }
-        return release;
-      },
-      report: async (message: StartupMessage) => {
-        if (message.event === 'failed') {
-          retained = message.ownership === 'retained';
+        if (!host) {
+          throw new Error('Content clear requires a ready host');
         }
-        if (message.event === 'ready') {
-          await lifecycleDelay(lifecycleDelays, 'host-ready');
-        }
-        parent.postMessage(message);
-      },
-      started: (acquired) => {
-        host = acquired;
-      },
-    });
-    await terminalControl;
-    if (controlFailure !== undefined) {
-      throw controlFailure;
+        // A content clear closes the host when its deletion has committed; the receipt
+        // is written before the process exits.
+        exiting = true;
+        host.clearAndRetireContent().then(
+          (receipt) => report({ event: 'content-cleared', ...receipt }).then(() => exit(0)),
+          (cause: unknown) => {
+            failed(cause);
+            exit(1);
+          }
+        );
+      } catch (cause) {
+        failed(cause);
+        close();
+      }
+    },
+    opened: (channel, port) => {
+      if (channel === 'platform') {
+        installParentPlatformPort(port);
+      } else {
+        bindDesktopClientPort(port, host);
+      }
+    },
+  });
+  const report = (message: HostChildMessage): Promise<void> => stdio.message(message);
+  // stdin's end is the client gone: this host closes without it.
+  void stdio.ended.then(close);
+  process.once('SIGTERM', close);
+  process.once('SIGINT', close);
+  try {
+    const { modulePath, platformOptions, root } = decodeHostChildArgs(process.argv.slice(2));
+    const { openHostProcess } = await import('@brainstrike/agent-host');
+    host = await openHostProcess(root, modulePath, platformOptions, controller.signal);
+    if (controller.signal.aborted) {
+      return;
     }
-    process.exit(0);
+    await lifecycleDelay(lifecycleDelays, 'host-ready');
+    await report({ event: 'ready' });
   } catch (cause) {
-    const failure = kernelStarted ? cause : (controlFailure ?? cause);
-    process.exitCode = 1;
-    process.stderr.write(`${failure instanceof Error ? failure.message : String(failure)}\n`);
-    if (!kernelStarted) {
-      parent.postMessage({
-        event: 'failed',
-        kind: 'error',
-        message: failure instanceof Error ? failure.message : String(failure),
-        ownership: 'released',
-      } satisfies StartupMessage);
+    if (controller.signal.aborted) {
+      return;
     }
-    // Failed physical joins retain the real writer/root and parent listener.
-    if (!retained) {
-      release();
-      process.exit(1);
-    }
+    const { RootLockedError } = await import('@brainstrike/state-store');
+    failed(cause);
+    await report({
+      event: 'failed',
+      kind: cause instanceof RootLockedError ? 'root-locked' : 'error',
+      message: cause instanceof Error ? cause.message : String(cause),
+    }).catch(() => undefined);
+    exit(1);
   }
 }
 
 void main().catch((cause: unknown) => {
-  process.exitCode = 1;
   process.stderr.write(`${String(cause)}\n`);
+  process.exit(1);
 });

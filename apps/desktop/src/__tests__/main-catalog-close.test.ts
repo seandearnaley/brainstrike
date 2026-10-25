@@ -1,6 +1,5 @@
 // @vitest-environment node
 import type { HostCatalog } from '@brainstrike/agent-host/catalog';
-import type { HostAttachment } from '@brainstrike/host-lease';
 import { expect, test, vi } from 'vitest';
 import { createDesktopWorkspaceRootCatalog } from '../agent-host-platform/workspace-root-client';
 import { HOST_LEASE_CLOSED } from '../desktop-shutdown-state';
@@ -23,18 +22,10 @@ function fixture() {
     worktreeLedger: vi.fn<HostCatalog['worktreeLedger']>(unexpected),
   };
   const closed = Promise.withResolvers<void>();
-  const attachment: HostAttachment & { readonly catalog: HostCatalog } = {
+  const attachment = {
     catalog,
     close: vi.fn(async () => closed.resolve()),
     closed: closed.promise,
-    record: {
-      endpoint: '/disposable/socket',
-      hostVersion: '1',
-      pid: 123,
-      protocolVersion: 1,
-      start: 'test',
-      token: '0'.repeat(64),
-    },
   };
   const acquire = vi.fn(async () => attachment);
   const borrower = createDesktopWorkspaceRootCatalog(acquire);

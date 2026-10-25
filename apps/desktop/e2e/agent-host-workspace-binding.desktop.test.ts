@@ -21,9 +21,7 @@ test('ordinary app Main validates a committed host root through its actual catal
     await expect(page.getByText('bound-evidence.ts').first()).toBeVisible();
     const result = await page.evaluate(
       async ({ expectedRootId, expectedPath }) => {
-        const bridge = (
-          window as Window & { agentHost?: { connect(requestId: string): Promise<void> } }
-        ).agentHost;
+        const bridge = window.agentHost;
         const files = window.electronAPI?.fileSystem;
         if (!(bridge && files)) {
           throw new Error('Ordinary app owner capabilities are unavailable');
@@ -42,7 +40,7 @@ test('ordinary app Main validates a committed host root through its actual catal
         const requestId = crypto.randomUUID();
         const transferred = Promise.withResolvers<{
           port: MessagePort;
-          record: { token: string; protocolVersion: number; hostVersion: string };
+          host: { protocolVersion: number; hostVersion: string };
         }>();
         const disconnected = Promise.withResolvers<void>();
         const receive = (event: MessageEvent<unknown>): void => {
@@ -61,18 +59,25 @@ test('ordinary app Main validates a committed host root through its actual catal
           if ('type' in data && data.type === 'agent-host/disconnected') {
             disconnected.resolve();
           }
-          if ('type' in data && data.type === 'agent-host/connected' && 'record' in data.payload) {
+          if ('type' in data && data.type === 'agent-host/connected' && 'host' in data.payload) {
             const port = event.ports[0];
-            if (!port) {
-              throw new Error('App host did not transfer a port');
+            const host = data.payload.host;
+            if (
+              !(
+                port &&
+                host &&
+                typeof host === 'object' &&
+                'hostVersion' in host &&
+                typeof host.hostVersion === 'string' &&
+                'protocolVersion' in host &&
+                typeof host.protocolVersion === 'number'
+              )
+            ) {
+              throw new Error('App host did not transfer a port and its versions');
             }
             transferred.resolve({
+              host: { hostVersion: host.hostVersion, protocolVersion: host.protocolVersion },
               port,
-              record: data.payload.record as {
-                token: string;
-                protocolVersion: number;
-                hostVersion: string;
-              },
             });
           }
         };
@@ -103,11 +108,7 @@ test('ordinary app Main validates a committed host root through its actual catal
             connection.port.postMessage({ id, jsonrpc: '2.0', method, params });
             return reply.promise;
           };
-          await request('initialize', {
-            hostVersion: connection.record.hostVersion,
-            protocolVersion: connection.record.protocolVersion,
-            token: connection.record.token,
-          });
+          await request('initialize', connection.host);
           const started = (await request('thread/start', { commandId: crypto.randomUUID() })) as {
             threadId: string;
           };

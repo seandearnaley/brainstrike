@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { HostClient } from '@brainstrike/agent-host/client';
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import type {
   CanonicalOperationContext,
@@ -12,7 +13,6 @@ import {
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,
 } from '@brainstrike/canonical-ingestion';
-import type { HostAttachment } from '@brainstrike/host-lease';
 import type {
   CollectionPort,
   SourceCatalogPort,
@@ -95,7 +95,7 @@ export interface NativeIndexActivationDependencies {
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;
-  readonly profile: DesktopProfileRuntime<HostAttachment>;
+  readonly profile: DesktopProfileRuntime<HostClient>;
   /** Waits before each automatic re-open of a transient startup failure; defaults apply. */
   readonly reopenDelaysMs?: readonly number[];
   /** Main's search index config, as the native index runs it. */

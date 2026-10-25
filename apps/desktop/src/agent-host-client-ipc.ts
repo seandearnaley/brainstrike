@@ -1,27 +1,23 @@
+import type { HostClient } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import type { HostAttachment } from '@brainstrike/host-lease';
+import { HOST_VERSION } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
-import { ipcMain, type MessagePortMain } from 'electron';
-import {
-  type AgentHostPortRelay,
-  openAgentHostChildRelay,
-  openAgentHostPortRelay,
-} from './agent-host-port-relay';
+import { ipcMain } from 'electron';
+import type { PlatformMessagePort } from './agent-host-platform/connection';
+import { type AgentHostPortRelay, openAgentHostChildRelay } from './agent-host-port-relay';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
 
 const CONNECT_FAILURE = { category: 'availability', code: 'agent-host-connect-failed' } as const;
 
 /**
- * Visible clients borrow the profile's existing lease; they never acquire another root.
- * A host this app launched receives each client port privately, as the desktop
- * origin. A host the app only attached to (a CLI `host start`) is reached over its
- * public socket like any CLI client, so origin-bound capabilities refuse there.
+ * Visible clients borrow the profile's host; they never start another. Each client's
+ * port goes to the host privately, as the desktop origin.
  */
 export function registerAgentHostClientIpc(
-  acquireProfile: () => Promise<HostAttachment>,
-  openPrivateClientPort: () => MessagePortMain | undefined
+  acquireProfile: () => Promise<HostClient>,
+  openPrivateClientPort: () => PlatformMessagePort | undefined
 ) {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const relays = new Set<AgentHostPortRelay>();
@@ -44,14 +40,12 @@ export function registerAgentHostClientIpc(
         if (!frame) {
           throw new Error('Agent client has no authorized frame');
         }
-        const attachment = await acquireProfile();
-        if (attachment.record.protocolVersion !== AGENT_HOST_PROTOCOL_VERSION) {
-          throw new Error('The current profile host does not support assistant commands');
-        }
+        await acquireProfile();
         const privatePort = openPrivateClientPort();
-        const relay = privatePort
-          ? openAgentHostChildRelay(privatePort)
-          : await openAgentHostPortRelay(attachment.record);
+        if (!privatePort) {
+          throw new Error('The agent host exited before this client connected');
+        }
+        const relay = openAgentHostChildRelay(privatePort);
         relays.add(relay);
         let clientGone = false;
         const retire = (): void => {
@@ -80,7 +74,10 @@ export function registerAgentHostClientIpc(
           }
           frame.postMessage(
             DESKTOP_IPC_CHANNELS.agent.hostConnected,
-            { record: attachment.record, requestId: id },
+            {
+              host: { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
+              requestId: id,
+            },
             [relay.port]
           );
         } catch (cause) {

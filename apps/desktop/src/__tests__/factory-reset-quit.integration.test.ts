@@ -111,12 +111,9 @@ test.for(Object.keys(QUIT_POINTS) as (keyof typeof QUIT_POINTS)[])(
         }
       });
       window.on('pageerror', (cause) => rendererErrors.push(cause.message));
-      // The agent host is up once it publishes its record. Root mutations run one
-      // at a time, so a restore answered here follows the renderer's boot restores
-      // and their catalog writes: the startup work that borrows the profile.
-      await expect
-        .poll(() => existsSync(join(profile, 'host.json')), { timeout: 60_000 })
-        .toBe(true);
+      // Restores read the agent host's catalog, so this answer waits for the host.
+      // Root mutations run one at a time, so it also follows the renderer's boot
+      // restores and their catalog writes: the startup work that borrows the profile.
       await window.evaluate(async () => {
         const api = globalThis.window.electronAPI;
         if (!(api && 'fileSystem' in api)) {

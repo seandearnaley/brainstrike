@@ -7,13 +7,14 @@ import { app, session } from 'electron';
 import { resolveDesktopDatabaseProfileDirectory } from '../../desktop-database-location';
 import { createDesktopProfileResetOwner } from '../../desktop-profile-reset-owner';
 import { createDesktopFactoryResetHandler } from '../../desktop-reset-platform';
-import { createDesktopHostLease } from '../../host-lease-manager';
+import { createDesktopHostLease, spawnHostProcess } from '../../host-lease-manager';
 
 const userData = process.argv[2];
 const entryPath = process.argv[3];
-const mode = process.argv[4];
-if (!(userData && entryPath && mode)) {
-  throw new Error('Reset proof requires explicit userData, entry and mode');
+const platformModule = process.argv[4];
+const mode = process.argv[5];
+if (!(userData && entryPath && platformModule && mode)) {
+  throw new Error('Reset proof requires explicit userData, entry, platform module and mode');
 }
 const profile = path.join(userData, 'data', 'profiles', 'default');
 process.env['NODE_ENV'] = 'test';
@@ -24,7 +25,22 @@ const sessionDataPath = path.join(userData, 'session-data');
 mkdirSync(sessionDataPath, { recursive: true });
 app.setPath('sessionData', sessionDataPath);
 app.on('window-all-closed', () => undefined);
-const native = createDesktopHostLease({ entryPath, root: profile });
+/** The host child's OS identity, read when it spawned, so its death is checked at the OS. */
+let host: { readonly pid: number; readonly start: string } | undefined;
+const native = createDesktopHostLease({
+  entryPath,
+  platformModule,
+  root: profile,
+  spawn: (entry, args, env) => {
+    const child = spawnHostProcess(entry, args, env);
+    const pid = child.pid;
+    const start = pid === undefined ? null : processStartTime(pid);
+    if (pid !== undefined && start !== null) {
+      host = { pid, start };
+    }
+    return child;
+  },
+});
 const events: string[] = [];
 /** Each step is written as it happens, so a driver that stops shows how far it got. */
 function record(event: string): void {
@@ -64,7 +80,9 @@ function assert(condition: boolean, message: string): void {
 app
   .whenReady()
   .then(async () => {
-    const attachment = await native.acquire();
+    if (mode !== 'external-owner') {
+      await native.acquire();
+    }
     mkdirSync(path.join(userData, 'Local Storage'), { recursive: true });
     mkdirSync(path.join(userData, 'logs'), { recursive: true });
     writeFileSync(path.join(userData, 'logs', 'reset-proof.log'), 'preserved');
@@ -87,10 +105,14 @@ app
       },
       resetPersistentStorageAfterDataDeletion: async () => {
         assert(guard?.isReleased === false, 'Guard released before storage purge');
-        assert(
-          processStartTime(attachment.record.pid) !== attachment.record.start,
-          `Owned native utility survived reset (ps state: ${processState(attachment.record.pid)})`
-        );
+        const spawned = host;
+        assert(spawned !== undefined, 'The host child never spawned');
+        if (spawned) {
+          assert(
+            processStartTime(spawned.pid) !== spawned.start,
+            `Owned host child survived reset (ps state: ${processState(spawned.pid)})`
+          );
+        }
         assert(!existsSync(path.join(profile, 'state.db')), 'State file survived profile reset');
         assert(
           !existsSync(path.join(profile, 'index.db-wal')),
@@ -122,20 +144,13 @@ app
     const retained = guard?.isReleased === false;
     process.stdout.write(`RESET_STEP first-reset-settled ${JSON.stringify(first)}\n`);
     const result = mode === 'storage-failure' ? await run() : first;
-    if (mode === 'external-cli') {
+    if (mode === 'external-owner') {
       assert(
         !result.success && guard === undefined,
-        'External CLI did not reject before guard acquisition'
+        'An external Root owner did not refuse reset before guard acquisition'
       );
-      assert(existsSync(path.join(profile, 'state.db')), 'External CLI reset deleted profile data');
-      assert(
-        existsSync(path.join(userData, 'Local Storage')),
-        'External CLI reset staged userData'
-      );
-      assert(
-        processStartTime(attachment.record.pid) === attachment.record.start,
-        'Reset killed external CLI'
-      );
+      assert(existsSync(path.join(profile, 'state.db')), 'Refused reset deleted profile data');
+      assert(existsSync(path.join(userData, 'Local Storage')), 'Refused reset staged userData');
     } else {
       assert(result.success, `Reset failed: ${result.message}`);
       assert(guard?.isReleased === true, 'Completed reset retained its guard');
@@ -145,7 +160,7 @@ app
       );
     }
     process.stdout.write(
-      `RESET_ADAPTER_PROOF ${JSON.stringify({ events, first, nativePid: attachment.record.pid, nativeStart: attachment.record.start, result, retained })}\n`
+      `RESET_ADAPTER_PROOF ${JSON.stringify({ events, first, nativePid: host?.pid ?? 0, nativeStart: host?.start ?? '', result, retained })}\n`
     );
   })
   .then(async () => {

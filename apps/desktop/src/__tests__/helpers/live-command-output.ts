@@ -1,7 +1,6 @@
-import type { attachAgentHost, HostLogRow, HostRunTelemetry } from '@brainstrike/agent-host';
+import type { HostLogRow, HostRunTelemetry } from '@brainstrike/agent-host';
+import type { HostClient } from '@brainstrike/agent-host/client';
 import { z } from 'zod';
-
-type HostClient = Awaited<ReturnType<typeof attachAgentHost>>;
 
 const SHELL_OUTPUT_CHUNK = 'brainstrike.shell-output.chunk';
 

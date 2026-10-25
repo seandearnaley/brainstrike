@@ -12,8 +12,12 @@ import { CHILD_SIGNAL_GRACE_MS, processStartTime, RootLock } from '@brainstrike/
 import type { NativeChild } from '@brainstrike/state-store/native-children';
 
 export interface HostNativeChildren {
-  /** Lease close: SIGKILL what remains, join it, then require the Root's flock free (POSIX). */
-  close(): Promise<void>;
+  /**
+   * Lease close: SIGKILL what remains, join it, then require the Root's flock free (POSIX)
+   * when this host owned the Root. A host refused at startup (another owner holds the Root)
+   * started no native process, and that owner's flock is not this host's to answer for.
+   */
+  close(options?: { readonly rootOwned: boolean }): Promise<void>;
   exited(child: NativeChild): void;
   /**
    * The host exited unexpectedly: SIGTERM every live group now, SIGKILL what remains after the grace.
@@ -86,14 +90,14 @@ export function createHostNativeChildren(root: string): HostNativeChildren {
   };
   let retiring: Promise<void> | undefined;
   return {
-    close: async () => {
+    close: async ({ rootOwned } = { rootOwned: true }) => {
       const signalled = [...children.values()];
       signalAll('SIGKILL');
       while (signalled.some(remains)) {
         await delay(JOIN_POLL_MS, undefined, { ref: false });
       }
       children.clear();
-      if (process.platform !== 'win32' && RootLock.isFlockHeld(root)) {
+      if (rootOwned && process.platform !== 'win32' && RootLock.isFlockHeld(root)) {
         failures.push(
           new Error(`The Root ${root} is still held by a native process its host started`)
         );

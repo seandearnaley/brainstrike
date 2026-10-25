@@ -21,7 +21,13 @@ import {
 } from './platform-launch-options.ts';
 import type { HostPlatform } from './ports.ts';
 import { isProcessEntrypoint } from './process-entrypoint.ts';
-import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.ts';
+import {
+  type AgentHost,
+  type HostStartupContext,
+  type OpenedAgentHost,
+  openAgentHost,
+  startAgentHost,
+} from './runtime.ts';
 import { type HostTracing, startHostTracing } from './telemetry/otel.ts';
 export type HostPlatformFactory = (
   options: HostStartOptions,
@@ -119,6 +125,52 @@ async function reportProcessFailures(
   }
   throw cause;
 }
+/** ADR-0017: every native process this one starts ends when it exits (Windows: a kill-on-close Job). */
+function joinKillOnCloseJob(): void {
+  if (process.platform === 'win32') {
+    (
+      createRequire(import.meta.url)(
+        '@brainstrike/windows-job-native'
+      ) as typeof import('@brainstrike/windows-job-native')
+    ).initialize();
+  }
+}
+/**
+ * The desktop's host child: the platform module's host over `root`, with this
+ * process's logging, tracing and kill-on-close Job. Closing it closes the host,
+ * then flushes its spans.
+ */
+export async function openHostProcess(
+  root: string,
+  modulePath: string,
+  platformOptions: HostPlatformLaunchOptions | undefined,
+  signal: AbortSignal
+): Promise<OpenedAgentHost> {
+  configureLogger({ console: { destination: 2 }, includeTimestamp: true });
+  joinKillOnCloseJob();
+  // Before the platform loads: a misconfigured exporter fails startup visibly.
+  const tracing = await startHostTracing(process.env);
+  let host: OpenedAgentHost;
+  try {
+    host = await openAgentHost(
+      root,
+      (context) =>
+        loadHostPlatform(modulePath, { lifetime: 'app', root }, context, platformOptions),
+      signal
+    );
+  } catch (cause) {
+    await tracing?.shutdown().catch(() => undefined);
+    throw cause;
+  }
+  let closing: Promise<void> | undefined;
+  return {
+    ...host,
+    close: () => {
+      closing ??= host.close().finally(() => tracing?.shutdown());
+      return closing;
+    },
+  };
+}
 /** The same Node entry serves socket clients and an optional transparent stdio transport. */
 export async function runAgentHostProcess(
   args: readonly string[],
@@ -127,15 +179,9 @@ export async function runAgentHostProcess(
   // Canonical tools and MCP use the shared logger. Stdout belongs exclusively
   // to JSON-RPC framing; configure before dynamically importing the platform.
   configureLogger({ console: { destination: 2 }, includeTimestamp: true });
-  if (process.platform === 'win32') {
-    // ADR-0017: Windows has no inheritable Root lock. Before this host starts any
-    // native process it joins a kill-on-close Job, which ends them all when it exits.
-    (
-      createRequire(import.meta.url)(
-        '@brainstrike/windows-job-native'
-      ) as typeof import('@brainstrike/windows-job-native')
-    ).initialize();
-  }
+  // ADR-0017: Windows has no inheritable Root lock. Before this host starts any
+  // native process it joins a kill-on-close Job, which ends them all when it exits.
+  joinKillOnCloseJob();
   const controller = new AbortController();
   let host: AgentHost | undefined;
   let ready = false;

@@ -5,7 +5,6 @@ import {
   createWorkspaceRootClient,
   serveWorkspaceRootStore,
 } from '@brainstrike/agent-host/catalog';
-import type { HostAttachment } from '@brainstrike/host-lease';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
@@ -105,7 +104,7 @@ test('an authenticated attachment stays usable during index-only retirement and 
   const attachment = {
     catalog: createHostCatalogClient(fixture.main),
     closed: closed.promise,
-  } as HostAttachment & { catalog: ReturnType<typeof createHostCatalogClient> };
+  };
   const acquire = vi.fn(async () => attachment);
   const catalog = createDesktopWorkspaceRootCatalog(acquire);
   try {
@@ -127,12 +126,11 @@ test('a request the closed attachment never sent goes back through admission (BS
   const retired = transport({ workspaceRoots: async () => ({ roots: [] }) });
   const replacementRoots = vi.fn<WorkspaceRootPort['workspaceRoots']>(async () => ({ roots: [] }));
   const replacement = transport({ workspaceRoots: replacementRoots });
-  const attach = (fixture: ReturnType<typeof transport>) =>
-    ({
-      catalog: createHostCatalogClient(fixture.main),
-      // Reset disposes the connection before the transport's own close settles.
-      closed: new Promise<void>(() => undefined),
-    }) as HostAttachment & { catalog: ReturnType<typeof createHostCatalogClient> };
+  const attach = (fixture: ReturnType<typeof transport>) => ({
+    catalog: createHostCatalogClient(fixture.main),
+    // Reset disposes the connection before the transport's own close settles.
+    closed: new Promise<void>(() => undefined),
+  });
   const resetRefusal = new Error('Native index activation is closed for terminal retirement.');
   const acquire = vi.fn(async () => attach(retired));
   const catalog = createDesktopWorkspaceRootCatalog(acquire);

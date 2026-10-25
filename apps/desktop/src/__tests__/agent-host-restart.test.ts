@@ -2,26 +2,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { restartLaunchedAgentHost } from '../agent-host-restart';
 
-// BST-1880: the damaged-store notice restarts only the host this app launched.
+// BST-1880: the damaged-store notice restarts the host this app launched.
 
-const record = { pid: 4242 } as never;
 const logger = { info: vi.fn() };
-const attachment = () => ({ close: vi.fn(), closed: new Promise<void>(() => undefined), record });
+const attachment = () => ({ closed: new Promise<void>(() => undefined) });
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe('restartLaunchedAgentHost', () => {
-  it('refuses a host this app did not launch, and stops nothing', async () => {
-    const acquireProfile = vi.fn();
+  it('starts a host when none is running', async () => {
+    const acquireProfile = vi.fn(async () => attachment());
 
-    await expect(
-      restartLaunchedAgentHost({ acquireProfile, logger, stopLaunchedHost: () => undefined })
-    ).rejects.toMatchObject({
-      failure: { code: 'agent-host.restart.external', kind: 'refusal' },
-    });
-    expect(acquireProfile).not.toHaveBeenCalled();
+    await restartLaunchedAgentHost({ acquireProfile, logger, stopLaunchedHost: () => undefined });
+    expect(acquireProfile).toHaveBeenCalledOnce();
   });
 
   it('stops the launched host through its lease and relaunches only once its exit is joined', async () => {

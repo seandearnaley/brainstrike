@@ -1,13 +1,22 @@
-import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client';
+import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
 import type { HostChildStatus, HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { foldHostRuns, type HostRunView } from '@brainstrike/agent-host/thread-view';
-import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import { decodeHostRecord } from '@brainstrike/host-lease';
 import type { Page } from '@playwright/test';
+import {
+  AbstractMessageReader,
+  AbstractMessageWriter,
+  createMessageConnection,
+  type DataCallback,
+  type Disposable,
+  type Message,
+  type MessageReader,
+  type MessageWriter,
+} from 'vscode-jsonrpc/node';
+import { launchedApp } from './launched-apps';
 
 /** One committed MCP input fact, reduced to the fields a spec asserts on. */
 interface McpInputFact {
@@ -25,19 +34,14 @@ export interface AgentHostLogSummary {
 /**
  * Resolves once the app's agent host is ready, through the visible frame's own attach path
  * (`agent:host-connect`). Main answers it only after acquiring the profile host, which
- * waits for the host's `ready` report, and the host publishes host.json before that.
- * Call it after a launch or restart before any reader below: the record does not exist
- * until then. Do not poll a reader instead: in Playwright 1.64, a throwing `expect.poll`
+ * waits for the host's `ready` report. Call it after a launch or restart before any
+ * reader below. Do not poll a reader instead: in Playwright 1.64, a throwing `expect.poll`
  * callback ends the poll rather than retrying. The probe client this opens is closed, and
  * Main's relay for it retired, before this returns.
  */
 export async function waitForAppHost(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    const bridge = (
-      window as Window & {
-        agentHost?: { connect(requestId: string): Promise<BoundaryResult<void>> };
-      }
-    ).agentHost;
+    const bridge = window.agentHost;
     if (!bridge) {
       throw new Error('Agent host client capability is unavailable');
     }
@@ -85,34 +89,179 @@ export async function waitForAppHost(page: Page): Promise<void> {
   });
 }
 
-/**
- * Reads the running app's committed agent-host log through its public client,
- * found by the host record the app publishes under its user-data directory.
- */
-async function hostRecordPath(userDataDir: string): Promise<string> {
-  const entries = await readdir(userDataDir, { recursive: true });
-  const match = entries.find((entry) => path.basename(String(entry)) === 'host.json');
-  if (!match) {
-    throw new Error(`No host.json under ${userDataDir}`);
+const HOST_MESSAGE_BINDING = '__brainstrikeE2EHostMessage';
+declare global {
+  interface Window {
+    /** This process's binding, exposed as {@link HOST_MESSAGE_BINDING}. */
+    __brainstrikeE2EHostMessage?: (id: string, message: unknown) => void;
+    /** Ports `attachHostThroughWindow` holds in the frame, by client id. */
+    __e2eHostPorts?: Map<string, MessagePort>;
   }
-  return path.join(userDataDir, String(match));
+}
+/** vscode-jsonrpc's `Message` is any object naming its JSON-RPC version. */
+function isJsonRpcMessage(value: unknown): value is Message {
+  return (
+    typeof value === 'object' && value !== null && 'jsonrpc' in value && value.jsonrpc === '2.0'
+  );
+}
+const boundPages = new WeakSet<Page>();
+const transports = new Map<string, (message: unknown) => void>();
+
+/** The app's visible window: its frame is the only client a host child accepts. */
+async function visibleWindow(userDataDir: string): Promise<Page> {
+  const app = launchedApp(userDataDir);
+  if (!app) {
+    throw new Error(`No launched app for ${userDataDir}`);
+  }
+  for (const page of app.windows()) {
+    if (!page.isClosed() && (await page.evaluate(() => 'agentHost' in window).catch(() => false))) {
+      return page;
+    }
+  }
+  throw new Error(`The app for ${userDataDir} has no visible window`);
+}
+async function bindHostMessages(page: Page): Promise<void> {
+  if (boundPages.has(page)) {
+    return;
+  }
+  boundPages.add(page);
+  await page.exposeBinding(HOST_MESSAGE_BINDING, (_source, id: string, message: unknown) => {
+    transports.get(id)?.(message);
+  });
 }
 
-/** The running app's agent host process, as its published record names it. */
+/**
+ * A client of the running app's host, connected the way the visible frame connects
+ * (`agent:host-connect`): the frame holds the port, and this test process speaks
+ * JSON-RPC through it. `close` closes that port.
+ */
+export async function attachAppHost(userDataDir: string): Promise<HostClient> {
+  return await attachHostThroughWindow(await visibleWindow(userDataDir));
+}
+/** {@link attachAppHost} through a window the caller already holds. */
+export async function attachHostThroughWindow(page: Page): Promise<HostClient> {
+  await bindHostMessages(page);
+  const id = randomUUID();
+  const closed = Promise.withResolvers<void>();
+  let receive: DataCallback | undefined;
+  transports.set(id, (message) => {
+    if (message === null) {
+      transports.delete(id);
+      closed.resolve();
+    } else if (isJsonRpcMessage(message)) {
+      receive?.(message);
+    }
+  });
+  const reader = new (class extends AbstractMessageReader implements MessageReader {
+    listen(callback: DataCallback): Disposable {
+      receive = callback;
+      return { dispose: () => (receive = undefined) };
+    }
+  })();
+  const writer = new (class extends AbstractMessageWriter implements MessageWriter {
+    async write(message: Message): Promise<void> {
+      await page.evaluate(([port, data]) => window.__e2eHostPorts?.get(port)?.postMessage(data), [
+        id,
+        message,
+      ] as const);
+    }
+    end(): void {}
+  })();
+  const host = await page.evaluate(async (portId) => {
+    const owner = window;
+    const bridge = owner.agentHost;
+    const deliver = owner.__brainstrikeE2EHostMessage;
+    if (!(bridge && deliver)) {
+      throw new Error('Agent host client capability is unavailable');
+    }
+    const requestId = crypto.randomUUID();
+    const connected = Promise.withResolvers<{ data: object; port: MessagePort | undefined }>();
+    connected.promise.catch(() => undefined);
+    const receive = (event: MessageEvent<unknown>): void => {
+      const data = event.data;
+      if (
+        event.source !== window ||
+        !data ||
+        typeof data !== 'object' ||
+        !('type' in data && 'payload' in data && data.payload) ||
+        typeof data.payload !== 'object' ||
+        !('requestId' in data.payload) ||
+        data.payload.requestId !== requestId
+      ) {
+        return;
+      }
+      if (data.type === 'agent-host/disconnected') {
+        window.removeEventListener('message', receive);
+        owner.__e2eHostPorts?.delete(portId);
+        connected.reject(new Error('Agent host client disconnected before attach'));
+        deliver(portId, null);
+      } else if (data.type === 'agent-host/connected') {
+        connected.resolve({ data: data.payload, port: event.ports[0] });
+      }
+    };
+    window.addEventListener('message', receive);
+    const result = await bridge.connect(requestId);
+    if (!result.ok) {
+      window.removeEventListener('message', receive);
+      throw new Error(`Agent host attach refused: ${result.error.message}`);
+    }
+    const { data, port } = await connected.promise;
+    if (!port) {
+      throw new Error('Agent host attach transferred no port');
+    }
+    const host = 'host' in data ? data.host : undefined;
+    owner.__e2eHostPorts ??= new Map();
+    owner.__e2eHostPorts.set(portId, port);
+    port.onmessage = (event) => deliver(portId, event.data);
+    port.start();
+    return host;
+  }, id);
+  if (
+    !(host && typeof host === 'object' && 'hostVersion' in host && 'protocolVersion' in host) ||
+    typeof host.hostVersion !== 'string' ||
+    typeof host.protocolVersion !== 'number'
+  ) {
+    throw new Error('The app sent no host versions to expect');
+  }
+  const connection = createMessageConnection(reader, writer);
+  void closed.promise.then(() => connection.dispose());
+  return await authenticateHostClient(
+    connection,
+    { hostVersion: host.hostVersion, protocolVersion: host.protocolVersion },
+    async () => {
+      transports.delete(id);
+      await page
+        .evaluate((port) => {
+          const ports = window.__e2eHostPorts;
+          ports?.get(port)?.close();
+          ports?.delete(port);
+        }, id)
+        .catch(() => undefined);
+      closed.resolve();
+    },
+    closed.promise
+  );
+}
+
+/** The running app's agent host process, as its initialize reply names it. */
 export async function readHostProcess(
   userDataDir: string
 ): Promise<{ readonly pid: number; readonly start: string }> {
-  const record = decodeHostRecord(
-    JSON.parse(await readFile(await hostRecordPath(userDataDir), 'utf8'))
-  );
-  return { pid: record.pid, start: record.start };
+  const client = await attachAppHost(userDataDir);
+  try {
+    return { pid: client.host.pid, start: client.host.start };
+  } finally {
+    await client.close();
+  }
 }
-
-export async function attachAppHost(userDataDir: string): Promise<HostClient> {
-  const record = decodeHostRecord(
-    JSON.parse(await readFile(await hostRecordPath(userDataDir), 'utf8'))
-  );
-  return attachAgentHost(record);
+/** The host Root: the directory of the app's state store under its user data. */
+async function hostRootPath(userDataDir: string): Promise<string> {
+  const entries = await readdir(userDataDir, { recursive: true });
+  const match = entries.find((entry) => path.basename(String(entry)) === 'state.db');
+  if (!match) {
+    throw new Error(`No state.db under ${userDataDir}`);
+  }
+  return path.dirname(path.join(userDataDir, String(match)));
 }
 
 /** One committed MCP Tasks row in the host Root's StateStore. */
@@ -122,11 +271,11 @@ export interface CommittedMcpTask {
   readonly threadId: string | null;
 }
 
-/** The host Root's committed MCP Tasks rows, read-only beside its record. */
+/** The host Root's committed MCP Tasks rows, read-only while the host has it open. */
 export async function readCommittedMcpTasks(
   userDataDir: string
 ): Promise<readonly CommittedMcpTask[]> {
-  const root = path.dirname(await hostRecordPath(userDataDir));
+  const root = await hostRootPath(userDataDir);
   const db = new DatabaseSync(path.join(root, 'state.db'), { readOnly: true });
   try {
     return db
@@ -161,7 +310,7 @@ export async function withAppHost<T>(
 export async function readHostSearchVectorCounts(
   userDataDir: string
 ): Promise<{ readonly rows: number; readonly vectors: number }> {
-  const root = path.dirname(await hostRecordPath(userDataDir));
+  const root = await hostRootPath(userDataDir);
   const db = new DatabaseSync(path.join(root, 'state-index.sqlite'), { readOnly: true });
   try {
     const count = (sql: string): number => Number(db.prepare(sql).get()?.['count'] ?? 0);
@@ -236,7 +385,7 @@ export async function readHostThreadWorkspace(
 
 /** The running app's host Root: the directory of its published record. */
 export async function readHostRoot(userDataDir: string): Promise<string> {
-  return path.dirname(await hostRecordPath(userDataDir));
+  return await hostRootPath(userDataDir);
 }
 
 /**
@@ -323,10 +472,9 @@ export async function readHostThreadTree(userDataDir: string): Promise<readonly 
 export async function readHostRootRecords(
   userDataDir: string
 ): Promise<readonly { id: string; path: string; status: string; displayName: string }[]> {
-  const db = new DatabaseSync(
-    path.join(path.dirname(await hostRecordPath(userDataDir)), 'state.db'),
-    { readOnly: true }
-  );
+  const db = new DatabaseSync(path.join(await hostRootPath(userDataDir), 'state.db'), {
+    readOnly: true,
+  });
   try {
     return db
       .prepare('SELECT id,path,status,display_name AS displayName FROM roots ORDER BY id')
@@ -346,10 +494,9 @@ export async function readHostRootRecords(
 export async function readHostForgePrs(
   userDataDir: string
 ): Promise<readonly { number: number; state: string }[]> {
-  const db = new DatabaseSync(
-    path.join(path.dirname(await hostRecordPath(userDataDir)), 'state.db'),
-    { readOnly: true }
-  );
+  const db = new DatabaseSync(path.join(await hostRootPath(userDataDir), 'state.db'), {
+    readOnly: true,
+  });
   try {
     return db
       .prepare('SELECT number, state FROM brainstrike_forge_prs ORDER BY repo_common_dir, branch')
@@ -364,10 +511,9 @@ export async function readHostRetiredTableSnapshot(
   userDataDir: string,
   tables: readonly string[]
 ): Promise<Record<string, { digest: string; rows: number } | 'absent'>> {
-  const db = new DatabaseSync(
-    path.join(path.dirname(await hostRecordPath(userDataDir)), 'state.db'),
-    { readOnly: true }
-  );
+  const db = new DatabaseSync(path.join(await hostRootPath(userDataDir), 'state.db'), {
+    readOnly: true,
+  });
   try {
     const names = new Set(
       db

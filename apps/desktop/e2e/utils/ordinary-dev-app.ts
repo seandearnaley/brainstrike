@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { _electron, type ElectronApplication, type Page } from '@playwright/test';
 import { type BuildOptions, build, type Plugin } from 'esbuild';
+import { registerLaunchedApp } from './launched-apps';
 import {
   E2E_CREDENTIAL_ENV_NAMES,
   type ModelProviderShim,
@@ -164,6 +165,7 @@ export async function launchOrdinaryDevApp(
       });
       return electron.getPath('userData');
     }, options.root);
+    registerLaunchedApp(userData, app);
     const page = await app.firstWindow();
     await page.waitForFunction(() => Reflect.get(window, '__BRAINSTRIKE_READY__') === true);
     if (

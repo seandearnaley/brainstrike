@@ -1,16 +1,19 @@
-import type { HostRecord } from '@brainstrike/host-lease';
 import {
   BrowserMessageReader,
   BrowserMessageWriter,
   createMessageConnection,
 } from 'vscode-jsonrpc/browser';
-import { authenticateHostClient, type HostClient } from './client-connection.ts';
+import {
+  authenticateHostClient,
+  type HostClient,
+  type HostClientExpectation,
+} from './client-connection.ts';
 
-export type { HostClient } from './client-connection.ts';
-/** The owning bridge supplies the private record and reports port lifetime. */
+export type { HostClient, HostClientExpectation } from './client-connection.ts';
+/** The owning bridge supplies what to expect of the host and reports the port's lifetime. */
 export function attachBrowserHost(
   port: MessagePort,
-  record: HostRecord,
+  expected: HostClientExpectation,
   closed: Promise<void>
 ): Promise<HostClient> {
   const connection = createMessageConnection(
@@ -24,7 +27,7 @@ export function attachBrowserHost(
   );
   return authenticateHostClient(
     connection,
-    record,
+    expected,
     async () => {
       port.close();
     },

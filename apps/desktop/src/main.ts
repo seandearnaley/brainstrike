@@ -407,7 +407,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
-        await agentHostMainClient.close();
         // Fence profile admission before joining the renderer's in-flight host connect:
         // a host start that fails during shutdown is then never retried as a second host.
         const nativeRetirement = nativeIndexActivation.close();
@@ -767,10 +766,7 @@ const indexConfig = createDesktopIndexConfig({
 });
 // Main's own desktop-origin client: Settings credential writes reach the host,
 // their single owner, through it.
-const agentHostMainClient = createAgentHostMainClient(
-  nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open
-);
+const agentHostMainClient = createAgentHostMainClient(nativeIndexActivation.acquireProfile);
 // The host owns hook trust.
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
   agentHostMainClient.request(method, params)
@@ -1899,7 +1895,7 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
       // Local recall loads as the embedding host's unpinned query did (BST-1929).
       (signal) => readEmbeddingHostDevice(embeddingHostManager, signal)
     ),
-    // BST-1977: app-owned host/stop released Root with the native writer live.
+    // BST-1977: Root retirement closes the workspace and the native writer here.
     // Retiring the profile here would wait on this same Core close request.
     closeRootCapabilities: async () => {
       const results = await Promise.allSettled([

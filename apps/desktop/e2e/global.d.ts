@@ -13,6 +13,11 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
+    agentHost?: {
+      connect(
+        requestId: string
+      ): Promise<import('@brainstrike/assistant-contract/boundary-result').BoundaryResult<void>>;
+    };
     electronAPI?: import('../src/types/desktop-electron-api').VisibleDesktopElectronApi;
     // Shape defined ONCE in
     // @brainstrike/assistant-contract/env-bootstrap-bridge. Declared so an

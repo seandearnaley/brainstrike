@@ -4,8 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
-import { createNodeHostSpawner, launchHost } from '@brainstrike/host-lease';
+import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
@@ -34,8 +33,9 @@ beforeAll(async () => {
     absWorkingDir: resolve('.'),
     bundle: true,
     entryPoints: {
+      'agent-host-entry': 'src/agent-host-entry.ts',
+      'agent-host-utility-platform': 'src/__tests__/fixtures/agent-host-utility-platform.ts',
       driver: 'src/__tests__/fixtures/desktop-reset-lease-electron.ts',
-      'host-lease-entry': 'src/host-lease-entry.ts',
     },
     format: 'cjs',
     nodePaths: [resolve('node_modules')],
@@ -68,7 +68,8 @@ async function run(mode: string) {
   const args = [
     join(directory, 'driver.cjs'),
     userData,
-    join(directory, 'host-lease-entry.cjs'),
+    join(directory, 'agent-host-entry.cjs'),
+    join(directory, 'agent-host-utility-platform.cjs'),
     mode,
   ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {
@@ -122,39 +123,21 @@ describe('real Electron desktop reset lease adapter', () => {
     60_000
   );
 
-  it('refuses an actual live CLI owner before any profile/userData deletion and never kills it', async () => {
-    const profile = join(directory, 'external-cli', 'data', 'profiles', 'default');
-    const cli = await launchHost(profile, {
-      lifetime: 'persistent',
-      spawn: createNodeHostSpawner({
-        entrypoint: resolve('../../packages/host-lease/src/process-entry.ts'),
-      }),
-    });
-    const before = await readFile(join(profile, 'host.json'), 'utf8');
+  it('refuses a live external Root owner before any profile/userData deletion and leaves it holding', async () => {
+    const profile = join(directory, 'external-owner', 'data', 'profiles', 'default');
+    await mkdir(profile, { recursive: true });
+    // This test process is the external owner: the app's reset must refuse it, not take it.
+    const owner = await RootLock.acquire(profile);
     try {
-      const { report } = await run('external-cli');
+      const { report } = await run('external-owner');
       expect(report.result.success).toBe(false);
       expect(report.retained).toBe(false);
       expect(report.events).not.toContain('profile');
       expect(report.events).not.toContain('storage');
-      expect(processStartTime(cli.record.pid)).toBe(cli.record.start);
-      expect(await readFile(join(profile, 'host.json'), 'utf8')).toBe(before);
+      expect(owner.isReleased).toBe(false);
       expect(await readFile(join(profile, 'state.db'), 'utf8')).toBe('state payload');
     } finally {
-      await cli.close();
-      // Only this harness's own persistent CLI child is terminated for cleanup.
-      if (processStartTime(cli.record.pid) === cli.record.start) {
-        process.kill(cli.record.pid, 'SIGTERM');
-      }
-      await runWithTimeout(
-        async (signal) => {
-          while (processStartTime(cli.record.pid) === cli.record.start) {
-            signal.throwIfAborted();
-            await new Promise<void>((complete) => setTimeout(complete, 20));
-          }
-        },
-        { onTimeout: () => new Error('Test CLI did not exit'), timeoutMs: 5000 }
-      );
+      owner.release();
     }
   }, 60_000);
 });

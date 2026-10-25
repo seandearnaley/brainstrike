@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
+import { registerLaunchedApp } from './launched-apps';
 import {
   closeModelProviderShimWithProcess,
   resolveProviderEgressEnvironment,
@@ -101,6 +102,14 @@ export async function launchPackagedDesktop(options: {
   await window.waitForLoadState('domcontentloaded');
   return { app, exited, process: child, window };
 }
+async function launchAndRegister(
+  userDataDir: string,
+  options: Parameters<typeof electron.launch>[0]
+): Promise<ElectronApplication> {
+  const app = await electron.launch(options);
+  registerLaunchedApp(userDataDir, app);
+  return app;
+}
 function launchWithEgressBoundary(
   options: {
     readonly environment?: Readonly<Record<string, string>>;
@@ -108,7 +117,7 @@ function launchWithEgressBoundary(
   },
   providerEgressEnv: Readonly<Record<string, string>>
 ): Promise<ElectronApplication> {
-  return electron.launch({
+  return launchAndRegister(options.userDataDir, {
     args: [
       ...(process.platform === 'linux' ? ['--password-store=gnome-libsecret'] : []),
       '--test-mode',

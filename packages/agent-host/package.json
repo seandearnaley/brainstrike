@@ -19,6 +19,7 @@
     "./memory-storage-calculator": "./src/adapters/memory-storage-calculator.ts",
     "./committed-identities": "./src/committed-identities.ts",
     "./client": "./src/client.ts",
+    "./platform-launch-options": "./src/platform-launch-options.ts",
     "./cli": "./src/cli.ts",
     "./standalone-host": "./src/standalone-host.ts",
     "./credential-contract": "./src/adapters/credential-contract.ts",

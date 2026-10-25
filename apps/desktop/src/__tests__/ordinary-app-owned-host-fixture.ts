@@ -5,14 +5,14 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
-import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
+import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host';
+import type { HostClient } from '@brainstrike/agent-host/client';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   encodeFileMentionId,
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
-import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import {
   joinProcessExit,
   processStartTime,
@@ -23,6 +23,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron } from 'playwright';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
+import { attachHostThroughWindow } from '../../e2e/utils/agent-host-log';
 import { closeElectronApp } from '../../e2e/utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
 import {
@@ -206,7 +207,7 @@ setInterval(() => {}, 1000);
       executablePath: electronExecutablePath(),
     };
     let application: Awaited<ReturnType<typeof _electron.launch>> | undefined;
-    let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
+    let client: HostClient | undefined;
     let failure: unknown;
     let committedRows: Promise<void> | undefined;
     const errors: unknown[] = [];
@@ -314,16 +315,24 @@ setInterval(() => {}, 1000);
       );
       await page.getByTestId('assistant-new-thread-button').click();
       checkpoint('ordinary-new-thread-clicked');
-      const record = decodeHostRecord(
-        JSON.parse(await readFile(join(profile, 'host.json'), 'utf8'))
-      );
+      // Observe the host the app created, through its own window's connect.
+      client = await attachHostThroughWindow(page);
+      /** A reload drops every client the window holds, this test's too; it reconnects after. */
+      const reloadWindow = async (): Promise<void> => {
+        await client?.close();
+        await client?.closed;
+        client = undefined;
+        await page.reload();
+        await ensureAssistantShellVisible(page);
+        client = await attachHostThroughWindow(page);
+      };
+      const record = client.host;
       expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
       expect(record.pid).not.toBe(process.pid);
       const start = processStartTime(record.pid);
       if (start) {
         owners.push({ kind: 'child', pid: record.pid, start });
       }
-      client = await attachAgentHost(record);
       let discoveredThreadId: string | undefined;
       await expect
         .poll(async () => {
@@ -372,8 +381,7 @@ setInterval(() => {}, 1000);
           })
         );
       }, threadId);
-      await page.reload();
-      await ensureAssistantShellVisible(page);
+      await reloadWindow();
       const panel = page.getByTestId(`assistant-thread-panel-${threadId}`);
       const input = panel.getByRole('textbox', { name: 'Message input' });
       if (fault === 'normal') {
@@ -523,8 +531,7 @@ setInterval(() => {}, 1000);
             RUN_PROGRESS_POLL
           )
           .toBe(true);
-        await page.reload();
-        await ensureAssistantShellVisible(page);
+        await reloadWindow();
         const question = panel.getByRole('group', { name: 'Question for you' });
         await question.getByLabel('Local', { exact: true }).check();
         await question.getByLabel('Preview', { exact: true }).check();
@@ -745,8 +752,13 @@ setInterval(() => {}, 1000);
       client = undefined;
       const ordinaryUrl = page.url();
       await page.goto('about:blank');
+      // Losing its window's client leaves the host and its run alive.
       expect(processStartTime(record.pid)).toBe(record.start);
-      client = await attachAgentHost(record);
+      await page.goto(ordinaryUrl);
+      await ensureAssistantShellVisible(page);
+      await page.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
+      client = await attachHostThroughWindow(page);
+      expect(client.host).toEqual(record);
       expect(
         (await client.request('thread/read', { fromSeq: 0, threadId })).rows.slice(
           0,
@@ -791,9 +803,6 @@ setInterval(() => {}, 1000);
           2
         )
       );
-      await page.goto(ordinaryUrl);
-      await ensureAssistantShellVisible(page);
-      await page.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
       committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
       checkpoint('ordinary-client-loss-reconnect-stop-physical-command-joined');
       await client.close();
@@ -803,7 +812,7 @@ setInterval(() => {}, 1000);
       await ensureAssistantShellVisible(page);
       await page.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
       checkpoint('ordinary-reload-same-thread');
-      client = await attachAgentHost(record);
+      client = await attachHostThroughWindow(page);
       const reloadedRows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
       expect(reloadedRows.slice(0, committed.length)).toEqual(committed);
       // Mount restoration can append a new canonical workspace command. The
@@ -832,25 +841,10 @@ setInterval(() => {}, 1000);
       await (await application.browserWindow(reopened)).evaluate((win) => win.showInactive());
       await ensureAssistantShellVisible(reopened);
       await reopened.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
-      let next: HostRecord | undefined;
-      await expect
-        .poll(async () => {
-          try {
-            next = decodeHostRecord(JSON.parse(await readFile(join(profile, 'host.json'), 'utf8')));
-            return next.protocolVersion === AGENT_HOST_PROTOCOL_VERSION;
-          } catch (cause) {
-            if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
-              return false;
-            }
-            throw cause;
-          }
-        })
-        .toBe(true);
-      if (!next) {
-        throw new Error('Reopened desktop has no ready Root record');
-      }
+      client = await attachHostThroughWindow(reopened);
+      const next = client.host;
+      expect(next.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
       checkpoint('ordinary-reopened-root-ready');
-      client = await attachAgentHost(next);
       expect(
         (await client.request('thread/read', { fromSeq: 0, threadId })).rows.slice(
           0,

@@ -1,8 +1,6 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
 
-vi.mock('electron', () => ({ MessageChannelMain: class {} }));
-
 import { createAgentHostPrivateClients } from '../agent-host-private-clients';
 
 function child() {
@@ -10,7 +8,7 @@ function child() {
   return {
     exit,
     exited: exit.promise,
-    postClientPort: vi.fn(),
+    openClientPort: vi.fn(),
     stopForRelaunch: vi.fn(() => exit.promise),
   };
 }

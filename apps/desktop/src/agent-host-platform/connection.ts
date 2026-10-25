@@ -19,22 +19,6 @@ export interface PlatformMessagePort {
   postMessage(message: unknown): void;
   start(): void;
 }
-/** The transferred object is a capability: validate methods and retain its identity/prototype. */
-export const PlatformMessagePortSchema = Schema.declare<PlatformMessagePort>(
-  (value): value is PlatformMessagePort =>
-    typeof value === 'object' &&
-    value !== null &&
-    'close' in value &&
-    typeof value.close === 'function' &&
-    'off' in value &&
-    typeof value.off === 'function' &&
-    'on' in value &&
-    typeof value.on === 'function' &&
-    'postMessage' in value &&
-    typeof value.postMessage === 'function' &&
-    'start' in value &&
-    typeof value.start === 'function'
-);
 class MainPortReader extends AbstractMessageReader {
   private readonly port: PlatformMessagePort;
 

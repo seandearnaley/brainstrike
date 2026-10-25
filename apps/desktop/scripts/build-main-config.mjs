@@ -11,7 +11,7 @@
  *
  * Output layout is a runtime contract. Everything sits directly in `dist/`:
  * - dist/main.js            package.json "main" (ESM; desktop is `type: module`)
- * - dist/*-entry.js         utility-process entries Main forks by sibling path;
+ * - dist/*-entry.js         process entries Main starts by sibling path;
  *   the order-sensitive ones are launchers (`PROCESS_LAUNCHERS`)
  * - dist/<chunk>-<hash>.js  modules shared by those entries. One process loads
  *   one instance of each module, however many entries it loads (Main loads its
@@ -95,7 +95,6 @@ export const NODE_PROCESS_ENTRY_POINTS = {
   'desktop-env': 'src/desktop-env.ts',
   // Main imports it lazily; the packaged Python probe loads it by path.
   'fence-executor': path.join(packagesRoot, 'agent/src/fence-executor.ts'),
-  'host-lease-process': 'src/host-lease-entry.ts',
   'indexer-host-process': 'src/indexer-host-entry.ts',
   'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
   'main-process': 'src/main-bootstrap.ts',
@@ -116,7 +115,6 @@ const DEFAULT_OWNER = '@brainstrike/secure-fs-native/default-owner';
  */
 export const PROCESS_LAUNCHERS = {
   'agent-host-entry': [DEFAULT_OWNER, './agent-host-process.js'],
-  'host-lease-entry': [DEFAULT_OWNER, './host-lease-process.js'],
   'indexer-host-entry': [DEFAULT_OWNER, './indexer-host-process.js'],
   main: [DEFAULT_OWNER, './desktop-env.js', './lifecycle-delay-seam.js', './main-process.js'],
 };

@@ -1,7 +1,6 @@
 // @vitest-environment node
 
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
-import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createAgentHostMainClient } from '../agent-host-main-client';
 import { createDesktopWorkspaceRootCatalog } from '../agent-host-platform/workspace-root-client';
@@ -31,10 +30,7 @@ type Activation = ReturnType<typeof fixture>['activation'];
 
 /** Main's borrowers wait on the start-up, then the app quits; `fenced` runs right after the fence. */
 async function quitWhileStarting(activation: Activation, fenced: () => void = () => undefined) {
-  const mainClient = createAgentHostMainClient(
-    () => activation.acquireProfile(),
-    () => undefined
-  );
+  const mainClient = createAgentHostMainClient(() => activation.acquireProfile());
   const workspaceRoots = createDesktopWorkspaceRootCatalog(() => activation.acquireProfile());
   const catalogWrite = workspaceRoots.workspaceRoots({
     operation: 'register',
@@ -57,7 +53,6 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
   steps['main-catalog'] = () =>
     prepareMainCatalogClose({ prepareClose: async () => undefined }, workspaceRoots);
   steps['native-index'] = async () => {
-    await mainClient.close();
     await activation.close();
   };
   const exitProcess = vi.fn();
@@ -116,12 +111,11 @@ it('a quit while the host is still starting stops its borrowers at the fence, ca
 
 it('a start-up that completes after the fence leaves its attachment to the lease, which closes it exactly once', async () => {
   const { activation, onError } = fixture();
-  const late: HostAttachment = {
+  const late = {
     close: vi.fn(async () => undefined),
     closed: new Promise<void>(() => undefined),
-    record: {} as HostRecord,
   };
-  const startup = Promise.withResolvers<HostAttachment>();
+  const startup = Promise.withResolvers<typeof late>();
   mocks.acquireProfile.mockImplementation(() => startup.promise);
   // The real lease owns the attachment it hands out: it registers `closeAttachment` as a
   // finalizer of its Scope before returning it, and its close joins the start, then runs

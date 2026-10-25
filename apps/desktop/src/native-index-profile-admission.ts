@@ -1,4 +1,4 @@
-import type { HostAttachment } from '@brainstrike/host-lease';
+import type { HostClient } from '@brainstrike/agent-host/client';
 import {
   nativeIndexClosedError,
   nativeIndexStateError as stateError,
@@ -9,13 +9,13 @@ interface ProfileAdmissionRuntime {
   acquireProfile(
     options: { readonly indexIndependent: true },
     signal?: AbortSignal
-  ): Promise<HostAttachment>;
+  ): Promise<HostClient>;
   retireFailedProfile(): Promise<boolean>;
 }
 
 export interface NativeIndexProfileAdmission {
   /** A borrow of the profile's host (a client's, or index work's): started, joined, or refused. */
-  acquire(signal?: AbortSignal): Promise<HostAttachment>;
+  acquire(signal?: AbortSignal): Promise<HostClient>;
   /** Quit begins: every borrow still waiting for the host's start-up is refused now. */
   fenceTerminal(): void;
 }
@@ -43,7 +43,7 @@ export function createNativeIndexProfileAdmission(
   // The idle generation this admission last resumed from a host release; it opens once a
   // host is admitted. A later resume is a new generation, so this never matches it.
   let resumed: number | undefined;
-  const admitProfile = async (signal?: AbortSignal): Promise<HostAttachment> => {
+  const admitProfile = async (signal?: AbortSignal): Promise<HostClient> => {
     const owner = await lifecycle;
     const recover = async (): Promise<boolean> => {
       if (!(await runtime.retireFailedProfile())) {
@@ -66,7 +66,7 @@ export function createNativeIndexProfileAdmission(
     if (state.kind === 'closed' && !recovered) {
       throw stateError(state);
     }
-    const admit = async (): Promise<HostAttachment> => {
+    const admit = async (): Promise<HostClient> => {
       const attachment = await runtime.acquireProfile({ indexIndependent: true }, signal);
       state = await owner.state();
       if (state.kind === 'closed') {

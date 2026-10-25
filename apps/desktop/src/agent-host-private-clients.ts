@@ -1,10 +1,10 @@
-import { MessageChannelMain, type MessagePortMain } from 'electron';
+import type { PlatformMessagePort } from './agent-host-platform/connection';
 import type { DesktopHostChild } from './host-lease-manager';
 
-/** Tracks the host child this app launched, the only one that receives private client ports. */
+/** Tracks the host child this app launched, the only one Main opens private client channels on. */
 export function createAgentHostPrivateClients(): {
   readonly attach: (child: DesktopHostChild) => void;
-  readonly open: () => MessagePortMain | undefined;
+  readonly open: () => PlatformMessagePort | undefined;
   /**
    * Stops the live host this app launched for a relaunch and resolves with its joined exit;
    * undefined when there is none (a CLI `host start`), so nothing is stopped.
@@ -21,15 +21,7 @@ export function createAgentHostPrivateClients(): {
         }
       });
     },
-    open: () => {
-      const child = current;
-      if (!child) {
-        return;
-      }
-      const channel = new MessageChannelMain();
-      child.postClientPort(channel.port2);
-      return channel.port1;
-    },
+    open: () => current?.openClientPort(),
     stopForRelaunch: () => current?.stopForRelaunch(),
   };
 }

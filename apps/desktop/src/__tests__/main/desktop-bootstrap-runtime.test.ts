@@ -48,10 +48,6 @@ vi.mock('electron', () => ({
       fixture.events.push(`path:${name}`);
     },
   },
-  MessageChannelMain: class {
-    port1 = { close: () => fixture.events.push('port1-close') };
-    port2 = { close: () => fixture.events.push('port2-close') };
-  },
 }));
 vi.mock('node:fs', async (original) => ({
   ...(await original<typeof import('node:fs')>()),
@@ -147,21 +143,28 @@ it('resolves the explicit test profile before the single lease opens its StateSt
   await runtime.profile.retire();
 });
 
-it('joins the existing utility exit when Main fails while its capability port is unbound', async () => {
+it('joins the existing host exit when Main fails while its platform channel is unbound', async () => {
   const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
   const runtime = getDesktopBootstrapRuntime();
   const outcome = runtime.profile.acquire().catch((error: unknown) => error);
   await vi.waitFor(() => expect(fixture.options).toBeDefined());
   const nativeChildren = { close: vi.fn(), exited: vi.fn(), retire: vi.fn(), started: vi.fn() };
   // The lease's supervisor shape is only passed through, never accessed by bootstrap.
-  const platform = fixture.options?.platform?.(nativeChildren);
+  const port = {
+    close: () => fixture.events.push('platform-close'),
+    off: vi.fn(),
+    on: vi.fn(),
+    postMessage: vi.fn(),
+    start: vi.fn(),
+  };
+  const platform = fixture.options?.platform?.(nativeChildren, port);
   expect(platform).toBeDefined();
   let retired = false;
   const closing = runtime.profile.retire().then(() => {
     retired = true;
   });
   await vi.waitFor(() => expect(fixture.events).toContain('close'));
-  expect(fixture.events.slice(-3)).toEqual(['port1-close', 'port2-close', 'close']);
+  expect(fixture.events.slice(-2)).toEqual(['platform-close', 'close']);
   expect(retired).toBe(false);
   fixture.exited.resolve();
   await closing;

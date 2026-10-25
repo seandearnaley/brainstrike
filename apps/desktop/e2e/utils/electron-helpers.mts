@@ -11,6 +11,7 @@ import {
   type DesktopE2eTarget,
   resolveDesktopE2eTarget,
 } from './desktop-e2e-target.ts';
+import { registerLaunchedApp } from './launched-apps.ts';
 import {
   closeModelProviderShimWithProcess,
   type ModelProviderShim,
@@ -683,6 +684,10 @@ async function startElectron(
     verboseLog('[DEBUG] Calling electron.launch() at', new Date().toISOString());
     const app = await electron.launch(launchOptions);
     onAppAcquired?.(app);
+    const userDataArg = launchOptions?.args?.find((arg) => arg.startsWith('--user-data-dir='));
+    if (userDataArg) {
+      registerLaunchedApp(userDataArg.slice('--user-data-dir='.length), app);
+    }
     verboseLog('[DEBUG] electron.launch() returned after', Date.now() - launchStartTime, 'ms');
 
     // Pipe stdout and stderr for debugging CI crashes

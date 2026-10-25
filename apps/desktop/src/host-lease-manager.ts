@@ -1,103 +1,98 @@
+import { spawn } from 'node:child_process';
+import { constants } from 'node:os';
+import type { Readable, Writable } from 'node:stream';
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
-import { attachAgentHost, attachStartedAgentHost } from '@brainstrike/agent-host/client';
+import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
-import {
-  attachHost,
-  attachStartedHost,
-  decodeStartupMessage,
-  type HostAttachment,
-  type HostRecord,
-  type HostStartOptions,
-  startupFailure as hostStartupFailure,
-  launchHost,
-  type StartupMessage,
-} from '@brainstrike/host-lease';
+import { HOST_VERSION, startupFailure } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
-import {
-  CHILD_CLOSE_BUDGET_MS,
-  type ClearContentResult,
-  processStartTime,
-} from '@brainstrike/state-store';
+import type { ClearContentResult } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
-import { MessageChannelMain, type MessagePortMain } from 'electron';
+import { mainPlatformConnection, type PlatformMessagePort } from './agent-host-platform/connection';
 import {
   createHostNativeChildren,
   type HostNativeChildren,
 } from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
-import { forkUtility } from './fork-utility';
-import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
+import {
+  decodeHostChildMessage,
+  encodeHostChildArgs,
+  type HostChildControl,
+  type HostChildMessage,
+} from './host-child-messages';
+import { type HostStdio, openHostStdio } from './host-stdio';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
-import { joinProcessExit, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('DesktopHostLease');
 /**
- * When Main logs that the host it forked has not reported ready yet. Neither an
- * R5(a) nor an R5(b) bound: a diagnostic that never acts (lifecycle R3, owner
- * decision 7.1(i)). It names the stage Main is waiting on; the start still ends
- * only with the host's ready or failed report, its exit, or this lease closing.
+ * Quit is ask, wait, kill, as VS Code ends its extension host: every write is
+ * committed as it happens, so a host still running after this grace loses nothing.
  */
-const HOST_STARTUP_STALL_WARN_MS = 10_000;
+export const HOST_CLOSE_GRACE_MS = 5000;
 
-interface HostLeaseUtilityProcess {
-  /** Electron: SIGTERM, then SIGKILL if it is still running 2 s later (Windows: terminate). */
-  kill(): boolean;
-  off(event: 'message', listener: (message: unknown) => void): unknown;
-  off(event: 'exit', listener: (code: number) => void): unknown;
-  on(event: 'message', listener: (message: unknown) => void): unknown;
-  once(event: 'exit', listener: (code: number) => void): unknown;
-  once(event: 'spawn', listener: () => void): unknown;
-  /** Electron reports it only once the utility has spawned. */
-  readonly pid: number | undefined;
-  postMessage(
-    message:
-      | HostLeaseControl
-      | { event: 'platform-capabilities' }
-      | { event: 'client-port' }
-      | { event: 'lifetime' },
-    transfer?: readonly MessagePortMain[]
-  ): void;
+/** The host as a plain child process with piped stdio, as Node's `spawn` returns it. */
+export interface HostChildProcess {
+  /** SIGKILL on POSIX; TerminateProcess on Windows. */
+  kill(signal: 'SIGKILL'): boolean;
+  /** Its OS exit, after its stdio closed: the only exit signal, on every OS. */
+  once(
+    event: 'close',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void
+  ): unknown;
+  once(event: 'error', listener: (cause: Error) => void): unknown;
+  readonly pid?: number | undefined;
+  readonly stderr: Readable;
+  readonly stdin: Writable;
+  readonly stdout: Readable;
 }
-type HostLeaseFork = (
+type HostLeaseSpawn = (
   entrypoint: string,
   args: readonly string[],
   /** Main's environment plus the entries this lease forwards explicitly (the E2E delay seam). */
   env: NodeJS.ProcessEnv
-) => HostLeaseUtilityProcess;
+) => HostChildProcess;
+/**
+ * Electron's own Node runs the headless host entry, so its native add-ons match; under
+ * plain Node the same entry runs unchanged. Its stderr is copied to Main's.
+ */
+export function spawnHostProcess(
+  entrypoint: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv
+): HostChildProcess {
+  const child = spawn(process.execPath, [entrypoint, ...args], {
+    // biome-ignore lint/style/useNamingConvention: Electron's documented Node-mode switch.
+    env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  child.stderr.pipe(process.stderr, { end: false });
+  return child;
+}
 export interface DesktopHostLeaseOptions {
-  /** The cooperative rung of the close ladder; defaults to `CHILD_CLOSE_BUDGET_MS` (ADR-0030). */
-  readonly cooperativeCloseMs?: number;
+  /** How long a close waits for the host to exit before killing it. */
+  readonly closeGraceMs?: number;
   readonly entryPath?: string;
-  readonly fork?: HostLeaseFork;
-  /**
-   * Main's E2E lifecycle delay seam (`installLifecycleDelaySeam`): Main-side points this owner
-   * applies, and the child points it forwards to the host it forks. Absent, nothing is delayed.
-   */
+  /** Main's E2E lifecycle delay seam: the points it forwards to the host it spawns. */
   readonly lifecycleDelays?: LifecycleDelaySeam;
-  /** The owned host's lifetime channel (ADR-0017); Main keeps `port1`. Defaults to a new channel. */
-  readonly lifetimeChannel?: () => {
-    readonly port1: MessagePortMain;
-    readonly port2: MessagePortMain;
-  };
-  /** A ready child this lease spawned; only it can receive private client ports. */
+  /** The ready child; Main opens each visible client's channel on it. */
   readonly onChildReady?: (child: DesktopHostChild) => void;
-  /** The owned utility is forked and its lifetime/platform ports are transferred. */
+  /** The host is spawned and its platform channel is open. */
   readonly onChildStarted?: () => void;
   /**
    * BST-2004: the ready child exited while this owner was not closing it: a crash, a kill,
-   * a clean exit of its own, or a stop for a relaunch the user asked for (`requested`,
-   * that child's own `stopForRelaunch`). Never called for a close of the lease itself.
+   * a clean exit of its own, or a stop for a relaunch the user asked for (`requested`).
+   * Never called for a close of the lease itself.
    */
   readonly onLost?: (code: number, exit: { readonly requested: boolean }) => void;
-  /**
-   * Created only when this desktop actually owns a new Root child. Its platform connection
-   * feeds `nativeChildren`, through which Main supervises that host's native processes.
-   */
-  readonly platform?: (nativeChildren: HostNativeChildren) => {
-    readonly port: MessagePortMain;
+  /** Main's platform, served on the host's platform channel, and its supervisor of the host's native processes. */
+  readonly platform?: (
+    nativeChildren: HostNativeChildren,
+    port: PlatformMessagePort
+  ) => {
     close(): Promise<void>;
   };
   /** Trusted Node composition module; the GUI and CLI use the same kernel. */
@@ -105,93 +100,105 @@ export interface DesktopHostLeaseOptions {
   /** Trusted launch selection for that module, such as the profile's credential store. */
   readonly platformOptions?: () => Promise<HostPlatformLaunchOptions>;
   readonly root: string;
-  readonly startupTimeoutMs?: number;
+  readonly spawn?: HostLeaseSpawn;
 }
 export interface DesktopHostChild {
   readonly exited: Promise<number>;
-  postClientPort(port: MessagePortMain): void;
-  /**
-   * Asks this child to close for a user's restart over its own control port (no socket),
-   * and joins its exit under the lease's one close ladder. That exit takes the lost-host
-   * path (BST-2004), reported as requested, so the profile's next acquisition recovers
-   * and admits a new host.
-   */
+  /** A new client channel, as the visible-UI origin. */
+  openClientPort(): PlatformMessagePort;
+  /** Ends this child for a user's restart; its exit takes the lost-host path, as requested. */
   stopForRelaunch(): Promise<number>;
 }
 export interface DesktopHostLease {
-  acquire(): Promise<HostAttachment>;
+  acquire(): Promise<HostClient>;
   clearAndRetireContent(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
 }
 
 interface OwnedChild {
-  clearFailure?: unknown;
-  clearReceipt?: ClearContentResult;
-  clearRequested?: boolean;
-  /** The cooperative close was posted: by the lease close or by a relaunch, never twice. */
-  closeAsked: boolean;
+  /** Main is ending it (close, relaunch or clear): its exit is not a loss. */
   closing: boolean;
-  /** This child's one cooperative rung: every close of it joins it, so `kill()` runs at most once. */
-  escalation?: Promise<void>;
   exitCode: number | undefined;
   readonly exited: Promise<number>;
-  readonly exitListener: (code: number) => void;
-  readonly handle: HostLeaseUtilityProcess;
-  /** The OS identity its trusted ready record proved: what joining its real exit waits on. */
-  identity?: ProcessIdentity;
-  /** This owner escalated its close to `kill()`: its exit code is the kill's, not a failure. */
-  killed: boolean;
-  /** It exited before this owner closed it. */
-  lost: boolean;
-  /** The exit as Main observes it, shared by every join of this child. */
-  observedExit?: Promise<number>;
+  /** Listeners for the child's protocol failures and reports. */
+  readonly failures: Set<(cause: unknown) => void>;
+  readonly handle: HostChildProcess;
+  readonly messages: Set<(message: HostChildMessage) => void>;
   ready: boolean;
-  /** Asked to close for a user's restart (`stopForRelaunch`): its exit is a requested loss. */
   relaunchRequested: boolean;
+  readonly stdio: HostStdio;
+  /** This child's one ask-wait-kill, shared by every close of it. */
+  stopping?: Promise<number>;
 }
-/** `lost` runs when the child exits before this owner asked it to close. */
-function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void): OwnedChild {
+function ownChild(handle: HostChildProcess, lost: (code: number) => void): OwnedChild {
   const completion = Promise.withResolvers<number>();
+  const messages = new Set<(message: HostChildMessage) => void>();
+  const failures = new Set<(cause: unknown) => void>();
+  const broken = (cause: unknown): void => {
+    for (const failed of failures) {
+      failed(cause);
+    }
+    logger.error('The agent host wrote something that is not its protocol; killing it', {
+      cause,
+    });
+    handle.kill('SIGKILL');
+  };
+  const stdio = openHostStdio(handle.stdout, handle.stdin, {
+    invalid: broken,
+    message: (input) => {
+      let decoded: HostChildMessage;
+      try {
+        decoded = decodeHostChildMessage(input);
+      } catch (cause) {
+        broken(cause);
+        return;
+      }
+      for (const received of messages) {
+        received(decoded);
+      }
+    },
+  });
   const child: OwnedChild = {
-    closeAsked: false,
     closing: false,
     exitCode: undefined,
     exited: completion.promise,
-    exitListener: (code) => {
-      child.exitCode = code;
-      completion.resolve(code);
-      if (!child.closing) {
-        child.lost = true;
-        lost(code);
-      }
-    },
+    failures,
     handle,
-    killed: false,
-    lost: false,
+    messages,
     ready: false,
     relaunchRequested: false,
+    stdio,
   };
-  handle.once('exit', child.exitListener);
+  const exited = (code: number): void => {
+    if (child.exitCode !== undefined) {
+      return;
+    }
+    child.exitCode = code;
+    completion.resolve(code);
+    if (!child.closing || child.relaunchRequested) {
+      lost(code);
+    }
+  };
+  // `close` follows the OS exit and the end of its stdio, on every OS.
+  handle.once('close', (code, signal) => {
+    exited(code ?? 128 + (signal ? constants.signals[signal] : 0));
+  });
+  // A host that could not be spawned never exits.
+  handle.once('error', (cause) => {
+    if (handle.pid === undefined) {
+      logger.error('Could not start the agent host', { cause });
+      exited(1);
+    }
+  });
   return child;
 }
-function startupFailure(root: string, message: StartupMessage): Error {
-  if (message.event !== 'failed') {
-    return new Error('Unexpected host startup result');
-  }
-  // One mapping for every starter (BST-2142): a late root-locked report is
-  // the launcher's cue to acquire again, not an owner to name.
-  return hostStartupFailure(root, message);
-}
-/** The record the child's ready report carried; a `failed` report, its exit or `signal` rejects. */
-async function awaitReady(
-  child: OwnedChild,
-  root: string,
-  signal: AbortSignal
-): Promise<HostRecord> {
+/** The child's first message: `ready`, or the failure it reported, or its exit before either. */
+async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
-  return await new Promise<HostRecord>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const cleanup = (): void => {
-      child.handle.off('message', message);
+      child.messages.delete(message);
+      child.failures.delete(failed);
       signal.removeEventListener('abort', aborted);
     };
     const failed = (cause: unknown): void => {
@@ -199,304 +206,165 @@ async function awaitReady(
       reject(cause);
     };
     const aborted = (): void => failed(signal.reason);
-    const message = (input: unknown): void => {
-      try {
-        const decoded = decodeStartupMessage(input);
-        if (decoded.event === 'failed') {
-          failed(startupFailure(root, decoded));
-          return;
-        }
+    const message = (decoded: HostChildMessage): void => {
+      if (decoded.event === 'ready') {
         cleanup();
-        resolve(decoded.record);
-      } catch (cause) {
-        failed(cause);
+        resolve();
+      } else if (decoded.event === 'failed') {
+        failed(startupFailure(root, decoded));
       }
     };
-    child.handle.on('message', message);
+    child.messages.add(message);
+    child.failures.add(failed);
     signal.addEventListener('abort', aborted, { once: true });
-    void child.exited.then((code) =>
-      failed(new Error(`Host utility exited before ready (${code})`))
-    );
+    void child.exited.then((code) => failed(new Error(`Agent host exited before ready (${code})`)));
   });
 }
-/**
- * BST-2176, lifecycle R3: the ready report is trusted only for the utility
- * this owner forked. Its record must name that utility's PID and OS start
- * time, read before this owner has observed its exit (a zombie has no start time).
- */
-function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
-  const pid = child.handle.pid;
-  const start = child.exitCode === undefined && pid !== undefined ? processStartTime(pid) : null;
-  if (pid === undefined || start === null) {
-    throw new Error(`Host utility pid ${pid} exited as it reported ready`);
-  }
-  if (record.pid !== pid || record.start !== start) {
-    throw new Error(`Host utility pid ${pid} reported ready with another process's record`);
-  }
-  child.identity = { pid, start };
-  return record;
-}
-interface CloseLadder {
-  readonly cooperativeMs: number;
-  readonly delays: LifecycleDelaySeam | undefined;
-}
-/**
- * The cooperative rung: resolves once `exited` settles, or after `cooperativeMs`, when it
- * escalates to `kill()`. Its timer is cleared either way; the caller still joins the exit.
- */
-async function escalateUnlessExited(
-  child: OwnedChild,
-  exited: Promise<number>,
-  cooperativeMs: number
-): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const rung = new Promise<'escalate'>((resolve) => {
-    timer = setTimeout(() => resolve('escalate'), cooperativeMs);
-  });
-  try {
-    if ((await Promise.race([exited, rung])) !== 'escalate') {
-      return;
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-  const pid = child.handle.pid;
-  logger.warn('The owned agent host did not exit after close; killing it', { cooperativeMs, pid });
-  // Electron returns false when it could not terminate the process. Its exit is still the
-  // only end of this owner (R4): keep joining it, and do not excuse its exit code as a kill's.
-  child.killed = child.handle.kill();
-  if (!child.killed) {
-    logger.error('Could not kill the owned agent host; still waiting for it to exit', { pid });
-  }
-}
-/** The child's exit as Main observes it, joined at the OS: one shared promise per child. */
-function observedExit(child: OwnedChild, ladder: CloseLadder): Promise<number> {
-  child.observedExit ??= child.exited.then(async (code) => {
-    await joinProcessExit(child.identity);
-    // E2E seam: Main observes the exit this much later, still inside the ladder.
-    await ladder.delays?.delay('child-exit');
-    return code;
-  });
-  return child.observedExit;
-}
-/**
- * A close this owner asks for is a ladder it owns (ADR-0026 R5(b)): ask once, join the exit,
- * and after `cooperativeMs` without one `kill()` and join the exit. The lease close and a
- * relaunch share this one rung, so `kill()` runs at most once and both join the same exit.
- */
-async function askCloseAndJoin(child: OwnedChild, ladder: CloseLadder): Promise<number> {
-  const exited = observedExit(child, ladder);
-  if (child.exitCode === undefined && !child.closeAsked) {
-    child.closeAsked = true;
-    child.handle.postMessage({ method: 'close' });
-    child.escalation = escalateUnlessExited(child, exited, ladder.cooperativeMs);
-  }
-  await child.escalation;
-  return await exited;
-}
-/**
- * Joins the real exit: the platform finalizer behind it must not close the port during cleanup.
- * A content clear is never killed: its deletion completes under the lease (ADR-0015), so its
- * own exit is joined without a rung.
- */
-async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void> {
+/** Ask the child to close, kill it if it is still running after `graceMs`, and join its exit. */
+function stopChild(child: OwnedChild, graceMs: number): Promise<number> {
   child.closing = true;
-  const code = child.clearRequested
-    ? await observedExit(child, ladder)
-    : await askCloseAndJoin(child, ladder);
-  child.handle.off('exit', child.exitListener);
-  if (child.clearRequested && !child.clearReceipt) {
-    throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
-  }
-  // A lost host's exit was reported when it happened, and a kill this owner escalated to was
-  // logged then: neither is a failed close.
-  if (child.ready && code !== 0 && !(child.lost || child.killed)) {
-    throw new Error(`Owned host utility exited with code ${code}`);
-  }
+  child.stopping ??= (async () => {
+    if (child.exitCode !== undefined) {
+      return child.exitCode;
+    }
+    const close: HostChildControl = { method: 'close' };
+    // A host whose pipe already broke is exiting; its exit is the answer.
+    child.stdio.message(close).catch(() => undefined);
+    const grace = setTimeout(() => {
+      logger.warn('The agent host did not exit after close; killing it', {
+        graceMs,
+        pid: child.handle.pid,
+      });
+      child.handle.kill('SIGKILL');
+    }, graceMs);
+    try {
+      return await child.exited;
+    } finally {
+      clearTimeout(grace);
+    }
+  })();
+  return child.stopping;
 }
 function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {
   return runAtPromiseBoundary(Scope.addFinalizer(scope, Effect.promise(release)));
 }
-/**
- * ADR-0017: a host forked by the app dies with the app. The host gets one end of a lifetime channel
- * and closes when it closes; Main closes its end only after closeChild has joined the host's exit
- * (this finalizer is added first, so it runs after that join). While the host runs, its end closes
- * only when Main lets it go or Main's process dies.
- */
-async function ownLifetime(
-  scope: Scope.Closeable,
-  options: DesktopHostLeaseOptions,
-  child: OwnedChild
-): Promise<void> {
-  const channel = (options.lifetimeChannel ?? (() => new MessageChannelMain()))();
-  await addFinalizer(scope, async () => channel.port1.close());
-  child.handle.postMessage({ event: 'lifetime' }, [channel.port2]);
-}
-/** The platform an owned host borrows, and Main's supervisor of its native processes (ADR-0017). */
-async function ownPlatform(
-  scope: Scope.Closeable,
-  options: DesktopHostLeaseOptions
-): Promise<{
-  readonly nativeChildren?: HostNativeChildren;
-  readonly platform?: ReturnType<NonNullable<DesktopHostLeaseOptions['platform']>>;
-}> {
-  if (!options.platform) {
-    return {};
-  }
-  const nativeChildren = createHostNativeChildren(options.root);
-  // Runs last, after the platform closed: join the host's native processes, then
-  // require the Root's flock free.
-  await addFinalizer(scope, () => nativeChildren.close());
-  const platform = options.platform(nativeChildren);
-  // Runs after closeChild has joined the host's exit, never during its cleanup.
-  await addFinalizer(scope, () => platform.close());
-  return { nativeChildren, platform };
+/** Main's own client of the host: the desktop origin, on a channel only Main holds. */
+async function connectMainClient(child: OwnedChild, signal: AbortSignal): Promise<HostClient> {
+  signal.throwIfAborted();
+  const port = child.stdio.open('main');
+  const closed = new Promise<void>((resolve) => port.on('close', () => resolve()));
+  // A close during the handshake closes its channel, so a host that never answers cannot hold quit.
+  const aborted = (): void => port.close();
+  signal.addEventListener('abort', aborted, { once: true });
+  void closed.then(() => signal.removeEventListener('abort', aborted));
+  const connection = mainPlatformConnection(port);
+  // A closed channel rejects pending requests instead of leaving them unanswered.
+  void closed.then(() => connection.dispose());
+  return await authenticateHostClient(
+    connection,
+    { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
+    async () => {
+      port.close();
+    },
+    closed
+  );
 }
 
-/** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
+/** One desktop host child: spawned on first acquire, ended by close. Reset creates a new one. */
 export function createDesktopHostLease(options: DesktopHostLeaseOptions): DesktopHostLease {
-  const ladder: CloseLadder = {
-    cooperativeMs: options.cooperativeCloseMs ?? CHILD_CLOSE_BUDGET_MS,
-    delays: options.lifecycleDelays,
-  };
-  if (!(Number.isFinite(ladder.cooperativeMs) && ladder.cooperativeMs > 0)) {
-    throw new RangeError('Host utility cooperative close must be positive and finite');
-  }
+  const graceMs = options.closeGraceMs ?? HOST_CLOSE_GRACE_MS;
   const scope = Scope.makeUnsafe();
   const abort = new AbortController();
-  let acquiring: Promise<HostAttachment> | undefined;
+  let acquiring: Promise<HostClient> | undefined;
   let retired = false;
   let releasing: Promise<void> | undefined;
   let ownedChild: OwnedChild | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
   /** A lost host's native processes, settled once their SIGTERM grace ran (ADR-0017). */
   let lostTail: Promise<void> | undefined;
-  // One release join for every caller. It is finite because its child ladder is
-  // (closeChild), never because a caller stops waiting: no caller-side deadline.
+  let clients = 0;
   const closeScope = (): Promise<void> => {
-    if (!releasing) {
-      releasing = runAtPromiseBoundary(Scope.close(scope, Exit.void));
-      releasing.catch(() => undefined);
-    }
+    releasing ??= runAtPromiseBoundary(Scope.close(scope, Exit.void));
     return releasing;
   };
-  const acquire = async (): Promise<HostAttachment> => {
+  const acquire = async (): Promise<HostClient> => {
     try {
-      const attachment = await launchHost(options.root, {
-        attach: (record, timeoutMs, signal) =>
-          record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
-            ? attachAgentHost(record, timeoutMs, signal)
-            : attachHost(record, timeoutMs, signal),
-        // Lifecycle R3: the host this lease forked is attached from its ready
-        // record over its socket, with no deadline. Only its exit, its socket
-        // closing or this lease closing ends the attach.
-        attachStarted: (record) => {
-          const child = ownedChild;
-          if (!child) {
-            throw new Error('The started host has no utility this lease forked');
-          }
-          const exited = new AbortController();
-          void child.exited.then((code) =>
-            exited.abort(new Error(`Host utility exited (${code}) before Main attached`))
-          );
-          const signal = AbortSignal.any([abort.signal, exited.signal]);
-          return record.protocolVersion === AGENT_HOST_PROTOCOL_VERSION
-            ? attachStartedAgentHost(record, signal)
-            : attachStartedHost(record, signal);
-        },
-        beforeRecordRead: async () => {
-          await options.lifecycleDelays?.delay('record-read');
-        },
-        lifetime: 'app',
-        signal: abort.signal,
-        spawn: async (start: HostStartOptions, signal: AbortSignal) => {
-          const combined = AbortSignal.any([signal, abort.signal]);
-          combined.throwIfAborted();
-          const entrypoint =
-            options.entryPath ??
-            resolveBundledSiblingPath(
-              'Host lease entry',
-              options.platformModule === undefined ? 'host-lease-entry.js' : 'agent-host-entry.js'
-            );
-          const fork: HostLeaseFork =
-            options.fork ??
-            ((path, args, env) =>
-              forkUtility(path, args, { env, serviceName: 'Brainstrike Host Lease' }));
-          const platformOptions =
-            options.platformModule === undefined ? undefined : await options.platformOptions?.();
-          combined.throwIfAborted();
-          const { nativeChildren, platform } = await ownPlatform(scope, options);
-          const child = ownChild(
-            fork(
-              entrypoint,
-              [
-                JSON.stringify(start),
-                ...(options.platformModule === undefined ? [] : [options.platformModule]),
-                ...(platformOptions === undefined
-                  ? []
-                  : ['--platform-options', JSON.stringify(platformOptions)]),
-              ],
-              { ...process.env, ...options.lifecycleDelays?.childEnv(['host-ready']) }
-            ),
-            (code) => {
-              // A lost host leaves its native processes to Main (ADR-0017).
-              lostTail = nativeChildren?.retire();
-              // A child lost before ready fails its acquisition instead.
-              if (child.ready) {
-                options.onLost?.(code, { requested: child.relaunchRequested });
-              }
-            }
-          );
-          ownedChild = child;
-          let stage: 'forked' | 'spawned' = 'forked';
-          // Electron's utilityProcess has no pid until its spawn event.
-          child.handle.once('spawn', () => {
-            stage = 'spawned';
-          });
-          const ready = awaitReady(child, start.root, combined);
-          ready.catch(() => undefined);
-          const stall = setTimeout(() => {
-            logger.warn('The agent host has not reported ready; still waiting for it', {
-              elapsedMs: HOST_STARTUP_STALL_WARN_MS,
-              pid: child.handle.pid,
-              stage,
-            });
-          }, HOST_STARTUP_STALL_WARN_MS);
-          stall.unref();
-          const settled = (): void => clearTimeout(stall);
-          ready.then(settled, settled);
-          await ownLifetime(scope, options, child);
-          await addFinalizer(scope, () => closeChild(child, ladder));
-          if (platform) {
-            child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
-          }
-          options.onChildStarted?.();
-          const record = readyRecord(child, await ready);
-          child.ready = true;
-          options.onChildReady?.({
-            exited: child.exited,
-            postClientPort: (port) => child.handle.postMessage({ event: 'client-port' }, [port]),
-            stopForRelaunch: () => {
-              // This child's own exit reads it: a later child's crash still warns.
-              child.relaunchRequested = true;
-              return askCloseAndJoin(child, ladder);
-            },
-          });
-          // BST-2167: this lease's Scope stays the child's one owner. An
-          // attached host needs no hand-off; a launch that gives up closes it.
-          return { record, release: async () => undefined, retire: closeScope };
-        },
-        ...(options.startupTimeoutMs === undefined
-          ? {}
-          : { startupTimeoutMs: options.startupTimeoutMs }),
+      const entrypoint =
+        options.entryPath ?? resolveBundledSiblingPath('Agent host', 'agent-host-entry.js');
+      const modulePath =
+        options.platformModule ??
+        resolveBundledSiblingPath('Agent host platform', 'agent-host-platform-entry.js');
+      const spawnHost = options.spawn ?? spawnHostProcess;
+      const platformOptions = await options.platformOptions?.();
+      abort.signal.throwIfAborted();
+      let nativeChildren: HostNativeChildren | undefined;
+      if (options.platform) {
+        const children = createHostNativeChildren(options.root);
+        nativeChildren = children;
+        // Runs last: join the host's native processes once the host and platform are gone.
+        await addFinalizer(scope, () => children.close({ rootOwned: ownedChild?.ready === true }));
+      }
+      let platform: { close(): Promise<void> } | undefined;
+      // Runs after the host has exited, before its native processes are joined.
+      await addFinalizer(scope, async () => {
+        await platform?.close();
       });
-      await addFinalizer(scope, () => attachment.close());
+      const child = ownChild(
+        spawnHost(
+          entrypoint,
+          encodeHostChildArgs({
+            modulePath,
+            root: options.root,
+            ...(platformOptions === undefined ? {} : { platformOptions }),
+          }),
+          { ...process.env, ...options.lifecycleDelays?.childEnv(['host-ready']) }
+        ),
+        (code) => {
+          // A lost host leaves its native processes to Main (ADR-0017).
+          lostTail = nativeChildren?.retire();
+          // A child lost before ready fails its acquisition instead.
+          if (child.ready) {
+            options.onLost?.(code, { requested: child.relaunchRequested });
+          }
+        }
+      );
+      ownedChild = child;
+      // Listening from the spawn on: the child's one report is never missed.
+      const ready = awaitReady(child, options.root, abort.signal);
+      ready.catch(() => undefined);
+      // Runs first: the host exits before its platform and native processes are released.
+      await addFinalizer(scope, async () => {
+        await stopChild(child, graceMs);
+        await options.lifecycleDelays?.delay('child-exit');
+      });
+      if (options.platform && nativeChildren) {
+        // Before the host's startup asks for it; the channel holds requests until Main serves it.
+        platform = options.platform(nativeChildren, child.stdio.open('platform'));
+      }
+      options.onChildStarted?.();
+      await ready;
+      child.ready = true;
+      const client = await connectMainClient(child, abort.signal);
+      await addFinalizer(scope, () => client.close());
+      options.onChildReady?.({
+        exited: child.exited,
+        openClientPort: () => {
+          clients += 1;
+          return child.stdio.open(`client-${clients}`);
+        },
+        stopForRelaunch: () => {
+          child.relaunchRequested = true;
+          return stopChild(child, graceMs);
+        },
+      });
       if (retired) {
         throw abort.signal.reason;
       }
-      return attachment;
-    } catch (cause) {
+      return client;
+    } catch (failure) {
       retired = true;
+      // A startup its own close cancelled settles with that close's typed reason.
+      const cause: unknown = abort.signal.aborted ? abort.signal.reason : failure;
       try {
         await closeScope();
       } catch (cleanupCause) {
@@ -520,42 +388,44 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
         return clearing;
       }
       const child = ownedChild;
-      if (retired || !child?.ready || child.exitCode !== undefined || !options.platformModule) {
+      if (retired || !child?.ready || child.exitCode !== undefined) {
         return Promise.reject(new Error('Content clear requires this lease’s ready agent host'));
       }
       retired = true;
+      // ADR-0015: a content clear is never killed; its deletion completes, then the host exits.
       child.closing = true;
-      child.clearRequested = true;
-      const received = (input: unknown): void => {
-        try {
-          const { event: _event, ...receipt } = decodeHostContentCleared(input);
-          child.clearReceipt = receipt;
-        } catch (cause) {
-          child.clearFailure = cause;
-        }
-      };
-      child.handle.on('message', received);
-      void child.exited.then(() => child.handle.off('message', received));
-      try {
-        child.handle.postMessage({ method: 'clear-content' });
-      } catch (cause) {
-        child.handle.off('message', received);
-        child.clearRequested = false;
-        return Promise.reject(cause);
-      }
-      clearing = closeScope().then(() => {
-        if (!child.clearReceipt) {
-          throw new Error('Content clear receipt unavailable');
-        }
-        return child.clearReceipt;
+      const receipt = new Promise<ClearContentResult>((resolve, reject) => {
+        const received = (decoded: HostChildMessage): void => {
+          if (decoded.event === 'content-cleared') {
+            const { event: _event, ...result } = decoded;
+            resolve(result);
+          }
+        };
+        child.messages.add(received);
+        child.failures.add(reject);
+        void child.exited.then((code) => {
+          child.messages.delete(received);
+          child.failures.delete(reject);
+          reject(new Error(`Agent host exited (${code}) without a content-clear receipt`));
+        });
       });
+      receipt.catch(() => undefined);
+      child.stopping = child.exited;
+      const control: HostChildControl = { method: 'clear-content' };
+      child.stdio.message(control).catch((cause: unknown) => {
+        logger.error('Could not ask the agent host to clear its content', { cause });
+      });
+      clearing = (async () => {
+        await child.exited;
+        await closeScope();
+        return await receipt;
+      })();
       return clearing;
     },
     // A startup this close cancels settles with the typed closing outcome (BST-2118).
     close: (reason = new BoundaryFailureError(HOST_LEASE_CLOSED)) => {
       retired = true;
       abort.abort(reason);
-      // The acquire path owns failure rollback; close still joins every finalizer.
       // A lost host's processes keep their SIGTERM grace, even when the next
       // client's admission is what closes this owner (BST-2004).
       return (acquiring?.catch(() => undefined) ?? Promise.resolve())
