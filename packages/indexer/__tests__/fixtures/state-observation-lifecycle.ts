@@ -1,4 +1,3 @@
-import { IndexerLifecycleError } from '@brainstrike/indexer';
 import type { TestContext } from 'vitest';
 
 interface OwnedResource {
@@ -7,23 +6,12 @@ interface OwnedResource {
   value: unknown;
 }
 
-function retainedOwner(error: unknown): boolean {
-  if (error instanceof IndexerLifecycleError) {
-    return true;
-  }
-  if (error instanceof AggregateError) {
-    return error.errors.some(retainedOwner);
-  }
-  return error instanceof Error && error.cause !== undefined && retainedOwner(error.cause);
-}
-
 /** Test-only ownership, registered by the caller before its first asynchronous acquisition. */
 export class ObservationLifecycle {
   private retired = false;
   private readonly pending = new Set<Promise<unknown>>();
   private readonly resources: OwnedResource[] = [];
   private readonly releases: Array<() => void> = [];
-  private readonly unjoined: unknown[] = [];
   private primary: unknown;
   private retirement: Promise<void> | undefined;
 
@@ -50,11 +38,8 @@ export class ObservationLifecycle {
     this.pending.add(promise);
     promise.then(
       () => this.pending.delete(promise),
-      (error: unknown) => {
+      () => {
         this.pending.delete(promise);
-        if (retainedOwner(error)) {
-          this.unjoined.push(error);
-        }
       }
     );
     return promise;
@@ -142,7 +127,6 @@ export class ObservationLifecycle {
     while (this.pending.size > 0) {
       await Promise.allSettled([...this.pending]);
     }
-    failures.push(...this.unjoined);
     const owned = [...this.resources].reverse();
     for (const resource of owned.filter((entry) => !entry.removal)) {
       try {

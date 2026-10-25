@@ -1,5 +1,6 @@
 // Liveness is the process's exit, never a clock (lifecycle redesign R2/R5, PR D): a slow
 // request or a slow startup is load, not death, so nothing retires the process for it.
+import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   createIndexerConnection,
@@ -9,7 +10,7 @@ import {
 
 const dbPath = '/index/index.sqlite';
 const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/root'] };
-const deadlines = { closeMs: 1000, exitMs: 1000 };
+const deadlines = { closeMs: 1000 };
 const info = {
   dbPath,
   embedding: { indexMode: 'text-only' },
@@ -30,6 +31,10 @@ function slowProcess(timing: {
   readonly ignoresClose?: boolean;
   /** How long its exit takes after a kill. */
   readonly exitAfterKillMs?: number;
+  /** How long its exit takes after it answered `close`. */
+  readonly exitAfterCloseMs?: number;
+  /** Its kill is refused, as Windows refuses to terminate a process that is already exiting. */
+  readonly refusesKill?: boolean;
 }) {
   const messages = new Set<(message: unknown) => void>();
   const exits = new Set<() => void>();
@@ -52,6 +57,9 @@ function slowProcess(timing: {
   const transport: IndexerTransport = {
     kill: () => {
       kills += 1;
+      if (timing.refusesKill) {
+        return false;
+      }
       exit(timing.exitAfterKillMs ?? 0);
       return true;
     },
@@ -78,7 +86,7 @@ function slowProcess(timing: {
       if (op === 'close') {
         if (!timing.ignoresClose) {
           deliver({ id, kind: 'response', ok: true, value: true }, 0);
-          exit(0);
+          exit(timing.exitAfterCloseMs ?? 0);
         }
         return;
       }
@@ -90,7 +98,9 @@ function slowProcess(timing: {
   };
   const stalls: string[] = [];
   transport.onStall = (stage, elapsedMs) => stalls.push(`${stage}:${elapsedMs}`);
-  return { kills: () => kills, stalls, transport };
+  const refusals: unknown[] = [];
+  transport.onKillRefused = (cause) => refusals.push(cause);
+  return { exitNow: () => exit(0), kills: () => kills, refusals, stalls, transport };
 }
 
 afterEach(() => {
@@ -151,7 +161,7 @@ it('still retires its process on a protocol fault, and fails that request', asyn
 
   const answer = port.info();
   answer.catch(() => undefined);
-  await vi.advanceTimersByTimeAsync(deadlines.exitMs);
+  await vi.advanceTimersByTimeAsync(CHILD_SIGNAL_GRACE_MS);
 
   await expect(answer).rejects.toThrow('Unexpected indexer response id');
   expect(process.kills()).toBe(1);
@@ -168,7 +178,7 @@ it('escalates a close the process never answers to one kill, joins the exit, and
   await connection.ready;
 
   const closing = connection.close();
-  await vi.advanceTimersByTimeAsync(deadlines.closeMs + deadlines.exitMs);
+  await vi.advanceTimersByTimeAsync(deadlines.closeMs + CHILD_SIGNAL_GRACE_MS);
 
   await expect(closing).resolves.toBeUndefined();
   expect(process.kills()).toBe(1);
@@ -201,7 +211,7 @@ it('keeps joining an exit that is slow after the kill, and never throws while th
   await vi.advanceTimersByTimeAsync(deadlines.closeMs + 1000);
   await expect(closing).resolves.toBeUndefined();
   expect(connection.exited).toBe(true);
-  expect(process.stalls).toEqual([`close:${deadlines.closeMs}`, `exit:${deadlines.exitMs}`]);
+  expect(process.stalls).toEqual([`close:${deadlines.closeMs}`, `exit:${CHILD_SIGNAL_GRACE_MS}`]);
 });
 
 it('closes cooperatively with no stall when the process answers and exits', async () => {
@@ -215,4 +225,69 @@ it('closes cooperatively with no stall when the process answers and exits', asyn
   await expect(closing).resolves.toBeUndefined();
   expect(process.kills()).toBe(0);
   expect(process.stalls).toEqual([]);
+});
+
+// ADR-0030: the close window runs from the request to the exit, and a refused kill is not a fault.
+it('kills a process that answered close but has not exited when the window ends', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ exitAfterCloseMs: 60_000, readyMs: 0, replyMs: 0 });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  await connection.ready;
+
+  const closing = connection.close();
+  await vi.advanceTimersByTimeAsync(deadlines.closeMs - 1);
+  expect(process.kills()).toBe(0);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(process.kills()).toBe(1);
+  // The killed process exits on its next timer turn.
+  await vi.advanceTimersByTimeAsync(1);
+  await expect(closing).resolves.toBeUndefined();
+  expect(connection.exited).toBe(true);
+  expect(process.stalls).toEqual([`close:${deadlines.closeMs}`]);
+});
+
+it('joins the exit of a process whose kill is refused while it is already exiting', async () => {
+  vi.useFakeTimers();
+  // Answers close, keeps exiting past the window, and Windows refuses the kill meanwhile.
+  const process = slowProcess({
+    exitAfterCloseMs: deadlines.closeMs + 5000,
+    readyMs: 0,
+    refusesKill: true,
+    replyMs: 0,
+  });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  await connection.ready;
+
+  const closing = connection.close();
+  await vi.advanceTimersByTimeAsync(deadlines.closeMs + 5000);
+
+  await expect(closing).resolves.toBeUndefined();
+  expect(connection.exited).toBe(true);
+  expect(process.kills()).toBe(1);
+  expect(process.refusals).toHaveLength(1);
+  expect(process.stalls).toEqual([`close:${deadlines.closeMs}`, `exit:${CHILD_SIGNAL_GRACE_MS}`]);
+});
+
+it('retires a faulted process whose kill is refused at its own exit, with the fault as the answer', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ garble: true, readyMs: 0, refusesKill: true, replyMs: 0 });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  const port = await connection.ready;
+
+  const answer = port.info();
+  answer.catch(() => undefined);
+  await vi.advanceTimersByTimeAsync(CHILD_SIGNAL_GRACE_MS);
+  // The refused kill leaves the process owned and joined, not failed or abandoned.
+  expect(connection.exited).toBe(false);
+  expect(process.refusals).toHaveLength(1);
+  expect(process.stalls).toEqual([`exit:${CHILD_SIGNAL_GRACE_MS}`]);
+
+  process.exitNow();
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(answer).rejects.toThrow('Unexpected indexer response id');
+  expect(connection.exited).toBe(true);
+  await expect(connection.close()).resolves.toBeUndefined();
 });

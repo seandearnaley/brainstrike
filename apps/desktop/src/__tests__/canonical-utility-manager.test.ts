@@ -132,7 +132,7 @@ function host(closeMs = 100): Promise<IndexerHostManager> {
         { kind: 'workspace', rootId: 'other' },
       ],
     },
-    { closeMs, exitMs: closeMs },
+    { closeMs },
     '/explicit/entry.js'
   );
 }

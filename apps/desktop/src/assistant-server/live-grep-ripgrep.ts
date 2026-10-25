@@ -12,13 +12,16 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { trackNativeChild } from '@brainstrike/state-store/native-children';
+import { createLogger } from '@brainstrike/logging';
+import { endTreeOnDeadline, trackNativeChild } from '@brainstrike/state-store/native-children';
 import {
   BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS,
   UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES,
   WORKSPACE_SECRET_FILE_PATTERNS,
 } from '@brainstrike/utils';
 import { extractTrigramLiteral } from '@brainstrike/utils/grep-pattern';
+
+const logger = createLogger('LiveGrepRipgrep');
 
 let credentialFloorFile: string | undefined;
 
@@ -329,11 +332,10 @@ export function runRipgrep(args: {
       {
         cwd: args.canonicalRootPath,
         maxBuffer: RIPGREP_MAX_BUFFER_BYTES,
-        timeout: timeoutMs,
         windowsHide: true,
-        ...(args.signal === undefined ? {} : { signal: args.signal }),
       },
       (error, stdout) => {
+        deadline.clear();
         // rg exit code 1 = "no matches" (not an error); 2 = a real error. The
         // callback's `error` is set for both non-zero exits and for the timeout/
         // max-buffer kills, so distinguish via the captured stdout we still have.
@@ -348,31 +350,23 @@ export function runRipgrep(args: {
         const buildError = (reason: string): RipgrepRunError => {
           const elapsedMs = Date.now() - startedAt;
           // `timedOut` is a ROUTING decision (the probe silences it to debug),
-          // so it must mean "our execFile timeout fired", not merely "killed":
-          // cross-check the kill signal (execFile's timeout sends SIGTERM) and
-          // the elapsed wall-clock against the budget, so an external
-          // SIGKILL/SIGTERM (OOM killer, app shutdown) stays a visible
-          // failure instead of vanishing as an expected bounded outcome.
-          const timedOut =
-            execError?.killed === true &&
-            !truncated &&
-            args.signal?.aborted !== true &&
-            execError?.signal === 'SIGTERM' &&
-            elapsedMs >= timeoutMs;
+          // so it means "our own timer ended the tree", never merely "killed":
+          // an external SIGKILL/SIGTERM (OOM killer, app shutdown) stays a
+          // visible failure instead of vanishing as an expected bounded outcome.
           return new RipgrepRunError(reason, {
             elapsedMs,
             errorCode: typeof execError?.code === 'string' ? execError.code : null,
             exitCode: typeof execError?.code === 'number' ? execError.code : null,
-            killed: execError?.killed === true,
+            killed: deadline.ended || execError?.killed === true,
             signal: typeof execError?.signal === 'string' ? execError.signal : null,
-            timedOut,
+            timedOut: deadline.timedOut && !truncated && args.signal?.aborted !== true,
           });
         };
         if (args.signal?.aborted) {
           reject(buildError('ripgrep aborted'));
           return;
         }
-        if (execError?.killed && !truncated) {
+        if (deadline.timedOut && !truncated) {
           reject(buildError(`ripgrep timed out after ${timeoutMs}ms`));
           return;
         }
@@ -381,8 +375,8 @@ export function runRipgrep(args: {
         // neither branch above fires — without this check the kill resolved
         // as a SUCCESSFUL search over partial/empty stdout and a clean
         // zero-match could mask a dead rg (Codex review). Our own timeout
-        // kill carries killed === true and is handled above; max-buffer kills
-        // resolve with `truncated` as before.
+        // is handled above; max-buffer kills resolve with `truncated` as before
+        // (rg then ends on its own broken stdout pipe).
         if (
           execError &&
           typeof execError.signal === 'string' &&
@@ -412,6 +406,13 @@ export function runRipgrep(args: {
         resolve({ candidatePaths: parseCandidates(), partialReadErrors: false, truncated });
       }
     );
+    // The timeout and the abort end rg's whole tree: execFile's own kill stops only the program
+    // it started, which may be a launcher or shim with rg still running under it.
+    const deadline = endTreeOnDeadline(child, {
+      onError: (cause) => logger.warn('Could not end the ripgrep process tree', { cause }),
+      signal: args.signal,
+      timeoutMs,
+    });
     // execFile cannot pass the Root's flock (an ADR-0017 limit); the host's supervisor still
     // learns this bounded search process.
     child.once('exit', trackNativeChild(child.pid, { group: false }));

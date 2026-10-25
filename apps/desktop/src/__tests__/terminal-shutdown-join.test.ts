@@ -6,10 +6,11 @@ import { createTerminalIpcHandlers, disposeAllTerminals } from '../terminal-ipc-
 const control = vi.hoisted(() => ({
   reaps: [] as ((error?: Error) => void)[],
 }));
-vi.mock('tree-kill', () => ({
-  default: (_pid: number, _signal: string, callback: (error?: Error) => void) => {
-    control.reaps.push(callback);
-  },
+vi.mock('@brainstrike/state-store/native-children', () => ({
+  terminateTree: () =>
+    new Promise<void>((resolve, reject) => {
+      control.reaps.push((error) => (error ? reject(error) : resolve()));
+    }),
 }));
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 vi.mock('../workspace-root-cwd', () => ({
@@ -84,7 +85,7 @@ describe('terminal shutdown joins physical cleanup', () => {
     expect(settled).toBe(false);
     expect(control.reaps).toHaveLength(1);
     control.reaps[0]?.();
-    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
     expect(f.kill).toHaveBeenCalledOnce();
     expect(settled).toBe(false);
     f.exit();
@@ -133,7 +134,7 @@ describe('terminal shutdown joins physical cleanup', () => {
     const failure = expect(drain).rejects.toThrow('Terminal shutdown cleanup failed');
     control.reaps[0]?.(new Error('tree walk failed'));
     f.exit();
-    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
     expect(settled).toBe(false);
     control.reaps[1]?.();
     other.exit();

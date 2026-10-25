@@ -25,7 +25,7 @@ const profile = {
   revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   tokenCap: 512,
 } as const;
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const vector = Array.from({ length: 384 }, (_, i) => (i === 0 ? 1 : 0));
 const snapshot = {
   content: captured.content,

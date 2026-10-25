@@ -1,7 +1,7 @@
 // ADR-0017: every native process a host starts belongs to exactly one held Root lease, and its supervisor hears about
 // it. That no new owner takes a dead host's Root while a native process it started still runs is host-lease's
 // native-tail integration test, on every OS.
-import type { ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import {
   type NativeChild,
   observeNativeChildren,
   spawnNativeChild,
+  terminateTree,
 } from '../src/native-children.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
@@ -76,4 +77,34 @@ test("the observer learns each native child's process group and its exit", async
     ['started', identity],
     ['exited', identity],
   ]);
+});
+
+// ADR-0030: on Windows a kill stops only the program it names, so a launcher or shim would leave
+// the real program running under it.
+test("ending a launcher's tree ends the program it started", async () => {
+  const launcher = spawn(
+    process.execPath,
+    [
+      '-e',
+      `const { spawn } = require('node:child_process');
+const program = spawn(process.execPath, ${JSON.stringify(SLEEPER)}, { stdio: 'ignore' });
+process.stdout.write(program.pid + '\\n');
+setInterval(() => {}, 1000);`,
+    ],
+    { stdio: ['ignore', 'pipe', 'inherit'] }
+  );
+  children.push(launcher);
+  const [line] = await once(launcher.stdout, 'data');
+  const program = Number(String(line).trim());
+  const exited = once(launcher, 'exit');
+  try {
+    expect(processStartTime(program)).not.toBeNull();
+    await terminateTree(launcher.pid ?? 0);
+    await exited;
+    await expect.poll(() => processStartTime(program)).toBeNull();
+  } finally {
+    if (processStartTime(program) !== null) {
+      process.kill(program, 'SIGKILL');
+    }
+  }
 });

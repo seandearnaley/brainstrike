@@ -16,8 +16,8 @@ The public shapes live in [`contracts.ts`](src/contracts.ts) and
 [`index.ts`](src/index.ts). Opening specifies the owned database path, authorized
 roots/scopes and an explicit embedding mode: `text-only`, `vector-configured` or
 `open-existing`. The last mode requires an existing index. Text-only acquisition
-loads no model. The owner supplies the close ladder's two finite positive durations,
-`closeMs` (a cooperative close before the kill) and `exitMs` (the exit join). Startup
+loads no model. The owner supplies the close window, `closeMs`: from the close request
+to the exit, after which the process is killed and its exit still joined. Startup
 and requests have no deadline: the process is retired only on its exit or a transport
 or protocol fault, never because it is slow.
 
@@ -54,9 +54,9 @@ index. Supported schema construction is owned by
 A rebuild preserves canonical chats/catalog/configuration.
 
 `close()` joins the physical process. `destroy()` joins it before deleting its
-owned database, WAL and shared-memory files. A transport failure or close deadline
-does not prove retirement: `IndexerLifecycleError` retains the explicit cleanup owner
-when termination/join fails. Keep profile/reset ownership until cleanup succeeds.
+owned database, WAL and shared-memory files. The close window runs from the close
+request to the exit; a process still running then is killed, and only its exit ends
+it. A refused kill is logged, never a fault (ADR-0030).
 
 ## Development
 

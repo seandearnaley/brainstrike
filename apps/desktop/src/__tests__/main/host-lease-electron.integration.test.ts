@@ -14,12 +14,16 @@ import {
   type HostRecord,
   launchHost,
 } from '@brainstrike/host-lease';
-import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
+import {
+  CHILD_CLOSE_BUDGET_MS,
+  processStartTime,
+  RootLock,
+  StateStore,
+} from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
-import { HOST_COOPERATIVE_CLOSE_MS } from '../../host-lease-manager';
 import { electronExecutablePath } from '../helpers/electron-executable';
 
 /**
@@ -29,7 +33,7 @@ import { electronExecutablePath } from '../helpers/electron-executable';
  * the close ladder (R5(b)).
  */
 const TEST_BUDGET_MS =
-  getAdjustedTimeout('uiComponent') + HOST_STARTUP_TIMEOUT_MS + HOST_COOPERATIVE_CLOSE_MS;
+  getAdjustedTimeout('uiComponent') + HOST_STARTUP_TIMEOUT_MS + CHILD_CLOSE_BUDGET_MS;
 
 const decodeReport = makeThrowingDecoder(
   Schema.Struct({

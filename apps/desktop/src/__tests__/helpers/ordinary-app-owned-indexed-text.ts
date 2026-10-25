@@ -15,7 +15,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-result-contract';
 import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { joinProcessExit, processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { _electron, type ElectronApplication } from 'playwright';
@@ -181,9 +181,7 @@ export async function qualifyOrdinaryAppIndexedText(
       }
       try {
         await retireOwnedTestProcesses(owners, {
-          join: async ({ pid, start }) => {
-            await expect.poll(() => processStartTime(pid)).not.toBe(start);
-          },
+          join: ({ pid, start }) => joinProcessExit(pid, start),
           signal: (pid, signal) => process.kill(pid, signal),
           startTime: processStartTime,
         });

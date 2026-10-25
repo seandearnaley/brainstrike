@@ -5,7 +5,7 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const { createInterface } = require('node:readline');
 const { test } = require('node:test');
-const { getCurrentProcessIdentity, getProcessCreationTime } = require('..');
+const { getCurrentProcessIdentity, getProcessCreationTime, waitForProcessExit } = require('..');
 const { commandFixture } = require('./command-job-fixture.cjs');
 const windows = { skip: process.platform !== 'win32' };
 
@@ -103,4 +103,36 @@ process.send({event:'member',pid:member.pid});
   });
   observer.child.stdin.write('check\n');
   assert.deepEqual((await observer.wait('check')).waits, [258]);
+});
+
+test('joins an exit on its handle; an exited or reused PID settles at once', windows, async () => {
+  const child = spawn(
+    process.execPath,
+    ['-e', 'process.send("ready"); process.on("message",()=>process.exit(0));'],
+    { stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true }
+  );
+  const exited = once(child, 'exit');
+  try {
+    await once(child, 'message');
+    const creation = getProcessCreationTime(child.pid);
+    let joined = false;
+    const join = waitForProcessExit(child.pid, creation).then(() => {
+      joined = true;
+    });
+    // A live process keeps the join pending; nothing re-reads it meanwhile.
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(joined, false);
+    child.send('exit');
+    await join;
+    assert.equal(getProcessCreationTime(child.pid), null);
+    await waitForProcessExit(child.pid, creation);
+    // The PID now names a process with another creation time: the one asked for is gone.
+    await waitForProcessExit(process.pid, '1');
+    assert.throws(() => waitForProcessExit(0, creation), TypeError);
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill();
+    }
+    await exited;
+  }
 });

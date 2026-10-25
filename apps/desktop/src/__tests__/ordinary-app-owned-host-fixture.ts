@@ -14,7 +14,12 @@ import {
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock, RootLockedError } from '@brainstrike/state-store';
+import {
+  joinProcessExit,
+  processStartTime,
+  RootLock,
+  RootLockedError,
+} from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron } from 'playwright';
 import { expect, test } from 'vitest';
@@ -26,6 +31,7 @@ import {
   type ModelProviderScript,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { writeCommittedThreadRows } from './helpers/committed-thread-rows';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import {
   electronExecutablePath,
@@ -897,6 +903,7 @@ setInterval(() => {}, 1000);
       );
     } catch (cause) {
       failure = cause;
+      await writeCommittedThreadRows(client, evidence);
       const page = application?.windows()[0];
       if (page && !page.isClosed()) {
         const captures = await Promise.allSettled([
@@ -962,9 +969,7 @@ setInterval(() => {}, 1000);
       }
       try {
         await retireOwnedTestProcesses(owners, {
-          join: async ({ pid, start }) => {
-            await expect.poll(() => processStartTime(pid), RUN_PROGRESS_POLL).not.toBe(start);
-          },
+          join: ({ pid, start }) => joinProcessExit(pid, start),
           signal: (pid, signal) => process.kill(pid, signal),
           startTime: processStartTime,
         });
