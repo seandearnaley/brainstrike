@@ -6,6 +6,15 @@ import { createNativeIndexRuntime } from '../../native-index-runtime';
 function report(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
+/** A failure with its cause chain: a refusal's message alone does not say what refused. */
+function describe(cause: unknown): string {
+  const parts: string[] = [];
+  for (let current = cause, depth = 0; current !== undefined && depth < 5; depth += 1) {
+    parts.push(String(current));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return parts.join(' <- ');
+}
 const root = process.argv[2];
 const entryPath = process.argv[3];
 if (!(root && entryPath)) {
@@ -58,7 +67,7 @@ function close(): void {
     app.quit();
   });
   closing.catch((cause: unknown) => {
-    report({ event: 'failed', message: String(cause) });
+    report({ event: 'failed', message: describe(cause) });
     app.exit(1);
   });
 }
@@ -94,6 +103,6 @@ app
     });
   })
   .catch((cause: unknown) => {
-    report({ event: 'failed', message: String(cause) });
+    report({ event: 'failed', message: describe(cause) });
     close();
   });
