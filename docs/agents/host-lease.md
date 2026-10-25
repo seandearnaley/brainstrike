@@ -72,8 +72,8 @@ R2 exception: not ours to wait on):
 - **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
   external CLI path this redesign did not convert: readiness 30 s
   (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the
-  group of a detached host) if the host has not exited within 10 s
-  (`HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`). A forced kill is an error, never a
+  group of a detached host) if the host has not exited within the one close
+  budget (`CHILD_CLOSE_BUDGET_MS`, ADR-0030). A forced kill is an error, never a
   clean retirement. It attaches the host it started over its socket under a
   startup bound measured from its ready report, and starts again if another owner
   replaced that host.

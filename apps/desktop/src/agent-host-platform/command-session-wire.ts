@@ -52,7 +52,6 @@ const Failure = Schema.Struct({
       'session-id-collision',
       'session-not-found',
       'start-failed',
-      'stop-failed',
       'workspace-busy',
     ]),
     message: Schema.String,

@@ -15,7 +15,6 @@ type CommandSessionErrorCode =
   | 'session-id-collision'
   | 'session-not-found'
   | 'start-failed'
-  | 'stop-failed'
   | 'workspace-busy';
 
 export type CommandSessionResult<T = void> =
