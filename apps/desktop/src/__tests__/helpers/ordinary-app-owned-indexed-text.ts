@@ -14,7 +14,7 @@ import {
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
 import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-result-contract';
-import { decodeHostRecord } from '@brainstrike/host-lease';
+import { decodeHostRecord, HOST_STARTUP_TIMEOUT_MS } from '@brainstrike/host-lease';
 import { joinProcessExit, processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
@@ -316,23 +316,28 @@ export async function qualifyOrdinaryAppIndexedText(
     await ensureAssistantShellVisible(page);
     // Only the normal grant/mount flow authorizes the workspace for tools.
     await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
+    // The folder is recorded through the profile host, so it appears once the host is admitted:
+    // bounded by the host's own start-up contract, not Vitest's default poll clock.
     await expect
-      .poll(async () => {
-        const roots = await page.evaluate(async (workspace) => {
-          const api = window.electronAPI;
-          if (!(api && 'fileSystem' in api)) {
-            throw new Error('The normal desktop filesystem bridge is missing');
-          }
-          const reply = await api.fileSystem.restoreRoots();
-          if (!reply.ok) {
-            throw new Error(reply.error.message);
-          }
-          return reply.value.filter((root) => root.handle.path === workspace);
-        }, workspace);
-        const parsed = z.array(z.object({ rootId: z.string() })).parse(roots);
-        workspaceRootId = parsed[0]?.rootId;
-        return workspaceRootId !== undefined;
-      })
+      .poll(
+        async () => {
+          const roots = await page.evaluate(async (workspace) => {
+            const api = window.electronAPI;
+            if (!(api && 'fileSystem' in api)) {
+              throw new Error('The normal desktop filesystem bridge is missing');
+            }
+            const reply = await api.fileSystem.restoreRoots();
+            if (!reply.ok) {
+              throw new Error(reply.error.message);
+            }
+            return reply.value.filter((root) => root.handle.path === workspace);
+          }, workspace);
+          const parsed = z.array(z.object({ rootId: z.string() })).parse(roots);
+          workspaceRootId = parsed[0]?.rootId;
+          return workspaceRootId !== undefined;
+        },
+        { timeout: HOST_STARTUP_TIMEOUT_MS }
+      )
       .toBe(true);
     const record = decodeHostRecord(JSON.parse(await readFile(join(profile, 'host.json'), 'utf8')));
     expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
