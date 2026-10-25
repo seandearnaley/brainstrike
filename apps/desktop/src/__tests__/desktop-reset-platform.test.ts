@@ -705,7 +705,7 @@ describe('createDesktopFactoryResetHandler', () => {
 
   it('preserves refused transition admission without stopping or resetting any runtime', async () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
-    const refusal = new Error('Native root deletion owns admission; retry its cleanup first.');
+    const refusal = new Error('Native root deletion owns admission; retry after it settles.');
     const stop = vi.fn(async () => {});
     const resumeAfterReset = vi.fn(async () => {});
     const options = {
