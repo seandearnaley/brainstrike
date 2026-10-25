@@ -1,6 +1,11 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { MessageConnection } from 'vscode-jsonrpc';
-import { type BoundaryLog, fromBoundaryResponseError } from './boundary-wire.ts';
+import {
+  type BoundaryLog,
+  fromBoundaryResponseError,
+  HOST_CLOSING,
+  isConnectionLoss,
+} from './boundary-wire.ts';
 
 const retired = new WeakMap<MessageConnection, BoundaryFailureError>();
 
@@ -22,6 +27,11 @@ export async function sendHostRequest(
     return await send();
   } catch (cause) {
     const failure = fromBoundaryResponseError(cause, log, connection);
+    const announced = retired.get(connection);
+    if (announced !== undefined && isConnectionLoss(failure)) {
+      // The retiring host answers every request it read before it closes.
+      throw announced;
+    }
     if (
       failure instanceof BoundaryFailureError &&
       failure.failure.kind === 'refusal' &&
@@ -30,5 +40,12 @@ export async function sendHostRequest(
       retired.set(connection, failure);
     }
     throw failure;
+  }
+}
+
+/** `HOST_CLOSING_EVENT`: later sends are refused unsent; one its close leaves unanswered was never read. */
+export function markHostClosing(connection: MessageConnection): void {
+  if (!retired.has(connection)) {
+    retired.set(connection, new BoundaryFailureError(HOST_CLOSING));
   }
 }

@@ -141,15 +141,20 @@ once on its own, then waits for the user's Reconnect; views rebind from the
 replacement's committed log. A send the lost host never answered is settled from
 that log (interrupted, or returned to the composer as not sent), never resent.
 
-A host's explicit `host.closing` refusal retires admission on that client
-connection for both host RPC and catalog commands. Earlier replies still join;
-later commands return the original refusal without sending into the retiring
-transport. Other failures do not imply this terminal state.
+A retiring host first announces `host/closing` on every connection, socket and
+private alike (as HTTP/2's GOAWAY). That announcement, or an explicit
+`host.closing` refusal, retires admission on that client connection for both
+host RPC and catalog commands. Earlier replies still join; later commands return
+the refusal without sending into the retiring transport. A request the transport's
+close leaves unanswered after the announcement was never read, so it is refused
+as `host.closing`, not lost. Without the announcement (a crash), it stays
+`host.connection-lost`. Other failures do not imply this terminal state.
 
-Socket retirement keeps reads open while dispatched work joins, so new requests
-can still receive closing refusals. It then pauses reads and joins complete-frame
-decoding and response writes before destroying the transport. An empty dispatch
-queue alone does not prove that the reader has finished its received frames.
+Retirement keeps reads open while dispatched work joins, so new requests can
+still receive closing refusals, and answers every request it read. A socket then
+pauses reads and joins complete-frame decoding and response writes before
+destroying the transport. An empty dispatch queue alone does not prove that the
+reader has finished its received frames.
 
 Stop, deletion and host close fence admission and join provider, tool and memory
 work before releasing storage or Root. A terminal outcome does not prove physical

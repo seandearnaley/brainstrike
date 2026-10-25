@@ -23,7 +23,7 @@ import { bindHostConnection, type HostConnectionOptions } from './connection.ts'
 import { HostCore } from './core.ts';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
 import type { HostClientOrigin, HostPlatform } from './ports.ts';
-import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT } from './protocol.ts';
 
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
@@ -83,6 +83,13 @@ function platformClientServices(
     ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
     ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
   };
+}
+/**
+ * `HOST_CLOSING_EVENT`, before the connection refuses new requests. A client that
+ * is already gone fails the write; it has nothing left to be told.
+ */
+function announceClosing(connection: MessageConnection): void {
+  connection.sendNotification(HOST_CLOSING_EVENT).catch(() => undefined);
 }
 /** The owned facade forwards each optional capability the acquired platform supplies. */
 function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
@@ -212,6 +219,15 @@ export async function startAgentHost(
   let runtime: HostRuntime | undefined;
   let core: HostCore | undefined;
   let closing = false;
+  // Each private client's retirement, like a socket's: announce, refuse, then answer what it read.
+  const privateClients = new Set<() => Promise<void>>();
+  let privateClientsRetired: Promise<void> | undefined;
+  const retirePrivateClients = (): Promise<void> => {
+    privateClientsRetired ??= Promise.all([...privateClients].map((retire) => retire())).then(
+      () => undefined
+    );
+    return privateClientsRetired;
+  };
   let clearContent = false;
   let cleared: ClearContentResult | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
@@ -281,6 +297,7 @@ export async function startAgentHost(
           // settles, stop reads before joining the received decode/dispatch tail:
           // an empty dispatch queue does not mean the reader is empty (BST-2282).
           return async () => {
+            announceClosing(connection);
             retiring.abort();
             await connection.drain();
             socket.pause();
@@ -355,6 +372,9 @@ export async function startAgentHost(
           }
           return {
             close: async () => {
+              // A private client's admitted requests write their answers before Core and the
+              // store close, as a socket's do before its transport is destroyed.
+              await retirePrivateClients();
               await closeHostStoreAfterCore(
                 async () => core?.close(),
                 async () => {
@@ -371,6 +391,8 @@ export async function startAgentHost(
         },
         beginClose: () => {
           closing = true;
+          // Started with the fence; the Root finalizer joins this same promise and its failure.
+          void retirePrivateClients().catch(() => undefined);
           // The Root finalizer below joins this exact idempotent Core promise.
           // Observe early rejection without consuming it or releasing the store.
           void core?.close().catch(() => undefined);
@@ -406,6 +428,7 @@ export async function startAgentHost(
       // A private client is attached, like a socket client, from its
       // initialize until its transport closes.
       let detach: (() => void) | undefined;
+      const retiring = new AbortController();
       const unbind = bindHostConnection(
         connection,
         core,
@@ -413,10 +436,20 @@ export async function startAgentHost(
         () => {
           detach = runtime.attachClient();
         },
-        { origin, ...clientCapabilities() }
+        { origin, retiring: retiring.signal, ...clientCapabilities() }
       );
-      const closed = connection.onClose(() => detach?.());
+      const retire = async (): Promise<void> => {
+        announceClosing(connection);
+        retiring.abort();
+        await connection.drain();
+      };
+      privateClients.add(retire);
+      const closed = connection.onClose(() => {
+        privateClients.delete(retire);
+        detach?.();
+      });
       return () => {
+        privateClients.delete(retire);
         closed.dispose();
         detach?.();
         unbind();

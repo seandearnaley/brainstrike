@@ -39,6 +39,17 @@ const CONNECTION_CLOSED = refusal({
   message: 'The agent host connection had closed, so the request was not sent.',
 });
 
+/**
+ * The host is retiring. It answers a request it admitted, and refuses one that
+ * arrives once it is closing; its client refuses, with this same failure, a
+ * request the host announced it will never read (`HOST_CLOSING_EVENT`).
+ */
+export const HOST_CLOSING = refusal({
+  category: 'availability',
+  code: 'host.closing',
+  message: 'The agent host is closing.',
+});
+
 /** A request refused before it was sent, because its connection had closed. */
 export function isUnsentRequest(cause: unknown): boolean {
   return cause instanceof BoundaryFailureError && cause.failure.code === CONNECTION_CLOSED.code;
