@@ -1,7 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
 import { escape as escapeWildcard, Minimatch } from 'minimatch';
-import { isWindowsPath } from './path-ancestors.ts';
+import { slashSeparatedPath } from './path-ancestors.ts';
 
 /**
  * Common file patterns to ignore.
@@ -118,7 +118,7 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
   }
 
   const matcher = getOrCreateWildcardMatcher(pattern);
-  return matcher.match(str);
+  return matcher.match(slashSeparatedPath(str));
 };
 
 /**
@@ -127,11 +127,11 @@ const matchWildcardPattern = (str: string, pattern: string): boolean => {
  * explorer's tree filter matches a path without its leading `/` and this
  * module's `filterNode` matches it with one, so the literal follows a leading
  * `**` segment, which both accept. A Windows path is written with `/`: in a
- * glob a backslash escapes, and minimatch compares Windows paths by `/`.
+ * glob a backslash escapes, and both matchers compare a Windows path by `/`
+ * (`slashSeparatedPath`).
  */
 export function literalFilterPattern(path: string): string {
-  const separated = isWindowsPath(path) ? path.replaceAll('\\', '/') : path;
-  return `**/${escapeWildcard(separated.replace(/^\/+/u, ''))}`;
+  return `**/${escapeWildcard(slashSeparatedPath(path).replace(/^\/+/u, ''))}`;
 }
 
 /**
@@ -248,11 +248,11 @@ export const fileFilter = {
       if (!regex) {
         return () => false;
       }
-      return (str: string) => regex.test(str);
+      return (str: string) => regex.test(slashSeparatedPath(str));
     }
 
     const matcher = getOrCreateWildcardMatcher(pattern);
-    return (str: string) => matcher.match(str);
+    return (str: string) => matcher.match(slashSeparatedPath(str));
   },
 
   /**
@@ -278,7 +278,7 @@ export const fileFilter = {
    */
   matchRegex(str: string, pattern: string): boolean {
     const regex = getRegexMatcher(pattern);
-    return regex ? regex.test(str) : false;
+    return regex ? regex.test(slashSeparatedPath(str)) : false;
   },
 
   /**

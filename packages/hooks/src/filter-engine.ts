@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { normalizePathForMatching } from '@brainstrike/utils/filter-utils';
 import { Minimatch } from 'minimatch';
 
 function compileRegexPatterns(
@@ -44,10 +45,6 @@ function cloneNode(node: IFileNode, keepChildren: boolean): IFileNode {
     newNode.children = [];
   }
   return newNode;
-}
-
-function normalizeNodePath(path: string): string {
-  return path.startsWith('/') ? path.slice(1) : path;
 }
 
 function processDirectoryNode(
@@ -143,7 +140,7 @@ export function createProcessTreeFunction(
   const processTree = (nodes: IFileNode[]): IFileNode[] => {
     const result: IFileNode[] = [];
     for (const node of nodes) {
-      const path = normalizeNodePath(node.path);
+      const path = normalizePathForMatching(node.path);
       if (matchesExclude(path)) {
         continue;
       }
