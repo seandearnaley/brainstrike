@@ -1,3 +1,4 @@
+import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -91,6 +92,64 @@ describe('thread workspace app-owned close', () => {
       mounted.unmount();
     }
   });
+
+  // The host was stopped just before quit: the write waits on the one reconnect, which quit's
+  // fenced profile refuses. Nothing is left to deliver; only a fault fails the close.
+  it.each([
+    [
+      'refused because its owner is unavailable',
+      {
+        category: 'availability',
+        code: 'native-index-closed',
+        kind: 'refusal',
+        message: 'The search index is closed.',
+      },
+      undefined,
+    ],
+    [
+      'failed',
+      {
+        category: 'internal',
+        code: 'state.write-failed',
+        kind: 'fault',
+        message: 'The write failed.',
+      },
+      'Durable writers failed to flush before unload: Thread workspace snapshot writes failed before unload: The write failed.',
+    ],
+  ] as const)(
+    'a closing snapshot write %s settles the close as such',
+    async (_outcome, wire: BoundaryFailure, failure) => {
+      // The module registry was reset: the coordinator recognises this instance's error class.
+      const { BoundaryFailureError } = await import(
+        '@brainstrike/assistant-contract/boundary-failure'
+      );
+      const harness = createHarness();
+      const mounted = render(harness, 'thread-a');
+      try {
+        await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+        vi.mocked(harness.repository.setThreadWorkspace).mockRejectedValueOnce(
+          new BoundaryFailureError(wire)
+        );
+        act(() => {
+          harness.state.explorerScrollTop = 240;
+          harness.notify();
+        });
+        const closing = prepareRendererClose();
+        await act(async () => {
+          await (failure === undefined
+            ? expect(closing).resolves.toBeUndefined()
+            : expect(closing).rejects.toThrow(failure));
+        });
+        expect(harness.repository.setThreadWorkspace).toHaveBeenLastCalledWith(
+          'thread-a',
+          'brainstrike:workspace',
+          expect.objectContaining({ explorer: expect.objectContaining({ scrollTop: 240 }) })
+        );
+      } finally {
+        mounted.unmount();
+      }
+    }
+  );
 
   it('drains to quiescence: a write a pending hydration read admits while the flush waits is joined too', async () => {
     const harness = createHarness();

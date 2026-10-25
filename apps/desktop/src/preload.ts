@@ -49,6 +49,12 @@ const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
 // Only the visible preload receives this client transport. Main authorizes the
 // requesting frame before transferring a port; the host authenticates commands.
 const frameClosePreparations = new Set<() => Promise<void>>();
+/**
+ * A failed preparation crosses to Main as text. The context bridge copies only an error's
+ * message, so the renderer's aggregates name their causes in it.
+ */
+const describeCloseFailure = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
 contextBridge.exposeInMainWorld('agentHost', {
   connect: (requestId: string): Promise<IpcResult<void>> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
@@ -68,7 +74,10 @@ ipcRenderer.on(
       [...frameClosePreparations].map(async (prepare) => await prepare())
     );
     void preparation.then((results) => {
-      reply.postMessage({ prepared: results.every((result) => result.status === 'fulfilled') });
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [describeCloseFailure(result.reason)] : []
+      );
+      reply.postMessage(failures.length === 0 ? { prepared: true } : { failures, prepared: false });
       reply.close();
     });
   }

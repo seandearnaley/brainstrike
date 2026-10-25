@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { execFile } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
@@ -27,6 +26,7 @@ import {
   type ModelProviderRequest,
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
+import { createAppOutput } from './app-output';
 import { createDisposableAppProfile } from './disposable-app-profile';
 import { electronExecutablePath, FOREGROUND_RENDERER_SWITCHES } from './electron-executable';
 import { launchAppWithLauncher } from './electron-launcher-watchdog';
@@ -106,6 +106,7 @@ export async function qualifyOrdinaryAppIndexedText(
   let failure: unknown;
   const errors: unknown[] = [];
   const owners: OwnedTestProcess[] = [];
+  const output = createAppOutput(join(evidence, 'output.log'));
   const capture = async (app: ElectronApplication): Promise<void> => {
     for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
       const start = processStartTime(pid);
@@ -191,6 +192,13 @@ export async function qualifyOrdinaryAppIndexedText(
       }
       remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
       try {
+        if (application) {
+          await within(output.expectCleanShutdown(), 'The app output close');
+        }
+      } catch (cause) {
+        errors.push(cause);
+      }
+      try {
         await model.close();
         providerClosed = await providerPortRefused(model.baseUrl);
         if (!providerClosed) {
@@ -248,11 +256,7 @@ export async function qualifyOrdinaryAppIndexedText(
     if (appProcess.pid && appStart) {
       owners.push({ kind: 'app', pid: appProcess.pid, start: appStart });
     }
-    // Written as it arrives: a proof that outlives its test timeout never reaches its
-    // finally, and the app's own output is what names a startup failure.
-    const output = join(evidence, 'output.log');
-    appProcess.stdout?.on('data', (data: Buffer) => appendFileSync(output, data));
-    appProcess.stderr?.on('data', (data: Buffer) => appendFileSync(output, data));
+    output.record(appProcess);
     await capture(application);
     await application.context().route('**/assistant/openrouter-model?*', async (route) => {
       await route.fulfill({
