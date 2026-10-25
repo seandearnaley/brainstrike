@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
 import { useAssistantThreadHost } from '../assistant-thread-host-context';
-import { resolveChangesBridge } from './changes-bridge';
+import { useChangesBridge } from '../workspace-git-services';
 import type { RewindPort } from './rewind-port';
 
 /** Rewinds belong to the thread's agent host; unknown ownership refuses. */
 export function useRewindPortFor(): ((threadId: string) => RewindPort) | null {
   const host = useAssistantThreadHost();
+  const changes = useChangesBridge();
   return useMemo(() => {
-    if (!(host && resolveChangesBridge())) {
+    if (!(host && changes)) {
       return null;
     }
     return (threadId: string): RewindPort => {
@@ -17,5 +18,5 @@ export function useRewindPortFor(): ((threadId: string) => RewindPort) | null {
       }
       return port;
     };
-  }, [host]);
+  }, [changes, host]);
 }

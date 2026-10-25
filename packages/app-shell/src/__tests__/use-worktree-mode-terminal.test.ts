@@ -8,6 +8,7 @@
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const {
   archiveSpy,
@@ -25,21 +26,14 @@ const {
   openTerminalAtMock: vi.fn(),
 }));
 
-vi.mock('../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({
-    adopt: vi.fn(),
+const wrapper = workspaceGitWrapper({
+  worktrees: stubWorktreesBridge({
     archive: archiveSpy,
-    checkoutStatus: vi.fn(),
     create: createSpy,
-    createBranchHere: vi.fn(),
-    createContext: vi.fn(),
     getSettings: getSettingsSpy,
     list: listSpy,
-    listManagedPaths: vi.fn(),
-    restore: vi.fn(),
-    setSettings: vi.fn(),
   }),
-}));
+});
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({
@@ -145,7 +139,9 @@ describe('useWorktreeMode terminal wiring', () => {
       rootIdIsExactMount: false,
     });
     listSpy.mockResolvedValue({ ok: true, value: [nested] });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }), {
+      wrapper,
+    });
     act(() => result.current?.onOpenPicker());
     await waitFor(() => expect(result.current?.onOpenTerminal).toEqual(expect.any(Function)));
 
@@ -167,7 +163,9 @@ describe('useWorktreeMode terminal wiring', () => {
       rootIdIsExactMount: false,
     });
     listSpy.mockResolvedValue({ ok: true, value: [noRoot] });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }), {
+      wrapper,
+    });
     act(() => result.current?.onOpenPicker());
     // NOT `worktree not null`: `computeWorktreeSummary` has a second,
     // "missing worktree" branch fed by `missingWorktreePath`, which is
@@ -196,7 +194,9 @@ describe('useWorktreeMode terminal wiring', () => {
       rootIdIsExactMount: false,
     });
     listSpy.mockResolvedValue({ ok: true, value: [nested] });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }), {
+      wrapper,
+    });
     act(() => result.current?.onOpenPicker());
     // Same fallback-satisfiable-waitFor trap as above: gate on the RESOLVED
     // entry's path, not mere non-null worktree.

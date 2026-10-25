@@ -34,6 +34,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';
+import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
+import { workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 // `fs` is only dereferenced when the mocked useFileSystem() is CALLED (render
 // time), so vitest's vi.mock hoisting above these imports is safe.
@@ -155,7 +157,7 @@ const OTHER_THREAD_ID = 'thread-2';
 // The DURABLE `roots.id` per path. Deliberately DIFFERENT from the adapter
 // rootIds above (`adapter-*`) and from the descriptor id below: the two id
 // spaces share only the path, and everything downstream of this hook
-// (window.git.status, secondaryRootIds) speaks the DB space.
+// (the Git bridge's status, secondaryRootIds) speaks the DB space.
 const ROOT_ROW_BY_ID: Readonly<Record<string, { displayName: string; path: string }>> = {
   'r-alpha-db': { displayName: 'alpha', path: '/ws/alpha' },
   'r-docs': { displayName: 'docs', path: '/ws/docs' },
@@ -237,8 +239,11 @@ function seedThread(metadata: Record<string, unknown>) {
   seedThreads([{ id: THREAD_ID, metadata }], THREAD_ID);
 }
 
+/** The worktrees bridge the host serves in the current test; none (web) unless installed. */
+let installedWorktrees: WorktreesBridge | null = null;
+
 function installWorktreesBridge(): void {
-  (window as Window & { worktrees?: unknown }).worktrees = {
+  installedWorktrees = {
     adopt: vi.fn(),
     archive: worktreeArchiveSpy,
     checkoutStatus: vi.fn(),
@@ -299,7 +304,10 @@ async function setup(metadata: Record<string, unknown> = {}) {
         rootDescriptors,
         selectedMemoryThreadId: props.selectedMemoryThreadId,
       }),
-    { initialProps: { selectedMemoryThreadId: THREAD_ID } as BarProps }
+    {
+      initialProps: { selectedMemoryThreadId: THREAD_ID } as BarProps,
+      wrapper: workspaceGitWrapper({ worktrees: installedWorktrees }),
+    }
   );
   // Let the mount-time roots/recents reads settle inside act so no state
   // update escapes the test's act() scope.
@@ -308,7 +316,7 @@ async function setup(metadata: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  Reflect.deleteProperty(window, 'worktrees');
+  installedWorktrees = null;
   (window as Window & { platform?: unknown }).platform = {
     openExternal: vi.fn(async () => ({ ok: true })),
     openPath: vi.fn(async () => ({ ok: true })),
@@ -349,7 +357,7 @@ beforeEach(() => {
 afterEach(() => {
   Reflect.deleteProperty(window, 'threadGroups');
   Reflect.deleteProperty(window, 'platform');
-  Reflect.deleteProperty(window, 'worktrees');
+  installedWorktrees = null;
   vi.useRealTimers();
 });
 

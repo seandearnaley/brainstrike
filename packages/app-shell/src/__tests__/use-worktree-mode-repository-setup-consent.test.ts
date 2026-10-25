@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const {
   addRootByPathSpy,
@@ -30,21 +31,14 @@ const {
   toastSpy: vi.fn(),
 }));
 
-vi.mock('../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({
-    adopt: vi.fn(),
-    archive: vi.fn(),
-    checkoutStatus: vi.fn(),
+const wrapper = workspaceGitWrapper({
+  worktrees: stubWorktreesBridge({
     create: createSpy,
-    createBranchHere: vi.fn(),
     createContext: createContextSpy,
     getSettings: getSettingsSpy,
     list: listSpy,
-    listManagedPaths: vi.fn(),
-    restore: vi.fn(),
-    setSettings: vi.fn(),
   }),
-}));
+});
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({
@@ -157,7 +151,7 @@ describe('useWorktreeMode repository setup consent', () => {
         suggestedName: 'bright-fox',
       },
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
 
     await act(async () => {
       await result.current?.onOpenCreateSheet();
@@ -202,7 +196,7 @@ describe('useWorktreeMode repository setup consent', () => {
         suggestedName: 'bright-fox',
       },
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
 
     await act(async () => {
       await result.current?.onOpenCreateSheet();
@@ -235,7 +229,7 @@ describe('useWorktreeMode repository setup consent', () => {
         suggestedName: 'bright-fox',
       },
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
 
     await act(async () => {
       await result.current?.onOpenCreateSheet();
@@ -254,7 +248,7 @@ describe('useWorktreeMode repository setup consent', () => {
         suggestedName: 'bright-fox',
       },
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
     // Deliberately never calling onOpenCreateSheet: this is the branch menu's
@@ -284,7 +278,7 @@ describe('useWorktreeMode repository setup consent', () => {
         suggestedName: 'bright-fox',
       },
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
     await act(async () => {

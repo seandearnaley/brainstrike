@@ -1,6 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
-import { resolveChangesBridge } from '@brainstrike/app-shell/changes/availability';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import {
   type ThreadWorkspaceBinding,
@@ -21,6 +20,7 @@ import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { createDesktopHostConnection, type DesktopHostConnection } from './desktop-host-connection';
+import { resolveDesktopWorkspaceGitServices } from './host-git-workspace';
 import { createHostRewindPort } from './host-rewind-port';
 import { HostThreadCanvases } from './host-thread-canvases';
 import { openHostThreadContext } from './host-thread-context';
@@ -298,9 +298,9 @@ export function createWindowThreadCapability(
       if (!threads.has(threadId)) {
         return;
       }
-      const changes = resolveChangesBridge();
+      const { changes } = resolveDesktopWorkspaceGitServices();
       if (!changes) {
-        throw new Error('Restoring a host thread needs the desktop changes bridge');
+        throw new Error('Restoring a host thread needs the host workspace git service');
       }
       // Each rewind request goes to the current client, whichever host serves it.
       return createHostRewindPort(

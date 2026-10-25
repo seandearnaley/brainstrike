@@ -397,7 +397,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     const contracts = discoverContracts();
     expect([...new Set(contracts.map(({ file }) => file))]).toEqual([
       'agent-host-recovery.contract.ts',
-      'changes.contract.ts',
       'clipboard.contract.ts',
       'command-sessions.contract.ts',
       'content-clear.contract.ts',
@@ -405,8 +404,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'database.contract.ts',
       'factory-reset.contract.ts',
       'file-system.contract.ts',
-      'forge.contract.ts',
-      'git.contract.ts',
       'index-search.contract.ts',
       'mcp.contract.ts',
       'model-catalog.contract.ts',
@@ -417,7 +414,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'user-personas.contract.ts',
       'view-filter-presets.contract.ts',
       'window-focus.contract.ts',
-      'worktrees.contract.ts',
     ]);
     expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(1);
     expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);

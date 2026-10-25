@@ -1,15 +1,6 @@
-// Capability check from the dependency-light `availability` subpath (NOT
-// `/changes`, which also re-exports ChangesSurface + the diff renderer) so
-// the startup check does not defeat the lazy code-split in
-// changes-page-content.tsx.
 import { isBrowserBridgeAvailable } from '@brainstrike/app-shell/browser-pane/availability';
 import { BrowserPaneContent } from '@brainstrike/app-shell/browser-pane/browser-pane-content';
 import { CanvasPanel } from '@brainstrike/app-shell/canvas/canvas-panel';
-import { isChangesBridgeAvailable } from '@brainstrike/app-shell/changes/availability';
-// Capability check from the dependency-light `availability` subpath (NOT
-// `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
-// startup check does not defeat the lazy code-split in git-page-content.tsx.
-import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel/availability';
 import { McpContentCapabilityProvider } from '@brainstrike/app-shell/mcp-content-capability';
 import { McpStatusCapabilityProvider } from '@brainstrike/app-shell/mcp-status-capability';
 import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
@@ -24,7 +15,7 @@ import {
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
-import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
+import { WorkspaceGitServicesProvider } from '@brainstrike/app-shell/workspace-git-services';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
@@ -38,6 +29,7 @@ import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import { createDesktopStateHealth } from '../desktop-state-health';
+import { resolveDesktopWorkspaceGitServices } from '../host-git-workspace';
 import {
   resolveDesktopMcpContent,
   resolveDesktopMcpElicitationBridge,
@@ -99,19 +91,16 @@ export default function RootLayoutContent() {
   );
   const activeToolsTabRef = useRef('host-owned');
 
-  // Capability gate: only surface the Changes tab when the desktop
-  // `window.changes` bridge is present (no isElectron check). Resolved once.
-  const changesAvailable = useMemo(() => isChangesBridgeAvailable(), []);
-  // Capability gate: only surface the Git tab when the desktop `window.git`
-  // bridge is present (no isElectron check). The bridge exists before React
-  // mounts, so this is stable for the window's lifetime — resolve it once.
-  const gitAvailable = useMemo(() => isGitBridgeAvailable(), []);
+  // The agent host owns the git cluster (ADR-0029): the Git panel, Changes,
+  // forge PR awareness and worktrees. Resolved once; each surface below is
+  // offered only when its bridge is present (no isElectron check).
+  const workspaceGit = useMemo(() => resolveDesktopWorkspaceGitServices(), []);
+  const changesAvailable = workspaceGit.changes !== null;
+  const gitAvailable = workspaceGit.git !== null;
   // Capability gate: only surface the Terminal tab when the desktop
   // `window.terminal` pty bridge is present (no isElectron check). Resolved once.
   const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
-  // Capability gate: only surface the Worktrees tab when the desktop
-  // `window.worktrees` bridge is present. Resolved once.
-  const worktreesAvailable = useMemo(() => isWorktreesBridgeAvailable(), []);
+  const worktreesAvailable = workspaceGit.worktrees !== null;
   // Capability gate: only surface the Browser tab when the desktop
   // `window.browser` bridge is present (no isElectron check). Resolved once.
   const browserAvailable = useMemo(() => isBrowserBridgeAvailable(), []);
@@ -350,23 +339,25 @@ export default function RootLayoutContent() {
 
   const content = (
     <TokenCacheWrapper>
-      <McpTaskBridgeProvider bridge={mcpTaskBridge}>
-        <McpElicitationCapabilityProvider capability={mcpElicitationCapability}>
-          <McpToolsCapabilityProvider capability={mcpToolsCapability}>
-            <McpStatusCapabilityProvider capability={mcpStatusCapability}>
-              <McpContentCapabilityProvider capability={mcpContentCapability}>
-                <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
-                  <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
-                    <DesktopHostThreadProvider>
-                      <RootLayout {...sharedProps} />
-                    </DesktopHostThreadProvider>
-                  </ToolResultRendererProvider>
-                </McpAppsEnablementProvider>
-              </McpContentCapabilityProvider>
-            </McpStatusCapabilityProvider>
-          </McpToolsCapabilityProvider>
-        </McpElicitationCapabilityProvider>
-      </McpTaskBridgeProvider>
+      <WorkspaceGitServicesProvider services={workspaceGit}>
+        <McpTaskBridgeProvider bridge={mcpTaskBridge}>
+          <McpElicitationCapabilityProvider capability={mcpElicitationCapability}>
+            <McpToolsCapabilityProvider capability={mcpToolsCapability}>
+              <McpStatusCapabilityProvider capability={mcpStatusCapability}>
+                <McpContentCapabilityProvider capability={mcpContentCapability}>
+                  <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
+                    <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
+                      <DesktopHostThreadProvider>
+                        <RootLayout {...sharedProps} />
+                      </DesktopHostThreadProvider>
+                    </ToolResultRendererProvider>
+                  </McpAppsEnablementProvider>
+                </McpContentCapabilityProvider>
+              </McpStatusCapabilityProvider>
+            </McpToolsCapabilityProvider>
+          </McpElicitationCapabilityProvider>
+        </McpTaskBridgeProvider>
+      </WorkspaceGitServicesProvider>
     </TokenCacheWrapper>
   );
   return nativeSearch ? (

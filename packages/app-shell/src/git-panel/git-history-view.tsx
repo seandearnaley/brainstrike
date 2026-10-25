@@ -11,13 +11,13 @@
  * (`../changes/ui/changeset-file-diff-card`) — the same leaf component Task
  * A's Changes tab renders through.
  *
- * WHY NOT `useChangeset`/`window.changes` (the route Task A's Changes tab
+ * WHY NOT `useChangeset`/the Changes bridge (the route Task A's Changes tab
  * takes): that route exists because the Changes tab's diff must be scoped to
  * whichever `staged`/`unstaged`/`uncommitted` `GitScope` the selected row
- * belongs to, and only the changeset engine's `window.changes` bridge
+ * belongs to, and only the changeset engine's Changes bridge
  * resolves a `GitScope`. The History tab's need is narrower — exactly one
  * commit, one path — and `StructuredFileDiffParams`'s `commit` mode is
- * already exposed directly on `window.git` (the SAME bridge `commitFiles`/
+ * already exposed directly on the Git bridge (the SAME bridge `commitFiles`/
  * `history` below already use), so this view calls straight through
  * `useGitPanel` instead of adding a second bridge dependency for no
  * behavioral gain.

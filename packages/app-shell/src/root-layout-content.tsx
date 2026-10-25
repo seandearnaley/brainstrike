@@ -147,7 +147,7 @@ export interface RootLayoutContentProps {
   readonly canvasPanelContent?: ReactNode;
   /**
    * Optional Changes surface (desktop-only). Supplied by the desktop wrapper
-   * when the `window.changes` bridge is present; web never constructs it
+   * when the Changes bridge is present; web never constructs it
    * (capability gating, not an isElectron check). Registered as a closable
    * singleton workspace app tab (BST-1258 unified workspace tab panel), not
    * as its own nav-rail page. When absent, no Changes tab or launcher card
@@ -164,7 +164,7 @@ export interface RootLayoutContentProps {
   readonly diagnosticFeatureFlags?: readonly string[];
   /**
    * Optional Git surface (desktop-only). Supplied by the desktop wrapper when
-   * the `window.git` bridge is present; web never constructs it (capability
+   * the Git bridge is present; web never constructs it (capability
    * gating, not an isElectron check). When absent, no Git nav item is rendered.
    */
   readonly gitPageContent?: ReactNode;
@@ -203,7 +203,7 @@ export interface RootLayoutContentProps {
   readonly threadContextPageContent?: ReactNode;
   /**
    * Optional Worktree Map surface (desktop-only). Supplied by the desktop
-   * wrapper when the `window.worktrees` bridge is present; web never constructs
+   * wrapper when the worktrees bridge is present; web never constructs
    * it. Registered as a closable singleton workspace app tab (BST-1392); when
    * absent, no Worktrees tab, launcher card, or "+"-menu entry renders at all.
    */
@@ -342,7 +342,7 @@ function useChangesReviewValue(
 /**
  * Binds the assistant panel's "Restore to before this message" affordance
  * (BST-1115) to the Changes package's confirm modal. Same capability gate as
- * `useChangesReviewValue`: no `changesPageContent` means no `window.changes`
+ * `useChangesReviewValue`: no `changesPageContent` means no Changes
  * bridge, so the affordance renders nothing rather than raising a modal that
  * could never load a preview.
  *
@@ -622,8 +622,8 @@ export function RootLayoutContent({
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
   // Capability gate mirrors gitPageContent/terminalPageContent:
-  // the desktop wrapper only passes changesPageContent when the `window.changes`
-  // bridge exists, so its presence IS the capability check here — the "→ Review"
+  // the desktop wrapper only passes changesPageContent when the Changes bridge
+  // exists, so its presence IS the capability check here — the "→ Review"
   // footer link (packages/ui, gated on this same context) renders null without it.
   const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
   const contextMapLinkValue = useContextMapLinkValue(threadContextPageContent, setActiveTab);

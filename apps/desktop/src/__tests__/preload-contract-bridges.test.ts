@@ -1,12 +1,9 @@
 import Module from 'node:module';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { changesContract } from '../ipc-domains/changes.contract';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
-import { forgeContract } from '../ipc-domains/forge.contract';
-import { gitContract } from '../ipc-domains/git.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
@@ -16,7 +13,6 @@ import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from '../ipc-domains/window-focus.contract';
-import { worktreesContract } from '../ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 
 /**
@@ -41,12 +37,9 @@ const originalLoad = moduleWithLoader._load;
 
 const CONTRACT_BRIDGES = {
   assistantPersonas: userPersonasContract,
-  changes: changesContract,
   clipboard: clipboardContract,
   commandSessions: commandSessionsContract,
   contextFiles: contextFilesContract,
-  forge: forgeContract,
-  git: gitContract,
   indexSearch: indexSearchContract,
   promptLibrary: promptLibraryContract,
   settings: settingsContract,
@@ -54,7 +47,6 @@ const CONTRACT_BRIDGES = {
   threadGroups: threadGroupsContract,
   viewFilterPresets: viewFilterPresetsContract,
   windowFocus: windowFocusContract,
-  worktrees: worktreesContract,
 } as const;
 
 function exposedApi(name: string): Record<string, (...args: unknown[]) => unknown> {
@@ -325,20 +317,9 @@ describe('preload contract-derived bridges', () => {
     expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.storage.getAllKeys);
   });
 
-  it('routes git.status to its manifest channel and preserves the raw GitResult envelope', async () => {
-    const result = { error: 'not a repository', ok: false } as const;
-    mockInvoke.mockResolvedValueOnce(result);
-
-    await expect(exposedApi('git')['status']?.('root-1')).resolves.toBe(result);
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.git.status, 'root-1');
-  });
-
   it.each([
-    ['changes', 'inventory', DESKTOP_IPC_CHANNELS.changes.inventory, []],
     ['commandSessions', 'list', DESKTOP_IPC_CHANNELS.commandSessions.list, [{ rootId: 'root-1' }]],
-    ['forge', 'refresh', DESKTOP_IPC_CHANNELS.forge.refresh, ['root-1', { reason: 'user' }]],
     ['terminal', 'create', DESKTOP_IPC_CHANNELS.terminal.create, [{ rootId: 'root-1' }]],
-    ['worktrees', 'listManagedPaths', DESKTOP_IPC_CHANNELS.worktrees.managedPaths, []],
   ] as const)(
     '%s.%s routes to its manifest channel and preserves its raw result',
     async (name, method, channel, args) => {
@@ -351,8 +332,6 @@ describe('preload contract-derived bridges', () => {
   );
 
   it.each([
-    ['changes', 'onInvalidated', DESKTOP_IPC_CHANNELS.changes.invalidated],
-    ['forge', 'onPrUpdated', DESKTOP_IPC_CHANNELS.forge.prUpdated],
     ['terminal', 'onData', DESKTOP_IPC_CHANNELS.terminal.data],
     ['terminal', 'onExit', DESKTOP_IPC_CHANNELS.terminal.exit],
   ] as const)('%s.%s subscribes and removes the same push listener', (name, method, channel) => {

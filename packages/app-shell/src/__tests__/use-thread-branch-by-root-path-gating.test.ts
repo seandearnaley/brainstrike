@@ -1,6 +1,6 @@
 /**
  * The `enabled` gate against the REAL `useGitInventory` and a real stubbed
- * `window.changes` bridge — the sibling suite mocks the inventory hook, so it
+ * Changes bridge — the sibling suite mocks the inventory hook, so it
  * can only assert the option passed, never that no scan happened.
  *
  * What is being protected (BST-1116 W6 review finding 4): `bridge.inventory()`
@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes/changes-bridge';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useThreadBranchByRootPath } from '../hooks/use-thread-branch-by-root-path';
+import { stubChangesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const INVENTORY: GitInventory = {
   errors: [],
@@ -41,22 +42,19 @@ const INVENTORY: GitInventory = {
   ],
 };
 
-/**
- * `resolveChangesBridge` requires a FULLY formed bridge — an omitted method
- * reads as malformed and the hook goes inert, which would make the assertions
- * below pass for the wrong reason.
- */
+let installedChanges: ChangesBridge | null = null;
+
 function stubBridge(inventory: () => Promise<{ ok: true; value: GitInventory }>): void {
-  (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
-    fileDiff: vi.fn(),
-    inventory,
-    onInvalidated: vi.fn(() => () => {}),
-    resolveView: vi.fn(),
-  };
+  installedChanges = stubChangesBridge({ inventory });
+}
+
+/** Wraps a render in the host as it stands: serving `installedChanges`, or none (web). */
+function changesHost() {
+  return workspaceGitWrapper({ changes: installedChanges });
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  installedChanges = null;
   useChangesLiveRefreshStore.getState().reset();
 });
 
@@ -65,7 +63,9 @@ describe('useThreadBranchByRootPath gating', () => {
     const inventory = vi.fn(async () => ({ ok: true, value: INVENTORY }) as const);
     stubBridge(inventory);
 
-    const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: false }));
+    const { result } = renderHook(() => useThreadBranchByRootPath({ enabled: false }), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(result.current.available).toBe(true);
@@ -80,7 +80,7 @@ describe('useThreadBranchByRootPath gating', () => {
 
     const { rerender, result } = renderHook(
       (enabled: boolean) => useThreadBranchByRootPath({ enabled }),
-      { initialProps: false }
+      { initialProps: false, wrapper: changesHost() }
     );
     await waitFor(() => {
       expect(result.current.available).toBe(true);

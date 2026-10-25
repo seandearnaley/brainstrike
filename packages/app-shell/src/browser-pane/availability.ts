@@ -6,8 +6,6 @@
  * required-method pin the preload contract test consumes) from the
  * dependency-light `browser-bridge` module — it must NOT pull in the pane
  * component, so importing it does not defeat that lazy code-split.
- *
- * Mirrors `changes/availability.ts` exactly.
  */
 export {
   BROWSER_BRIDGE_REQUIRED_METHODS,

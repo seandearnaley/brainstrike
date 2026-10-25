@@ -168,6 +168,7 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
   });
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots'),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -201,6 +202,7 @@ test('the desktop host reads named workspace context files in its own process', 
   });
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots'),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -219,23 +221,36 @@ test('the desktop host reads named workspace context files in its own process', 
     'admission/fresh-roots',
   ]);
 });
-test('the desktop host runs executeCommand in its own process and correlates worktree commands through Main', async () => {
+test('the desktop host runs executeCommand in its own process and correlates worktree commands on its own ledger', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-shell-')));
   directories.push(root);
   const request = vi.fn(async (method: string, _input: unknown) => {
-    switch (method) {
-      case 'admission/fresh-roots':
-        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
-      case 'platform/worktree/paths':
-        return { paths: ['/repo/.worktrees/fox'] };
-      case 'platform/shell/completed':
-        return { accepted: true };
-      default:
-        throw new Error(`Unexpected Main request ${method}`);
+    if (method === 'admission/fresh-roots') {
+      return [{ displayName: 'A', path: root, rootId: 'root-a' }];
     }
+    throw new Error(`Unexpected Main request ${method}`);
   });
+  const worktreeList = vi.fn(async () => ({
+    ok: true as const,
+    value: [{ path: '/repo/.worktrees/fox' }],
+  }));
+  const reconcileFromShell = vi.fn(async () => ({
+    ok: true as const,
+    value: { adopted: [], likelyMoves: [], vanishedLedgerIds: [] },
+  }));
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
+    gitWorkspace: {
+      resolveWorktreeService: () =>
+        ({
+          list: worktreeList,
+          reconcileFromShell,
+          repositoryContextForRoot: async () => ({
+            ok: true as const,
+            value: { commonDir: `${root}/.git` },
+          }),
+        }) as never,
+    },
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -256,23 +271,22 @@ test('the desktop host runs executeCommand in its own process and correlates wor
     'admission/fresh-roots',
     'admission/fresh-roots',
   ]);
-  // A worktree-shaped command snapshots Main's paths first, then reports its completion.
-  request.mockClear();
+  expect(reconcileFromShell).not.toHaveBeenCalled();
+  // A worktree-shaped command snapshots the ledger's paths first, then reconciles under the host run.
   const command = 'git worktree prune --dry-run';
   await expect(tool.execute({ command, cwd: '.' }, execution())).resolves.toMatchObject({
     exitCode: expect.any(Number),
     timedOut: false,
   });
   await vi.waitFor(() =>
-    expect(request).toHaveBeenCalledWith('platform/shell/completed', {
-      command,
-      precedingWorktreePaths: ['/repo/.worktrees/fox'],
-      rootId: 'root-a',
+    expect(reconcileFromShell).toHaveBeenCalledExactlyOnceWith({
+      precedingWorktreePaths: new Set(['/repo/.worktrees/fox']),
+      repoCommonDir: `${root}/.git`,
       runId: 'host-run',
       threadId: 'host-thread',
     })
   );
-  expect(request.mock.calls.map(([method]) => method)).toContain('platform/worktree/paths');
+  expect(worktreeList).toHaveBeenCalled();
 });
 // ADR 0026: grep is the core lane. It reads the thread's folders on disk and
 // never asks Main's index, so an index that is building, blocked or missing a
@@ -289,6 +303,7 @@ test('the desktop host greps the disk in its own process and never asks Main\u20
   });
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -311,7 +326,7 @@ test('the desktop host greps the disk in its own process and never asks Main\u20
     new Set(['admission/fresh-roots'])
   );
 });
-test('the desktop host runs the worktree tools in its own process over Main’s worktree calls, under the host run’s identity', async () => {
+test('the desktop host runs the worktree tools on its own worktree service, under the host run’s identity', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-worktree-')));
   directories.push(root);
   const primary = {
@@ -372,19 +387,20 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
     },
   };
   const request = vi.fn(async (method: string, _input: unknown) => {
-    switch (method) {
-      case 'admission/fresh-roots':
-        return [{ displayName: 'A', path: root, rootId: 'root-a' }];
-      case 'platform/worktree/list':
-        return listed;
-      case 'platform/worktree/create':
-        return created;
-      default:
-        throw new Error(`Unexpected Main request ${method}`);
+    if (method === 'admission/fresh-roots') {
+      return [{ displayName: 'A', path: root, rootId: 'root-a' }];
     }
+    throw new Error(`Unexpected Main request ${method}`);
   });
+  const worktreeList = vi.fn(async () => listed);
+  const worktreeCreate = vi.fn(async () => ({ ok: true as const, value: created.value }));
+  const openWorktreeFolder = vi.fn(async () => worktreeRoot);
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
+    gitWorkspace: {
+      openWorktreeFolder,
+      resolveWorktreeService: () => ({ create: worktreeCreate, list: worktreeList }) as never,
+    },
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -436,13 +452,18 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
     root: worktreeRoot,
     worktreeId: 'wt-9',
   });
-  // The run identity is the host run's, never tool input; Main stamps it on the ledger row.
-  expect(request).toHaveBeenCalledWith('platform/worktree/list', { threadId: 'host-thread' });
-  expect(request).toHaveBeenCalledWith('platform/worktree/create', {
-    params: { baseRef: 'HEAD', branch: 'bs/fox', name: 'fox', rootId: 'root-a' },
+  // The run identity is the host run's, never tool input; it is stamped on the ledger row.
+  expect(worktreeList).toHaveBeenCalledOnce();
+  expect(worktreeCreate).toHaveBeenCalledExactlyOnceWith({
+    baseRef: 'HEAD',
+    branch: { name: 'bs/fox' },
+    createdBy: 'agent',
+    name: 'fox',
+    rootId: 'root-a',
     runId: 'host-run',
     threadId: 'host-thread',
   });
+  expect(openWorktreeFolder).toHaveBeenCalledExactlyOnceWith('/managed/fox');
 });
 test('the desktop host runs the browser tools, asking Main to drive the window-bound pane', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-browser-')));
@@ -465,6 +486,7 @@ test('the desktop host runs the browser tools, asking Main to drive the window-b
   });
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -535,6 +557,7 @@ test('the desktop host runs queryDiagnostics, reading only Main’s diagnostics 
   });
   const tools = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -575,6 +598,7 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   const tools = desktopHostSharedTools({
     appPaths: { isPackaged: true, resourcesPath, userDataPath },
     freshRoots: () => request('admission/fresh-roots'),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -663,6 +687,7 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
   const tools = desktopHostSharedTools({
     appPaths: { isPackaged: true, resourcesPath: home, userDataPath: home },
     freshRoots: () => request('admission/fresh-roots'),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -714,6 +739,7 @@ test('a run with Skills off is admitted without workspace skills', async () => {
   expect(() =>
     desktopHostSharedTools({
       freshRoots: vi.fn(),
+      gitWorkspace: {},
       readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
       request: vi.fn(),
       resolveTavilyApiKey: async () => undefined,
@@ -742,6 +768,7 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
   };
   const tool = desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots'),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey,

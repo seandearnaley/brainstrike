@@ -7,6 +7,7 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -29,6 +30,7 @@ import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
 import { useThreadSearchStore } from '../thread-search-store';
 import { ThreadsPanel } from '../threads-panel';
+import { stubForgeBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const virtualizerState = vi.hoisted(() => ({
   estimatedSizes: [] as number[],
@@ -85,7 +87,7 @@ const {
   fixture: {
     deleteFailureThreadId: null as string | null,
     forgePrError: null as Error | null,
-    forgePrRows: [] as Record<string, unknown>[],
+    forgePrRows: [] as ForgePrCacheEntry[],
     metadataFailureMessage: 'Metadata update failed.',
     metadataFailureThreadId: null as string | null,
   },
@@ -394,6 +396,18 @@ function createDefaultHost(): AssistantThreadHostCapability {
   };
 }
 
+/** The desktop host's forge cache, answering from `fixture`. */
+const ForgeHost = workspaceGitWrapper({
+  forge: stubForgeBridge({
+    cacheSnapshot: async () => {
+      if (fixture.forgePrError) {
+        throw fixture.forgePrError;
+      }
+      return { ok: true, value: fixture.forgePrRows };
+    },
+  }),
+});
+
 function renderThreadsPanel(
   host: AssistantThreadHostCapability = createDefaultHost()
 ): ReturnType<typeof createTestActionRegistry> & { rerender(): void } {
@@ -406,7 +420,7 @@ function renderThreadsPanel(
       <Toaster />
     </ActionRegistryProvider>
   );
-  const rendered = render(view());
+  const rendered = render(view(), { wrapper: ForgeHost });
   return { ...actionRegistry, rerender: () => rendered.rerender(view()) };
 }
 
@@ -435,21 +449,6 @@ beforeEach(() => {
         ok: true,
         value: await handleThreadGroupsRequest(input),
       }),
-    },
-  });
-  Object.defineProperty(window, 'forge', {
-    configurable: true,
-    value: {
-      cacheSnapshot: async () => {
-        if (fixture.forgePrError) {
-          throw fixture.forgePrError;
-        }
-        return { ok: true, value: fixture.forgePrRows };
-      },
-      identity: vi.fn(),
-      onPrUpdated: () => () => {},
-      prStatus: vi.fn(),
-      refresh: vi.fn(),
     },
   });
   virtualizerState.windowSize = Number.POSITIVE_INFINITY;

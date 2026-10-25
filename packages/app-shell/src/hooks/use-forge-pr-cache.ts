@@ -1,6 +1,7 @@
 import { type ForgePrCacheEntry, type ForgePrState, forgePrCacheKey } from '@brainstrike/types';
 import { useEffect, useState } from 'react';
-import { type ForgeBridge, resolveForgeBridge } from '../forge/forge-bridge';
+import type { ForgeBridge } from '../forge/forge-bridge';
+import { useForgeBridge } from '../workspace-git-services';
 
 const EMPTY_FORGE_PR_CACHE: ForgePrCacheLookup = new Map();
 
@@ -125,7 +126,8 @@ function subscribeForgeCache(
 
 /** The existing Forge publisher invalidates this projection; web omits the capability. */
 export function useForgePrCache({ enabled }: { readonly enabled: boolean }): ForgePrCacheState {
-  const bridge = enabled ? resolveForgeBridge() : null;
+  const forge = useForgeBridge();
+  const bridge = enabled ? forge : null;
   const [state, setState] = useState<ForgePrCacheState>({
     byRepoBranch: EMPTY_FORGE_PR_CACHE,
     error: null,

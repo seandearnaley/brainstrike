@@ -1,7 +1,9 @@
-import type { ForgePrStatus } from '@brainstrike/types';
+import type { ForgePrStatus, ForgePrUpdatedEvent } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ForgeBridge } from '../forge/forge-bridge';
 import { useThreadForgePr } from '../hooks/use-thread-forge-pr';
+import { workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const prStatus: ForgePrStatus = {
   kind: 'pr',
@@ -19,46 +21,48 @@ const prStatus: ForgePrStatus = {
   },
 };
 
-function installBridge(overrides: Record<string, unknown> = {}) {
-  const listeners: ((event: unknown) => void)[] = [];
+/** The host serving the installed forge bridge; none (web) until a test installs one. */
+let forgeHost = workspaceGitWrapper({});
+
+function installBridge(overrides: Partial<ForgeBridge> = {}) {
+  const listeners: ((event: ForgePrUpdatedEvent) => void)[] = [];
   const bridge = {
     cacheSnapshot: async () => ({ ok: true as const, value: [] }),
     identity: vi.fn(),
-    onPrUpdated: vi.fn((callback: (event: unknown) => void) => {
+    onPrUpdated: vi.fn((callback: (event: ForgePrUpdatedEvent) => void) => {
       listeners.push(callback);
       return () => {
         listeners.splice(listeners.indexOf(callback), 1);
       };
     }),
-    prStatus: vi.fn(async () => ({ ok: true, value: prStatus })),
-    refresh: vi.fn(async () => ({ ok: true, value: prStatus })),
-    ...overrides,
+    prStatus: vi.fn(async () => ({ ok: true as const, value: prStatus })),
+    refresh: vi.fn(async () => ({ ok: true as const, value: prStatus })),
   };
-  Object.defineProperty(window, 'forge', { configurable: true, value: bridge, writable: true });
+  forgeHost = workspaceGitWrapper({ forge: { ...bridge, ...overrides } });
   return { bridge, listeners };
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'forge');
+  forgeHost = workspaceGitWrapper({});
   vi.restoreAllMocks();
 });
 
 describe('useThreadForgePr', () => {
   it('is inert with no bridge (web)', async () => {
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() => expect(result.current.status).toBeNull());
     expect(result.current.diagnostic).toBeNull();
   });
 
   it('is inert with no root', async () => {
     const { bridge } = installBridge();
-    renderHook(() => useThreadForgePr(null));
+    renderHook(() => useThreadForgePr(null), { wrapper: forgeHost });
     await waitFor(() => expect(bridge.refresh).not.toHaveBeenCalled());
   });
 
   it('refreshes with reason "window" on mount and exposes the status', async () => {
     const { bridge } = installBridge();
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() => expect(result.current.status).toEqual(prStatus));
     expect(bridge.refresh).toHaveBeenCalledWith('root-1', { reason: 'window' });
   });
@@ -68,16 +72,18 @@ describe('useThreadForgePr', () => {
       failure: { detail: 'GitHub CLI (gh) was not found on PATH.', reason: 'gh-missing' },
       kind: 'unavailable',
     };
-    installBridge({ refresh: vi.fn(async () => ({ ok: true, value: unavailable })) });
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    installBridge({ refresh: vi.fn(async () => ({ ok: true as const, value: unavailable })) });
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() =>
       expect(result.current.diagnostic).toBe('GitHub CLI (gh) was not found on PATH.')
     );
   });
 
   it('surfaces a bridge error as a diagnostic instead of an empty chip', async () => {
-    installBridge({ refresh: vi.fn(async () => ({ error: 'roots unavailable', ok: false })) });
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    installBridge({
+      refresh: vi.fn(async () => ({ error: 'roots unavailable', ok: false as const })),
+    });
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() => expect(result.current.diagnostic).toBe('roots unavailable'));
     expect(result.current.status).toBeNull();
   });
@@ -91,7 +97,7 @@ describe('useThreadForgePr', () => {
   // the narrower one its old name implied.
   it('re-reads on any forge:prUpdated push (no per-repo filtering yet)', async () => {
     const { bridge, listeners } = installBridge();
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() => expect(result.current.status).toEqual(prStatus));
     const before = bridge.prStatus.mock.calls.length;
     act(() => {
@@ -118,7 +124,7 @@ describe('useThreadForgePr', () => {
   // exactly once and never triggers a second `refresh` call.
   it('does not loop: a push after a user refresh reads the cache instead of refreshing again', async () => {
     const { bridge, listeners } = installBridge();
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() => expect(result.current.status).toEqual(prStatus));
     expect(bridge.refresh).toHaveBeenCalledTimes(1); // mount
 
@@ -155,7 +161,7 @@ describe('useThreadForgePr', () => {
   // of 'window' (60 s floor). This is the second half of the same bug.
   it('a focus after a user refresh uses reason "window" — the floor applies again', async () => {
     const { bridge } = installBridge();
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() => expect(result.current.status).toEqual(prStatus));
 
     act(() => {
@@ -181,6 +187,7 @@ describe('useThreadForgePr', () => {
     const { bridge } = installBridge();
     const { rerender, result } = renderHook(({ rootId }) => useThreadForgePr(rootId), {
       initialProps: { rootId: 'root-1' as string | null },
+      wrapper: forgeHost,
     });
     await waitFor(() => expect(result.current.status).toEqual(prStatus));
     expect(bridge.refresh).toHaveBeenNthCalledWith(1, 'root-1', { reason: 'window' });
@@ -209,8 +216,8 @@ describe('useThreadForgePr', () => {
       observedAt: '2026-08-24T00:00:00.000Z',
       pullRequest: null,
     };
-    installBridge({ refresh: vi.fn(async () => ({ ok: true, value: staleWithNull })) });
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    installBridge({ refresh: vi.fn(async () => ({ ok: true as const, value: staleWithNull })) });
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() =>
       expect(result.current.diagnostic).toBe('gh-unauthenticated: run `gh auth login`.')
     );
@@ -219,7 +226,7 @@ describe('useThreadForgePr', () => {
 
   it('refresh() asks with reason "user"', async () => {
     const { bridge } = installBridge();
-    const { result } = renderHook(() => useThreadForgePr('root-1'));
+    const { result } = renderHook(() => useThreadForgePr('root-1'), { wrapper: forgeHost });
     await waitFor(() => expect(result.current.status).toEqual(prStatus));
     act(() => {
       result.current.refresh();
@@ -231,6 +238,7 @@ describe('useThreadForgePr', () => {
     installBridge();
     const { rerender, result } = renderHook(({ rootId }) => useThreadForgePr(rootId), {
       initialProps: { rootId: 'root-1' as string | null },
+      wrapper: forgeHost,
     });
     await waitFor(() => expect(result.current.status).toEqual(prStatus));
     rerender({ rootId: 'root-2' });

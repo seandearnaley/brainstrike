@@ -34,8 +34,8 @@
  */
 import { createLogger } from '@brainstrike/logging';
 import type { ForgePrStatus } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { resolveForgeBridge } from '../forge/forge-bridge';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useForgeBridge } from '../workspace-git-services';
 
 const logger = createLogger('ThreadForgePr');
 
@@ -76,7 +76,7 @@ function forgePrDiagnosticOf(value: ForgePrStatus): string | null {
 
 export function useThreadForgePr(dbRootId: string | null): ThreadForgePrState {
   // Resolved ONCE per hook instance: the bridge identity is an effect input.
-  const bridge = useMemo(() => resolveForgeBridge(), []);
+  const bridge = useForgeBridge();
   const [resolved, setResolved] = useState<RootScopedStatus | null>(null);
   const [pushNonce, setPushNonce] = useState(0);
   const [userNonce, setUserNonce] = useState(0);

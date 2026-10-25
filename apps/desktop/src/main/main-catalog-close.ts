@@ -5,14 +5,10 @@ interface Preparation {
 /** Producers finish while their catalog and mounted dependencies remain available. */
 export async function prepareMainCatalogClose(
   roots: Preparation,
-  worktrees: Preparation | null,
   catalog: Preparation
 ): Promise<void> {
   const failures: unknown[] = [];
-  for (const owner of [roots, worktrees, catalog]) {
-    if (!owner) {
-      continue;
-    }
+  for (const owner of [roots, catalog]) {
     try {
       await owner.prepareClose();
     } catch (cause) {

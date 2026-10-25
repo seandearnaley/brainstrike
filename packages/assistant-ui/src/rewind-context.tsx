@@ -20,7 +20,7 @@ export interface RewindContextValue {
    * `packages/ui` cannot import `packages/app-shell` (the modal reuses the
    * Changes surface's tree and diff panes, which live there), so this is a
    * capability-injection seam — PARALLEL to `ChangesReviewContext` and
-   * `RunVerdictContext` — that app-shell binds once the `window.changes`
+   * `RunVerdictContext` — that app-shell binds once the Changes
    * bridge is present.
    *
    * Raising is NOT applying: everything destructive happens behind the modal's

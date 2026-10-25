@@ -83,6 +83,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 
 import { GitPanel } from '../git-panel/git-panel';
 import { useGitPanel } from '../git-panel/use-git-panel';
+import { workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 function ok<T>(value: T): GitResult<T> {
   return { ok: true, value };
@@ -166,6 +167,9 @@ function makeRepository(root: MockHandle, branch: string): GitRepository {
 
 type StatusByRoot = Record<string, () => Promise<GitResult<GitStatus>>>;
 
+/** The host serving the installed Git bridge; none until a test installs one. */
+let gitHost = workspaceGitWrapper({});
+
 function installBridge(statusByRoot: StatusByRoot): GitBridge {
   const unused = vi.fn(async () => ({ error: 'not used by these tests', ok: false as const }));
   const handles = new Map(workspace.state.handles.map((item) => [item.rootId, item]));
@@ -198,7 +202,7 @@ function installBridge(statusByRoot: StatusByRoot): GitBridge {
     switchBranch: unused,
     unstage: unused,
   };
-  (window as unknown as { git?: GitBridge }).git = bridge;
+  gitHost = workspaceGitWrapper({ git: bridge });
   return bridge;
 }
 
@@ -219,7 +223,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
   });
 
   afterEach(() => {
-    Reflect.deleteProperty(window as unknown as { git?: GitBridge }, 'git');
+    gitHost = workspaceGitWrapper({});
     workspace.listeners.clear();
     vi.clearAllMocks();
   });
@@ -230,7 +234,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       [CHILD.rootId]: async () => ok(repoStatus('main')),
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const state = await screen.findByTestId('git-panel-not-a-repo');
     expect(state).toHaveTextContent('projects is not a Git repository.');
@@ -252,7 +256,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
     const user = userEvent.setup();
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     await user.click(
       await screen.findByRole('button', { name: 'Show app in Git (/work/projects/app)' })
@@ -291,7 +295,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
     const user = userEvent.setup();
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     await user.click(
       await screen.findByRole('button', { name: 'Show app in Git (/work/projects/app)' })
@@ -320,7 +324,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
     openWorkspace([PARENT, CHILD], CHILD.rootId);
     installBridge({ [CHILD.rootId]: async () => ok(repoStatus('main')) });
 
-    const { result } = renderHook(() => useGitPanel());
+    const { result } = renderHook(() => useGitPanel(), { wrapper: gitHost });
     await waitFor(() => expect(result.current.status?.branch).toBe('main'));
     act(() => result.current.focusFolder(CHILD.rootId));
 
@@ -340,7 +344,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       [NOTES.rootId]: async () => ok(NOT_A_REPO),
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const notes = await screen.findByRole('button', { name: 'Show notes in Git (/work/notes)' });
     await waitFor(() => expect(notes).toHaveAccessibleDescription('Not a Git repository'));
@@ -361,7 +365,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       }),
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const child = await screen.findByRole('button', {
       name: 'Show app in Git (/work/projects/app)',
@@ -383,7 +387,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       },
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const child = await screen.findByRole('button', {
       name: 'Show app in Git (/work/projects/app)',
@@ -400,7 +404,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       [CHILD.rootId]: async () => ok(repoStatus('main')),
       [PARENT.rootId]: async () => ({ error: 'permission denied', ok: false }),
     });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const error = await screen.findByTestId('git-panel-error');
     expect(error).toHaveTextContent('Could not load Git status for projects.');
@@ -422,7 +426,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
     const user = userEvent.setup();
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const clientApp = await screen.findByRole('button', {
       name: 'Show app in Git (/work/clients/app)',
@@ -438,7 +442,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
     openWorkspace([PARENT], PARENT.rootId);
     const stderr = 'fatal: unable to read index\nerror: index uses extension we do not understand';
     installBridge({ [PARENT.rootId]: async () => ({ error: stderr, ok: false }) });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const error = await screen.findByTestId('git-panel-error');
     expect(within(error).getByText('fatal: unable to read index')).toBeInTheDocument();
@@ -456,7 +460,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
   it('says so when no other folder is open', async () => {
     openWorkspace([PARENT], PARENT.rootId);
     installBridge({ [PARENT.rootId]: async () => ok(NOT_A_REPO) });
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     expect(await screen.findByTestId('git-panel-not-a-repo')).toHaveTextContent(
       'Add a folder that is a Git repository to the workspace to use Git here.'
@@ -471,7 +475,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
       [PARENT.rootId]: async () => ok(NOT_A_REPO),
     });
     const user = userEvent.setup();
-    render(<GitPanel />);
+    render(<GitPanel />, { wrapper: gitHost });
 
     const child = await screen.findByRole('button', {
       name: 'Show app in Git (/work/projects/app)',
