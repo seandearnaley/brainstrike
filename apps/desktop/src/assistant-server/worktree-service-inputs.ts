@@ -35,8 +35,6 @@ export interface WorktreeSetupInput {
   readonly repositorySetupDecision?: RepositorySetupDecisionInput;
   readonly settings: WorktreeSettings;
   readonly sourcePath: string;
-  /** Test seam; production allows a two-second SIGTERM grace period. */
-  readonly terminationGraceMs?: number;
   /** Test seam; production uses `WORKTREE_SETUP_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
   readonly worktree: ManagedWorktreeRow;

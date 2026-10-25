@@ -1,7 +1,7 @@
 import { assertCoverageAuthority, fault } from '@brainstrike/indexer/coverage-reader';
+import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  SQLITE_QUERY_EXIT_REPORT_MS,
   SqliteQueryClient,
   SqliteQueryDeadlineError,
   SqliteQueryProcessExitedError,
@@ -390,7 +390,7 @@ it('joins an exit that arrives 6 s after the kill: close resolves and nothing is
     await vi.advanceTimersByTimeAsync(5999);
     expect(settled).toBe(false);
     // The late exit is reported once, at the report window, and still joined.
-    expect(slowExits).toEqual([SQLITE_QUERY_EXIT_REPORT_MS]);
+    expect(slowExits).toEqual([CHILD_SIGNAL_GRACE_MS]);
     owner.exit();
     await expect(closing).resolves.toBeUndefined();
     expect(owner.process.kill).toHaveBeenCalledOnce();

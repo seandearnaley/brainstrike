@@ -1,5 +1,4 @@
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
-import { isPeerReset } from '@brainstrike/agent-host/boundary-wire';
 import { attachAgentHost, attachStartedAgentHost } from '@brainstrike/agent-host/client';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
@@ -315,34 +314,6 @@ async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void>
     throw new Error(`Owned host utility exited with code ${code}`);
   }
 }
-/** The peer closed with Main's bytes unread or unsent: the reset a closing host's socket reports. */
-function isPeerResetOnly(cause: unknown): boolean {
-  if (cause instanceof AggregateError) {
-    return cause.errors.length > 0 && cause.errors.every(isPeerResetOnly);
-  }
-  return isPeerReset(cause);
-}
-/**
- * Only the host can reset Main's end of this connection, and this release
- * closes it before closeChild asks the host to close. A reset here is the
- * host ending the connection with Main's requests in flight: it was lost
- * (BST-2143), or it is closing on its own, as when a signal to Main's process
- * group reaches it too (BST-2192). Either way closeChild still joins its exit
- * and reports a failed one. After this owner asked first (a content clear), or
- * on a host it did not start, a reset stays a close failure.
- */
-async function closeAttachment(
-  attachment: HostAttachment,
-  child: OwnedChild | undefined
-): Promise<void> {
-  try {
-    await attachment.close();
-  } catch (cause) {
-    if (!(child && !child.closing && isPeerResetOnly(cause))) {
-      throw cause;
-    }
-  }
-}
 function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {
   return runAtPromiseBoundary(Scope.addFinalizer(scope, Effect.promise(release)));
 }
@@ -519,7 +490,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           ? {}
           : { startupTimeoutMs: options.startupTimeoutMs }),
       });
-      await addFinalizer(scope, () => closeAttachment(attachment, ownedChild));
+      await addFinalizer(scope, () => attachment.close());
       if (retired) {
         throw abort.signal.reason;
       }

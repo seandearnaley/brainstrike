@@ -94,11 +94,7 @@ describe('command session manager', () => {
     );
   });
 
-  function createManager(options?: {
-    exitedRetention?: number;
-    maxBufferChars?: number;
-    processExitTimeoutMs?: number;
-  }) {
+  function createManager(options?: { exitedRetention?: number; maxBufferChars?: number }) {
     return createCommandSessionManager({
       ...options,
       idFactory: () => `session-${spawned.length + 1}`,
@@ -652,20 +648,29 @@ describe('command session manager', () => {
     }
   });
 
+  // ADR-0030: the PTY's exit is the only end of a session; disposal joins it however late.
   it.each(['root', 'all'] as const)(
-    'retains the exit observer after %s disposal times out',
+    'holds the workspace lease until a late PTY exit, and %s disposal joins it',
     async (scope) => {
-      const manager = createManager({ processExitTimeoutMs: 5 });
+      const manager = createManager();
       const root = await fsPromises.realpath(rootA);
       await manager.start({ command: 'late', delegatedThreadId: 'child', rootId: 'root-a' });
       const process = spawned[0]!;
       process.killEmitsExit = false;
+      let disposed = false;
+      const disposal = (scope === 'root' ? manager.disposeRoot('root-a') : manager.dispose()).then(
+        () => {
+          disposed = true;
+        }
+      );
       try {
-        await (scope === 'root' ? manager.disposeRoot('root-a') : manager.dispose());
+        await vi.waitFor(() => expect(process.killCalls).toBe(1));
         await expect(acquireWorkspaceMutationLease(root, 'files')).rejects.toThrow(
           'must wait for that process to exit'
         );
+        expect(disposed).toBe(false);
         process.emitExit(0);
+        await disposal;
         const release = await acquireWorkspaceMutationLease(root, 'files');
         release();
       } finally {
@@ -675,22 +680,26 @@ describe('command session manager', () => {
     }
   );
 
-  it('finishes root and global disposal when one PTY never reports exit', async () => {
-    const manager = createManager({ processExitTimeoutMs: 5 });
-    await manager.start({ command: 'hung-root', rootId: 'root-a' });
+  it('root and global disposal end every PTY and join the one whose exit comes late', async () => {
+    const manager = createManager();
+    await manager.start({ command: 'late-root', rootId: 'root-a' });
     await manager.start({ command: 'healthy-root', rootId: 'root-a' });
     spawned[0]!.killEmitsExit = false;
 
-    await expect(manager.disposeRoot('root-a')).resolves.toBe(2);
-    expect(spawned[0]?.killCalls).toBe(1);
+    const rootDisposal = manager.disposeRoot('root-a');
+    await vi.waitFor(() => expect(spawned[0]?.killCalls).toBe(1));
     expect(spawned[1]?.killCalls).toBe(1);
+    spawned[0]!.emitExit(0, 9);
+    await expect(rootDisposal).resolves.toBe(2);
 
-    await manager.start({ command: 'hung-global', rootId: 'root-b' });
+    await manager.start({ command: 'late-global', rootId: 'root-b' });
     await manager.start({ command: 'healthy-global', rootId: 'root-b' });
     spawned[2]!.killEmitsExit = false;
 
-    await expect(manager.dispose()).resolves.toBe(2);
-    expect(spawned[2]?.killCalls).toBe(1);
+    const globalDisposal = manager.dispose();
+    await vi.waitFor(() => expect(spawned[2]?.killCalls).toBe(1));
     expect(spawned[3]?.killCalls).toBe(1);
+    spawned[2]!.emitExit(0, 9);
+    await expect(globalDisposal).resolves.toBe(2);
   });
 });

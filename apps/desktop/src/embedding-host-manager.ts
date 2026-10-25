@@ -5,6 +5,7 @@ import {
 import type { EmbeddingRequestProgress } from '@brainstrike/embeddings';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import { createLogger } from '@brainstrike/logging';
+import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
 import { EmbeddingHostStartup } from './embedding-host-background-startup';
@@ -64,12 +65,6 @@ const MAX_PENDING_QUERY_EMBEDDING_REQUESTS = 8;
 const POWER_SAVE_BLOCKER_IDLE_GRACE_MS = 5000;
 /** Not a lifecycle timeout: how long an inactive report waits before it is shown, a UI grace. */
 const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
-/** R5(b): quit's cooperative Stop window before the host window is destroyed and its close joined. */
-const EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS = 3000;
-/** R5(b): a Stop's cooperative window before the host window is destroyed and its close joined. */
-const EMBEDDING_HOST_STOP_TIMEOUT_MS = 10_000;
-/** R5(b): a reset's cooperative window (drain, then the replacement runtime's report) before destroy. */
-const EMBEDDING_HOST_RESET_TIMEOUT_MS = 30_000;
 const STOPPED_WITH_INFERENCE = 'Embedding host stopped while inference requests were in flight.';
 
 export interface EmbeddingHostManagerOptions {
@@ -346,37 +341,18 @@ export class EmbeddingHostManager {
     requestHostDeviceResolution(this.lifecycle, !(this.disposed || this.disposing));
   }
 
-  private async stopHost(timeoutMs = EMBEDDING_HOST_STOP_TIMEOUT_MS): Promise<EmbeddingHostStatus> {
+  /**
+   * R5(b), ADR-0030: one cooperative Stop window, `CHILD_CLOSE_BUDGET_MS`, for Stop, reset and
+   * quit alike, before the host window is destroyed and its close joined. A Stop already
+   * underway is the one every caller joins.
+   */
+  private async stopHost(): Promise<EmbeddingHostStatus> {
     if (this.stopping !== null) {
-      if (timeoutMs === EMBEDDING_HOST_STOP_TIMEOUT_MS) {
-        return this.stopping;
-      }
-      // Shutdown's shorter budget still owns the deadline when an ordinary Stop is underway.
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        return await Promise.race([
-          this.stopping,
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(
-              () => reject(new Error('Timed out waiting for embedding host state transition.')),
-              timeoutMs
-            );
-          }),
-        ]);
-      } catch (error) {
-        await this.destroyInferenceHostWindow([error]);
-        this.rejectSettledInferenceRequests(
-          error instanceof Error ? error : new Error(String(error)),
-          true
-        );
-        throw error;
-      } finally {
-        clearTimeout(timer);
-      }
+      return this.stopping;
     }
     const stop = this.hostedRequests.hasPending
-      ? this.hostedRequests.retire().then(() => this.stopHostOnce(timeoutMs))
-      : this.stopHostOnce(timeoutMs);
+      ? this.hostedRequests.retire().then(() => this.stopHostOnce())
+      : this.stopHostOnce();
     this.stopping = stop;
     try {
       return await stop;
@@ -398,7 +374,7 @@ export class EmbeddingHostManager {
     return this.getStatus();
   }
 
-  private async stopHostOnce(timeoutMs: number): Promise<EmbeddingHostStatus> {
+  private async stopHostOnce(): Promise<EmbeddingHostStatus> {
     const window = this.lifecycle.getHostWindow();
     // A renderer that exited, before or while Stop waits, can never acknowledge it (BST-2135).
     if (!window || window.isDestroyed() || this.exitedRenderers.has(window)) {
@@ -424,7 +400,7 @@ export class EmbeddingHostManager {
           this.exitedRenderers.has(window) ||
           (nextStatus.commandId === command.requestId &&
             (nextStatus.state === 'stopped' || nextStatus.state === 'error')),
-        timeoutMs
+        CHILD_CLOSE_BUDGET_MS
       );
       if (this.exitedRenderers.has(window)) {
         return await this.settleStoppedHost(window);
@@ -492,7 +468,7 @@ export class EmbeddingHostManager {
           (nextStatus.runtimeId === currentRuntimeId &&
             nextStatus.commandId === command.requestId &&
             nextStatus.state === 'error'),
-        EMBEDDING_HOST_RESET_TIMEOUT_MS
+        CHILD_CLOSE_BUDGET_MS
       );
       if (status.state === 'error') {
         // A failed drain or replacement startup retires this renderer before any new start.
@@ -765,7 +741,7 @@ export class EmbeddingHostManager {
       // registered; a still-loading page cannot acknowledge Stop yet.
       const status = this.lifecycle.getStatus();
       if (status.state !== 'starting' || this.reportedRuntimeId === status.runtimeId) {
-        await this.stopHost(EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS);
+        await this.stopHost();
       }
     } finally {
       this.disposed = true;
