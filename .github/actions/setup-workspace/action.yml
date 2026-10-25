@@ -41,22 +41,6 @@ inputs:
   turbo-cache:
     description: restore/save the local .turbo cache layer
     default: 'false'
-  install-attempts:
-    # BST-1712: how many times to run `pnpm install --frozen-lockfile` before
-    # giving up. `1` — the default — is a single attempt with no loop, which is
-    # exactly today's behaviour for every caller that does not opt in.
-    #
-    # Only `native-windows` opts in, and only because the header download that
-    # flakes there happens INSIDE this install step (pnpm runs the two native
-    # packages' `install` lifecycle scripts, each of which shells out to
-    # node-gyp). There is no earlier seam to retry: node-gyp is not on disk
-    # until this step has run, so the download cannot be hoisted ahead of it.
-    #
-    # This is a bounded retry, not a fallback: every attempt's exit code is
-    # printed, the loop stops at `install-attempts`, and the step exits with the
-    # LAST attempt's status. Nothing is swallowed.
-    description: attempts for `pnpm install --frozen-lockfile` (1 = no retry)
-    default: '1'
 outputs:
   node-version:
     # BST-1375: `.nvmrc` pins a MAJOR (`24`), so the exact version this action
@@ -100,55 +84,43 @@ runs:
         key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
         restore-keys: |
           ${{ runner.os }}-${{ runner.arch }}-turbo-
-    # BST-1712: the retry loop is only sound because of a MEASURED pnpm
-    # property (pnpm 11.15.0, the pinned packageManager): a workspace project's
-    # `install` lifecycle script is re-run by the next
-    # `pnpm install --frozen-lockfile` when it FAILED, and skipped when it
-    # SUCCEEDED. Both halves matter. Re-running is what makes attempt 2 actually
-    # re-attempt the node-gyp rebuild instead of exiting 0 over a missing addon
-    # — a retry that skipped the script would be a false green that just moves
-    # the failure to the job's later explicit `pnpm --filter ... build`. Not
-    # re-running after success is what keeps `install-attempts: '1'` callers and
-    # every successful run free of extra work.
     - name: Install dependencies
-      env:
-        INSTALL_ATTEMPTS: ${{ inputs.install-attempts }}
-      # Read through the environment rather than interpolating `${{ }}` into the
-      # script body: the value reaches bash as data, never as shell source.
       run: |
-        case "$INSTALL_ATTEMPTS" in
-          '' | *[!0-9]*)
-            echo "install-attempts must be a positive integer, got '$INSTALL_ATTEMPTS'" >&2
-            exit 1
-            ;;
-        esac
-        if [ "$INSTALL_ATTEMPTS" -lt 1 ]; then
-          echo "install-attempts must be at least 1, got '$INSTALL_ATTEMPTS'" >&2
-          exit 1
-        fi
         # node-gyp compiles the native workspace packages during this install.
-        # Point it at the headers that ship inside the Node setup-node just
-        # installed (.nvmrc, the same version devEngines runs), so it does not
-        # download and extract them from nodejs.org on every job (about 9 s).
-        # Windows' Node zip ships no headers or node.lib, so node-gyp still
-        # fetches them there.
-        if [ "$RUNNER_OS" != Windows ]; then
+        # Point it at the headers of the Node setup-node just installed (.nvmrc,
+        # the same version devEngines runs), so it does not fetch and extract
+        # them itself. Linux and macOS ship them inside that Node (about 9 s).
+        # Windows' Node zip has no headers or node.lib: there each native
+        # package fetched the 3,400-file header tarball and extracted it in
+        # node-gyp's JavaScript, both into one directory at once, for 76-178 s
+        # per hosted job (queue run 40150063798). Fetch them once, check them
+        # against the release's SHASUMS256.txt, extract them natively and lay
+        # them out as a --nodedir (headers in include/node, node.lib in Release).
+        if [ "$RUNNER_OS" = Windows ]; then
+          node_version="$(node -p process.version)"
+          node_lib="win-$(node -p process.arch)/node.lib"
+          headers_root="$(cygpath -u "$RUNNER_TEMP")/node-headers"
+          mkdir -p "$headers_root/$(dirname "$node_lib")"
+          (
+            cd "$headers_root"
+            release="https://nodejs.org/download/release/$node_version"
+            headers="node-$node_version-headers.tar.gz"
+            curl -fsSL --retry 2 -O "$release/SHASUMS256.txt" -O "$release/$headers"
+            curl -fsSL --retry 2 -o "$node_lib" "$release/$node_lib"
+            grep -E "^[0-9a-f]{64}  ($headers|$node_lib)\$" SHASUMS256.txt > expected.sha256
+            if [ "$(wc -l < expected.sha256)" -ne 2 ]; then
+              echo "SHASUMS256.txt for $node_version lists no $headers or $node_lib" >&2
+              exit 1
+            fi
+            sha256sum -c expected.sha256
+            tar -xzf "$headers"
+            mkdir -p "node-$node_version/Release"
+            mv "$node_lib" "node-$node_version/Release/node.lib"
+          )
+          npm_config_nodedir="$(cygpath -w "$headers_root/node-$node_version")"
+        else
           npm_config_nodedir="$(dirname "$(dirname "$(command -v node)")")"
-          export npm_config_nodedir
         fi
-        attempt=1
-        while true; do
-          status=0
-          pnpm install --frozen-lockfile || status=$?
-          if [ "$status" -eq 0 ]; then
-            exit 0
-          fi
-          if [ "$attempt" -ge "$INSTALL_ATTEMPTS" ]; then
-            echo "pnpm install --frozen-lockfile failed on attempt ${attempt}/${INSTALL_ATTEMPTS} (exit ${status})" >&2
-            exit "$status"
-          fi
-          echo "::warning title=dependency install retried::attempt ${attempt}/${INSTALL_ATTEMPTS} failed with exit ${status}; retrying"
-          attempt=$((attempt + 1))
-          sleep 15
-        done
+        export npm_config_nodedir
+        pnpm install --frozen-lockfile
       shell: bash

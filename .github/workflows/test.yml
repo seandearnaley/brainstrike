@@ -709,13 +709,10 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      # node-gyp fetches Node's headers on Windows (setup-workspace), which
-      # flakes; the bounded install retry covers that download.
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
-          install-attempts: '3'
 
       - name: Provision the Electron binary
         uses: ./.github/actions/provision-electron
