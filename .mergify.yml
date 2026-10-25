@@ -31,7 +31,8 @@ queue_rules:
     # Mergify must not dequeue a batch before GitHub's own job timeouts decide
     # it. The longest chain of job timeouts up to and including the gate is
     # 65 minutes: admission 5, Static 20, a Unit shard 30, Unit 5 and Merge
-    # Queue Gate 5, tied by Desktop Embedding E2E 60 and the gate 5. GitHub
+    # Queue Gate 5, tied by Desktop Embedding E2E or a Desktop Windows E2E shard
+    # 60 and the gate 5. GitHub
     # documents no runner pickup time, so allow 2 minutes per job: 65 + 5 x 2 =
     # 75. Not `auto`: it applies no timeout until the queue has about 20
     # qualifying runs in seven days.

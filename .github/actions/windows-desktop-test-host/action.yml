@@ -1,0 +1,119 @@
+name: Windows desktop test host
+description: >-
+  The one Windows host provisioning for every lane that runs desktop tests on
+  hosted Windows (test.yml `windows-shard`, desktop-e2e.yml's Windows E2E):
+  ripgrep, crash dumps, and a standard local user that run-as-test-user.ps1
+  runs the tests as. Callers MUST check out and run `setup-workspace` first:
+  the user is granted the installed workspace.
+# Hosted Windows runners run elevated with UAC off
+# (https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+# so an admin token hid every failure a normal user meets: sean-pc runs as a
+# standard user and caught 13 desktop E2E failures the queue had passed
+# (2026-10-25). The tests run as a fresh member of Users instead, the way the
+# app runs on a user's machine.
+runs:
+  using: composite
+  steps:
+    # The release's own rg.exe, as apt installs the real binary on Linux. A
+    # Chocolatey install puts a shim first on PATH that runs rg.exe as its
+    # child: live grep's timeout kills the shim, the real rg keeps running
+    # with the Root as its cwd, and the test's rmdir of the Root fails with
+    # EBUSY (queue run 40150063798).
+    - name: Install ripgrep
+      shell: pwsh
+      env:
+        RIPGREP_VERSION: 14.1.1
+        RIPGREP_SHA256: d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1
+      run: |
+        $name = "ripgrep-$env:RIPGREP_VERSION-x86_64-pc-windows-msvc"
+        $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+        Invoke-WebRequest -Uri "https://github.com/BurntSushi/ripgrep/releases/download/$env:RIPGREP_VERSION/$name.zip" -OutFile $zip
+        $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+        if ($actual -ne $env:RIPGREP_SHA256) {
+          throw "$name.zip has sha256 $actual, expected $env:RIPGREP_SHA256"
+        }
+        Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
+        $bin = Join-Path $env:RUNNER_TEMP $name
+        & (Join-Path $bin 'rg.exe') --version
+        Add-Content -Path $env:GITHUB_PATH -Value $bin
+
+    # Windows Error Reporting keeps a minidump of any process that crashes in the
+    # desktop lanes (Electron Main, a renderer, a utility, node), so a crash is
+    # read from its stack instead of only its exit code. The runner is ephemeral.
+    # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
+    - name: Keep crash dumps
+      shell: pwsh
+      run: |
+        $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
+        New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+        $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+        New-Item -Path $key -Force | Out-Null
+        New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumps -Force | Out-Null
+        New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
+        New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 10 -Force | Out-Null
+
+    # A local account in Users only, with a random password that lives for this
+    # job. Windows PowerShell carries the LocalAccounts module natively.
+    # It is granted what a developer's own account owns: the checkout (with its
+    # node_modules and the provisioned Electron), the runner's temp folder (the
+    # Node headers, ripgrep, crash dumps) and the pnpm and Node installs, read
+    # only. One logon with its profile creates the profile, whose folders
+    # run-as-test-user.ps1 hands the tests as their HOME, APPDATA and TEMP.
+    - name: Create the standard test user
+      shell: powershell
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $name = 'bstest'
+        $bytes = New-Object byte[] 24
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $plain = 'Bs1!' + [System.BitConverter]::ToString($bytes).Replace('-', '')
+        Write-Output "::add-mask::$plain"
+        $password = ConvertTo-SecureString $plain -AsPlainText -Force
+        New-LocalUser -Name $name -Password $password -PasswordNeverExpires -AccountNeverExpires -Description 'Brainstrike CI standard test user' | Out-Null
+        Add-LocalGroupMember -Group 'Users' -Member $name
+        if (Get-LocalGroupMember -SID 'S-1-5-32-544' | Where-Object { $_.Name -like "*\$name" }) {
+          throw "$name must not be an administrator"
+        }
+
+        function Grant([string]$path, [string]$rights) {
+          $started = Get-Date
+          & icacls.exe $path /grant "${name}:(OI)(CI)$rights" /Q /C | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "icacls $path failed with $LASTEXITCODE" }
+          Write-Output ("Granted $name $rights on $path in {0:N1} s" -f ((Get-Date) - $started).TotalSeconds)
+        }
+        Grant $env:GITHUB_WORKSPACE 'M'
+        Grant $env:RUNNER_TEMP 'M'
+        Grant (Split-Path (Get-Command node).Source) 'RX'
+        # pnpm/action-setup installs pnpm under the runner's own profile, which
+        # only its owner can read: grant the folder that holds it.
+        $dir = Split-Path (Get-Command pnpm).Source
+        while ($dir -and (Split-Path $dir) -and ((Split-Path $dir) -ne $env:USERPROFILE)) { $dir = Split-Path $dir }
+        if ((Split-Path $dir) -eq $env:USERPROFILE) { Grant $dir 'RX' }
+
+        # Git refuses a repository another user owns; the checkout is the
+        # runner's, so name it safe in the system config, as checkout's own
+        # set-safe-directory does for the runner.
+        & git config --system --add safe.directory ($env:GITHUB_WORKSPACE -replace '\\', '/')
+
+        $info = New-Object System.Diagnostics.ProcessStartInfo
+        $info.FileName = Join-Path $env:SystemRoot 'System32\cmd.exe'
+        $info.Arguments = '/d /c exit 0'
+        $info.UseShellExecute = $false
+        $info.UserName = $name
+        $info.Domain = $env:COMPUTERNAME
+        $info.Password = $password
+        $info.LoadUserProfile = $true
+        $logon = [System.Diagnostics.Process]::Start($info)
+        $logon.WaitForExit()
+        if ($logon.ExitCode -ne 0) { throw "First logon of $name exited with $($logon.ExitCode)" }
+        $sid = (New-Object System.Security.Principal.NTAccount($name)).Translate([System.Security.Principal.SecurityIdentifier]).Value
+        $userProfile = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$sid").ProfileImagePath
+        $temp = Join-Path $userProfile 'AppData\Local\Temp'
+        New-Item -ItemType Directory -Force -Path $temp | Out-Null
+        Write-Output "$name ($sid) has profile $userProfile"
+        Add-Content -Path $env:GITHUB_ENV -Value @(
+          "BRAINSTRIKE_CI_TEST_USER=$name",
+          "BRAINSTRIKE_CI_TEST_USER_PASSWORD=$plain",
+          "BRAINSTRIKE_CI_TEST_USER_PROFILE=$userProfile",
+          "BRAINSTRIKE_CI_TEST_USER_TEMP=$temp"
+        )
