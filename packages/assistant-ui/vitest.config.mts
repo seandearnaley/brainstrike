@@ -25,7 +25,10 @@ const browserProject = createBrowserProject({
   // package is `tooling` and cannot depend on @brainstrike/test-utils, and a
   // factory default would be silently droppable by the `...browserProject.test`
   // spread below.
-  setupFiles: ['@brainstrike/test-utils/vitest.browser.setup'],
+  setupFiles: [
+    '@brainstrike/test-utils/vitest.browser.setup',
+    './src/__tests__/browser-one-time-chunks.setup.ts',
+  ],
   testPattern: 'src/**/*.browser.test.{ts,tsx}',
 });
 
