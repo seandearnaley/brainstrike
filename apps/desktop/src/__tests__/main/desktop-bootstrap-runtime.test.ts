@@ -17,7 +17,7 @@ const fixture = vi.hoisted(() => ({
 }));
 vi.mock('electron', () => ({
   app: {
-    commandLine: { appendSwitch: vi.fn() },
+    commandLine: { appendSwitch: vi.fn(), getSwitchValue: vi.fn(() => '') },
     getAppPath: () => resolve('/disposable/app'),
     getPath: (name: string) => {
       const value = fixture.paths.get(name);

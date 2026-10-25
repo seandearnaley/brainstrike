@@ -115,6 +115,8 @@ test('MCP Apps bridge is quiescent in genuinely packaged Electron', {
         '--disable-extensions',
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-features=CalculateNativeWinOcclusion',
       ],
       env: {
         ...electronEnvironment(),

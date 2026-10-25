@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DISABLED_CHROMIUM_FEATURES, FORBIDDEN_GPU_SWITCHES } from '../gpu-flags';
+import {
+  DISABLED_CHROMIUM_FEATURES,
+  disabledChromiumFeatures,
+  FORBIDDEN_GPU_SWITCHES,
+} from '../gpu-flags';
 
 describe('GPU flag configuration', () => {
   it('disables MacWebContentsOcclusion and SpareRendererForSitePerProcess', () => {
@@ -16,5 +20,12 @@ describe('GPU flag configuration', () => {
     for (const forbidden of FORBIDDEN_GPU_SWITCHES) {
       expect(DISABLED_CHROMIUM_FEATURES).not.toContain(forbidden);
     }
+  });
+
+  it("keeps the launch's own disabled features beside the app's", () => {
+    expect(disabledChromiumFeatures('CalculateNativeWinOcclusion,MacWebContentsOcclusion')).toBe(
+      'CalculateNativeWinOcclusion,MacWebContentsOcclusion,SpareRendererForSitePerProcess'
+    );
+    expect(disabledChromiumFeatures('')).toBe(DISABLED_CHROMIUM_FEATURES.join(','));
   });
 });

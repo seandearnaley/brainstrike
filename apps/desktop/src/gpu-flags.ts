@@ -22,6 +22,16 @@ export const DISABLED_CHROMIUM_FEATURES = [
 ] as const satisfies readonly string[];
 
 /**
+ * The `--disable-features` value the app sets: the launch's own list first, then
+ * the app's. Chromium keeps one value per switch, and appending a switch replaces
+ * the launch's value, so a launcher's disabled features would otherwise be lost.
+ */
+export function disabledChromiumFeatures(launchValue: string): string {
+  const launch = launchValue.split(',').filter((feature) => feature !== '');
+  return [...new Set([...launch, ...DISABLED_CHROMIUM_FEATURES])].join(',');
+}
+
+/**
  * GPU command-line switches that must NEVER be re-added.
  *
  * These push rasterization onto the same GPU command queue that ONNX/Dawn uses

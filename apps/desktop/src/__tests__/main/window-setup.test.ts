@@ -50,7 +50,7 @@ Object.assign(mockBrowserWindow, {
 const whenReadyMock = vi.fn(() => Promise.resolve());
 
 const mockApp = {
-  commandLine: { appendSwitch: vi.fn() },
+  commandLine: { appendSwitch: vi.fn(), getSwitchValue: vi.fn(() => '') },
   getAppMetrics: vi.fn(() => []),
   getAppPath: vi.fn(() => resolve('/mock/app')),
   getPath: vi.fn(),

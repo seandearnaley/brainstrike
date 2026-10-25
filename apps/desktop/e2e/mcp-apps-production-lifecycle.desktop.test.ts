@@ -274,6 +274,8 @@ async function launchPackagedHarness(
       '--disable-extensions',
       '--disable-background-timer-throttling',
       '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-features=CalculateNativeWinOcclusion',
     ],
     {
       env: {
