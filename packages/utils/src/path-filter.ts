@@ -7,7 +7,7 @@ import { isWindowsPath } from './path-ancestors.ts';
  * Common file patterns to ignore.
  *
  * Exported as the single source of truth for engines that can pre-filter at
- * the native layer (e.g. @parcel/watcher ignore globs, BST-568); the
+ * the watch layer (e.g. the root watcher's `fs.watch` ignore, BST-568); the
  * authoritative check remains `fileFilter.shouldIgnorePath`.
  */
 export const DEFAULT_IGNORE_PATTERNS = [

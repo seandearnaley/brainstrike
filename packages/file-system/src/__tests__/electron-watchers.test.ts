@@ -1,7 +1,6 @@
 // The shared change batcher (BST-568): 150ms trailing coalescing with a
 // bounded batch size. Engine-level behavior (event normalization, ignore
-// rules, health) lives in parcel-watchers.test.ts — the legacy chokidar /
-// fs.watch engines were removed in slice 4.
+// rules, health) lives in root-watchers.test.ts.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createFileSystemChangeBatcher,

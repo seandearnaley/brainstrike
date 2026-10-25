@@ -344,8 +344,7 @@ describe('ElectronFileSystemAdapter', () => {
   });
 
   // Watch routing/engine behavior lives in watcher-backend-routing.test.ts and
-  // parcel-watchers.test.ts — the legacy chokidar/fs.watch engines were
-  // removed in BST-568 slice 4.
+  // root-watchers.test.ts.
 
   describe('metadata caching (BST-146)', () => {
     it('should create adapter without cache by default', () => {
@@ -475,7 +474,7 @@ describe('ElectronFileSystemAdapter', () => {
     });
 
     it('should invalidate cache on file watcher changes', async () => {
-      // Mock the parcel engine so the wrapped-callback (cache-invalidation)
+      // Mock the root watch engine so the wrapped-callback (cache-invalidation)
       // seam is exercised without real OS events.
       vi.resetModules();
       vi.doMock('electron', () => ({
@@ -484,8 +483,8 @@ describe('ElectronFileSystemAdapter', () => {
       const captured: { callback: ((changes: unknown[]) => void) | null } = {
         callback: null,
       };
-      vi.doMock('../adapters/parcel-watchers', async (importOriginal) => {
-        const actual = await importOriginal<typeof import('../adapters/parcel-watchers.js')>();
+      vi.doMock('../adapters/root-watchers', async (importOriginal) => {
+        const actual = await importOriginal<typeof import('../adapters/root-watchers.js')>();
         return {
           ...actual,
           startParcelWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {

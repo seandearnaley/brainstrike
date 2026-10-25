@@ -6,8 +6,7 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "@parcel/watcher": "catalog:"
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -23,8 +22,6 @@
     "./electron": "./src/electron.ts",
     "./file-node-handles": "./src/file-node-handles.ts",
     "./path-validation": "./src/path-validation.ts",
-    "./testing/watcher-liveness": "./src/testing/watcher-liveness.ts",
-    "./testing/parcel-producer": "./src/testing/parcel-producer.ts",
     "./directory-tree": "./src/directory-tree.ts",
     "./workspace-root-nodes": "./src/workspace-root-nodes.ts",
     "./config": "./src/config.ts",
@@ -37,11 +34,9 @@
     "./native-watch": "./src/native-watch.ts"
   },
   "scripts": {
-    "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:packaged": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- pnpm --filter @brainstrike/desktop exec electron ../../packages/file-system/test/parcel-packaged-smoke.cjs",
+    "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
-    "validate:parcel-binding": "node scripts/validate-parcel-binding.mjs"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module"
 }

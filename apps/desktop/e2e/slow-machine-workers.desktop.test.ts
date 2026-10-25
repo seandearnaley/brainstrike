@@ -16,7 +16,7 @@ import { updateIndexConfig } from './utils/index-config';
 /**
  * Lifecycle redesign PR D (§6.1): a slow machine never causes a worker error. The E2E seam holds
  * the indexer utility's first request, the first canonical attach and the first workspace-root
- * parcel subscribe past every deadline that used to retire them, and the hidden embedding host's
+ * root watch start past every deadline that used to retire them, and the hidden embedding host's
  * readiness past its old 30 s ready timer. The spec asserts product behaviour only: the folder
  * indexes, the index reaches ready with a VECTOR profile (the paused semantic setup of
  * workspace-index-bootstrap, which needs no model download), the same indexer process serves
@@ -32,7 +32,7 @@ test.use({
 
 /** Main's log scopes for the workers and hosts this spec slows down. */
 const LIFECYCLE_SCOPE =
-  /^(IndexerHostManager|NativeIndex|RendererHostLifecycle|EmbeddingHostManager|HostRequestChannel|ParcelWatchers|AgentHostStateIndex|HostLease)/u;
+  /^(IndexerHostManager|NativeIndex|RendererHostLifecycle|EmbeddingHostManager|HostRequestChannel|RootWatchers|AgentHostStateIndex|HostLease)/u;
 
 interface StatusDigest {
   readonly indexedFiles: number;

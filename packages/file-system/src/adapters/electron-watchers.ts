@@ -4,10 +4,8 @@ import {
   type FileSystemWatchBatchMetadata,
 } from '../types.ts';
 
-// Shared change-batching primitive for the watcher service (BST-568). The
-// legacy chokidar / recursive-fs.watch engines that used to live here were
-// removed in slice 4 — @parcel/watcher (see ./parcel-watchers.ts) is the only
-// engine on every platform.
+// Shared change-batching primitive for the root watch engine
+// (see ./root-watchers.ts).
 export const FS_WATCH_BATCH_WINDOW_MS = 150;
 // Invariant: keep watcher event buffering bounded during bursty workloads.
 export const FS_WATCH_MAX_BATCH_SIZE = 500;
