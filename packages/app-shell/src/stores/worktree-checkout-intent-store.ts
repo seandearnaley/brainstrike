@@ -14,7 +14,7 @@
  */
 import { create } from 'zustand';
 
-export interface WorktreeCheckoutIntent {
+interface WorktreeCheckoutIntent {
   readonly branch: string | null;
   readonly path: string;
   readonly threadId: string;

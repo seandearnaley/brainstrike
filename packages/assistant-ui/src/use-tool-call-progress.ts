@@ -5,7 +5,7 @@ import {
   utf8ByteLength,
 } from './tool-call-progress';
 
-export interface ToolCallTimingLike {
+interface ToolCallTimingLike {
   readonly completedAt?: number | undefined;
   readonly startedAt: number;
 }
@@ -29,7 +29,7 @@ export interface ToolCallTimingLike {
  * label withholds sub-second values anyway, so nothing is lost before the
  * first tick.
  */
-export function useToolCallElapsedMs(
+function useToolCallElapsedMs(
   timing: ToolCallTimingLike | undefined,
   isRunning: boolean
 ): number | undefined {

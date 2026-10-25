@@ -8,11 +8,11 @@ import type { GpuDeviceHandle } from '../../src/webgpu-device-owner';
 import { attachStandInTokenizer } from './stand-in-tokenizer';
 
 export const workerEmitMock = vi.fn();
-export const transferMock = vi.fn(function TransferStub<T>(value: T) {
+const transferMock = vi.fn(function TransferStub<T>(value: T) {
   return value;
 });
 export const pipelineMock = vi.fn();
-export const registeredHandlers: {
+const registeredHandlers: {
   runEmbedding?: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
 } = {};
 

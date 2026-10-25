@@ -3,7 +3,7 @@ import type { WorkspaceRootRecord } from '@brainstrike/state-store';
 import { vi } from 'vitest';
 import type { DesktopHostToolServices } from '../../agent-host-platform/production-desktop-capabilities';
 
-export function admissionModelSnapshot(): ModelCatalogSnapshot {
+function admissionModelSnapshot(): ModelCatalogSnapshot {
   const snapshot = projectModelCatalog({ models: [], providers: [] });
   return {
     ...snapshot,

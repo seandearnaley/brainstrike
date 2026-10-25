@@ -132,7 +132,7 @@ export async function createEvalSandbox(repoDir: string): Promise<EvalSandbox> {
 }
 
 /** The hidden verifier's own directory inside the finished workspace. */
-export const VERIFY_DIR = '.verify';
+const VERIFY_DIR = '.verify';
 
 /** Copies the hidden verifier in, after the run, then runs `command` in the workspace. */
 export async function runVerifier(options: {

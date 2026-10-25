@@ -41,7 +41,7 @@ const eventIdentity = Schema.StructWithRest(
 );
 const unreadable = Schema.Struct({ reason: Schema.String, type: Schema.Literal('unreadable') });
 
-export interface StateProjectionRow {
+interface StateProjectionRow {
   readonly gap: string | null;
   /** Gap 10: the event's searchable conversation row, when its producer projects one. */
   readonly search: StateSearchRow;

@@ -354,7 +354,7 @@ function rewriteRunContext(
  * run's branch, as its next attempt would see it. False when nothing was
  * droppable, so no recovery is claimed.
  */
-export async function recoverHostContextOverflow(
+async function recoverHostContextOverflow(
   ports: HostRunExecutionPorts,
   run: Run
 ): Promise<boolean> {

@@ -5,8 +5,8 @@ import {
 import { nativeIndexSettingsFromConfig } from '@brainstrike/canonical-ingestion';
 import { IndexConfigStoreFailed } from '../../index-config';
 
-export const SPACE = 'space-1';
-export const MODEL = {
+const SPACE = 'space-1';
+const MODEL = {
   dimensions: 384,
   local: { device: 'wasm', dtype: 'q8' },
   modelKey: 'local::Xenova/bge-small-en-v1.5',

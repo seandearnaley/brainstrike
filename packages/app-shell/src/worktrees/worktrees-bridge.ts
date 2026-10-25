@@ -21,18 +21,6 @@ import type {
   WorktreeSettings,
 } from '@brainstrike/types';
 
-export type {
-  ManagedWorktreePathEntry,
-  ManagedWorktreeRow,
-  WorktreeArchivePreview,
-  WorktreeArchiveResult,
-  WorktreeCreateContext,
-  WorktreeCreateParams,
-  WorktreeCreateResult,
-  WorktreeListEntry,
-  WorktreeSettings,
-} from '@brainstrike/types';
-
 const logger = createLogger('WorktreesBridge');
 
 export interface WorktreesBridge {

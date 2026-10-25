@@ -58,7 +58,7 @@ export interface BuildFileTreeRowsOptions {
   sort?: FileTreeSortOptions;
 }
 
-export type FileTreeSortMetadataValue = number | 'excluded' | 'pending';
+type FileTreeSortMetadataValue = number | 'excluded' | 'pending';
 
 export interface FileTreeSortMetadata {
   size: FileTreeSortMetadataValue;

@@ -24,7 +24,7 @@ import { installTasksServerWireAlias, TASKS_WIRE_ALIASES } from './tasks-wire-al
  * `completion/complete` dispatcher (a hand-written handler for that method
  * would collide with it).
  */
-export const ECHO_REFERENCE_CONTENT = Object.freeze({
+const ECHO_REFERENCE_CONTENT = Object.freeze({
   prompt: Object.freeze({
     argument: 'subject',
     completions: Object.freeze(['bst-1592-alpha', 'bst-1592-beta']),

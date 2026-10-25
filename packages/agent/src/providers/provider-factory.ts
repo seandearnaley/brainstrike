@@ -53,7 +53,7 @@ export type ProviderModelConfiguration =
   | OpenAICompatibleConfig;
 
 /** Preserve the existing Mastra consumer's vendored SDK declaration boundary. */
-export function toMastraModelConfiguration(model: ProviderModelConfiguration): MastraModelConfig {
+function toMastraModelConfiguration(model: ProviderModelConfiguration): MastraModelConfig {
   if (
     'specificationVersion' in model &&
     model.specificationVersion === 'v2' &&

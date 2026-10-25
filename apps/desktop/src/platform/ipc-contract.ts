@@ -15,7 +15,7 @@ import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-f
 import type { DesktopWindowRole } from '../window-role';
 
 export type IpcChannelName = `${string}:${string}`;
-export type IpcSenderRoles = readonly [DesktopWindowRole, ...DesktopWindowRole[]];
+type IpcSenderRoles = readonly [DesktopWindowRole, ...DesktopWindowRole[]];
 
 /**
  * The ONE failure taxonomy that crosses IPC as data (first written for MCP
@@ -45,7 +45,7 @@ export function ipcFailure<T = never>(error: IpcFailure): IpcResult<T> {
  * consumers already read a typed envelope of their own (`GitResult`,
  * `TerminalResult`) and never throw across IPC.
  */
-export type IpcEnvelope = 'ipc-result' | 'raw';
+type IpcEnvelope = 'ipc-result' | 'raw';
 
 export interface IpcChannel<
   Args extends readonly unknown[],
@@ -70,7 +70,7 @@ export interface IpcEvent<Payload> {
   readonly payload?: Payload;
 }
 
-export type IpcSpec = IpcChannel<readonly unknown[], unknown> | IpcEvent<unknown>;
+type IpcSpec = IpcChannel<readonly unknown[], unknown> | IpcEvent<unknown>;
 export type Contract = Record<string, IpcSpec>;
 
 interface IpcChannelInput<Args extends readonly unknown[]> {

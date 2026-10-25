@@ -21,7 +21,7 @@ import type { CredentialSourceState } from '../provider-key-types';
 import { CredentialRowEditor } from './credential-row-editor';
 import type { CredentialSlot } from './credential-slots';
 
-export const CREDENTIAL_TABLE_COLUMN_COUNT = 5;
+const CREDENTIAL_TABLE_COLUMN_COUNT = 5;
 
 interface CredentialRowProps {
   readonly busy: boolean;

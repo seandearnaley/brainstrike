@@ -31,7 +31,7 @@ const logger = createLogger('AssistantRetrievalTool');
  * query params, provider API messages, request URLs) in `.message` — never log
  * it verbatim (mirrors `redactToolErrorForLog` in assistant-tools.ts).
  */
-export function redactRetrievalErrorForLog(error: unknown): {
+function redactRetrievalErrorForLog(error: unknown): {
   code?: string | number;
   name: string;
   redacted: true;
@@ -52,7 +52,7 @@ const DEFAULT_TOKEN_BUDGET = 4000;
 /** Retrieval reads the native index only; the agent host has no other similarity path. */
 const NO_NATIVE_INDEX_RETRIEVAL = 'Retrieval without a native index runs only on Main’s database.';
 
-export const RETRIEVAL_ERROR_MESSAGES = {
+const RETRIEVAL_ERROR_MESSAGES = {
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
   embeddingSetLookupFailed: 'Unable to load embedding set metadata.',

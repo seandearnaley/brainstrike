@@ -9,7 +9,7 @@
 
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
-export interface SectionSelectAllSummary {
+interface SectionSelectAllSummary {
   /** True when the section's scan stopped at the forest-union budget. */
   limitReached: boolean;
   /** Files selected in this section's pass. */

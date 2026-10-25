@@ -45,7 +45,7 @@ interface LaneEntry {
 }
 
 /** One open source per lane; exported for its tests. */
-export class ContextLaneSources {
+class ContextLaneSources {
   private readonly entries = new Map<string, LaneEntry>();
   private readonly listeners = new Set<() => void>();
   private snapshot: ReadonlyMap<string, AssistantThreadContextSnapshot> = NO_STATES;

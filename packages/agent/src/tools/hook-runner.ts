@@ -50,7 +50,7 @@ export const HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET = 2000;
  * or reflective object properties.
  */
 export const HOOK_RESULT_ENVELOPE_FIELD = '__brainstrikeHookResultEnvelope';
-export const HOOK_RESULT_ENVELOPE_KIND = 'brainstrike.post-tool-result.v1';
+const HOOK_RESULT_ENVELOPE_KIND = 'brainstrike.post-tool-result.v1';
 const HOOK_RESULT_ENVELOPE_PROVENANCE = new WeakSet<object>();
 
 export interface HookResultEnvelope {

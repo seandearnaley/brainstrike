@@ -40,7 +40,7 @@ async function seed(store: StateStore, mb: number): Promise<void> {
 }
 
 /** Bundle data files (everything except the lock and the manifest) as path -> sha256. */
-export function dataFiles(dir: string): Record<string, string> {
+function dataFiles(dir: string): Record<string, string> {
   const res: Record<string, string> = {};
   const walk = (d: string, rel: string): void => {
     for (const e of readdirSync(d, { withFileTypes: true })) {

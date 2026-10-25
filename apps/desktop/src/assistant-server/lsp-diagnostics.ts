@@ -124,7 +124,7 @@ const TS_LANGUAGE_BY_EXT: Record<string, string> = {
   '.tsx': 'typescriptreact',
 };
 
-export function languageIdForPath(absolutePath: string): string | undefined {
+function languageIdForPath(absolutePath: string): string | undefined {
   return TS_LANGUAGE_BY_EXT[path.extname(absolutePath).toLowerCase()];
 }
 
@@ -941,43 +941,6 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
       reason: 'server-unavailable',
     };
   }
-}
-
-/** Number of pooled servers (test/observability).
- * @internal LSP integration regressions verify process-pool retirement.
- */
-export function countPooledLspServers(): number {
-  return pool.size;
-}
-
-/** Pooled server pids (test only — no-orphan proof).
- * @internal LSP integration regressions inspect the admitted child identities.
- */
-export async function __getPooledPidsForTest(): Promise<number[]> {
-  const settled = await Promise.allSettled(pool.values());
-  return settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value.pid] : []));
-}
-
-/** Direct lifecycle controls for deterministic disposal tests.
- * @internal LSP integration regressions inspect retained cleanup ownership.
- */
-export async function __getPooledLifecycleForTest(rootId: string): Promise<{
-  dispose: () => Promise<void>;
-  emitChildError: (error: Error) => void;
-  forceKill: () => Promise<void>;
-  rejectNextKill: () => void;
-}> {
-  const pending = pool.get(rootId);
-  if (!pending) {
-    throw new Error(`No pooled LSP server for root ${rootId}`);
-  }
-  const connection = await pending;
-  return {
-    dispose: () => connection.dispose(),
-    emitChildError: (error) => connection.emitChildErrorForTest(error),
-    forceKill: () => connection.forceKillForTest(),
-    rejectNextKill: () => connection.rejectNextKillForTest(),
-  };
 }
 
 /**

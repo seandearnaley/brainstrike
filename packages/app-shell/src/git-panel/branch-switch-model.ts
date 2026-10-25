@@ -12,7 +12,7 @@
  */
 import type { GitBranchSummary, GitStatus } from '@brainstrike/types';
 
-export interface BranchSwitchRow {
+interface BranchSwitchRow {
   readonly current: boolean;
   /** Non-null exactly when `switchable` is false — never a silent disable. */
   readonly disabledReason: string | null;

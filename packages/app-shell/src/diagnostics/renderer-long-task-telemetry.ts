@@ -35,7 +35,7 @@ export interface RendererLongTaskContext {
   readonly route: RendererDiagnosticSurface;
 }
 
-export interface RendererLongTaskMetric extends RendererLongTaskContext {
+interface RendererLongTaskMetric extends RendererLongTaskContext {
   readonly durationMs: number;
 }
 
@@ -66,12 +66,12 @@ type PreparedPerformanceEntryBatch =
       readonly pendingMetrics: readonly PendingRendererLongTaskMetric[];
     };
 
-export interface RendererLongTaskRouteSummary {
+interface RendererLongTaskRouteSummary {
   readonly count: number;
   readonly route: RendererDiagnosticSurface;
 }
 
-export interface RendererLongTaskFeatureFlagSummary {
+interface RendererLongTaskFeatureFlagSummary {
   readonly count: number;
   readonly flag: string;
 }

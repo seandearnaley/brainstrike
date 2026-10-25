@@ -31,7 +31,7 @@ export interface DirectDirectoryTraversalResult {
   visitedPaths: string[];
 }
 
-export interface DirectDirectoryTraversalBatchResult {
+interface DirectDirectoryTraversalBatchResult {
   cancelled: boolean;
   complete: boolean;
   failedLoads: number;

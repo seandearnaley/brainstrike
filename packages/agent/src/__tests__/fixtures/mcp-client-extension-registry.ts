@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { McpClientExtensionRegistry } from '../../mcp/client-extension-registry';
 
-export const TEST_EXTENSION_ID = 'com.example/integration-host';
-export const TEST_EXTENSION_SETTINGS = { mode: 'strict' } as const;
+const TEST_EXTENSION_ID = 'com.example/integration-host';
+const TEST_EXTENSION_SETTINGS = { mode: 'strict' } as const;
 export const TEST_EXTENSION_REQUEST = {
   mcpNameParam: 'taskId',
   method: 'tasks/get',

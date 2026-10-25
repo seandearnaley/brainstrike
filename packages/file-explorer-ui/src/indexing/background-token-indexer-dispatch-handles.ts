@@ -6,7 +6,7 @@ import type {
 } from './background-token-indexer-dispatch-planner';
 import type { ElectronFileHandle, HandleInfo } from './background-token-indexer-handles';
 
-export interface ElectronFileReadRequest {
+interface ElectronFileReadRequest {
   readonly compositeKey: string;
   readonly filePath: string;
   readonly fileSize: number | undefined;
@@ -20,7 +20,7 @@ export interface PlannedTokenIndexingDispatchQueues {
   readonly webFilesToIndex: FileToIndex[];
 }
 
-export interface PlannedTokenIndexingMissingHandle {
+interface PlannedTokenIndexingMissingHandle {
   readonly compositeKey: string;
   readonly dispatchKind: 'electron' | 'web';
 }

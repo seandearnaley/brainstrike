@@ -80,7 +80,7 @@ export class SnapshotGitError extends Error {
  * comment). `env` entries are merged OVER the runner's pinned base
  * environment; they never replace it wholesale.
  */
-export interface SnapshotGitCommandParams {
+interface SnapshotGitCommandParams {
   readonly args: readonly string[];
   readonly binaryStdout?: boolean | undefined;
   readonly cwd: string;
@@ -96,7 +96,7 @@ export type SnapshotGitCommandRunner = (params: SnapshotGitCommandParams) => Pro
  * plumbing a longer leash than interactive `GIT_DEFAULT_TIMEOUT_MS` (there is
  * no network in any shadow-git command).
  */
-export const SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
+const SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
 
 /**
  * The production snapshot runner is the house git runner: argument array (no
@@ -132,7 +132,7 @@ export function assertValidRootId(rootId: string): void {
 }
 
 /** A conversation identity is opaque data, not a path component. */
-export function assertValidThreadId(threadId: string): void {
+function assertValidThreadId(threadId: string): void {
   if (typeof threadId !== 'string' || threadId.trim().length === 0) {
     throw new SnapshotGitError('invalid-argument', 'threadId must be a non-empty identity');
   }
@@ -157,7 +157,7 @@ export function snapshotRefForThread(threadId: string): string {
 }
 
 /** Shipped `info/exclude` backstop for non-git roots (plan global constraint 3). */
-export const SHADOW_INFO_EXCLUDE = 'node_modules/\n.DS_Store\n';
+const SHADOW_INFO_EXCLUDE = 'node_modules/\n.DS_Store\n';
 
 /** Env-var record for a private index (env-var names are not camelCase). */
 function gitIndexFileEnv(indexPath: string): Readonly<Record<string, string>> {

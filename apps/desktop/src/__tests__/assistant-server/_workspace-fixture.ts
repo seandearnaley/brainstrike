@@ -1,7 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
 
 /**
  * Shared workspace fixture for the assistant-tools suite family (BST-976
@@ -30,21 +29,4 @@ export async function createWorkspaceFixture(): Promise<string> {
     'utf8'
   );
   return root;
-}
-
-export function workspaceRuntime(
-  workspaceRootPath: string,
-  threadId = 'assistant-tools-thread'
-): RuntimeData {
-  return {
-    memory: { resourceId: 'assistant-tools-workspace', threadId },
-    workspaceRootPath,
-    workspaceRoots: [
-      {
-        displayName: path.basename(workspaceRootPath),
-        path: workspaceRootPath,
-        rootId: workspaceRootPath,
-      },
-    ],
-  } as RuntimeData;
 }

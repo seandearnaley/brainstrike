@@ -105,10 +105,7 @@ function sendNextQueuedFollowUp({
   }
 }
 
-export function useFollowUpQueueDispatch(
-  threadKey: string | undefined,
-  isReattaching = false
-): void {
+function useFollowUpQueueDispatch(threadKey: string | undefined, isReattaching = false): void {
   const ownsQueue = use(FollowUpQueueOwnershipContext);
   const aui = useAui();
   const follow = useThreadScrollFollow();

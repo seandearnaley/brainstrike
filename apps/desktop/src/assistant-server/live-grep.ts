@@ -45,7 +45,7 @@ function redactErrorForLog(error: unknown): {
 /** Default hard cap on candidate files materialized from the live pass (per call, all roots). */
 const DEFAULT_MAX_LIVE_CANDIDATE_FILES = 1500;
 /** Maximum excluded files read by one count-only steering probe, per root. */
-export const PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES = 200;
+const PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES = 200;
 /** Active candidate cap; overridable in tests so the cap path is exercised without 1500+ files. */
 let maxLiveCandidateFiles = DEFAULT_MAX_LIVE_CANDIDATE_FILES;
 /** Skip on-disk files larger than this when reading them for the authoritative match. */
@@ -120,9 +120,6 @@ function hasDotGitSegment(relativePath: string): boolean {
   }
   return false;
 }
-
-/** @internal Grep regressions pin repository-metadata exclusion. */
-export const hasDotGitSegmentForTests = hasDotGitSegment;
 
 type IndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEntryPolicy>;
 

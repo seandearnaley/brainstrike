@@ -14,8 +14,8 @@ interface ManifestOverrides {
 }
 
 export const ARCHIVE_SHA256 = 'a'.repeat(64);
-export const RELEASE_TAG = '20260728';
-export const PYTHON_VERSION = '3.13.14';
+const RELEASE_TAG = '20260728';
+const PYTHON_VERSION = '3.13.14';
 export const TRIPLE = 'aarch64-apple-darwin';
 export const OTHER_TRIPLE = 'x86_64-apple-darwin';
 

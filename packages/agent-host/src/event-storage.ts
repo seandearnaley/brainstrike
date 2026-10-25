@@ -16,7 +16,7 @@ export function nodeHostRowReader(store: Pick<StateStore, 'read' | 'root'>): Hos
   };
 }
 
-export async function readHostThreadHistory(
+async function readHostThreadHistory(
   store: Pick<StateStore, 'read' | 'root'>,
   threads: ReadonlySet<string>,
   threadId: string,
@@ -30,8 +30,8 @@ export async function readHostThreadHistory(
   );
 }
 
-export { hydratesHostEvent, storedHostEvent } from './host-event-encoding.ts';
-export { decodeStoredHostEvent, hostEventSpool, storedHostBody };
+export { storedHostEvent } from './host-event-encoding.ts';
+export { decodeStoredHostEvent };
 
 export async function readHostRow(
   store: Pick<StateStore, 'root'>,

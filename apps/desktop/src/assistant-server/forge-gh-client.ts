@@ -17,7 +17,7 @@ import type { ForgePullRequest, ForgeUnavailable } from '@brainstrike/types';
 import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
 
 /** `gh` reaches the network; give it more room than a local git call, bounded. */
-export const GH_TIMEOUT_MS = 20_000;
+const GH_TIMEOUT_MS = 20_000;
 const GH_MAX_BUFFER_BYTES = 4_000_000;
 
 /**

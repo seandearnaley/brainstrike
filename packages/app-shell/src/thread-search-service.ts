@@ -21,7 +21,7 @@
 
 import { createRankedList, fuseRankedLists, normalizeRRFScores } from '@brainstrike/utils/rrf';
 
-export interface ThreadMessageFtsOptions {
+interface ThreadMessageFtsOptions {
   /** Generate `<mark>`-highlighted headlines (default true). */
   includeHeadline?: boolean;
   limit: number;
@@ -53,7 +53,7 @@ export interface ThreadMessageVectorMatch {
   threadId: string;
 }
 
-export interface ThreadTitleSearchOptions {
+interface ThreadTitleSearchOptions {
   limit: number;
   resourceId: string;
 }
@@ -101,7 +101,7 @@ export interface ThreadSearchServiceRepository {
 }
 
 /** One message match from another owner's arm, best first in its list. */
-export interface ThreadSearchArmMessage {
+interface ThreadSearchArmMessage {
   readonly headline: string | null;
   readonly messageCreatedAt: Date;
   readonly messageId: string;
@@ -151,9 +151,9 @@ export interface ThreadSearchQueryOptions {
   vectorWeight?: number;
 }
 
-export type ThreadMessageMatchSource = 'fts' | 'vector';
+type ThreadMessageMatchSource = 'fts' | 'vector';
 
-export interface ThreadMessageMatchResult {
+interface ThreadMessageMatchResult {
   /** `<mark>`-highlighted FTS headline, or the plain vector snippet. */
   headline: string | null;
   messageCreatedAt: Date;
@@ -174,7 +174,7 @@ export interface ThreadSearchResultItem {
   titleMatched: boolean;
 }
 
-export interface ThreadSearchMetadata {
+interface ThreadSearchMetadata {
   ftsResultCount: number;
   semanticArmUsed: boolean;
   titleResultCount: number;

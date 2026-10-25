@@ -7,7 +7,7 @@
 import type { ViewFilterPreset } from '@brainstrike/types';
 import { literalFilterPattern } from '@brainstrike/utils/path-filter';
 
-export const THREAD_TOUCHED_PRESET_ID = 'thread:touched';
+const THREAD_TOUCHED_PRESET_ID = 'thread:touched';
 
 const BUILT_AT = new Date(0);
 

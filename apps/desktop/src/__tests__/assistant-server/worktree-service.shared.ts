@@ -43,7 +43,7 @@ export function createTestWorkspace() {
   return { cleanup, freshManagedDir, freshRepo, freshTempDir };
 }
 
-export function asLedgerStore(database: StateStore): WorktreeLedgerPort {
+function asLedgerStore(database: StateStore): WorktreeLedgerPort {
   return { worktreeLedger: (request) => database.worktreeLedger(request) };
 }
 

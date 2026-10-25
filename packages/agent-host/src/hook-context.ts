@@ -16,13 +16,13 @@ type RunFinishedEvent = Extract<HostEvent, { type: 'run.finished' }>;
 const STOP_ASSISTANT_MESSAGE_TAIL_CHARS = 64 * 1024;
 
 /** A run's hook context: its UserPromptSubmit context and each tool result's PostToolUse context. */
-export interface HostRunHookContext {
+interface HostRunHookContext {
   promptContext?: string;
   readonly toolContexts: Map<string, string>;
 }
 
 /** Live acceptance and replay apply a committed hook context to its run the same way. */
-export function foldHostHookContext(run: HostRunHookContext, event: HookContextEvent): void {
+function foldHostHookContext(run: HostRunHookContext, event: HookContextEvent): void {
   if (event.toolCallId === undefined) {
     run.promptContext = event.context;
   } else {

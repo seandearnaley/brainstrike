@@ -51,7 +51,7 @@ export interface AgentMessagePartTool {
  * only — see `@brainstrike/assistant-contract` assistant-attachments). `data`
  * is a base64 `data:` URL; it must NEVER be flattened into prompt text.
  */
-export interface AgentMessagePartFile {
+interface AgentMessagePartFile {
   data: string;
   filename?: string | undefined;
   mediaType: string;
@@ -221,19 +221,15 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
   workspaceSkills?: WorkspaceSkills;
 }
 
-export interface RuntimeMemoryContext {
+interface RuntimeMemoryContext {
   memoryOptions?: AgentMemoryOption['options'];
   memorySettings?: RuntimeAssistantMemorySettings;
   resourceId: string;
   runId?: string;
   threadId: string;
 }
-export type {
-  BedrockReasoningEffort,
-  GoogleThinkingLevel,
-  OpenAiReasoningEffort,
-  OpenAiReasoningSummary,
-};
+
+export type { GoogleThinkingLevel, OpenAiReasoningEffort, OpenAiReasoningSummary };
 
 export interface OpenAiProviderOptions extends JSONObject {
   reasoningEffort?: OpenAiReasoningEffort;
@@ -267,7 +263,7 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
  * against the installed provider by
  * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  */
-export type AnthropicThinkingOptions =
+type AnthropicThinkingOptions =
   | { type: 'adaptive'; display?: 'omitted' | 'summarized' | 'updates' }
   | { type: 'between_tools' }
   | { type: 'enabled'; budgetTokens: number }
@@ -289,14 +285,14 @@ export interface AnthropicProviderOptions extends JSONObject {
  * fact (`LlmModelDefinition.bedrockReasoning`), not a property of this shape.
  */
 // biome-ignore lint/style/useConsistentTypeDefinitions: must stay a type ALIAS. `BedrockProviderOptions` extends `JSONObject`, whose string index signature an interface member does not satisfy (TS2411); a type alias gets the implicit index signature. Same reason `AnthropicThinkingOptions` is an alias.
-export type BedrockReasoningConfig = {
+type BedrockReasoningConfig = {
   budgetTokens?: number;
   display?: 'omitted' | 'summarized';
   maxReasoningEffort?: BedrockReasoningEffort;
   type: 'adaptive' | 'disabled' | 'enabled';
 };
 
-export interface BedrockProviderOptions extends JSONObject {
+interface BedrockProviderOptions extends JSONObject {
   reasoningConfig?: BedrockReasoningConfig;
 }
 
@@ -317,7 +313,7 @@ export interface GoogleProviderOptions extends JSONObject {
  * receives per-generation `providerOptions`; otherwise their fields become
  * chat-completions request parameters.
  */
-export interface LocalRuntimeProviderOptions extends JSONObject {
+interface LocalRuntimeProviderOptions extends JSONObject {
   apiToken?: string;
   baseUrl?: string;
 }

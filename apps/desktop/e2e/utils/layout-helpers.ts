@@ -126,7 +126,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 }
 
 /** The index holds no folder, and the thread list shows only the fresh start's thread. */
-export async function verifyClearedDesktopContent(page: Page): Promise<void> {
+async function verifyClearedDesktopContent(page: Page): Promise<void> {
   await expect
     .poll(
       async () => {

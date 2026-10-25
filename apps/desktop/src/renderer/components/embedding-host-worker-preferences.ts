@@ -31,7 +31,7 @@ function createAutomaticWasmRecommendationError(detected: DeviceCapabilities): E
   );
 }
 
-export async function resolveHydratedEmbeddingWorkerPreferences(): Promise<HydratedEmbeddingWorkerPreferences> {
+async function resolveHydratedEmbeddingWorkerPreferences(): Promise<HydratedEmbeddingWorkerPreferences> {
   const vectorPreferences = await ensureVectorPreferencesHydrated({
     forceReload: true,
   });

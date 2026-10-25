@@ -28,7 +28,7 @@ import type { RewindConflictModel } from '../rewind-port';
  * `changedFileKey`: two workspace roots routinely contain the same relative
  * path, and collapsing them would hide a whole root's conflict.
  */
-export function dedupeConflictsForDisplay(
+function dedupeConflictsForDisplay(
   conflicts: readonly RewindConflictModel[]
 ): readonly RewindConflictModel[] {
   const seen = new Set<string>();
