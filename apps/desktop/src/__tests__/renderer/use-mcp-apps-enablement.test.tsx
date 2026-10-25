@@ -59,7 +59,7 @@ describe('useMcpAppsEnablement', () => {
     const { push, status } = createStatus(snapshot(true, 1));
     const { result } = renderHook(() => useMcpAppsEnablement(status));
     await waitFor(() => expect(status.read).toHaveBeenCalled());
-    push(snapshot(false, 2));
+    act(() => push(snapshot(false, 2)));
     await waitFor(() => expect(result.current('linear')).toBe(false));
   });
 
@@ -73,7 +73,7 @@ describe('useMcpAppsEnablement', () => {
         })
     );
     const { result } = renderHook(() => useMcpAppsEnablement(status));
-    push(snapshot(false, 2));
+    act(() => push(snapshot(false, 2)));
     await waitFor(() => expect(result.current('linear')).toBe(false));
 
     // Settle the stale read and let React commit whatever it applies.
