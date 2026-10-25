@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
-  AGENT_HOST_PROTOCOL_VERSION,
   HOST_RESULT_SCHEMAS,
   HostLogRowSchema,
   type HostMethod,
@@ -61,14 +60,6 @@ function fixture() {
     onTerminal: vi.fn(() => () => undefined),
     onWorkspaceFiles: vi.fn(() => () => undefined),
     onWorkspaceIndex: vi.fn(() => () => undefined),
-    record: {
-      endpoint: '/tmp/recorded-host-fixture',
-      hostVersion: '0.1.0',
-      pid: process.pid,
-      protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-      start: 'synthetic client fixture',
-      token: 'a'.repeat(64),
-    },
     request: async <Method extends HostMethod>(
       method: Method,
       params: HostParams<Method>

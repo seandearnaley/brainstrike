@@ -1,12 +1,15 @@
-import { extname } from 'node:path';
+import { extname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  HOST_VERSION,
   type HostRuntime,
   type HostStartOptions,
   ResourceOwner,
+  secureDirectory,
   startHost,
 } from '@brainstrike/host-lease';
 import {
+  assertNotSyncedRoot,
   type ClearContentResult,
   StateStore,
   StateStoreStartupError,
@@ -20,7 +23,7 @@ import {
 } from 'vscode-jsonrpc/node';
 import { HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } from './boundary-wire.ts';
 import { serveHostCatalog } from './catalog/transport.ts';
-import { bindHostConnection, type HostConnectionOptions } from './connection.ts';
+import { bindHostConnection, type HostConnectionOptions, type HostIdentity } from './connection.ts';
 import { HostCore } from './core.ts';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
 import type { HostClientOrigin, HostPlatform } from './ports.ts';
@@ -130,12 +133,27 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
   }
 }
 
-export async function startAgentHost(
-  options: HostStartOptions,
+/** The store, platform and Core of one data root, composed the same way by every host shape. */
+interface HostRoot {
+  /** Retires what the platform keeps beside the store (the desktop's index), before a content clear. */
+  readonly clearRetainedContent: () => Promise<void>;
+  readonly clientCapabilities: () => Pick<
+    HostConnectionOptions,
+    'bindCatalog' | PlatformClientService
+  >;
+  readonly closePlatform: () => Promise<void>;
+  core(): HostCore | undefined;
+  /** Opens the store, which takes the Root lock, then the platform and Core over it. */
+  open(
+    retainRun: () => () => void
+  ): Promise<{ readonly core: HostCore; readonly store: StateStore }>;
+}
+function composeHostRoot(
+  root: string,
   inputPlatform: HostPlatformInitializer,
-  signal: AbortSignal = new AbortController().signal
-): Promise<AgentHost> {
-  signal.throwIfAborted();
+  signal: AbortSignal,
+  cancelled: () => void
+): HostRoot {
   const partialPlatform = new ResourceOwner();
   const context: Omit<HostStartupContext, 'store'> = {
     register: async (close) => {
@@ -173,31 +191,6 @@ export async function startAgentHost(
     return platformClose;
   };
   let catalogStore: StateStore | undefined;
-  const clientCapabilities = (): Pick<
-    HostConnectionOptions,
-    'bindCatalog' | PlatformClientService
-  > => ({
-    bindCatalog: async (connection) => {
-      if (!catalogStore) {
-        throw new Error('Host catalog writer is unavailable');
-      }
-      const catalog = serveHostCatalog(connection, catalogStore);
-      try {
-        await context.register(catalog.close);
-      } catch (cause) {
-        try {
-          await catalog.close();
-        } catch (cleanupCause) {
-          throw new AggregateError(
-            [cause, cleanupCause],
-            'Catalog registration and cleanup failed'
-          );
-        }
-        throw cause;
-      }
-    },
-    ...platformClientServices(platform),
-  });
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
     get delegation(): HostPlatform['delegation'] {
@@ -227,9 +220,215 @@ export async function startAgentHost(
       return currentPlatform().tools;
     },
   };
-  let runtime: HostRuntime | undefined;
   let core: HostCore | undefined;
+  return {
+    clearRetainedContent: async () => {
+      await currentPlatform().clearRetainedContent?.();
+    },
+    clientCapabilities: () => ({
+      bindCatalog: async (connection) => {
+        if (!catalogStore) {
+          throw new Error('Host catalog writer is unavailable');
+        }
+        const catalog = serveHostCatalog(connection, catalogStore);
+        try {
+          await context.register(catalog.close);
+        } catch (cause) {
+          try {
+            await catalog.close();
+          } catch (cleanupCause) {
+            throw new AggregateError(
+              [cause, cleanupCause],
+              'Catalog registration and cleanup failed'
+            );
+          }
+          throw cause;
+        }
+      },
+      ...platformClientServices(platform),
+    }),
+    closePlatform,
+    core: () => core,
+    open: async (retainRun) => {
+      signal.throwIfAborted();
+      let store: StateStore;
+      try {
+        store = await StateStore.open(root, {
+          // The writer worker imports this module itself, outside any
+          // transform: it has this module's extension, TypeScript source
+          // run by Node or the desktop bundle's emitted JS beside it.
+          memoryCalculatorModule: fileURLToPath(
+            new URL(
+              `./adapters/memory-storage-calculator${extname(fileURLToPath(import.meta.url))}`,
+              import.meta.url
+            )
+          ),
+          // ADR-0017: the native processes this host starts inherit its Root.
+          shareWithNativeChildren: true,
+          startup: {
+            acquire: async (acquired) => {
+              catalogStore = acquired;
+              signal.throwIfAborted();
+              // BST-1977: purge replay needs its borrowed native owner before
+              // host readiness. Root and the canonical writer are already held.
+              platform ??=
+                typeof inputPlatform === 'function'
+                  ? await inputPlatform({ ...context, store: acquired })
+                  : inputPlatform;
+              signal.throwIfAborted();
+              return platform.stateIndexer;
+            },
+            close: closePlatform,
+          },
+        });
+      } catch (cause) {
+        if (cause instanceof StateStoreStartupError) {
+          throw new AgentHostStartupError([cause], cause.store, core);
+        }
+        throw cause;
+      }
+      try {
+        signal.throwIfAborted();
+        bindAcquiredPlatform(ownedPlatform, currentPlatform());
+        core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
+          core = acquired;
+          if (signal.aborted) {
+            cancelled();
+          }
+        });
+        signal.throwIfAborted();
+      } catch (cause) {
+        try {
+          await closeHostStoreAfterCore(
+            async () => (core ? core.close() : closePlatform()),
+            () => store.close()
+          );
+        } catch (cleanupCause) {
+          if (cleanupCause instanceof HostCoreRetiredError) {
+            throw new AggregateError(
+              [cause, cleanupCause],
+              'Host startup failed after physical retirement'
+            );
+          }
+          throw new AgentHostStartupError([cause, cleanupCause], store, core);
+        }
+        throw cause;
+      }
+      return { core, store };
+    },
+  };
+}
+
+/** A host with no transport of its own; its launcher binds each client's connection. */
+export interface OpenedAgentHost {
+  /** Serves `connection` as `origin`. Holding the transport is the client's authority. */
+  bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
+  /** Closes the host and deletes its content (ADR-0015); resolves with the committed receipt. */
+  clearAndRetireContent(): Promise<ClearContentResult>;
+  /** Closes Core, then the store. No client is drained: every write is already committed. */
+  close(): Promise<void>;
+  readonly core: HostCore;
+}
+/**
+ * Opens the store (taking the Root lock), the platform and Core of `root`, with
+ * no socket, record or token. The desktop's host child and the in-process CLI
+ * each own one; a client reaches it over a connection its launcher binds.
+ * `signal` cancels the opening only; once open, its owner ends it with `close()`.
+ */
+export async function openAgentHost(
+  root: string,
+  inputPlatform: HostPlatformInitializer,
+  signal: AbortSignal = new AbortController().signal
+): Promise<OpenedAgentHost> {
+  signal.throwIfAborted();
+  if (!isAbsolute(root)) {
+    throw new TypeError('Host data root must be absolute');
+  }
+  assertNotSyncedRoot(root);
+  await secureDirectory(root);
+  const host = composeHostRoot(root, inputPlatform, signal, () => {
+    void host
+      .core()
+      ?.close()
+      .catch(() => undefined);
+  });
+  let opened: Awaited<ReturnType<HostRoot['open']>>;
+  try {
+    // Core fences its own admissions when it closes, so a run needs no other hold.
+    opened = await host.open(() => () => undefined);
+  } catch (cause) {
+    // A failed startup that could not prove its cleanup reports what it still holds.
+    if (cause instanceof AgentHostStartupError) {
+      throw cause;
+    }
+    try {
+      await host.closePlatform();
+    } catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], 'Host startup and platform cleanup failed');
+    }
+    throw cause;
+  }
+  const { core, store } = opened;
+  const identity: HostIdentity = {
+    hostVersion: HOST_VERSION,
+    pid: process.pid,
+    protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
+    start: store.lock.owner.start,
+  };
+  let clearContent = false;
+  let cleared: ClearContentResult | undefined;
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= closeHostStoreAfterCore(
+      () => core.close(),
+      async () => {
+        if (clearContent) {
+          cleared = await store.clearContent();
+          return;
+        }
+        await store.close();
+      }
+    );
+    return closing;
+  };
+  return {
+    bindClientConnection: (connection, origin) =>
+      bindHostConnection(connection, core, identity, () => undefined, {
+        origin,
+        ...host.clientCapabilities(),
+      }),
+    clearAndRetireContent: async () => {
+      if (closing !== undefined) {
+        throw new Error('Host close has already started');
+      }
+      clearContent = true;
+      await host.clearRetainedContent();
+      await close();
+      if (!cleared) {
+        throw new Error('Host content clear did not produce a committed receipt');
+      }
+      return cleared;
+    },
+    close,
+    core,
+  };
+}
+
+export async function startAgentHost(
+  options: HostStartOptions,
+  inputPlatform: HostPlatformInitializer,
+  signal: AbortSignal = new AbortController().signal
+): Promise<AgentHost> {
+  signal.throwIfAborted();
+  let runtime: HostRuntime | undefined;
   let closing = false;
+  const cancelled = (): void => {
+    // BST-1977: a socket can already be authenticated while host.json's
+    // publication acknowledgement is held. Fence that command owner now;
+    // startup rollback still owns the store/root until every join settles.
+    void (runtime ? runtime.close() : host.core()?.close())?.catch(() => undefined);
+  };
+  const host = composeHostRoot(options.root, inputPlatform, signal, cancelled);
   // Each private client's retirement, like a socket's: announce, refuse, then answer what it read.
   const privateClients = new Set<() => Promise<void>>();
   let privateClientsRetired: Promise<void> | undefined;
@@ -242,18 +441,13 @@ export async function startAgentHost(
   let clearContent = false;
   let cleared: ClearContentResult | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
-  const cancelled = (): void => {
-    // BST-1977: a socket can already be authenticated while host.json's
-    // publication acknowledgement is held. Fence that command owner now;
-    // startup rollback still owns the store/root until every join settles.
-    void (runtime ? runtime.close() : core?.close())?.catch(() => undefined);
-  };
   signal.addEventListener('abort', cancelled, { once: true });
   try {
     runtime = await startHost(
       options,
       {
         acceptSocket: (socket, record, attached, lifecycle) => {
+          const core = host.core();
           if (!core) {
             socket.destroy(new Error('Host store is unavailable'));
             return;
@@ -301,7 +495,7 @@ export async function startAgentHost(
               },
             },
             retiring: retiring.signal,
-            ...clientCapabilities(),
+            ...host.clientCapabilities(),
           });
           socket.once('close', () => connection.dispose());
           // Keep refusing new requests while dispatched work joins. Once it
@@ -318,77 +512,14 @@ export async function startAgentHost(
           };
         },
         acquireRoot: async (retainRun) => {
-          signal.throwIfAborted();
-          let store: StateStore;
-          try {
-            store = await StateStore.open(options.root, {
-              // The writer worker imports this module itself, outside any
-              // transform: it has this module's extension, TypeScript source
-              // run by Node or the desktop bundle's emitted JS beside it.
-              memoryCalculatorModule: fileURLToPath(
-                new URL(
-                  `./adapters/memory-storage-calculator${extname(fileURLToPath(import.meta.url))}`,
-                  import.meta.url
-                )
-              ),
-              // ADR-0017: the native processes this host starts inherit its Root.
-              shareWithNativeChildren: true,
-              startup: {
-                acquire: async (acquired) => {
-                  catalogStore = acquired;
-                  signal.throwIfAborted();
-                  // BST-1977: purge replay needs its borrowed native owner before
-                  // host readiness. Root and the canonical writer are already held.
-                  platform ??=
-                    typeof inputPlatform === 'function'
-                      ? await inputPlatform({ ...context, store: acquired })
-                      : inputPlatform;
-                  signal.throwIfAborted();
-                  return platform.stateIndexer;
-                },
-                close: closePlatform,
-              },
-            });
-          } catch (cause) {
-            if (cause instanceof StateStoreStartupError) {
-              throw new AgentHostStartupError([cause], cause.store, core);
-            }
-            throw cause;
-          }
-          try {
-            signal.throwIfAborted();
-            bindAcquiredPlatform(ownedPlatform, currentPlatform());
-            core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
-              core = acquired;
-              if (signal.aborted) {
-                cancelled();
-              }
-            });
-            signal.throwIfAborted();
-          } catch (cause) {
-            try {
-              await closeHostStoreAfterCore(
-                async () => (core ? core.close() : closePlatform()),
-                () => store.close()
-              );
-            } catch (cleanupCause) {
-              if (cleanupCause instanceof HostCoreRetiredError) {
-                throw new AggregateError(
-                  [cause, cleanupCause],
-                  'Host startup failed after physical retirement'
-                );
-              }
-              throw new AgentHostStartupError([cause, cleanupCause], store, core);
-            }
-            throw cause;
-          }
+          const { core, store } = await host.open(retainRun);
           return {
             close: async () => {
               // A private client's admitted requests write their answers before Core and the
               // store close, as a socket's do before its transport is destroyed.
               await retirePrivateClients();
               await closeHostStoreAfterCore(
-                async () => core?.close(),
+                () => core.close(),
                 async () => {
                   if (clearContent) {
                     cleared = await store.clearContent();
@@ -407,7 +538,10 @@ export async function startAgentHost(
           void retirePrivateClients().catch(() => undefined);
           // The Root finalizer below joins this exact idempotent Core promise.
           // Observe early rejection without consuming it or releasing the store.
-          void core?.close().catch(() => undefined);
+          void host
+            .core()
+            ?.close()
+            .catch(() => undefined);
         },
         protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
       },
@@ -419,12 +553,13 @@ export async function startAgentHost(
       throw cause;
     }
     try {
-      await closePlatform();
+      await host.closePlatform();
     } catch (cleanupCause) {
       throw new AggregateError([cause, cleanupCause], 'Host startup and platform cleanup failed');
     }
     throw cause;
   }
+  const core = host.core();
   if (!core) {
     await runtime.close();
     throw new Error('Host store was not initialized');
@@ -434,9 +569,6 @@ export async function startAgentHost(
   return {
     attachClient: () => runtime.attachClient(),
     bindClientConnection: (connection, origin) => {
-      if (!core) {
-        throw new Error('Host store was not initialized');
-      }
       // A private client is attached, like a socket client, from its
       // initialize until its transport closes.
       let detach: (() => void) | undefined;
@@ -448,7 +580,7 @@ export async function startAgentHost(
         () => {
           detach = runtime.attachClient();
         },
-        { origin, retiring: retiring.signal, ...clientCapabilities() }
+        { origin, retiring: retiring.signal, ...host.clientCapabilities() }
       );
       const retire = async (): Promise<void> => {
         announceClosing(connection);
@@ -478,8 +610,7 @@ export async function startAgentHost(
       }
       clearContent = true;
       clearing = (async () => {
-        // What the platform keeps beside the store (the desktop's index) retires first.
-        await currentPlatform().clearRetainedContent?.();
+        await host.clearRetainedContent();
         await runtime.close();
         if (!cleared) {
           throw new Error('Host content clear did not produce a committed receipt');

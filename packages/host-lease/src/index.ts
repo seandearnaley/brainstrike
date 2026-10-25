@@ -13,6 +13,7 @@ export {
 } from './launcher.ts';
 export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.ts';
 export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.ts';
+export { secureDirectory } from './record-file.ts';
 export {
   HOST_LEASE_CLOSING,
   HOST_LEASE_CONNECTION_CLOSED,

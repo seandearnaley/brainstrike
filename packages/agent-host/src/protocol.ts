@@ -378,7 +378,8 @@ export const HOST_METHOD_SCHEMAS = {
   initialize: Schema.Struct({
     hostVersion: Id,
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
-    token: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+    // Only a socket client presents a token; a launcher-bound client holds its transport.
+    token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
   }),
   'interaction/respond': Schema.Struct({
     ...Command,
