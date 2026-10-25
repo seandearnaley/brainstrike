@@ -405,6 +405,13 @@ export function createBrowserProject(config: BrowserProjectConfig) {
         trace: trace === 'off' ? ('off' as const) : { mode: trace, tracesDir: traceOutputDir },
       } satisfies BrowserConfigOptions,
       include: [testPattern],
+      // Every browser worker is a tab in one Chromium, driven through one
+      // Vitest process, so each worker past those two shared processes' share
+      // of the cores only queues behind the others. At Vitest's default
+      // (cores - 1) a loaded 16-core runner timed out up to 8 sub-second tests
+      // a run; at half the cores, Playwright's own default, the same runs
+      // passed and finished sooner.
+      maxWorkers: '50%',
       name: 'browser',
       // TEST_TIMEOUT_MULTIPLIER's only route into the browser page (BST-1299).
       // `process` does not exist there, so the caller resolves the budget in
