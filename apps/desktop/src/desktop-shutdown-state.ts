@@ -3,9 +3,25 @@ import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/b
 import { IndexerError } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { SqliteQueryProcessExitedError } from '@brainstrike/sqlite-query';
-import { isDesktopShuttingDown, resetDesktopShuttingDownForTests } from './desktop-shutdown-flag';
 
-export { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-flag';
+/**
+ * Process-wide "is the desktop app shutting down" flag.
+ *
+ * Background work that is torn down mid-flight during graceful shutdown (e.g.
+ * native indexing whose embedding host is disposed) rejects with teardown errors
+ * that are EXPECTED, not failures. Consumers read this flag to log such errors
+ * at info instead of error and to skip alarming "failed" diagnostics.
+ */
+let shuttingDown = false;
+
+/** Marked once at the start of graceful shutdown; never reset (the process exits). */
+export function markDesktopShuttingDown(): void {
+  shuttingDown = true;
+}
+
+export function isDesktopShuttingDown(): boolean {
+  return shuttingDown;
+}
 
 /** Factory resets and content clears that are retiring the profile's host on purpose. */
 let resetsRetiringProfile = 0;
@@ -91,11 +107,11 @@ export function isRetirementRefusal(error: unknown): boolean {
  * exact retirement is expected, so its consumers log it at info. Otherwise it stays a failure.
  */
 export function isExpectedShutdownRefusal(error: unknown): boolean {
-  return (isDesktopShuttingDown() || resetsRetiringProfile > 0) && isRetirementRefusal(error);
+  return (shuttingDown || resetsRetiringProfile > 0) && isRetirementRefusal(error);
 }
 
 /** Test-only: the production flag is never reset because the process exits. */
 export function resetDesktopShutdownStateForTests(): void {
-  resetDesktopShuttingDownForTests();
+  shuttingDown = false;
   resetsRetiringProfile = 0;
 }

@@ -7,7 +7,6 @@ import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { lifecycleDelay } from '@brainstrike/host-lease/lifecycle-delays';
 import { agentHostLifecycleDelays } from './agent-host-lifecycle-delays';
-import { markDesktopShuttingDown } from './desktop-shutdown-flag';
 import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
@@ -26,9 +25,6 @@ async function main(): Promise<void> {
   const controller = new AbortController();
   let cancelKernel: (() => void) | undefined;
   const cancel = (): void => {
-    // A signal to Main's process group, or Main's close: the host's children ending
-    // under its work from here on are its shutdown, as they are Main's (ADR-0015).
-    markDesktopShuttingDown();
     controller.abort(new Error('Host process cancelled'));
     cancelKernel?.();
   };
