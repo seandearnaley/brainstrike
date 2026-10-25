@@ -19,13 +19,11 @@ import {
   preserveWorkerEntryPlugin,
   transformersOnnxRuntimeWasmUrlsPlugin,
 } from '@brainstrike/build-utils';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import wasm from 'vite-plugin-wasm';
-import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 import { getDevCSP } from './src/csp-utils';
 import { rendererIsolationHeaders } from './src/desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_PORT } from './src/desktop-renderer-url';
@@ -242,17 +240,6 @@ export default defineConfig({
         find: 'pino/browser.js',
         replacement: pinoBrowserPath,
       },
-      // Agent browser-safe subpath exports (no Mastra dependencies). The
-      // registry EXCLUDES @brainstrike/agent's root by default
-      // (DEFAULT_SRC_ALIAS_EXCLUSIONS) — this app's renderer bundle only ever
-      // needs these browser-safe subpaths, so no root override is added here.
-      ...createAgentBrowserSafeAliasEntries(path.resolve(__dirname, '../../packages/agent')),
-      // B3/B4: shared workspace source-alias registry (#1651/#1658). Replaces
-      // the hand-maintained map this file used to carry — every entry it
-      // listed besides the exceptions above (including the chunk-init-TDZ
-      // motivated commands/context-actions entries) is an exact match for what
-      // this registry derives from each package's own `exports` map.
-      ...workspaceSrcAliases(path.resolve(__dirname, '../../packages')),
     ],
     dedupe: ['react', 'react-dom'],
   },

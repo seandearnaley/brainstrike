@@ -81,7 +81,7 @@
     // WHY THIS EXISTS (Series B4 payoff): `test`/`test:integration`/
     // `test:coverage` used to `dependsOn: ["^build"]`. Since B3 (#1651) every
     // package test lane resolves `@brainstrike/*` workspace imports to SOURCE
-    // (packages/test-utils/workspace-src-aliases.mjs), so tests no longer need a
+    // (every package's `exports` names its source), so tests no longer need a
     // dependency's `dist` to exist — yet `^build` still rebuilt ~39 packages
     // before a single test could run (a `packages/types` whitespace edit rebuilt
     // the world). `dependsOn: ["topo"]` keeps the topological hash cascade (a

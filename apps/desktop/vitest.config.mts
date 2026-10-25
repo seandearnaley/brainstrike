@@ -3,10 +3,8 @@ import path from 'node:path';
 import { transformersOnnxRuntimeWasmUrlsPlugin } from '@brainstrike/build-utils';
 import { getAdjustedTimeout, getExpectPollTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type TestProjectConfiguration } from 'vitest/config';
-import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 
 // Native file sharding keeps each integration runner serialized. Local runs
 // omit the shard and still execute the complete suite.
@@ -112,19 +110,9 @@ export default defineConfig({
         find: 'electron',
         replacement: path.resolve(import.meta.dirname, './src/__tests__/electron-test-stub.mts'),
       },
-      // Browser-safe agent subpath entries first (exact specifiers), then the
-      // agent ROOT as a plain prefix so `@brainstrike/agent` and its remaining
-      // node-only subpaths (`/mcp-client`, …) resolve
-      // to SOURCE. The shared registry deliberately EXCLUDES agent (its root
-      // pulls Mastra/Node-only deps that cannot load in browser-only test
-      // lanes), but this app's assistant-server tests exercise real agent code
-      // and previously consumed its built dist — a guarantee that vanished
-      // when B4 dropped `test.dependsOn: ["^build"]`. Aliasing the root to src
-      // keeps those lanes green
-      // without re-adding a build edge.
-      ...Object.entries(
-        createAgentBrowserSafeAliasMap(path.resolve(import.meta.dirname, '../../packages/agent'))
-      ).map(([find, replacement]) => ({ find, replacement })),
+      // The agent ROOT as a plain prefix, so `@brainstrike/agent` and its
+      // node-only subpaths (`/mcp-client`, …) resolve to SOURCE for this app's
+      // assistant-server tests, which exercise real agent code.
       {
         find: '@brainstrike/agent',
         replacement: path.resolve(import.meta.dirname, '../../packages/agent/src'),
@@ -193,18 +181,9 @@ export default defineConfig({
         find: '@brainstrike/queue/browser',
         replacement: path.resolve(import.meta.dirname, '../../packages/queue/src/browser.ts'),
       },
-      // NOTE: no explicit @brainstrike/test-utils entry — it was a blanket
-      // STRING prefix (`find: '@brainstrike/test-utils'`, not an anchored
-      // regex), which shadowed EVERY subpath under it, including ones that do
-      // NOT live under src/ (e.g. `/workspace-src-aliases` -> the package
-      // ROOT's workspace-src-aliases.mjs, `/electron` and `/worker` ->
-      // deliberately DIST). The registry already source-aliases the ROOT
-      // specifier correctly (exact match); subpaths now correctly fall
-      // through to test-utils' own `exports` map, which src-points or
-      // dist-points each one appropriately. Found via a real broken
-      // resolution while adding apps/*/src/__tests__/vite-config.test.ts's
-      // `@brainstrike/test-utils/workspace-src-aliases` import (Series C R6
-      // task 5).
+      // No @brainstrike/test-utils entry: a blanket string prefix would shadow
+      // subpaths that do not live under src/; its own `exports` map resolves
+      // each one.
       {
         find: '@brainstrike/text-splitter/chunking-core',
         replacement: path.resolve(
@@ -217,11 +196,8 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../../packages/text-splitter/src/index.ts'),
       },
       // @brainstrike/workers has no `src/` dir (worker files live at the
-      // package root), so the registry skips it — alias its subpaths
-      // explicitly. Surfaced by extending the workspace-src-alias guard to
-      // apps/* (Series C R6 task 5): file-explorer-hooks and
-      // file-explorer-ui/indexing (both src-aliased above/via the registry)
-      // import these transitively, and neither was previously aliased here.
+      // package root); file-explorer-hooks and file-explorer-ui/indexing
+      // import these subpaths transitively.
       {
         find: '@brainstrike/workers/file-content-worker',
         replacement: path.resolve(
@@ -229,17 +205,6 @@ export default defineConfig({
           '../../packages/workers/file-content-worker.ts'
         ),
       },
-      // B4: shared workspace source-alias registry (#1651), so every other
-      // `@brainstrike/*` runtime import in this app's test lanes executes
-      // SOURCE instead of resolving to built dist via package `exports`. These
-      // tests previously leaned on `test.dependsOn: ["^build"]` to guarantee
-      // that dist existed; B4 replaced that edge with the no-build `topo`
-      // transit node, which made every unaliased dist fallback fail loudly
-      // from a clean state (utils/logger, db, worker-runtime, file-system,
-      // assistant-contract, assistant-data/cost-tracking, storage, queue, ui, …).
-      // The registry closes them all at once, exactly like the packages/*
-      // lanes in B3.
-      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '../../packages')),
     ],
   },
   // Vitest 5 routes uncovered-file transforms by project root. Desktop also

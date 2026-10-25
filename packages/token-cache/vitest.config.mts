@@ -1,17 +1,7 @@
-import { resolve } from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  resolve: {
-    // Resolve workspace deps from SOURCE, not built dist — including TRANSITIVE
-    // ones (e.g. @brainstrike/context-actions via hooks src, which the old hand
-    // map missed). Prebuilt worker-bundle exports (token-cache/worker) keep
-    // resolving to dist via exports — the registry never aliases *.worker.
-    // See @brainstrike/test-utils/workspace-src-aliases (#1066/#1207).
-    alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
-  },
   test: {
     coverage: {
       exclude: ['**/node_modules/**', '**/dist/**', '**/*.d.ts'],
