@@ -41,8 +41,8 @@ const CONNECTION_CLOSED = refusal({
 
 /**
  * The host is retiring. It answers a request it admitted, and refuses one that
- * arrives once it is closing; its client refuses, with this same failure, a
- * request the host attested it never read (`HOST_DRAINED_EVENT`).
+ * arrives once it is closing; its client then refuses its own later requests
+ * with this same failure, unsent.
  */
 export const HOST_CLOSING = refusal({
   category: 'availability',

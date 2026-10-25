@@ -352,6 +352,7 @@ export async function openAgentHost(
   return {
     bindClientConnection: (connection, origin) =>
       bindHostConnection(connection, core, identity, {
+        closing: () => closing !== undefined,
         origin,
         ...host.clientCapabilities(),
       }),
