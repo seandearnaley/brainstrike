@@ -153,7 +153,6 @@ export function createDesktopGitWorkspace(
     // has settled (BST-2244).
     watchDirectory: watchGitCommonDirNatively,
   });
-  gitInventoryService.start();
   const readSettings = () => readWorktreeSettings(store, homePath);
   const worktreeService = createWorktreeService({
     getWorktreeStore: async () => store,
@@ -162,7 +161,7 @@ export function createDesktopGitWorkspace(
     resolveInventory: async (request) => {
       // `maxAgeMs: 0` guarantees a build that started after this call, which
       // a shell reconcile needs to see the worktree its command just created.
-      const snapshot = await gitInventoryService.getSnapshot(
+      const snapshot = await inventory().getSnapshot(
         request?.forceFresh ? { maxAgeMs: 0 } : undefined
       );
       return { errors: snapshot.errors, repositories: snapshot.repositories };
@@ -181,6 +180,39 @@ export function createDesktopGitWorkspace(
   });
   let snapshotMaintenance: { stop(): Promise<void> } | undefined;
   let closing: Promise<void> | undefined;
+  // Nothing here runs before the host reports ready: the git-metadata watchers
+  // and the snapshot startup GC start on the first window subscription or the
+  // first inventory read, both of which reach a host that is already serving.
+  let started = false;
+  const startMaintenance = (): void => {
+    if (!(started && reads) || snapshotMaintenance) {
+      return;
+    }
+    const attached = reads;
+    // Host threads record their turn snapshots in Core's log; the startup GC
+    // keeps their refs while Core lists the thread.
+    snapshotMaintenance = startSnapshotStartupMaintenance({
+      logger,
+      readHostThreadIds: async () =>
+        new Set(attached.readLedger().threads.map(({ threadId }) => threadId)),
+      readHostThreadRows: (threadId) => attached.read(threadId, 0),
+      snapshotService,
+      snapshotsBaseDir,
+      workspaceRoots: store,
+    });
+  };
+  const start = (): void => {
+    if (started || closing) {
+      return;
+    }
+    started = true;
+    gitInventoryService.start();
+    startMaintenance();
+  };
+  const inventory = () => {
+    start();
+    return gitInventoryService;
+  };
 
   const git = createGitIpcHandlers({ resolver });
   const changes = createChangesIpcHandlers({
@@ -194,7 +226,7 @@ export function createDesktopGitWorkspace(
         ),
       readRows: (threadId, fromSeq) => threadReads().read(threadId, fromSeq),
     }),
-    resolveInventoryService: () => gitInventoryService,
+    resolveInventoryService: inventory,
     resolver,
     resolveSnapshotService: () => snapshotService,
   });
@@ -238,6 +270,7 @@ export function createDesktopGitWorkspace(
     'git/unstage': ({ rootId, ...request }) => git.unstage(rootId, request),
     subscribe: (listener) => {
       listeners.add(listener);
+      start();
       return () => {
         listeners.delete(listener);
       };
@@ -270,17 +303,7 @@ export function createDesktopGitWorkspace(
   return {
     attachThreadReads: (attached) => {
       reads = attached;
-      // Host threads record their turn snapshots in Core's log; the startup GC
-      // keeps their refs while Core lists the thread.
-      snapshotMaintenance ??= startSnapshotStartupMaintenance({
-        logger,
-        readHostThreadIds: async () =>
-          new Set(attached.readLedger().threads.map(({ threadId }) => threadId)),
-        readHostThreadRows: (threadId) => attached.read(threadId, 0),
-        snapshotService,
-        snapshotsBaseDir,
-        workspaceRoots: store,
-      });
+      startMaintenance();
     },
     // Roots are captured one at a time; a root that fails records the null object ID.
     captureTurnBoundary: async ({ boundary, roots, runId, threadId }) => {
