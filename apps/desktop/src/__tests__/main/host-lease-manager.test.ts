@@ -13,7 +13,7 @@ vi.mock('@brainstrike/agent-host/client', () => ({
 
 /**
  * The host's side of its stdio: what it reports, the channels Main opens, and Main's
- * controls. Its `close` follows the end of its stdout, as Node's does.
+ * controls. Its `exit` comes before the end of its stdout, as a real process's can.
  */
 class Child extends EventEmitter {
   pid: number | undefined = 123;
@@ -56,7 +56,7 @@ class Child extends EventEmitter {
       return;
     }
     this.pid = undefined;
-    this.stdout.once('end', () => this.emit('close', code, signal));
+    this.emit('exit', code, signal);
     this.stdout.end();
   }
 }
@@ -201,6 +201,54 @@ describe('desktop host child', () => {
     await closed;
     expect(child.kill).toHaveBeenCalledOnce();
     expect(closes(child)).toBe(1);
+  });
+
+  it('ends a quit at the host’s exit while a process the host started still holds its stderr', async () => {
+    const { spawn } = await import('node:child_process');
+    const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const directory = await mkdtemp(join(tmpdir(), 'host-stderr-holder-'));
+    const entry = join(directory, 'host.mjs');
+    const holderPid = join(directory, 'holder.pid');
+    // A real host process: it starts a child that inherits its stderr and outlives it, then
+    // reports ready and exits when Main asks it to close.
+    await writeFile(
+      entry,
+      `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'ignore', 'inherit'] });
+holder.unref();
+writeFileSync(${JSON.stringify(holderPid)}, String(holder.pid));
+process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'host/message', params: { event: 'ready' } }) + '\\n');
+createInterface({ input: process.stdin }).on('line', (line) => {
+  const frame = JSON.parse(line);
+  if (frame.method === 'host/message' && frame.params.method === 'close') {
+    process.exit(0);
+  }
+});
+`
+    );
+    let holder: number | undefined;
+    try {
+      const host = spawn(process.execPath, [entry], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const kill = vi.spyOn(host, 'kill');
+      const owner = createDesktopHostLease({ root, spawn: () => host });
+      await owner.acquire();
+      holder = Number(await readFile(holderPid, 'utf8'));
+      await owner.close();
+      expect(kill).not.toHaveBeenCalled();
+      expect(host.exitCode).toBe(0);
+      // The pipe was still held when the quit ended.
+      expect(() => process.kill(holder ?? 0, 0)).not.toThrow();
+    } finally {
+      if (holder !== undefined) {
+        process.kill(holder, 'SIGKILL');
+      }
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   it('ends a ready host that never answers Main’s initialize when the app closes', async () => {

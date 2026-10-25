@@ -37,9 +37,9 @@ export const HOST_CLOSE_GRACE_MS = 5000;
 export interface HostChildProcess {
   /** SIGKILL on POSIX; TerminateProcess on Windows. */
   kill(signal: 'SIGKILL'): boolean;
-  /** Its OS exit, after its stdio closed: the only exit signal, on every OS. */
+  /** Its OS exit. Unlike `close`, it never waits for a stdio pipe another process may hold. */
   once(
-    event: 'close',
+    event: 'exit',
     listener: (code: number | null, signal: NodeJS.Signals | null) => void
   ): unknown;
   once(event: 'error', listener: (cause: Error) => void): unknown;
@@ -179,9 +179,12 @@ function ownChild(handle: HostChildProcess, lost: (code: number) => void): Owned
       lost(code);
     }
   };
-  // `close` follows the OS exit and the end of its stdio, on every OS.
-  handle.once('close', (code, signal) => {
-    exited(code ?? 128 + (signal ? constants.signals[signal] : 0));
+  // The host is gone at its OS exit once its stdout has ended, so every report it wrote has
+  // been read. Only the host holds its stdout. Its stderr is diagnostics, and a process it
+  // started may still hold that pipe (on Windows too), so nothing waits for stderr to end.
+  handle.once('exit', (code, signal) => {
+    const exitCode = code ?? 128 + (signal ? constants.signals[signal] : 0);
+    void stdio.ended.then(() => exited(exitCode));
   });
   // A host that could not be spawned never exits.
   handle.once('error', (cause) => {
