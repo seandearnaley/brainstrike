@@ -74,7 +74,13 @@ its Main side and quit step:
    `snapshot-maintenance`, `git-inventory` and `forge` steps go. Personas report
    availability against Main's model catalog, so they move with it. The git cluster
    moves as one stage because its services share one inventory, ledger and resolver.
-3. Terminals and LSP. The `child-processes` step goes.
+3. Terminals and LSP. The Terminal panel's terminals and command-session inventory
+   become host methods gated to the desktop's private client, with a per-connection
+   `terminal/event` stream; a connection's terminals end when it closes. Language
+   servers, command sessions and shell commands already ran in the host, so Main's
+   copies held nothing: the `terminal` and `commandSessions` IPC domains, their
+   preload bridges, the `child-processes` step and the matching reset stops go, and
+   a disconnected root's language servers are evicted in the host.
 4. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
    step and ADR-0027's native-thread join go.
 5. MCP control, then index activation if the retrieval decision keeps it.

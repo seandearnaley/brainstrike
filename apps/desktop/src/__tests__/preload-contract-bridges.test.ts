@@ -1,14 +1,12 @@
 import Module from 'node:module';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
-import { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import { settingsContract, storageContract } from '../ipc-domains/storage-preferences.contract';
-import { terminalContract } from '../ipc-domains/terminal.contract';
 import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
@@ -38,12 +36,10 @@ const originalLoad = moduleWithLoader._load;
 const CONTRACT_BRIDGES = {
   assistantPersonas: userPersonasContract,
   clipboard: clipboardContract,
-  commandSessions: commandSessionsContract,
   contextFiles: contextFilesContract,
   indexSearch: indexSearchContract,
   promptLibrary: promptLibraryContract,
   settings: settingsContract,
-  terminal: terminalContract,
   threadGroups: threadGroupsContract,
   viewFilterPresets: viewFilterPresetsContract,
   windowFocus: windowFocusContract,
@@ -318,8 +314,7 @@ describe('preload contract-derived bridges', () => {
   });
 
   it.each([
-    ['commandSessions', 'list', DESKTOP_IPC_CHANNELS.commandSessions.list, [{ rootId: 'root-1' }]],
-    ['terminal', 'create', DESKTOP_IPC_CHANNELS.terminal.create, [{ rootId: 'root-1' }]],
+    ['threadGroups', 'readRoots', DESKTOP_IPC_CHANNELS.threadGroups.readRoots, []],
   ] as const)(
     '%s.%s routes to its manifest channel and preserves its raw result',
     async (name, method, channel, args) => {
@@ -331,24 +326,24 @@ describe('preload contract-derived bridges', () => {
     }
   );
 
-  it.each([
-    ['terminal', 'onData', DESKTOP_IPC_CHANNELS.terminal.data],
-    ['terminal', 'onExit', DESKTOP_IPC_CHANNELS.terminal.exit],
-  ] as const)('%s.%s subscribes and removes the same push listener', (name, method, channel) => {
-    const callback = vi.fn();
-    const unsubscribe = exposedApi(name)[method]?.(callback) as () => void;
-    const listener = vi
-      .mocked(mockElectron.ipcRenderer.on)
-      .mock.calls.find(([registered]) => registered === channel)?.[1] as (
-      event: unknown,
-      payload: unknown
-    ) => void;
+  it.each([['windowFocus', 'onChange', DESKTOP_IPC_CHANNELS.windowFocus.changed]] as const)(
+    '%s.%s subscribes and removes the same push listener',
+    (name, method, channel) => {
+      const callback = vi.fn();
+      const unsubscribe = exposedApi(name)[method]?.(callback) as () => void;
+      const listener = vi
+        .mocked(mockElectron.ipcRenderer.on)
+        .mock.calls.find(([registered]) => registered === channel)?.[1] as (
+        event: unknown,
+        payload: unknown
+      ) => void;
 
-    listener({}, { marker: name });
-    expect(callback).toHaveBeenCalledWith({ marker: name });
-    unsubscribe();
-    expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(channel, listener);
-  });
+      listener({}, { marker: name });
+      expect(callback).toHaveBeenCalledWith({ marker: name });
+      unsubscribe();
+      expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(channel, listener);
+    }
+  );
 
   it('passes prompt commands unchanged through the actual sandbox bridge envelope', async () => {
     const request = { filter: { favoritesOnly: true }, operation: 'list' };

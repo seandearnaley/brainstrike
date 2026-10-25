@@ -87,7 +87,7 @@ function freshRepoWithManagedExternalWorktree(label: string): WorktreeMapRepoFix
 
 /**
  * A repo with a worktree NESTED INSIDE it, at the `.claude/worktrees/<name>`
- * path every external tool uses. This is the topology `terminal:create`'s `cwd`
+ * path every external tool uses. This is the topology `terminal/create`'s `cwd`
  * parameter exists for: the nested checkout's `WorktreeListEntry.rootId` is the
  * PARENT repo's root (it is merely CONTAINED, `rootIdIsExactMount: false`), so
  * a terminal pinned to `rootId` alone would open in the parent repo. Verified

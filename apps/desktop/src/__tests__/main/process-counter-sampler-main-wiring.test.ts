@@ -47,7 +47,6 @@ describe('Main process sampler owner composition', () => {
       const closeLog = vi.fn();
       const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
       const steps: Record<DesktopShutdownStepName, DesktopShutdownStepRun> = {
-        'child-processes': () => {},
         'database-drain': () => {},
         'embedding-host': () => {},
         'factory-reset': () => {},
