@@ -15,9 +15,10 @@
       "dependsOn": ["^build"]
     },
     "type-check": {
-      // The E2E fixture types the public built lab entry. Keep this test-only
-      // build prerequisite outside the application's package dependency graph.
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#build"]
+      // The E2E fixtures import the MCP lab's types from its source by relative
+      // path, outside the application's package dependency graph. The lab's
+      // `topo` carries that source's hash into this task without building it.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#topo"]
     },
     "test": {
       // The unit suites load native add-ons. assistant-server/skills-fs-deps
