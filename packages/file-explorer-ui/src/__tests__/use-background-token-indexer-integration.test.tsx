@@ -1,8 +1,9 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { addLogListener, LogLevel } from '@brainstrike/logging';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';

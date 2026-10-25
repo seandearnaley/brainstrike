@@ -14,8 +14,9 @@ import {
   FILE_EXPLORER_REFRESH_EVENT,
   type FileExplorerRefreshEvent,
 } from '@brainstrike/file-explorer-ui/shell';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemAdapter, WatcherRootHealthEvent } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRewindExplorerRecovery } from '../use-rewind-explorer-recovery';

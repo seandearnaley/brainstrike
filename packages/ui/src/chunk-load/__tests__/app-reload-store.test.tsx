@@ -1,4 +1,5 @@
-import { act, render, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 /** Module-level store: a fresh module graph per test (the `use-app-active` house style). */

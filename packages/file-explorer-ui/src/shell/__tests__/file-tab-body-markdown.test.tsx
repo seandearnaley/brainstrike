@@ -3,8 +3,9 @@ import {
   defineContextAction,
   type TargetOf,
 } from '@brainstrike/context-actions';
+import { act } from '@brainstrike/test-utils/react-act';
 import { ActionRegistryProvider } from '@brainstrike/ui';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface MockMarkdownSurfaceProps {

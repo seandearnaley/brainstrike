@@ -8,7 +8,8 @@
  * - apps/web/e2e/theme-css-consistency.test.ts
  */
 
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ThemeProvider, type ThemeStorageAdapter } from '../theme-provider';
 

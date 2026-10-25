@@ -7,16 +7,9 @@ import {
   ThreadPrimitive,
   useAuiState,
 } from '@assistant-ui/react';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  renderHook,
-  screen,
-  within,
-} from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import { memo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CommittedAssistantConversation } from '../committed-assistant-conversation';

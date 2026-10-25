@@ -4,8 +4,9 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { act } from '@brainstrike/test-utils/react-act';
 import { ActionRegistryProvider } from '@brainstrike/ui';
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';

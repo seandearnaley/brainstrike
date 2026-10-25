@@ -1,5 +1,6 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RECONCILE_METADATA_DEBOUNCE_MS, RECONCILE_METADATA_MAX_WAIT_MS } from '../constants';
 import type { FileRowDirectorySubtree } from '../indexing/file-row-metadata-store';

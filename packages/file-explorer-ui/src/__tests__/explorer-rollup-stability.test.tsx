@@ -14,8 +14,9 @@
  * content DID move must notify.
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {

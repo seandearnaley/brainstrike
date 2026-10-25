@@ -5,7 +5,8 @@ import {
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { LogSourceAdapter } from '@brainstrike/settings-ui/settings/system/logging-settings-section';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { LogsWorkspacePage } from '../diagnostics/logs-workspace-page';
 import { openLogsTab } from '../diagnostics/open-logs-tab';

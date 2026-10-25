@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM (see its header).
 import './committed-assistant-browser-support';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { describe, expect, onTestFinished, test, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';

@@ -3,11 +3,12 @@ import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { act } from '@brainstrike/test-utils/react-act';
 import type {
   FileContentReadResult,
   FileReadRequest,
 } from '@brainstrike/workers/file-content-worker';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { expect, it, vi } from 'vitest';
 import { useFileContentLoadAuthority } from '../file-content-load-authority-context';

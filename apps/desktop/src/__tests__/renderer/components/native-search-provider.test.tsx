@@ -13,11 +13,12 @@ import type {
   IndexSearchCapability,
   NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
+import { act } from '@brainstrike/test-utils/react-act';
 import {
   useNativeWorkspaceSearchDependencies,
   useWorkspaceSearchStore,
 } from '@brainstrike/workspace-search/core';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

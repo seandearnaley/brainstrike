@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import { appReloadStore } from '@brainstrike/ui';
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppReloadGate } from '../app-reload-gate';
 import { AppReloadStrip } from '../app-reload-strip';

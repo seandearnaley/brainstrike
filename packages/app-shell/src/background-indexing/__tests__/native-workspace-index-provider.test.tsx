@@ -23,7 +23,8 @@ import type {
   IndexerStatus,
   NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { NativeWorkspaceIndexProvider } from '../native-workspace-index-provider';
 

@@ -16,7 +16,8 @@ import {
 } from '@brainstrike/assistant-contract';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {

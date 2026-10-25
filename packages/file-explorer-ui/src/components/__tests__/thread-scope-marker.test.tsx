@@ -2,7 +2,9 @@
  * BST-1990: an Explorer folder header says quietly when the folder is not one
  * of the selected thread's, as the Files cards and the folder chip do.
  */
-import { act, render, screen } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useThreadFolderScopeStore } from '../../thread-folder-scope-store';
 import { ThreadScopeMarker } from '../thread-scope-marker';

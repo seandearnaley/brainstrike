@@ -2,7 +2,8 @@ import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
 } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   LocalRuntimeModelCatalogMap,

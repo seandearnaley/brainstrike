@@ -1,6 +1,7 @@
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState, useSyncExternalStore } from 'react';
 import { expect, test } from 'vitest';
 import { ActivityTrace } from '../activity-trace';

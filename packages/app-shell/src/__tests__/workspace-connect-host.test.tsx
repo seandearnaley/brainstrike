@@ -5,7 +5,8 @@ import {
   type LogRecord,
   resetLogger,
 } from '@brainstrike/logging';
-import { act, render } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { connectPathCapabilityRef, connectPathMock, openPickerMock } = vi.hoisted(() => ({

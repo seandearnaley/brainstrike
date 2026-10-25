@@ -7,7 +7,8 @@
  * gating and the throttle; this suite pins what the host thread feeds it.
  */
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { Schema } from 'effect';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { useHostLastTurn } from '../../renderer/use-host-last-turn';

@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import type { ModelPickerModel } from '@brainstrike/ui';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ProviderGroupConfig } from '../assistant-ui-panel';

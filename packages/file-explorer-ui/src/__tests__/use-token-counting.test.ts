@@ -3,7 +3,8 @@ import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
 } from '@brainstrike/app-state/stores/token-preferences-store';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import {

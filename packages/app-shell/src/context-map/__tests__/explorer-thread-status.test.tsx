@@ -11,7 +11,8 @@ import {
   WorkspaceTabsContext,
   type WorkspaceTabsValue,
 } from '@brainstrike/file-explorer-ui/shell';
-import { act, cleanup, render } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, render } from '@testing-library/react';
 import { type ReactElement, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../../roots/root-identity-context';

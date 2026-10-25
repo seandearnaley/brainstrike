@@ -13,7 +13,8 @@
  * only through the worker's own "tree initialized" record (4, expected <= 1).
  */
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

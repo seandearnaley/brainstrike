@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter } from '@assistant-ui/react';
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { ApprovalSubmissionProvider } from '../approval-submission-provider';

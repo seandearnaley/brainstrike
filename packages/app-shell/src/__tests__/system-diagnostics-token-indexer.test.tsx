@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import { emitIndexedFile, emitIndexingError } from '@brainstrike/token-cache';
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SystemDiagnosticsPanel } from '../diagnostics/system-diagnostics-panel';
 

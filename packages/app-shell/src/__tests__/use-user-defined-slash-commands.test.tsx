@@ -1,5 +1,6 @@
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The hook subscribes to activeRootIds purely as a refresh trigger.

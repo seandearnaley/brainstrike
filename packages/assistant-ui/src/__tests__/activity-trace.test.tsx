@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { ActivityTrace } from '../activity-trace';
 import type { ActivitySummary } from '../activity-trace-model';

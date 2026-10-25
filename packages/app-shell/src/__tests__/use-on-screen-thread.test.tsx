@@ -1,5 +1,6 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOnScreenThreadId, usePublishOnScreenThreadId } from '../hooks/use-on-screen-thread';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';

@@ -6,8 +6,9 @@
  * of these and must keep store-backed behavior.
  */
 
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import OptimizedFileTree from '../tree/optimized-file-tree';

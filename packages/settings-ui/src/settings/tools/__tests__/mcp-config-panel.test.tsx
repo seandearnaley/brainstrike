@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { McpConfigPanel } from '../mcp-config-panel';
 import type { McpConfigTextDocument, ToolsSettingsOperations } from '../types';

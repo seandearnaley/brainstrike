@@ -10,8 +10,10 @@
  * Uses the REAL FileTreeIndex (unlike file-tree-provider.test.tsx, which mocks
  * it) — the sharing semantics ARE the subject under test.
  */
+
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileTreeProvider, useFileTreeIndexContext } from '../tree/file-tree-provider';

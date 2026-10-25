@@ -1,7 +1,7 @@
 import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
 import { EMPTY_WORKSPACE_SNAPSHOT } from '@brainstrike/assistant-data';
+import { act } from '@brainstrike/test-utils/react-act';
 import {
-  act,
   fireEvent,
   render as renderComponent,
   renderHook,

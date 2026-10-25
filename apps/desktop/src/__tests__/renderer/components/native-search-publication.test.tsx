@@ -4,8 +4,8 @@ import {
   DEFAULT_INDEX_CONFIG,
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
+import { act } from '@brainstrike/test-utils/react-act';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/core';
-import { act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@brainstrike/ui', async (importOriginal) => ({

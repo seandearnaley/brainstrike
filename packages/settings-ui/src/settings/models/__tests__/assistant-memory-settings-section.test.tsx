@@ -9,7 +9,8 @@ import {
 } from '@brainstrike/app-state/stores/model-registry-store';
 import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
-import { act, render, screen, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {

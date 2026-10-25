@@ -1,10 +1,11 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import type {
   FileSystemAdapter,
   GitInventory,
   GitResult,
   RootDescriptor,
 } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 import { stubChangesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';

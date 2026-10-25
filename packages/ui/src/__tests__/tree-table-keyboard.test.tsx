@@ -4,7 +4,9 @@
  * Tests arrow-key navigation, expand/collapse, selection, multi-select,
  * Home/End, Escape, and focus persistence after data changes.
  */
-import { act, renderHook } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { buildTreeFromFlatNodes, createChildrenGetter } from '../tree-table/tree-utils';
 import type { FlattenedRow, TreeNode } from '../tree-table/types';

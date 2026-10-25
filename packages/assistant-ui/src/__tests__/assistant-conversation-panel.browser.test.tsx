@@ -4,8 +4,9 @@ import {
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, getConfig, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, onTestFinished, test, vi } from 'vitest';
 import { commands, page, userEvent } from 'vitest/browser';
 import type { SendActiveConversationInput } from '../active-conversation-input-context';

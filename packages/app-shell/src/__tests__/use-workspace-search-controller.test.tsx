@@ -3,13 +3,14 @@ import {
   describeBoundaryError,
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { NativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import {
   NativeWorkspaceSearchExecutor,
   NativeWorkspaceSearchProvider,
   useWorkspaceSearchStore,
 } from '@brainstrike/workspace-search/core';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../roots/root-identity-context';

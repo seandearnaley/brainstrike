@@ -11,7 +11,8 @@ import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelCatalogProps } from '../model-catalog';
 import {

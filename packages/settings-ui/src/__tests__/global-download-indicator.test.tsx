@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { act, render, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { GlobalDownloadIndicator } from '../components/global-download-indicator';
 

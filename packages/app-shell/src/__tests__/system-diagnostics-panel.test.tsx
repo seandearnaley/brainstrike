@@ -6,7 +6,8 @@ import {
   __resetDatabaseStatusStoreForTests,
   useDatabaseStatusStore,
 } from '@brainstrike/app-state/stores/database-status-store';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';

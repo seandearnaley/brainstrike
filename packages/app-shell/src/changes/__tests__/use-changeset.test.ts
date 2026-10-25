@@ -1,4 +1,5 @@
 import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
+import { act } from '@brainstrike/test-utils/react-act';
 import type {
   Changeset,
   ChangesetView,
@@ -6,7 +7,7 @@ import type {
   GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   stubChangesBridge,

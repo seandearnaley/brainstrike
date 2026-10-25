@@ -1,7 +1,9 @@
 /**
  * @vitest-environment happy-dom
  */
-import { act, renderHook } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider, type ThemeStorageAdapter, useTheme } from '../theme-provider';

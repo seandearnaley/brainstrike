@@ -1,7 +1,8 @@
 // @vitest-environment-options {"settings":{"enableIframePageLoading":true}}
 
 import { CANVAS_FRAME_MESSAGE_TYPES } from '@brainstrike/platform-utils';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CanvasFrame } from '../canvas-frame';
 

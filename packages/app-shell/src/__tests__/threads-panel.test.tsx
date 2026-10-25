@@ -7,9 +7,10 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';

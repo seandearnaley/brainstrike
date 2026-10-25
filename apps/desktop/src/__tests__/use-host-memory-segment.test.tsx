@@ -18,7 +18,8 @@ import {
   refusalError,
 } from '@brainstrike/assistant-contract';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { Schema } from 'effect';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {

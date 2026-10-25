@@ -9,7 +9,8 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, expect, test } from 'vitest';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useLastTurnFollower } from '../use-last-turn-follower';

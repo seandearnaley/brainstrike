@@ -3,7 +3,8 @@ import {
   SHELL_OUTPUT_STREAM_PART_TYPE,
   TOOL_TELEMETRY_OMITTED_TYPE,
 } from '@brainstrike/assistant-contract';
-import { act, render, renderHook, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, renderHook, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import { LiveShellOutputPane } from '../live-shell-output-pane';

@@ -1,7 +1,8 @@
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import type { ThreadMessageLike } from '@assistant-ui/react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { expect, test, vi } from 'vitest';

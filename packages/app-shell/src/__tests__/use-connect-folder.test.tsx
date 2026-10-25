@@ -1,5 +1,6 @@
 import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {

@@ -30,7 +30,8 @@ import type {
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { WorkspaceBarBranchMenu } from '@brainstrike/assistant-ui';
 import type { ActionOutcome } from '@brainstrike/context-actions';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useWorkspaceBar } from '../hooks/use-workspace-bar';

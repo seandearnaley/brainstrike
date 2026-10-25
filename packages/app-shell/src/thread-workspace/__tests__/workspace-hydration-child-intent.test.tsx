@@ -3,7 +3,8 @@ import {
   type ThreadWorkspaceRepository,
   type WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-data';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { hostChildWorkspaceTabId } from '../../host-child-workspace-tab';
 import { useThreadWorkspaceCoordinator } from '../use-thread-workspace-coordinator';

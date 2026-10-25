@@ -1,5 +1,6 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { useFileViewerContextMenu } from '../use-file-viewer-context-menu';
 

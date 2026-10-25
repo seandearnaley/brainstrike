@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import type { ForgePrCacheEntry, ForgePrUpdatedEvent, ForgeResult } from '@brainstrike/types';
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { ForgeBridge } from '../forge/forge-bridge';
 import { useForgePrCache } from '../hooks/use-forge-pr-cache';

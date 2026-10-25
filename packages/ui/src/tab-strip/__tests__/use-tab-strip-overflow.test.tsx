@@ -1,4 +1,5 @@
-import { act, render, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen } from '@testing-library/react';
 import { useRef } from 'react';
 import { describe, expect, it } from 'vitest';
 import {

@@ -3,7 +3,9 @@
  * repository". Split out of `use-worktree-mode.test.ts` to keep that file
  * under the line-count ceiling.
  */
-import { act, renderHook } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 

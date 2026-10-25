@@ -1,5 +1,6 @@
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutGrid } from 'lucide-react';
 import { type CSSProperties, useEffect } from 'react';

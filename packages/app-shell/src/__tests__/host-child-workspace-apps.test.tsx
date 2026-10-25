@@ -4,7 +4,8 @@ import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   type AssistantThreadHostCapability,

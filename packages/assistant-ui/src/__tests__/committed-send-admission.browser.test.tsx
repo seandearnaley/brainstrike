@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM (React DevTools hook).
 import './committed-assistant-browser-support';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { expect, onTestFinished, test, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import type { CommittedAssistantCommands } from '../committed-assistant-store';

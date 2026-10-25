@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import { act } from '@brainstrike/test-utils/react-act';
 import type {
   CreatePromptItemInput,
   PromptItem,
@@ -7,7 +8,7 @@ import type {
   PromptItemUsageAction,
   UpdatePromptItemInput,
 } from '@brainstrike/types/prompt-item';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { PromptWorkbenchPanel, type PromptWorkbenchRepository } from '../prompt-workbench-panel';

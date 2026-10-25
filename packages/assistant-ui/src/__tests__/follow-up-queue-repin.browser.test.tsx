@@ -9,7 +9,8 @@ import {
 } from '@assistant-ui/react';
 import { useEffect } from 'react';
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ThreadScrollRegion, ThreadScrollToBottom } from '../assistant-ui-panel';
 import { FollowUpQueueBridge, FollowUpQueueChips } from '../follow-up-queue';

@@ -1,6 +1,7 @@
 import { __resetWorktreeSetupConsentStoreForTests } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { WorktreeListEntry } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseWorktreeModeArgs } from '../hooks/use-worktree-mode';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
@@ -486,11 +487,10 @@ describe('useWorktreeMode', () => {
     expect(result.current?.defaultName).toBe('quiet-otter');
   });
 
-  // Repository setup script consent (BST-1455) — the create sheet's
-  // Allow/Skip gate, standing-decision persistence, hash-staleness
-  // re-prompting, and the branch-menu create path — is covered in
-  // `use-worktree-mode-repository-setup-consent.test.ts` (split out to keep
-  // both files under the line-count ceiling).
+  // Repository setup script consent (BST-1455): the create sheet's Allow/Skip
+  // gate, standing-decision persistence, hash-staleness re-prompting and the
+  // branch-menu create path are covered in
+  // `use-worktree-mode-repository-setup-consent.test.ts` (split to keep both files under the ceiling).
 
   it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {
     const { result, rerender } = renderHook(

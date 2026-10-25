@@ -2,7 +2,8 @@
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter, ThreadAssistantMessagePart } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import {
