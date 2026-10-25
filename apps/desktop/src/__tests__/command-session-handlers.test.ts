@@ -1,12 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createCommandSessionHandlers } from '../agent-host-platform/command-session-handlers';
 import {
   CommandSessionError,
   type CommandSessionManager,
 } from '../assistant-server/command-session-manager';
-import {
-  createCommandSessionIpcHandlers,
-  withHostCommandSessions,
-} from '../command-session-ipc-handlers';
 
 function createManager(): CommandSessionManager {
   return {
@@ -39,10 +36,10 @@ function createManager(): CommandSessionManager {
   };
 }
 
-describe('command session IPC handlers', () => {
+describe('host command session handlers', () => {
   it('lists only the requested workspace root', () => {
     const manager = createManager();
-    const handlers = createCommandSessionIpcHandlers({ manager });
+    const handlers = createCommandSessionHandlers(manager);
 
     expect(handlers.list({ rootId: 'root-1' })).toEqual({
       ok: true,
@@ -53,7 +50,7 @@ describe('command session IPC handlers', () => {
 
   it('returns a bounded advancing output page', () => {
     const manager = createManager();
-    const handlers = createCommandSessionIpcHandlers({ manager });
+    const handlers = createCommandSessionHandlers(manager);
 
     const result = handlers.read({ cursor: 0, rootId: 'root-1', sessionId: 'session-1' });
 
@@ -69,7 +66,7 @@ describe('command session IPC handlers', () => {
     expect(manager.read).toHaveBeenCalledWith('root-1', 'session-1', 0, 32_768);
   });
 
-  it('fails loudly when the manager violates the IPC page ceiling', () => {
+  it('fails loudly when the manager violates the page ceiling', () => {
     const manager = createManager();
     vi.mocked(manager.read).mockReturnValueOnce({
       bufferStartCursor: 0,
@@ -79,12 +76,12 @@ describe('command session IPC handlers', () => {
       requestedCursor: 0,
       truncatedBeforeCursor: false,
     });
-    const handlers = createCommandSessionIpcHandlers({ manager });
+    const handlers = createCommandSessionHandlers(manager);
 
     expect(handlers.read({ cursor: 0, rootId: 'root-1', sessionId: 'session-1' })).toEqual({
       error: {
         code: 'internal',
-        message: 'Command-session manager returned an oversized IPC page.',
+        message: 'Command-session manager returned an oversized page.',
       },
       ok: false,
     });
@@ -100,7 +97,7 @@ describe('command session IPC handlers', () => {
       requestedCursor: -1,
       truncatedBeforeCursor: false,
     });
-    const handlers = createCommandSessionIpcHandlers({ manager });
+    const handlers = createCommandSessionHandlers(manager);
 
     expect(handlers.read({ cursor: -1, rootId: 'root-1', sessionId: 'session-1' })).toEqual({
       ok: true,
@@ -108,12 +105,12 @@ describe('command session IPC handlers', () => {
     });
   });
 
-  it('surfaces typed manager failures without throwing across IPC', async () => {
+  it('surfaces typed manager failures without throwing across the wire', async () => {
     const manager = createManager();
     vi.mocked(manager.stop).mockRejectedValueOnce(
       new CommandSessionError('session-not-found', 'No command session "missing".')
     );
-    const handlers = createCommandSessionIpcHandlers({ manager });
+    const handlers = createCommandSessionHandlers(manager);
 
     await expect(handlers.stop({ rootId: 'wrong-root', sessionId: 'missing' })).resolves.toEqual({
       error: { code: 'session-not-found', message: 'No command session "missing".' },
@@ -123,7 +120,7 @@ describe('command session IPC handlers', () => {
 
   it('delegates write, stop, and remove with the owning root', async () => {
     const manager = createManager();
-    const handlers = createCommandSessionIpcHandlers({ manager });
+    const handlers = createCommandSessionHandlers(manager);
 
     expect(handlers.write({ data: 'y\n', rootId: 'root-1', sessionId: 'session-1' })).toEqual({
       ok: true,
@@ -137,38 +134,5 @@ describe('command session IPC handlers', () => {
     expect(manager.write).toHaveBeenCalledWith('root-1', 'session-1', 'y\n');
     expect(manager.stop).toHaveBeenCalledWith('root-1', 'session-1');
     expect(manager.remove).toHaveBeenCalledWith('root-1', 'session-1');
-  });
-
-  it('keeps Main’s own answer when no agent host is connected, and asks the host for a session Main lacks', async () => {
-    const manager = createManager();
-    vi.mocked(manager.stop).mockRejectedValue(
-      new CommandSessionError('session-not-found', 'No command session "host-session".')
-    );
-    const host = {
-      disposeRoot: vi.fn(),
-      list: vi.fn(),
-      read: vi.fn(),
-      remove: vi.fn(),
-      stop: vi.fn(async () => ({ ok: true as const })),
-      write: vi.fn(),
-    };
-    let connected: typeof host | undefined;
-    const panel = withHostCommandSessions(
-      createCommandSessionIpcHandlers({ manager }),
-      () => connected
-    );
-    const identity = { rootId: 'root-1', sessionId: 'host-session' };
-
-    await expect(panel.stop(identity)).resolves.toMatchObject({
-      error: { code: 'session-not-found' },
-      ok: false,
-    });
-    await expect(panel.list({ rootId: 'root-1' })).resolves.toMatchObject({
-      ok: true,
-      value: { sessions: [expect.objectContaining({ id: 'session-1' })] },
-    });
-    connected = host;
-    await expect(panel.stop(identity)).resolves.toEqual({ ok: true });
-    expect(host.stop).toHaveBeenCalledWith(identity);
   });
 });

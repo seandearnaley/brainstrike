@@ -20,7 +20,6 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
-import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
@@ -28,7 +27,6 @@ import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
-import { terminalContract } from './ipc-domains/terminal.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -803,24 +801,6 @@ if (shouldExposeBridge('contextFiles')) {
 // `window.assistantPersonas` rather than `isElectron()`.
 if (shouldExposeBridge('assistantPersonas')) {
   exposeBridge('assistantPersonas', userPersonasContract);
-}
-
-// Terminal bridge (desktop-only): a PTY backend for a future TerminalPanel.
-// `create` pins the shell cwd to a validated workspace `rootId` (main resolves
-// + containment-checks it, no shell-string injection in the spawn). Output and
-// exit are pushed one-way to THIS renderer over `terminal:data` / `terminal:exit`;
-// `onData`/`onExit` register a listener and return an unsubscribe fn. Web never
-// constructs this bridge (no preload), so consumers must capability-check
-// `window.terminal`. The xterm UI lands in the next PR.
-if (shouldExposeBridge('terminal')) {
-  exposeBridge('terminal', terminalContract);
-}
-
-// Command-session inventory bridge (desktop-only). These sessions are owned by
-// the main-process assistant runtime and intentionally survive renderer reloads.
-// The bridge exposes workspace-scoped observation/control only; web omits it.
-if (shouldExposeBridge('commandSessions')) {
-  exposeBridge('commandSessions', commandSessionsContract);
 }
 
 if (shouldExposeBridge('promptLibrary')) {

@@ -1,17 +1,17 @@
 import { Button } from '@brainstrike/ui';
 import { Bot, RotateCw, TerminalSquare } from 'lucide-react';
-import { type ReactElement, useMemo, useState } from 'react';
+import { type ReactElement, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import type { TerminalTarget } from '../stores/terminal-target-store';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
-import { isCommandSessionBridgeAvailable } from './command-session-bridge';
+import { useCommandSessionBridge } from '../workspace-terminal-services';
 import { CommandSessionInventory } from './command-session-inventory';
 import { useActiveRootId } from './use-active-root-id';
 import { useTerminalSession } from './use-terminal-session';
 
 /**
  * Desktop terminal surface. Runs a REAL interactive shell in the focused
- * workspace root via the `window.terminal` pty bridge, rendered with xterm.js.
+ * workspace root via the provided terminal pty bridge, rendered with xterm.js.
  *
  * All bridge interaction + the imperative xterm lifecycle live in
  * {@link useTerminalSession}; this component resolves the active root, mounts the
@@ -19,7 +19,7 @@ import { useTerminalSession } from './use-terminal-session';
  * ready / exited-with-restart / error). Every failure is a visible state + toast
  * inside the hook — never a blank panel.
  *
- * Constructed only on desktop (the wrapper checks `window.terminal`); it still
+ * Constructed only when a terminal bridge is provided; it still
  * renders its own no-root empty state. On a root focus-change the existing
  * session keeps running (it is pinned to its cwd); switching the active root
  * starts a fresh session for the newly focused root. A `terminal-target-store`
@@ -124,7 +124,7 @@ export function TerminalPanel(): ReactElement {
   const focusedRootId = useActiveRootId();
   const target = useTerminalTargetStore((state) => state.target);
   const clearTarget = useTerminalTargetStore((state) => state.reset);
-  const commandSessionsAvailable = useMemo(() => isCommandSessionBridgeAvailable(), []);
+  const commandSessionsAvailable = useCommandSessionBridge() !== null;
   const [surface, setSurface] = useState<'command-sessions' | 'shell'>('shell');
   // An explicit pin wins; with none the panel follows the focused root exactly
   // as it always has. Derived during render — never mirrored into state.
