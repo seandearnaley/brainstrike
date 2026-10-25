@@ -17,7 +17,11 @@ import {
   describeHostChildLedger,
   type HostChildLedgerState,
 } from './child-delivery.ts';
-import { hostChildCallSign, hostChildColors } from './child-presentation.ts';
+import {
+  type HostChildColoring,
+  hostChildCallSign,
+  hostChildColors,
+} from './child-presentation.ts';
 import {
   deriveHostChildAdmission,
   type HostChildResult,
@@ -228,6 +232,8 @@ function hostChildStatus(
 export class HostChildRuns {
   private readonly grantsByRoot = new Map<string, HostThreadGrants>();
   private readonly origins = new Map<string, HostChildOrigin>();
+  /** Each root tree's last colour allocation; a listing allocates only children created since. */
+  private readonly coloring = new Map<string, HostChildColoring>();
   /** Each child thread's invocation run: the first run its delegation started. */
   private readonly invocations = new Map<string, string>();
   /** Child runs whose outcome reached the parent's model (the durable watermark). */
@@ -251,6 +257,7 @@ export class HostChildRuns {
     this.origins.delete(threadId);
     this.invocations.delete(threadId);
     this.grantsByRoot.delete(threadId);
+    this.coloring.delete(threadId);
   }
   /**
    * The grants every run of `threadId`'s tree shares: its root thread's
@@ -465,15 +472,18 @@ export class HostChildRuns {
     // thread commits, and a reader of the listing opens the child's own log.
     const committed = [...this.origins].filter(([child]) => threads.has(child));
     // Colours are allocated across the whole root tree, in creation order.
-    const colors = hostChildColors(
+    const coloring = hostChildColors(
       root,
       presentations.read(root).color,
       committed.flatMap(([child, origin]) =>
         this.rootThread(child) === root
           ? [{ parentThreadId: origin.parentThreadId, threadId: child }]
           : []
-      )
+      ),
+      this.coloring.get(root)
     );
+    this.coloring.set(root, coloring);
+    const colors = coloring.colors;
     return committed.flatMap(([child, origin]) => {
       const color = colors.get(child);
       if (origin.parentThreadId !== threadId) {
