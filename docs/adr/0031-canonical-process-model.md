@@ -45,9 +45,10 @@ separate products over one headless engine:
    polling or readiness timeout.
 4. **One OS file lock per data root, held only by the host process** and not inherited by its
    children. A second instance is refused.
-5. **Quit and stop are ask (close the host's stdin), 5 seconds, kill.** That 5 s grace is the
-   only number in startup or shutdown. Children die with their owner: a kill-on-close Job on Windows, a process group on
-   POSIX, SIGHUP for a pty. Factory reset writes a marker, relaunches, and wipes on next start.
+5. **Quit and stop are ask, 5 seconds, kill**, in the LSP shape: the ask is a close message on
+   the host's stdio, and the end of its stdin means the client is gone and the host closes
+   without it. That 5 s grace is the only number in startup or shutdown. Children die with
+   their owner: a kill-on-close Job on Windows, a process group on POSIX, SIGHUP for a pty. Factory reset writes a marker, relaunches, and wipes on next start.
 
 No polling loop, readiness timeout or retry timer exists in startup or shutdown.
 
@@ -58,12 +59,13 @@ Each stage deletes more code than it adds.
 1. The CLI runs its host in-process. Deletes `host start`, `host status` and `host stop`, the
    CLI's daemon launcher and its process entry, `run start`, `child send`, `log follow` and
    `mcp input` (each attached to a host another process owned).
-2. The desktop host is a plain child running the headless host entry. Deletes `host.json`, the token handshake, the socket, the
-   lifetime port, `host/closing`, `host/drained`, `host/stop`, the Node host starter and the
+2. The desktop host is a plain child running the headless host entry. Deletes `host.json`, the
+   token handshake, the socket, the lifetime port, `host/closing`, `host/drained`, `host/stop`, the Node host starter and the
    startup waits; `host-lease` goes.
 3. One OS lock. Deletes the inherited flock, takeover, `HostNativeChildren` and OS-exit polling.
-4. Quit is ask, 5 s, kill, and reset is relaunch. Deletes the shutdown step order, the retained
-   owner, the close ladders, exit labelling and the lifecycle delay seam.
+4. Quit is ask, 5 s, kill, and reset is relaunch. Deletes the shutdown step order (the host's
+   close stops depending on Main, so stdin EOF alone closes it), the retained owner, the close
+   ladders, exit labelling and the lifecycle delay seam.
 
 ## Consequences
 
