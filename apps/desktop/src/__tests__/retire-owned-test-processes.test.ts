@@ -74,7 +74,9 @@ describe('owned integration process cleanup', () => {
     exit.resolve();
     await expect(cleanup).rejects.toMatchObject({
       errors: [
-        expect.objectContaining({ message: 'Owned app or Root process outlived its owner' }),
+        expect.objectContaining({
+          message: 'Owned app or Root process outlived its owner: app 211',
+        }),
       ],
     });
   });
