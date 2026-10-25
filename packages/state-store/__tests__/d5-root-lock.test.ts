@@ -111,6 +111,25 @@ describe('D5: data-root lock', () => {
     expect(refusalOf(() => RootLock.acquire(root))).toBeNull();
   }, 120_000);
 
+  // A contender's own clock never decides: the OS refuses it while the winner holds, however far its clock is off.
+  test.each([60_000, -60_000])(
+    'refusal stays inside the held-lock barrier with a %i ms contender clock skew',
+    async (offsetMs) => {
+      const root = newRoot();
+      const winner = runTs(CONTENDER, [root]);
+      const refuser = runTs(CONTENDER, [root, String(offsetMs)]);
+      await Promise.all([winner.line('READY'), refuser.line('READY')]);
+      winner.p.stdin?.write(`ACQUIRE ${Date.now()}\n`);
+      expect(await winner.line('DECIDED')).toBe('DECIDED WON');
+      refuser.p.stdin?.write(`ACQUIRE ${Date.now()}\n`);
+      expect(await refuser.line('DECIDED')).toBe('DECIDED REFUSED');
+      expect(refusalOf(() => RootLock.acquire(root))).toBeInstanceOf(RootLockedError);
+      winner.p.stdin?.write('RELEASE\n');
+      expect(await Promise.all([winner.exit(), refuser.exit()])).toEqual([0, 0]);
+      expect(refusalOf(() => RootLock.acquire(root))).toBeNull();
+    }
+  );
+
   // BST-2234: Node's JS realpathSync keeps a spelling's case (and a Windows 8.3 short name) as given, so a root had
   // two identities. A trailing `.` is a second spelling on every file system; a case-folding one has another.
   test('a lock taken through another spelling of its root records the canonical root, and that root is refused', () => {
