@@ -50,6 +50,15 @@ function makeFsParams(
   };
 }
 
+/** Mounts the hook and waits out the restore of the last folder it starts on mount. */
+async function renderRestored() {
+  const rendered = renderHook(() => useFileSystem(makeFsParams()), {
+    wrapper: AdaptersTestWrapper,
+  });
+  await waitFor(() => expect(rendered.result.current?.isAccessLoading).toBe(false));
+  return rendered;
+}
+
 describe('useFileSystem', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -57,10 +66,8 @@ describe('useFileSystem', () => {
   });
 
   describe('isFileSystemAccessSupported', () => {
-    it('returns supported true when API is available and context is secure', () => {
-      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
-        wrapper: AdaptersTestWrapper,
-      });
+    it('returns supported true when API is available and context is secure', async () => {
+      const { result } = await renderRestored();
       expect(result.current).toBeDefined();
       if (!result.current) {
         throw new Error('result.current is undefined');
@@ -70,16 +77,14 @@ describe('useFileSystem', () => {
       expect(reason).toBe('');
     });
 
-    it('returns supported false when API is not available', () => {
+    it('returns supported false when API is not available', async () => {
       // Mock the adapter to throw an error during initialization
       const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
       MockFileSystemAdapter.prototype.requestDirectoryAccess = vi
         .fn()
         .mockRejectedValue(new Error('File System Access API is not supported in this browser'));
 
-      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
-        wrapper: AdaptersTestWrapper,
-      });
+      const { result } = await renderRestored();
       expect(result.current).toBeDefined();
       if (!result.current) {
         throw new Error('result.current is undefined');
@@ -92,11 +97,9 @@ describe('useFileSystem', () => {
       MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
     });
 
-    it('returns supported false when context is not secure', () => {
+    it('returns supported false when context is not secure', async () => {
       // With the adapter pattern, this test is less relevant since the adapter handles platform detection
-      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
-        wrapper: AdaptersTestWrapper,
-      });
+      const { result } = await renderRestored();
       expect(result.current).toBeDefined();
       if (!result.current) {
         throw new Error('result.current is undefined');
@@ -360,11 +363,9 @@ describe('useFileSystem', () => {
       MockFileSystemAdapter.clearMockData();
     });
 
-    it('should not attempt restore when adapter does not support restoreLastFolder', () => {
+    it('should not attempt restore when adapter does not support restoreLastFolder', async () => {
       // This test verifies that the hook gracefully handles adapters without restoreLastFolder.
-      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
-        wrapper: AdaptersTestWrapper,
-      });
+      const { result } = await renderRestored();
 
       expect(result.current).toBeDefined();
       expect(result.current?.rootDirectoryHandle).toBeNull();
@@ -1168,9 +1169,7 @@ describe('useFileSystem', () => {
     });
 
     it('throws on an unstamped root handle instead of silently falling back to the path', async () => {
-      const { result } = renderHook(() => useFileSystem(makeFsParams()), {
-        wrapper: AdaptersTestWrapper,
-      });
+      const { result } = await renderRestored();
 
       const unstamped: DirectoryHandle = {
         kind: 'directory',

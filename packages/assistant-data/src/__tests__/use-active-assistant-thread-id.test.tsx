@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
 import {
@@ -9,6 +9,8 @@ import {
 
 describe('useActiveAssistantThreadId', () => {
   afterEach(() => {
+    // The hook unmounts before the store it reads is reset.
+    cleanup();
     resetAssistantThreadStore();
   });
 

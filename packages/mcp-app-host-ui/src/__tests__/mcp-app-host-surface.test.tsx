@@ -145,7 +145,7 @@ describe('MCP Apps host surface', () => {
     expect(denyButton).toHaveFocus();
     await user.keyboard('{Enter}');
     await waitFor(() => expect(screen.getByRole('alertdialog')).toBeInTheDocument());
-    await authority.close();
+    await act(() => authority.close());
   });
 
   it('focuses explicit consent, exposes no arguments, and restores focus after allow or deny', async () => {

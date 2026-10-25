@@ -13,7 +13,7 @@ import type {
   IndexSearchCapability,
   NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
-import { act } from '@brainstrike/test-utils/react-act';
+import { act, waitForOnFakeTimers } from '@brainstrike/test-utils/react-act';
 import {
   useNativeWorkspaceSearchDependencies,
   useWorkspaceSearchStore,
@@ -156,7 +156,7 @@ describe('native search follows Main’s saved choices', () => {
     await waitFor(() => expect(result.current?.profile).toEqual(small));
     const embedQuery = result.current?.embedQuery;
     // Main saves another model: a query made before the index follows it is refused.
-    act(() => savedConfig(hosted('openai::text-embedding-3-large', 3072)));
+    await act(async () => savedConfig(hosted('openai::text-embedding-3-large', 3072)));
     await expect(
       embedQuery?.(small, 'needle', { signal: new AbortController().signal })
     ).rejects.toThrow(
@@ -208,7 +208,7 @@ describe('native search follows Main’s index observations', () => {
       push = listener;
       return () => {};
     });
-    await vi.waitFor(() => expect(result.current?.profile).toEqual(profile));
+    await waitForOnFakeTimers(() => expect(result.current?.profile).toEqual(profile));
     // The index starts preparing, but Main has not said so: search keeps what it was told.
     const preparing: IndexerStatus = {
       cause: { kind: 'transitioning' },
@@ -460,7 +460,9 @@ describe('native provider and search controller observation refresh', () => {
     vi.useFakeTimers();
     const mounted = mountController();
     try {
-      await vi.waitFor(() => expect(mounted.result.current.dependencies?.profile).toEqual(profile));
+      await waitForOnFakeTimers(() =>
+        expect(mounted.result.current.dependencies?.profile).toEqual(profile)
+      );
       useWorkspaceSearchStore.getState().setQuery('pending needle');
       vi.mocked(mounted.capability.grep).mockRejectedValueOnce(
         Object.assign(new Error('Native index is transitioning.'), {
@@ -468,15 +470,17 @@ describe('native provider and search controller observation refresh', () => {
         })
       );
       act(() => mounted.result.current.controller.runTextSearch());
-      await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledOnce());
+      await waitForOnFakeTimers(() => expect(mounted.capability.grep).toHaveBeenCalledOnce());
       const read = Promise.withResolvers<IndexerStatus>();
       vi.mocked(mounted.capability.status).mockReturnValueOnce(read.promise);
       await act(async () => mounted.emitLifecycle({ generation: 2, kind: 'ready' }));
       // Each change Main publishes arrives as a fresh copy of the whole config.
       act(() => savedConfig(structuredClone({ ...SAVED_SEMANTIC, worktrees: { 'root-b': true } })));
       await act(async () => read.resolve(structuredClone(ready)));
-      await vi.waitFor(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
-      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      await waitForOnFakeTimers(() => expect(mounted.capability.grep).toHaveBeenCalledTimes(2));
+      await waitForOnFakeTimers(() =>
+        expect(useWorkspaceSearchStore.getState().status).toBe('results')
+      );
     } finally {
       mounted.unmount();
     }
@@ -504,7 +508,7 @@ describe('native provider and search controller observation refresh', () => {
     vi.useFakeTimers();
     const mounted = mountController();
     try {
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
       );
       vi.mocked(mounted.capability.coverage).mockRejectedValue(
@@ -522,7 +526,7 @@ describe('native provider and search controller observation refresh', () => {
       });
       expect(mounted.capability.coverage).not.toHaveBeenCalled();
       await act(async () => mounted.publish());
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
           available: true,
           hint: expect.stringContaining('Source scan incomplete'),
@@ -538,7 +542,7 @@ describe('native provider and search controller observation refresh', () => {
     vi.useFakeTimers();
     const { pending, observedCoverage: coverage, ...mounted } = holdAvailability();
     try {
-      await vi.waitFor(() => expect(pending).toHaveLength(1));
+      await waitForOnFakeTimers(() => expect(pending).toHaveLength(1));
       for (const acknowledgedFiles of [10, 20]) {
         mounted.refresh({
           ...ready,
@@ -563,15 +567,15 @@ describe('native provider and search controller observation refresh', () => {
       await act(async () => {
         pending[0]?.resolve(coverage);
       });
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
       );
       // One fresh follow-up consumes both queued progress observations without dropping the completed check.
-      await vi.waitFor(() => expect(pending).toHaveLength(2));
+      await waitForOnFakeTimers(() => expect(pending).toHaveLength(2));
       await act(async () => {
         pending[1]?.resolve(coverage);
       });
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability?.hint).toContain(
           'Source scan incomplete'
         )
@@ -591,7 +595,7 @@ describe('native provider and search controller observation refresh', () => {
     cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
     const mounted = mountController();
     try {
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
       );
       act(() => {
@@ -599,7 +603,7 @@ describe('native provider and search controller observation refresh', () => {
         useWorkspaceSearchStore.getState().setMode('semantic');
         mounted.result.current.controller.runSemanticSearch();
       });
-      await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+      await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
       const generation = useWorkspaceSearchStore.getState().generation;
       const prior = mounted.result.current.dependencies;
       mounted.refresh({
@@ -620,14 +624,16 @@ describe('native provider and search controller observation refresh', () => {
         ],
       });
       await act(async () => mounted.publish());
-      await vi.waitFor(() => expect(mounted.result.current.dependencies).not.toBe(prior));
+      await waitForOnFakeTimers(() => expect(mounted.result.current.dependencies).not.toBe(prior));
       expect(cancelQueryEmbedding).not.toHaveBeenCalled();
       expect(useWorkspaceSearchStore.getState().status).toBe('searching');
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       await act(async () => {
         physical.resolve(Array.from({ length: 384 }, () => 1));
       });
-      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      await waitForOnFakeTimers(() =>
+        expect(useWorkspaceSearchStore.getState().status).toBe('results')
+      );
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       expect(useWorkspaceSearchStore.getState().results?.mode).toBe('semantic');
       expect(mounted.capability.search).toHaveBeenCalledTimes(2);
@@ -644,7 +650,7 @@ describe('native provider and search controller observation refresh', () => {
     cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
     const mounted = mountController();
     try {
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
       );
       act(() => {
@@ -652,11 +658,11 @@ describe('native provider and search controller observation refresh', () => {
         useWorkspaceSearchStore.getState().setMode('semantic');
         mounted.result.current.controller.runSemanticSearch();
       });
-      await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+      await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
       const generation = useWorkspaceSearchStore.getState().generation;
       mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
       await act(async () => mounted.publish());
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability?.hint).toContain(
           'Source scan incomplete'
         )
@@ -666,14 +672,16 @@ describe('native provider and search controller observation refresh', () => {
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       mounted.refresh(structuredClone(ready));
       await act(async () => mounted.publish());
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability?.hint).toBeUndefined()
       );
       expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true);
       await act(async () => {
         physical.resolve(Array.from({ length: 384 }, () => 1));
       });
-      await vi.waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('results'));
+      await waitForOnFakeTimers(() =>
+        expect(useWorkspaceSearchStore.getState().status).toBe('results')
+      );
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       expect(cancelQueryEmbedding).not.toHaveBeenCalled();
     } finally {
@@ -737,7 +745,7 @@ describe('native provider and search controller observation refresh', () => {
     vi.useFakeTimers();
     const mounted = holdAvailability();
     try {
-      await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+      await waitForOnFakeTimers(() => expect(mounted.pending).toHaveLength(1));
       mounted.refresh(next);
       await act(async () => mounted.publish());
       await act(async () => {
@@ -758,7 +766,7 @@ describe('native provider and search controller observation refresh', () => {
       vi.useFakeTimers();
       const mounted = holdAvailability();
       try {
-        await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+        await waitForOnFakeTimers(() => expect(mounted.pending).toHaveLength(1));
         act(() => {
           if (change === 'capability') {
             mounted.replaceCapability();
@@ -786,16 +794,16 @@ describe('native provider and search controller observation refresh', () => {
     vi.useFakeTimers();
     const mounted = holdAvailability();
     try {
-      await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+      await waitForOnFakeTimers(() => expect(mounted.pending).toHaveLength(1));
       act(() => {
         mounted.replaceCapability();
         mounted.rerender();
       });
-      await vi.waitFor(() => expect(mounted.pending).toHaveLength(2));
+      await waitForOnFakeTimers(() => expect(mounted.pending).toHaveLength(2));
       await act(async () => {
         mounted.pending[1]?.reject(new Error('Replacement native scope failed.'));
       });
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
           available: false,
           reason: INTERNAL_FAULT.message,
@@ -820,13 +828,13 @@ describe('native provider and search controller observation refresh', () => {
     vi.useFakeTimers();
     const mounted = holdAvailability();
     try {
-      await vi.waitFor(() => expect(mounted.pending).toHaveLength(1));
+      await waitForOnFakeTimers(() => expect(mounted.pending).toHaveLength(1));
       mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
       await act(async () => mounted.publish());
       await act(async () => {
         mounted.pending[0]?.reject(new Error('Native coverage target unavailable.'));
       });
-      await vi.waitFor(() =>
+      await waitForOnFakeTimers(() =>
         expect(mounted.result.current.controller.semanticAvailability).toMatchObject({
           available: false,
           reason: INTERNAL_FAULT.message,
@@ -850,7 +858,7 @@ describe('native provider and search controller observation refresh', () => {
       // Deliberately reuse nested references: object churn must not be the authority guard.
       const mounted = mountController(false);
       try {
-        await vi.waitFor(() =>
+        await waitForOnFakeTimers(() =>
           expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
         );
         act(() => {
@@ -858,12 +866,12 @@ describe('native provider and search controller observation refresh', () => {
           useWorkspaceSearchStore.getState().setMode('semantic');
           mounted.result.current.controller.runSemanticSearch();
         });
-        await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+        await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
         const generation = useWorkspaceSearchStore.getState().generation;
         const token = queryEmbedding.mock.calls[0]?.[1] as { requestId: string };
         mounted.refresh(next);
         await act(async () => mounted.publish());
-        await vi.waitFor(() =>
+        await waitForOnFakeTimers(() =>
           expect(cancelQueryEmbedding).toHaveBeenCalledExactlyOnceWith(token.requestId)
         );
         expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation);
@@ -892,7 +900,7 @@ describe('native provider and search controller observation refresh', () => {
       cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
       const mounted = mountController(false);
       try {
-        await vi.waitFor(() =>
+        await waitForOnFakeTimers(() =>
           expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true)
         );
         act(() => {
@@ -900,7 +908,7 @@ describe('native provider and search controller observation refresh', () => {
           useWorkspaceSearchStore.getState().setMode('semantic');
           mounted.result.current.controller.runSemanticSearch();
         });
-        await vi.waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+        await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
         const generation = useWorkspaceSearchStore.getState().generation;
         if (change === 'capability') {
           mounted.replaceCapability();
@@ -908,7 +916,7 @@ describe('native provider and search controller observation refresh', () => {
           mounted.replaceRootBinding();
         }
         mounted.rerender();
-        await vi.waitFor(() => expect(cancelQueryEmbedding).toHaveBeenCalledOnce());
+        await waitForOnFakeTimers(() => expect(cancelQueryEmbedding).toHaveBeenCalledOnce());
         expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation);
         await act(async () => {
           physical.resolve(Array.from({ length: 384 }, () => 1));
