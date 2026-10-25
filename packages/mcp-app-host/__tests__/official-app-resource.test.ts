@@ -4,7 +4,7 @@ import { build } from 'esbuild';
 import { expect, it } from 'vitest';
 import { McpAppProvenanceAuthority } from '../src/index.js';
 
-// Bundling the real SDK is heavy work; on a loaded Windows runner it outlived Vitest's 5 s default.
+// A real minified bundle of the whole SDK: heavy work, not a 5 s unit test.
 it('admits the official SDK production bundle within the unchanged resource budget', {
   timeout: getAdjustedTimeout('heavy'),
 }, async () => {
