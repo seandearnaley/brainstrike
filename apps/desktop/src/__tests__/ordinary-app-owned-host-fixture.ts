@@ -28,6 +28,7 @@ import {
 } from '../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import {
+  electronCrashDumps,
   electronExecutablePath,
   FOREGROUND_RENDERER_SWITCHES,
 } from './helpers/electron-executable';
@@ -176,7 +177,8 @@ setInterval(() => {}, 1000);
         env[name] = value;
       }
     }
-    Object.assign(env, {
+    const crashDumps = electronCrashDumps(evidence);
+    Object.assign(env, crashDumps.env, {
       BRAINSTRIKE_DB_PROFILE: 'm3-owned',
       BRAINSTRIKE_DB_ROOT_PATH: disposable,
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
@@ -189,6 +191,7 @@ setInterval(() => {}, 1000);
     });
     const options = {
       args: [
+        ...crashDumps.args,
         join(desktop, 'dist/main.js'),
         '--test-mode',
         `--user-data-dir=${disposable}`,

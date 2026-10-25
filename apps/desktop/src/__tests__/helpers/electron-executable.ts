@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
 
 /**
  * The Electron binary a real-app integration test launches: an explicit
@@ -39,6 +40,21 @@ export function installedElectronVersion(): string {
     throw new TypeError('Installed electron package did not expose its version');
   }
   return version;
+}
+
+/**
+ * Main's arguments and environment that make any native crash of the launched
+ * app, quit included, write a local minidump into `directory` (its evidence
+ * folder). They precede the app's entry in `args`.
+ */
+export function electronCrashDumps(directory: string): {
+  readonly args: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+} {
+  return {
+    args: ['-r', resolve(import.meta.dirname, '../fixtures/electron-crash-dumps.cjs')],
+    env: { BRAINSTRIKE_E2E_CRASH_DUMPS_DIR: directory },
+  };
 }
 
 /**
