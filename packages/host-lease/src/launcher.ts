@@ -371,13 +371,8 @@ function remaining(deadline: number): number {
 }
 async function attachOwner(launch: Launch, record: HostRecord, deadline: number): Promise<Step> {
   return (
-    (await attachOrAwaitExit(
-      launch.root,
-      record,
-      deadline,
-      launch.attachClient,
-      launch.signal
-    )) ?? AGAIN
+    (await attachOrAwaitExit(launch.root, record, deadline, launch.attachClient, launch.signal)) ??
+    AGAIN
   );
 }
 /** The race this starter lost: attach to its winner, or start over once that winner left. */
