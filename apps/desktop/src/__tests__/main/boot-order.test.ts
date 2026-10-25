@@ -53,7 +53,10 @@ describe('main boot order', () => {
             (error: unknown) => error
           );
       // The quit runs its owners together: neither waits for the other.
-      const nativeStep = settle(shutdownOwner('native-index'));
+      let nativeSettled = false;
+      const nativeStep = settle(shutdownOwner('native-index')).finally(() => {
+        nativeSettled = true;
+      });
       const embeddingStep = settle(shutdownOwner('embedding-host'));
       onTestFinished(async () => {
         native.resolve();
@@ -63,6 +66,8 @@ describe('main boot order', () => {
       });
       await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
       await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+      // The agent host step is held by its native close, not by the embedding host.
+      expect(nativeSettled).toBe(false);
       const nativeError = new Error('Independent native retirement failure');
       const embeddingError = new Error('Independent physical embedding retirement failure');
       if (fail) {

@@ -39,7 +39,9 @@ function createHarness(overrides: StepOverrides = {}, extra: HarnessExtras = {})
   const logger = {
     error: vi.fn((message: string) => void events.push(`log:error:${message}`)),
     info: vi.fn((message: string) => void events.push(`log:info:${message}`)),
-    warn: vi.fn((message: string) => void events.push(`log:warn:${message}`)),
+    warn: vi.fn(
+      (message: string, _data?: Record<string, unknown>) => void events.push(`log:warn:${message}`)
+    ),
   };
   const step =
     (name: StepName): DesktopShutdownStepRun =>
@@ -171,6 +173,8 @@ describe('desktop graceful shutdown', () => {
       ]),
       trigger: 'signal',
     });
+    // Each failure once, and nothing else in the aggregate.
+    expect(logger.warn.mock.calls[0]?.[1]?.['failures']).toHaveLength(3);
     const warnAt = events.indexOf('log:warn:Graceful shutdown completed with cleanup failures');
     expect(warnAt).toBeLessThan(events.indexOf('close:error-log-sink'));
     expect(logger.info).toHaveBeenCalledWith(
