@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { AgentEgressHost, type EgressUtility } from '../agent-egress/agent-egress-host';
 
 /** A utility process that records what Main sends and replays scripted answers. */
@@ -19,7 +19,7 @@ class FakeUtility extends EventEmitter implements EgressUtility {
   }
 }
 
-function harness(startupTimeoutMs?: number) {
+function harness() {
   const utilities: FakeUtility[] = [];
   const clock = { now: 1000 };
   const host = new AgentEgressHost(
@@ -28,7 +28,6 @@ function harness(startupTimeoutMs?: number) {
       utilities.push(utility);
       return utility;
     },
-    startupTimeoutMs,
     () => clock.now
   );
   return { clock, host, utilities };
@@ -114,18 +113,18 @@ describe('AgentEgressHost (BST-1238)', () => {
     }
   );
 
-  it('rejects a proxy that never answers within the startup deadline', async () => {
-    vi.useFakeTimers();
-    try {
-      const { host, utilities } = harness(50);
-      const ready = host.ensure();
-      const settled = expect(ready).rejects.toThrow(/did not start in time/);
-      await vi.advanceTimersByTimeAsync(50);
-      await settled;
-      expect(utilities[0]?.killed).toBe(1);
-    } finally {
-      vi.useRealTimers();
-    }
+  // ADR-0026 R2: a slow start is load, not death; only the proxy's exit ends it.
+  it('waits for a slow proxy to start, and never kills it for being slow', async () => {
+    const { host, utilities } = harness();
+    let settled = false;
+    const slow = host.ensure().finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    utilities[0]?.answer({ port: 1, type: 'ready' });
+    expect((await slow).port).toBe(1);
+    expect(utilities[0]?.killed).toBe(0);
   });
 
   it('replaces a proxy that exits after it was ready on the next ensure', async () => {

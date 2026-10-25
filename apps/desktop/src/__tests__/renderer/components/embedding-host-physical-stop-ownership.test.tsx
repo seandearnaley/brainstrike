@@ -8,6 +8,7 @@ import {
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import { addLogListener } from '@brainstrike/logging';
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
+import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
@@ -878,13 +879,10 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    ['stop', 10_000],
-    ['shutdown', 3000],
-    ['reset', 30_000],
-  ] as const)(
-    'retires a non-cooperative host at the unchanged %s deadline',
-    async (action, deadline) => {
+  // ADR-0030: Stop, quit and reset share the one close budget.
+  it.each(['stop', 'shutdown', 'reset'] as const)(
+    'retires a non-cooperative host at the one close budget on %s',
+    async (action) => {
       const run = await connectControlledQuery();
       const request = run.manager.queryEmbedding(query).catch((error: unknown) => error);
       await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
@@ -912,7 +910,7 @@ describe('committed readiness fix physical query ownership controls', () => {
       await act(async () => {});
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(deadline - 1);
+        await vi.advanceTimersByTimeAsync(CHILD_CLOSE_BUDGET_MS - 1);
       });
       expect(settled).toBe(false);
       expect(hostWindow.isDestroyed()).toBe(false);

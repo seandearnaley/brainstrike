@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EmbeddingHostDocumentEmbeddingsRequest,
@@ -430,28 +431,29 @@ describe('document transport physical settlement', () => {
       expect.objectContaining({ message: expect.stringContaining('restarted') })
     );
   });
-  it('joins shutdown using its original 3s Stop budget', async () => {
+  it('joins shutdown with the one close budget', async () => {
     const { outcome, settled } = await start();
     const dispose = manager.dispose();
     await flush();
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(expect.any(Function), 3000);
+    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(
+      expect.any(Function),
+      CHILD_CLOSE_BUDGET_MS
+    );
     expect(settled).not.toHaveBeenCalled();
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     await dispose;
     expect(await outcome).toBeInstanceOf(Error);
   });
-  it('keeps shutdown at 3s when an ordinary Stop already owns the host', async () => {
+  it('shutdown joins an ordinary Stop already underway', async () => {
     const { outcome, settled } = await start();
     const stop = manager.stop();
-    const dispose = manager.dispose().catch((error: unknown) => error);
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(window.destroy).toHaveBeenCalled();
+    const dispose = manager.dispose();
+    await flush();
+    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledOnce();
     expect(settled).not.toHaveBeenCalled();
-    window.emit('closed');
-    expect(await dispose).toBeInstanceOf(Error);
-    expect(await outcome).toBeInstanceOf(Error);
     stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    await stop;
+    await Promise.all([stop, dispose]);
+    expect(await outcome).toBeInstanceOf(Error);
   });
   it('does not admit a replacement before a forced retirement closes', async () => {
     const controller = new AbortController();

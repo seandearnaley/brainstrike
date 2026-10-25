@@ -11,6 +11,7 @@
  * fence-executor.integration.spec.ts.
  */
 import { EventEmitter } from 'node:events';
+import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store/native-children';
 import { describe, expect, it, vi } from 'vitest';
 
 import { isExecAbortedError } from '../code-execution';
@@ -126,7 +127,7 @@ describe('spawnFenced teardown', () => {
       await vi.advanceTimersByTimeAsync(1000);
       expect(killGroup).toHaveBeenCalledWith(77, 'SIGTERM');
 
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(CHILD_SIGNAL_GRACE_MS);
       expect(killGroup).toHaveBeenCalledWith(77, 'SIGKILL');
 
       child.emitExit(null, 'SIGKILL');
@@ -148,7 +149,7 @@ describe('spawnFenced teardown', () => {
     try {
       const { deps, killGroup } = harness(55);
       const pending = run(deps, 1000);
-      await vi.advanceTimersByTimeAsync(2500);
+      await vi.advanceTimersByTimeAsync(1000 + 2 * CHILD_SIGNAL_GRACE_MS);
       const result = await pending;
 
       expect(result.timedOut).toBe(true);
@@ -160,7 +161,7 @@ describe('spawnFenced teardown', () => {
 
   it.each([
     { advanceMs: 1000, failingSignal: 'SIGTERM' as const },
-    { advanceMs: 1500, failingSignal: 'SIGKILL' as const },
+    { advanceMs: 1000 + CHILD_SIGNAL_GRACE_MS, failingSignal: 'SIGKILL' as const },
   ])(
     'surfaces a rejected $failingSignal without leaving timeout timers armed',
     async ({ advanceMs, failingSignal }) => {
@@ -190,7 +191,7 @@ describe('spawnFenced teardown', () => {
         expect(caught.cause).toBeDefined();
         const callsAtSettlement = killGroup.mock.calls.length;
 
-        await vi.advanceTimersByTimeAsync(2000);
+        await vi.advanceTimersByTimeAsync(2 * CHILD_SIGNAL_GRACE_MS);
         expect(killGroup).toHaveBeenCalledWith(55, 'SIGKILL');
         expect(killGroup).toHaveBeenCalledTimes(callsAtSettlement);
       } finally {
@@ -256,7 +257,7 @@ describe('spawnFenced teardown', () => {
         code: 'fence_process_group_teardown_failed',
         pid: 55,
       });
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(CHILD_SIGNAL_GRACE_MS);
       await rejection;
     } finally {
       kill.mockRestore();
@@ -274,7 +275,7 @@ describe('spawnFenced teardown', () => {
         pid: 55,
       });
 
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(CHILD_SIGNAL_GRACE_MS);
       await rejection;
       expect(kill).toHaveBeenCalledWith(-55, 'SIGKILL');
       expect(kill).toHaveBeenCalledWith(-55, 0);
@@ -316,7 +317,7 @@ describe('spawnFenced teardown', () => {
       const { deps, killGroup } = harness(55);
       const pending = run(deps, 1000);
 
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(1000 + 2 * CHILD_SIGNAL_GRACE_MS);
       await pending;
 
       expect(killGroup.mock.calls.filter(([, signal]) => signal === 'SIGKILL')).toHaveLength(1);

@@ -2,7 +2,7 @@ import { type ChildProcess, fork, spawn } from 'node:child_process';
 import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { CHILD_CLOSE_BUDGET_MS, processStartTime, RootLock } from '@brainstrike/state-store';
 import type { HostSpawner, StartedHost } from './launcher.ts';
 import type { HostRecord } from './record.ts';
 import { ResourceOwner } from './resource-owner.ts';
@@ -19,7 +19,7 @@ export interface NodeSpawnerOptions {
   /**
    * Narrows the startup-report deadline, and with it a cancelled host's exit
    * bound, for lifecycle tests; production keeps
-   * `HOST_STARTER_READY_TIMEOUT_MS` and `HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`.
+   * `HOST_STARTER_READY_TIMEOUT_MS` and `CHILD_CLOSE_BUDGET_MS`.
    */
   readonly readyTimeoutMs?: number;
 }
@@ -30,13 +30,6 @@ export interface NodeSpawnerOptions {
  * redesign kept for the external CLI path: the cancelled host's exit is joined.
  */
 export const HOST_STARTER_READY_TIMEOUT_MS = 30_000;
-/**
- * Once cancelled or retired, how long a host has to exit before it is killed.
- * R5(b): escalates the cooperative close of a host this starter owns to a kill,
- * after which the exit is still joined. Its own bound (BST-2176): a longer
- * readiness deadline never lengthens a failed launch's cleanup.
- */
-export const HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS = 10_000;
 async function closeChannel(child: ChildProcess): Promise<void> {
   if (child.connected) {
     await new Promise<void>((resolve) => {
@@ -202,8 +195,9 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
   if (!(Number.isSafeInteger(readyTimeoutMs) && readyTimeoutMs > 0)) {
     throw new RangeError('Host starter readiness deadline must be a positive safe integer');
   }
-  // A narrowed readiness deadline narrows the exit bound too, never widens it.
-  const exitTimeoutMs = Math.min(readyTimeoutMs, HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS);
+  // Once cancelled or retired, a host has the one close budget to exit before it is killed, and
+  // its exit is still joined (R5(b), ADR-0030). A narrowed readiness deadline narrows it too.
+  const exitTimeoutMs = Math.min(readyTimeoutMs, CHILD_CLOSE_BUDGET_MS);
   return async (input, signal): Promise<StartedHost> => {
     signal.throwIfAborted();
     const startOptions = decodeStartOptions(input);
