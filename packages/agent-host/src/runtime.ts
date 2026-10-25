@@ -323,6 +323,7 @@ export interface OpenedAgentHost {
  * Opens the store (taking the Root lock), the platform and Core of `root`, with
  * no socket, record or token. The desktop's host child and the in-process CLI
  * each own one; a client reaches it over a connection its launcher binds.
+ * `signal` cancels the opening only; once open, its owner ends it with `close()`.
  */
 export async function openAgentHost(
   root: string,
@@ -341,8 +342,23 @@ export async function openAgentHost(
       ?.close()
       .catch(() => undefined);
   });
-  // Core fences its own admissions when it closes, so a run needs no other hold.
-  const { core, store } = await host.open(() => () => undefined);
+  let opened: Awaited<ReturnType<HostRoot['open']>>;
+  try {
+    // Core fences its own admissions when it closes, so a run needs no other hold.
+    opened = await host.open(() => () => undefined);
+  } catch (cause) {
+    // A failed startup that could not prove its cleanup reports what it still holds.
+    if (cause instanceof AgentHostStartupError) {
+      throw cause;
+    }
+    try {
+      await host.closePlatform();
+    } catch (cleanupCause) {
+      throw new AggregateError([cause, cleanupCause], 'Host startup and platform cleanup failed');
+    }
+    throw cause;
+  }
+  const { core, store } = opened;
   const identity: HostIdentity = {
     hostVersion: HOST_VERSION,
     pid: process.pid,

@@ -72,3 +72,18 @@ test('a second host on the same root is refused while the first is open', async 
   await open(root);
   await expect(openAgentHost(root, platform())).rejects.toBeInstanceOf(RootLockedError);
 });
+
+test('a refused open closes the platform it was given', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-open-host-'));
+  roots.push(root);
+  await open(root);
+  let closed = false;
+  const refused = {
+    ...platform(),
+    close: async () => {
+      closed = true;
+    },
+  };
+  await expect(openAgentHost(root, refused)).rejects.toBeInstanceOf(RootLockedError);
+  expect(closed).toBe(true);
+});
