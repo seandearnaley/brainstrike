@@ -150,3 +150,22 @@ test('settled operations retain caller ownership and do not become a later shutd
   await expect(f.borrower.workspaceRoots({ operation: 'list' })).rejects.toBe(cause);
   await expect(f.borrower.prepareClose()).resolves.toBeUndefined();
 });
+
+test('a reset cancels the borrow its retirement strands, and the next borrow asks admission again', async () => {
+  const f = fixture();
+  const lost = Promise.withResolvers<never>();
+  f.catalog.viewFilterPresets.mockImplementationOnce(() => lost.promise);
+  const stranded = f.borrower.viewFilterPresets({ operation: 'list' });
+  await vi.waitFor(() => expect(f.catalog.viewFilterPresets).toHaveBeenCalledOnce());
+  // The reset retires the host: its connection closes under the admitted read.
+  f.borrower.cancelAdmitted();
+  lost.reject(new Error('Pending response rejected since connection got disposed'));
+  await expect(stranded).rejects.toMatchObject({
+    failure: { code: 'desktop.catalog-reset-cancelled', kind: 'refusal' },
+  });
+  f.catalog.viewFilterPresets.mockResolvedValueOnce({ presets: [] });
+  await expect(f.borrower.viewFilterPresets({ operation: 'list' })).resolves.toEqual({
+    presets: [],
+  });
+  expect(f.acquire).toHaveBeenCalledTimes(2);
+});

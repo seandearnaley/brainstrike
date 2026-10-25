@@ -550,13 +550,20 @@ const profileReset = createDesktopProfileResetOwner({
     const location = resolveDesktopDatabaseLocation();
     return joinProfileDirectory(location.rootPath, location.profile);
   },
-  retireProfile: () => desktopBootstrap.profile.retire(),
+  retireProfile: () => {
+    const retired = desktopBootstrap.profile.retire();
+    // The retirement started: the catalog borrows it strands are the reset's cancelled work.
+    workspaceRootCatalog.cancelAdmitted();
+    return retired;
+  },
 });
 
 const handleResetLocal = createDesktopFactoryResetHandler({
   clearRetainedContent: async () => {
     // The host retires its index and folders' bookkeeping before it clears the store.
-    const result = await desktopBootstrap.profile.clearAndRetireContent();
+    const clearing = desktopBootstrap.profile.clearAndRetireContent();
+    workspaceRootCatalog.cancelAdmitted();
+    const result = await clearing;
     for (const filePath of listErrorLogFilePaths(
       path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)
     )) {
