@@ -1,7 +1,6 @@
 // The ordinary app-owned host proof, one test per fault. Each fault has its own
 // ordinary-app-owned-host-<fault>.integration.test.ts so Vitest can run them on
 // different workers and native shards instead of one 90 s file.
-import { appendFileSync } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
@@ -26,6 +25,7 @@ import {
   type ModelProviderScript,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { createAppOutput } from './helpers/app-output';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import {
   electronExecutablePath,
@@ -203,6 +203,7 @@ setInterval(() => {}, 1000);
     let failure: unknown;
     const errors: unknown[] = [];
     const owners: OwnedTestProcess[] = [];
+    const output = createAppOutput(join(evidence, 'output.log'));
     const captured = new WeakSet<NonNullable<typeof application>>();
     const capture = async (app: NonNullable<typeof application>): Promise<void> => {
       if (!captured.has(app)) {
@@ -211,11 +212,7 @@ setInterval(() => {}, 1000);
         if (process.pid && start) {
           owners.push({ kind: 'app', pid: process.pid, start });
         }
-        // Written as it arrives: a proof that outlives its test timeout never reaches its
-        // finally, and the app's own output is what names a startup failure.
-        const output = join(evidence, 'output.log');
-        process.stdout?.on('data', (data: Buffer) => appendFileSync(output, data));
-        process.stderr?.on('data', (data: Buffer) => appendFileSync(output, data));
+        output.record(process);
         captured.add(app);
       }
       for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
@@ -986,6 +983,11 @@ setInterval(() => {}, 1000);
         )
       );
       process.stderr.write(`App-owned M3 evidence: ${evidence}\n`);
+    }
+    try {
+      await output.expectCleanShutdown();
+    } catch (cause) {
+      errors.push(cause);
     }
     if (errors.length > 0) {
       throw new AggregateError(
