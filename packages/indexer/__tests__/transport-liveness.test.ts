@@ -2,11 +2,7 @@
 // request or a slow startup is load, not death, so nothing retires the process for it.
 import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store';
 import { afterEach, expect, it, vi } from 'vitest';
-import {
-  createIndexerConnection,
-  INDEXER_STARTUP_STALL_WARN_MS,
-  type IndexerTransport,
-} from '../src/transport.js';
+import { createIndexerConnection, type IndexerTransport } from '../src/transport.js';
 
 const dbPath = '/index/index.sqlite';
 const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/root'] };
@@ -145,16 +141,7 @@ it('waits for a process that reports ready later than any former startup deadlin
   await expect(connection.ready).resolves.toBeDefined();
   expect(process.kills()).toBe(0);
   expect(connection.exited).toBe(false);
-  // R3: the stall is logged once, never failed.
-  expect(process.stalls).toEqual([`startup:${INDEXER_STARTUP_STALL_WARN_MS}`]);
-});
-
-it('logs no stall for a startup that reports ready in time', async () => {
-  vi.useFakeTimers();
-  const process = slowProcess({ readyMs: INDEXER_STARTUP_STALL_WARN_MS - 1, replyMs: 0 });
-  const connection = createIndexerConnection(options, deadlines, process.transport);
-  await vi.advanceTimersByTimeAsync(INDEXER_STARTUP_STALL_WARN_MS * 2);
-  await expect(connection.ready).resolves.toBeDefined();
+  // ADR-0031: a slow startup is neither failed nor reported; it ends at its ready report.
   expect(process.stalls).toEqual([]);
 });
 

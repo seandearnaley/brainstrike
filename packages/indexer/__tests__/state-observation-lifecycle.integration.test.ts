@@ -268,10 +268,7 @@ if (probeReceipt === undefined) {
         );
         expect(connection.exited).toBe(true);
         expect(killAttempts).toBe(1);
-        // A slow start also logs the informational startup stall; the close stall is the one this proves.
-        expect(stalls.filter((stall) => !stall.startsWith('startup:'))).toEqual([
-          `close:${closeMs}`,
-        ]);
+        expect(stalls).toEqual([`close:${closeMs}`]);
         await closed;
         expect(alive(pid)).toBe(false);
         // A second close is the same settled close: no second kill.

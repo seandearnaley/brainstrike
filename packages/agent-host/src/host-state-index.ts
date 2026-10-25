@@ -69,6 +69,9 @@ function canonicalEntryModule(name: string): string {
  * the host's producer module. The engine runs in a worker thread, so the same
  * composition works in a plain Node host and in an Electron utility process.
  * Memory vectors live here too, acquired for the platform's memory resources.
+ *
+ * The worker starts now and never gates the host's `ready`: every request joins
+ * its start. A start that fails is logged here, and the next request replaces it.
  */
 export async function openHostStateIndex(
   root: string,
@@ -87,28 +90,16 @@ export async function openHostStateIndex(
     stateRoot,
   } as const;
   const owner = createStateIndexOwner({ dbPath, start: () => startStateIndexWorker(options) });
-  // BST-1977: Quit reached the utility while index readiness was still pending,
-  // but the former Promise-only acquisition hid Close behind that readiness.
-  // Register the owner's physical join before starting its worker.
+  // BST-1977: the owner's physical join is registered before its worker starts,
+  // so a startup cancelled or failed while the worker is still starting joins it.
   await startup?.register(owner.close);
   startup?.signal.throwIfAborted();
-  const cancel = (): void => {
-    // The startup owner observes the same retained rejection during rollback.
-    void owner.close().catch(() => undefined);
-  };
-  startup?.signal.addEventListener('abort', cancel, { once: true });
-  try {
-    if (startup?.signal.aborted) {
-      cancel();
-    }
-    await owner.open();
-    startup?.signal.throwIfAborted();
-  } catch (cause) {
-    await owner.close();
-    throw startup?.signal.aborted ? startup.signal.reason : cause;
-  } finally {
-    startup?.signal.removeEventListener('abort', cancel);
-  }
+  owner.open().catch((error: unknown) => {
+    logger.error('Host state index worker failed to start', {
+      code: 'host_state_index_start_failed',
+      error,
+    });
+  });
   return {
     close: owner.close,
     indexer: createStateStoreIndexer(owner.port),
