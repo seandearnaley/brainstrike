@@ -23,22 +23,6 @@ export function isDesktopShuttingDown(): boolean {
   return shuttingDown;
 }
 
-/** Factory resets and content clears that are retiring the profile's host on purpose. */
-let resetsRetiringProfile = 0;
-
-/**
- * Runs a reset that retires the profile's host. While it runs, work its retirement ends
- * (a request the closed host never answered) is that reset's expected outcome, as under quit.
- */
-export async function whileResetRetiresProfile<T>(reset: () => Promise<T>): Promise<T> {
-  resetsRetiringProfile += 1;
-  try {
-    return await reset();
-  } finally {
-    resetsRetiringProfile -= 1;
-  }
-}
-
 /**
  * ADR-0015: terminal quit cancels a factory reset's replacement startup and
  * profile reopen. Work waiting on that reopen ends with this refusal.
@@ -103,15 +87,14 @@ export function isRetirementRefusal(error: unknown): boolean {
 }
 
 /**
- * ADR-0015: once the app is quitting, or while a reset retires the profile, only that
- * exact retirement is expected, so its consumers log it at info. Otherwise it stays a failure.
+ * ADR-0015: once the app is quitting, only that exact terminal cancellation is
+ * expected, so its consumers log it at info. Outside shutdown it stays a failure.
  */
 export function isExpectedShutdownRefusal(error: unknown): boolean {
-  return (shuttingDown || resetsRetiringProfile > 0) && isRetirementRefusal(error);
+  return shuttingDown && isRetirementRefusal(error);
 }
 
 /** Test-only: the production flag is never reset because the process exits. */
 export function resetDesktopShutdownStateForTests(): void {
   shuttingDown = false;
-  resetsRetiringProfile = 0;
 }
