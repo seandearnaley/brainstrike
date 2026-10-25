@@ -4,6 +4,7 @@ import type * as React from 'react';
 import { useCallback, useRef } from 'react';
 
 import { POPUP_LAYER_CLASS } from './layers';
+import { isFocusLost } from './lib/focus';
 import { cn } from './lib/utils';
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
@@ -67,6 +68,7 @@ DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayNam
 
 const DropdownMenuContent = ({
   className,
+  onCloseAutoFocus,
   onPointerDownOutside,
   sideOffset = 4,
   ref,
@@ -96,6 +98,16 @@ const DropdownMenuContent = ({
         ref={setContentRef}
         sideOffset={sideOffset}
         {...props}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          // Radix returns focus to the trigger only once the exit animation has
+          // unmounted the menu. An item whose action focused its result in the
+          // meantime (a terminal, editor or field it opened) keeps that focus;
+          // only focus the closing menu dropped goes back to the trigger.
+          if (!(event.defaultPrevented || isFocusLost())) {
+            event.preventDefault();
+          }
+        }}
         onPointerDownOutside={(event) => {
           onPointerDownOutside?.(event);
           const content = contentRef.current;
