@@ -672,7 +672,9 @@ export function createProviderCassetteReplay(
   const ends = conversationEnds(cassette.exchanges);
   /** Waits for every other conversation the recording had finished before `exchange` ended. */
   const settledBefore = async (exchange: ProviderCassetteExchange): Promise<void> => {
-    if (!settled) {
+    // A one-shot request (a title) belongs to no conversation, and the run that
+    // asked for it cannot finish before it answers, so it waits on none.
+    if (!settled || exchange.key.lane === '') {
       return;
     }
     const end = recordedEndMs(exchange);
