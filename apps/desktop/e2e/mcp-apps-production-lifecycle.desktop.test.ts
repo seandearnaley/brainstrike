@@ -90,13 +90,14 @@ interface SandboxSessionPolicyProbe {
 
 interface PackagedHarnessApplication {
   readonly browser: Browser;
-  readonly child: ChildProcessWithoutNullStreams;
   /** Evaluates an expression in the packaged MAIN process. */
   readonly evaluateInMain: (expression: string) => Promise<unknown>;
   /** Fetches a URL from the packaged MAIN process (custom schemes included). */
   readonly fetchStatusFromMain: (url: string) => Promise<number>;
   readonly isPackaged: boolean;
   readonly page: Page;
+  /** The app's own quit, with Main's exit joined (`quitPackagedElectron`). */
+  readonly quit: () => Promise<void>;
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -290,6 +291,7 @@ async function launchPackagedHarness(
       stdio: 'pipe',
     }
   );
+  let mainEndpoint: string | undefined;
   try {
     const recentLogs: string[] = [];
     const endpoints = await new Promise<{
@@ -337,6 +339,7 @@ async function launchPackagedHarness(
       stderr.on('line', onLine);
       child.once('exit', onExit);
     });
+    mainEndpoint = endpoints.main;
     const launchResult = await evaluateElectronMain(
       endpoints.main,
       `(async()=>{const requireFromMain=process.getBuiltinModule('node:module').createRequire(process.execPath);const{app}=requireFromMain('electron');await app.whenReady();return{isPackaged:app.isPackaged}})()`
@@ -408,34 +411,74 @@ async function launchPackagedHarness(
     }, harnessBundle);
     return {
       browser,
-      child,
       evaluateInMain: async (expression: string) =>
         await evaluateElectronMain(endpoints.main, expression),
       fetchStatusFromMain,
       isPackaged: launchResult['isPackaged'],
       page,
+      quit: () => quitPackagedElectron(child, endpoints.main),
     };
   } catch (error: unknown) {
-    child.kill('SIGTERM');
-    await waitForProcessExit(child).catch(() => child.kill('SIGKILL'));
+    try {
+      await quitPackagedElectron(child, mainEndpoint);
+    } catch (quitError: unknown) {
+      throw new AggregateError([error, quitError], 'BST-1571 launch and quit failed');
+    }
     throw error;
   }
 }
 
-async function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+interface ElectronExit {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+
+function exitOf(child: ChildProcessWithoutNullStreams): Promise<ElectronExit> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+  return new Promise((resolve) => {
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+}
+
+const QUIT_FROM_MAIN = `(()=>{const requireFromMain=process.getBuiltinModule('node:module').createRequire(process.execPath);const{app}=requireFromMain('electron');app.quit();return true})()`;
+
+/**
+ * Quits through the app's own shutdown, `app.quit()` as Playwright's `close()` asks it, and
+ * joins Main's exit with code 0 (ADR-0026), like `closeElectronApp`. Never a signal: on Windows
+ * Node's `kill` is TerminateProcess of Main alone, so no shutdown runs, and the agent host
+ * utility still holds the profile's `state-index.sqlite` when Main's exit arrives and the
+ * folders are removed (EBUSY). The quit joins that host before Main exits. A failed quit
+ * kills Main, joins it, and still fails; with no inspector endpoint Main is only killed.
+ */
+async function quitPackagedElectron(
+  child: ChildProcessWithoutNullStreams,
+  mainEndpoint: string | undefined
+): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) {
     return;
   }
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(
-      () => reject(new Error('Packaged Electron did not exit after SIGTERM')),
-      15_000
-    );
-    child.once('exit', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-  });
+  const exited = exitOf(child);
+  try {
+    if (mainEndpoint === undefined) {
+      throw new Error('Packaged Electron has no Main inspector endpoint to quit through');
+    }
+    // Main may exit before the inspector answers; its exit is what is joined.
+    await Promise.race([evaluateElectronMain(mainEndpoint, QUIT_FROM_MAIN), exited]);
+    const { code, signal } = await exited;
+    if (code !== 0 || signal !== null) {
+      throw new Error(
+        `Packaged Electron's application-owned shutdown ended with code=${String(code)} signal=${signal ?? 'none'}; expected exit code 0`
+      );
+    }
+  } catch (quitError: unknown) {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await exited;
+    }
+    throw quitError;
+  }
 }
 
 function harnessSource(serverOrigin: string, appDocument: string): string {
@@ -1395,8 +1438,7 @@ test(
 
       rendererDiagnostics = await harnessCall<unknown>(page, 'diagnostics');
       const launchedBrowser = packagedApplication.browser;
-      expect(packagedApplication.child.kill('SIGTERM')).toBe(true);
-      await waitForProcessExit(packagedApplication.child);
+      await packagedApplication.quit();
       await expect.poll(() => launchedBrowser.isConnected()).toBe(false);
       packagedApplication = undefined;
       await expectServerIdle(toolServer);
@@ -1430,16 +1472,15 @@ test(
           contentType: 'application/json',
         });
       } finally {
-        if (packagedApplication) {
-          packagedApplication.child.kill('SIGTERM');
-          await waitForProcessExit(packagedApplication.child).catch(() => {
-            packagedApplication?.child.kill('SIGKILL');
-          });
-          await packagedApplication.browser.close().catch(() => undefined);
+        try {
+          await packagedApplication?.quit();
+        } finally {
+          await packagedApplication?.browser.close().catch(() => undefined);
+          await disposeAdmission?.().catch(() => undefined);
+          await toolServer.close();
+          await rm(temporaryDirectory, { force: true, recursive: true });
         }
-        await disposeAdmission?.().catch(() => undefined);
-        await toolServer.close();
-        await rm(temporaryDirectory, { force: true, recursive: true });
+        // Removed only after the app's own quit joined its host; a failed quit throws above.
         await rm(userDataDir, { force: true, recursive: true });
       }
     }
