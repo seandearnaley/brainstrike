@@ -174,10 +174,8 @@ test.each(
       )
     ).toBe(true);
 
-    await act(async () => {
-      jump.focus();
-      await userEvent.keyboard('{Enter}');
-    });
+    jump.focus();
+    await userEvent.keyboard('{Enter}');
     // A 600-row smooth jump measured ~1.6s locally. Match the existing
     // virtualization suite's frame/measurement settling budget, and require
     // the true bottom plus the final row, not merely a completed animation.
@@ -282,12 +280,8 @@ test.each([390, 900])(
     const panel = screen.getByRole('region', { name: 'Cedar input receipt' });
     const child = within(panel);
     const input = child.getByRole('textbox', { name: 'Message input' });
-    await act(async () => {
-      await userEvent.fill(input, 'Possibly delivered');
-    });
-    await act(async () => {
-      await userEvent.click(child.getByRole('button', { name: 'Send to child' }));
-    });
+    await userEvent.fill(input, 'Possibly delivered');
+    await userEvent.click(child.getByRole('button', { name: 'Send to child' }));
     rerender(view(false));
     expect(child.getByText('Sending to child…')).toBeVisible();
     expect(child.getByRole('button', { name: 'Send' })).toBeDisabled();
@@ -305,18 +299,12 @@ test.each([390, 900])(
     ).toBe(true);
     expect(stopBounds.bottom).toBeLessThanOrEqual(panelBounds.bottom + 1);
     expect(stopBounds.right).toBeLessThanOrEqual(panelBounds.right + 1);
-    await act(async () => {
-      await userEvent.click(stop);
-    });
+    await userEvent.click(stop);
     expect(child.getByTestId('child-input-delivery')).toHaveTextContent('Delivery is unconfirmed');
     expect(input).toHaveValue('Possibly delivered');
     expect(child.getByRole('button', { name: 'Send' })).toBeDisabled();
-    await act(async () => {
-      await userEvent.click(input);
-    });
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.click(input);
+    await userEvent.keyboard('{Enter}');
     expect(send).toHaveBeenCalledOnce();
     expect(append).not.toHaveBeenCalled();
     const discard = child.getByRole('button', { name: 'Discard draft' });
@@ -331,9 +319,7 @@ test.each([390, 900])(
         )
       )
     ).toBe(true);
-    await act(async () => {
-      await userEvent.click(discard);
-    });
+    await userEvent.click(discard);
     expect(input).toHaveValue('');
     expect(child.queryByTestId('child-input-delivery')).not.toBeInTheDocument();
     await act(async () => {

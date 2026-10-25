@@ -339,7 +339,7 @@ export function bindHostConnection(
     probeHostMemoryEmbedder(resolveMemoryEmbedder, params, signal)
   );
   handle('thread/read', async (params) => ({
-    rows: await core.read(params.threadId, params.fromSeq),
+    rows: await core.published.read(params.threadId, params.fromSeq),
   }));
   handle('workspace/search', async (params, signal) => {
     if (!searchWorkspace) {
@@ -422,7 +422,7 @@ export function bindHostConnection(
       views: (current?.views ?? 0) + 1,
     });
     try {
-      const rows = await core.read(params.threadId, params.fromSeq);
+      const rows = await core.published.read(params.threadId, params.fromSeq);
       // Taken after the read, in the tick the response is sent: the replay
       // applies over the rows, and later telemetry follows it (ADR-0011 amendment).
       return { rows, telemetry: core.liveTelemetry.replay(params.threadId) };

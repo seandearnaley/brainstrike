@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 // Installs the shared browser instrumentation before React and assistant-ui load.
 import './committed-assistant-browser-support';
-import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
@@ -183,18 +182,14 @@ test('Regenerate and Edit on a selected branch dispatch its committed user messa
   await press(within(view.row(SECOND)).getByRole('button', { name: 'Next branch' }));
   await settleFrames();
 
-  await act(async () => {
-    await userEvent.hover(view.row(REGENERATED));
-  });
+  await userEvent.hover(view.row(REGENERATED));
   await press(
     await within(view.row(REGENERATED)).findByRole('button', { name: 'Regenerate response' })
   );
   expect(actions.onReload).toHaveBeenCalledOnce();
   expect(actions.onReload).toHaveBeenCalledWith(SECOND_USER, expect.anything());
 
-  await act(async () => {
-    await userEvent.hover(view.row(SECOND_USER));
-  });
+  await userEvent.hover(view.row(SECOND_USER));
   await press(await within(view.row(SECOND_USER)).findByRole('button', { name: 'Edit message' }));
   // The edit composer replaces the message row; the main composer is "Message input".
   await settleFrames();
@@ -206,9 +201,7 @@ test('Regenerate and Edit on a selected branch dispatch its committed user messa
     throw new Error('The edit composer did not open.');
   }
   expect(editor).toHaveValue('Add a rollback step.');
-  await act(async () => {
-    await userEvent.fill(editor, 'Add a rollback step and a dry run.');
-  });
+  await userEvent.fill(editor, 'Add a rollback step and a dry run.');
   await press(within(form).getByRole('button', { name: 'Send' }));
   expect(actions.onEdit).toHaveBeenCalledOnce();
   expect(actions.onEdit).toHaveBeenCalledWith(

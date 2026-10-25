@@ -15,7 +15,6 @@ import {
   recordedRunId,
   recordedStore,
   rejectingNew,
-  setActEnvironment,
   settleAnimations,
 } from './committed-assistant-browser-support';
 import { publishLiveText } from './committed-live-text-support';
@@ -52,11 +51,6 @@ test('a recorded token does not re-render the committed wrapper', async () => {
   await within(region).findByText(recordedPrompt);
   await settleAnimations(region);
   instrumentation.assertInstalled();
-
-  const previousActEnvironment = setActEnvironment(false);
-  onTestFinished(() => {
-    setActEnvironment(previousActEnvironment);
-  });
   const token = await measurePublication(() => publishLiveText(store, 'text-delta'), true);
 
   // Non-vacuous: the walk saw the token render its own streaming row and

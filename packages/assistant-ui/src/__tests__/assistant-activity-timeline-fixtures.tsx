@@ -13,8 +13,15 @@ import {
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
+import { beforeAll } from 'vitest';
 import { AssistantActivityParts } from '../assistant-activity-parts';
+import { preloadMarkdownText } from '../assistant-message-text';
 import type { SubagentChildRun } from '../subagent-conversation-navigation';
+
+// Assistant text renders through the markdown chunk, which loads lazily. The
+// first test of a file to show a reply would otherwise pay for loading it
+// inside its own wait for that reply: on a loaded machine, past the budget.
+beforeAll(preloadMarkdownText);
 
 // Named individually so `completedPartsWithEvents` below can splice the SAME
 // part objects between run events without re-deriving them via a tuple cast
