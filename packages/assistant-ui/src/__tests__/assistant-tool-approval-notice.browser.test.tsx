@@ -5,7 +5,8 @@ import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
-vi.mock('@assistant-ui/react', () => ({
+vi.mock('@assistant-ui/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@assistant-ui/react')>()),
   useAui: () => ({
     thread: () => ({ append: vi.fn().mockResolvedValue(undefined) }),
   }),

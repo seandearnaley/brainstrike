@@ -85,6 +85,11 @@ runs:
         restore-keys: |
           ${{ runner.os }}-${{ runner.arch }}-turbo-
     - name: Install dependencies
+      env:
+        # apps/desktop's install step downloads the dev Electron binary unless
+        # this is set. CI provisions it from a cache, only in the jobs that
+        # launch Electron (.github/actions/provision-electron).
+        ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       run: |
         # node-gyp compiles the native workspace packages during this install.
         # Point it at the headers of the Node setup-node just installed (.nvmrc,

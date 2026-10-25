@@ -129,5 +129,10 @@ const useHighlighter = (): HighlighterCore | null => {
   return highlighterCache ?? highlighter;
 };
 
+/** Loads the highlighter (its wasm and every grammar) before a code block needs it. */
+export async function preloadShikiHighlighter(): Promise<void> {
+  await getHighlighter();
+}
+
 export const normalizeShikiLanguage = normalizeLanguage;
 export const useShikiHighlighter = useHighlighter;
