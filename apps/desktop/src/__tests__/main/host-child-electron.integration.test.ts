@@ -20,6 +20,23 @@ import { openHostStdio } from '../../host-stdio';
 import { electronExecutablePath } from '../helpers/electron-executable';
 import { isRootHeld } from '../helpers/root-held';
 
+type KillMoment = 'first-chunk' | 'ready' | 'spawn';
+interface KillTrial {
+  readonly after: KillMoment;
+  readonly killAfterMs: number;
+  shownChunks: number;
+  threadId?: string;
+}
+/** Kills per run, cycling through the moments each is timed from. */
+const KILL_TRIALS = 9;
+const KILL_MOMENTS: readonly KillMoment[] = ['spawn', 'ready', 'first-chunk'];
+/** The random delay's bound after each moment: the scripted answer streams for about 1 s. */
+const KILL_WITHIN_MS: Readonly<Record<KillMoment, number>> = {
+  'first-chunk': 1000,
+  ready: 500,
+  spawn: 2500,
+};
+
 /** Electron's launch plus the one close grace; the test waits on real events only. */
 const TEST_BUDGET_MS = getAdjustedTimeout('uiComponent') + HOST_CLOSE_GRACE_MS;
 
@@ -46,6 +63,7 @@ let directory: string;
 let driver: string;
 let agentEntrypoint: string;
 let agentPlatform: string;
+let streamingPlatform: string;
 const activeApps = new Set<AppChild>();
 
 beforeAll(async () => {
@@ -54,12 +72,14 @@ beforeAll(async () => {
   driver = join(directory, 'driver.cjs');
   agentEntrypoint = join(directory, 'agent-host-entry.cjs');
   agentPlatform = join(directory, 'agent-host-utility-platform.cjs');
+  streamingPlatform = join(directory, 'agent-host-streaming-platform.cjs');
   // Real production bundle format, external package graph and Electron runtime.
   await build({
     absWorkingDir: resolve('.'),
     bundle: true,
     entryPoints: {
       'agent-host-entry': 'src/agent-host-entry.ts',
+      'agent-host-streaming-platform': 'src/__tests__/fixtures/agent-host-streaming-platform.ts',
       'agent-host-utility-platform': 'src/__tests__/fixtures/agent-host-utility-platform.ts',
       driver: 'src/__tests__/fixtures/host-child-electron.ts',
     },
@@ -161,6 +181,30 @@ function startApp(root: string): AppChild {
   });
   return app;
 }
+/** Every row the host committed, read back by a host opened on the same root afterwards. */
+async function committedLog(
+  root: string,
+  threadId: string
+): Promise<readonly { readonly seq: number; readonly type: string }[]> {
+  const reader = await openAgentHost(root, {
+    close: async () => undefined,
+    maxSteps: 1,
+    readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+    resolveModel: async () => {
+      throw new Error('No model in this reader');
+    },
+    tools: {},
+  });
+  try {
+    return (await reader.core.read(threadId, 0)).map((row) => ({
+      seq: row.seq,
+      type: row.event.type,
+    }));
+  } finally {
+    await reader.close();
+  }
+}
+
 /** What the app's host committed, read back by a host opened on the same root afterwards. */
 async function committedRows(root: string, threadId: string): Promise<readonly string[]> {
   const reader = await openAgentHost(root, {
@@ -223,6 +267,109 @@ describe(
       await closed;
       expect(await committedRows(root, threadId)).toEqual(['command.accepted', 'thread.started']);
     });
+
+    it(
+      'loses nothing it committed when it is killed at random moments of a streaming run',
+      async () => {
+        // ADR-0031 §1: every write commits immediately, so a kill at any moment loses nothing
+        // committed. One root, crash-recovered every trial. Each kill lands a random time after
+        // one of three moments: the spawn (startup), ready (thread and run start) or the first
+        // streamed chunk the client was shown (mid-stream).
+        const root = join(directory, 'random-kills');
+        // A kill before the host creates its root still leaves a root to check.
+        await mkdir(root, { recursive: true });
+        const env = { ...process.env, NODE_PATH: resolve('node_modules') };
+        Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
+        const trials: KillTrial[] = [];
+        onTestFailed(() => console.error(`Random kill trials: ${JSON.stringify(trials)}`));
+        for (let index = 0; index < KILL_TRIALS; index += 1) {
+          const after = KILL_MOMENTS[index % KILL_MOMENTS.length] ?? 'spawn';
+          const trial: KillTrial = {
+            after,
+            killAfterMs: Math.floor(Math.random() * KILL_WITHIN_MS[after]),
+            shownChunks: 0,
+          };
+          trials.push(trial);
+          const host = spawn(
+            process.execPath,
+            [agentEntrypoint, ...encodeHostChildArgs({ modulePath: streamingPlatform, root })],
+            { env, stdio: ['pipe', 'pipe', 'pipe'] }
+          );
+          const pid = host.pid;
+          const start = pid === undefined ? null : processStartTime(pid);
+          if (pid === undefined || start === null) {
+            throw new Error('The host did not start');
+          }
+          const exited = new Promise<void>((done) => host.once('exit', () => done()));
+          host.stderr.resume();
+          // The random moment; the kill is the only way this host ends.
+          let kill: ReturnType<typeof setTimeout> | undefined;
+          const arm = (moment: KillMoment): void => {
+            if (moment === after && kill === undefined) {
+              kill = setTimeout(() => host.kill('SIGKILL'), trial.killAfterMs);
+            }
+          };
+          arm('spawn');
+          const shown = new Map<number, string>();
+          const drive = (async () => {
+            const ready = Promise.withResolvers<void>();
+            const stdio = openHostStdio(host.stdout, host.stdin, {
+              invalid: ready.reject,
+              message: () => ready.resolve(),
+            });
+            void exited.then(() => ready.reject(new Error('The host was killed before ready')));
+            await ready.promise;
+            arm('ready');
+            const port = stdio.open('main');
+            const closed = new Promise<void>((done) => port.on('close', () => done()));
+            const client = await authenticateHostClient(
+              mainPlatformConnection(port),
+              { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
+              async () => port.close(),
+              closed
+            );
+            client.onEvent((row) => {
+              shown.set(row.seq, row.event.type);
+              if (row.event.type === 'stream.chunk') {
+                arm('first-chunk');
+              }
+            });
+            const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+            trial.threadId = threadId;
+            await client.request('log/subscribe', { fromSeq: 0, threadId });
+            await client.request('run/start', {
+              commandId: randomUUID(),
+              modelId: 'scripted',
+              prompt: 'Stream the long answer.',
+              threadId,
+            });
+            // Held until the kill, which ends the host whether or not the run has finished.
+            await closed;
+          })();
+          // Any outcome of the client is the kill's; only what was committed is checked.
+          await drive.catch(() => undefined);
+          await exited;
+          clearTimeout(kill);
+          await joinProcessExit(pid, start);
+          expect(isRootHeld(root)).toBe(false);
+          trial.shownChunks = [...shown.values()].filter((type) => type === 'stream.chunk').length;
+          if (after === 'first-chunk') {
+            expect(trial.shownChunks).toBeGreaterThan(0);
+          }
+          if (trial.threadId === undefined) {
+            continue;
+          }
+          const committed = await committedLog(root, trial.threadId);
+          // Gapless: the reopened log is every seq from 1 on, and holds each row the client was shown.
+          expect(committed.map((row) => row.seq)).toEqual(committed.map((_, seq) => seq + 1));
+          const bySeq = new Map(committed.map((row) => [row.seq, row.type]));
+          for (const [seq, type] of shown) {
+            expect({ seq, type: bySeq.get(seq) }).toEqual({ seq, type });
+          }
+        }
+      },
+      KILL_TRIALS * TEST_BUDGET_MS
+    );
 
     it("serves Main, and the app's close ends it and releases the Root", async () => {
       const root = join(directory, 'close');
