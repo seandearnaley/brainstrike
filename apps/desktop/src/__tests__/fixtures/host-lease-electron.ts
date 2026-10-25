@@ -6,6 +6,15 @@ import { createNativeIndexRuntime } from '../../native-index-runtime';
 function report(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
+/** A failure with its cause chain: a refusal's message alone does not say what refused. */
+function describe(cause: unknown): string {
+  const parts: string[] = [];
+  for (let current = cause, depth = 0; current !== undefined && depth < 5; depth += 1) {
+    parts.push(String(current));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return parts.join(' <- ');
+}
 const root = process.argv[2];
 const entryPath = process.argv[3];
 if (!(root && entryPath)) {
@@ -53,10 +62,12 @@ let closing: Promise<void> | undefined;
 function close(): void {
   closing ??= runtime.retireProfile().then(() => {
     report({ event: 'closed' });
-    app.exit(0);
+    // Quit as the product does: app.exit tears Electron down without joining its
+    // utility children, and a refused host still exiting then crashed it (0xC0000005).
+    app.quit();
   });
   closing.catch((cause: unknown) => {
-    report({ event: 'failed', message: String(cause) });
+    report({ event: 'failed', message: describe(cause) });
     app.exit(1);
   });
 }
@@ -92,6 +103,6 @@ app
     });
   })
   .catch((cause: unknown) => {
-    report({ event: 'failed', message: String(cause) });
+    report({ event: 'failed', message: describe(cause) });
     close();
   });

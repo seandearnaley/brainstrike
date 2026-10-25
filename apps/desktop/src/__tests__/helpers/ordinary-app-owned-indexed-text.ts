@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { execFile } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
@@ -103,7 +104,6 @@ export async function qualifyOrdinaryAppIndexedText(
   let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
   let failure: unknown;
   const errors: unknown[] = [];
-  const outputs: string[] = [];
   const owners: OwnedTestProcess[] = [];
   const capture = async (app: ElectronApplication): Promise<void> => {
     for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
@@ -249,8 +249,11 @@ export async function qualifyOrdinaryAppIndexedText(
     if (appProcess.pid && appStart) {
       owners.push({ kind: 'app', pid: appProcess.pid, start: appStart });
     }
-    appProcess.stdout?.on('data', (data: Buffer) => outputs.push(data.toString()));
-    appProcess.stderr?.on('data', (data: Buffer) => outputs.push(data.toString()));
+    // Written as it arrives: a proof that outlives its test timeout never reaches its
+    // finally, and the app's own output is what names a startup failure.
+    const output = join(evidence, 'output.log');
+    appProcess.stdout?.on('data', (data: Buffer) => appendFileSync(output, data));
+    appProcess.stderr?.on('data', (data: Buffer) => appendFileSync(output, data));
     await capture(application);
     await application.context().route('**/assistant/openrouter-model?*', async (route) => {
       await route.fulfill({
@@ -665,7 +668,6 @@ export async function qualifyOrdinaryAppIndexedText(
     if (application && rootReleased !== true) {
       errors.push(new Error('Ordinary app-owned Root did not release its lock'));
     }
-    await writeFile(join(evidence, 'output.log'), outputs.join(''));
     await writeFile(
       join(evidence, 'cleanup.json'),
       JSON.stringify(
