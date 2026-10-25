@@ -12,7 +12,7 @@ import type { HostToolDefinitions } from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { readDesktopHostSystemContext } from '../../agent-host-platform/desktop-host-context';
 import { desktopHostToolExecutors } from '../../agent-host-platform/host-executed-tools';
 import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
@@ -506,13 +506,15 @@ function buildAuthoredProviderFunctionTools(tools: HostToolDefinitions): Provide
   return buildProviderFunctionTools(providerTools, nameMap);
 }
 
+// One encoder for the file: building it costs about 240 ms, and the suite counts
+// a few hundred texts, while encoding one of them takes well under a millisecond.
+const o200k = get_encoding('o200k_base');
+afterAll(() => {
+  o200k.free();
+});
+
 function countO200kTokens(text: string): number {
-  const encoding = get_encoding('o200k_base');
-  try {
-    return encoding.encode(text).length;
-  } finally {
-    encoding.free();
-  }
+  return o200k.encode(text).length;
 }
 
 function formatBudgetFailure(args: {
@@ -588,16 +590,6 @@ function expectProviderSurfaceWithinBudget(args: {
     })
   ).toBeGreaterThanOrEqual(args.floor);
 }
-
-// This suite loads the o200k tokenizer and constructs the full desktop native
-// tool registry. It is computationally heavy, not a UI-component test, and its
-// measured wall time is contention-sensitive (BST-1050). The 30s heavy base is
-// honest for isolated iteration (measured p50 ~10.5s); official root batteries
-// apply the explicit 2x policy. A direct package/editor run under deliberate
-// host contention should set TEST_TIMEOUT_MULTIPLIER=2: a historical loaded
-// tail reached ~33s, which does not justify silently moving the base to the 120s
-// performance band.
-vi.setConfig({ testTimeout: getAdjustedTimeout('heavy') });
 
 describe('desktop native tool provider prompt budget', () => {
   it('records the eager baseline and proposed critical-only definition footprint', () => {
