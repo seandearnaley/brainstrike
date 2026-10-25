@@ -11,7 +11,7 @@ import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { resolveUserCommandsBridge } from './user-commands-bridge';
+import { useAssistantThreadHost } from './assistant-thread-host-context';
 
 const logger = createLogger('UserSlashCommands');
 
@@ -86,14 +86,14 @@ function applyUserCommand(
 /**
  * User-defined prompt-template slash commands for the composer's "/" menu.
  *
- * Desktop-only by construction: on web `window.userCommands` is absent and this
- * returns an empty list (no `isElectron()` branch). The list is loaded from the
- * discovery IPC and re-loaded when the mounted roots change (so a newly-added
+ * Desktop-only by construction: the agent host scans the commands, so without a
+ * host (web) this returns an empty list (no `isElectron()` branch). The list is
+ * loaded from the host and re-loaded when the mounted roots change (so a newly-added
  * root's commands appear without a reload). Each entry's `execute` expands the
  * template into the composer — see {@link applyUserCommand}.
  */
 export function useUserDefinedSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
-  const bridge = useMemo(resolveUserCommandsBridge, []);
+  const discovery = useAssistantThreadHost()?.workspaceDiscovery;
   // Subscribe to the mounted roots ONLY as a refresh trigger.
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
   const [list, setList] = useState<UserSlashCommandsListResult>(EMPTY_RESULT);
@@ -115,15 +115,15 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
   const generationRef = useRef(0);
 
   const reload = useCallback(() => {
-    if (!bridge) {
+    if (!discovery) {
       return () => {
-        // no-op cleanup when the desktop bridge is absent (web)
+        // no-op cleanup when no host scans commands (web)
       };
     }
     generationRef.current += 1;
     const generation = generationRef.current;
-    bridge
-      .list()
+    discovery
+      .listCommands()
       .then((result) => {
         if (generation === generationRef.current) {
           setList(result);
@@ -135,16 +135,16 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
     return () => {
       generationRef.current += 1;
     };
-  }, [bridge]);
+  }, [discovery]);
 
   // Reload on mount and whenever the mounted roots change.
   useEffect(() => reload(), [reload, activeRootIds]);
 
   // F9: refresh when the window regains visibility so a command file edited/added
   // while the app was backgrounded appears without a full reload (the IPC is
-  // cheap; the list loads once per mount otherwise). Web has no bridge → no-op.
+  // cheap; the list loads once per mount otherwise). Without a host (web) → no-op.
   useEffect(() => {
-    if (!bridge || typeof document === 'undefined') {
+    if (!discovery || typeof document === 'undefined') {
       return;
     }
     const onVisible = (): void => {
@@ -154,7 +154,7 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [bridge, reload]);
+  }, [discovery, reload]);
 
   return useMemo<readonly SlashCommand[]>(
     () =>

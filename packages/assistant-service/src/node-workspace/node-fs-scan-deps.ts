@@ -1,8 +1,7 @@
 /**
- * Real-disk fs scan deps for user slash-command / persona discovery (moved
- * verbatim from ipc-user-commands-handlers.ts, BST-972 A2 — the assistant
- * stream path consumed it there, which was the assistant server's widest
- * cross-module reach; the IPC handlers now import from here instead).
+ * Real-disk fs scan deps for user slash-command / persona discovery (BST-972
+ * A2): the agent host's command discovery and Main's persona listing both
+ * import it from here.
  */
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';

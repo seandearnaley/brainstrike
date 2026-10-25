@@ -222,9 +222,6 @@ export const DESKTOP_IPC_CHANNELS = {
     openPath: 'shell:open-path',
     showItemInFolder: 'shell:show-item-in-folder',
   },
-  skills: {
-    scan: 'skills:scan',
-  },
   storage: {
     clear: 'storage:clear',
     clearAllForE2e: 'storage:clearAllForE2e',
@@ -245,9 +242,6 @@ export const DESKTOP_IPC_CHANNELS = {
     write: 'terminal:write',
   },
   threadGroups: { readRoots: 'thread-groups:read-roots', request: 'thread-groups:request' },
-  userCommands: {
-    list: 'user-commands:list',
-  },
   userPersonas: {
     list: 'user-personas:list',
   },

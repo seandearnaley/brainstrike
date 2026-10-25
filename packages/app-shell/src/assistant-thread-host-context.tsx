@@ -1,7 +1,9 @@
 import type {
   OpenRouterModelMetadataSnapshot,
   ProviderVerificationSnapshot,
+  SkillsScanResultSummary,
   SupportedProvider,
+  UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type { RuntimeAssistantMemorySettings } from '@brainstrike/assistant-contract/memory-settings';
 import type {
@@ -80,6 +82,16 @@ export interface AssistantHostProviders {
     readonly modelId: string;
   }>;
   verifyProvider(providerId: string): Promise<ProviderVerificationSnapshot>;
+}
+
+/**
+ * ADR-0029 stage 2: the skills and user slash commands on the host's live roots
+ * and home directory, scanned as its runs scan them, for the Settings → Skills
+ * panel and the composer's "/" menu.
+ */
+export interface AssistantHostWorkspaceDiscovery {
+  listCommands(): Promise<UserSlashCommandsListResult>;
+  scanSkills(): Promise<SkillsScanResultSummary>;
 }
 
 /** One committed canvas version, in the canvas panel's read shape. */
@@ -230,6 +242,8 @@ export interface AssistantThreadHostCapability {
    * the host does not own rejects before a request, never reaching history.
    */
   updateThreadBinding(threadId: string, metadata: AssistantThreadMetadata): Promise<void>;
+  /** Skills and user slash commands; a host that scans no roots (web) omits it. */
+  readonly workspaceDiscovery?: AssistantHostWorkspaceDiscovery;
   workspaceRepository(): ThreadWorkspaceRepository;
 }
 export const AssistantThreadHostContext = createContext<AssistantThreadHostCapability | undefined>(
