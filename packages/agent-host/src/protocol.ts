@@ -404,7 +404,9 @@ export const HOST_METHOD_SCHEMAS = {
   initialize: Schema.Struct({
     hostVersion: Id,
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
-    token: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+    // Only a socket client authenticates with a token; a client bound to a
+    // transport its launcher handed over is authorized by holding it.
+    token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
   }),
   'interaction/respond': Schema.Struct({
     ...Command,

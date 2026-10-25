@@ -13,7 +13,7 @@ import { Schema } from 'effect';
 import { trustCliProjectHooks } from './cli-hooks-trust.ts';
 import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.ts';
 import { HostCliExitError, runHostCliSession } from './cli-session.ts';
-import { attachAgentHost, type HostClient } from './client.ts';
+import { attachAgentHost, type HostClient, type SocketHostClient } from './client.ts';
 import { createAgentHostSpawner } from './launcher.ts';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
 import { isProcessEntrypoint } from './process-entrypoint.ts';
@@ -502,7 +502,7 @@ Run signals stop and join its execution; attach signals detach.
     }
   );
   // This launcher has exactly one supplied attachment implementation.
-  const client = attachment as HostClient;
+  const client = attachment as SocketHostClient;
   const commandId = values['command-id'] ?? randomUUID();
   const print = (value: unknown): void => {
     output.write(`${JSON.stringify(value)}\n`);
