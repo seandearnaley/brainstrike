@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -103,100 +103,97 @@ test('a host thread using the task list, a canvas, a file write and its undo wri
 }) => {
   test.setTimeout(300_000);
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-m3-no-legacy-rows-')));
+  electron.removeAfterClose(root);
   const evidence = path.join(root, 'evidence.md');
   writeFileSync(evidence, ORIGINAL);
-  try {
-    await seedRoot(page, root, {
-      disableBackgroundIndexing: true,
-      reloadReason: 'm3-no-legacy-rows',
-      rootId: randomUUID(),
-    });
-    await expect(page.getByText('evidence.md').first()).toBeVisible({ timeout: 30_000 });
-    await enableModel(page);
-    modelProvider.setScript((request) => {
-      const tool = (suffix: string): string => {
-        const name = request.toolNames.find((candidate) => candidate.endsWith(suffix));
-        if (!name) {
-          throw new Error(`No ${suffix} tool offered: ${request.toolNames.join(', ')}`);
-        }
-        return name;
-      };
-      // Hosted discovery defers the task list and canvas: the model loads them first.
-      const taskList = 'brainstrike_manageTaskList';
-      const canvas = 'brainstrike_manageCanvas';
-      return {
-        finalText: FINAL,
-        toolCallStages: [
-          [{ arguments: { toolNames: [taskList, canvas] }, name: tool('load_tool') }],
-          [
-            {
-              arguments: {
-                tasks: [
-                  {
-                    activeForm: 'Drafting the plan',
-                    content: 'Draft the plan',
-                    status: 'in_progress',
-                  },
-                  { activeForm: 'Writing the file', content: 'Write the file', status: 'pending' },
-                ],
-              },
-              name: taskList,
+  await seedRoot(page, root, {
+    disableBackgroundIndexing: true,
+    reloadReason: 'm3-no-legacy-rows',
+    rootId: randomUUID(),
+  });
+  await expect(page.getByText('evidence.md').first()).toBeVisible({ timeout: 30_000 });
+  await enableModel(page);
+  modelProvider.setScript((request) => {
+    const tool = (suffix: string): string => {
+      const name = request.toolNames.find((candidate) => candidate.endsWith(suffix));
+      if (!name) {
+        throw new Error(`No ${suffix} tool offered: ${request.toolNames.join(', ')}`);
+      }
+      return name;
+    };
+    // Hosted discovery defers the task list and canvas: the model loads them first.
+    const taskList = 'brainstrike_manageTaskList';
+    const canvas = 'brainstrike_manageCanvas';
+    return {
+      finalText: FINAL,
+      toolCallStages: [
+        [{ arguments: { toolNames: [taskList, canvas] }, name: tool('load_tool') }],
+        [
+          {
+            arguments: {
+              tasks: [
+                {
+                  activeForm: 'Drafting the plan',
+                  content: 'Draft the plan',
+                  status: 'in_progress',
+                },
+                { activeForm: 'Writing the file', content: 'Write the file', status: 'pending' },
+              ],
             },
-          ],
-          [
-            {
-              arguments: { action: 'create', html: '<h1>Plan</h1>', title: 'Plan canvas' },
-              name: canvas,
-            },
-          ],
-          [
-            {
-              arguments: { content: WRITTEN, path: 'evidence.md' },
-              name: tool('writeWorkspaceFile'),
-            },
-          ],
+            name: taskList,
+          },
         ],
-      };
-    });
-    await ensureAssistantShellVisible(page);
-    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
-    await expect(region).toBeVisible({ timeout: 30_000 });
-    const before = await legacySnapshot(page);
+        [
+          {
+            arguments: { action: 'create', html: '<h1>Plan</h1>', title: 'Plan canvas' },
+            name: canvas,
+          },
+        ],
+        [
+          {
+            arguments: { content: WRITTEN, path: 'evidence.md' },
+            name: tool('writeWorkspaceFile'),
+          },
+        ],
+      ],
+    };
+  });
+  await ensureAssistantShellVisible(page);
+  const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+  await expect(region).toBeVisible({ timeout: 30_000 });
+  const before = await legacySnapshot(page);
 
-    await region
-      .getByRole('textbox', { name: 'Message input' })
-      .fill('Plan the work, sketch it on a canvas, then write evidence.md.');
-    await region.getByRole('button', { exact: true, name: 'Send' }).click();
-    // Edit-risk tools (the canvas and the write) ask first; approve each as it comes.
-    const final = region.getByText(FINAL);
-    const approve = region.getByRole('button', { name: /^Approve / });
-    await expect(async () => {
-      if (await final.isVisible()) {
-        return;
-      }
-      if (await approve.first().isVisible()) {
-        await approve.first().click();
-      }
-      await expect(final).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 120_000 });
-    expect(readFileSync(evidence, 'utf8')).toBe(WRITTEN);
+  await region
+    .getByRole('textbox', { name: 'Message input' })
+    .fill('Plan the work, sketch it on a canvas, then write evidence.md.');
+  await region.getByRole('button', { exact: true, name: 'Send' }).click();
+  // Edit-risk tools (the canvas and the write) ask first; approve each as it comes.
+  const final = region.getByText(FINAL);
+  const approve = region.getByRole('button', { name: /^Approve / });
+  await expect(async () => {
+    if (await final.isVisible()) {
+      return;
+    }
+    if (await approve.first().isVisible()) {
+      await approve.first().click();
+    }
+    await expect(final).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 120_000 });
+  expect(readFileSync(evidence, 'utf8')).toBe(WRITTEN);
 
-    const afterRun = await legacySnapshot(page);
-    expect(changedTables(before, afterRun), 'legacy rows written by the host run').toEqual({});
+  const afterRun = await legacySnapshot(page);
+  expect(changedTables(before, afterRun), 'legacy rows written by the host run').toEqual({});
 
-    // Checkpoint undo of that write restores the file's turn-start content.
-    await region
-      .getByRole('button', { name: 'Restore 1 file edit in this turn to their turn-start state' })
-      .click();
-    await region.getByRole('button', { name: 'Revert 1 edit' }).click();
-    await expect.poll(() => readFileSync(evidence, 'utf8')).toBe(ORIGINAL);
+  // Checkpoint undo of that write restores the file's turn-start content.
+  await region
+    .getByRole('button', { name: 'Restore 1 file edit in this turn to their turn-start state' })
+    .click();
+  await region.getByRole('button', { name: 'Revert 1 edit' }).click();
+  await expect.poll(() => readFileSync(evidence, 'utf8')).toBe(ORIGINAL);
 
-    const afterUndo = await legacySnapshot(page);
-    expect(changedTables(before, afterUndo), 'legacy rows written by the undo').toEqual({});
-    const log = await readAgentHostLog(electron.getUserDataDir());
-    expect(log.typeCounts['effect.finished']).toBe(4);
-    expect(modelProvider.refusals()).toEqual([]);
-  } finally {
-    rmSync(root, { force: true, recursive: true });
-  }
+  const afterUndo = await legacySnapshot(page);
+  expect(changedTables(before, afterUndo), 'legacy rows written by the undo').toEqual({});
+  const log = await readAgentHostLog(electron.getUserDataDir());
+  expect(log.typeCounts['effect.finished']).toBe(4);
+  expect(modelProvider.refusals()).toEqual([]);
 });

@@ -5,12 +5,12 @@ import {
 } from '../utils/failure-screenshot';
 import type { ElectronHarness } from './electron-harness';
 
-/** The `electron` fixture's teardown: the app it launched, its profile and its workspace. */
+/** The `electron` fixture's teardown: the app it launched, its profile, then its folders. */
 export async function tearDownElectronTest(
   harness: Pick<ElectronHarness, 'currentWindow' | 'dispose'>,
   testInfo: FailureScreenshotTestInfo,
   userDataDir: string | undefined,
-  workspaceRoot: string
+  directories: readonly string[]
 ): Promise<void> {
   try {
     // Before the close, so its deadline never pays for the capture (BST-2239).
@@ -20,7 +20,10 @@ export async function tearDownElectronTest(
     // Failed retirement keeps the disposable profile for the still-owned process.
     await harness.dispose();
     await removeElectronUserDataDir(userDataDir);
-    await rm(workspaceRoot, { force: true, recursive: true });
+    // The app is closed, so Windows lets its folders go.
+    for (const directory of directories) {
+      await rm(directory, { force: true, recursive: true });
+    }
   }
 }
 

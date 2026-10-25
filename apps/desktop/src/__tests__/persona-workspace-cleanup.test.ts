@@ -102,7 +102,7 @@ it('keeps the persona workspace through failure capture and physical Electron re
       status: 'failed',
     },
     undefined,
-    workspaceRoot
+    [workspaceRoot]
   );
   try {
     await beganClose.promise;
