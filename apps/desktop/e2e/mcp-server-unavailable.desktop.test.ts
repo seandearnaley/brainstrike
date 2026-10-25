@@ -2,7 +2,7 @@ import { createServer } from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Page } from '@playwright/test';
-import type { McpLabSession } from '../../../packages/mcp-test-lab/dist/index.js';
+import type { McpLabSession } from '../../../packages/mcp-test-lab/src/index.ts';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';

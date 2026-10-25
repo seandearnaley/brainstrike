@@ -1,7 +1,6 @@
 import { resolve } from 'node:path';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
@@ -60,10 +59,6 @@ const workspaceAliases = [
     find: '@brainstrike/utils',
     replacement: resolve(import.meta.dirname, '../utils/src'),
   },
-  // Registry fills gaps (e.g. @brainstrike/context-actions, executed unmocked by
-  // action-context-menu.test.tsx). The hand-rolled entries above win by
-  // first-match ordering. See workspace-src-aliases (incident #1066/#1207).
-  ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
 ];
 
 export default defineConfig({
