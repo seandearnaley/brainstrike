@@ -8,6 +8,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { HostWorkspaceWatchSession, WorkspaceFilesEvent } from '@brainstrike/agent-host';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
 import type {
@@ -28,6 +29,16 @@ export const WATCH_RETRY_BACKOFF_MS = [1000, 5000, 30_000] as const;
 export const MAX_WATCHERS_PER_CLIENT = 32;
 /** Two surfaces may share every mounted folder; duplicates beyond that are refused. */
 export const MAX_WATCH_REGISTRATIONS_PER_CLIENT = MAX_WATCHERS_PER_CLIENT * 2;
+
+/**
+ * The requesting client closed (a window closing, or a reset replacing it) before its
+ * watch was set up. Its watcher is stopped and nothing is left watching for it.
+ */
+const WATCH_CLIENT_CLOSED = refusal({
+  category: 'availability',
+  code: 'files.watch-client-closed',
+  message: 'The client closed before its folder watch was set up.',
+});
 
 type RetryResult =
   | { readonly retried: true }
@@ -350,7 +361,7 @@ export function createWorkspaceWatchSessions({
       // The client closed during setup: stop the watcher it can no longer reach.
       if (closed || watcher.retiring || !byId.has(watchId)) {
         await forget(watcher);
-        throw new Error('files/watch: the requesting client closed during setup.');
+        throw new BoundaryFailureError(WATCH_CLIENT_CLOSED);
       }
       return registration(watchId, watcher);
     };
@@ -380,7 +391,7 @@ export function createWorkspaceWatchSessions({
       },
       'files/watch': async ({ handle }) => {
         if (closed) {
-          throw new Error('files/watch: the requesting client has closed.');
+          throw new BoundaryFailureError(WATCH_CLIENT_CLOSED);
         }
         if (handle.path.length === 0) {
           throw new Error('files/watch requires a directory handle with a non-empty path.');
@@ -393,7 +404,7 @@ export function createWorkspaceWatchSessions({
         }
         const directoryPath = await resolveDirectory(handle.path);
         if (closed) {
-          throw new Error('files/watch: the requesting client closed during setup.');
+          throw new BoundaryFailureError(WATCH_CLIENT_CLOSED);
         }
         // No await between the lookup, the caps and the insert: concurrent requests serialize.
         assertCapacity();
