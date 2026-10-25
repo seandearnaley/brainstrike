@@ -28,7 +28,7 @@ import { platform } from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { createLogger } from '@brainstrike/logging';
-import { spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { CHILD_SIGNAL_GRACE_MS, spawnNativeChild } from '@brainstrike/state-store/native-children';
 
 import {
   assertExecRequestSatisfiable,
@@ -52,14 +52,14 @@ import {
 } from './fence-readiness.ts';
 import { FenceReadinessError } from './fence-readiness-error.ts';
 
-/** Grace period between the SIGTERM and the SIGKILL sent to the process tree. */
-const KILL_GRACE_MS = 500;
-
 /** Poll interval while confirming that a SIGKILLed process group is gone. */
 const PROCESS_GROUP_EXIT_POLL_MS = 10;
 
-/** Maximum confirmation window after SIGKILL before the fence fails closed. */
-const PROCESS_GROUP_EXIT_CONFIRMATION_MS = 500;
+/**
+ * The grace between the SIGTERM and the SIGKILL sent to the process tree, and the confirmation
+ * window after SIGKILL before the fence fails closed: the one signal grace (ADR-0030).
+ */
+const KILL_GRACE_MS = CHILD_SIGNAL_GRACE_MS;
 
 const logger = createLogger('FenceExecutor');
 
@@ -417,7 +417,7 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
   // before the kernel delivers SIGKILL, so settling at that point can expose a
   // later run's policy to a descendant that has not exited yet. Signal 0 is the
   // POSIX existence probe; ESRCH is the confirmation that the group is gone.
-  const deadline = Date.now() + PROCESS_GROUP_EXIT_CONFIRMATION_MS;
+  const deadline = Date.now() + KILL_GRACE_MS;
   while (true) {
     try {
       state = processGroupState(pid);
@@ -442,8 +442,8 @@ export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals)
         pid,
         new Error(
           state === 'unsignalable'
-            ? `Process group ${pid} was still unsignalable ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL; teardown could not be confirmed.`
-            : `Process group ${pid} still existed ${PROCESS_GROUP_EXIT_CONFIRMATION_MS}ms after SIGKILL.`
+            ? `Process group ${pid} was still unsignalable ${KILL_GRACE_MS}ms after SIGKILL; teardown could not be confirmed.`
+            : `Process group ${pid} still existed ${KILL_GRACE_MS}ms after SIGKILL.`
         )
       );
     }

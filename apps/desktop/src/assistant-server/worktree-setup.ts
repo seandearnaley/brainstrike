@@ -13,7 +13,11 @@ import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256OfBuffer } from '@brainstrike/host-capabilities/hooks';
 import { createLogger } from '@brainstrike/logging';
-import { spawnNativeChild, terminateTree } from '@brainstrike/state-store/native-children';
+import {
+  CHILD_SIGNAL_GRACE_MS,
+  spawnNativeChild,
+  terminateTree,
+} from '@brainstrike/state-store/native-children';
 import type { WorktreeSetupOutcome, WorktreeSetupSkippedCopy } from '@brainstrike/types';
 import { isPathWithin } from './worktree-paths';
 import type { WorktreeSetupInput } from './worktree-service';
@@ -23,7 +27,6 @@ const logger = createLogger('WorktreeSetup');
 const WORKTREE_SETUP_OUTPUT_CAP_BYTES = 16_384;
 const WORKTREE_SETUP_COMBINED_OUTPUT_CAP_BYTES = WORKTREE_SETUP_OUTPUT_CAP_BYTES * 2;
 const WORKTREE_SETUP_TIMEOUT_MS = 300_000;
-const WORKTREE_SETUP_TERMINATION_GRACE_MS = 2000;
 const WORKTREE_INCLUDE_MAX_TOTAL_BYTES = 512 * 1024 * 1024;
 const WORKTREE_INCLUDE_FILE = '.worktreeinclude';
 export const REPOSITORY_SETUP_SCRIPT = path.join('.brainstrike', 'worktree-setup.sh');
@@ -426,14 +429,6 @@ function resolveTimeoutMs(input: WorktreeSetupInput): number {
   return timeoutMs;
 }
 
-function resolveTerminationGraceMs(input: WorktreeSetupInput): number {
-  const graceMs = input.terminationGraceMs ?? WORKTREE_SETUP_TERMINATION_GRACE_MS;
-  if (!Number.isSafeInteger(graceMs) || graceMs <= 0) {
-    throw new Error('Worktree setup termination grace must be a positive safe integer.');
-  }
-  return graceMs;
-}
-
 const isWindows = process.platform === 'win32';
 const PROCESS_TREE_EXIT_POLL_MS = 10;
 
@@ -525,7 +520,6 @@ async function executeSetupCommand(
     }),
   };
   const timeoutMs = resolveTimeoutMs(input);
-  const terminationGraceMs = resolveTerminationGraceMs(input);
 
   return await new Promise<WorktreeSetupOutcome>((resolve) => {
     const stdout: StreamCapture = { chunks: [], size: 0, truncated: false };
@@ -533,7 +527,7 @@ async function executeSetupCommand(
     let timedOut = false;
     let settled = false;
     let escalationTimer: ReturnType<typeof setTimeout> | undefined;
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let exitStatus: { code: number | null; signal: NodeJS.Signals | null } | undefined;
     let processTreeExitTimer: ReturnType<typeof setTimeout> | undefined;
     const child = spawnNativeChild(file, args, {
       cwd: input.worktree.path,
@@ -553,9 +547,6 @@ async function executeSetupCommand(
       clearTimeout(timeout);
       if (escalationTimer !== undefined) {
         clearTimeout(escalationTimer);
-      }
-      if (deadlineTimer !== undefined) {
-        clearTimeout(deadlineTimer);
       }
       clearTimeout(processTreeExitTimer);
       child.stdout.off('data', onStdout);
@@ -607,31 +598,42 @@ async function executeSetupCommand(
       processTreeExitTimer.unref?.();
     };
 
+    // A timed-out setup ends at the shell's exit and its group's, not at `close`: a daemon that
+    // left the group may hold the inherited stdio open for good (ADR-0030).
+    const settleAfterTermination = (): void => {
+      if (exitStatus === undefined) {
+        return;
+      }
+      if (isWindows) {
+        settle(exitStatus.code, exitStatus.signal);
+        return;
+      }
+      settleAfterProcessTreeExit(exitStatus.code, exitStatus.signal);
+    };
+
     const timeout = setTimeout(() => {
       timedOut = true;
       signalProcessTree(child, 'SIGTERM');
       escalationTimer = setTimeout(() => {
         signalProcessTree(child, 'SIGKILL');
-      }, terminationGraceMs);
+      }, CHILD_SIGNAL_GRACE_MS);
       escalationTimer.unref?.();
-      // `close` waits for inherited stdio fds. If a descendant escaped the
-      // group or the platform never reports close, sever the streams and settle
-      // with captured-so-far output shortly after SIGKILL escalation.
-      deadlineTimer = setTimeout(() => {
-        settle(null, null);
-      }, terminationGraceMs + 500);
-      deadlineTimer.unref?.();
+      settleAfterTermination();
     }, timeoutMs);
     timeout.unref?.();
     child.once('error', (error: Error) => {
       settle(null, null, error);
     });
-    child.once('close', (code, signal) => {
-      if (timedOut && !isWindows) {
-        settleAfterProcessTreeExit(code, signal);
-        return;
+    child.once('exit', (code, signal) => {
+      exitStatus = { code, signal };
+      if (timedOut) {
+        settleAfterTermination();
       }
-      settle(code, signal);
+    });
+    child.once('close', (code, signal) => {
+      if (!timedOut) {
+        settle(code, signal);
+      }
     });
   });
 }

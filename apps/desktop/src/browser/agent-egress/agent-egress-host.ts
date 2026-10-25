@@ -40,8 +40,6 @@ const REFUSALS_KEPT = 64;
  * are not evidence about a later failure to the same host.
  */
 const REFUSAL_FRESH_MS = 5000;
-/** A running proxy answers a loopback revision at once; silence is a failure. */
-const LOOPBACK_ANSWER_MS = 5000;
 
 interface RecordedRefusal {
   readonly at: number;
@@ -53,12 +51,10 @@ export class AgentEgressHost {
   #revision = 0;
   readonly #refusals = new Map<string, RecordedRefusal>();
   readonly #fork: () => EgressUtility;
-  readonly #startupTimeoutMs: number;
   readonly #now: () => number;
 
-  constructor(fork: () => EgressUtility, startupTimeoutMs = 10_000, now: () => number = Date.now) {
+  constructor(fork: () => EgressUtility, now: () => number = Date.now) {
     this.#fork = fork;
-    this.#startupTimeoutMs = startupTimeoutMs;
     this.#now = now;
   }
 
@@ -72,8 +68,8 @@ export class AgentEgressHost {
    * BST-1178: the running proxy (started on demand) with the loopback servers
    * agent tabs may reach replaced by `authorities` (each `host:port`), both on
    * one proxy, so the route and its admission never name different ones. A
-   * proxy that refuses or exits rejects. One that stays silent is killed: it
-   * may have applied the set, so it must not keep serving.
+   * proxy that refuses or exits rejects. A slow answer is load, not death
+   * (ADR-0026 R2): no navigation starts until the proxy answers.
    */
   async prepare(authorities: readonly string[]): Promise<AgentEgress> {
     this.#current ??= this.#start();
@@ -86,15 +82,10 @@ export class AgentEgressHost {
     const revision = this.#revision;
     const answer = Promise.withResolvers<void>();
     current.loopback.set(revision, answer);
-    const timer = setTimeout(() => {
-      answer.reject(new Error('The agent browsing proxy did not admit loopback servers in time'));
-      current.utility.kill();
-    }, LOOPBACK_ANSWER_MS);
     current.utility.postMessage({ authorities: [...authorities], revision, type: 'loopback' });
     try {
       await answer.promise;
     } finally {
-      clearTimeout(timer);
       current.loopback.delete(revision);
     }
     return egress;
@@ -142,10 +133,6 @@ export class AgentEgressHost {
     const password = randomBytes(32).toString('hex');
     const exit = Promise.withResolvers<void>();
     const ready = Promise.withResolvers<AgentEgress>();
-    const timer = setTimeout(() => {
-      ready.reject(new Error('The agent browsing proxy did not start in time'));
-      utility.kill();
-    }, this.#startupTimeoutMs);
     const current: Current = {
       exited: exit.promise,
       loopback: new Map(),
@@ -153,7 +140,6 @@ export class AgentEgressHost {
       utility,
     };
     utility.once('exit', () => {
-      clearTimeout(timer);
       // Settles only a start still in flight; a ready proxy keeps its answer.
       ready.reject(new Error('The agent browsing proxy exited before it was ready'));
       for (const answer of current.loopback.values()) {
@@ -179,7 +165,6 @@ export class AgentEgressHost {
           this.#remember(event.refusal);
           return;
         case 'ready':
-          clearTimeout(timer);
           ready.resolve({ password, port: event.port, username: USERNAME });
           return;
         case 'failed':
