@@ -53,8 +53,10 @@ removal. Derived index cleanup is a separately joined resource; it must not race
 late canonical writes or turn a root deletion into whole-profile retirement.
 Failures retain the owner and data needed for retry.
 
-Clear and Factory Reset use the existing profile barrier/reset lease; consumers
-must stop writes and retire durable view references before content destruction.
+Clear uses the existing profile barrier; consumers must stop writes and retire
+durable view references before content destruction. Factory Reset wipes the profile
+on the next start, under the profile's Root lock, after the process that asked for it
+has exited (see [platform contracts](platform-contracts.md#reset-and-physical-lifetime)).
 Export/import validate the supported current format and retain canonical identity
 and authority constraints; unsupported developer data is not silently converted,
 repaired or deleted.

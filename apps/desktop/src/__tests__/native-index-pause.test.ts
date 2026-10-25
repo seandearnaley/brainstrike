@@ -364,7 +364,7 @@ it('retains failed pause cleanup for explicit retry and keeps reset behind that 
   expect(close).toHaveBeenCalledTimes(2);
   await activation.acquireRead();
   expect(mocks.acquire).toHaveBeenCalledOnce();
-  await activation.destroyAndRetireProfile();
+  await activation.destroyNativeOwner();
   expect(mocks.destroy).toHaveBeenCalledOnce();
 });
 

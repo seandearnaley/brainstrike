@@ -7,7 +7,6 @@ interface Dependencies {
   closeNativeOwner(): Promise<void>;
   closeOwned(destroy: boolean): Promise<void>;
   getGraph(): Graph | undefined;
-  retireProfile(): Promise<void>;
   runtime: Pick<NativeIndexRuntime, 'closeIndex' | 'cleanupCollection'>;
   stopSources(): Promise<void>;
 }
@@ -19,7 +18,6 @@ export function createNativeIndexContentOperations({
   closeOwned,
   getGraph,
   runtime,
-  retireProfile,
   stopSources,
 }: Dependencies) {
   const cleanupNative = async (work: () => Promise<void>): Promise<void> => {
@@ -46,11 +44,6 @@ export function createNativeIndexContentOperations({
   };
   return {
     cleanupCollection: (id: string) => cleanupNative(() => runtime.cleanupCollection(id)),
-    destroyAndRetireProfile: async () => {
-      await stopSources();
-      await closeOwned(true);
-      await retireProfile();
-    },
     destroyNativeOwner: async () => {
       await stopSources();
       await closeOwned(true);

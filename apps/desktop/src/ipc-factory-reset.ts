@@ -1,6 +1,5 @@
 import type { ContentClearResult } from '@brainstrike/types';
 import { ipcMain } from 'electron';
-import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
@@ -10,12 +9,7 @@ export function registerFactoryResetIpcHandlers(
   resetLocal: () => Promise<{ success: boolean; message?: string }>
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-  registerDomain(registry, 'runtime', factoryResetContract, {
-    resetLocal: () => {
-      const unavailableReason = getFactoryResetUnavailableReason(process.platform);
-      return unavailableReason ? { message: unavailableReason, success: false } : resetLocal();
-    },
-  });
+  registerDomain(registry, 'runtime', factoryResetContract, { resetLocal });
   return () => registry.unregisterAll();
 }
 

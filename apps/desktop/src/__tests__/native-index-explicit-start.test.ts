@@ -141,32 +141,27 @@ it('quit after a content clear settles without waiting for the held reopen', asy
   // A content clear keeps live settings, so its resumed open starts the indexer, which
   // cannot be cancelled. Quit joins the accepted deletion but cancels replacement startup.
   const f = heldOpens();
-  const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
-  const reset = createDesktopFactoryResetHandler({
+  const { createDesktopContentClear } = await import('../desktop-content-clear');
+  const reset = createDesktopContentClear({
     clearRetainedContent: async () => {
       await f.activation.destroyNativeOwner();
       f.held.hold = true;
       return { deletedChunks: 0, deletedFiles: 0 };
     },
-    completeSuccessfulReset: async () => undefined,
+    completeSuccessfulClear: async () => undefined,
     logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
-    prepareDatabaseProfileReset: unused,
-    resetLocalDatabase: unused,
-    resetPersistentStorageAfterDataDeletion: unused,
-    resumeAfterReset: async (outcome, signal) => {
+    resumeAfterClear: async (outcome, signal) => {
       if (outcome === 'succeeded') {
         await f.activation.resume(signal);
       }
     },
     runTransition: (work) => work(),
     runtimes: [],
-    sessionDataPath: '/owned/session-data',
-    userDataPath: '/owned/user-data',
   });
   try {
     await f.activation.acquireProfile();
     await f.activation.acquire();
-    const clearing = reset.clearContent();
+    const clearing = reset.clear();
     await vi.waitFor(() => expect(f.held.entered).toBe(true));
     let closed = false;
     const quitting = reset.close().then(() => {

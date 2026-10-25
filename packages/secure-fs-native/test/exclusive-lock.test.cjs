@@ -8,7 +8,7 @@ const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { createInterface } = require('node:readline');
 const { afterEach, test } = require('node:test');
-const { tryExclusiveLock } = require('..');
+const { tryExclusiveLock, waitForExclusiveLock } = require('..');
 
 let directory;
 const owned = [];
@@ -33,17 +33,19 @@ function free(file) {
 }
 /**
  * A process that takes the lock, starts `node -e process.stdin.resume()` on its
- * own stdin, prints the child's pid and waits. Its stdin is this test's pipe,
+ * own stdin, prints the child's pid, then answers each line on its stdin with `alive`. Its stdin is this test's pipe,
  * so neither outlives the test however it ends.
  */
 async function holder(file) {
   const script = `
 const { spawn } = require('node:child_process');
 const { tryExclusiveLock } = require(${JSON.stringify(path.join(__dirname, '..'))});
-if (tryExclusiveLock(process.argv[1]) === null) throw new Error('holder could not lock');
+// Held by a global: a collected lock closes its handle.
+globalThis.held = tryExclusiveLock(process.argv[1]);
+if (globalThis.held === null) throw new Error('holder could not lock');
 const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['inherit', 'ignore', 'inherit'] });
 child.once('spawn', () => console.log(child.pid));
-process.stdin.resume();
+process.stdin.on('data', () => console.log('alive'));
 `;
   const holding = spawn(process.execPath, ['-e', script, file], {
     stdio: ['pipe', 'pipe', 'inherit'],
@@ -51,7 +53,7 @@ process.stdin.resume();
   owned.push(holding);
   const lines = createInterface({ input: holding.stdout })[Symbol.asyncIterator]();
   const child = Number((await lines.next()).value);
-  return { child, process: holding };
+  return { child, lines, process: holding };
 }
 
 test('rejects anything but one lock file path', () => {
@@ -81,4 +83,33 @@ test('a killed holder releases the lock while the child it started still runs', 
   process.kill(child, 0);
   assert.equal(free(file), true, 'the child never held the lock');
   holding.stdin.destroy();
+});
+
+test('a waiter takes the lock once its holder dies, and never before', async () => {
+  const file = lockFile();
+  const { lines, process: holding } = await holder(file);
+  let settled = false;
+  const waiting = waitForExclusiveLock(file).then((lock) => {
+    settled = true;
+    return lock;
+  });
+  // A round trip through the holder: the waiter is queued and the holder still runs.
+  holding.stdin.write('ping\n');
+  assert.equal((await lines.next()).value, 'alive');
+  assert.equal(settled, false, 'the holder still holds the lock');
+  holding.kill('SIGKILL');
+  await once(holding, 'exit');
+  const lock = await waiting;
+  assert.equal(free(file), false, 'the waiter holds it');
+  lock.release();
+  assert.equal(free(file), true);
+});
+
+test('a free lock is taken at once, and a bad path rejects', async () => {
+  const file = lockFile();
+  const lock = await waitForExclusiveLock(file);
+  assert.equal(tryExclusiveLock(file), null);
+  lock.release();
+  assert.equal(free(file), true);
+  await assert.rejects(waitForExclusiveLock(''), TypeError);
 });

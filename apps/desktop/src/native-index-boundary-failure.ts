@@ -17,18 +17,15 @@ import { createLogger } from '@brainstrike/logging';
 import { SqliteQueryProcessExitedError } from '@brainstrike/sqlite-query';
 import { RootLockedError } from '@brainstrike/state-store';
 
-import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
 import { IndexConfigApplyFailed, IndexConfigRefused, IndexConfigStoreFailed } from './index-config';
 import { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 
 const logger = createLogger('NativeIndexBoundary');
 
-/** Only Factory Reset clears a saved config that no longer decodes, where the app offers it. */
+/** Only Factory Reset clears a saved config that no longer decodes. */
 const STORE_FAILED_REMEDY =
-  getFactoryResetUnavailableReason(process.platform) === undefined
-    ? 'If this keeps happening, the saved settings may be damaged. Factory Reset in Settings clears them, along with your other local app data.'
-    : undefined;
+  'If this keeps happening, the saved settings may be damaged. Factory Reset in Settings clears them, along with your other local app data.';
 
 /** What a search index config failure wraps, so quit's retirement underneath stays recognisable. */
 export function indexConfigCause(error: unknown): unknown {
@@ -61,7 +58,7 @@ function indexConfigFailure(error: unknown, log: BoundaryLog): BoundaryFailure |
     code,
     correlationId,
     message: error.message,
-    ...(stored && STORE_FAILED_REMEDY !== undefined ? { remedy: STORE_FAILED_REMEDY } : {}),
+    ...(stored ? { remedy: STORE_FAILED_REMEDY } : {}),
   });
 }
 

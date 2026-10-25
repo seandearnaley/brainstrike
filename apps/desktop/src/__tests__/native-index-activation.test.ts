@@ -176,30 +176,6 @@ it('joins real late source cancellation before closing the native engine and pro
   await parent.close();
 });
 
-it('closes an admitted initial folder scan before joining startup, and joins physical retirement', async () => {
-  const physical = Promise.withResolvers<void>();
-  const close = vi.fn(() => physical.promise);
-  // The folder's first scan never reports: only its close ends it.
-  mocks.manager.attachCanonicalWorkspace.mockResolvedValue({ close, trigger: unused });
-  setCatalogRoot();
-  const { activation } = fixture(mountedRoot());
-  const initial = activation.acquire().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce());
-  let settled = false;
-  const retiring = activation.destroyAndRetireProfile().then(() => {
-    settled = true;
-  });
-  await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
-  expect(settled).toBe(false);
-  expect(mocks.destroy).not.toHaveBeenCalled();
-  await expect(activation.acquire()).rejects.toThrow('closed');
-  physical.resolve();
-  await retiring;
-  expect(await initial).toBeInstanceOf(Error);
-  expect(mocks.destroy).toHaveBeenCalledOnce();
-  expect(mocks.closeProfile).toHaveBeenCalledOnce();
-});
-
 it('rebuilds only the derived writer with the saved settings and no inference or application deletion', async () => {
   const close = vi.fn(async () => {});
   const modes: CanonicalRemoteWorkspaceDependencies['mode'][] = [];
@@ -226,24 +202,6 @@ it('rebuilds only the derived writer with the saved settings and no inference or
   ).toBe(true);
   expect(onReceipt).toHaveBeenCalledTimes(2);
   await activation.close();
-});
-
-it('retains a failed source close and refuses derived deletion until explicit retirement retry', async () => {
-  const cause = new Error('Source remains physically owned.');
-  const close = vi.fn().mockRejectedValueOnce(cause).mockResolvedValue(undefined);
-  mocks.manager.attachCanonicalWorkspace.mockImplementation(
-    (dependencies: CanonicalRemoteWorkspaceDependencies) => emptyWorkspace(dependencies, close)
-  );
-  setCatalogRoot();
-  const { activation } = fixture(mountedRoot());
-  await activation.acquire();
-  await expect(activation.destroyAndRetireProfile()).rejects.toMatchObject({ errors: [cause] });
-  expect(mocks.destroy).not.toHaveBeenCalled();
-  expect(mocks.closeProfile).not.toHaveBeenCalled();
-  await expect(activation.acquire()).rejects.toThrow('closed');
-  await activation.destroyAndRetireProfile();
-  expect(close).toHaveBeenCalledTimes(2);
-  expect(mocks.destroy).toHaveBeenCalledOnce();
 });
 
 it('exposes actual native progress while the initial folder scan is still running', async () => {
@@ -284,54 +242,31 @@ function catalogRows(count: number): NativeCanonicalCatalogRecord[] {
     stat: { mtimeMs: 1, size: 1 },
   }));
 }
-it.each(['close', 'destroyAndRetireProfile'] as const)(
-  'fences and joins held reconfiguration before %s acknowledges terminal retirement',
-  async (operation) => {
-    const { activation, settings } = fixture();
-    await activation.acquire();
-    const writerExit = Promise.withResolvers<void>();
-    const destroyed = Promise.withResolvers<void>();
-    if (operation === 'destroyAndRetireProfile') {
-      mocks.destroy.mockReturnValueOnce(destroyed.promise);
-    }
-    onTestFinished(() => {
-      writerExit.resolve();
-      destroyed.resolve();
-    });
-    mocks.close.mockReturnValueOnce(writerExit.promise);
-    settings.mockResolvedValue(textSettings({ policy: 'full-root' }));
-    const changing = activation.reconfigure().catch((error: unknown) => error);
-    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
-    expect(mocks.closeProfile).not.toHaveBeenCalled();
-    let terminalSettled = false;
-    const terminal = activation[operation]().then(() => {
-      terminalSettled = true;
-    });
-    await Promise.resolve();
-    expect(terminalSettled).toBe(false);
+it('fences and joins held reconfiguration before close acknowledges terminal retirement', async () => {
+  const { activation, settings } = fixture();
+  await activation.acquire();
+  const writerExit = Promise.withResolvers<void>();
+  onTestFinished(() => {
     writerExit.resolve();
-    if (operation === 'destroyAndRetireProfile') {
-      await vi.waitFor(() => expect(mocks.destroy).toHaveBeenCalledOnce());
-      // The previous writer has physically closed. Clear must borrow a cold,
-      // authority-free owner to remove its retained on-disk index as well.
-      expect(mocks.acquire).toHaveBeenCalledTimes(2);
-      expect(mocks.acquire.mock.calls[1]?.[0]).toMatchObject({
-        fileBindings: [],
-        rootIds: [],
-        scopes: [],
-      });
-      expect(terminalSettled).toBe(false);
-      expect(mocks.closeProfile).not.toHaveBeenCalled();
-      destroyed.resolve();
-    } else {
-      expect(mocks.acquire).toHaveBeenCalledOnce();
-      expect(mocks.destroy).not.toHaveBeenCalled();
-    }
-    await Promise.all([changing, terminal]);
-    expect(mocks.closeProfile).toHaveBeenCalledOnce();
-    await expect(activation.acquireRead()).rejects.toThrow('closed');
-  }
-);
+  });
+  mocks.close.mockReturnValueOnce(writerExit.promise);
+  settings.mockResolvedValue(textSettings({ policy: 'full-root' }));
+  const changing = activation.reconfigure().catch((error: unknown) => error);
+  await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+  expect(mocks.closeProfile).not.toHaveBeenCalled();
+  let terminalSettled = false;
+  const terminal = activation.close().then(() => {
+    terminalSettled = true;
+  });
+  await Promise.resolve();
+  expect(terminalSettled).toBe(false);
+  writerExit.resolve();
+  expect(mocks.acquire).toHaveBeenCalledOnce();
+  expect(mocks.destroy).not.toHaveBeenCalled();
+  await Promise.all([changing, terminal]);
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  await expect(activation.acquireRead()).rejects.toThrow('closed');
+});
 
 it('refuses a nonexistent saved vector space before opening a writer or completing a receipt', async () => {
   mocks.catalog.collections.mockResolvedValue({ collections: [] });

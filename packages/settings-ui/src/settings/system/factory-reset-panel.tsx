@@ -1,69 +1,34 @@
-import {
-  ClearPersistentUiStateIncompleteError,
-  type ClearPersistentUiStateResult,
-  clearPersistentUiStateWithResult,
-  prepareFactoryReset,
-} from '@brainstrike/app-state/factory-reset';
 import { createLogger } from '@brainstrike/logging';
 import { Button, Label } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
-import { reloadThroughLifecycle } from './reload-through-lifecycle';
 
 const logger = createLogger('FactoryResetPanel');
 
 type DesktopResetBridge = () => Promise<{ message?: string; success: boolean }>;
-interface DesktopResetCapability {
-  readonly resetLocal?: DesktopResetBridge;
-  readonly unavailableReason?: string;
-}
-
-function getDesktopResetCapability(): DesktopResetCapability | undefined {
-  if (typeof window === 'undefined') {
-    return undefined;
-  }
-  return (
-    window as Window & {
-      electronAPI?: {
-        factoryReset?: DesktopResetCapability;
-      };
-    }
-  ).electronAPI?.factoryReset;
-}
 
 function getDesktopResetBridge(): DesktopResetBridge | null {
-  const resetLocal = getDesktopResetCapability()?.resetLocal;
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const resetLocal = (
+    window as Window & {
+      electronAPI?: { factoryReset?: { readonly resetLocal?: DesktopResetBridge } };
+    }
+  ).electronAPI?.factoryReset?.resetLocal;
   return typeof resetLocal === 'function' ? resetLocal : null;
 }
 
-function assertPersistentUiStateResetComplete(result: ClearPersistentUiStateResult): void {
-  if (result.success) {
-    return;
-  }
-
-  throw new ClearPersistentUiStateIncompleteError(result);
-}
-
-async function runDesktopFactoryReset(desktopResetBridge: DesktopResetBridge): Promise<void> {
-  const rendererStorageResetResult = await clearPersistentUiStateWithResult({
-    skipIndexedDb: false,
-  });
-  const result = await desktopResetBridge();
-  if (!result.success) {
-    throw new Error(result.message ?? 'Desktop factory reset failed.');
-  }
-  assertPersistentUiStateResetComplete(rendererStorageResetResult);
-}
-
+/**
+ * Desktop Factory Reset. The app records the reset, quits and restarts, and the next start
+ * deletes the data before it opens it, so this renderer clears nothing itself. A refused
+ * reset deleted nothing and says why.
+ */
 export function FactoryResetPanel() {
   const [running, setRunning] = useState(false);
-  const desktopResetAvailable = getDesktopResetBridge() !== null;
-  const unavailableReason = getDesktopResetCapability()?.unavailableReason;
-  const resetAvailable = !unavailableReason && desktopResetAvailable;
+  const [failure, setFailure] = useState<string | null>(null);
+  const resetAvailable = getDesktopResetBridge() !== null;
 
   const handleClick = useCallback(async () => {
-    if (getDesktopResetCapability()?.unavailableReason) {
-      return;
-    }
     const desktopResetBridge = getDesktopResetBridge();
     if (!desktopResetBridge) {
       return;
@@ -71,27 +36,28 @@ export function FactoryResetPanel() {
 
     // biome-ignore lint/suspicious/noAlert: Intentional use of confirm for destructive action
     const ok = window.confirm(
-      'Factory Reset will irreversibly delete local files, chunks, embeddings, queues, stored folders, API keys, tool settings, model/runtime caches, and UI state from this device. Diagnostic logs may be preserved. Continue?'
+      'Factory Reset will irreversibly delete local files, chunks, embeddings, queues, stored folders, API keys, tool settings, model/runtime caches, and UI state from this device. Diagnostic logs may be preserved. Brainstrike restarts to finish. Continue?'
     );
     if (!ok) {
       return;
     }
 
+    setRunning(true);
+    setFailure(null);
+    let message: string;
     try {
-      setRunning(true);
-      // Preparation retires renderer writers. Even a failed preparation must
-      // reload this renderer; deletion begins only after every writer settles.
-      await prepareFactoryReset();
-      // Clear CacheStorage while the live renderer still owns its backing store.
-      await runDesktopFactoryReset(desktopResetBridge);
-      // Ensure a full reload so the renderer boots cleanly.
-      await reloadThroughLifecycle('factory-reset', logger);
-    } catch (err) {
-      logger.error('Factory reset failed after renderer reset preparation began', {
-        error: err,
-      });
-      await reloadThroughLifecycle('factory-reset-failed-after-renderer-clear', logger);
+      const result = await desktopResetBridge();
+      if (result.success) {
+        // The app is quitting; it finishes the reset when it starts again.
+        return;
+      }
+      message = result.message ?? 'Factory reset failed.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
     }
+    logger.error('Factory reset was refused; nothing was deleted', { message });
+    setFailure(message);
+    setRunning(false);
   }, []);
 
   return (
@@ -99,7 +65,8 @@ export function FactoryResetPanel() {
       <Label className="text-destructive text-xs">Factory Reset</Label>
       <p className="text-[11px] text-muted-foreground">
         Irreversibly deletes local data, stored folders, API keys, tool settings, runtime caches,
-        and UI state from this device. Diagnostic logs may be preserved.
+        and UI state from this device. Diagnostic logs may be preserved. Brainstrike restarts to
+        finish.
       </p>
       <Button
         className="mt-1 h-6"
@@ -113,8 +80,13 @@ export function FactoryResetPanel() {
       </Button>
       {resetAvailable ? null : (
         <p className="mt-1 text-muted-foreground text-xs">
-          {unavailableReason ??
-            'Factory reset is unavailable until the database is ready. Restart the app if this does not clear.'}
+          Factory reset is unavailable until the database is ready. Restart the app if this does not
+          clear.
+        </p>
+      )}
+      {failure === null ? null : (
+        <p className="mt-1 text-destructive text-xs" role="alert">
+          {failure}
         </p>
       )}
     </div>

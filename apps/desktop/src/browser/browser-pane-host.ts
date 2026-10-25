@@ -112,24 +112,8 @@ export interface BrowserPaneHost {
   prepareAgentBrowsing(loopback?: LoopbackAdmission): Promise<void>;
 }
 
-/**
- * Every live pane manager, so the desktop factory reset can close their
- * `WebContentsView`s BEFORE the `persist:browser-pane` partition is cleared.
- * A still-running view would otherwise rewrite cookies/localStorage into the
- * partition during the reset window, leaving site state behind (codex P1).
- */
+/** Every live pane manager: a refused agent response fails its tab's navigation in each. */
 const activeManagers = new Set<BrowserViewManager>();
-
-/**
- * Dispose every live pane manager's tabs. Call from the factory reset BEFORE
- * clearing the pane session storage so no view can repopulate the partition
- * mid-reset. Idempotent — `dispose()` on an already-empty manager is a no-op.
- */
-export function disposeActiveBrowserPaneViews(): void {
-  for (const manager of activeManagers) {
-    manager.dispose();
-  }
-}
 
 /** Chromium's net error for a proxy that refused a CONNECT. */
 const ERR_TUNNEL_CONNECTION_FAILED = -111;

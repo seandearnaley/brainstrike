@@ -26,8 +26,6 @@ const fixture = vi.hoisted(() => {
       requestListener: RequestListener | null;
     } = { headersListener: null, requestListener: null };
     return {
-      clearAuthCache: vi.fn(async () => undefined),
-      clearData: vi.fn(async () => undefined),
       clearStorageData: vi.fn(async () => undefined),
       closeAllConnections: vi.fn(async () => undefined),
       on: vi.fn(),
@@ -62,29 +60,6 @@ beforeEach(async () => {
   const { __resetBrowserPaneSessionForTests } = await import('../browser/browser-session');
   __resetBrowserPaneSessionForTests();
 });
-
-it('clears the app, pane and agent sessions through Electron without origin exclusions', async () => {
-  const { clearDesktopBrowserSessions } = await import('../browser/browser-session');
-  await clearDesktopBrowserSessions();
-  for (const owned of [fixture.app, fixture.pane, fixture.agent]) {
-    expect(owned.clearData).toHaveBeenCalledExactlyOnceWith();
-    expect(owned.clearAuthCache).toHaveBeenCalledExactlyOnceWith();
-    expect(owned.closeAllConnections).toHaveBeenCalledExactlyOnceWith();
-  }
-});
-
-it.each(['app', 'pane', 'agent'] as const)(
-  'keeps the %s session clearing failure visible and attempts the other sessions',
-  async (name) => {
-    const failure = new Error(`${name} browser data could not be cleared`);
-    fixture[name].clearData.mockRejectedValueOnce(failure);
-    const { clearDesktopBrowserSessions } = await import('../browser/browser-session');
-    await expect(clearDesktopBrowserSessions()).rejects.toMatchObject({ errors: [failure] });
-    expect(fixture.app.clearData).toHaveBeenCalledOnce();
-    expect(fixture.pane.clearData).toHaveBeenCalledOnce();
-    expect(fixture.agent.clearData).toHaveBeenCalledOnce();
-  }
-);
 
 it('routes the agent partition only through its egress proxy, loopback included (BST-1238)', async () => {
   const { routeAgentBrowserSession } = await import('../browser/browser-session');

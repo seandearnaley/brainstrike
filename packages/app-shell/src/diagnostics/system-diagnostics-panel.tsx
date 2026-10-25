@@ -120,10 +120,6 @@ interface DesktopPlatformDiagnosticsSnapshot {
     readonly lastFailure: unknown;
     readonly lastSucceededAt: string | null;
   };
-  readonly reset: {
-    readonly status?: string;
-    readonly userDataPath: string;
-  };
   readonly telemetry?: {
     readonly backgroundRuntimeMetrics: readonly unknown[];
     readonly embedding?: EmbeddingTelemetrySnapshot;
@@ -686,15 +682,6 @@ function DesktopPlatformStatusSection({
               'processes'
             )}
           </span>
-        </div>
-        {snapshot.reset.status && (
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Reset</span>
-            <span className="font-medium">{snapshot.reset.status}</span>
-          </div>
-        )}
-        <div className="truncate pt-1 text-[10px] text-muted-foreground">
-          {snapshot.reset.userDataPath}
         </div>
       </div>
     </DiagnosticCard>

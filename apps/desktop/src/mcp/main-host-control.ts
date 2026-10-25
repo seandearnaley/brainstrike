@@ -35,11 +35,6 @@ export class MainMcpHostControl {
     )(await this.#call(MCP_RUNTIME_METHODS.configPathPick, { path }));
   }
 
-  /** Factory reset: the host retires its MCP settings lifecycle and keeps a restore point. */
-  async resetSettings(): Promise<void> {
-    await this.#call(MCP_RUNTIME_METHODS.settingsReset, {});
-  }
-
   /** After a factory reset: the host reopens its MCP settings, restoring them if it failed. */
   async resumeSettings(outcome: 'failed' | 'succeeded'): Promise<void> {
     await this.#call(MCP_RUNTIME_METHODS.settingsResume, { outcome });

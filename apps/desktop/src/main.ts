@@ -7,7 +7,6 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import {
   addLogListener,
   createLogger,
@@ -15,6 +14,7 @@ import {
   initializeLogging,
   LogBuffer,
 } from '@brainstrike/logging';
+import type { ExclusiveLock } from '@brainstrike/secure-fs-native';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
@@ -42,26 +42,20 @@ import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
-import { joinProfileDirectory } from './database-location';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
+import { createDesktopContentClear } from './desktop-content-clear';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
-import {
-  resolveDesktopDatabaseLocation,
-  resolveDesktopDatabaseProfileDirectory,
-} from './desktop-database-location';
+import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { getDesktopLoginShellEnvironment } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
 import { createDesktopHookTrust } from './desktop-hook-trust';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
-import { createDesktopProfileResetOwner } from './desktop-profile-reset-owner';
 import {
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
 } from './desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_URL } from './desktop-renderer-url';
-import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
-import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
 import { createDesktopResetResume } from './desktop-reset-resume';
 import {
   isDesktopShuttingDown,
@@ -95,13 +89,13 @@ import { resolveBuiltRendererPath } from './dist-root';
 import {
   admitDocumentClose,
   type DocumentUnloadOwner,
-  flushDocumentBeforeUnload,
   installDocumentUnload,
   reloadDocument,
   visibleDocumentWindows,
 } from './document-unload';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
+import { type FactoryResetScope, requestFactoryReset } from './factory-reset-relaunch';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
@@ -120,7 +114,6 @@ import { registerIndexSearchIpcHandlers } from './ipc-index-search';
 import {
   cleanupMcpRuntimeForShutdown,
   registerMcpIpcHandlers,
-  resetMcpRuntimeForFactoryReset,
   resumeMcpRuntimeAfterFactoryReset,
   suspendMcpSurfacesForContentClear,
 } from './ipc-mcp';
@@ -303,9 +296,6 @@ try {
 
 loggingPreferences.applyInitial();
 
-// BST-1330: gates the developer-menu database reset so a repeat accelerator
-// press surfaces "already in progress" instead of the reset barrier's throw.
-let developerDatabaseResetInFlight = false;
 // NOT a replay buffer, despite the name's "pending" framing: a grant recorded
 // before this is assigned (inside app.whenReady()'s menu block) is a silent
 // no-op for THIS subscriber specifically — it never queues and never fires
@@ -374,8 +364,8 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         errorLogSink = null;
       }
     },
-    // Finish accepted deletion; terminal quit cancels replacement startup.
-    'factory-reset': () => handleResetLocal.close(),
+    // Finish an accepted content clear; terminal quit cancels replacement startup.
+    'factory-reset': () => contentClear.close(),
     owners: {
       'embedding-host': () => embeddingHostManager.dispose(),
       'file-system': () => applicationIpcDomain.close(),
@@ -508,15 +498,64 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
 
 const embeddingHostManager = new EmbeddingHostManager({ storage });
 
-const profileReset = createDesktopProfileResetOwner({
-  profilePath: () => {
-    const location = resolveDesktopDatabaseLocation();
-    return joinProfileDirectory(location.rootPath, location.profile);
-  },
-  retireProfile: () => nativeIndexActivation.destroyAndRetireProfile(),
-});
+/**
+ * The reset lock a recorded factory reset holds until this process exits; the next start waits
+ * for it (`factory-reset-relaunch.ts`). Never released.
+ */
+let factoryResetLock: ExclusiveLock | undefined;
+let factoryResetRequest:
+  | Promise<{ readonly message?: string; readonly success: boolean }>
+  | undefined;
+/**
+ * Factory Reset, and the developer menu's database reset: record the wipe, then relaunch through
+ * the normal quit. The next start wipes before it opens anything (`factory-reset-relaunch.ts`).
+ * Saved credentials can live in the OS keyring, outside every directory the wipe deletes, so
+ * Factory Reset first has the host, their one writer, clear them; a failure refuses the reset.
+ */
+function requestFactoryRelaunch(
+  scope: FactoryResetScope
+): Promise<{ readonly message?: string; readonly success: boolean }> {
+  if (isDesktopShuttingDown() || factoryResetLock) {
+    return Promise.resolve({
+      message: 'The app is quitting: the factory reset did not start.',
+      success: false,
+    });
+  }
+  if (factoryResetRequest) {
+    return factoryResetRequest;
+  }
+  const request = (async () => {
+    try {
+      if (scope === 'all') {
+        await agentHostMainClient.request('auth/clear', {});
+      }
+      factoryResetLock = requestFactoryReset({
+        profileRoot: resolveDesktopDatabaseProfileDirectory(),
+        scope,
+        userDataPath: app.getPath('userData'),
+      });
+    } catch (error) {
+      logger.error('Factory reset could not be recorded', { error });
+      return { message: error instanceof Error ? error.message : String(error), success: false };
+    }
+    logger.warn('Factory reset recorded; the app restarts and wipes its data first', { scope });
+    // Playwright cannot follow the process `app.relaunch()` starts, so under E2E the app only
+    // quits and the spec launches it again on the same profile.
+    if (!isElectronE2ETestMode()) {
+      app.relaunch();
+    }
+    app.quit();
+    return { success: true };
+  })();
+  // Joined by a repeated request; a refused one can be retried.
+  factoryResetRequest = request;
+  void request.finally(() => {
+    factoryResetRequest = undefined;
+  });
+  return request;
+}
 
-const handleResetLocal = createDesktopFactoryResetHandler({
+const contentClear = createDesktopContentClear({
   clearRetainedContent: async () => {
     await nativeIndexActivation.destroyNativeOwner();
     await applicationIpcDomain.roots.clearForContent();
@@ -528,23 +567,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }
     return result;
   },
-  completeSuccessfulReset: async (signal) => {
+  completeSuccessfulClear: async (signal) => {
     const completeRendererReplacement = completeFactoryResetRendererReplacement;
     if (completeRendererReplacement === null) {
-      throw new Error('Factory reset renderer replacement coordinator is unavailable');
+      throw new Error('Content clear renderer replacement coordinator is unavailable');
     }
     await completeRendererReplacement(signal);
   },
-  // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
-  // of `brainstrike_diagnostic_events`, which factory reset already wipes —
-  // without this, the mirror would survive inside the preserved `logs`
-  // folder while the DB rows it mirrors do not (see desktop-factory-reset.ts).
-  errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
-  prepareDatabaseProfileReset: () => profileReset.prepare(),
-  resetLocalDatabase: (lease) => profileReset.clear(lease),
-  resetPersistentStorageAfterDataDeletion: () => storage.clear(),
-  resumeAfterReset: createDesktopResetResume({
+  resumeAfterClear: createDesktopResetResume({
     publishIndexConfig: () => indexConfig.publishSaved(),
     resumeIndex: (signal) => nativeIndexActivation.resume(signal),
     resumeMcp: (outcome) => resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome),
@@ -552,17 +583,9 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
     { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
-    {
-      name: 'mcp-runtime',
-      stop: async () => {
-        await resetMcpRuntimeForFactoryReset(getMainMcpHostControl());
-        logger.info('MCP settings retired for the factory reset');
-      },
-      stopForContent: suspendMcpSurfacesForContentClear,
-    },
+    { name: 'mcp-runtime', stop: suspendMcpSurfacesForContentClear },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
-    // In-memory diagnostics ring: a factory reset must not carry the previous
-    // profile's process samples into the next one.
+    // In-memory diagnostics ring: cleared content leaves no process samples behind.
     {
       name: 'process-counter-ring',
       stop: () => {
@@ -570,23 +593,10 @@ const handleResetLocal = createDesktopFactoryResetHandler({
         return Promise.resolve();
       },
     },
-    {
-      name: 'read-workspace-file-cursors',
-      stop: clearReadWorkspaceFileCursorRegistry,
-    },
-    // Close (never null) the durable NDJSON sink before the purge below runs
-    // (`errorLogFilePaths`, run inside `resetDesktopApplicationData` AFTER
-    // every runtime here has stopped): purging the file out from under a
-    // still-open fd would delete-while-open on POSIX (orphaning the fd —
-    // later warn+ records silently stop landing on disk until rotation or
-    // process exit) or fail the delete outright on Windows (while reset
-    // still reports success). Deliberately does NOT null `errorLogSink`,
-    // unlike the graceful-shutdown step below: `RotatingFileSink.close()`
-    // documents (and its own tests exercise) a `writeLine` after `close()`
-    // transparently reopening the file, so the very next warn+ record
-    // recreates `brainstrike-errors.ndjson` from scratch post-reset instead
-    // of the sink going permanently silent. See its doc comment and
-    // docs/agents/platform-contracts.md's P2a section.
+    // Close (never null) the durable NDJSON sink before the clear deletes its files: a delete
+    // under an open descriptor orphans it on POSIX and fails on Windows. `RotatingFileSink`
+    // reopens the file on the next `writeLine` after `close()`, so the next warn+ record
+    // recreates `brainstrike-errors.ndjson` (docs/agents/platform-contracts.md, P2a).
     {
       name: 'error-log-sink',
       stop: () => {
@@ -595,8 +605,6 @@ const handleResetLocal = createDesktopFactoryResetHandler({
       },
     },
   ],
-  sessionDataPath: app.getPath('sessionData'),
-  userDataPath: app.getPath('userData'),
 });
 
 ipcDisposers.add(
@@ -636,7 +644,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     (await agentHostMainClient.request('worktrees/classify-path', { path: candidate }))
       .classification,
   onClearContent: async () => {
-    const result = await handleResetLocal.clearContent();
+    const result = await contentClear.clear();
     if (
       !result.success ||
       result.deletedFiles === undefined ||
@@ -647,7 +655,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     return { deletedChunks: result.deletedChunks, deletedFiles: result.deletedFiles };
   },
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
-  onResetLocal: () => handleResetLocal.reset(),
+  onResetLocal: () => requestFactoryRelaunch('all'),
   onStorageChanged: (key) => {
     if (!app.isReady() || isDesktopShuttingDown()) {
       return;
@@ -670,11 +678,11 @@ function activateSavedNativeIndexSettings(): Promise<void> {
   if (isDesktopShuttingDown()) {
     return Promise.resolve();
   }
-  const resetting = handleResetLocal.inFlight();
-  if (resetting) {
-    return resetting.then((result) => {
-      // The reset owner retains its original failed outcome; this notification
-      // must not start activation after an unsuccessful reset.
+  const clearing = contentClear.inFlight();
+  if (clearing) {
+    return clearing.then((result) => {
+      // The clear owner retains its original failed outcome; this notification
+      // must not start activation after an unsuccessful clear.
       return result.success ? activateSavedNativeIndexSettings() : undefined;
     });
   }
@@ -747,9 +755,9 @@ const desktopHookTrust = createDesktopHookTrust((method, params) =>
   agentHostMainClient.request(method, params)
 );
 const agentHostClientIpc = registerAgentHostClientIpc(async () => {
-  // A factory reset retires the profile until it reopens it, after its replacement
+  // A content clear retires the profile until it reopens it, after its replacement
   // renderer is ready: that renderer's clients connect once it has, not into the fence.
-  await handleResetLocal.idle();
+  await contentClear.idle();
   return await nativeIndexActivation.acquireProfile();
 }, agentHostPrivateClients.open);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
@@ -917,9 +925,6 @@ ipcDisposers.add(
         installedAt: mainWebAssemblyCounter.snapshot().installedAt,
         samples: processCounterRing.list(),
       }),
-    },
-    reset: {
-      getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
     },
     telemetry: {
       getRuntimeMetrics: collectBackgroundRuntimeMetrics,
@@ -1331,74 +1336,19 @@ if (singleInstanceLockAcquired) {
                   cancelId: 1,
                   defaultId: 1,
                   message:
-                    'This will delete the local database files and reinitialize on next access. This action cannot be undone.',
+                    'This will delete the local database files. The app restarts to delete them. This action cannot be undone.',
                   title: 'Reset Local Database',
                   type: 'warning',
                 });
                 if (res.response !== 0) {
                   return;
                 }
-                // A second invocation (repeat accelerator press, or an
-                // overlapping factory reset) would hit the reset barrier's
-                // 'already active' throw — surface a readable message instead.
-                if (developerDatabaseResetInFlight) {
-                  await dialog.showMessageBox({
-                    buttons: ['OK'],
-                    message: 'A database reset is already in progress.',
-                    title: 'Database Reset',
-                    type: 'info',
-                  });
-                  return;
-                }
-                developerDatabaseResetInFlight = true;
-                // The visible documents flush into the profile BEFORE it is cleared, and are
-                // replaced afterwards whatever the reset's outcome: a flushed document is fenced.
-                const documents = visibleDocumentWindows();
-                await Promise.all(documents.map((window) => flushDocumentBeforeUnload(window)));
-                let replaced: readonly BrowserWindow[] = documents;
-                try {
-                  // BST-1330: same drains as shutdown/factory reset — a bare
-                  // resetLocalDatabase() could race in-flight live refreshes.
-                  // Join native producers, readers, and writer before resetting this profile.
-                  await nativeRootDataDeletion.transition(async () => {
-                    await nativeIndexActivation.stopSources();
-                    const lease = await profileReset.prepare();
-                    try {
-                      await profileReset.clear(lease);
-                    } finally {
-                      lease.release();
-                    }
-                    await nativeIndexActivation.resume();
-                  });
-                  // The hidden hosts reload with the visible documents after a reset.
-                  replaced = BrowserWindow.getAllWindows();
-                  await dialog.showMessageBox({
-                    buttons: ['OK'],
-                    message: 'Local database has been reset. The app will reload.',
-                    title: 'Database Reset',
-                    type: 'info',
-                  });
-                } catch (error) {
-                  const message = error instanceof Error ? error.message : String(error);
+                const result = await requestFactoryRelaunch('profile');
+                if (!result.success) {
                   dialog.showErrorBox(
                     'Reset Failed',
-                    `The local database was not reset: ${message}\n\nIf background indexing kept the database busy, retry after it settles (or use Factory Reset in Settings, which stops background work first).`
+                    `The local database was not reset: ${result.message ?? 'unknown error'}`
                   );
-                } finally {
-                  developerDatabaseResetInFlight = false;
-                }
-                if (isDesktopShuttingDown()) {
-                  return;
-                }
-                for (const win of replaced) {
-                  if (win.isDestroyed()) {
-                    continue;
-                  }
-                  noteNextWindowReload(win, {
-                    reason: 'developer-reset-local-database',
-                    source: 'main',
-                  });
-                  win.webContents.reloadIgnoringCache();
                 }
               },
               id: 'dev-reset-db',

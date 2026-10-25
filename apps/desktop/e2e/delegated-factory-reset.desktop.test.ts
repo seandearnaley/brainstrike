@@ -6,6 +6,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { factoryResetAndRelaunch } from './utils/factory-reset';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -38,14 +39,14 @@ test.describe('@destructive', () => {
     });
   }
 
-  async function confirmReset(page: Page, confirmed: boolean): Promise<void> {
-    await page.evaluate((confirmed) => {
+  async function cancelReset(page: Page): Promise<void> {
+    await page.evaluate(() => {
       const original = window.confirm;
       window.confirm = () => {
         window.confirm = original;
-        return confirmed;
+        return false;
       };
-    }, confirmed);
+    });
     await page.getByTestId('factory-reset-button').click();
   }
 
@@ -138,14 +139,6 @@ test.describe('@destructive', () => {
       expect(catalogs.get(DISABLED)).toContain('search_tools');
       await new HomePage(page).openSettings();
       await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
-      if (process.platform === 'win32') {
-        // Windows Factory Reset is disabled for M3 by owner decision; the delegation above still runs.
-        await expect(page.getByTestId('factory-reset-button')).toBeDisabled();
-        await expect(
-          page.getByText('Factory reset is unavailable on Windows in this version.')
-        ).toBeVisible();
-        return;
-      }
       await expect
         .poll(async () => {
           const tree = await readTree();
@@ -169,17 +162,15 @@ test.describe('@destructive', () => {
       );
       expect(outcomes.length).toBeGreaterThan(4);
       expect(outcomes.every((outcome) => outcome === 'completed')).toBe(true);
-      await confirmReset(page, false);
+      await cancelReset(page);
       expect(await readTree()).toEqual(before);
       await openSubagents(page);
       await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
         'aria-checked',
         'false'
       );
-      await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
-      const reloaded = page.waitForEvent('load');
-      await confirmReset(page, true);
-      await reloaded;
+      // Factory Reset quits the app; the next start wipes the profile before the host opens it.
+      page = (await factoryResetAndRelaunch(electron, page)).window;
       await waitForAppReady(page);
       const oldIds = new Set(before.map((thread) => thread.threadId));
       const assertCleared = async (): Promise<void> => {

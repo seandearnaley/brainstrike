@@ -8,7 +8,7 @@ import {
 import { DEFAULT_MAX_FILES, RotatingFileSink } from './rotating-file-sink';
 
 /** Base filename for the durable NDJSON backstop, shared with factory reset
- * (`desktop-factory-reset.ts`, via `listErrorLogFilePaths` below) so the
+ * (`factory-reset-relaunch.ts`, via `listErrorLogFilePaths` below) so the
  * writer and the purge logic can never drift onto different filenames. */
 export const ERROR_LOG_FILE_NAME = 'brainstrike-errors.ndjson';
 

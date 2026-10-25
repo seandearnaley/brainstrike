@@ -30,12 +30,11 @@ function event(senderId = 1) {
   return { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
 }
 
-/** Main's MCP host control: the picker hand-off, the factory reset and shutdown. */
+/** Main's MCP host control: the picker hand-off, the settings resume and shutdown. */
 function createMainRuntime() {
   return {
     close: vi.fn(),
     pickConfigPath: vi.fn(async (picked: string) => ({ path: picked, success: true as const })),
-    resetSettings: vi.fn(async () => undefined),
     resumeSettings: vi.fn(async () => undefined),
   };
 }
@@ -119,12 +118,10 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
     expect(runtime.pickConfigPath).toHaveBeenCalledTimes(1);
   });
 
-  it('closes the picker across a factory reset and reopens it after the host resumes', async () => {
-    await mcpIpc.resetMcpRuntimeForFactoryReset(runtime);
-
-    expect(runtime.resetSettings).toHaveBeenCalledTimes(1);
+  it('closes the picker across a content clear and reopens it after the host resumes', async () => {
+    await mcpIpc.suspendMcpSurfacesForContentClear();
     await expect(handler('mcp:config:selectPath')(event())).rejects.toThrow(
-      'MCP settings are closed for a factory reset'
+      'MCP settings are closed'
     );
 
     await mcpIpc.resumeMcpRuntimeAfterFactoryReset(runtime, 'failed');
@@ -138,9 +135,8 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
 
   it('suspends content-clear surfaces without erasing MCP preferences', async () => {
     await mcpIpc.suspendMcpSurfacesForContentClear();
-    expect(runtime.resetSettings).not.toHaveBeenCalled();
     await expect(handler('mcp:config:selectPath')(event())).rejects.toThrow(
-      'MCP settings are closed for a factory reset'
+      'MCP settings are closed'
     );
     await mcpIpc.resumeMcpRuntimeAfterFactoryReset(runtime, 'succeeded');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: true, filePaths: [] });
@@ -148,13 +144,13 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
   });
 
   it('stays closed when the host cannot resume its settings', async () => {
-    await mcpIpc.resetMcpRuntimeForFactoryReset(runtime);
+    await mcpIpc.suspendMcpSurfacesForContentClear();
     runtime.resumeSettings.mockRejectedValueOnce(new Error('host gone'));
 
     await expect(mcpIpc.resumeMcpRuntimeAfterFactoryReset(runtime)).rejects.toThrow('host gone');
 
     await expect(handler('mcp:config:selectPath')(event())).rejects.toThrow(
-      'MCP settings are closed for a factory reset'
+      'MCP settings are closed'
     );
   });
 
@@ -163,7 +159,7 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
 
     expect(runtime.close).toHaveBeenCalledTimes(1);
     await expect(handler('mcp:config:selectPath')(event())).rejects.toThrow(
-      'MCP settings are closed for a factory reset'
+      'MCP settings are closed'
     );
   });
 });

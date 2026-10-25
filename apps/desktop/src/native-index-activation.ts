@@ -853,7 +853,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       closeNativeOwner: () => dispatch({ kind: 'terminal', reason: 'root-data-deletion' }),
       closeOwned,
       getGraph: () => graph,
-      retireProfile: close,
       runtime,
       stopSources,
     }),

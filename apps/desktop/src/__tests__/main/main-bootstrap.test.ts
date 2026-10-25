@@ -53,7 +53,15 @@ vi.mock('electron', () => ({
   dialog: { showErrorBox: state.showErrorBox },
 }));
 
-vi.mock('../../desktop-bootstrap-runtime', () => ({ getDesktopBootstrapRuntime: () => runtime }));
+const getDesktopBootstrapRuntime = vi.hoisted(() => vi.fn(() => runtime));
+const completePendingFactoryReset = vi.hoisted(() => vi.fn(async (): Promise<void> => undefined));
+
+vi.mock('../../desktop-bootstrap-runtime', () => ({
+  applyDesktopPaths: vi.fn(),
+  getDesktopBootstrapRuntime,
+}));
+
+vi.mock('../../factory-reset-relaunch', () => ({ completePendingFactoryReset }));
 
 vi.mock('../../desktop-shutdown-state', () => ({
   isDesktopShuttingDown: () => state.quitting,
@@ -73,6 +81,8 @@ beforeEach(() => {
   vi.resetModules();
   bootstrapEvents.length = 0;
   resolveLoginShellEnvironment.mockClear();
+  getDesktopBootstrapRuntime.mockClear();
+  completePendingFactoryReset.mockReset().mockResolvedValue(undefined);
   state.quitting = false;
   runtime.singleInstanceLockAcquired = true;
   state.handlers.clear();
@@ -210,6 +220,37 @@ it('does not reopen a failure dialog when Main rejects after an early quit', asy
   loaded.resolve();
   await vi.waitFor(() => expect(state.exit).toHaveBeenCalledWith(1));
   expect(state.showErrorBox).not.toHaveBeenCalled();
+});
+
+it('finishes a pending factory reset before it takes the instance lock or opens the profile', async () => {
+  const wiped = Promise.withResolvers<void>();
+  completePendingFactoryReset.mockReturnValueOnce(wiped.promise);
+  appReady.current.resolve();
+  const loading = import('../../main-bootstrap');
+  await vi.waitFor(() => expect(completePendingFactoryReset).toHaveBeenCalledOnce());
+  expect(completePendingFactoryReset).toHaveBeenCalledWith({
+    logsPath: '/mock/user-data',
+    userDataPath: '/mock/user-data',
+  });
+  expect(getDesktopBootstrapRuntime).not.toHaveBeenCalled();
+  wiped.resolve();
+  await loading;
+  await vi.waitFor(() => expect(bootstrapEvents).toContain('main'));
+});
+
+it('a factory reset that cannot finish fails startup visibly and opens nothing', async () => {
+  completePendingFactoryReset.mockRejectedValueOnce(
+    new Error('The profile is in use by another Brainstrike process')
+  );
+  appReady.current.resolve();
+  await import('../../main-bootstrap');
+  expect(state.showErrorBox).toHaveBeenCalledWith(
+    'BrainStrike Desktop failed to start',
+    'The profile is in use by another Brainstrike process'
+  );
+  expect(state.exit).toHaveBeenCalledWith(1);
+  expect(getDesktopBootstrapRuntime).not.toHaveBeenCalled();
+  expect(runtime.profile.acquire).not.toHaveBeenCalled();
 });
 
 it('quits a rejected second launch without importing Main or starting a host', async () => {

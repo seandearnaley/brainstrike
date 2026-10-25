@@ -153,35 +153,6 @@ export async function routeAgentBrowserSession(
   return agentSession;
 }
 
-/**
- * Clear the app, pane and agent sessions through their owner. Chromium holds its
- * directory open on Windows even after clearing; raw directory deletion is
- * not a substitute for Session.clearData(). Call after renderer preparation
- * and browser-pane disposal, before replacing the visible renderer.
- * https://www.electronjs.org/docs/latest/api/session#sescleardataoptions
- */
-export async function clearDesktopBrowserSessions(): Promise<void> {
-  const sessions = [
-    session.defaultSession,
-    session.fromPartition(BROWSER_PANE_PARTITION),
-    session.fromPartition(AGENT_BROWSER_PARTITION),
-  ];
-  const results = await Promise.allSettled(
-    sessions.map(async (owned) => {
-      await owned.clearData();
-      await owned.clearAuthCache();
-      await owned.closeAllConnections();
-    })
-  );
-  const failures = results.flatMap((result) =>
-    result.status === 'rejected' ? [result.reason] : []
-  );
-  if (failures.length > 0) {
-    throw new AggregateError(failures, 'Failed to clear desktop browser sessions');
-  }
-  logger.info('Desktop browser sessions cleared (factory reset)');
-}
-
 /** Test-only reset of the memoized session (the module is a singleton).
  * @internal Isolates browser-pane session lifecycle regressions.
  */

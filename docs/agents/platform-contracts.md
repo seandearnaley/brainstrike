@@ -31,18 +31,24 @@ tests that start a real POSIX login shell are skipped on Windows, and the
 ## Reset and physical lifetime
 
 Clear Database deletes canonical content, root grants and derived indexes while
-retaining configuration/credentials. Factory Reset also clears configuration,
-secrets and persistent UI state. Both use the existing admission/retirement owner:
-join renderer saves and retire persisted chat/tab references before host deletion
-and replacement. New durable state participates in reset. Live in-memory stores
-must also return to defaults; deleting storage alone is insufficient.
+retaining configuration/credentials. It uses the existing admission/retirement
+owner: join renderer saves and retire persisted chat/tab references before host
+deletion and replacement. Live in-memory stores must also return to defaults;
+deleting storage alone is insufficient.
 
-Before destructive profile work, fence new admission, join writers, readers,
-inference, subscriptions and pending acquisition, then hold the profile reset
-lease through the entire purge. Preserve its live lock namespace and Chromium
-Session container until their own cleanup APIs finish. Failed cleanup remains an
-incomplete reset with retained ownership, not a successful restart. Windows
-Factory Reset remains explicitly unavailable; do not imply platform acceptance.
+Factory Reset deletes nothing in the running app (ADR-0031 decision 5). Main has
+the host clear its credentials, writes `brainstrike-factory-reset.json` in userData
+while holding `brainstrike-factory-reset.lock`, relaunches and quits through the
+normal quit (E2E quits without relaunching and the spec starts the app again). The
+next Main, before Chromium or the runtime opens userData or the profile, waits for
+the old process with an OS wait (POSIX: a blocking `flock` on that lock, which the
+kernel releases only when the old process exits; Windows: its process handle, by pid
+and creation time), takes the profile's Root lock, deletes the profile and userData
+except the logs (the error-log mirror goes too), and removes the marker last. A
+failed wipe fails startup visibly and keeps the marker. New durable state in userData
+or the profile participates without extra code; state elsewhere needs its own owner
+in that wipe. The developer menu's database reset is the same marker with the
+`profile` scope.
 
 User-confirmed reset is the destructive recovery boundary. Corruption never
 silently deletes, replaces, repairs or reloads canonical data. Preserve typed
@@ -168,11 +174,12 @@ unload Main owns. Hidden hosts retain their existing retirement order.
 
 These reloads are deliberately not prepared:
 
-- Factory Reset (`factory-reset-panel.tsx`, then Main's replacement of every
+- Clear content (Settings › Factory Reset, then Main's replacement of every
   visible window) and native content clear (`use-native-content-clear.ts`): their
   durable state is being wiped, so a flush would write the old document's stale
   state back into the cleared profile. They retire their writers through
-  `prepareFactoryReset` instead. The desktop E2E harness's state reset follows the
+  `prepareFactoryReset` instead. Factory Reset itself quits, and the next start
+  wipes after this process has exited, so whatever its quit flushes is deleted. The desktop E2E harness's state reset follows the
   same rule (`reloadClearedRenderer`); every other E2E reload uses
   `reloadRenderer`, the flushed path users get.
 - The `ui` error boundary's reload is crash recovery for a document that may be

@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
-import type { ConsoleMessage } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { factoryResetAndRelaunch } from './utils/factory-reset';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { captureResetLogs } from './utils/reset-log-capture';
@@ -126,18 +126,6 @@ async function readBrowserPersistentState(window: import('@playwright/test').Pag
   );
 }
 
-async function readBrowserPersistentStateOrNull(
-  window: import('@playwright/test').Page
-): Promise<Awaited<ReturnType<typeof readBrowserPersistentState>> | null> {
-  try {
-    return await readBrowserPersistentState(window);
-  } catch {
-    // The factory reset flow reloads the renderer after clearing browser storage.
-    // During that navigation Playwright can briefly lose the execution context.
-    return null;
-  }
-}
-
 test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset', () => {
   async function openFactoryResetSettings(
     homePage: HomePage,
@@ -153,49 +141,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     });
   });
 
-  test('Windows refuses factory reset without changing persisted state', async ({
-    window,
-    homePage,
-    electronApp,
-  }) => {
-    test.skip(process.platform !== 'win32', 'Windows-only disabled capability.');
-    const userDataDir = await electronApp.app.evaluate(({ app }) => app.getPath('userData'));
-    const sentinel = path.join(userDataDir, 'disabled-reset-sentinel');
-    fs.writeFileSync(sentinel, 'preserve', 'utf8');
-    await window.evaluate(() => localStorage.setItem('disabled-reset-probe', 'preserve'));
-    await openFactoryResetSettings(homePage, new SettingsPage(window));
-    await expect(window.getByTestId('factory-reset-button')).toBeDisabled();
-    await expect(
-      window.getByText('Factory reset is unavailable on Windows in this version.')
-    ).toBeVisible();
-    const result = await window.evaluate(async () => {
-      const bridge = (
-        globalThis as typeof globalThis & {
-          electronAPI?: {
-            factoryReset?: { resetLocal?: () => Promise<{ success: boolean; message?: string }> };
-          };
-        }
-      ).electronAPI?.factoryReset;
-      if (!bridge?.resetLocal) {
-        throw new Error('Missing desktop reset IPC');
-      }
-      return await bridge.resetLocal();
-    });
-    expect(result).toEqual({
-      message: 'Factory reset is unavailable on Windows in this version.',
-      success: false,
-    });
-    expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserve');
-    expect(await window.evaluate(() => localStorage.getItem('disabled-reset-probe'))).toBe(
-      'preserve'
-    );
-  });
-
   test('cancel path leaves persisted state untouched', async ({ window, homePage }) => {
-    test.skip(
-      process.platform === 'win32',
-      'Windows Factory Reset is disabled for M3 by owner decision.'
-    );
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
 
     const settingsPage = new SettingsPage(window);
@@ -224,16 +170,12 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     );
   });
 
-  test('confirm path clears persisted state and reloads cleanly', async ({
+  test('confirm path restarts the app with every setting, file and browser record gone but the logs', async ({
     window,
     homePage,
     electronApp,
     electronHarness,
   }) => {
-    test.skip(
-      process.platform === 'win32',
-      'Windows Factory Reset is disabled for M3 by owner decision.'
-    );
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
     const userDataDir = await electronApp.app.evaluate(async ({ app }) => app.getPath('userData'));
     const staleMcpDir = path.join(userDataDir, 'mcp');
@@ -275,45 +217,9 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await window.getByTestId('permission-policy-edit').selectOption('deny');
     await expect(window.getByTestId('permission-policy-edit')).toHaveValue('deny');
 
-    await openFactoryResetSettings(homePage, settingsPage);
-    await overrideNextConfirm(window, true);
-    // A reset is an expected terminal retirement: the renderer logs no error through it.
-    const resetErrors: string[] = [];
-    const recordError = (message: ConsoleMessage): void => {
-      if (message.type() === 'error') {
-        resetErrors.push(message.text());
-      }
-    };
-    window.on('console', recordError);
-    // The retired document stays visually ready while Main purges its stores.
-    // Join the replacement document before consulting its readiness or catalog.
-    await Promise.all([
-      window.waitForEvent('load'),
-      window.getByTestId('factory-reset-button').click(),
-    ]);
-    await expect
-      .poll(() => fs.existsSync(sentinelFile), {
-        timeout: 10_000,
-      })
-      .toBe(false);
-    await expect
-      .poll(() => readBrowserPersistentStateOrNull(window), {
-        timeout: 10_000,
-      })
-      .toEqual({
-        cacheExists: false,
-        dbExists: false,
-        localStorageValue: null,
-        sessionStorageValue: null,
-      });
-    // The reset ends with its replacement renderer ready; the retired one logged nothing wrong.
-    const { waitForAppReady: waitForResetRenderer } = await loadElectronHelpers();
-    await waitForResetRenderer(window);
-    expect(await readNativeResetProbe(window, resetProbe)).toEqual({ folders: 0 });
-    window.off('console', recordError);
-    expect(resetErrors).toEqual([]);
-
-    const restarted = await electronHarness.restart();
+    // Factory Reset quits the app; the next start wipes everything but the logs before it opens
+    // anything, so the user meets a fresh app.
+    const restarted = await factoryResetAndRelaunch(electronHarness, window);
     const restartedWindow = restarted.window;
     const restartedHomePage = new HomePage(restartedWindow);
     const restartedSettingsPage = new SettingsPage(restartedWindow);
@@ -335,24 +241,21 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         localStorageValue: null,
         sessionStorageValue: null,
       });
-    expect(fs.existsSync(sentinelFile)).toBe(false);
-    expect(fs.existsSync(diagnosticFile)).toBe(true);
+    for (const stale of [sentinelFile, staleMcpFile, staleCacheFile]) {
+      expect(fs.existsSync(stale), stale).toBe(false);
+    }
+    expect(fs.readFileSync(diagnosticFile, 'utf8')).toBe('keep');
     // The reset cleared the saved policy with the host's state: the default applies again.
     await restartedHomePage.openSettings();
     await restartedSettingsPage.openCategory(/Permissions/i, 'permissions');
     await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
   });
   for (const folderCount of [1, 2]) {
-    test(`reset with ${folderCount} mounted folders retires cleanly and stays fresh after reopen`, async ({
+    test(`reset with ${folderCount} mounted folders reopens with none and leaves their files alone`, async ({
       window,
-      homePage,
       electronApp,
       electronHarness,
     }, testInfo) => {
-      test.skip(
-        process.platform === 'win32',
-        'Windows Factory Reset is disabled for M3 by owner decision.'
-      );
       const logs = captureResetLogs();
       logs.observeApp(electronApp.app);
       const firstRoot = await electronApp.app.evaluate(
@@ -404,29 +307,17 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         const mounted = await readFolders(window);
         expect(mounted[0]).toHaveLength(folderCount);
         expect(mounted[1]).toHaveLength(folderCount);
-        await openFactoryResetSettings(homePage, new SettingsPage(window));
-        await overrideNextConfirm(window, true);
-        // Join the actual reload initiated by the UI reset, not another reset call.
-        await Promise.all([
-          window.waitForEvent('framenavigated', {
-            predicate: (frame) => frame === window.mainFrame(),
-          }),
-          window.getByTestId('factory-reset-button').click(),
-        ]);
-        const { waitForAppReady } = await loadElectronHelpers();
-        await waitForAppReady(window);
-        await expect.poll(() => readFolders(window)).toEqual([[], []]);
-        await homePage.leaveSettings();
-        for (const index of roots.keys()) {
-          await expect(window.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(
-            0
-          );
-        }
-        // The replacement window loaded while the profile was closed; it learns the fresh
-        // profile's config from Main once the profile reopens, without a restart.
+        // The user resets a workspace whose folders the index has taken in.
         await expect(window.getByTestId('indexing-status-value')).toHaveText('Ready');
-        await homePage.openSettings();
-        const searchSettings = await new SettingsPage(window).openCategory(
+        const reopened = await factoryResetAndRelaunch(electronHarness, window, logs.observeApp);
+        const { waitForAppReady } = await loadElectronHelpers();
+        await waitForAppReady(reopened.window);
+        const reopenedHome = new HomePage(reopened.window);
+        await reopenedHome.leaveSettings();
+        expect(await readFolders(reopened.window)).toEqual([[], []]);
+        await expect(reopened.window.getByTestId('indexing-status-value')).toHaveText('Ready');
+        await reopenedHome.openSettings();
+        const searchSettings = await new SettingsPage(reopened.window).openCategory(
           /Search & Indexing/i,
           'search-indexing'
         );
@@ -435,12 +326,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
             .getByRole('group', { name: 'Search mode' })
             .getByRole('button', { name: /^Text/ })
         ).toHaveAttribute('aria-pressed', 'true');
-        await expect(searchSettings).not.toContainText('The search index is closed');
-        await homePage.leaveSettings();
-        const reopened = await electronHarness.restart(logs.observeApp);
-        await waitForAppReady(reopened.window);
-        await new HomePage(reopened.window).leaveSettings();
-        expect(await readFolders(reopened.window)).toEqual([[], []]);
+        await reopenedHome.leaveSettings();
         for (const [index, root] of roots.entries()) {
           await expect(
             reopened.window.getByText(`reset-folder-${index}.txt`, { exact: true })

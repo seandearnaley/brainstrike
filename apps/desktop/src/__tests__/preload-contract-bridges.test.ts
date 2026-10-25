@@ -220,7 +220,7 @@ describe('preload contract-derived bridges', () => {
 
   it('omits retired SQL bridges and routes reset and profile path to their current owners', async () => {
     const electronApi = exposedApi('electronAPI') as unknown as {
-      factoryReset: { resetLocal: () => Promise<unknown>; unavailableReason?: string };
+      factoryReset: { resetLocal: () => Promise<unknown> };
       getUserDataPath: () => Promise<unknown>;
     };
     expect(electronApi).not.toHaveProperty('db');

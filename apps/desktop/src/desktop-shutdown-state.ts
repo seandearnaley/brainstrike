@@ -24,13 +24,13 @@ export function isDesktopShuttingDown(): boolean {
 }
 
 /**
- * ADR-0015: terminal quit cancels a factory reset's replacement startup and
+ * ADR-0015: terminal quit cancels a content clear's replacement startup and
  * profile reopen. Work waiting on that reopen ends with this refusal.
  */
 export const RESET_REOPEN_CANCELLED = refusal({
   category: 'availability',
   code: 'desktop.reset-reopen-cancelled',
-  message: 'The app is quitting, so the factory reset does not reopen the profile.',
+  message: 'The app is quitting, so the content clear does not reopen the profile.',
 });
 
 /**

@@ -54,7 +54,6 @@ describe('SystemDiagnosticsPanel', () => {
               sourceState: 'running',
               state: 'idle',
             },
-            reset: { userDataPath: '/tmp/brainstrike-user-data' },
             telemetry: {
               backgroundRuntimeMetrics: [],
               embedding: {
@@ -112,7 +111,6 @@ describe('SystemDiagnosticsPanel', () => {
             state: 'idle',
           },
           indexing: { databaseWork: {} },
-          reset: { userDataPath: '/tmp/brainstrike-user-data' },
           telemetry: {
             backgroundRuntimeMetrics: [],
             embedding: {
@@ -463,16 +461,6 @@ describe('SystemDiagnosticsPanel', () => {
               lastFailure: null,
               lastSucceededAt: '2026-05-20T00:00:30.000Z',
             },
-            reset: {
-              lastCompletedAt: null,
-              lastDeletedPathCount: 0,
-              lastError: null,
-              lastFailedAt: null,
-              lastPreservedPathCount: 0,
-              lastStartedAt: null,
-              status: 'idle',
-              userDataPath: '/tmp/brainstrike-user-data',
-            },
             telemetry: {
               backgroundRuntimeMetrics: [
                 {
@@ -494,7 +482,6 @@ describe('SystemDiagnosticsPanel', () => {
 
       expect(await screen.findByText('Desktop Platform')).toBeInTheDocument();
       expect(screen.getByText('Embedding Host')).toBeInTheDocument();
-      expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
       // Desktop has no backfill queue; native indexing reports its own activity.
       expect(screen.queryByText('Active Backfills')).not.toBeInTheDocument();
       expect(screen.getByText('Dimension Maintenance')).toBeInTheDocument();

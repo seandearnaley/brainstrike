@@ -108,8 +108,19 @@ function applyDevelopmentPathIsolation():
   return { credentialStore, singleInstanceLockAcquired, userData };
 }
 
-function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
-  const environment = getDesktopEnvironmentBootstrapResult();
+interface DesktopPaths {
+  readonly development: ReturnType<typeof applyDevelopmentPathIsolation>;
+  readonly userDataDir: string;
+}
+let paths: DesktopPaths | undefined;
+/**
+ * Main's userData and logs paths, set once before `ready`. Main-bootstrap finishes a pending
+ * factory reset between these and the runtime below, which is the first to open anything there.
+ */
+export function applyDesktopPaths(): DesktopPaths {
+  if (paths) {
+    return paths;
+  }
   const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
     app.commandLine,
     process.env,
@@ -118,12 +129,19 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   registerPrivilegedSchemes();
   const explicitUserData = applyExplicitPathIsolation(agentDevtoolsConfig);
   const development = explicitUserData ? undefined : applyDevelopmentPathIsolation();
-  const userDataDir = explicitUserData ?? development?.userData ?? app.getPath('userData');
+  paths = {
+    development,
+    userDataDir: explicitUserData ?? development?.userData ?? app.getPath('userData'),
+  };
+  return paths;
+}
+
+function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
+  const environment = getDesktopEnvironmentBootstrapResult();
+  const { development, userDataDir } = applyDesktopPaths();
   const credentialStore =
     development?.credentialStore ?? desktopCredentialStoreSelection(userDataDir);
-  // Windows cannot rename Chromium's live files during factory reset. Give
-  // its Session owner a separate container in ordinary launches too; reset
-  // clears it through Electron before physically purging app-owned files.
+  // Chromium's Session data has its own container in userData.
   const sessionDataDir = path.join(userDataDir, 'session-data');
   fs.mkdirSync(sessionDataDir, { recursive: true });
   app.setPath('sessionData', sessionDataDir);

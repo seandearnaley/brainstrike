@@ -83,46 +83,40 @@ describe('main boot order', () => {
     }
   );
 
-  it('joins an accepted reset before quit while an earlier native transition is held', async () => {
+  it('joins an accepted content clear before quit while an earlier native transition is held', async () => {
     const held = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     nativeReconfigureForReset.current = () => {
       entered.resolve();
       return held.promise;
     };
-    const resetData = await import('../../desktop-factory-reset');
-    const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
-      deletedPaths: [],
-      pendingDeletionPaths: [],
-      preservedPaths: [],
-    });
-    const resetPlatform = await import('../../desktop-reset-platform');
-    const createReset = resetPlatform.createDesktopFactoryResetHandler;
+    const clearContent = vi.fn(async () => ({ deletedChunks: null, deletedFiles: 0 }));
+    const contentClear = await import('../../desktop-content-clear');
+    const createClear = contentClear.createDesktopContentClear;
     const compose = vi
-      .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
+      .spyOn(contentClear, 'createDesktopContentClear')
       .mockImplementation((ports) =>
-        createReset({
+        createClear({
           ...ports,
-          completeSuccessfulReset: async () => {},
-          resetPersistentStorageAfterDataDeletion: async () => {},
-          resumeAfterReset: async () => {},
+          clearRetainedContent: clearContent,
+          completeSuccessfulClear: async () => {},
+          resumeAfterClear: async () => {},
           runtimes: [],
         })
       );
     onTestFinished(() => {
-      purge.mockRestore();
       compose.mockRestore();
     });
     await import('../../main');
     const options = applicationDomainCapture.options;
     const plan = shutdownPlanCapture.current?.();
-    if (!(options?.onResetLocal && plan)) {
-      throw new Error('Main reset callback and shutdown plan were not captured');
+    if (!(options?.onClearContent && plan)) {
+      throw new Error('Main content clear callback and shutdown plan were not captured');
     }
     // The same trigger Main's config owner uses once a change is saved.
     await requireIndexConfig().reconfigure();
     await entered.promise;
-    const reset = options.onResetLocal();
+    const reset = options.onClearContent();
     let closed = false;
     const close = Promise.resolve(plan['factory-reset']()).then(() => {
       closed = true;
@@ -134,13 +128,13 @@ describe('main boot order', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(closed).toBe(false);
     held.resolve();
-    await expect(reset).resolves.toEqual({ success: true });
+    await expect(reset).resolves.toEqual({ deletedChunks: null, deletedFiles: 0 });
     await close;
-    expect(purge).toHaveBeenCalledOnce();
+    expect(clearContent).toHaveBeenCalledOnce();
   });
 
   it.each(['completed', 'replacement-failed', 'resume-failed', 'quit'] as const)(
-    'defers a reset renderer native-settings notification through replacement and reopen: %s',
+    'defers a content clear renderer native-settings notification through replacement and reopen: %s',
     async (outcome) => {
       const notified = Promise.withResolvers<void>();
       const replacement = Promise.withResolvers<void>();
@@ -165,27 +159,21 @@ describe('main boot order', () => {
       });
       const reconfigure = vi.fn(async () => {});
       nativeReconfigureForReset.current = reconfigure;
-      const resetData = await import('../../desktop-factory-reset');
-      const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
-        deletedPaths: [],
-        pendingDeletionPaths: [],
-        preservedPaths: [],
-      });
-      const resetPlatform = await import('../../desktop-reset-platform');
-      const createReset = resetPlatform.createDesktopFactoryResetHandler;
+      const contentClear = await import('../../desktop-content-clear');
+      const createClear = contentClear.createDesktopContentClear;
       const compose = vi
-        .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
+        .spyOn(contentClear, 'createDesktopContentClear')
         .mockImplementation((ports) =>
-          createReset({
+          createClear({
             ...ports,
-            completeSuccessfulReset: async () => {
+            clearRetainedContent: async () => ({ deletedChunks: null, deletedFiles: 0 }),
+            completeSuccessfulClear: async () => {
               // A settings change saved while the reset finishes applies through Main's owner.
               await requireIndexConfig().reconfigure();
               notified.resolve();
               await replacement.promise;
             },
-            resetPersistentStorageAfterDataDeletion: async () => {},
-            resumeAfterReset: async () => {
+            resumeAfterClear: async () => {
               resuming.resolve();
               await resumed.promise;
               reopened = true;
@@ -194,15 +182,17 @@ describe('main boot order', () => {
           })
         );
       await import('../../main');
-      const reset = applicationDomainCapture.options?.onResetLocal?.();
+      const reset = applicationDomainCapture.options?.onClearContent?.().then(
+        (counts) => ({ counts }),
+        (error: unknown) => ({ error })
+      );
       if (!reset) {
-        throw new Error('Main reset callback was not captured');
+        throw new Error('Main content clear callback was not captured');
       }
       onTestFinished(async () => {
         replacement.resolve();
         resumed.resolve();
         await reset;
-        purge.mockRestore();
         compose.mockRestore();
       });
       await notified.promise;
@@ -232,13 +222,13 @@ describe('main boot order', () => {
         }
       }
       if (outcome === 'replacement-failed' || outcome === 'resume-failed') {
-        await expect(reset).resolves.toEqual({ message: failure.message, success: false });
+        await expect(reset).resolves.toEqual({ error: new Error(failure.message) });
         expect(requireMainLogger().error).toHaveBeenCalledWith(
-          'Failed to reset desktop application data:',
+          'Failed to clear desktop content:',
           failure
         );
       } else {
-        await expect(reset).resolves.toEqual({ success: true });
+        await expect(reset).resolves.toEqual({ counts: { deletedChunks: null, deletedFiles: 0 } });
       }
       await closing;
       if (outcome === 'completed') {
