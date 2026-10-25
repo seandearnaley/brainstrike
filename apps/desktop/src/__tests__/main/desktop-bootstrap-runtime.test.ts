@@ -8,7 +8,6 @@ const fixture = vi.hoisted(() => ({
   contentClear: Promise.withResolvers<{ deletedChunks: number | null; deletedFiles: number }>(),
   events: [] as string[],
   exited: Promise.withResolvers<void>(),
-  lifecycleDelays: { childEnv: () => ({}), delay: async () => undefined },
   lockAttempts: [] as string[],
   lockedUserData: new Set<string>(),
   options: undefined as DesktopHostLeaseOptions | undefined,
@@ -58,10 +57,6 @@ vi.mock('../../privileged-schemes', () => ({
 }));
 vi.mock('../../desktop-env', () => ({
   getDesktopEnvironmentBootstrapResult: () => ({ failures: [] }),
-}));
-// Main-bootstrap installs the one seam; the profile owner receives that seam.
-vi.mock('../../lifecycle-delay-seam', () => ({
-  lifecycleDelaySeam: () => fixture.lifecycleDelays,
 }));
 vi.mock('../../host-lease-manager', () => ({
   createDesktopHostLease: (options: DesktopHostLeaseOptions) => {
@@ -123,7 +118,6 @@ it('resolves the explicit test profile before the single lease opens its StateSt
   expect(fixture.options?.root).toBe(
     join(resolve('/disposable/bootstrap-user-data'), 'profiles', 'test')
   );
-  expect(fixture.options?.lifecycleDelays).toBe(fixture.lifecycleDelays);
   expect(fixture.events).toEqual([
     'schemes',
     'path:userData',

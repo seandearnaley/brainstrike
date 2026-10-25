@@ -6,7 +6,6 @@ import { app, dialog } from 'electron';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 import { applyDesktopLoginShellEnvironment, initializeDesktopEnvironment } from './desktop-env';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
-import { installLifecycleDelaySeam } from './lifecycle-delay-seam';
 import { resolveLoginShellEnvironment } from './login-shell-environment';
 
 function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown()): void {
@@ -41,8 +40,6 @@ if (process.argv.includes('--version')) {
       isPackaged: app.isPackaged,
       userDataPath: app.getPath('userData'),
     });
-    // After the environment files load and before anything is spawned: no child inherits it.
-    installLifecycleDelaySeam();
     const runtime = getDesktopBootstrapRuntime();
     if (runtime.singleInstanceLockAcquired) {
       // Started now so the shell runs while Electron starts; the first fork waits for it.

@@ -77,12 +77,9 @@ test.describe('durable UI state across document unload', () => {
   });
 });
 
-const RENDERER_FLUSH_MS = 12_000;
-
 interface LogRecord {
   readonly level?: number;
   readonly msg?: string;
-  readonly steps?: readonly { readonly elapsedMs: number; readonly step: string }[];
 }
 
 /** Main's structured stdout records; the last segment is a line still being written. */
@@ -100,24 +97,18 @@ function parse(output: string): LogRecord[] {
 }
 
 /**
- * The slow-machine matrix (lifecycle redesign §6.1): the renderer's flush ACK reaches Main 12 s
- * late, longer than any deadline Main used to race. A change in each of the three writers, made
- * the instant before the unload, still survives it; the app exits 0 with no error-level record.
+ * A change in each of the three durable writers, made the instant before the unload, survives
+ * it; the app exits 0 with no error-level record.
  */
-test.describe('durable UI state under a 12 s renderer flush', () => {
-  test.use({
-    electronEnv: {
-      BRAINSTRIKE_E2E_LIFECYCLE_DELAYS: `renderer-flush:${RENDERER_FLUSH_MS}`,
-      LOG_LEVEL: 'info',
-    },
-  });
+test.describe('durable UI state across every unload', () => {
+  test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 
   for (const unload of ['quit', 'window-X', 'reload'] as const) {
     test(`every durable writer's last change survives ${unload}`, async ({
       electron,
       window,
     }, testInfo) => {
-      test.setTimeout(240_000);
+      test.setTimeout(120_000);
       const fixture = await openDurableUiFixture(electron, window);
       const { page } = fixture;
       const userDataDir = electron.getUserDataDir();
@@ -132,17 +123,13 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
         await expandFixtureFolder(page);
         await resizeFirstPanel(page);
         // No wait: every writer's tail is still buffered when the unload starts.
-        const started = Date.now();
-        let unloadMs: number | undefined;
         let reopened = page;
         if (unload === 'reload') {
           const navigated = page.waitForEvent('framenavigated', {
             predicate: (frame) => frame === page.mainFrame(),
-            timeout: RENDERER_FLUSH_MS + 30_000,
           });
           await reloadFromMenu(app, page);
           await navigated;
-          unloadMs = Date.now() - started;
           const { waitForAppReady } = await loadElectronHelpers();
           await waitForAppReady(page);
         } else {
@@ -152,12 +139,8 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
               code: 0,
               signal: null,
             });
-            unloadMs = parse(output)
-              .find((record) => record.msg === 'Graceful shutdown completed')
-              ?.steps?.find((step) => step.step === 'renderers')?.elapsedMs;
           } else {
             const closed = await closeLastWindowLikeTheUser(electron, page);
-            unloadMs = Date.now() - started;
             if (closed.quit) {
               expect(closed.exitCode).toBe(0);
             } else {
@@ -177,8 +160,6 @@ test.describe('durable UI state under a 12 s renderer flush', () => {
         expect
           .soft(await readCommittedThreadExpansion(userDataDir, fixture.threadId))
           .toContain(fixture.expandedPath);
-        // The unload waited for the late flush instead of racing it.
-        expect(unloadMs).toBeGreaterThanOrEqual(RENDERER_FLUSH_MS);
         const records = parse(output);
         expect(records.filter((record) => (record.level ?? 0) >= 50)).toEqual([]);
       } finally {

@@ -12,7 +12,6 @@ import {
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
 import { forkUtility } from './fork-utility';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
-import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 const logger = createLogger('IndexerHostManager');
@@ -33,7 +32,6 @@ export class IndexerHostManager {
   readonly #options: IndexerOptions;
   readonly #deadlines: IndexerDeadlines;
   readonly #entryPath: string;
-  readonly #lifecycleDelays: (() => LifecycleDelaySeam) | undefined;
   #connection: IndexerConnection | undefined;
   #start: Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> | undefined;
   #canonical: CanonicalUtilityParent | undefined;
@@ -47,12 +45,7 @@ export class IndexerHostManager {
   /** Counts fences. An acquisition a fence overtook belongs to the fenced graph (BST-2140). */
   #fences = 0;
 
-  private constructor(
-    options: IndexerOptions,
-    deadlines: IndexerDeadlines,
-    entryPath: string,
-    lifecycleDelays: (() => LifecycleDelaySeam) | undefined
-  ) {
+  private constructor(options: IndexerOptions, deadlines: IndexerDeadlines, entryPath: string) {
     const embedding =
       options.embedding.indexMode === 'vector-configured'
         ? Object.freeze({
@@ -63,21 +56,15 @@ export class IndexerHostManager {
     this.#options = { ...options, embedding, rootIds: Object.freeze([...options.rootIds]) };
     this.#deadlines = deadlines;
     this.#entryPath = entryPath;
-    this.#lifecycleDelays = lifecycleDelays;
     this.databasePath = options.dbPath;
     this.acquisitionEmbedding = embedding;
     this.rootIds = this.#options.rootIds;
   }
 
-  /**
-   * `lifecycleDelays` is Main's E2E seam accessor (`lifecycleDelaySeam`), read at the boundary:
-   * `canonical-attach` here and the utility's own `indexer-request`. Absent, nothing is delayed.
-   */
   static async create(
     input: unknown,
     deadlineInput: unknown,
-    entryPath = resolveBundledSiblingPath('Indexer host', 'indexer-host-entry.js'),
-    lifecycleDelays?: () => LifecycleDelaySeam
+    entryPath = resolveBundledSiblingPath('Indexer host', 'indexer-host-entry.js')
   ): Promise<IndexerHostManager> {
     const { validateIndexerOptions, validateIndexerDeadlines } = await import(
       '@brainstrike/indexer/transport'
@@ -85,8 +72,7 @@ export class IndexerHostManager {
     return new IndexerHostManager(
       validateIndexerOptions(input),
       validateIndexerDeadlines(deadlineInput),
-      entryPath,
-      lifecycleDelays
+      entryPath
     );
   }
 
@@ -108,7 +94,6 @@ export class IndexerHostManager {
       throw new Error('Indexer host closed before launch.');
     }
     const child = forkUtility(this.#entryPath, [], {
-      env: { ...process.env, ...this.#lifecycleDelays?.().childEnv(['indexer-request']) },
       serviceName: 'brainstrike-indexer',
     });
     this.#kill = () => child.kill();
@@ -204,8 +189,6 @@ export class IndexerHostManager {
     }
     const fences = this.#fences;
     await this.start();
-    // E2E seam: the attach boundary as a loaded machine reaches it; admission is checked after.
-    await this.#lifecycleDelays?.().delay('canonical-attach');
     this.#refuseFencedAcquisition(fences);
     if (this.#closed || this.#sourceRetirementOwned || !this.#canonical) {
       throw new Error('Indexer canonical attachment admission is closed.');

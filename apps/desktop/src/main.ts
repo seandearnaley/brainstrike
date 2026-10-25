@@ -132,7 +132,6 @@ import { registerShellIpcHandlers } from './ipc-shell';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
-import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { registerLoggingIpcHandlers } from './logging-ipc';
 import {
   createDesktopGracefulShutdown,
@@ -339,8 +338,6 @@ const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 /** Every unload of a visible document flushes it first (ADR-0026 R1, `document-unload.ts`). */
 function documentUnloadOwner(): DocumentUnloadOwner<BrowserWindow> {
   return {
-    // Resolved when a document unloads, not when its window is created.
-    delays: { delay: (point) => lifecycleDelaySeam().delay(point) },
     isQuitting: isDesktopShuttingDown,
     lastWindowQuits: process.platform !== 'darwin',
     quit: () => app.quit(),
@@ -428,7 +425,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         const preparations = await Promise.allSettled(
           windows
             .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
-            .map((window) => prepareDocumentUnload(window, lifecycleDelaySeam()))
+            .map((window) => prepareDocumentUnload(window))
         );
         // Prepared or not, quit closes them: past the user-close interception.
         for (const window of windows) {
@@ -527,10 +524,7 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
   }
 };
 
-const embeddingHostManager = new EmbeddingHostManager({
-  lifecycleDelays: lifecycleDelaySeam,
-  storage,
-});
+const embeddingHostManager = new EmbeddingHostManager({ storage });
 
 const profileReset = createDesktopProfileResetOwner({
   profilePath: () => {
@@ -719,7 +713,6 @@ const nativeIndexActivation = createNativeIndexActivation({
   application: applicationIpcDomain,
   catalog: workspaceRootCatalog,
   embedding: embeddingHostManager,
-  lifecycleDelays: lifecycleDelaySeam,
   modelCatalog,
   onError: (operation, error) =>
     reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
@@ -1379,9 +1372,7 @@ if (singleInstanceLockAcquired) {
                 // The visible documents flush into the profile BEFORE it is cleared, and are
                 // replaced afterwards whatever the reset's outcome: a flushed document is fenced.
                 const documents = visibleDocumentWindows();
-                await Promise.all(
-                  documents.map((window) => flushDocumentBeforeUnload(window, lifecycleDelaySeam()))
-                );
+                await Promise.all(documents.map((window) => flushDocumentBeforeUnload(window)));
                 let replaced: readonly BrowserWindow[] = documents;
                 try {
                   // BST-1330: same drains as shutdown/factory reset — a bare
@@ -1909,7 +1900,6 @@ desktopBootstrap.bindPlatform((platformPort) => {
         throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
       }
     },
-    lifecycleDelays: lifecycleDelaySeam(),
     // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
     // The ledger authorizes a managed worktree's mount; no picker grant is needed.

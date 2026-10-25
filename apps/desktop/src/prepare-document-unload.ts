@@ -1,7 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { MessageChannelMain, type MessagePortMain } from 'electron';
 import { RendererExitedError } from './desktop-shutdown-state';
-import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 
 const logger = createLogger('RendererClose');
@@ -59,12 +58,9 @@ export interface RendererCloseWindow {
  * cannot answer is retired, never waited on forever: one that crashes or becomes unresponsive,
  * or that has not answered within `RENDERER_CLOSE_PREPARATION_MS`, is destroyed and its
  * `closed` joined before this rejects. A negative ACK, a lost port or an undeliverable request
- * rejects at once. `delays` is the E2E lifecycle seam's Main-side `renderer-flush` point.
+ * rejects at once.
  */
-export function prepareDocumentUnload(
-  window: RendererCloseWindow,
-  delays: Pick<LifecycleDelaySeam, 'delay'>
-): Promise<void> {
+export function prepareDocumentUnload(window: RendererCloseWindow): Promise<void> {
   const contents = window.webContents;
   const { port1, port2 } = new MessageChannelMain();
   return new Promise<void>((resolve, reject) => {
@@ -157,8 +153,7 @@ export function prepareDocumentUnload(
         return;
       }
       acknowledged = true;
-      // E2E seam: a slow flush's ACK reaches Main this much later, still inside the ladder.
-      void delays.delay('renderer-flush').then(() => finish());
+      finish();
     });
     port1.start();
     try {

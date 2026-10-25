@@ -20,7 +20,6 @@ import {
   type HostChildMessage,
 } from './host-child-messages';
 import { type HostStdio, openHostStdio } from './host-stdio';
-import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 
 const logger = createLogger('DesktopHostLease');
 /**
@@ -47,7 +46,7 @@ export interface HostChildProcess {
 type HostLeaseSpawn = (
   entrypoint: string,
   args: readonly string[],
-  /** Main's environment plus the entries this lease forwards explicitly (the E2E delay seam). */
+  /** Main's environment. */
   env: NodeJS.ProcessEnv
 ) => HostChildProcess;
 /**
@@ -75,8 +74,6 @@ export interface DesktopHostLeaseOptions {
   /** How long a close waits for the host to exit before killing it. */
   readonly closeGraceMs?: number;
   readonly entryPath?: string;
-  /** Main's E2E lifecycle delay seam: the points it forwards to the host it spawns. */
-  readonly lifecycleDelays?: LifecycleDelaySeam;
   /** The ready child; Main opens each visible client's channel on it. */
   readonly onChildReady?: (child: DesktopHostChild) => void;
   /** The host is spawned and its platform channel is open. */
@@ -316,7 +313,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             root: options.root,
             ...(platformOptions === undefined ? {} : { platformOptions }),
           }),
-          { ...process.env, ...options.lifecycleDelays?.childEnv(['host-ready']) }
+          process.env
         ),
         () => {
           // A child lost before ready fails its acquisition instead.
@@ -332,7 +329,6 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       // Runs first: the host exits before its platform is released.
       await addFinalizer(scope, async () => {
         await stopChild(child, graceMs);
-        await options.lifecycleDelays?.delay('child-exit');
       });
       if (options.platform) {
         // Before the host's startup asks for it; the channel holds requests until Main serves it.

@@ -140,8 +140,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
         // R5(b) only (ADR-0030): from the close request to the utility's exit, then a kill and
         // the still-joined exit. Startup and requests have no deadline (R2).
-        { closeMs: CHILD_CLOSE_BUDGET_MS },
-        dependencies.lifecycleDelays
+        { closeMs: CHILD_CLOSE_BUDGET_MS }
       );
       creation.catch(() => undefined);
       return {

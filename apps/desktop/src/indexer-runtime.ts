@@ -2,7 +2,6 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { IndexerHostManager } from './indexer-host-manager';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
-import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 
 interface IndexerOwner {
   closing: boolean;
@@ -19,12 +18,11 @@ let owner: IndexerOwner | undefined;
 
 /**
  * All inputs come from the canonical desktop profile/root owner; this module derives no
- * paths/models. `lifecycleDelays` is Main's E2E seam accessor for the host it creates.
+ * paths/models.
  */
 export async function acquireIndexerHost(
   input: unknown,
-  deadlineInput: unknown,
-  lifecycleDelays?: () => LifecycleDelaySeam
+  deadlineInput: unknown
 ): Promise<IndexerHostManager> {
   const { validateIndexerOptions, validateIndexerDeadlines } = await import(
     '@brainstrike/indexer/transport'
@@ -45,7 +43,7 @@ export async function acquireIndexerHost(
   }
   owner ??= {
     closing: false,
-    creation: IndexerHostManager.create(options, deadlines, undefined, lifecycleDelays),
+    creation: IndexerHostManager.create(options, deadlines),
     identity,
   };
   const current = owner;

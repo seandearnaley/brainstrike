@@ -22,7 +22,6 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import type { ApplicationIpcDomain } from './ipc-handlers';
-import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
 import { desktopSetupRequired } from './native-index-setup-required';
@@ -90,8 +89,6 @@ export interface NativeIndexActivationDependencies {
   readonly application: ApplicationIpcDomain;
   readonly catalog: SourceCatalogPort & WorkspaceRootPort & CollectionPort;
   readonly embedding: Pick<EmbeddingHostManager, 'destroyAndRestart' | 'documentEmbeddings'>;
-  /** Main's E2E delay seam accessor for the indexer host, read at its boundaries; absent, none. */
-  readonly lifecycleDelays?: () => LifecycleDelaySeam;
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;

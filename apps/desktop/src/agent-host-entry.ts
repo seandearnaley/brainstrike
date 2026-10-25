@@ -13,7 +13,6 @@ import {
   type HostChildMessage,
 } from './host-child-messages';
 import { openHostStdio } from './host-stdio';
-import { lifecycleDelay, takeLifecycleDelays } from './lifecycle-delays';
 
 /**
  * The agent host as a headless program, as `codex app-server` is Codex Desktop's: it
@@ -31,8 +30,6 @@ async function main(): Promise<void> {
   configureLogger({ console: { destination: 2 }, includeTimestamp: true });
   // Electron's Node runs this entry as Node; nothing this host starts inherits that.
   Reflect.deleteProperty(process.env, 'ELECTRON_RUN_AS_NODE');
-  // Only Main's spawn env carries it (the E2E seam); removed so no host descendant inherits it.
-  const lifecycleDelays = takeLifecycleDelays();
   const controller = new AbortController();
   let host: OpenedAgentHost | undefined;
   let exiting = false;
@@ -109,7 +106,6 @@ async function main(): Promise<void> {
     if (controller.signal.aborted) {
       return;
     }
-    await lifecycleDelay(lifecycleDelays, 'host-ready');
     await report({ event: 'ready' });
   } catch (cause) {
     if (controller.signal.aborted) {

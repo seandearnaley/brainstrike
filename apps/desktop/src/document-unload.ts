@@ -1,7 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { BrowserWindow } from 'electron';
 import { closeDesktopRenderers, type ShutdownRendererWindow } from './close-desktop-renderers';
-import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { prepareDocumentUnload, type RendererCloseWindow } from './prepare-document-unload';
 import { getWindowRole } from './window-role';
 
@@ -19,7 +18,6 @@ export type DocumentWindow = RendererCloseWindow &
   };
 
 export interface DocumentUnloadOwner<Window extends DocumentWindow> {
-  readonly delays: Pick<LifecycleDelaySeam, 'delay'>;
   /** Quit has started: its `renderers` step prepares and closes every visible window. */
   readonly isQuitting: () => boolean;
   /** Closing the last visible window quits the app (Windows and Linux; macOS stays running). */
@@ -57,12 +55,9 @@ export function admitDocumentClose(window: DocumentWindow): void {
 }
 
 /** Prepares the document for unload; a failure is logged, and the unload still proceeds. */
-export async function flushDocumentBeforeUnload(
-  window: DocumentWindow,
-  delays: Pick<LifecycleDelaySeam, 'delay'>
-): Promise<void> {
+export async function flushDocumentBeforeUnload(window: DocumentWindow): Promise<void> {
   try {
-    await prepareDocumentUnload(window, delays);
+    await prepareDocumentUnload(window);
   } catch (error) {
     logger.error('Document unloads without confirming its durable writers flushed', { error });
   }
@@ -74,21 +69,18 @@ export async function flushDocumentBeforeUnload(
  */
 export async function reloadDocument(
   window: DocumentWindow,
-  owner: Pick<DocumentUnloadOwner<DocumentWindow>, 'delays' | 'isQuitting'>,
+  owner: Pick<DocumentUnloadOwner<DocumentWindow>, 'isQuitting'>,
   reload: () => void
 ): Promise<void> {
-  await flushDocumentBeforeUnload(window, owner.delays);
+  await flushDocumentBeforeUnload(window);
   if (window.isDestroyed() || owner.isQuitting()) {
     return;
   }
   reload();
 }
 
-async function closeDocument(
-  window: DocumentWindow,
-  delays: Pick<LifecycleDelaySeam, 'delay'>
-): Promise<void> {
-  await flushDocumentBeforeUnload(window, delays);
+async function closeDocument(window: DocumentWindow): Promise<void> {
+  await flushDocumentBeforeUnload(window);
   admitDocumentClose(window);
   try {
     await closeDesktopRenderers([window], () => false);
@@ -127,6 +119,6 @@ export function installDocumentUnload<Window extends DocumentWindow>(
       return;
     }
     untilClosed(unloading, window);
-    void closeDocument(window, owner.delays);
+    void closeDocument(window);
   });
 }

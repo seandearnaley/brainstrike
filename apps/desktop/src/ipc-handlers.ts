@@ -24,7 +24,6 @@ import {
   registerFactoryResetIpcHandlers,
   registerProfilePathIpcHandlers,
 } from './ipc-factory-reset';
-import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 interface RegisterIpcHandlerOptions {
@@ -113,7 +112,6 @@ export function createApplicationIpcDomain(
         },
         onChanges,
         {
-          beforeSubscribe: () => lifecycleDelaySeam().delay('parcel-subscribe'),
           onHealth,
           reportDefaultFilteredChanges: true,
         }

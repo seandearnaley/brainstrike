@@ -94,11 +94,6 @@ export class ParcelWatchRetirementError extends AggregateError {
 
 export interface StartParcelWatchOptions {
   /**
-   * E2E seam: awaited before the native subscribe starts, so a test can make it
-   * as slow as a loaded machine (Main's `parcel-subscribe` lifecycle delay).
-   */
-  beforeSubscribe?: () => Promise<void>;
-  /**
    * Per-subscription ignore override (BST-1112): when provided, REPLACES
    * DEFAULT_IGNORE_PATTERNS for THIS subscription only. Explicit overrides
    * apply at both the native and event-guard layers. `undefined` keeps the
@@ -427,10 +422,7 @@ async function startParcelWatchOwned(
   // Joined however long it takes (lifecycle R2): a slow subscribe is load, so health stays
   // `starting` until it settles. Only the subscribe's own failure fails the watch, and a
   // rejected subscribe owns no subscription.
-  const subscribed = options.beforeSubscribe
-    ? options.beforeSubscribe().then(subscribe)
-    : subscribe();
-  const subscription = await subscribed.catch(async (error: unknown) => {
+  const subscription = await subscribe().catch(async (error: unknown) => {
     stopped = true;
     batcher.dispose();
     transitionHealth('failed', {

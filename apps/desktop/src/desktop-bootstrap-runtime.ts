@@ -22,7 +22,6 @@ import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { createDesktopHostLease } from './host-lease-manager';
-import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { registerPrivilegedSchemes } from './privileged-schemes';
 import {
@@ -181,7 +180,6 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     }
     const unbound = new Set<() => void>();
     const lease = createDesktopHostLease({
-      lifecycleDelays: lifecycleDelaySeam(),
       onChildReady: privateClients.attach,
       onChildStarted: () => launched.resolve(),
       onLost: ({ exited, requested }) => {
