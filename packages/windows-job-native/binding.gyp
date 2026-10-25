@@ -24,5 +24,30 @@
         "VCLinkerTool": { "GenerateDebugInformation": "false" }
       }
     }
+  ],
+  "conditions": [
+    [
+      "OS=='win'",
+      {
+        "targets": [
+          {
+            # The command Job tests' independent witness (test/process_observer.cc).
+            "target_name": "process_observer",
+            "type": "executable",
+            "win_delay_load_hook": "false",
+            "sources": ["test/process_observer.cc"],
+            "defines": ["UNICODE", "_UNICODE"],
+            "msvs_settings": {
+              "VCCLCompilerTool": {
+                "ExceptionHandling": 1,
+                "WarnAsError": "true",
+                "WarningLevel": 4
+              },
+              "VCLinkerTool": { "GenerateDebugInformation": "false" }
+            }
+          }
+        ]
+      }
+    ]
   ]
 }
