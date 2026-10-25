@@ -1,6 +1,5 @@
-import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 /**
- * Skill slash-command hook tests: capability gating by bridge presence,
+ * Skill slash-command hook tests: capability gating by the host's discovery,
  * user-invocable + enabled filtering (skills preferences store), and the
  * directive-staging execute contract (writes `:skill[name]` into the composer
  * with the trigger text stripped — never auto-sends).
@@ -26,20 +25,26 @@ vi.mock('@brainstrike/ui', () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
 
+// The agent host's skills scan; absent without a host (web).
+const hostState: {
+  host: { readonly workspaceDiscovery: AssistantHostWorkspaceDiscovery } | undefined;
+} = { host: undefined };
+vi.mock('../assistant-thread-host-context', () => ({
+  useAssistantThreadHost: () => hostState.host,
+}));
+
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-context';
 import { useSkillSlashCommands } from '../use-skill-slash-commands';
 
-interface MutableWindow {
-  skills?: { scan?: () => Promise<BoundaryResult<SkillsScanResultSummary>> } | undefined;
-}
-
-function asMutableWindow(): MutableWindow {
-  return window as unknown as MutableWindow;
-}
-
 function setBridge(result: SkillsScanResultSummary | null): void {
-  asMutableWindow().skills = result
-    ? { scan: () => Promise.resolve({ ok: true, value: result }) }
+  hostState.host = result
+    ? {
+        workspaceDiscovery: {
+          listCommands: () => Promise.reject(new Error('Commands are not under test')),
+          scanSkills: () => Promise.resolve(result),
+        },
+      }
     : undefined;
 }
 
@@ -68,14 +73,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  asMutableWindow().skills = undefined;
+  hostState.host = undefined;
   vi.restoreAllMocks();
 });
 
 const THREAD = 'thread-1';
 
 describe('useSkillSlashCommands', () => {
-  it('returns an empty list when the desktop bridge is absent (web capability gating)', () => {
+  it('returns an empty list without a host (web capability gating)', () => {
     setBridge(null);
     const { result } = renderHook(() => useSkillSlashCommands(THREAD));
     expect(result.current).toEqual([]);

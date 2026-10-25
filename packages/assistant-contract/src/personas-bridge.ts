@@ -21,7 +21,9 @@ export interface AssistantPersonasBridge {
   list: () => Promise<AssistantPersonasListResult>;
 }
 
-// Compile-time exact-set proof (see skills-bridge.ts for the rationale).
+// Compile-time exact-set proof: `satisfies Record<keyof AssistantPersonasBridge, true>`
+// fails the build if an interface method is missing here, and excess keys are
+// rejected, so the pin can never become a subset (or superset) of the interface.
 const ASSISTANT_PERSONAS_BRIDGE_REQUIRED_METHOD_SET = {
   list: true,
 } as const satisfies Record<keyof AssistantPersonasBridge, true>;

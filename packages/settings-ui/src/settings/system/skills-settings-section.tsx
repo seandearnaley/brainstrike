@@ -3,18 +3,14 @@
  *
  * Master switch + per-skill enable toggles, persisted in the skills
  * preferences store (durable keys — see `deriveSkillPreferenceKey`) and
- * applied server-side per request. The list loads through the
- * capability-gated `window.skills` scan bridge, resolved via the shared
- * `resolveSkillsBridge()` contract (`@brainstrike/assistant-contract/skills-bridge`
- * — settings-ui cannot import app-shell's resolver: package cycle). A
- * present-but-malformed bridge resolves to null (fail closed, logged), which
- * renders the same desktop-only note as no bridge at all (desktop main scans
- * `.brainstrike/skills` + `.claude/skills` across mounted roots and home) —
- * INCLUDING invalid skills with their exact validation errors and shadowed
- * skills with their winner, so authors see exactly what loaded and why not
- * (fail closed, never silent). A scan failure renders a DISTINCT error state
- * with Retry — never the empty state, which would falsely claim no skills
- * exist. Web has no bridge and shows an honest desktop-only note.
+ * applied server-side per request. The list comes from the agent host's scan
+ * (`scanSkills`, ADR-0029): `.brainstrike/skills` + `.claude/skills` across
+ * the mounted roots and home — INCLUDING invalid skills with their exact
+ * validation errors and shadowed skills with their winner, so authors see
+ * exactly what loaded and why not (fail closed, never silent). A scan failure
+ * renders a DISTINCT error state with Retry — never the empty state, which
+ * would falsely claim no skills exist. Without a host (web) the section shows
+ * an honest desktop-only note.
  */
 
 import {
@@ -25,7 +21,6 @@ import type {
   SkillScanEntrySummary,
   SkillsScanResultSummary,
 } from '@brainstrike/assistant-contract';
-import { resolveSkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import {
   Badge,
   Button,
@@ -118,19 +113,22 @@ type ScanState =
   | { readonly kind: 'loading' }
   | { readonly kind: 'ready'; readonly result: SkillsScanResultSummary };
 
-export function SkillsSettingsSection(): React.JSX.Element {
+export interface SkillsSettingsSectionProps {
+  /** The agent host's skills scan; absent where no host scans roots (web). */
+  readonly scanSkills?: () => Promise<SkillsScanResultSummary>;
+}
+
+export function SkillsSettingsSection({
+  scanSkills,
+}: SkillsSettingsSectionProps): React.JSX.Element {
   const masterEnabled = useSkillsPreferencesStore(skillsPreferencesSelectors.masterEnabled);
   const disabledSkillKeys = useSkillsPreferencesStore(skillsPreferencesSelectors.disabledSkillKeys);
   const setMasterEnabled = useSkillsPreferencesStore((state) => state.setMasterEnabled);
   const setSkillDisabled = useSkillsPreferencesStore((state) => state.setSkillDisabled);
 
-  // Resolved once per mount (the preload defines the bridge before any
-  // renderer code runs) — the resolver LOGS on a malformed bridge, so calling
-  // it unmemoized in the render body would log per render.
-  const bridge = useMemo(resolveSkillsBridge, []);
-  const hasBridge = bridge !== null;
+  const hasHost = scanSkills !== undefined;
   const [scanState, setScanState] = useState<ScanState>(
-    hasBridge ? { kind: 'loading' } : { kind: 'ready', result: { entries: [] } }
+    hasHost ? { kind: 'loading' } : { kind: 'ready', result: { entries: [] } }
   );
   const [scanGeneration, setScanGeneration] = useState(0);
 
@@ -139,12 +137,11 @@ export function SkillsSettingsSection(): React.JSX.Element {
   // initializer and retry() sets it from the event handler — no synchronous
   // setState inside the effect body (React Compiler / react-doctor rule).
   useEffect(() => {
-    if (!bridge) {
+    if (!scanSkills) {
       return;
     }
     let cancelled = false;
-    bridge
-      .scan()
+    scanSkills()
       .then((result) => {
         if (!cancelled) {
           setScanState({ kind: 'ready', result });
@@ -163,7 +160,7 @@ export function SkillsSettingsSection(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [bridge, scanGeneration]);
+  }, [scanSkills, scanGeneration]);
 
   const retry = useCallback(() => {
     setScanState({ kind: 'loading' });
@@ -218,7 +215,7 @@ export function SkillsSettingsSection(): React.JSX.Element {
           />
         </div>
 
-        {hasBridge ? (
+        {hasHost ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-4">
               <p className="font-medium text-sm">Installed skills</p>

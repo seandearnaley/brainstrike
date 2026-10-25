@@ -1,8 +1,8 @@
 /**
  * User-invocable Agent Skills for the composer's "/" menu.
  *
- * Desktop-only by construction: on web `window.skills` is absent and this
- * returns an empty list (capability gating, never `isElectron()`). Each entry
+ * Desktop-only by construction: the agent host scans skills, so without a host
+ * (web) this returns an empty list (capability gating, never `isElectron()`). Each entry
  * is a namespaced `skill:<name>` slash command whose `execute` stages a
  * VISIBLE `:skill[name]` directive into the composer draft (trigger text
  * stripped, existing draft preserved) — the user sees and can edit or remove
@@ -21,13 +21,13 @@ import {
   type SkillsScanResultSummary,
   serializeSkillDirective,
 } from '@brainstrike/assistant-contract';
-import { resolveSkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { useAssistantThreadHost } from './assistant-thread-host-context';
 
 const logger = createLogger('SkillSlashCommands');
 
@@ -101,7 +101,7 @@ function applySkillCommand(
  * user-defined /commands hook, including the monotonic generation guard).
  */
 export function useSkillSlashCommands(threadId: string | undefined): readonly SlashCommand[] {
-  const bridge = useMemo(resolveSkillsBridge, []);
+  const discovery = useAssistantThreadHost()?.workspaceDiscovery;
   const activeRootIds = useFileExplorerStoreSelector((state) => state.activeRootIds);
   const [scan, setScan] = useState<SkillsScanResultSummary>(EMPTY_RESULT);
   const { toast } = useToast();
@@ -116,15 +116,15 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
   const generationRef = useRef(0);
 
   const reload = useCallback(() => {
-    if (!bridge) {
+    if (!discovery) {
       return () => {
-        // no-op cleanup when the desktop bridge is absent (web)
+        // no-op cleanup when no host scans skills (web)
       };
     }
     generationRef.current += 1;
     const generation = generationRef.current;
-    bridge
-      .scan()
+    discovery
+      .scanSkills()
       .then((result) => {
         if (generation === generationRef.current) {
           setScan(result);
@@ -136,12 +136,12 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
     return () => {
       generationRef.current += 1;
     };
-  }, [bridge]);
+  }, [discovery]);
 
   useEffect(() => reload(), [reload, activeRootIds]);
 
   useEffect(() => {
-    if (!bridge || typeof document === 'undefined') {
+    if (!discovery || typeof document === 'undefined') {
       return;
     }
     const onVisible = (): void => {
@@ -151,7 +151,7 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [bridge, reload]);
+  }, [discovery, reload]);
 
   return useMemo<readonly SlashCommand[]>(() => {
     if (!masterEnabled) {
