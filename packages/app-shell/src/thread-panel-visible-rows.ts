@@ -10,7 +10,7 @@ import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 
 export const THREAD_PANEL_INITIAL_VISIBLE_LIMIT = 50;
 export const THREAD_PANEL_DISCLOSURE_INCREMENT = 50;
-export const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
+const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
 
 /**
  * Treegrid node id of a section row. Custom-groups sections keep their
@@ -19,19 +19,19 @@ export const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
  * id addresses the row, its disclosure limit, its collapse state, and its
  * membership.
  */
-export type ThreadPanelSectionNodeId =
+type ThreadPanelSectionNodeId =
   | typeof UNASSIGNED_FOLDER_SECTION_ID
   | `folder:${string}`
   | `group:${string}`;
 
-export type ThreadPanelSectionKey = 'flat' | 'ungrouped' | ThreadPanelSectionNodeId;
+type ThreadPanelSectionKey = 'flat' | 'ungrouped' | ThreadPanelSectionNodeId;
 
 /**
  * The custom-groups Ungrouped section is NOT the folder view's "No folder"
  * section: one is the absence of a user-created group, the other the absence of
  * a workspace folder, and they carry different headers and actions.
  */
-export type ThreadPanelSectionHeader = ThreadListSectionHeader | { readonly kind: 'ungrouped' };
+type ThreadPanelSectionHeader = ThreadListSectionHeader | { readonly kind: 'ungrouped' };
 
 export interface ThreadPanelGroupRow {
   readonly collapsed: boolean;

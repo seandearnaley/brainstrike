@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Minimatch } from 'minimatch';
 
-export function compileRegexPatterns(
+function compileRegexPatterns(
   patterns: string[],
   setError: (msg: string) => void
 ): RegExp[] | null {
@@ -17,14 +17,14 @@ export function compileRegexPatterns(
   return regexes;
 }
 
-export function compileGlobPatterns(patterns: string[]): Minimatch[] {
+function compileGlobPatterns(patterns: string[]): Minimatch[] {
   // dot:true — the tree display must see dotfiles, in lockstep with the scan
   // matcher (utils/filter-utils createPathFilterMatcher). Without it the
   // "All Files" preset (include '*') hides every dot-path.
   return patterns.map((pattern) => new Minimatch(pattern, { dot: true }));
 }
 
-export function matchPath(
+function matchPath(
   path: string,
   regexes: RegExp[],
   globMatchers: Minimatch[],
@@ -46,7 +46,7 @@ function cloneNode(node: IFileNode, keepChildren: boolean): IFileNode {
   return newNode;
 }
 
-export function normalizeNodePath(path: string): string {
+function normalizeNodePath(path: string): string {
   return path.startsWith('/') ? path.slice(1) : path;
 }
 

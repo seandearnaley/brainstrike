@@ -10,7 +10,7 @@ import {
 const logger = createLogger('EmbeddingHostRuntime');
 
 /** A legacy preference admission failure leaves the shared inference owner healthy. */
-export class EmbeddingBackgroundAdmissionError extends Error {
+class EmbeddingBackgroundAdmissionError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = 'EmbeddingBackgroundAdmissionError';

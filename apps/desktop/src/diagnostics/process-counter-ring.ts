@@ -1,6 +1,6 @@
 import type { WebAssemblyCounts, WebAssemblyFailure } from './webassembly-counter';
 
-export interface ProcessCounterBackgroundTasks {
+interface ProcessCounterBackgroundTasks {
   readonly pending: number;
   readonly running: number;
   readonly suspended: number;

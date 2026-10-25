@@ -13,7 +13,7 @@ import { HostChildListingFailures, HostChildRunFold } from './host-child-run';
 const logger = createLogger('HostTreeApprovals');
 
 /** Why a child's progress is unavailable once this client's connection closed. */
-export const HOST_TREE_DISCONNECTED =
+const HOST_TREE_DISCONNECTED =
   'The agent host disconnected. Reconnect to see this subagent’s progress.';
 
 /** A background child of the viewed thread whose run is still working. */

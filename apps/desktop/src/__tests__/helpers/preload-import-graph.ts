@@ -11,7 +11,7 @@ import ts from 'typescript';
  * sandboxed preload cannot resolve. The entry file itself may `require()`
  * only what `allowedEntryRequires` lists.
  */
-export interface PreloadImportGraphViolation {
+interface PreloadImportGraphViolation {
   readonly file: string;
   readonly reason: string;
   readonly specifier: string;

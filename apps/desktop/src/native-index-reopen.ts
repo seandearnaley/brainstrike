@@ -5,14 +5,14 @@ import type { NativeIndexEvent, NativeIndexReopen } from './native-index-lifecyc
 const logger = createLogger('NativeIndexReopen');
 
 /** The wait before each automatic re-open, in order; their count bounds a series. */
-export const NATIVE_INDEX_REOPEN_DELAYS_MS: readonly number[] = [2000, 10_000, 30_000];
+const NATIVE_INDEX_REOPEN_DELAYS_MS: readonly number[] = [2000, 10_000, 30_000];
 
 /**
  * A failure its owner typed as passing: a missed deadline, or a process or index
  * that stopped and restarts. A refusal, bad input, configuration or an internal
  * fault needs a person, and is never re-opened automatically.
  */
-export function isTransientFailure(error: unknown): boolean {
+function isTransientFailure(error: unknown): boolean {
   return (
     error instanceof BoundaryFailureError &&
     error.failure.kind === 'fault' &&

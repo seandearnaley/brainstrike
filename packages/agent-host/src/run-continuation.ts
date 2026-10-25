@@ -259,7 +259,7 @@ const PlanDecisionSchema = Schema.StructWithRest(
   [Schema.Record(Schema.String, Schema.Unknown)]
 );
 /** A plan-mode run's approved plan, once its plan interaction was answered with approval. */
-export function approvedHostPlan(run: Run):
+function approvedHostPlan(run: Run):
   | {
       readonly feedback?: string;
     }
@@ -282,7 +282,7 @@ export function approvedHostPlan(run: Run):
   return;
 }
 /** The follow-up `run/start` an approved plan continues with, out of plan mode. */
-export function approvedHostPlanRunParams(
+function approvedHostPlanRunParams(
   run: Run,
   plan: {
     readonly feedback?: string;
@@ -359,7 +359,7 @@ export function failedHostStartEvents(
   ];
 }
 /** A continuation that threw ends its run: stopped, interrupted on lost approval input, or failed. */
-export function hostContinuationFailure(
+function hostContinuationFailure(
   run: Run,
   cause: unknown
 ): {
@@ -444,7 +444,7 @@ export async function approveHostRunByPolicy(
   );
 }
 // Continuation calculations reuse Core's owned run and dispatch; no log writer lives here.
-export async function validateHostInteractionResume(
+async function validateHostInteractionResume(
   run: Run,
   pending: PendingInteraction,
   value: unknown
@@ -514,7 +514,7 @@ async function modelResult(
     type: 'tool-result',
   };
 }
-export async function resolveApprovedHostCall(
+async function resolveApprovedHostCall(
   run: Run,
   pending: PendingInteraction,
   platform: HostPlatform,
@@ -557,7 +557,7 @@ export async function resolveApprovedHostCall(
   return modelResult(run, event.toolCallId, event.toolId, input, output);
 }
 /** Resolve already-issued calls at the existing step limit without another model request. */
-export async function finishApprovedHostResults(
+async function finishApprovedHostResults(
   run: Run,
   platform: HostPlatform,
   dispatch: Dispatch
@@ -570,7 +570,7 @@ export async function finishApprovedHostResults(
   }
   return results.length > 0 ? [{ content: results, role: 'tool' }] : [];
 }
-export async function createHostApprovalResponses(
+async function createHostApprovalResponses(
   run: Run,
   platform: HostPlatform,
   dispatch: Dispatch

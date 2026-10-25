@@ -48,7 +48,7 @@ import {
   searchHostThreads,
 } from './thread-search.ts';
 
-export interface HostConnectionLifecycle {
+interface HostConnectionLifecycle {
   readonly closing: boolean;
   /** Resolves after Root cleanup joins; the transport owns its final response write. */
   stop(): Promise<void>;

@@ -3,7 +3,7 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { MountedWorkspaceRoot } from './ipc-domains/workspace-root-types';
 import type { NativeIndexAuthority } from './native-index-runtime';
 
-export interface NativeCleanupOwner {
+interface NativeCleanupOwner {
   readonly generation: number;
   readonly port: IndexerPort & ScopedIndexerPort;
   readAuthority(): NativeIndexAuthority;

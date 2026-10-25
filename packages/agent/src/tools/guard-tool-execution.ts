@@ -93,7 +93,7 @@ function hasExecute(tool: unknown): tool is ExecutableLike {
  * is how a declared per-call budget keeps its margin out of the model-facing
  * message without duplicating `resolveToolGuardBudget`'s arithmetic here.
  */
-export type ToolGuardTimeout = number | ((args: readonly unknown[]) => number | ToolGuardBudget);
+type ToolGuardTimeout = number | ((args: readonly unknown[]) => number | ToolGuardBudget);
 
 export interface GuardOptions {
   /**

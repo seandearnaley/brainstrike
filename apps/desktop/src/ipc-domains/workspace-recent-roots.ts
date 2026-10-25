@@ -3,5 +3,4 @@
 export {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
-  resolveGrantedRootHandle,
 } from '@brainstrike/assistant-service/node-workspace-services';

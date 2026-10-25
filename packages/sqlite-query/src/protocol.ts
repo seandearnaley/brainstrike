@@ -18,7 +18,7 @@ const Value = Schema.Union([
 ]);
 export type SqliteValue = typeof Value.Type;
 
-export const GrepRowsSchema = Schema.Struct({
+const GrepRowsSchema = Schema.Struct({
   columns: Schema.Array(Schema.String),
   identity: identityStateSchema,
   matchedChunks: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),

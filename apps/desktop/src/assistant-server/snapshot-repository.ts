@@ -10,7 +10,6 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import type { SnapshotKind } from './snapshot-service';
 
 /**
  * Durable failed-capture marker (see the module doc comment): git's all-zero
@@ -21,18 +20,6 @@ export const FAILED_SNAPSHOT_CAPTURE_OID = '0'.repeat(40);
 
 export function isFailedSnapshotCaptureOid(oid: string): boolean {
   return oid === FAILED_SNAPSHOT_CAPTURE_OID;
-}
-
-export interface WorkspaceSnapshotRow {
-  readonly commitOid: string;
-  /** Full-precision `::text` timestamp — never routed through a JS `Date`. */
-  readonly createdAt: string;
-  readonly id: string;
-  readonly kind: SnapshotKind;
-  readonly rootId: string;
-  readonly rootPath: string;
-  readonly runId: string | null;
-  readonly threadId: string;
 }
 
 const UUID_V7_MAX_TIMESTAMP_MS = 2 ** 48;

@@ -375,8 +375,6 @@ export {
   applicationDomainCapture,
   bootWindow,
   createLoggerMock,
-  existsSyncMock,
-  indexConfigCapture,
   isDesktopShuttingDownMock,
   mockApp,
   nativeAcquire,

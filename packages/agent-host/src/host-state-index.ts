@@ -22,7 +22,7 @@ import type { HostStartupContext } from './runtime.ts';
 const logger = createLogger('AgentHostStateIndex');
 
 /** Derived and rebuildable from the state log; lives inside the host's own state root. */
-export const HOST_STATE_INDEX_FILE = 'state-index.sqlite';
+const HOST_STATE_INDEX_FILE = 'state-index.sqlite';
 
 /**
  * The worker's close ladder (lifecycle R5(b)): a cooperative close gets `closeMs` before the

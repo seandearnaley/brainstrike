@@ -84,7 +84,7 @@ export const THREAD_END_THRESHOLD_PX = 24;
 /** Rows kept mounted beyond the visible range on each side. */
 const THREAD_VIRTUAL_OVERSCAN = 6;
 
-export type ThreadRenderTier = 'static' | 'virtual';
+type ThreadRenderTier = 'static' | 'virtual';
 
 /**
  * The library's message-component map. Taken from the primitive itself so the

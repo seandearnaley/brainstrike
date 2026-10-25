@@ -48,7 +48,7 @@ export interface ComposerPickerEntry {
   runtimeLabel: string;
 }
 
-export interface ComposerPickerProviderGroup {
+interface ComposerPickerProviderGroup {
   entries: ComposerPickerEntry[];
   providerId: string;
   providerName: string;

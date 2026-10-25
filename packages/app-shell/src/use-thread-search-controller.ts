@@ -27,7 +27,7 @@ import {
 import { type ThreadSearchSemanticState, useThreadSearchStore } from './thread-search-store';
 
 /** Minimum query length before a search runs (titles match from 2 chars). */
-export const THREAD_SEARCH_MIN_QUERY_LENGTH = 2;
+const THREAD_SEARCH_MIN_QUERY_LENGTH = 2;
 /** Debounce between typing and the search pass. */
 export const THREAD_SEARCH_DEBOUNCE_MS = 250;
 /** Backlog rows embedded per background pass (bounded per the perf contract). */
@@ -40,7 +40,7 @@ const MAX_EMBEDDING_PASSES_PER_DRAIN = 50;
  * with the SAME visible reason. Bounded so a recovered embedder (model
  * finished downloading, document became visible) is retried automatically.
  */
-export const THREAD_SEARCH_SEMANTIC_RETRY_MS = 60_000;
+const THREAD_SEARCH_SEMANTIC_RETRY_MS = 60_000;
 
 /** The embedder a backlog drain embeds the host's rows with, and their vector profile. */
 interface HostSearchTarget {

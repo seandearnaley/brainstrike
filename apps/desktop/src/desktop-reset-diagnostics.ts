@@ -1,4 +1,4 @@
-export type DesktopResetDiagnosticsStatus = 'completed' | 'failed' | 'idle' | 'running';
+type DesktopResetDiagnosticsStatus = 'completed' | 'failed' | 'idle' | 'running';
 
 export interface DesktopResetDiagnosticsSnapshot {
   readonly lastCompletedAt: string | null;

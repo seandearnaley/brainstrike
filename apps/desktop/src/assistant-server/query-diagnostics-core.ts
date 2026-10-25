@@ -61,12 +61,12 @@ interface QueryDiagnosticsResultBase {
   truncated: boolean;
 }
 
-export interface QueryDiagnosticEventsResult extends QueryDiagnosticsResultBase {
+interface QueryDiagnosticEventsResult extends QueryDiagnosticsResultBase {
   items: QueryDiagnosticEventItem[];
   kind: 'events';
 }
 
-export interface QueryDiagnosticFingerprintsResult extends QueryDiagnosticsResultBase {
+interface QueryDiagnosticFingerprintsResult extends QueryDiagnosticsResultBase {
   items: QueryDiagnosticFingerprintItem[];
   kind: 'fingerprints';
 }

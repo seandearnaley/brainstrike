@@ -31,7 +31,7 @@ class HostLoadFailure {
   }
 }
 
-export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 
 export interface RendererHostStatusShape {
   readonly active: boolean;
@@ -40,7 +40,7 @@ export interface RendererHostStatusShape {
   readonly state: RendererHostLifecycleState;
 }
 
-export interface RendererHostLoadFailureContext {
+interface RendererHostLoadFailureContext {
   readonly errorCode: number;
   readonly errorDescription: string;
   readonly message: string;
@@ -48,7 +48,7 @@ export interface RendererHostLoadFailureContext {
   readonly window: BrowserWindow;
 }
 
-export interface RendererHostProcessGoneContext {
+interface RendererHostProcessGoneContext {
   readonly exitCode: number;
   readonly message: string;
   readonly reason: string;

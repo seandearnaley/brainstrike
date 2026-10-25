@@ -58,7 +58,7 @@ const CROSS_REGION_PREFIXES = [
 ] as const;
 
 /** The geo profile prefixes the cards publish (GovCloud's `us-gov.` is excluded above). */
-export type BedrockGeoPrefix = 'apac' | 'au' | 'ca' | 'eu' | 'in' | 'jp' | 'us';
+type BedrockGeoPrefix = 'apac' | 'au' | 'ca' | 'eu' | 'in' | 'jp' | 'us';
 
 export interface BedrockInferenceRoutes {
   /** Region → the geo profile it is a source region of. */

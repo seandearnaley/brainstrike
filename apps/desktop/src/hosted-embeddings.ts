@@ -35,9 +35,7 @@ type HostedEmbeddingProvider =
   | GoogleEmbeddingProvider
   | CohereEmbeddingProvider
   | VoyageEmbeddingProvider;
-export async function resolveEmbeddingApiKey(
-  provider: HostedProviderType
-): Promise<string | undefined> {
+async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
   // Shared resolution order (BST-979): the environment is authoritative, the
   // keychain is the fallback — previously this path was keychain-first, so a
   // key rotated via env could stay shadowed by a stale stored key. The

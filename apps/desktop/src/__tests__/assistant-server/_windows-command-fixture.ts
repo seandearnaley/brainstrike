@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { vi } from 'vitest';
 
 /** Source tests execute the actual bundled wrapper; packaged tests use the production resolver. */
-export function builtWindowsCommandEntry(): string {
+function builtWindowsCommandEntry(): string {
   // A native executable path must not enter Vite's new-URL asset transform.
   const entry = resolve(import.meta.dirname, '../../../dist/windows-command-entry.cjs');
   if (!statSync(entry).isFile()) {

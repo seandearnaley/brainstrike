@@ -99,11 +99,7 @@ function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData
       : {}),
   };
 }
-export type PlatformRequest = (
-  method: string,
-  input: unknown,
-  signal?: AbortSignal
-) => Promise<unknown>;
+type PlatformRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
 /**
  * ADR-0007: Node never runs local inference. A thread's admitted recall
  * embedder borrows Main's hidden embedding host; JSON-RPC cancellation carries
@@ -114,7 +110,7 @@ export type PlatformRequest = (
  * borrow it). The built-in local provider is embeddings-only now, so there is
  * no generation to lend.
  */
-export function borrowedLocalInference(
+function borrowedLocalInference(
   request: PlatformRequest,
   selected: DesktopRunSelection
 ): {
@@ -153,7 +149,7 @@ export function borrowedLocalInference(
  * host's run admission. A workspace borrow is Main's until the host releases
  * the lease it named.
  */
-export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionReads {
+function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionReads {
   return {
     acquireWorkspace: async ({ binding, signal, threadId }) => {
       const leaseId = randomUUID();

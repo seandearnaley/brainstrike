@@ -56,7 +56,7 @@ export async function retireHostCoreRuns(options: {
   return outcomes;
 }
 
-export function hostRunClosingOutcomes(
+function hostRunClosingOutcomes(
   joined: readonly PromiseSettledResult<readonly unknown[]>[]
 ): readonly unknown[] {
   return joined.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));

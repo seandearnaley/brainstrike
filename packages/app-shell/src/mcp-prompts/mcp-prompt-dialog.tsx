@@ -32,7 +32,7 @@ const COMPLETION_DEBOUNCE_MS = 250;
 /** Bound for suggestion values rendered for one argument. */
 const SUGGESTION_LIMIT = 20;
 
-export interface McpPromptCompletionRequest {
+interface McpPromptCompletionRequest {
   readonly argument: string;
   /** The other arguments already filled, so the server can narrow its suggestions. */
   readonly context: Readonly<Record<string, string>>;

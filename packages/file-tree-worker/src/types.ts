@@ -46,7 +46,7 @@ export interface WorkerFileNode {
 /**
  * Initialize the worker with root-level nodes.
  */
-export interface InitMessage {
+interface InitMessage {
   payload: {
     rootNodes: WorkerFileNode[];
     folderId: string;
@@ -57,7 +57,7 @@ export interface InitMessage {
 /**
  * Result of loading a directory from the main thread.
  */
-export interface LoadResultMessage {
+interface LoadResultMessage {
   payload: {
     /** Worker request ID this result answers. Required for worker-managed bulk operations. */
     requestId?: string;
@@ -70,7 +70,7 @@ export interface LoadResultMessage {
 /**
  * Result of a failed directory load.
  */
-export interface LoadErrorMessage {
+interface LoadErrorMessage {
   payload: {
     /** Worker request ID this error answers. Required for worker-managed bulk operations. */
     requestId?: string;
@@ -83,7 +83,7 @@ export interface LoadErrorMessage {
 /**
  * Start expand-all operation.
  */
-export interface ExpandAllMessage {
+interface ExpandAllMessage {
   operationId: number;
   payload: {
     folderId: string;
@@ -94,14 +94,14 @@ export interface ExpandAllMessage {
 /**
  * Collapse all directories.
  */
-export interface CollapseAllMessage {
+interface CollapseAllMessage {
   type: 'collapseAll';
 }
 
 /**
  * Toggle expansion of a single directory.
  */
-export interface ToggleExpandMessage {
+interface ToggleExpandMessage {
   payload: {
     path: string;
   };
@@ -111,7 +111,7 @@ export interface ToggleExpandMessage {
 /**
  * Abort current operation.
  */
-export interface AbortMessage {
+interface AbortMessage {
   type: 'abort';
 }
 
@@ -119,7 +119,7 @@ export interface AbortMessage {
  * Load specific paths (for restoring expanded directories).
  * Unlike expandAll which does BFS discovery, this loads only the requested paths.
  */
-export interface LoadPathsMessage {
+interface LoadPathsMessage {
   operationId: number;
   payload: {
     /** Directory paths to load (should be sorted by depth, shallowest first) */
@@ -132,7 +132,7 @@ export interface LoadPathsMessage {
  * Load all descendants of a specific directory (for recursive folder selection).
  * Like expandAll but scoped to a subtree starting from the given path.
  */
-export interface LoadSubtreeMessage {
+interface LoadSubtreeMessage {
   operationId: number;
   payload: {
     /** Root path of the subtree to load */
@@ -144,7 +144,7 @@ export interface LoadSubtreeMessage {
 /**
  * Update the tree with new nodes (e.g., after single directory load).
  */
-export interface UpdateTreeMessage {
+interface UpdateTreeMessage {
   payload: {
     path: string;
     children: WorkerFileNode[];
@@ -158,7 +158,7 @@ export interface UpdateTreeMessage {
  * The worker computes the flattened list based on its current tree state
  * and the set of expanded paths.
  */
-export interface FlattenTreeMessage {
+interface FlattenTreeMessage {
   payload: {
     /** Paths that should be considered expanded (from UI state) */
     expandedPaths: string[];
@@ -189,7 +189,7 @@ export type MainToWorkerMessage =
 /**
  * Worker is ready to receive messages.
  */
-export interface WorkerReadyMessage {
+interface WorkerReadyMessage {
   type: 'ready';
 }
 
@@ -211,7 +211,7 @@ export interface RequestLoadMessage {
 /**
  * Updated tree snapshot for React state sync.
  */
-export interface TreeSnapshotMessage {
+interface TreeSnapshotMessage {
   payload: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
@@ -222,7 +222,7 @@ export interface TreeSnapshotMessage {
 /**
  * Patch for a directory whose children were loaded or replaced.
  */
-export interface ChildrenLoadedPatchMessage {
+interface ChildrenLoadedPatchMessage {
   /** Owning bulk operation. Omitted for standalone updateTree patches. */
   operationId?: number;
   payload: {
@@ -236,7 +236,7 @@ export interface ChildrenLoadedPatchMessage {
 /**
  * Patch for a directory load-state transition.
  */
-export interface NodeLoadStateChangedPatchMessage {
+interface NodeLoadStateChangedPatchMessage {
   /** Owning bulk operation. Omitted for standalone updateTree patches. */
   operationId?: number;
   payload: {
@@ -250,7 +250,7 @@ export interface NodeLoadStateChangedPatchMessage {
 /**
  * Patch for expanded-path membership changes.
  */
-export interface ExpandedPathsDeltaMessage {
+interface ExpandedPathsDeltaMessage {
   /** Owning bulk operation. Omitted for standalone expansion updates. */
   operationId?: number;
   payload: {
@@ -263,7 +263,7 @@ export interface ExpandedPathsDeltaMessage {
 /**
  * Progress update during expand-all.
  */
-export interface ProgressMessage {
+interface ProgressMessage {
   /** Owning bulk operation. */
   operationId: number;
   payload: {
@@ -277,7 +277,7 @@ export interface ProgressMessage {
 /**
  * Expand-all operation completed.
  */
-export interface CompleteMessage {
+interface CompleteMessage {
   /** Owning bulk operation. */
   operationId: number;
   payload: {
@@ -291,7 +291,7 @@ export interface CompleteMessage {
 /**
  * Error occurred in worker.
  */
-export interface ErrorMessage {
+interface ErrorMessage {
   /** Owning bulk operation, when the error belongs to one. */
   operationId?: number;
   payload: {
@@ -304,7 +304,7 @@ export interface ErrorMessage {
 /**
  * Log message from worker for debugging.
  */
-export interface WorkerLogMessage {
+interface WorkerLogMessage {
   data?: Record<string, unknown>;
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
@@ -326,7 +326,7 @@ export interface FlattenedNode {
  * Result of flattening the tree into visible rows.
  * Sent in response to FlattenTreeMessage.
  */
-export interface FlattenedRowsMessage {
+interface FlattenedRowsMessage {
   payload: {
     /** Flattened list of visible nodes for virtualized rendering */
     nodes: FlattenedNode[];

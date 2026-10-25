@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ThreadSearchCoverage, ThreadSearchResultItem } from './thread-search-service';
 
-export type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
+type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
 
 /**
  * Session store for the Threads panel search (mirrors the
@@ -10,7 +10,7 @@ export type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
  * never clobber or resurrect state. Session-only; registered with factory
  * reset in `register-factory-reset-session-stores.ts`.
  */
-export interface ThreadSearchNavigationTarget {
+interface ThreadSearchNavigationTarget {
   readonly messageId: string;
   readonly ownerResourceId: string;
   readonly requestId: number;

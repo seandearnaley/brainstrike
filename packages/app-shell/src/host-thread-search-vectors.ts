@@ -15,7 +15,7 @@ import type { ThreadSearchCoverage } from './thread-search-service';
 export type ThreadSearchVectorProfile = Readonly<Record<string, number | string>>;
 
 /** One host conversation row without a vector under a profile. */
-export interface HostSearchBacklogRow {
+interface HostSearchBacklogRow {
   readonly seq: number;
   readonly sourceHash: string;
   readonly text: string;

@@ -62,7 +62,7 @@ export function describeDelegationChain(
  * Four identical `queryEmbeddingSpace` cards from four Explorer specialists
  * are otherwise indistinguishable (thread-1dab3290, 2026-09-14).
  */
-export function describeDelegationOwner(
+function describeDelegationOwner(
   prompts: ReadonlyMap<string, string>,
   delegation: NonNullable<AssistantToolApprovalRequest['delegation']>
 ): string {
@@ -146,7 +146,7 @@ export function useDelegatedNoticeContext(approval: AssistantToolApprovalRequest
 }
 
 /** Status chip text for the notice header. */
-export function resolveApprovalStatusLabel(
+function resolveApprovalStatusLabel(
   displayedAction: AssistantToolApprovalDecision | null,
   actionLockedByRun: boolean
 ): string {

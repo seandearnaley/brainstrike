@@ -6,9 +6,9 @@ import { configureHostTelemetryContent } from './host-telemetry.ts';
 
 const logger = createLogger('AgentHostTracing');
 
-export const HOST_TRACING_SERVICE_NAME = 'brainstrike-agent-host';
+const HOST_TRACING_SERVICE_NAME = 'brainstrike-agent-host';
 /** A slow or unreachable collector never holds the host's exit longer than this. */
-export const HOST_TRACING_SHUTDOWN_TIMEOUT_MS = 1000;
+const HOST_TRACING_SHUTDOWN_TIMEOUT_MS = 1000;
 
 export interface HostTracing {
   /** Flushes queued spans and shuts the provider down within the bounded wait. */

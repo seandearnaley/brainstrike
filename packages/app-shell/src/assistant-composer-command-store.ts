@@ -15,7 +15,7 @@ function reportDraftStorageError(error: unknown, title: string): void {
   });
 }
 
-export type ComposerDraftMode = 'append' | 'replace';
+type ComposerDraftMode = 'append' | 'replace';
 
 export interface AssistantComposerCommand {
   readonly id: string;

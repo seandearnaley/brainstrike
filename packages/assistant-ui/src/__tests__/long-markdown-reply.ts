@@ -129,7 +129,7 @@ sections.push(
   '[^fold]: Only the projection reads the committed rows.'
 );
 
-export const LONG_REPLY = sections.join('\n\n');
+const LONG_REPLY = sections.join('\n\n');
 
 /** Model-like tokens: an optional leading space and up to five characters. */
 export const LONG_REPLY_TOKENS: readonly string[] = LONG_REPLY.match(/\s*\S{1,5}|\s+/g) ?? [];
@@ -139,7 +139,7 @@ export const LONG_REPLY_TOKENS: readonly string[] = LONG_REPLY.match(/\s*\S{1,5}
  * there on Streamdown parses the reply as one block, so incremental parsing is
  * measured before it.
  */
-export const LONG_REPLY_FOOTNOTE_TOKEN = ((): number => {
+const LONG_REPLY_FOOTNOTE_TOKEN = ((): number => {
   const footnote = LONG_REPLY.indexOf('[^');
   let offset = 0;
   for (const [index, token] of LONG_REPLY_TOKENS.entries()) {
@@ -150,8 +150,6 @@ export const LONG_REPLY_FOOTNOTE_TOKEN = ((): number => {
   }
   throw new Error('The long reply has no footnote.');
 })();
-
-export const LONG_REPLY_WORDS = LONG_REPLY.split(/\s+/).filter(Boolean).length;
 
 /** A token that opens a new prose paragraph: a blank line, then a capital letter. */
 const PARAGRAPH_START = /^\n\n[A-Z]/;

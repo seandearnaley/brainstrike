@@ -16,7 +16,7 @@ export interface CommittedThread {
   readonly threadId: string;
 }
 
-export type ConversationInvariant =
+type ConversationInvariant =
   /** The renderer projection folded every committed row (#3713). */
   | 'projection-folds'
   /** A step's adjacent text blocks render as one text part, never one per block (#3725). */
@@ -46,7 +46,7 @@ export interface RenderedDelegationCard {
   readonly toolCalls: number | null;
 }
 
-export interface CommittedRunShape {
+interface CommittedRunShape {
   /** Tool results the guard hid behind its generic fault. */
   readonly hiddenFailures: number;
   readonly outcome: string;

@@ -25,7 +25,7 @@ import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts
 
 const logger = createLogger('MastraToolDiscovery');
 
-export interface ToolDiscoveryMetadata {
+interface ToolDiscoveryMetadata {
   readonly adapter: ToolDiscoveryAdapter;
   readonly coreToolIds: readonly string[];
   readonly deferredToolIds: readonly string[];
@@ -125,7 +125,7 @@ export function resolveToolDiscoverySurface(
   };
 }
 
-export function isHostedProviderRuntime(provider: ProviderId): boolean {
+function isHostedProviderRuntime(provider: ProviderId): boolean {
   // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
   // finding 4): only the known local runtimes opt out of the hosted path, so
   // an unknown id or a future runtime value keeps the pre-BST-1349 hosted

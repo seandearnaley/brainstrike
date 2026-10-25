@@ -70,7 +70,7 @@ export interface GitInventoryServiceDeps {
 }
 
 /** What a watcher invalidation was about, for push-to-renderer consumers (BST-1161). */
-export interface GitInventoryInvalidation {
+interface GitInventoryInvalidation {
   readonly gitCommonDir: string;
   readonly repositoryRoot: string | null;
 }

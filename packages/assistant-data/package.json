@@ -6,8 +6,7 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "fractional-indexing": "^4.0.0",
-    "effect": "catalog:"
+    "fractional-indexing": "^4.0.0"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

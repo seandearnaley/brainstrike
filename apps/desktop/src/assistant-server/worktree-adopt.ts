@@ -283,7 +283,7 @@ export async function adoptWorktree(
 }
 
 /** One `git worktree move` inferred (never rewritten) during a shell reconcile. */
-export interface LikelyWorktreeMove {
+interface LikelyWorktreeMove {
   readonly branch: string;
   readonly newPath: string;
   readonly vanishedLedgerId: string;

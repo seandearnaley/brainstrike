@@ -26,7 +26,7 @@ interface RootRow {
 
 const NO_ROOTS: readonly ThreadCheckoutRoot[] = [];
 /** The display name of a bound folder whose row was deleted with its indexed data. */
-export const UNKNOWN_REMOVED_FOLDER_NAME = 'Unknown folder';
+const UNKNOWN_REMOVED_FOLDER_NAME = 'Unknown folder';
 
 interface ResolvedThreadRoots extends ResolvedSecondaryRoots {
   readonly primaryRemoved: boolean;

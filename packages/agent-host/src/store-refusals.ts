@@ -11,7 +11,7 @@ import { StateStoreReadOnlyError, ThreadReadOnlyError } from '@brainstrike/state
  * a failure: it crosses as a refusal its caller can recognise, never as the
  * internal fault "Something went wrong".
  */
-export const STATE_STORE_READ_ONLY = refusal({
+const STATE_STORE_READ_ONLY = refusal({
   category: 'availability',
   code: STATE_STORE_READ_ONLY_CODE,
   message:
@@ -21,7 +21,7 @@ export const STATE_STORE_READ_ONLY = refusal({
 });
 
 /** One thread's history is damaged, so it refuses appends while the store stays writable. */
-export const THREAD_READ_ONLY = refusal({
+const THREAD_READ_ONLY = refusal({
   category: 'availability',
   code: 'thread.read-only',
   message: 'This conversation is damaged, so it is read-only and this change was not saved.',

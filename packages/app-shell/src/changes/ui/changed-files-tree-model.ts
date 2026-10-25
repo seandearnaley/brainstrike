@@ -61,7 +61,7 @@ import type { ChangedFileEntry, GitInventory, WorktreeDescriptor } from '@brains
 import type { TreeNode } from '@brainstrike/ui';
 import { changedFileKey } from '../changes-store';
 
-export interface ChangedFilesRootNodeData {
+interface ChangedFilesRootNodeData {
   readonly kind: 'root';
   /**
    * Human-readable name for the root group row (BST-1164 review): the
@@ -74,11 +74,11 @@ export interface ChangedFilesRootNodeData {
   readonly rootId: string;
 }
 
-export interface ChangedFilesOutsideRootsNodeData {
+interface ChangedFilesOutsideRootsNodeData {
   readonly kind: 'outside-roots';
 }
 
-export interface ChangedFilesRepositoryNodeData {
+interface ChangedFilesRepositoryNodeData {
   readonly kind: 'repository';
   readonly repositoryRoot: string;
 }
@@ -90,7 +90,7 @@ export interface ChangedFilesWorktreeNodeData {
   readonly worktreePath: string;
 }
 
-export interface ChangedFilesFileNodeData {
+interface ChangedFilesFileNodeData {
   readonly entry: ChangedFileEntry;
   readonly kind: 'file';
 }
@@ -114,7 +114,7 @@ function rootNodeId(rootId: string): string {
 /** Node-id prefix for repository group rows. Exported so a consumer can
  * recover the owning repository of a child row from `TreeNode.parentId`
  * without the model having to duplicate `repositoryRoot` onto every node. */
-export const REPOSITORY_NODE_ID_PREFIX = 'repo:';
+const REPOSITORY_NODE_ID_PREFIX = 'repo:';
 
 function repositoryNodeId(repositoryRoot: string): string {
   return `${REPOSITORY_NODE_ID_PREFIX}${repositoryRoot}`;

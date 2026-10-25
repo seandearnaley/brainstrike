@@ -22,11 +22,11 @@ export const selectExcludeFilters = (s: FileExplorerState): string[] => s.exclud
 export const selectUseRegex = (s: FileExplorerState): boolean => s.useRegex;
 
 /** Selector for the include filters the user has toggled OFF. */
-export const selectDisabledIncludeFilters = (s: FileExplorerState): ReadonlySet<string> =>
+const selectDisabledIncludeFilters = (s: FileExplorerState): ReadonlySet<string> =>
   s.disabledIncludeFilters;
 
 /** Selector for the exclude filters the user has toggled OFF. */
-export const selectDisabledExcludeFilters = (s: FileExplorerState): ReadonlySet<string> =>
+const selectDisabledExcludeFilters = (s: FileExplorerState): ReadonlySet<string> =>
   s.disabledExcludeFilters;
 
 const EMPTY_FILTERS: string[] = [];

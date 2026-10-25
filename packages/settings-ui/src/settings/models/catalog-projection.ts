@@ -12,7 +12,7 @@ import {
   type ProviderModelDefinition,
 } from '@brainstrike/assistant-contract/provider-registry';
 
-export type CatalogModelType = 'chat' | 'embedding';
+type CatalogModelType = 'chat' | 'embedding';
 
 export interface CatalogPricing {
   readonly cacheReadPerMTok: number | null;

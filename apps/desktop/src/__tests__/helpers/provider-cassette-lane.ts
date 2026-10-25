@@ -42,7 +42,7 @@ function streamsText(body: string): boolean {
   );
 }
 
-export interface ScenarioResult {
+interface ScenarioResult {
   readonly shape: ConversationShape;
   readonly violations: ReturnType<typeof conversationShape>['violations'];
 }

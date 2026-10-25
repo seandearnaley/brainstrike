@@ -124,7 +124,7 @@ export interface ModelProviderScript {
  * function of the request's own message history, so the recorded inputs
  * (`roles`, `toolResultCount`) plus the `decision` fully explain the response.
  */
-export interface ModelProviderTurnRecord {
+interface ModelProviderTurnRecord {
   /** `final-text`, or `tool:<name>` for a scripted tool call. */
   readonly decision: string;
   readonly requestIndex: number;
@@ -133,7 +133,7 @@ export interface ModelProviderTurnRecord {
 }
 
 /** The provider wire a scripted request arrived on. */
-export type ModelProviderWire = 'chat-completions' | 'responses';
+type ModelProviderWire = 'chat-completions' | 'responses';
 
 /** Parsed provider request available to parent/child test script routing. */
 export interface ModelProviderRequest {
@@ -224,7 +224,7 @@ type ResolvedTurn = { calls: readonly ScriptedToolCall[] } | { finalText: string
 const liveShimOrigins = new Set<string>();
 
 /** True when `value` addresses a live canonical shim in this worker. */
-export function isLiveModelProviderShimUrl(value: string): boolean {
+function isLiveModelProviderShimUrl(value: string): boolean {
   return URL.canParse(value) && liveShimOrigins.has(new URL(value).origin);
 }
 

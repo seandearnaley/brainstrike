@@ -19,7 +19,7 @@ const logger = createLogger('AgentHostStateIndex');
 const STATE_INDEX_REPLACEMENTS = 3;
 
 /** Every state port the host hands out; each call reaches the owner's current worker. */
-export type HostStateIndexPort = StateIndexerPort &
+type HostStateIndexPort = StateIndexerPort &
   StateMessageVectorPort &
   StateObservationVectorPort &
   Pick<IndexerPort, 'destroy'>;

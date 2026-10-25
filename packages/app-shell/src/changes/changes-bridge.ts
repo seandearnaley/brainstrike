@@ -24,14 +24,7 @@ import type {
   StructuredFileDiff,
 } from '@brainstrike/types';
 
-export type {
-  Changeset,
-  ChangesetView,
-  ChangesInvalidationEvent,
-  GitInventory,
-  GitResult,
-  StructuredFileDiff,
-} from '@brainstrike/types';
+export type { ChangesInvalidationEvent } from '@brainstrike/types';
 
 const logger = createLogger('ChangesBridge');
 
