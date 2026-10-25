@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -105,89 +105,86 @@ test('@desktop-slow-machine-workers slow workers are waited for, never retired o
   // Every delay is paid once; the rest is the ordinary first run on a slow runner.
   test.setTimeout(8 * 60_000);
   const folder = realpathSync(await mkdtemp(join(tmpdir(), 'brainstrike-slow-workers-')));
+  electron.removeAfterClose(folder);
   await writeFile(
     join(folder, 'slow-proof.md'),
     '# Slow machine\nThe workers proof indexes this document while every worker is slow.\n'
   );
-  try {
-    const { app, window } = await electron.ensureContext();
+  const { app, window } = await electron.ensureContext();
 
-    // The hidden embedding host reports ready 35 s late, past its former 30 s ready timer: it is
-    // waited for, in one window. Timing this first start also proves the seam is live.
-    expect(await getEmbeddingHostStatus(window)).toMatchObject({ state: 'stopped' });
-    const hostStart = Date.now();
-    const host = await ensureEmbeddingHostStarted(window);
-    expect(Date.now() - hostStart).toBeGreaterThanOrEqual(35_000);
-    expect(host).toMatchObject({ lastError: null, state: 'running' });
-    expect(await embeddingHostWindows(app)).toBe(1);
+  // The hidden embedding host reports ready 35 s late, past its former 30 s ready timer: it is
+  // waited for, in one window. Timing this first start also proves the seam is live.
+  expect(await getEmbeddingHostStatus(window)).toMatchObject({ state: 'stopped' });
+  const hostStart = Date.now();
+  const host = await ensureEmbeddingHostStarted(window);
+  expect(Date.now() - hostStart).toBeGreaterThanOrEqual(35_000);
+  expect(host).toMatchObject({ lastError: null, state: 'running' });
+  expect(await embeddingHostWindows(app)).toBe(1);
 
-    // The workspace-root watch subscribes 12 s late: joined, never a subscribe-timeout.
-    await app.evaluate((_electron, path) => {
-      process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
-    }, folder);
-    await ensureFileExplorerPanelVisible(window);
-    await window.getByTestId('select-root-button').click();
-    await expect(
-      window.getByRole('treegrid', { name: 'File tree' }).getByText('slow-proof.md')
-    ).toBeVisible({ timeout: 60_000 });
+  // The workspace-root watch subscribes 12 s late: joined, never a subscribe-timeout.
+  await app.evaluate((_electron, path) => {
+    process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
+  }, folder);
+  await ensureFileExplorerPanelVisible(window);
+  await window.getByTestId('select-root-button').click();
+  await expect(
+    window.getByRole('treegrid', { name: 'File tree' }).getByText('slow-proof.md')
+  ).toBeVisible({ timeout: 60_000 });
 
-    // Text indexing of the folder: its canonical attach and the utility's first request each
-    // answer 7 s late, past the former 5 s deadlines that closed admission or killed the utility.
-    await expect
-      .poll(() => readIndexDigest(window), { intervals: [1000], timeout: 180_000 })
-      .toEqual({
-        indexedFiles: 1,
-        indexMode: 'text-only',
-        kind: 'ready',
-        reason: null,
-        scanComplete: true,
-      });
-    const indexer = await indexerPids(app);
-    expect(indexer).toHaveLength(1);
-
-    // Paused semantic setup reaches a VECTOR profile without inference
-    // (workspace-index-bootstrap "completes paused semantic setup", smoke45's test).
-    await updateIndexConfig(window, { paused: true });
-    await updateIndexConfig(window, {
-      mode: 'semantic',
-      model: {
-        dimensions: 384,
-        local: { device: 'wasm', dtype: 'q8' },
-        modelKey: 'local::Xenova/bge-small-en-v1.5',
-      },
+  // Text indexing of the folder: its canonical attach and the utility's first request each
+  // answer 7 s late, past the former 5 s deadlines that closed admission or killed the utility.
+  await expect
+    .poll(() => readIndexDigest(window), { intervals: [1000], timeout: 180_000 })
+    .toEqual({
+      indexedFiles: 1,
+      indexMode: 'text-only',
+      kind: 'ready',
+      reason: null,
+      scanComplete: true,
     });
-    await expect
-      .poll(() => readIndexDigest(window).then((digest) => digest.indexMode), {
-        intervals: [1000],
-        timeout: 180_000,
-      })
-      .toBe('vector-configured');
+  const indexer = await indexerPids(app);
+  expect(indexer).toHaveLength(1);
 
-    // The semantic configuration's new collection scope opens its own indexer generation: the
-    // previous one closed cooperatively, so one indexer process serves now, and none was killed.
-    expect(await indexerPids(app)).toHaveLength(1);
-    expect(await getEmbeddingHostStatus(window)).toMatchObject({
-      runtimeId: host.runtimeId,
-      state: 'running',
-    });
-    expect(await embeddingHostWindows(app)).toBe(1);
+  // Paused semantic setup reaches a VECTOR profile without inference
+  // (workspace-index-bootstrap "completes paused semantic setup", smoke45's test).
+  await updateIndexConfig(window, { paused: true });
+  await updateIndexConfig(window, {
+    mode: 'semantic',
+    model: {
+      dimensions: 384,
+      local: { device: 'wasm', dtype: 'q8' },
+      modelKey: 'local::Xenova/bge-small-en-v1.5',
+    },
+  });
+  await expect
+    .poll(() => readIndexDigest(window).then((digest) => digest.indexMode), {
+      intervals: [1000],
+      timeout: 180_000,
+    })
+    .toBe('vector-configured');
 
-    const logs = await getMainBufferedLogs(window);
-    const lifecycleErrors = logs.filter(
+  // The semantic configuration's new collection scope opens its own indexer generation: the
+  // previous one closed cooperatively, so one indexer process serves now, and none was killed.
+  expect(await indexerPids(app)).toHaveLength(1);
+  expect(await getEmbeddingHostStatus(window)).toMatchObject({
+    runtimeId: host.runtimeId,
+    state: 'running',
+  });
+  expect(await embeddingHostWindows(app)).toBe(1);
+
+  const logs = await getMainBufferedLogs(window);
+  const lifecycleErrors = logs.filter(
+    (record) =>
+      (record as { readonly level?: string }).level === 'error' &&
+      LIFECYCLE_SCOPE.test(record.scope ?? '')
+  );
+  expect(lifecycleErrors).toEqual([]);
+  // No close escalated to a kill (R5(b)) and no worker was slow enough to stall a close.
+  expect(
+    logs.filter(
       (record) =>
-        (record as { readonly level?: string }).level === 'error' &&
-        LIFECYCLE_SCOPE.test(record.scope ?? '')
-    );
-    expect(lifecycleErrors).toEqual([]);
-    // No close escalated to a kill (R5(b)) and no worker was slow enough to stall a close.
-    expect(
-      logs.filter(
-        (record) =>
-          record.scope === 'IndexerHostManager' &&
-          /killing it|kill was refused/u.test(record.message ?? '')
-      )
-    ).toEqual([]);
-  } finally {
-    await rm(folder, { force: true, recursive: true });
-  }
+        record.scope === 'IndexerHostManager' &&
+        /killing it|kill was refused/u.test(record.message ?? '')
+    )
+  ).toEqual([]);
 });

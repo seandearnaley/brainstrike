@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { TestInfo } from '@playwright/test';
@@ -42,6 +42,7 @@ async function assertLiveReload(
   approval: boolean
 ): Promise<void> {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-root-reload-'));
+  electron.removeAfterClose(workspace);
   await writeFile(path.join(workspace, 'evidence.txt'), 'RELOAD_READ_EVIDENCE');
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
@@ -167,7 +168,6 @@ async function assertLiveReload(
           process.env[key] = value;
         }
       }
-      await rm(workspace, { force: true, recursive: true });
     }
   }
 }

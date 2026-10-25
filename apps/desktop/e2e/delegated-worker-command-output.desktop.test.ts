@@ -1,5 +1,4 @@
-import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
@@ -44,8 +43,8 @@ test('delegated command asks by default, then a per-tool grant streams output an
   electron,
 }, testInfo) => {
   const failures: unknown[] = [];
-  let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-command-'));
+  electron.removeAfterClose(workspace);
   const requireAdvertisedTool = (toolNames: readonly string[], name: string): void => {
     try {
       expect(toolNames).toContain(name);
@@ -120,7 +119,6 @@ test('delegated command asks by default, then a per-tool grant streams output an
   Object.assign(process.env, environment);
   try {
     const window = await electron.ensureWindow();
-    ownedProcess = (await electron.ensureContext()).app.process();
     try {
       await ensureMockWorkspaceOpen(window);
       await configureAssistantProvider(window, {
@@ -340,12 +338,6 @@ test('delegated command asks by default, then a per-tool grant streams output an
             process.env[key] = value;
           }
         }
-      },
-      async () => {
-        if (ownedProcess && ownedProcess.exitCode === null && ownedProcess.signalCode === null) {
-          throw new Error('Workspace retained because the Electron process is still running');
-        }
-        await rm(workspace, { force: true, recursive: true });
       },
     ]) {
       try {

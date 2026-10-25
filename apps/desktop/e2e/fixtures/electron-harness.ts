@@ -27,6 +27,7 @@ export class ElectronHarness {
   private readonly modelProvider: ModelProviderShim | undefined;
   /** The real folder every launch's folder picker mounts by default, restarts included. */
   private readonly workspaceRoot: string | undefined;
+  private readonly removedAfterClose = new Set<string>();
 
   constructor(
     testInfo: TestInfo,
@@ -55,6 +56,20 @@ export class ElectronHarness {
       throw new Error('Electron harness requires a disposable workspace root.');
     }
     return this.workspaceRoot;
+  }
+
+  /**
+   * Hands `directory` to the fixture, which removes it after the app has closed. A test never
+   * deletes a folder the running app may still hold: Windows refuses to remove an open
+   * directory (EBUSY), so the app closes first, then its folders go.
+   */
+  removeAfterClose(directory: string): void {
+    this.removedAfterClose.add(directory);
+  }
+
+  /** The folders `removeAfterClose` collected, for the fixture's teardown. */
+  directoriesRemovedAfterClose(): readonly string[] {
+    return [...this.removedAfterClose];
   }
 
   getUserDataDir(): string {

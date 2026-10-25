@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Locator, TestInfo } from '@playwright/test';
@@ -154,6 +154,7 @@ async function assertWorkerWrite(
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-write-'));
+  electron.removeAfterClose(workspace);
   const outputPath = path.join(workspace, 'worker-output.txt');
   const content = 'WORKER_DISPOSABLE_DELIVERABLE_1721\n';
   const childResult = `WORKER_${decision.toUpperCase()}_RESULT_1721`;
@@ -665,7 +666,6 @@ async function assertWorkerWrite(
           }
         }
       },
-      async () => rm(workspace, { force: true, recursive: true }),
     ]) {
       try {
         await cleanup();

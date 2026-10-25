@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
@@ -40,6 +40,7 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
 }) => {
   test.setTimeout(180_000);
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-close-running-'));
+  electron.removeAfterClose(workspace);
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let rootTurns = 0;
@@ -141,7 +142,6 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
           process.env[key] = value;
         }
       }
-      await rm(workspace, { force: true, recursive: true });
     }
   }
 });

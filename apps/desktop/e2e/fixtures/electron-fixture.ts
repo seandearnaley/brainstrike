@@ -64,7 +64,10 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
     try {
       await use(harness);
     } finally {
-      await tearDownElectronTest(harness, testInfo, userDataDir, workspaceRoot);
+      await tearDownElectronTest(harness, testInfo, userDataDir, [
+        workspaceRoot,
+        ...harness.directoriesRemovedAfterClose(),
+      ]);
     }
   },
 

@@ -1,5 +1,5 @@
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
@@ -23,6 +23,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
   electron,
 }, testInfo) => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-control-'));
+  electron.removeAfterClose(workspace);
   await writeFile(path.join(workspace, 'evidence.txt'), 'CHILD_EVIDENCE_1720');
   const observed = { childRead: false, parentResult: false };
   const executedConfigurations: { body: unknown; followUp: boolean; isParent: boolean }[] = [];
@@ -281,7 +282,6 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       } else {
         process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = previousRoot;
       }
-      await rm(workspace, { force: true, recursive: true });
     }
   }
 });
@@ -293,6 +293,7 @@ test('sends human input to the active child and reloads its rich conversation', 
   electron,
 }, testInfo) => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-input-'));
+  electron.removeAfterClose(workspace);
   await writeFile(path.join(workspace, 'evidence.txt'), 'FOLLOWUP_FILE_EVIDENCE');
   await writeFile(path.join(workspace, 'context.txt'), 'CHILD_MENTION_CONTEXT_1724');
   await mkdir(path.join(workspace, '.brainstrike', 'commands'), { recursive: true });
@@ -573,7 +574,6 @@ test('sends human input to the active child and reloads its rich conversation', 
           process.env[key] = value;
         }
       }
-      await rm(workspace, { force: true, recursive: true });
     }
   }
 });
