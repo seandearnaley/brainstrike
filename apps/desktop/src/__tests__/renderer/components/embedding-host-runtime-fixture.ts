@@ -145,15 +145,7 @@ vi.mock('@brainstrike/embeddings', () => ({
 }));
 
 vi.mock('@brainstrike/embeddings/worker', () => ({
-  createForegroundEmbeddingGate: () => ({
-    begin: () => {},
-    end: () => {},
-    isActive: () => false,
-    waitUntilInactive: async () => {},
-  }),
   POWER_BROADCAST_CHANNEL: 'brainstrike-test-power',
-  runCoordinatedQueryEmbedding: async (options: { generate: () => Promise<unknown> }) =>
-    options.generate(),
   startEmbeddingWorker: startEmbeddingWorkerMock,
 }));
 

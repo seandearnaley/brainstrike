@@ -13,6 +13,7 @@ import {
   subscribeQueryEmbeddingRequests,
 } from '../../../renderer/components/embedding-host-query-listener';
 import {
+  acquireInferenceTurn,
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
   runOwnedQueryEmbeddingInference,
@@ -30,7 +31,7 @@ const payload = { dimensions: 2, modelId: 'model-a', modelKey: 'local:model-a', 
 describe('embedding query listener request ownership', () => {
   installEmbeddingHostRuntimeFixture();
 
-  it('retains canceled request identity until FIFO settlement and releases both entries afterward', async () => {
+  it('retains canceled request identity until its turn settles and releases both entries afterward', async () => {
     const owner = createQueryEmbeddingRuntimeOwner({ read: readModelCatalogMock });
     const held = Promise.withResolvers<void>();
     const handle = vi.fn(async (_request: AdmittedQueryEmbeddingRequest) => {
@@ -62,7 +63,7 @@ describe('embedding query listener request ownership', () => {
     queryEmbeddingCancelListenerRef.current?.(createEmbeddingHostQueryEmbeddingCancel(queued));
     expect(controller?.signal.reason).toBe(reason);
     held.resolve();
-    await owner.executionTailRef.current;
+    (await acquireInferenceTurn(owner, 'query'))();
     expect(handle).toHaveBeenCalledOnce();
     expect(owner.requests.size).toBe(0);
     expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
@@ -79,9 +80,9 @@ describe('embedding query listener request ownership', () => {
 
   it('joins physical retirement and retains queued cancellation after the generation closes', async () => {
     const owner = createQueryEmbeddingRuntimeOwner({ read: readModelCatalogMock });
-    const fifo = Promise.withResolvers<void>();
+    // Another turn holds the queue, so the request below waits for its turn.
+    const releaseHeldTurn = await acquireInferenceTurn(owner, 'query');
     const physical = Promise.withResolvers<void>();
-    owner.executionTailRef.current = fifo.promise;
     const handle = vi.fn(async () => {});
     const unsubscribe = subscribeQueryEmbeddingRequests({
       handle,
@@ -96,19 +97,19 @@ describe('embedding query listener request ownership', () => {
       current: 'runtime-a',
     });
     onTestFinished(async () => {
-      fifo.resolve();
+      releaseHeldTurn();
       physical.resolve();
       await closing;
       unsubscribe();
     });
-    fifo.resolve();
+    releaseHeldTurn();
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     expect(reportQueryEmbeddingResponseMock).not.toHaveBeenCalled();
     physical.resolve();
     await closing;
-    await owner.executionTailRef.current;
+    (await acquireInferenceTurn(owner, 'query'))();
     expect(handle).not.toHaveBeenCalled();
     expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -154,7 +155,7 @@ describe('embedding query listener request ownership', () => {
     expect(closed).toBe(false);
     held.resolve({ dimensions: 2, embedding: [1, 2], model: 'model-a' });
     await closing;
-    await owner.executionTailRef.current;
+    (await acquireInferenceTurn(owner, 'query'))();
     expect(closed).toBe(true);
     expect(handle).toHaveBeenCalledOnce();
     expect(owner.requests.size).toBe(0);

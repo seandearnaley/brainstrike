@@ -301,7 +301,7 @@ describe('actual native search to query IPC physical owner', () => {
     );
     await expect(result).resolves.toEqual(
       expect.objectContaining({
-        error: expect.objectContaining({ code: 'boundary.internal' }),
+        error: expect.objectContaining({ code: 'embedding.query-cancelled', kind: 'refusal' }),
         ok: false,
       })
     );
@@ -314,7 +314,7 @@ describe('actual native search to query IPC physical owner', () => {
       requestId: 'same-token',
     });
     const firstRejected = expect(first).resolves.toMatchObject({
-      error: { code: 'boundary.internal' },
+      error: { code: 'embedding.query-cancelled', kind: 'refusal' },
       ok: false,
     });
     await flush();

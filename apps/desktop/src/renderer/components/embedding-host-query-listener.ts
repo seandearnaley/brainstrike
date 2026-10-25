@@ -13,9 +13,9 @@ import {
   runEmbeddingHostCleanupStep,
 } from './embedding-host-lifecycle';
 import {
-  enqueueQueryEmbeddingOperation,
   joinQueryEmbeddingFailure,
   type QueryEmbeddingRuntimeOwner,
+  runInferenceTurn,
 } from './embedding-host-query-owner';
 
 const logger = createLogger('EmbeddingHostRuntime');
@@ -27,7 +27,7 @@ export interface AdmittedQueryEmbeddingRequest {
   readonly signal: AbortSignal;
 }
 
-/** Mounted-host subscriptions admit requests before FIFO work and bind cancellation to their exact generation. */
+/** Mounted-host subscriptions admit requests before their inference turn and bind cancellation to their exact generation. */
 export function subscribeQueryEmbeddingRequests(options: {
   readonly ownerRef: MutableRefObject<QueryEmbeddingRuntimeOwner | null>;
   readonly runtimeIdRef: MutableRefObject<string>;
@@ -91,7 +91,7 @@ export function subscribeQueryEmbeddingRequests(options: {
       !queryOwner.closed &&
       !options.isStopping() &&
       request.runtimeId === options.runtimeIdRef.current;
-    void enqueueQueryEmbeddingOperation(queryOwner, async () => {
+    void runInferenceTurn(queryOwner, 'query', async () => {
       try {
         controller.signal.throwIfAborted();
         if (!isCurrent()) {

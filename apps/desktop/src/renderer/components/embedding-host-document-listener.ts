@@ -13,7 +13,7 @@ import {
   runEmbeddingHostCleanupStep,
 } from './embedding-host-lifecycle';
 import {
-  enqueueQueryEmbeddingOperation,
+  enqueueDocumentEmbeddingsOperation,
   joinQueryEmbeddingFailure,
   type QueryEmbeddingRuntimeOwner,
 } from './embedding-host-query-owner';
@@ -27,7 +27,7 @@ export interface AdmittedDocumentEmbeddingsRequest {
   readonly signal: AbortSignal;
 }
 
-/** Mounted-host subscriptions admit requests before FIFO work and bind cancellation to their exact generation. */
+/** Mounted-host subscriptions admit batches in arrival order and bind cancellation to their exact generation; the handler takes one inference turn per slice. */
 export function subscribeDocumentEmbeddingsRequests(options: {
   readonly ownerRef: MutableRefObject<QueryEmbeddingRuntimeOwner | null>;
   readonly runtimeIdRef: MutableRefObject<string>;
@@ -91,7 +91,7 @@ export function subscribeDocumentEmbeddingsRequests(options: {
       !queryOwner.closed &&
       !options.isStopping() &&
       request.runtimeId === options.runtimeIdRef.current;
-    void enqueueQueryEmbeddingOperation(queryOwner, async () => {
+    void enqueueDocumentEmbeddingsOperation(queryOwner, async () => {
       try {
         controller.signal.throwIfAborted();
         if (!isCurrent()) {

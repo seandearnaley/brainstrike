@@ -104,6 +104,14 @@ test('Stop acknowledges an active hosted embedding request after aborting its tr
       throw outcome.error;
     }
     expect(outcome.result.ok).toBe(false);
+    if (outcome.result.ok) {
+      throw new Error('A Stop-aborted query returned an embedding.');
+    }
+    // The user's Stop ended the search: a typed cancellation, not an internal fault.
+    expect(outcome.result.error).toMatchObject({
+      code: 'embedding.query-cancelled',
+      kind: 'refusal',
+    });
 
     const replay = await window.evaluate(async (id) => {
       const host = (
