@@ -150,7 +150,7 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Workspace snapshot startup GC stopped: the app is quitting"',
   '"msg":"Workspace snapshot startup maintenance stopped: the app is quitting"',
   '"msg":"Dimension index maintenance capability probe completed"',
-  '"msg":"Started parcel watcher"',
+  '"msg":"Started root watcher"',
   '[ERROR:dbus/bus.cc:406] Failed to connect to the bus:',
   '[ERROR:dbus/object_proxy.cc:573] Failed to call method: org.freedesktop.DBus.NameHasOwner:',
   'Debugger ending on ws://',

@@ -26,7 +26,7 @@ import type {
 } from '../types.ts';
 import { validateDirectoryPath } from '../utils.ts';
 import { normalizeDirectoryReadOptions } from '../utils-browser.ts';
-import { assertValidParcelWatchFilterOptions, startParcelWatch } from './parcel-watchers.ts';
+import { assertValidParcelWatchFilterOptions, startParcelWatch } from './root-watchers.ts';
 
 const logger = createLogger('ElectronFileSystemAdapter');
 
@@ -38,32 +38,6 @@ function assertNativeAbsoluteReadPath(value: unknown, label: string): asserts va
     `${label} must be a non-empty native absolute path.`,
     typeof value === 'string' ? value : '',
     'read'
-  );
-}
-
-export type WatcherBackendChoice = 'parcel';
-
-/**
- * Resolve the watch engine from BRAINSTRIKE_WATCHER_BACKEND (BST-568).
- * The @parcel/watcher service is the only engine (slice 4 removed the legacy
- * chokidar / recursive-fs.watch engines); unset/empty means parcel. 'legacy'
- * fails with a pointed message and anything else throws — malformed config
- * must never silently coerce.
- */
-export function resolveWatcherBackend(
-  env: Record<string, string | undefined> = process.env
-): WatcherBackendChoice {
-  const raw = env['BRAINSTRIKE_WATCHER_BACKEND'];
-  if (raw === undefined || raw === '' || raw === 'parcel') {
-    return 'parcel';
-  }
-  if (raw === 'legacy') {
-    throw new Error(
-      "BRAINSTRIKE_WATCHER_BACKEND=legacy is no longer supported: the legacy chokidar/fs.watch engines were removed in BST-568 slice 4. Unset the variable (or use 'parcel')."
-    );
-  }
-  throw new Error(
-    `Invalid BRAINSTRIKE_WATCHER_BACKEND value: ${JSON.stringify(raw)} (expected 'parcel' or unset)`
   );
 }
 
@@ -612,11 +586,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
-   * Watch a directory and emit high-level change events through the
-   * @parcel/watcher service (BST-568 slice 4: the only engine on every
-   * platform — the legacy chokidar/fs.watch paths are gone). Setup failure
-   * surfaces via the onHealth 'failed' transition plus one structured error
-   * log; there is no fallback engine and no polling.
+   * Watch a directory and emit high-level change events through the root
+   * watch engine (Node's recursive `fs.watch`, see ./root-watchers.ts). Setup
+   * failure surfaces via the onHealth 'failed' transition plus one structured
+   * error log; there is no fallback engine and no polling.
    *
    * Always returns a valid disposer that can be called safely at any time.
    */
@@ -627,7 +600,6 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     options?: WatchDirectoryOptions
   ): () => void {
     assertValidParcelWatchFilterOptions(options ?? {});
-    resolveWatcherBackend();
     let closed = false;
     let dispose: () => void = () => {};
 
@@ -689,7 +661,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         // No fallback engine by design. The onHealth 'failed' transition
         // (emitted inside startParcelWatch) is the renderer-visible signal;
         // the structured log covers the no-listener case.
-        logger.error('Parcel watcher setup failed; folder will not be watched', {
+        logger.error('Root watcher setup failed; folder will not be watched', {
           error,
           path: handle.path,
         });
