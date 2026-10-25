@@ -20,10 +20,9 @@ import {
   resolveShellInvocation,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { trackNativeChild } from '@brainstrike/state-store/native-children';
+import { terminateTree, trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import treeKill from 'tree-kill';
 import { resolveRootCwd, type WorkspaceRootResolver } from '../workspace-root-cwd';
 import { CommandSessionError, commandSessionStartError } from './command-session-error';
 
@@ -94,8 +93,6 @@ export interface CommandSessionRead {
   readonly truncatedBeforeCursor: boolean;
 }
 
-type TreeKill = (pid: number, signal: string, callback?: (error?: Error) => void) => void;
-
 type OutputBufferEncoding = 'latin1' | 'utf16le';
 
 interface OutputBufferBlock {
@@ -134,7 +131,7 @@ export interface CommandSessionManagerOptions {
   /** Every known root (Main's roots store); absent where each start names its own roots. */
   readonly resolver?: WorkspaceRootResolver;
   readonly spawn?: typeof pty.spawn;
-  readonly treeKill?: TreeKill;
+  readonly terminateTree?: (pid: number) => Promise<void>;
 }
 
 export interface CommandSessionManager {
@@ -287,7 +284,7 @@ export function createCommandSessionManager({
   processExitTimeoutMs: configuredProcessExitTimeoutMs,
   resolver,
   spawn = pty.spawn,
-  treeKill: killTree = treeKill,
+  terminateTree: endTree = terminateTree,
 }: CommandSessionManagerOptions): CommandSessionManager {
   const maxBufferChars = positiveInteger(
     configuredMaxBufferChars,
@@ -564,20 +561,18 @@ export function createCommandSessionManager({
     if (entry.reaping) {
       return entry.reaping;
     }
-    entry.reaping = new Promise((resolve) => {
-      killTree(entry.info.pid, 'SIGKILL', (error) => {
-        if (error && !/no such process/i.test(error.message)) {
-          logger.warn('Command session tree-kill failed', {
-            errorCode: (error as NodeJS.ErrnoException).code,
-            pid: entry.info.pid,
-            sessionId: entry.info.id,
-          });
-        }
+    entry.reaping = endTree(entry.info.pid)
+      .catch((cause: unknown) => {
+        logger.warn('Could not end the command session process tree', {
+          cause,
+          pid: entry.info.pid,
+          sessionId: entry.info.id,
+        });
+      })
+      .then(() => {
         killCommandSessionProcessGroup(entry);
         killCommandSessionPty(entry);
-        resolve();
       });
-    });
     return entry.reaping;
   }
 

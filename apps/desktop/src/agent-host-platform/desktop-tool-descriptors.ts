@@ -32,14 +32,7 @@ export interface DesktopToolAdmission {
   readonly retrieval: boolean;
   /** The run's scanned workspace skills: the skill tools and runSkillScript exist only with them. */
   readonly skills: boolean;
-  /** Main's worktree service: without it the worktree tools cannot run. */
-  readonly worktrees: boolean;
 }
-
-const WORKTREE_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.listWorktrees,
-  NATIVE_TOOL_ID.manageWorktree,
-]);
 
 /**
  * The retrieval lane (ADR 0026). listEmbeddingSpaces lists the collections
@@ -83,10 +76,7 @@ function admitted(id: string, admission: DesktopToolAdmission): boolean {
   if (id === NATIVE_TOOL_ID.runSkillScript) {
     return admission.skills;
   }
-  if (RETRIEVAL_TOOL_IDS.has(id)) {
-    return admission.retrieval;
-  }
-  return !WORKTREE_TOOL_IDS.has(id) || admission.worktrees;
+  return !RETRIEVAL_TOOL_IDS.has(id) || admission.retrieval;
 }
 
 const JsonSchemaSchema = Schema.Record(Schema.String, Schema.MutableJson);

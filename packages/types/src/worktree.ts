@@ -1,6 +1,6 @@
 /**
  * Managed-worktree contracts (spec §5.2, §5.3, §6). Shared by desktop main
- * (WorktreeService + the ledger), the `window.worktrees` bridge, and the
+ * (WorktreeService + the ledger), the worktrees bridge, and the
  * renderer's Mode chip.
  *
  * Lives in `@brainstrike/types` rather than `@brainstrike/assistant-data`

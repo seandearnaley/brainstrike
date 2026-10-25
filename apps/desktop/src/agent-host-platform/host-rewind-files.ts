@@ -5,8 +5,6 @@ import type {
   HostTurnSnapshot,
 } from '@brainstrike/agent-host';
 import { createLogger } from '@brainstrike/logging';
-import { Schema } from 'effect';
-import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import type {
@@ -14,16 +12,6 @@ import type {
   ShadowRepoHandle,
   SnapshotService,
 } from '../assistant-server/snapshot-service';
-import {
-  PlatformRewindApplySchema,
-  PlatformRewindConflictsSchema,
-  PlatformRewindDriftSchema,
-  PlatformRewindOutcomesSchema,
-  PlatformRewindPreviewResultSchema,
-  PlatformRewindPreviewSchema,
-  PlatformRewindRedoConflictsSchema,
-  PlatformRewindRedoSchema,
-} from './platform-wire';
 
 const logger = createLogger('HostRewindFiles');
 /** Previews kept for their rewind; an evicted one refuses as `preview-required`. */
@@ -33,7 +21,7 @@ interface StoredPreview {
   readonly fingerprint: ReadonlyMap<string, ReadonlyMap<string, string>>;
   readonly threadId: string;
 }
-/** Main's owners a host rewind borrows: the one shadow-git service and the live root owner. */
+/** The owners a host rewind borrows: the one shadow-git service and the live root owner. */
 interface HostRewindFilesOwners {
   /** Request one full scan from the existing native workspace owner after disk restoration. */
   readonly refreshWorkspaceIndex: (rootId: string) => Promise<void>;
@@ -61,7 +49,7 @@ function sortedDrift(
     .map((path) => ({ path, rootId }));
 }
 /**
- * A host thread's rewind restores over Main's one shadow-git owner, with the
+ * A host thread's rewind restores over the host's one shadow-git owner, with the
  * legacy rewind engine's rules (`rewind-snapshot-engine.ts`):
  * - a preview fingerprints each root's live work-tree, and an apply refuses
  *   as drift every path that changed since;
@@ -76,7 +64,7 @@ function sortedDrift(
  * refuses rather than restoring into a stale path. Roots go one at a time.
  * The host log is the record: no ledger row is written.
  */
-function createHostRewindFiles(owners: HostRewindFilesOwners) {
+export function createHostRewindFiles(owners: HostRewindFilesOwners) {
   const previews = new Map<string, StoredPreview>();
   async function rootHandle(
     service: SnapshotService,
@@ -270,108 +258,4 @@ function createHostRewindFiles(owners: HostRewindFilesOwners) {
       return conflicts;
     },
   };
-}
-type Execute = <T>(
-  token: CancellationToken,
-  work: (signal: AbortSignal) => Promise<T>
-) => Promise<T>;
-/**
- * Serve a host thread's rewind restores (`platform/rewind/*`) over Main's
- * snapshot owner. Rewinds run with no admitted selection; each root is
- * revalidated against the live root owner instead.
- */
-export function serveHostRewindFiles(
-  connection: MessageConnection,
-  execute: Execute,
-  owners: {
-    readonly resolveWorkspaceRoot?: (rootId: string) => Promise<string>;
-    readonly workspaceSnapshots?: () => SnapshotService | null;
-    readonly refreshWorkspaceIndex?: (rootId: string) => Promise<void>;
-  }
-): void {
-  const files = createHostRewindFiles({
-    refreshWorkspaceIndex: async (rootId) => {
-      if (!owners.refreshWorkspaceIndex) {
-        throw new Error('Desktop has no native workspace index owner');
-      }
-      await owners.refreshWorkspaceIndex(rootId);
-    },
-    resolveWorkspaceRoot: (rootId) => {
-      if (!owners.resolveWorkspaceRoot) {
-        throw new Error('Desktop has no live workspace root owner');
-      }
-      return owners.resolveWorkspaceRoot(rootId);
-    },
-    snapshots: () => owners.workspaceSnapshots?.() ?? null,
-  });
-  const serve = (method: string, run: (input: unknown) => Promise<unknown>): void => {
-    connection.onRequest(method, (input: unknown, token: CancellationToken) =>
-      execute(token, () => run(input))
-    );
-  };
-  serve('platform/rewind/preview', async (input) =>
-    Schema.decodeUnknownSync(PlatformRewindPreviewResultSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(
-      await files.preview(
-        Schema.decodeUnknownSync(PlatformRewindPreviewSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input)
-      )
-    )
-  );
-  serve('platform/rewind/drift', async (input) =>
-    Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(
-      await files.drift(
-        Schema.decodeUnknownSync(PlatformRewindDriftSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input)
-      )
-    )
-  );
-  serve('platform/rewind/apply', async (input) =>
-    Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(
-      await files.apply(
-        Schema.decodeUnknownSync(PlatformRewindApplySchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input)
-      )
-    )
-  );
-  serve('platform/rewind/redo-conflicts', async (input) =>
-    Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(
-      await files.redoConflicts(
-        Schema.decodeUnknownSync(PlatformRewindRedoConflictsSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input)
-      )
-    )
-  );
-  serve('platform/rewind/redo', async (input) =>
-    Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(
-      await files.redo(
-        Schema.decodeUnknownSync(PlatformRewindRedoSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input)
-      )
-    )
-  );
 }

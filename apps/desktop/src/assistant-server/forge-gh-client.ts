@@ -13,8 +13,12 @@
  * "this branch has no pull request".
  */
 import { type ExecFileException, execFile } from 'node:child_process';
+import { createLogger } from '@brainstrike/logging';
+import { endTreeOnDeadline, trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { ForgePullRequest, ForgeUnavailable } from '@brainstrike/types';
 import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
+
+const logger = createLogger('ForgeGhClient');
 
 /** `gh` reaches the network; give it more room than a local git call, bounded. */
 const GH_TIMEOUT_MS = 20_000;
@@ -119,32 +123,45 @@ function classifyGhExecError(
   if (code === 'ENOENT') {
     return { exitCode, failureReason: 'notFound' };
   }
-  if (code === 'ABORT_ERR') {
-    return { exitCode, failureReason: 'abort' };
-  }
-  return error.killed === true ? { exitCode, failureReason: 'timeout' } : { exitCode };
+  return { exitCode };
 }
 
 export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, timeoutMs }) =>
   new Promise<ForgeCommandRun>((resolve) => {
-    execFile(
+    if (signal?.aborted) {
+      resolve({ exitCode: null, failureReason: 'abort', stderr: '', stdout: '' });
+      return;
+    }
+    // ADR-0017: the host's supervisor hears of gh, which execFile cannot hand the Root.
+    let exited: () => void = () => undefined;
+    const child = execFile(
       'gh',
       [...args],
       {
         cwd,
         env: createPinnedGhEnvironment(process.env, host),
         maxBuffer: GH_MAX_BUFFER_BYTES,
-        signal,
-        timeout: timeoutMs,
       },
       (error, stdout, stderr) => {
-        if (error) {
+        exited();
+        deadline.clear();
+        if (!error) {
+          resolve({ exitCode: 0, stderr, stdout });
+        } else if (deadline.ended) {
+          const failureReason = deadline.timedOut ? 'timeout' : 'abort';
+          resolve({ exitCode: null, failureReason, stderr, stdout });
+        } else {
           resolve({ ...classifyGhExecError(error), stderr, stdout });
-          return;
         }
-        resolve({ exitCode: 0, stderr, stdout });
       }
     );
+    exited = trackNativeChild(child.pid, { group: false });
+    // The timeout and the abort end gh's whole tree, not only the program Node started.
+    const deadline = endTreeOnDeadline(child, {
+      onError: (cause) => logger.warn('Could not end the gh process tree', { cause }),
+      signal,
+      timeoutMs,
+    });
   });
 
 function describeGhFailure(run: ForgeCommandRun): string {

@@ -1,8 +1,12 @@
+import { configureLogger } from '@brainstrike/logging';
 import { app, MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
 import { createDesktopHostLease } from '../../host-lease-manager';
 import { createNativeIndexRuntime } from '../../native-index-runtime';
 
+// Stdout carries only this fixture's reports, as the agent host keeps it for its framing: Main's
+// own log lines (a startup stall warning among them) go to stderr.
+configureLogger({ console: { destination: 2 } });
 function report(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }

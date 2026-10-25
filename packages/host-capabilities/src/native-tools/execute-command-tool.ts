@@ -19,11 +19,10 @@ import {
   resolveWorkspaceRoot,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
-import { spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { CHILD_SIGNAL_GRACE_MS, spawnNativeChild } from '@brainstrike/state-store/native-children';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.ts';
-import { KILL_GRACE_MS } from './kill-grace.ts';
 import type { ShellOutputStreamer } from './tool-execute-support.ts';
 import { acquireWorkspaceMutationLease } from './workspace-mutation-lease.ts';
 import { isWithinRoot } from './workspace-path.ts';
@@ -566,7 +565,7 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
       killProcessTree(pid, 'SIGTERM');
       killTimer = setTimeout(() => {
         killProcessTree(pid, 'SIGKILL');
-      }, KILL_GRACE_MS);
+      }, CHILD_SIGNAL_GRACE_MS);
       killTimer.unref();
     };
 

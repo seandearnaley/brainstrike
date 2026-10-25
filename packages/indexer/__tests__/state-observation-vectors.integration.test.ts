@@ -27,7 +27,7 @@ import { observationChunks } from './fixtures/state-observation-schema.ts';
 // Close-ladder deadlines only: startup has none (lifecycle R2). The projection
 // cold-imports Mastra's Memory in the forked indexer: startups measured 2.4-6.2 s
 // under coverage on a hosted-like 2-vCPU throttle.
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 // The production writer's native memory calculator, which also carries Mastra OM's token counter.
 const memoryCalculatorModule = fileURLToPath(
   new URL('../../agent-host/src/adapters/memory-storage-calculator.ts', import.meta.url)

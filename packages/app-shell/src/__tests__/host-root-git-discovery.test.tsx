@@ -6,8 +6,8 @@ import type {
 } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import { CHANGES_BRIDGE_REQUIRED_METHODS, type ChangesBridge } from '../changes/changes-bridge';
 import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
+import { stubChangesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 it('discovers roots recorded by the host during restore after the eager inventory read', async () => {
   // BST-1990: the real folders-panel E2E lost its branch badges because
@@ -21,12 +21,7 @@ it('discovers roots recorded by the host during restore after the eager inventor
       value: { errors: [], repositories: [] },
     })
   );
-  const bridge: Record<string, unknown> = {};
-  for (const method of CHANGES_BRIDGE_REQUIRED_METHODS) {
-    bridge[method] = method === 'inventory' ? inventory : vi.fn();
-  }
-  const previous = window.changes;
-  window.changes = bridge as Partial<ChangesBridge>;
+  const wrapper = workspaceGitWrapper({ changes: stubChangesBridge({ inventory }) });
   const root: RootDescriptor = {
     displayName: 'docs',
     handle: { kind: 'directory', name: 'docs', path: rootPath, platform: 'electron' },
@@ -40,21 +35,15 @@ it('discovers roots recorded by the host during restore after the eager inventor
     platform: 'electron',
     restoreRoots: async () => [root],
   } as FileSystemAdapter;
-  try {
-    const { result, rerender } = renderHook(() =>
-      useRootsReconciliation({ adapter, registration: { rootsRegistered: vi.fn(async () => {}) } })
-    );
-    await act(async () => {
-      expect(await result.current.resolveDbRootId(rootPath, rootId)).toBe(rootId);
-    });
-    expect(inventory).toHaveBeenCalledExactlyOnceWith({ maxAgeMs: 0 });
-    rerender();
-    expect(inventory).toHaveBeenCalledTimes(1);
-  } finally {
-    if (previous === undefined) {
-      Reflect.deleteProperty(window, 'changes');
-    } else {
-      window.changes = previous;
-    }
-  }
+  const { result, rerender } = renderHook(
+    () =>
+      useRootsReconciliation({ adapter, registration: { rootsRegistered: vi.fn(async () => {}) } }),
+    { wrapper }
+  );
+  await act(async () => {
+    expect(await result.current.resolveDbRootId(rootPath, rootId)).toBe(rootId);
+  });
+  expect(inventory).toHaveBeenCalledExactlyOnceWith({ maxAgeMs: 0 });
+  rerender();
+  expect(inventory).toHaveBeenCalledTimes(1);
 });

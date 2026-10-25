@@ -6,8 +6,9 @@
  * directly, so one `app` handler answers them all, and only for this proxy's
  * own address.
  */
-import { app, utilityProcess } from 'electron';
+import { app } from 'electron';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
+import { forkUtility } from '../fork-utility';
 import { type AgentEgress, AgentEgressHost } from './agent-egress/agent-egress-host';
 import type { EgressRefusal } from './agent-egress/egress-proxy';
 import { type RefusedAgentResponse, routeAgentBrowserSession } from './browser-session';
@@ -32,11 +33,9 @@ export type AgentEgressSource = Pick<AgentEgressHost, 'prepare' | 'takeRefusal'>
 
 function forkEgressHost(): AgentEgressHost {
   return new AgentEgressHost(() =>
-    utilityProcess.fork(
-      resolveBundledSiblingPath('Agent browsing egress', 'agent-egress-entry.js'),
-      [],
-      { serviceName: 'brainstrike-agent-egress' }
-    )
+    forkUtility(resolveBundledSiblingPath('Agent browsing egress', 'agent-egress-entry.js'), [], {
+      serviceName: 'brainstrike-agent-egress',
+    })
   );
 }
 

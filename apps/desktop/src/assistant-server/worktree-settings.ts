@@ -1,17 +1,21 @@
 /**
- * Main-owned worktree settings (spec §6.1 [D3], §6.3). Stored under ONE
- * `ElectronStorageAdapter` key, parsed the way `workspace-recent-roots.ts`
- * parses its ledger: a corrupt or invalid value THROWS rather than coercing to
- * the default, because silently relocating the managed directory would strand
- * every existing worktree the ledger points at.
+ * Worktree settings (spec §6.1 [D3], §6.3), kept under ONE setting of the
+ * agent host's state store beside the worktree ledger they locate (ADR-0029).
+ * Parsed the way `workspace-recent-roots.ts` parses its ledger: a corrupt or
+ * invalid value THROWS rather than coercing to the default, because silently
+ * relocating the managed directory would strand every existing worktree the
+ * ledger points at.
  */
 import path from 'node:path';
-import type { StorageAdapter } from '@brainstrike/storage';
+import type { StateStore } from '@brainstrike/state-store';
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
 import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
 import { assertWorktreeTargetOutsideRoots } from './worktree-paths';
 
-export const WORKTREE_SETTINGS_STORAGE_KEY = 'worktreeSettings' as const;
+export const WORKTREE_SETTINGS_KEY = 'worktreeSettings' as const;
+
+/** The state store's settings, which hold the worktree settings. */
+export type WorktreeSettingsStore = Pick<StateStore, 'getSetting' | 'setSetting'>;
 
 interface StoredWorktreeSettings {
   readonly managedDirectory: string | null;
@@ -37,8 +41,8 @@ export function defaultManagedWorktreeDirectory(homeDirectory: string): string {
   return override;
 }
 
-function parseStored(raw: string | null): StoredWorktreeSettings {
-  if (raw === null) {
+function parseStored(raw: string | undefined): StoredWorktreeSettings {
+  if (raw === undefined) {
     return { managedDirectory: null, setupCommand: null };
   }
   let parsed: unknown;
@@ -88,10 +92,10 @@ function project(stored: StoredWorktreeSettings, homeDirectory: string): Worktre
 }
 
 export async function readWorktreeSettings(
-  storage: StorageAdapter,
+  store: WorktreeSettingsStore,
   homeDirectory: string
 ): Promise<WorktreeSettings> {
-  return project(parseStored(await storage.getItem(WORKTREE_SETTINGS_STORAGE_KEY)), homeDirectory);
+  return project(parseStored(await store.getSetting(WORKTREE_SETTINGS_KEY)), homeDirectory);
 }
 
 /**
@@ -100,7 +104,7 @@ export async function readWorktreeSettings(
  * time rather than at create time (BST-1342).
  */
 export async function writeWorktreeSettings(
-  storage: StorageAdapter,
+  store: WorktreeSettingsStore,
   homeDirectory: string,
   next: {
     readonly managedDirectory: string | null;
@@ -118,6 +122,6 @@ export async function writeWorktreeSettings(
     managedDirectory: next.managedDirectory,
     setupCommand: next.setupCommand,
   };
-  await storage.setItem(WORKTREE_SETTINGS_STORAGE_KEY, JSON.stringify(stored));
+  await store.setSetting(WORKTREE_SETTINGS_KEY, JSON.stringify(stored));
   return project(stored, homeDirectory);
 }

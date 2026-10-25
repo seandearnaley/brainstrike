@@ -95,6 +95,7 @@ async function admit(flow: Flow) {
   };
   const tools = desktopHostSharedTools({
     freshRoots: () => selected.freshWorkspaceRoots(),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request: mainRequest,
     resolveTavilyApiKey: async () => undefined,

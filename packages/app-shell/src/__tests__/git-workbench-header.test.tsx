@@ -8,7 +8,7 @@
  * never a silent enable, hide, or degrade (AGENTS.md NO SILENT FALLBACKS).
  *
  * `useGitInventory` is mocked directly (rather than the underlying
- * `window.changes` bridge) so each test can assert a specific, deterministic
+ * Changes bridge) so each test can assert a specific, deterministic
  * inventory/error/loading combination without an async bridge round trip.
  * `useChangesNavigationStore` and `usePanelLayoutStore` are the REAL
  * singleton stores (mirrors `changes-context-actions.test.ts`'s precedent),
@@ -276,7 +276,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
         makeWorktreeDescriptor({
           current: false,
           // The lock state is read off the INVENTORY descriptor, not off the
-          // `window.git` summary: entries are driven from one path vocabulary
+          // The Git bridge's summary: entries are driven from one path vocabulary
           // (see `git-workbench-header.tsx`'s PATH VOCABULARY comment), and
           // `WorktreeDescriptor extends GitWorktreeSummary`, so it carries
           // `lockedReason` itself.
@@ -333,7 +333,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
   });
 
   it('states the bridge is absent rather than a "Loading…" that will never resolve', async () => {
-    // Without a `window.changes` bridge `useGitInventory` reports
+    // Without a Changes bridge `useGitInventory` reports
     // `{ available: false, inventory: null, error: null }` FOREVER — the
     // not-yet-loaded copy would be a permanently false statement.
     setInventoryResult({ available: false, error: null, inventory: null });
@@ -400,12 +400,12 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
   // ── Path vocabulary (W6 review finding 2) ──────────────────────────────────
 
   it('matches a symlinked repository through the canonical openedRoot, not the raw git paths', async () => {
-    // `window.git` reports RAW git output: reach the repo through a symlink
+    // The Git bridge reports RAW git output: reach the repo through a symlink
     // and `repositoryRoot`/`currentWorktree.path` are the SYMLINK path. The
     // inventory realpaths everything. The old string-equal cross-bridge match
     // made every entry fall into "not in the inventory" here — the whole
     // feature silently disabling itself. `openedRoot` is realpath'd on the
-    // `window.git` side too (`createRepositorySnapshot`), so it is the only
+    // Git bridge's side too (`createRepositorySnapshot`), so it is the only
     // field that can anchor the match. Mirrors the desktop suite's
     // "raw path passed, canonical expected" precedent
     // (`git-inventory.integration.test.ts`).
@@ -462,7 +462,7 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
 
   it('renders worktrees the git bridge never listed, from the inventory alone', async () => {
     // Entries come from the inventory descriptors, so a worktree the
-    // `window.git` snapshot has not caught up with still appears — and, being
+    // Git bridge's snapshot has not caught up with still appears — and, being
     // a descriptor, arrives fully trust-gated.
     setInventoryResult({
       inventory: makeInventory([

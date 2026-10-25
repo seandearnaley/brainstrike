@@ -7,7 +7,7 @@ import { type Mode, type RunEvent, StateStore, UnknownEventError } from '@brains
 import { expect, it } from 'vitest';
 import { schema } from './fixtures/state-schema.mjs';
 
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const producer = new URL('./fixtures/state-schema.mjs', import.meta.url).href;
 const v1Text = '{"v":1,"type":"text","text":"alpha from an old build"}';
 const v2Text = '{"v":2,"type":"text","content":"beta from this build"}';

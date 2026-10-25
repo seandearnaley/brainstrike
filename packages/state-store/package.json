@@ -7,7 +7,8 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
-    "better-sqlite3": "catalog:"
+    "better-sqlite3": "catalog:",
+    "tree-kill": "1.2.2"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

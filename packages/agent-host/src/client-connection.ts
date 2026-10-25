@@ -9,6 +9,9 @@ import { createHostCatalogClient, type HostCatalog } from './catalog/transport.t
 import { sendHostRequest } from './client-request.ts';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
+  GIT_WORKSPACE_EVENT,
+  type GitWorkspaceEvent,
+  GitWorkspaceEventSchema,
   HOST_CHILDREN_CHANGED,
   HOST_RESULT_SCHEMAS,
   HOST_RUN_TELEMETRY,
@@ -33,6 +36,8 @@ export interface HostClient extends HostAttachment {
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
+  /** Repository and pull-request changes, after this client's `workspace/git/subscribe`. */
+  onGitWorkspace(listener: (event: GitWorkspaceEvent) => void): () => void;
   /** MCP task changes and server input, after this client's `mcp/presentation/subscribe`. */
   onMcpPresentation(listener: (event: McpPresentationEvent) => void): () => void;
   /** MCP settings changes, after this client's `mcp/settings/subscribe`. */
@@ -82,6 +87,7 @@ export async function authenticateHostClient(
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
   const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
+  const gitWorkspaceListeners = new Set<(event: GitWorkspaceEvent) => void>();
   const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
   const childListeners = new Set<(threadId: string) => void>();
   const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
@@ -94,6 +100,7 @@ export async function authenticateHostClient(
     }
     listeners.clear();
     settingsListeners.clear();
+    gitWorkspaceListeners.clear();
     presentationListeners.clear();
     childListeners.clear();
     telemetryListeners.clear();
@@ -135,6 +142,15 @@ export async function authenticateHostClient(
       onExcessProperty: 'error',
     })(input);
     for (const listener of settingsListeners) {
+      listener(event);
+    }
+  });
+  connection.onNotification(GIT_WORKSPACE_EVENT, (input: unknown) => {
+    const event = wireDecoder(GitWorkspaceEventSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
+    for (const listener of gitWorkspaceListeners) {
       listener(event);
     }
   });
@@ -195,6 +211,10 @@ export async function authenticateHostClient(
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onGitWorkspace: (listener) => {
+      gitWorkspaceListeners.add(listener);
+      return () => gitWorkspaceListeners.delete(listener);
     },
     onMcpPresentation: (listener) => {
       presentationListeners.add(listener);

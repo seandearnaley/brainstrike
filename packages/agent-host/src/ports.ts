@@ -58,6 +58,7 @@ import type {
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
 } from './protocol.ts';
+import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol-git-workspace.ts';
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
 import type { HostStateSearch, HostStateSearchVectors } from './thread-search.ts';
@@ -604,6 +605,35 @@ export interface HostWorkspaceDiscovery {
   skills(signal: AbortSignal): Promise<SkillsScanResultSummary>;
 }
 
+/** The git cluster's request methods; `workspace/git/subscribe` is the connection's own. */
+export type HostGitWorkspaceMethod = Exclude<
+  keyof typeof GIT_WORKSPACE_METHOD_SCHEMAS,
+  'workspace/git/subscribe'
+>;
+
+/**
+ * ADR-0029 stage 2: the desktop's git cluster (the git panel, Changes, forge
+ * pull-request awareness and managed worktrees), owned by the host that owns
+ * the workspace catalog. Each method answers its own wire method.
+ */
+export type HostGitWorkspaceMethods = {
+  readonly [M in HostGitWorkspaceMethod]: (
+    params: HostParams<M>,
+    signal: AbortSignal
+  ) => Promise<HostResults[M]>;
+};
+export type HostGitWorkspace = HostGitWorkspaceMethods & {
+  /** Repository and pull-request changes, for every subscribed client. */
+  subscribe(listener: (event: GitWorkspaceEvent) => void): () => void;
+};
+
+/** Core's reads of its threads, for a platform service that asks which runs are live. */
+export interface HostThreadReads {
+  listThreads(): HostResults['thread/list']['threads'];
+  read(threadId: string, fromSeq: number): Promise<HostLogRow[]>;
+  readLedger(): HostResults['ledger/read'];
+}
+
 /**
  * The desktop host's MCP settings authority (BST-1930 c5a): the config file, the
  * global extension dials, and the discovered tools with their saved preferences.
@@ -716,6 +746,8 @@ export interface HostPlatform {
    * bound, when it opens and before any run can discover MCP tools (BST-1930 c3).
    */
   attachMcpTaskOwner?(owner: McpHostTaskOwner): void;
+  /** Core hands its thread reads to the platform once it has hydrated them. */
+  attachThreadReads?(reads: HostThreadReads): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
   close(): Promise<void>;
@@ -725,6 +757,8 @@ export interface HostPlatform {
   forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
   readonly generatesThreadTitles?: boolean | undefined;
+  /** The desktop's git cluster; absent where the host owns no workspace git (the CLI). */
+  readonly gitWorkspace?: HostGitWorkspace;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
   /** Runs the MCP App tool calls Core admits; absent where the host has no MCP. */

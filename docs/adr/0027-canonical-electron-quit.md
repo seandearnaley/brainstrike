@@ -1,7 +1,8 @@
 # ADR-0027: Canonical Electron quit
 
 - **Status:** Accepted (owner decisions, 2026-10-21); decision 3's native-thread join
-  retires under [ADR-0029](0029-main-is-a-launcher.md) once no native work runs on Main
+  retires under [ADR-0029](0029-main-is-a-launcher.md) once no native work runs on Main;
+  [ADR-0030](0030-one-process-supervisor.md) amends how a timed-out git ends
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) R4. Git on
   Windows no longer runs in a per-command native Job, so quit has no git Job to join. A
@@ -46,8 +47,8 @@ test enforces:
 
 ## Decision
 
-1. **Git runs as a plain Node child on every platform**, with its `timeout` and abort
-   `signal`. Windows agent commands keep their wrapper and Job. Only git changed (#4125).
+1. **Git runs as a plain Node child on every platform**, bounded by its timeout and abort
+   signal, which end its whole tree (ADR-0030). Windows agent commands keep their wrapper and Job. Only git changed (#4125).
    Output past the capture ceiling closes the pipe so git ends itself; the runner never
    kills git for size, because on Windows a kill stops only the `cmd\git.exe` launcher
    (BST-2295).
@@ -101,5 +102,5 @@ both PRs. On Ubuntu, web full regression and the affected unit tests also passed
 - A git command's result no longer pays for a Job join.
 - A slow quit step is visible only in the per-step durations of the completion record.
   Nothing warns while the step runs, and nothing abandons it.
-- A git timeout or abort kills `git` itself. On Windows the launcher's child process
-  ends on its own once its work is done.
+- A git timeout or abort ends git's whole tree, so the real git under the Windows
+  launcher ends with it (ADR-0030).

@@ -5,7 +5,7 @@ import { openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { expect, it } from 'vitest';
 
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const profile = {
   dimensions: 384,
   dtype: 'fp16',

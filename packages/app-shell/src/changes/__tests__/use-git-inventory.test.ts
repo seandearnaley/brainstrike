@@ -1,6 +1,10 @@
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  stubChangesBridge,
+  workspaceGitWrapper,
+} from '../../__tests__/helpers/workspace-git-services-wrapper';
 import type { ChangesBridge } from '../changes-bridge';
 import { useChangesLiveRefreshStore } from '../changes-live-refresh-store';
 import { useGitInventory } from '../use-git-inventory';
@@ -37,28 +41,26 @@ function inventoryFixture(overrides: Partial<GitInventory> = {}): GitInventory {
   };
 }
 
-/**
- * Fills in every method this suite does not exercise — `resolveChangesBridge`
- * requires a FULLY formed bridge, so an omitted rewind method (BST-1115) reads
- * as malformed and the hook goes inert.
- */
+let installedChanges: ChangesBridge | null = null;
+
+/** Fills in every method this suite does not exercise. */
 function stubBridge(bridge: Partial<ChangesBridge>): void {
-  (window as unknown as { changes?: Partial<ChangesBridge> }).changes = {
-    fileDiff: vi.fn(),
-    onInvalidated: vi.fn(() => () => {}),
-    resolveView: vi.fn(),
-    ...bridge,
-  };
+  installedChanges = stubChangesBridge(bridge);
+}
+
+/** Wraps a render in the host as it stands: serving `installedChanges`, or none (web). */
+function changesHost() {
+  return workspaceGitWrapper({ changes: installedChanges });
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  installedChanges = null;
   useChangesLiveRefreshStore.getState().reset();
 });
 
 describe('useGitInventory', () => {
   it('is inert with the bridge absent', async () => {
-    const { result } = renderHook(() => useGitInventory());
+    const { result } = renderHook(() => useGitInventory(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -72,7 +74,7 @@ describe('useGitInventory', () => {
     const value = inventoryFixture({ errors: ['repo /tmp/broken: not a git repository'] });
     stubBridge({ inventory: vi.fn(async () => ({ ok: true, value }) as const) });
 
-    const { result } = renderHook(() => useGitInventory());
+    const { result } = renderHook(() => useGitInventory(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.inventory).toEqual(value);
@@ -86,7 +88,7 @@ describe('useGitInventory', () => {
     const empty: GitInventory = { errors: [], repositories: [] };
     stubBridge({ inventory: vi.fn(async () => ({ ok: true, value: empty }) as const) });
 
-    const { result } = renderHook(() => useGitInventory());
+    const { result } = renderHook(() => useGitInventory(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.inventory).not.toBeNull();
@@ -102,7 +104,7 @@ describe('useGitInventory', () => {
       inventory: vi.fn(async () => ({ error: 'inventory-unavailable', ok: false }) as const),
     });
 
-    const { result } = renderHook(() => useGitInventory());
+    const { result } = renderHook(() => useGitInventory(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.error).toBe('inventory-unavailable');
@@ -118,7 +120,7 @@ describe('useGitInventory', () => {
       }),
     });
 
-    const { result } = renderHook(() => useGitInventory());
+    const { result } = renderHook(() => useGitInventory(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.error).toBe('ipc exploded');
@@ -130,7 +132,7 @@ describe('useGitInventory', () => {
     const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
     stubBridge({ inventory });
 
-    renderHook(() => useGitInventory());
+    renderHook(() => useGitInventory(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(inventory).toHaveBeenCalledTimes(1);
@@ -144,7 +146,9 @@ describe('useGitInventory', () => {
     const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
     stubBridge({ inventory });
 
-    const { result } = renderHook(() => useGitInventory({ deferInitialLoad: true }));
+    const { result } = renderHook(() => useGitInventory({ deferInitialLoad: true }), {
+      wrapper: changesHost(),
+    });
 
     await waitFor(() => {
       expect(result.current.available).toBe(true);
@@ -168,7 +172,7 @@ describe('useGitInventory', () => {
     const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
     stubBridge({ inventory });
 
-    renderHook(() => useGitInventory());
+    renderHook(() => useGitInventory(), { wrapper: changesHost() });
     await waitFor(() => {
       expect(inventory).toHaveBeenCalledTimes(1);
     });
@@ -192,7 +196,9 @@ describe('useGitInventory', () => {
     const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
     stubBridge({ inventory });
 
-    const { result } = renderHook(() => useGitInventory({ deferInitialLoad: true }));
+    const { result } = renderHook(() => useGitInventory({ deferInitialLoad: true }), {
+      wrapper: changesHost(),
+    });
     await waitFor(() => {
       expect(result.current.available).toBe(true);
     });
@@ -229,7 +235,7 @@ describe('useGitInventory', () => {
 
     const { rerender, result } = renderHook(
       (active: boolean) => useGitInventory({ active, deferInitialLoad: !active }),
-      { initialProps: false }
+      { initialProps: false, wrapper: changesHost() }
     );
     expect(inventory).not.toHaveBeenCalled();
 
@@ -280,7 +286,7 @@ describe('useGitInventory', () => {
 
     const { rerender, result } = renderHook(
       (active: boolean) => useGitInventory({ active, deferInitialLoad: !active }),
-      { initialProps: true }
+      { initialProps: true, wrapper: changesHost() }
     );
     await waitFor(() => {
       expect(result.current.inventory).toEqual(stale);
@@ -324,7 +330,7 @@ describe('useGitInventory', () => {
     });
     stubBridge({ inventory });
 
-    const { result } = renderHook(() => useGitInventory());
+    const { result } = renderHook(() => useGitInventory(), { wrapper: changesHost() });
     await waitFor(() => {
       expect(inventory).toHaveBeenCalledTimes(1);
     });

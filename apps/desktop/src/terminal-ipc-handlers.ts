@@ -24,7 +24,7 @@
  *    shutdown AND factory reset, mirroring the shell tool's
  *    `disposeLiveChildProcesses`) kill every pty so no shell survives the app /
  *    a workspace reset. Reaping is order-critical: {@link killTerminalTree}
- *    runs the `tree-kill` descendant walk (while the leader is still alive) and
+ *    ends the whole tree with `terminateTree` (while the leader is still alive) and
  *    a POSIX process-group kill, so a child the shell backgrounded in the same
  *    session — including a `disown`'d / `nohup`'d job in its OWN process group —
  *    is reaped. A deliberately daemonized (`setsid`, own session) child escapes
@@ -44,11 +44,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
+import { terminateTree } from '@brainstrike/state-store/native-children';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
-import treeKill from 'tree-kill';
 import { terminalContract } from './ipc-domains/terminal.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
@@ -237,8 +237,8 @@ function killTerminalProcessGroup(pid: number): Error | null {
  * The probe is deterministic: such a child orphans destroy()/dispose() if we
  * kill the leader first.
  *
- * The mechanism that DOES reap it: run `tree-kill` (the ps-tree descendant
- * walk) FIRST, while the shell is still alive — at that moment the background
+ * The mechanism that DOES reap it: run `terminateTree` (the ps-tree descendant
+ * walk; `taskkill /T` on Windows) FIRST, while the shell is still alive — at that moment the background
  * job is still parented to the shell, so the walk finds and SIGKILLs it. ONLY
  * AFTER that walk completes do we (1) `process.kill(-pid)` as a POSIX
  * process-group backstop for any same-group straggler (the shell tool's
@@ -257,37 +257,30 @@ function killTerminalTree(entry: LiveTerminal): Promise<void> {
   if (entry.reap) {
     return entry.reap;
   }
-  const treeReaped = new Promise<void>((resolve, reject) => {
-    const complete = (error?: Error): void => {
-      const failures: unknown[] = [];
-      if (error && !/no such process/i.test(error.message)) {
-        logger.warn('tree-kill failed for terminal', { error: error.message, pid: entry.pid });
-        failures.push(error);
-      }
-      // Descendants first; retain the POSIX group backstop before the leader.
-      const groupFailure = killTerminalProcessGroup(entry.pid);
-      if (groupFailure) {
-        failures.push(groupFailure);
-      }
-      try {
-        entry.process.kill();
-      } catch (killError) {
-        logger.debug('pty.kill threw (process may already be gone)', {
-          error: killError instanceof Error ? killError.message : String(killError),
-        });
-      }
-      if (failures.length > 0) {
-        reject(new AggregateError(failures, 'Terminal tree cleanup failed'));
-        return;
-      }
-      resolve();
-    };
+  const treeReaped = (async () => {
+    const failures: unknown[] = [];
     try {
-      treeKill(entry.pid, 'SIGKILL', complete);
+      await terminateTree(entry.pid);
     } catch (error) {
-      complete(error instanceof Error ? error : new Error(String(error)));
+      logger.warn('Could not end the terminal process tree', { error, pid: entry.pid });
+      failures.push(error);
     }
-  });
+    // Descendants first; retain the POSIX group backstop before the leader.
+    const groupFailure = killTerminalProcessGroup(entry.pid);
+    if (groupFailure) {
+      failures.push(groupFailure);
+    }
+    try {
+      entry.process.kill();
+    } catch (killError) {
+      logger.debug('pty.kill threw (process may already be gone)', {
+        error: killError instanceof Error ? killError.message : String(killError),
+      });
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Terminal tree cleanup failed');
+    }
+  })();
   entry.reap = Promise.allSettled([treeReaped, entry.exited]).then((results) => {
     const failures = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []

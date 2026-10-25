@@ -126,7 +126,7 @@ export async function runAgentHostProcess(
 ): Promise<void> {
   // Canonical tools and MCP use the shared logger. Stdout belongs exclusively
   // to JSON-RPC framing; configure before dynamically importing the platform.
-  configureLogger({ console: { destination: 2 } });
+  configureLogger({ console: { destination: 2 }, includeTimestamp: true });
   if (process.platform === 'win32') {
     // ADR-0017: Windows has no inheritable Root lock. Before this host starts any
     // native process it joins a kill-on-close Job, which ends them all when it exits.

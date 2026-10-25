@@ -1,6 +1,7 @@
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
@@ -29,7 +30,7 @@ interface StdioLifecycleFixture {
 
 async function createStdioLifecycleFixture(
   prefix: string,
-  connectDelayMs?: number
+  connectDelayMs?: number | 'held'
 ): Promise<StdioLifecycleFixture> {
   const directory = await fsp.mkdtemp(path.join(os.tmpdir(), prefix));
   const pidFile = path.join(directory, 'pid');
@@ -61,6 +62,22 @@ function processIsGone(pid: number): boolean {
       return false;
     }
     throw error;
+  }
+}
+
+/** The child writes its pid once it has started; the test's own timeout bounds the wait. */
+async function readPidWhenStarted(pidFile: string, signal: AbortSignal): Promise<number> {
+  for (;;) {
+    const written = await fsp.readFile(pidFile, 'utf8').catch((error: unknown) => {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return '';
+      }
+      throw error;
+    });
+    if (/^[1-9]\d*$/u.test(written)) {
+      return parsePositivePid(written);
+    }
+    await delay(25, undefined, { signal });
   }
 }
 
@@ -130,7 +147,7 @@ describe('surviving Desktop MCP host integration', () => {
     }
   }, 30_000);
 
-  test('desktop host reaps its real stdio child process on close', async () => {
+  test('desktop host reaps its real stdio child process on close', async ({ signal }) => {
     const fixture = await createStdioLifecycleFixture('desktop-mcp-reaping-');
     const configuredServerId = parseConfiguredMcpServerId('stdio.reaping');
     const runtime = createDesktopMcpHostRuntime();
@@ -149,10 +166,7 @@ describe('surviving Desktop MCP host integration', () => {
         ],
       });
       await runtime.host.invoke({ configuredServerId, type: 'tools/list' });
-      await expect
-        .poll(() => fsp.readFile(fixture.pidFile, 'utf8'), { timeout: 5000 })
-        .toMatch(/^[1-9]\d*$/u);
-      const pid = parsePositivePid(await fsp.readFile(fixture.pidFile, 'utf8'));
+      const pid = await readPidWhenStarted(fixture.pidFile, signal);
 
       await expect(runtime.host.close()).resolves.toMatchObject({
         childProcessesClosed: 1,
@@ -262,8 +276,10 @@ describe('surviving Desktop MCP host integration', () => {
     }
   }, 30_000);
 
-  test('cancels user-paced authorization out of band and reaps the stdio child', async () => {
-    const fixture = await createStdioLifecycleFixture('desktop-mcp-auth-cancel-', 10_000);
+  test('cancels user-paced authorization out of band and reaps the stdio child', async ({
+    signal,
+  }) => {
+    const fixture = await createStdioLifecycleFixture('desktop-mcp-auth-cancel-', 'held');
     const configuredServerId = parseConfiguredMcpServerId('stdio.auth-cancel');
     const runtime = createDesktopMcpHostRuntime();
     try {
@@ -283,10 +299,7 @@ describe('surviving Desktop MCP host integration', () => {
 
       const connecting = runtime.host.control({ action: 'connect', configuredServerId });
       const connectRejected = expect(connecting).rejects.toBeDefined();
-      await expect
-        .poll(() => fsp.readFile(fixture.pidFile, 'utf8'), { timeout: 5000 })
-        .toMatch(/^[1-9]\d*$/u);
-      const pid = parsePositivePid(await fsp.readFile(fixture.pidFile, 'utf8'));
+      const pid = await readPidWhenStarted(fixture.pidFile, signal);
 
       await expect(
         runtime.host.control({ action: 'cancel', configuredServerId })

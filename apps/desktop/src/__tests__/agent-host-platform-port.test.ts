@@ -364,31 +364,6 @@ it('a borrow whose roots cannot cross the wire is returned before the acquisitio
   }
 });
 
-it('serves a host command’s worktree snapshot and completion to Main’s correlation', async () => {
-  const completed = vi.fn(async () => []);
-  const h = harness(mainReads(), undefined, {
-    shell: { completed, worktreePaths: async () => ['/repo/.worktrees/fox'] },
-  });
-  try {
-    await expect(
-      h.client.sendRequest('platform/worktree/paths', { threadId: 'thread' })
-    ).resolves.toEqual({ paths: ['/repo/.worktrees/fox'] });
-    const completion = {
-      command: 'git worktree add ../fox',
-      precedingWorktreePaths: ['/repo/.worktrees/fox'],
-      rootId: 'root-a',
-      runId: 'host-run',
-      threadId: 'thread',
-    };
-    await expect(
-      h.client.sendRequest('platform/shell/completed', { ...completion })
-    ).resolves.toEqual({ adopted: [] });
-    expect(completed).toHaveBeenCalledWith(completion);
-  } finally {
-    h.destroy();
-  }
-});
-
 it('serves the workspace index, retrieval catalog and query embedding to the host', async () => {
   const status = { kind: 'unavailable' as const, reason: 'fixture index is offline' };
   const indexSearch = {
@@ -436,41 +411,6 @@ it('serves the workspace index, retrieval catalog and query embedding to the hos
       h.client.sendRequest('platform/embedding/query', { request: payload })
     ).resolves.toEqual({ ok: true, result: [0.5, 0.25] });
     expect(queryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
-  } finally {
-    h.destroy();
-  }
-});
-
-it('serves the worktree calls under the calling run’s identity', async () => {
-  const created = {
-    ok: true as const,
-    value: {
-      root: { displayName: 'fox', path: '/managed/fox', rootId: 'wt-root' },
-      setup: { reason: null, status: 'none' },
-      worktree: { branch: 'bs/fox', id: 'wt-9', path: '/managed/fox' },
-    },
-  };
-  const service = {
-    archive: vi.fn(),
-    create: vi.fn(async () => created),
-    list: vi.fn(async () => ({ ok: true as const, value: [] })),
-  };
-  const worktrees = vi.fn(() => service);
-  const h = harness(mainReads(), undefined, { worktrees });
-  const params = { baseRef: 'HEAD', branch: 'bs/fox', name: 'fox', rootId: 'root-a' };
-  try {
-    await expect(
-      h.client.sendRequest('platform/worktree/list', { threadId: 'thread' })
-    ).resolves.toEqual({ ok: true, value: [] });
-    await expect(
-      h.client.sendRequest('platform/worktree/create', {
-        params,
-        runId: 'host-run',
-        threadId: 'thread',
-      })
-    ).resolves.toEqual(created);
-    expect(worktrees).toHaveBeenLastCalledWith({ runId: 'host-run', threadId: 'thread' });
-    expect(service.create).toHaveBeenCalledWith(params);
   } finally {
     h.destroy();
   }

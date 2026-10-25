@@ -31,23 +31,15 @@ import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspa
 import { restartLaunchedAgentHost } from './agent-host-restart';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
-import { createHostThreadTurns } from './assistant-server/changeset-host-turns';
 import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
-import type { ForgeService } from './assistant-server/forge-service';
-import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
-import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
-import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import { hasHostRunInWorktree } from './assistant-server/worktree-host-activity';
 import { createWorktreeLedger } from './assistant-server/worktree-ledger';
-import { isPathWithin } from './assistant-server/worktree-paths';
-import type { createWorktreeService } from './assistant-server/worktree-service';
-import { readWorktreeSettings, writeWorktreeSettings } from './assistant-server/worktree-settings';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
 import {
@@ -56,7 +48,6 @@ import {
 } from './browser/browser-pane-registry';
 import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
-import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { closeDesktopRenderers } from './close-desktop-renderers';
 import { createWindow, noteNextWindowReload } from './create-window';
 import { joinProfileDirectory } from './database-location';
@@ -125,14 +116,12 @@ import { createWorkspaceRootResolver } from './git-ipc-handlers';
 import { assertRegisteredEmbeddingModel, createDesktopIndexConfig } from './index-config';
 import { registerAgentHostRecoveryIpcHandlers } from './ipc-agent-host-recovery';
 import { registerBrowserIpcHandlers } from './ipc-browser';
-import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
-import { registerGitIpcHandlers } from './ipc-git';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
 import { registerIndexSearchIpcHandlers } from './ipc-index-search';
@@ -152,7 +141,6 @@ import { registerTerminalIpc } from './ipc-terminal';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
-import { registerWorktreesIpcHandlers } from './ipc-worktrees';
 import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { registerLoggingIpcHandlers } from './logging-ipc';
 import {
@@ -160,17 +148,12 @@ import {
   type DesktopShutdownRunPlan,
 } from './main/desktop-graceful-shutdown';
 import { createDisposerStack, type DisposerHandle } from './main/disposer-stack';
-import { startGitAwarenessLifecycle } from './main/git-awareness-lifecycle';
 import {
   createDesktopLoggingPreferencesController,
   readConsoleLevelOverride,
 } from './main/logging-preferences';
 import { prepareMainCatalogClose } from './main/main-catalog-close';
 import { installShutdownSignalHandlers } from './main/shutdown-signals';
-import {
-  type SnapshotStartupMaintenance,
-  startSnapshotStartupMaintenance,
-} from './main/snapshot-lifecycle';
 import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
@@ -205,7 +188,6 @@ import { getWindowRole, resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import { enqueueFolderCandidates, filterDirectoryOpenCandidates } from './workspace-open-queue';
 import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
-import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
 const desktopBootstrap = getDesktopBootstrapRuntime();
 const MAIN_ENTRY_PATH = desktopBootstrap.mainEntryPath;
@@ -348,8 +330,6 @@ let pendingRootGrantSubscriber: ((grantedPath: string) => void) | null = null;
 // The ONE holder of IPC-domain disposers (BST-1648 step 4): every
 // registerXIpcHandlers(...) disposer is pushed here and `will-quit` unwinds
 // the stack (LIFO, throw-isolated) — no per-domain `let unregisterX` slot.
-// Forge retires inside its awaited graceful-shutdown step; the synchronous
-// ledger must never start its physical cleanup again.
 const ipcDisposers = createDisposerStack();
 // Per-window: the embedded browser pane's IPC is bound to the CURRENT visible
 // window (rebound on a macOS dock-reopen), so its handle is kept to retire the
@@ -361,25 +341,6 @@ let browserIpcDisposer: DisposerHandle | null = null;
 // app-ready when file logging isn't disabled; closed as the last graceful-
 // shutdown step so it captures failures from every earlier step.
 let errorLogSink: ErrorLogSinkHandle | null = null;
-let forgeService: ForgeService | undefined;
-let unregisterForgeIpc: (() => void) | undefined;
-// BST-1112: cross-workspace git worktree inventory. Constructed and started
-// inside `app.whenReady()` (NOT at module scope): its `start()` call performs
-// an eager build whose first step reads the database, which in turn spawns a
-// `utilityProcess` — an operation Electron rejects before the app is ready.
-// Stopped as a graceful-shutdown step, before the `database` step, since its
-// `loadRoots` dependency reads from the DB.
-let gitInventoryService: GitInventoryService | null = null;
-let worktreeService: ReturnType<typeof createWorktreeService> | null = null;
-// BST-1164 (W7 T1): the ONE app-lifetime shadow-git SnapshotService.
-// Constructed inside `app.whenReady()` (never at module scope — the
-// gitInventoryService incident class: a module-scope construction would also
-// sit above the single-instance lock). Consumers resolve it LAZILY through
-// `() => snapshotService` because the changes IPC handlers register at module
-// load, before construction. There is exactly one instance; T2/T3 consume it
-// through the injected seams, never by constructing a second service.
-let snapshotService: SnapshotService | null = null;
-let snapshotMaintenance: SnapshotStartupMaintenance | undefined;
 let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
@@ -467,41 +428,8 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Finish accepted deletion; terminal quit cancels replacement startup.
       'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
-      // Its own step, deliberately NOT nested inside 'git-inventory':
-      // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
-      // unguarded, and the shutdown sequence catches a rejection at the step
-      // boundary — nesting forge teardown after it would silently skip these
-      // three lines on a throwing watcher disposer, leaving `ipcMain` handlers
-      // registered and a live `forgeService` heading into 'database-drain'.
-      // forge has the same DB dependency as git-inventory (`getDatabase` ->
-      // `readForgePrCacheEntry`/`writeForgePrCacheEntry`) but is otherwise
-      // unrelated to git-inventory's success, so it gets its own
-      // failure-isolated step, BEFORE 'database-drain' for the same reason.
-      forge: async () => {
-        const service = forgeService;
-        // Retire both authorities before any await: watcher invalidations and
-        // IPC can no longer enqueue work while stop aborts and drains the
-        // operations that were already in flight.
-        forgeService = undefined;
-        const drain = service?.stop();
-        try {
-          unregisterForgeIpc?.();
-        } finally {
-          unregisterForgeIpc = undefined;
-          await drain;
-        }
-      },
-      'git-inventory': async () => {
-        // Runs BEFORE 'database-drain': this service's `loadRoots` dependency
-        // reads the DB `roots` table, so its watchers/in-flight build must
-        // be torn down while the database is still available to it.
-        if (gitInventoryService) {
-          await gitInventoryService.stop();
-          gitInventoryService = null;
-        }
-      },
       'main-catalog': () =>
-        prepareMainCatalogClose(applicationIpcDomain.roots, worktreeService, workspaceRootCatalog),
+        prepareMainCatalogClose(applicationIpcDomain.roots, workspaceRootCatalog),
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
@@ -551,9 +479,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           throw new AggregateError(failures, 'Desktop renderer producers failed to close');
         }
       },
-      // Stops between its stages and joins the one in flight, before the agent host,
-      // the database or git that it reads retire; the next launch runs it again.
-      'snapshot-maintenance': () => snapshotMaintenance?.stop(),
     },
   };
 }
@@ -788,15 +713,10 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   embeddingHostManager,
   getRootsCatalog: async () => workspaceRootCatalog,
   getUserDataPath: () => app.getPath('userData'),
-  managedWorktreeAuthorizer: async (candidate) => {
-    if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
-      return 'authorized';
-    }
-    const settings = await readWorktreeSettings(storage, app.getPath('home'));
-    return isPathWithin(candidate, settings.managedDirectory)
-      ? 'managed-but-unauthorized'
-      : 'unmanaged';
-  },
+  // The host owns the worktree ledger and settings: it says whether a folder is a managed worktree.
+  managedWorktreeAuthorizer: async (candidate) =>
+    (await agentHostMainClient.request('worktrees/classify-path', { path: candidate }))
+      .classification,
   onClearContent: async () => {
     const result = await handleResetLocal.clearContent();
     if (
@@ -912,12 +832,6 @@ const agentHostMainClient = createAgentHostMainClient(
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
   agentHostMainClient.request(method, params)
 );
-// Host threads record their turn snapshots in the host's log, not the ledger;
-// the startup snapshot GC keeps their refs while the host lists the thread.
-const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
-  new Set(
-    (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
-  );
 const agentHostClientIpc = registerAgentHostClientIpc(async () => {
   // A factory reset retires the profile until it reopens it, after its replacement
   // renderer is ready: that renderer's clients connect once it has, not into the fence.
@@ -1102,47 +1016,6 @@ ipcDisposers.add('shell', registerShellIpcHandlers());
 ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
 ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
-ipcDisposers.add('git', registerGitIpcHandlers(workspaceRootCatalog));
-// `resolveInventoryService` is a LAZY getter on purpose: this registration
-// runs at module load, while `gitInventoryService` is only constructed once
-// the app is ready (see `createGitInventoryService` below). Capturing the
-// value here would pin `null` forever.
-ipcDisposers.add(
-  'changes',
-  registerChangesIpcHandlers(
-    createChangesIpcHandlers({
-      // T1 injection points (BST-1164): the snapshot-repository factory and the
-      // lazy service resolver are THREADED but not yet consumed — T2/T3 consume
-      // them here so neither has to edit main.ts. Lazy for the same reason as
-      // `resolveInventoryService` below.
-      // BST-1977: host threads' agent-run changesets resolve from the host's log.
-      hostThreadTurns: createHostThreadTurns({
-        listThreads: readHostThreadIds,
-        readRows: async (threadId, fromSeq) =>
-          (await agentHostMainClient.request('thread/read', { fromSeq, threadId })).rows,
-      }),
-      resolveInventoryService: () => gitInventoryService,
-      resolver: createWorkspaceRootResolver(workspaceRootCatalog),
-      resolveSnapshotService: () => snapshotService,
-    })
-  )
-);
-ipcDisposers.add(
-  'worktrees',
-  registerWorktreesIpcHandlers(
-    createWorktreesIpcHandlers({
-      readSettings: () => readWorktreeSettings(storage, app.getPath('home')),
-      resolveService: () => worktreeService,
-      // Apply BST-1342 containment at save time so the user learns immediately,
-      // rather than only when a worktree create later targets the saved path.
-      writeSettings: (next) =>
-        writeWorktreeSettings(storage, app.getPath('home'), next, async () => {
-          const roots = await loadWorkspaceRootsFromCatalog(workspaceRootCatalog);
-          return roots.map((root) => root.path);
-        }),
-    })
-  )
-);
 ipcDisposers.add('hooks', registerHooksIpcHandlers(desktopHookTrust, workspaceRootCatalog));
 ipcDisposers.add('context-files', registerContextFilesIpcHandlers(workspaceRootCatalog));
 ipcDisposers.add('prompt-library', registerPromptLibraryIpc(workspaceRootCatalog));
@@ -1293,17 +1166,6 @@ if (singleInstanceLockAcquired) {
     }
   });
 
-  // Push one payload to every live renderer window (ipc-mcp precedent): the
-  // git-awareness pushes can land in any window.
-  const broadcastToRenderers = (channel: string, payload: unknown): void => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed()) {
-        continue;
-      }
-      window.webContents.send(channel, payload);
-    }
-  };
-
   app.whenReady().then(async () => {
     if (isDesktopShuttingDown()) {
       return;
@@ -1369,59 +1231,6 @@ if (singleInstanceLockAcquired) {
       // each shell over the visible-UI `mcp:apps:prepareShell` IPC and this
       // handler serves it on its own origin with header-delivered policies.
       registerMcpAppShellProtocol(getMcpAppShellRegistry());
-
-      // BST-1112 / BST-1391 / BST-1161: the ONE git inventory, forge, and
-      // worktree services (+ their renderer pushes) — constructed HERE, inside
-      // app.whenReady(), never at module scope (main/git-awareness-lifecycle.ts
-      // carries the full rationale). The module-scope slots below are what
-      // graceful shutdown's 'git-inventory' and 'forge' steps tear down.
-      const gitAwareness = startGitAwarenessLifecycle({
-        broadcast: broadcastToRenderers,
-        hasRunningThread: (id) =>
-          hasHostRunInWorktree(
-            {
-              readLedger: () => agentHostMainClient.request('ledger/read', {}),
-              readThread: async (threadId) =>
-                (await agentHostMainClient.request('thread/read', { fromSeq: 0, threadId })).rows,
-            },
-            id
-          ),
-        homePath: app.getPath('home'),
-        logger,
-        storage,
-        workspaceRoots: workspaceRootCatalog,
-      });
-      forgeService = gitAwareness.forgeService;
-      unregisterForgeIpc = gitAwareness.unregisterForgeIpc;
-      gitInventoryService = gitAwareness.gitInventoryService;
-      worktreeService = gitAwareness.worktreeService;
-
-      // BST-1164 (W7 T1): shadow-git snapshot backbone. Constructed HERE,
-      // inside app.whenReady() — `app.getPath('userData')` is the storage
-      // contract (`userData/snapshots/<rootId>/git`), and the factory-reset
-      // wholesale userData wipe is what covers it (pinned by
-      // desktop-factory-reset.test.ts). Same wiring posture as
-      // GitInventoryService above: ONE instance, never at module scope.
-      const snapshotsBaseDir = path.join(app.getPath('userData'), 'snapshots');
-      const constructedSnapshotService = createSnapshotService({
-        runner: execFileSnapshotGitRunner,
-        snapshotsBaseDir,
-      });
-      snapshotService = constructedSnapshotService;
-      snapshotMaintenance = startSnapshotStartupMaintenance({
-        logger,
-        readHostThreadIds: async () =>
-          new Set(
-            (await agentHostMainClient.request('ledger/read', {})).threads.map(
-              ({ threadId }) => threadId
-            )
-          ),
-        readHostThreadRows: async (threadId) =>
-          (await agentHostMainClient.request('thread/read', { fromSeq: 0, threadId })).rows,
-        snapshotService: constructedSnapshotService,
-        snapshotsBaseDir,
-        workspaceRoots: workspaceRootCatalog,
-      });
 
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
@@ -2102,7 +1911,6 @@ app.on('will-quit', () => {
       label: failure.label,
     });
   }
-  worktreeService = null;
   removeLogBufferListener();
 });
 
@@ -2141,18 +1949,6 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         embeddingHostManager,
         modelCatalog,
         nativeIndexSearch,
-        // The ledger authorizes a managed worktree's mount; no picker grant is needed.
-        // The window is then asked to show it, as for any folder Main opens.
-        openWorktreeFolder: async (path) => {
-          const root = await applicationIpcDomain.roots.addRootByPath(path);
-          desktopBootstrap.workspaceOpenQueue.enqueue({
-            origin: 'agent-worktree',
-            path: root.handle.path,
-          });
-          return { displayName: root.displayName, path: root.handle.path, rootId: root.rootId };
-        },
-        resolveForgeService: () => forgeService ?? null,
-        resolveWorktreeService: () => worktreeService,
         retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),
         workspaceRoots: workspaceRootCatalog,
       },
@@ -2180,9 +1976,17 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
     // ADR-0017: the host reports its native processes; Main ends them if it dies.
     nativeChildren,
+    // The ledger authorizes a managed worktree's mount; no picker grant is needed.
+    // The window is then asked to show it, as for any folder Main opens.
+    openWorktreeFolder: async (path) => {
+      const root = await applicationIpcDomain.roots.addRootByPath(path);
+      desktopBootstrap.workspaceOpenQueue.enqueue({
+        origin: 'agent-worktree',
+        path: root.handle.path,
+      });
+      return { displayName: root.displayName, path: root.handle.path, rootId: root.rootId };
+    },
     refreshWorkspaceIndex: (rootId) => nativeIndexActivation.requestWorkspaceScan(rootId),
-    // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
-    workspaceSnapshots: () => snapshotService,
   });
 });
 
