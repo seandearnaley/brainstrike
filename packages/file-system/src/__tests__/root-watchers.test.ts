@@ -6,7 +6,7 @@
 // real Node `fs.watch` on this host.
 import type { Stats } from 'node:fs';
 import fs from 'node:fs';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -580,6 +580,64 @@ describe('root watch engine on Node fs.watch', () => {
       expect(seen.filter((change) => change.path.includes('node_modules'))).toEqual([]);
     } finally {
       await retire();
+    }
+  });
+
+  /** Starts a real watch and resolves once every path in `expected` has been reported. */
+  async function watchUntilReported(
+    expected: readonly string[],
+    act: () => Promise<void>
+  ): Promise<FileSystemChange[]> {
+    const seen: FileSystemChange[] = [];
+    const pending = new Set(expected);
+    const delivered = Promise.withResolvers<void>();
+    const retire = await startJoinedParcelWatch(makeHandle(root), (changes) => {
+      seen.push(...changes);
+      for (const change of changes) {
+        pending.delete(change.path);
+      }
+      if (pending.size === 0) {
+        delivered.resolve();
+      }
+    });
+    try {
+      await act();
+      await delivered.promise;
+      return seen;
+    } finally {
+      await retire();
+    }
+  }
+
+  it('reports a directory and a file written into it within one batch window', async () => {
+    const directory = join(root, 'fresh');
+    const file = join(directory, 'inside.ts');
+    const seen = await watchUntilReported([directory, file], async () => {
+      await mkdir(directory);
+      await writeFile(file, 'export {};');
+    });
+    expect(seen).toContainEqual({ kind: 'directory', path: directory, type: 'added' });
+    expect(seen).toContainEqual(expect.objectContaining({ kind: 'file', path: file }));
+  });
+
+  it('reports a directory renamed into the root, with what it already holds', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'root-watch-outside-'));
+    try {
+      await mkdir(join(outside, 'moved', 'nested'), { recursive: true });
+      await writeFile(join(outside, 'moved', 'nested', 'kept.ts'), 'export {};');
+      const directory = join(root, 'moved');
+      const nestedFile = join(directory, 'nested', 'kept.ts');
+      const seen = await watchUntilReported([directory], async () => {
+        await rename(join(outside, 'moved'), directory);
+      });
+      expect(seen).toContainEqual({ kind: 'directory', path: directory, type: 'added' });
+      // The moved tree is watched: a later write inside it is reported.
+      const later = await watchUntilReported([nestedFile], async () => {
+        await writeFile(nestedFile, 'export const changed = true;');
+      });
+      expect(later).toContainEqual(expect.objectContaining({ kind: 'file', path: nestedFile }));
+    } finally {
+      await rm(outside, { force: true, recursive: true });
     }
   });
 
