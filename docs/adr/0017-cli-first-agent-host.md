@@ -1,6 +1,7 @@
 # ADR-0017: A CLI-first agent host; the GUI is a client
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR-0029](0029-main-is-a-launcher.md) (what Main
+  keeps as platform capabilities)
 - **Date:** 2026-10-02
 - **Ticket:** BST-1914; implementation BST-1941 to BST-1946
 
