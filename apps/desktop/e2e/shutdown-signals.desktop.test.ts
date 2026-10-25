@@ -135,8 +135,14 @@ test.describe('Shutdown signals join the profile owner', () => {
     await expect
       .poll(() => processStartTime(host.pid), { timeout: CLOSE_TIMEOUT_MS })
       .not.toBe(host.start);
-    // The OS released the dead host's lock with it.
-    expect(isRootHeld(host.root)).toBe(false);
+    // Main saw the loss; the OS released the dead host's lock with it, so the next host
+    // Main starts opens the Root.
+    await expect
+      .poll(() => readOutput(), { timeout: CLOSE_TIMEOUT_MS })
+      .toContain('The agent host exited without Main asking');
+    await waitForAppHost(window);
+    const replacement = await ownedHost(userDataDir);
+    expect(replacement.pid).not.toBe(host.pid);
     try {
       await electron.closeForStateSeeding();
     } finally {
