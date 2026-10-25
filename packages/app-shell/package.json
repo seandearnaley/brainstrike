@@ -74,7 +74,6 @@
     "./git-panel/availability": "./src/git-panel/availability.ts",
     "./navigation": "./src/navigation.ts",
     "./platform-bridge": "./src/platform-bridge.ts",
-    "./user-commands-bridge": "./src/user-commands-bridge.ts",
     "./worktree-map": "./src/worktree-map/index.ts",
     "./worktrees/availability": "./src/worktrees/availability.ts",
     "./roots/root-registry": "./src/roots/root-registry.ts",
