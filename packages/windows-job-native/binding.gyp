@@ -4,7 +4,7 @@
       "target_name": "windows_job_native",
       "sources": ["src/windows_job.cc"],
       "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
-      "defines": ["NAPI_CPP_EXCEPTIONS"],
+      "defines": ["NAPI_CPP_EXCEPTIONS", "NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS"],
       "cflags_cc": ["-Wall", "-Wextra", "-Werror"],
       "cflags_cc!": ["-fno-exceptions"],
       "xcode_settings": {
