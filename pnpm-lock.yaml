@@ -3119,6 +3119,9 @@ importers:
         specifier: ^19.3.1
         version: 19.3.1
     devDependencies:
+      '@brainstrike/context-actions':
+        specifier: workspace:*
+        version: link:../context-actions
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
