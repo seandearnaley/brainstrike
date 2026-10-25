@@ -680,6 +680,20 @@ it('admits coverage only with an installed query target after a successful sourc
   await f.runtime.retireProfile();
 });
 
+it('answers a read on the acknowledged writer after a file removal (deleted-file grep)', async () => {
+  // While a catalog change waits for its scan, reads skip acquisition; the removal
+  // that scan committed must leave a query target for them.
+  const f = fixture();
+  await f.runtime.acquire();
+  await f.runtime.mutateAuthority(f.port, async () => {
+    f.events.push('remove');
+  });
+  await f.runtime.withRead(f.runtime.acknowledged, async () => {
+    expect(f.queryTargetInstalled()).toBe(true);
+  });
+  await f.runtime.retireProfile();
+});
+
 it('admits coverage only through a reinstalled target after catalog change interrupts query retirement', async () => {
   const f = fixture();
   await f.runtime.acquire();
