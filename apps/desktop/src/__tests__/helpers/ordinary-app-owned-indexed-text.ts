@@ -30,6 +30,7 @@ import {
 import { createDisposableAppProfile } from './disposable-app-profile';
 import { electronExecutablePath, FOREGROUND_RENDERER_SWITCHES } from './electron-executable';
 import { launchAppWithLauncher } from './electron-launcher-watchdog';
+import { writeFirstFailure } from './failure-evidence';
 import { type OwnedTestProcess, retireOwnedTestProcesses } from './retire-owned-test-processes';
 
 const desktop = resolve(import.meta.dirname, '../../..');
@@ -634,14 +635,7 @@ export async function qualifyOrdinaryAppIndexedText(
     }
   } catch (cause) {
     failure = cause;
-    await writeFile(
-      join(evidence, 'first-failure.json'),
-      JSON.stringify(
-        { message: String(cause), stack: cause instanceof Error ? cause.stack : undefined },
-        null,
-        2
-      )
-    );
+    await writeFirstFailure(evidence, cause);
     await writeFile(
       join(evidence, 'failure-provider-requests.json'),
       JSON.stringify(providerRequests, null, 2)
