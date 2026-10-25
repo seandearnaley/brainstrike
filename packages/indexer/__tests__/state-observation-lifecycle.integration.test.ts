@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openIndexer } from '@brainstrike/indexer';
+import { terminateTree } from '@brainstrike/state-store/native-children';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { afterEach, expect, it, type TestContext } from 'vitest';
@@ -12,11 +13,11 @@ import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js'
 
 // The transport forks the process entry beside its own module, so this suite
 // drives the built transport; the source owns its type.
-const { createIndexerConnection, IndexerLifecycleError }: typeof Transport = await import(
+const { createIndexerConnection }: typeof Transport = await import(
   new URL('../src/transport.ts', import.meta.url).href
 );
 
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const owners = new WeakMap<TestContext['task'], ObservationLifecycle>();
 function ownerFor(context: TestContext) {
   const owner = new ObservationLifecycle(context);
@@ -26,7 +27,7 @@ function ownerFor(context: TestContext) {
 const receiptSchema = Schema.Struct({
   aborted: Schema.Boolean,
   childJoined: Schema.Boolean,
-  childLiveAtWatchdog: Schema.Boolean,
+  childLiveAfterWatchdog: Schema.Boolean,
   cleanupJoined: Schema.Boolean,
   elapsedMs: Schema.Finite,
   queryPublished: Schema.Finite,
@@ -74,6 +75,8 @@ if (probeReceipt === undefined) {
             const child = spawn(
               process.execPath,
               [
+                '--import',
+                new URL('./fixtures/end-with-test.mjs', import.meta.url).href,
                 join(import.meta.dirname, '..', 'node_modules', 'vitest', 'vitest.mjs'),
                 'run',
                 '--config',
@@ -86,7 +89,8 @@ if (probeReceipt === undefined) {
               {
                 cwd: join(import.meta.dirname, '..'),
                 env: { ...process.env, BRAINSTRIKE_OBSERVATION_WATCHDOG_RECEIPT: receiptPath },
-                stdio: ['ignore', 'pipe', 'pipe'],
+                // stdin is the run's lifeline: it ends with this process, however that ends.
+                stdio: ['pipe', 'pipe', 'pipe'],
               }
             );
             child.stdout.on('data', (bytes: Buffer) => {
@@ -105,8 +109,10 @@ if (probeReceipt === undefined) {
             return { child, closed };
           },
           async ({ child, closed }) => {
-            if (child.exitCode === null && child.signalCode === null) {
-              child.kill();
+            if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+              // The run is a tree (its worker and their indexer); ending only its root would
+              // leave the rest running on Windows.
+              await terminateTree(child.pid);
             }
             await closed;
           }
@@ -124,7 +130,7 @@ if (probeReceipt === undefined) {
         expect(decoded).toMatchObject({
           aborted: true,
           childJoined: true,
-          childLiveAtWatchdog: true,
+          childLiveAfterWatchdog: true,
           cleanupJoined: true,
           queryPublished: 0,
           rootRemoved: true,
@@ -190,131 +196,92 @@ if (probeReceipt === undefined) {
     getAdjustedTimeout('database')
   );
   it(
-    'retains a live failed manual close without teardown starting another physical attempt',
+    'kills a real indexer that answered close but never exits when the close window ends, and joins its exit',
     async (context) => {
       const owner = ownerFor(context);
       const root = await owner.acquire(
-        () => mkdtemp(join(tmpdir(), 'observation-live-close-retained-')),
+        () => mkdtemp(join(tmpdir(), 'observation-close-never-exits-')),
         (ownedRoot) => rm(ownedRoot, { force: true, recursive: true }),
         { removal: true }
       );
       const entry = join(root, 'non-exiting-indexer.mjs');
-      // Actual native indexer/IPC/writer; only its process-disconnect acknowledgement is refused.
+      // Actual native indexer/IPC/writer; it answers close but never exits on its own (ADR-0030).
       await writeFile(
         entry,
         `process.disconnect = () => {};\nawait import(${JSON.stringify(new URL('../src/process-entry.ts', import.meta.url).href)});\n`
       );
       let output = '';
-      const host = await owner.acquire(
-        () => {
-          const child = fork(entry, [], {
-            execArgv: [],
-            serialization: 'advanced',
-            stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-          });
-          child.stdout?.on('data', (bytes: Buffer) => {
-            output += bytes.toString();
-          });
-          child.stderr?.on('data', (bytes: Buffer) => {
-            output += bytes.toString();
-          });
-          const closed = new Promise<void>((resolve, reject) => {
-            child.once('error', reject);
-            child.once('close', () => resolve());
-          });
-          return { child, closed };
-        },
-        async ({ child, closed }) => {
-          if (child.exitCode === null && child.signalCode === null) {
-            throw new Error('Live manual-close child is retained until explicit physical cleanup');
-          }
-          await closed;
-        }
-      );
+      const child = fork(entry, [], {
+        execArgv: [],
+        serialization: 'advanced',
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      child.stdout?.on('data', (bytes: Buffer) => {
+        output += bytes.toString();
+      });
+      child.stderr?.on('data', (bytes: Buffer) => {
+        output += bytes.toString();
+      });
+      const closed = new Promise<void>((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', () => resolve());
+      });
       let killAttempts = 0;
-      let closeAttempts = 0;
-      let permitted = false;
+      const stalls: string[] = [];
+      const closeMs = 500;
       const connection = createIndexerConnection(
         {
           dbPath: join(root, 'index.sqlite'),
           embedding: { indexMode: 'text-only' },
           rootIds: ['root'],
         },
-        // Disconnect and the first kill are refused, so neither exit join can succeed;
-        // a short exit deadline reaches the same retained failure without 2 x 5 s waits.
-        { ...deadlines, exitMs: 500 },
+        { closeMs },
         {
           kill: () => {
             killAttempts += 1;
-            return permitted && host.child.kill();
+            return child.kill();
           },
           onError: (listener) => {
-            host.child.on('error', listener);
-            return () => host.child.off('error', listener);
+            child.on('error', listener);
+            return () => child.off('error', listener);
           },
           onExit: (listener) => {
-            host.child.on('exit', listener);
-            return () => host.child.off('exit', listener);
+            child.on('exit', listener);
+            return () => child.off('exit', listener);
           },
           onMessage: (listener) => {
-            host.child.on('message', listener);
-            return () => host.child.off('message', listener);
+            child.on('message', listener);
+            return () => child.off('message', listener);
           },
-          send: (message) => host.child.send(message),
+          onStall: (stage, elapsedMs) => stalls.push(`${stage}:${elapsedMs}`),
+          send: (message) => child.send(message),
         }
       );
-      const closePhysical = (port: Awaited<ReturnType<typeof openIndexer>>) => {
-        closeAttempts += 1;
-        return port.close();
-      };
       try {
-        const port = await owner.acquire(() => connection.ready, closePhysical);
+        const port = await connection.ready;
         const pid = (await port.info()).pid;
-        const primary = await owner
-          .execute(async () => {
-            await owner.closeResource(port);
-          })
-          .catch((error: unknown) => error);
-        expect(primary).toBeInstanceOf(IndexerLifecycleError);
-        expect(connection.exited).toBe(false);
-        expect(alive(pid)).toBe(true);
-        expect(closeAttempts).toBe(1);
-        expect(killAttempts).toBe(1);
-        // A forbidden automatic retry would now physically kill the still-owned process.
-        permitted = true;
-        const failed = await owner.close().catch((error: unknown) => error);
-        expect(failed).toBeInstanceOf(AggregateError);
-        if (!(failed instanceof AggregateError)) {
-          throw new Error('Failed physical join was discarded');
-        }
-        expect(failed.errors[0]).toBe(primary);
+        await port.close();
         console.info(
-          'live manual-close ownership receipt',
-          JSON.stringify({
-            childLive: alive(pid),
-            closeAttempts,
-            killAttempts,
-            rootRetained: existsSync(root),
-          }),
+          'close-never-exits receipt',
+          JSON.stringify({ childLive: alive(pid), killAttempts, stalls }),
           output
         );
-        expect(closeAttempts).toBe(1);
+        expect(connection.exited).toBe(true);
         expect(killAttempts).toBe(1);
-        expect(connection.exited).toBe(false);
-        expect(alive(pid)).toBe(true);
-        expect(existsSync(root)).toBe(true);
-        const retirement = owner.close();
-        expect(owner.close()).toBe(retirement);
-        await expect(retirement).rejects.toBe(failed);
+        // A slow start also logs the informational startup stall; the close stall is the one this proves.
+        expect(stalls.filter((stall) => !stall.startsWith('startup:'))).toEqual([
+          `close:${closeMs}`,
+        ]);
+        await closed;
+        expect(alive(pid)).toBe(false);
+        // A second close is the same settled close: no second kill.
+        await port.close();
+        expect(killAttempts).toBe(1);
       } finally {
-        // Explicit control cleanup occurs only after checking the retained failed outcome.
-        if (host.child.exitCode === null && host.child.signalCode === null) {
-          host.child.kill();
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill();
         }
-        await host.closed;
-        await connection.destroy();
-        await rm(root, { force: true, recursive: true });
-        owners.delete(context.task);
+        await closed;
       }
     },
     getAdjustedTimeout('database')
@@ -324,7 +291,7 @@ if (probeReceipt === undefined) {
   let root: string | undefined;
   let pid: number | undefined;
   let port: Awaited<ReturnType<typeof openIndexer>> | undefined;
-  let childLiveAtWatchdog = false;
+  let childLiveAfterWatchdog = false;
   let rootRetainedAtWatchdog = false;
   let storePublished = 0;
   let queryPublished = 0;
@@ -340,7 +307,7 @@ if (probeReceipt === undefined) {
         JSON.stringify({
           aborted: actualContext?.signal.aborted === true,
           childJoined: pid !== undefined && !alive(pid),
-          childLiveAtWatchdog,
+          childLiveAfterWatchdog,
           cleanupJoined,
           elapsedMs: performance.now() - started,
           queryPublished,
@@ -361,7 +328,7 @@ if (probeReceipt === undefined) {
       'abort',
       () => {
         rootRetainedAtWatchdog = root !== undefined && existsSync(root);
-        childLiveAtWatchdog = pid !== undefined && alive(pid);
+        childLiveAfterWatchdog = pid !== undefined && alive(pid);
       },
       { once: true }
     );
@@ -392,6 +359,11 @@ if (probeReceipt === undefined) {
           beforePublication: async (ownedPort) => {
             port = ownedPort;
             pid = (await ownedPort.info()).pid;
+            // A loaded machine can start the indexer after the watchdog: the owner then holds a
+            // live child past it all the same.
+            if (actualContext?.signal.aborted === true) {
+              childLiveAfterWatchdog = alive(pid);
+            }
             await release.promise;
           },
         }

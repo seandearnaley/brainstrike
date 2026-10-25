@@ -1,12 +1,16 @@
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 
-/** Terminal preparation joins accepted workflows without disposing their mounted capabilities. */
+/**
+ * Terminal preparation joins accepted workflows without disposing their mounted capabilities.
+ * A workflow's outcome stays its caller's: a failure that settles while closing, often the
+ * shutdown's own cancellation, is not a close failure. Only a root data deletion's reservation,
+ * which outlives its attempts, reports its failure to the close.
+ */
 export class WorkspaceRootMutationLifetime {
   private tail: Promise<void> = Promise.resolve();
   private closing = false;
   private preparation: Promise<void> | undefined;
   private reservation: Promise<void> | undefined;
-  private readonly failures: unknown[] = [];
 
   get settled(): Promise<void> {
     return this.tail;
@@ -47,11 +51,7 @@ export class WorkspaceRootMutationLifetime {
     const result = this.tail.then(execute, execute);
     this.tail = result.then(
       () => undefined,
-      (cause: unknown) => {
-        if (this.closing) {
-          this.failures.push(cause);
-        }
-      }
+      () => undefined
     );
     return result;
   }
@@ -79,17 +79,10 @@ export class WorkspaceRootMutationLifetime {
     this.preparation ??= (async () => {
       // A reservation may enqueue after an asynchronous native transition.
       // Its owner alone releases it; settled failure remains visible and owned.
-      const reserved = await Promise.allSettled([this.reservation]);
+      const [reserved] = await Promise.allSettled([this.reservation]);
       await this.tail;
-      const reservationFailures = reserved.flatMap((result) =>
-        result.status === 'rejected' ? [result.reason] : []
-      );
-      const failures = [...new Set([...reservationFailures, ...this.failures])];
-      if (reservationFailures.length > 0 && failures.length === 1) {
-        throw failures[0];
-      }
-      if (failures.length > 0) {
-        throw new AggregateError(failures, 'Workspace mutations failed during close preparation');
+      if (reserved.status === 'rejected') {
+        throw reserved.reason;
       }
     })();
     return this.preparation;

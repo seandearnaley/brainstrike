@@ -42,6 +42,7 @@ export {
 } from './event-schema.ts';
 export {
   ForeignLockError,
+  joinProcessExit,
   type LockOptions,
   type LockOwner,
   processStartTime,
@@ -82,6 +83,8 @@ export type {
   ProviderChoice,
 } from './model-choice-types.ts';
 export {
+  CHILD_CLOSE_BUDGET_MS,
+  CHILD_SIGNAL_GRACE_MS,
   type NativeChild,
   type NativeChildObserver,
   observeNativeChildren,

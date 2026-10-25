@@ -48,7 +48,7 @@ import {
   toQueryFailure,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { spawnNativeChild, terminateTree } from '@brainstrike/state-store/native-children';
 import {
   createMessageConnection,
   type MessageConnection,
@@ -77,13 +77,11 @@ export type { LspInspectionResult };
 // process's classic module resolution; the wire contract is the same).
 const LSP = {
   definition: 'textDocument/definition',
-  exit: 'exit',
   hover: 'textDocument/hover',
   implementation: 'textDocument/implementation',
   initialize: 'initialize',
   initialized: 'initialized',
   publishDiagnostics: 'textDocument/publishDiagnostics',
-  shutdown: 'shutdown',
 } as const;
 
 const logger = createLogger('AssistantLspDiagnostics');
@@ -373,7 +371,6 @@ class LspServerConnection {
   private childSpawned = false;
   private disposal: Promise<void> | undefined;
   private initialized: Promise<void> | undefined;
-  private killChild = (signal: NodeJS.Signals): boolean => this.child.kill(signal);
   private disposed = false;
 
   private readonly server: ResolvedServer;
@@ -438,26 +435,6 @@ class LspServerConnection {
 
   get pid(): number {
     return this.child.pid ?? -1;
-  }
-
-  /** Inject a child-process runtime error for deterministic lifecycle tests. */
-  emitChildErrorForTest(error: Error): void {
-    this.child.emit('error', error);
-  }
-
-  /** Reject the next signal delivery without touching the real subprocess. */
-  rejectNextKillForTest(): void {
-    const actualKill = this.killChild;
-    this.killChild = () => {
-      this.killChild = actualKill;
-      return false;
-    };
-  }
-
-  /** Authoritatively clean up a subprocess after an injected kill failure. */
-  async forceKillForTest(): Promise<void> {
-    this.child.kill('SIGKILL');
-    await this.childExit;
   }
 
   /**
@@ -694,21 +671,6 @@ class LspServerConnection {
 
   private async disposeOnce(): Promise<void> {
     this.disposed = true;
-    // Only attempt a graceful LSP shutdown while the process is still alive;
-    // writing shutdown/exit to an already-exited server just races an EPIPE
-    // that the SIGKILL below settles anyway.
-    if (this.child.exitCode === null && this.child.signalCode === null) {
-      try {
-        await Promise.race([
-          this.connection.sendRequest(LSP.shutdown).then(() => {
-            this.notify(LSP.exit);
-          }),
-          new Promise((resolve) => setTimeout(resolve, 500)),
-        ]);
-      } catch {
-        /* best effort — we SIGKILL below regardless */
-      }
-    }
     try {
       this.connection.dispose();
     } catch {
@@ -722,13 +684,12 @@ class LspServerConnection {
       await this.childExit;
       return;
     }
-    // SIGKILL is the authoritative teardown (no orphaned server process).
-    const killAccepted = this.killChild('SIGKILL');
-    if (!killAccepted && this.child.exitCode === null && this.child.signalCode === null) {
-      throw new Error(`Failed to terminate LSP subprocess ${this.pid}`);
+    // The server's whole tree ends (ADR-0030): on Windows a kill would stop only a `.cmd`
+    // launcher. Disposal completes when Node observes the exit, never on the kill request; a
+    // post-spawn child `error` is not settlement.
+    if (this.child.pid !== undefined) {
+      await terminateTree(this.child.pid);
     }
-    // `kill()` only queues the signal. Do not report disposal complete until
-    // Node observes process exit. A post-spawn child `error` is not settlement.
     await this.childExit;
   }
 }

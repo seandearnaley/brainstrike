@@ -14,4 +14,5 @@ module.exports = {
   getProcessCreationTime: native.getProcessCreationTime,
   initialize: native.initialize,
   terminateOtherProcesses: native.terminateOtherProcesses,
+  waitForProcessExit: native.waitForProcessExit,
 };

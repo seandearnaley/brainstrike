@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { HostAttachment, HostLaunchOptions, HostStartOptions } from '@brainstrike/host-lease';
+import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import type { MessagePortMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -451,9 +452,7 @@ describe('desktop host lease ownership', () => {
     expect(order).toEqual(['host exited', 'lifetime released']);
   });
   it('escalates a host that ignores close to kill after the cooperative rung, joins its exit and reports no failure', async () => {
-    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
-      '../../host-lease-manager'
-    );
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
     const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const warnings: unknown[] = [];
     const stop = addLogListener((record) => {
@@ -477,7 +476,7 @@ describe('desktop host lease ownership', () => {
       const closing = owner.close().then(() => {
         released = true;
       });
-      await vi.advanceTimersByTimeAsync(HOST_COOPERATIVE_CLOSE_MS - 1);
+      await vi.advanceTimersByTimeAsync(CHILD_CLOSE_BUDGET_MS - 1);
       expect(child.posts).toContainEqual({ method: 'close' });
       expect(child.kill).not.toHaveBeenCalled();
       expect(released).toBe(false);
@@ -500,9 +499,7 @@ describe('desktop host lease ownership', () => {
     }
   });
   it('logs a refused kill as an error, keeps joining the exit and never excuses its exit code', async () => {
-    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
-      '../../host-lease-manager'
-    );
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
     const { addLogListener, LogLevel } = await import('@brainstrike/logging');
     const errors: string[] = [];
     const stop = addLogListener((record) => {
@@ -526,7 +523,7 @@ describe('desktop host lease ownership', () => {
       await owner.acquire();
       const closing = owner.close();
       closing.catch(() => undefined);
-      await vi.advanceTimersByTimeAsync(HOST_COOPERATIVE_CLOSE_MS);
+      await vi.advanceTimersByTimeAsync(CHILD_CLOSE_BUDGET_MS);
       expect(child.kill).toHaveBeenCalledOnce();
       expect(errors).toEqual(['Could not kill the owned agent host; still waiting for it to exit']);
 
@@ -576,9 +573,7 @@ describe('desktop host lease ownership', () => {
 // child's control port and joins the exit under its one close ladder.
 describe('stop for relaunch', () => {
   async function readyOwner(options: { readonly exitOnClose: boolean }) {
-    const { createDesktopHostLease, HOST_COOPERATIVE_CLOSE_MS } = await import(
-      '../../host-lease-manager'
-    );
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
     const child = new Child();
     child.exitOnClose = options.exitOnClose;
     const onLost = vi.fn();
@@ -598,7 +593,7 @@ describe('stop for relaunch', () => {
     if (!ready) {
       throw new Error('The lease reported no ready child');
     }
-    return { child, cooperativeMs: HOST_COOPERATIVE_CLOSE_MS, onLost, owner, ready };
+    return { child, cooperativeMs: CHILD_CLOSE_BUDGET_MS, onLost, owner, ready };
   }
   const closes = (child: Child): number =>
     child.posts.filter((post) => JSON.stringify(post) === '{"method":"close"}').length;

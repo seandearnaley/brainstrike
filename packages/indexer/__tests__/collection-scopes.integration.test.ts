@@ -7,7 +7,7 @@ import { Schema } from 'effect';
 import { expect, it } from 'vitest';
 import { providedChunkSchema, refSchema, symbolSchema } from '../src/contracts.js';
 
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const local = {
   dimensions: 384,
   distance: 'cosine',

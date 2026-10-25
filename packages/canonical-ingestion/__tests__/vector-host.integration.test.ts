@@ -37,7 +37,7 @@ const profile: VectorProfile = {
   tokenCap: 256,
 };
 const chunker = createNodeChunker({ parser: 'oxc' });
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 
 it('publishes bounded cross-file VECTOR through public native scoped writer with controlled inference', async () => {
   const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' };
