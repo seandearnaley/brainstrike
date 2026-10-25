@@ -23,8 +23,8 @@ all lived in that gap.
 | Ad-hoc capture from any client | `pnpm cassettes:proxy --out <file.json>` |
 
 The model-provider shim serves a cassette when its script is
-`{ cassette, substitutions, pace }`. Each request claims the first unserved
-exchange recorded under the same key. Two kinds of request are keyed:
+`{ cassette, substitutions, pace, settled }`. Each request claims the first
+unserved exchange recorded under the same key. Two kinds of request are keyed:
 
 - **Streamed or tool-offering:** knob, route, model, the conversation's first
   user message, and its number of conversation items. The system prompt and
@@ -37,8 +37,12 @@ A request with no matching exchange is refused (`unrecorded-exchange`, naming
 its key and the keys still unserved). A lane fails on any refusal or unserved
 exchange.
 
-`pace: 1` replays the recorded chunk times. Background children then settle in
-their recorded order, so the parent wakes the same number of times.
+`pace: 1` replays the recorded chunk times within each response. Concurrent
+conversations keep their recorded order by causality, not by the clock: the
+lane passes `settled`, and a response's last chunk waits until every other
+conversation the recording had finished by then has committed its end. So
+background children finish before their parent's turn ends exactly as they did
+when recorded, and the parent wakes the same number of times on any machine.
 
 ## Invariants and shape
 

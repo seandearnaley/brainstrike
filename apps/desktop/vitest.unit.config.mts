@@ -2,9 +2,9 @@ import { globSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defineConfig, type TestProjectConfiguration, type ViteUserConfig } from 'vitest/config';
-import baseConfig, { resolveDesktopTestProjects } from './vitest.config.mts';
+import baseConfig from './vitest.config.mts';
 
-// The unit lane runs test files in parallel forks on Linux and macOS (BST-546).
+// The unit lane runs test files in parallel forks on every platform (BST-546).
 // Fork isolation stays on: every file gets its own process, so module state,
 // mocks, globals and process.env do not cross files. Files share only external
 // state, and the lane keeps that per test: temporary files go in mkdtemp
@@ -13,15 +13,8 @@ import baseConfig, { resolveDesktopTestProjects } from './vitest.config.mts';
 // runs alone once the smaller packages finish, so it takes half the cores (at
 // least two) rather than the per-task share VITEST_MAX_WORKERS gives the others.
 // CI shards (DESKTOP_TEST_SHARD) use the same rule, so a 4-vCPU runner runs two
-// workers. Windows (cold fork imports, WINDOWS_DESKTOP_TEST_PROJECTS) stays
-// serial; integration and coverage keep their own configs.
-export function resolveDesktopUnitWorkers(
-  platform: NodeJS.Platform = process.platform,
-  cores: number = os.availableParallelism()
-): number {
-  if (platform === 'win32') {
-    return 1;
-  }
+// workers. Integration and coverage keep their own configs.
+export function resolveDesktopUnitWorkers(cores: number = os.availableParallelism()): number {
   return Math.max(2, Math.floor(cores / 2));
 }
 
@@ -72,15 +65,11 @@ function parallelUnitProjects(workers: number): TestProjectConfiguration[] {
 
 export interface DesktopUnitConfigOptions {
   readonly cores?: number;
-  readonly platform?: NodeJS.Platform;
 }
 
-/** The unit lane as `platform` selects it; defaults to this process. */
-export function createDesktopUnitConfig({
-  cores,
-  platform = process.platform,
-}: DesktopUnitConfigOptions = {}): ViteUserConfig {
-  const workers = resolveDesktopUnitWorkers(platform, cores);
+/** The unit lane for `cores`; defaults to this machine's. */
+export function createDesktopUnitConfig({ cores }: DesktopUnitConfigOptions = {}): ViteUserConfig {
+  const workers = resolveDesktopUnitWorkers(cores);
   return defineConfig({
     ...baseConfig,
     test: {
@@ -92,15 +81,13 @@ export function createDesktopUnitConfig({
       environment: 'node',
       // Vitest does not pass the CLI `--exclude` to projects. The projects extend
       // this config and merge these test options (arrays concatenate), so this
-      // one entry keeps integration files out of the parallel projects, the
-      // Windows projects and the serial Linux and macOS run, which has none.
+      // one entry keeps integration files out of both projects.
       exclude: [...(baseConfig.test?.exclude ?? []), INTEGRATION_TESTS],
-      fileParallelism: workers > 1,
       globalSetup: [
         path.join(import.meta.dirname, 'src/__tests__/helpers/unit-lane-package-write-guard.ts'),
       ],
       maxWorkers: workers,
-      projects: workers > 1 ? parallelUnitProjects(workers) : resolveDesktopTestProjects(platform),
+      projects: parallelUnitProjects(workers),
     },
   });
 }

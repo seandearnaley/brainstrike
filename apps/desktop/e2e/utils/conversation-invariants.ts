@@ -245,6 +245,19 @@ function* cardViolations(
 }
 
 /**
+ * Whether the thread a cassette lane names (its first run's prompt is the
+ * lane, the first user message its provider requests carry) has committed the
+ * end of every run it started.
+ */
+export function isSettledLane(threads: readonly (readonly HostLogRow[])[], lane: string): boolean {
+  const thread = threads.find((rows) => {
+    const first = rows.find((row) => row.event.type === 'run.started');
+    return first?.event.type === 'run.started' && first.event.prompt === lane;
+  });
+  return thread !== undefined && committedRuns(thread).every((run) => run.finished);
+}
+
+/**
  * A conversation has settled: every parent run finished, the expected number
  * of background children each finished, and each child's result was
  * delivered back to the parent (a wake run's `delivery`).
