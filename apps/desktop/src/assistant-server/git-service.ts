@@ -576,6 +576,26 @@ export async function invokeGitHookFree(
   args: readonly string[],
   timeoutMs: number = GIT_DEFAULT_TIMEOUT_MS
 ): Promise<GitCommandRun> {
+  const probe = await readGitHookFreeFlags(invoke);
+  if (!probe.ok) {
+    return probe.run;
+  }
+  // No caller needs `binaryStdout` here today (only `readRefBlob`'s plain
+  // `invoke` reads binary blobs; every hook-free call is text-mode unified-diff
+  // or porcelain output) — re-add the pass-through param if that changes.
+  return await invoke([...probe.flags, ...args], timeoutMs);
+}
+
+/**
+ * The command-scope flags {@link invokeGitHookFree} puts before a command:
+ * `core.fsmonitor=false`, `core.hooksPath=/dev/null`, and `enabled=false` for
+ * each config-managed hook configured right now. A caller that runs several
+ * commands as one operation may read them once and prefix each command; a
+ * probe failure is returned as its run, never as empty flags.
+ */
+export async function readGitHookFreeFlags(
+  invoke: (args: readonly string[], timeoutMs?: number) => Promise<GitCommandRun>
+): Promise<{ ok: true; flags: readonly string[] } | { ok: false; run: GitCommandRun }> {
   // This probe itself is the ONE spawn not preceded by `-c
   // core.fsmonitor=false -c core.hooksPath=/dev/null` (those flags are
   // computed FROM its result, below). Pre-existing and almost certainly
@@ -591,7 +611,7 @@ export async function invokeGitHookFree(
     '^hook\\..*\\.command$',
   ]);
   if (configuredHooks.exitCode !== 0 && configuredHooks.exitCode !== 1) {
-    return configuredHooks;
+    return { ok: false, run: configuredHooks };
   }
   const disabledConfiguredHooks = configuredHooks.stdout
     .split('\0')
@@ -601,10 +621,7 @@ export async function invokeGitHookFree(
     '-c',
     value,
   ]);
-  // No caller needs `binaryStdout` here today (only `readRefBlob`'s plain
-  // `invoke` reads binary blobs; every hook-free call is text-mode unified-diff
-  // or porcelain output) — re-add the pass-through param if that changes.
-  return await invoke([...hookConfig, ...disabledConfiguredHooks, ...args], timeoutMs);
+  return { flags: [...hookConfig, ...disabledConfiguredHooks], ok: true };
 }
 
 /**
