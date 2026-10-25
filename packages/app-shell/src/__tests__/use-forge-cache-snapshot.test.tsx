@@ -3,6 +3,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { ForgeBridge } from '../forge/forge-bridge';
 import { useForgePrCache } from '../hooks/use-forge-pr-cache';
+import { workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const row: ForgePrCacheEntry = {
   branch: 'main',
@@ -15,7 +16,6 @@ const row: ForgePrCacheEntry = {
 };
 afterEach(() => {
   cleanup();
-  Reflect.deleteProperty(window, 'forge');
 });
 function bridge(cacheSnapshot: ForgeBridge['cacheSnapshot']) {
   let update: ((event: ForgePrUpdatedEvent) => void) | undefined;
@@ -30,8 +30,8 @@ function bridge(cacheSnapshot: ForgeBridge['cacheSnapshot']) {
     prStatus: vi.fn(),
     refresh: vi.fn(),
   };
-  Object.assign(window, { forge: value });
   return {
+    host: workspaceGitWrapper({ forge: value }),
     unsubscribe,
     update: () =>
       update?.({
@@ -50,7 +50,7 @@ test('reads current writer snapshot without a PG handle and refreshes on the exi
     .mockResolvedValueOnce({ ok: true, value: [row] })
     .mockResolvedValueOnce({ ok: true, value: [] });
   const fixture = bridge(cacheSnapshot);
-  const hook = renderHook(() => useForgePrCache({ enabled: true }));
+  const hook = renderHook(() => useForgePrCache({ enabled: true }), { wrapper: fixture.host });
   await waitFor(() => expect(hook.result.current.byRepoBranch.size).toBe(1));
   act(fixture.update);
   await waitFor(() => expect(hook.result.current.byRepoBranch.size).toBe(0));
@@ -66,7 +66,7 @@ test('a stale snapshot cannot overwrite the newer event-driven read and failures
     .mockReturnValueOnce(old.promise)
     .mockResolvedValueOnce({ error: 'writer unavailable', ok: false });
   const fixture = bridge(cacheSnapshot);
-  const hook = renderHook(() => useForgePrCache({ enabled: true }));
+  const hook = renderHook(() => useForgePrCache({ enabled: true }), { wrapper: fixture.host });
   act(fixture.update);
   await waitFor(() => expect(hook.result.current.error?.message).toBe('writer unavailable'));
   await act(async () => {

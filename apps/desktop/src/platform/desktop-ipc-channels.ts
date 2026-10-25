@@ -10,8 +10,8 @@ export const DESKTOP_IPC_CHANNELS = {
     showDataFolder: 'agent:show-data-folder',
   },
   // Embedded browser pane (BST-1174). Invoke channels drive the main-process
-  // BrowserViewManager; `tabsChanged` is a one-way main→renderer push (like
-  // changes.invalidated) and is NEVER registered on the invoke registry.
+  // BrowserViewManager; `tabsChanged` is a one-way main→renderer push and is
+  // NEVER registered on the invoke registry.
   browser: {
     closeTab: 'browser:closeTab',
     createTab: 'browser:createTab',
@@ -24,15 +24,6 @@ export const DESKTOP_IPC_CHANNELS = {
     setBounds: 'browser:setBounds',
     setOccluded: 'browser:setOccluded',
     tabsChanged: 'browser:tabsChanged',
-  },
-  changes: {
-    fileDiff: 'changes:fileDiff',
-    // One-way main→renderer push (BST-1161, spec §6): the git-metadata
-    // watcher observed external git activity on a repository. NOT an
-    // ipcMain.handle channel — never registered on the registry.
-    invalidated: 'changes:invalidated',
-    inventory: 'changes:inventory',
-    resolveView: 'changes:resolveView',
   },
   clipboard: {
     writeText: 'clipboard:write-text',
@@ -115,33 +106,6 @@ export const DESKTOP_IPC_CHANNELS = {
     watchHealth: 'fs:watch-health',
     watchRetry: 'fs:watch-retry',
     watchTelemetry: 'fs:watch-telemetry',
-  },
-  forge: {
-    cacheSnapshot: 'forge:cacheSnapshot',
-    identity: 'forge:identity',
-    prStatus: 'forge:prStatus',
-    // One-way main→renderer push (BST-1391): a forge observation changed for a
-    // (repository, branch). NOT an ipcMain.handle channel — never registered
-    // on the invoke registry, exactly like changes.invalidated.
-    prUpdated: 'forge:prUpdated',
-    refresh: 'forge:refresh',
-  },
-  git: {
-    aheadBehind: 'git:aheadBehind',
-    commit: 'git:commit',
-    commitFiles: 'git:commitFiles',
-    createBranch: 'git:createBranch',
-    diff: 'git:diff',
-    fetch: 'git:fetch',
-    history: 'git:history',
-    pull: 'git:pull',
-    push: 'git:push',
-    repository: 'git:repository',
-    stage: 'git:stage',
-    status: 'git:status',
-    structuredFileDiff: 'git:structuredFileDiff',
-    switchBranch: 'git:switchBranch',
-    unstage: 'git:unstage',
   },
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
@@ -291,20 +255,6 @@ export const DESKTOP_IPC_CHANNELS = {
     // DOCUMENT loaded, not that React has mounted the host and its
     // `ipcRenderer.on` listener exists yet. NOT an `ipcMain.handle` channel.
     openPathReady: 'workspace:open-path-ready',
-  },
-  worktrees: {
-    adopt: 'worktrees:adopt',
-    archive: 'worktrees:archive',
-    checkoutStatus: 'worktrees:checkoutStatus',
-    create: 'worktrees:create',
-    createBranchHere: 'worktrees:createBranchHere',
-    createContext: 'worktrees:createContext',
-    getSettings: 'worktrees:getSettings',
-    inspectArchive: 'worktrees:inspectArchive',
-    list: 'worktrees:list',
-    managedPaths: 'worktrees:managedPaths',
-    restore: 'worktrees:restore',
-    setSettings: 'worktrees:setSettings',
   },
 } as const;
 

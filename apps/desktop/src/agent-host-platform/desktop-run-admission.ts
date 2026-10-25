@@ -115,8 +115,6 @@ export interface DesktopAdmissionReads {
     settings: PlatformSelection['memory']['settings'],
     signal: AbortSignal
   ): Promise<DesktopMemoryVectorSelection | undefined>;
-  /** Whether the desktop's worktree service is running. */
-  worktreesAvailable(signal: AbortSignal): Promise<boolean>;
 }
 /** One admitted desktop run: the selection, its live roots and its release. */
 export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation'> {
@@ -233,7 +231,6 @@ async function readDesktopNativeAdmission(
   reads: DesktopAdmissionReads,
   configuration: (typeof PlatformModelConfigurationSchema)['Type'],
   intent: (typeof PlatformClientConfigurationSchema)['Type'],
-  worktrees: boolean,
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
@@ -331,7 +328,6 @@ async function readDesktopNativeAdmission(
     enabledNativeToolIds: intent.enabledNativeToolIds,
     retrieval: await desktopRetrievalAdmitted(reads, roots, request.signal),
     skills: workspaceSkills !== undefined,
-    worktrees,
   });
   return {
     admittedSkills,
@@ -551,7 +547,6 @@ export function createDesktopRunAdmission(
       reads,
       configuration,
       intent,
-      await reads.worktreesAvailable(request.signal),
       request,
       workspace
     );

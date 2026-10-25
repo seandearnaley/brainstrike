@@ -116,11 +116,15 @@ export type HostMemoryReadiness =
       readonly models: HostMemoryModels;
     });
 export interface ProductionHostPlatformOptions {
+  /** Core's thread reads, for the platform services that ask which runs are live. */
+  readonly attachThreadReads?: HostPlatform['attachThreadReads'];
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
   close(): Promise<void>;
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
+  /** ADR-0029 stage 2: the desktop's git cluster. */
+  readonly gitWorkspace?: HostPlatform['gitWorkspace'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   /** The desktop's MCP content browsing (BST-1930 c5d). */
@@ -276,6 +280,7 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
  */
 type ProductionClientService =
   | 'auth'
+  | 'gitWorkspace'
   | 'mcpContent'
   | 'mcpPresentation'
   | 'mcpSettings'
@@ -287,6 +292,7 @@ function productionClientServices(
 ): Pick<HostPlatform, ProductionClientService> {
   return {
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.gitWorkspace ? { gitWorkspace: options.gitWorkspace } : {}),
     ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),
     ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),
     ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
@@ -670,6 +676,7 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...(options.mcp?.attachTaskOwner
       ? { attachMcpTaskOwner: options.mcp.attachTaskOwner.bind(options.mcp) }
       : {}),
+    ...(options.attachThreadReads ? { attachThreadReads: options.attachThreadReads } : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.mcp ? { mcp: options.mcp } : {}),

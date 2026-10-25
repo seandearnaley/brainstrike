@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { homedir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   LocalEmbeddingHostClient,
@@ -10,6 +11,7 @@ import {
   type HostPlatformLaunchOptions,
   type HostRunAdmissionRequest,
   type HostStartupContext,
+  type HostTurnSnapshotRoot,
   hostPermissionGate,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
@@ -39,6 +41,7 @@ import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { mainPlatformConnection } from './connection';
+import { createDesktopGitWorkspace } from './desktop-git-workspace';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import {
   createDesktopRunAdmission,
@@ -62,11 +65,8 @@ import {
   PlatformLocalModelResultSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
-  PlatformRewindConflictsSchema,
-  PlatformRewindOutcomesSchema,
-  PlatformRewindPreviewResultSchema,
-  PlatformTurnSnapshotResultSchema,
   PlatformWorkspaceAcquireResultSchema,
+  PlatformWorktreeFolderResultSchema,
 } from './platform-wire';
 import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
 
@@ -98,6 +98,15 @@ function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData
         }
       : {}),
   };
+}
+/** A turn ends on the roots it started with; a turn that started on none has nothing to end. */
+function turnEndRoots(
+  roots: readonly HostTurnSnapshotRoot[] | undefined
+): readonly HostTurnSnapshotRoot[] {
+  if (!roots || roots.length === 0) {
+    throw new Error('A turn end needs the roots its start captured');
+  }
+  return roots;
 }
 type PlatformRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
 /**
@@ -208,10 +217,6 @@ function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionReads {
         ? { profile: resolved.profile, ...(resolved.local ? { local: resolved.local } : {}) }
         : undefined;
     },
-    worktreesAvailable: async (signal) =>
-      wireDecoder(Schema.Boolean, { errors: 'all', onExcessProperty: 'error' })(
-        await request('platform/admission/worktrees', {}, signal)
-      ),
   };
 }
 interface DesktopHostConfiguration
@@ -296,6 +301,23 @@ export async function createDesktopHostConfiguration(
   if (!userDataDir) {
     throw new Error('The desktop agent host needs its app paths for MCP settings');
   }
+  // ADR-0029 stage 2: the git cluster, over this host's own catalog, ledger and settings.
+  const gitWorkspace = createDesktopGitWorkspace({
+    homePath: homedir(),
+    logger,
+    openWorktreeFolder: async (path) =>
+      wireDecoder(PlatformWorktreeFolderResultSchema, { errors: 'all', onExcessProperty: 'error' })(
+        await request('platform/worktree/open-folder', { path })
+      ),
+    refreshWorkspaceIndex: async (rootId) => {
+      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+        await request('platform/index/refresh', { rootId })
+      );
+    },
+    store: startup.store,
+    userDataDir,
+  });
+  await startup.register(() => gitWorkspace.close());
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
   const admissionReads = mainAdmissionReads(request);
@@ -319,12 +341,15 @@ export async function createDesktopHostConfiguration(
   });
   await startup.register(() => mcpHost.close());
   return {
+    attachThreadReads: (reads) => gitWorkspace.attachThreadReads(reads),
     auth: host.auth,
     close: async () => {
       // The MCP runtime joins while Main's platform connection is still open.
       await mcpHost.close();
       // The language servers, command trees and command sessions this host spawned.
       await disposeHostTools();
+      // The git cluster retires while Main can still refresh a rewound root's index.
+      await gitWorkspace.close();
       // Accepted error records are delivered while Main's connection is open.
       const [delivered] = await Promise.allSettled([diagnostics.close()]);
       await request('platform/close', {});
@@ -338,6 +363,7 @@ export async function createDesktopHostConfiguration(
       );
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    gitWorkspace: gitWorkspace.service,
     mcp: mcpHost.services.mcp,
     mcpContent: mcpHost.content,
     mcpPresentation: mcpHost.presentation,
@@ -390,6 +416,7 @@ export async function createDesktopHostConfiguration(
       const tools = desktopHostSharedTools({
         appPaths: platformOptions?.appPaths,
         freshRoots: () => selected.freshWorkspaceRoots(),
+        gitWorkspace: gitWorkspace.tools,
         readFileCursorRegistry,
         request,
         resolveTavilyApiKey: host.resolveTavilyApiKey,
@@ -409,27 +436,20 @@ export async function createDesktopHostConfiguration(
           resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),
       });
       return {
-        // Main's shadow-git owner brackets each run's turn for its Changes
-        // review. Unsignalled: a stopped run's turn still ends with snapshots.
-        // A turn starts on the roots this admission holds, revalidated.
+        // The shadow-git owner brackets each run's turn for its Changes review.
+        // Unsignalled: a stopped run's turn still ends with snapshots. A turn
+        // starts on the roots this admission holds, revalidated.
         captureTurnBoundary: async (boundary) =>
-          Schema.decodeUnknownSync(PlatformTurnSnapshotResultSchema, {
-            errors: 'all',
-            onExcessProperty: 'error',
-          })(
-            await request(
-              'platform/snapshot/capture',
+          await gitWorkspace.captureTurnBoundary({
+            ...boundary,
+            roots:
               boundary.boundary === 'turn-start'
-                ? {
-                    ...boundary,
-                    roots: (await selected.freshWorkspaceRoots()).map(({ path, rootId }) => ({
-                      rootId,
-                      rootPath: path,
-                    })),
-                  }
-                : boundary
-            )
-          ),
+                ? (await selected.freshWorkspaceRoots()).map(({ path, rootId }) => ({
+                    rootId,
+                    rootPath: path,
+                  }))
+                : turnEndRoots(boundary.roots),
+          }),
         childSystem: selected.childSystem,
         close: closeSelection,
         configuration,
@@ -491,34 +511,8 @@ export async function createDesktopHostConfiguration(
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/workspace/root', { rootId }, signal)),
-    // Main's shadow-git owner restores a host thread's rewind and its redo.
-    rewindFiles: {
-      apply: async (input) =>
-        Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(await request('platform/rewind/apply', input)),
-      drift: async (input) =>
-        Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(await request('platform/rewind/drift', input)),
-      preview: async (input) =>
-        Schema.decodeUnknownSync(PlatformRewindPreviewResultSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(await request('platform/rewind/preview', input)),
-      redo: async (input) =>
-        Schema.decodeUnknownSync(PlatformRewindOutcomesSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(await request('platform/rewind/redo', input)),
-      redoConflicts: async (input) =>
-        Schema.decodeUnknownSync(PlatformRewindConflictsSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(await request('platform/rewind/redo-conflicts', input)),
-    },
+    // The shadow-git owner restores a host thread's rewind and its redo.
+    rewindFiles: gitWorkspace.rewindFiles,
     searchWorkspace: async (input, signal) => {
       const result = Schema.decodeUnknownSync(IndexSearchResultSchema, {
         errors: 'all',

@@ -17,7 +17,6 @@ import type { IndexSearchCapability } from '@brainstrike/indexing-contract/index
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
-import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveOllamaModelForAdmission } from '../ipc-runtime';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
@@ -29,8 +28,8 @@ import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 /** Supplied by the existing settings owner, never parsed from client configuration. */
 export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cliOwnerIntent']>;
 
-/** Main's tool services for host threads, resolved per run (the worktree services lazily). */
-export interface DesktopHostToolServices extends DesktopWorktreeServices {
+/** Main's tool services for host threads. */
+export interface DesktopHostToolServices {
   readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | undefined;
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly nativeIndexSearch?: IndexSearchCapability | undefined;
@@ -94,7 +93,7 @@ async function readLocalEmbeddingHostDevice(
 /**
  * The facts a host-composed run admission reads from Main (BST-1930 stage e):
  * the model catalog and live roots in Main's database, the live binding
- * authority, the worktree service and the embedding host.
+ * authority and the embedding host.
  */
 function desktopAdmissionReads(
   dependencies: DesktopHostToolServices,
@@ -160,7 +159,6 @@ function desktopAdmissionReads(
         readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, signal),
         readLocalModel: (modelId) => readLocalEmbeddingModel(dependencies.modelCatalog, modelId),
       }),
-    worktreesAvailable: async () => Boolean(dependencies.resolveWorktreeService?.()),
   };
 }
 

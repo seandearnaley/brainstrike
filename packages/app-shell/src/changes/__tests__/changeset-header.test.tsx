@@ -11,11 +11,13 @@ import type {
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { workspaceGitWrapper } from '../../__tests__/helpers/workspace-git-services-wrapper';
 import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
 } from '../../assistant-thread-host-context';
 import type { GitBridge } from '../../git-panel/git-bridge';
+import type { WorkspaceGitServices } from '../../workspace-git-services';
 import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 import { ChangesetHeader } from '../ui/changeset-header';
@@ -25,11 +27,11 @@ function ok<T>(value: T): Promise<GitResult<T>> {
 }
 
 /**
- * `GitScopeActions` (the Commit/Push controls) is capability-gated on
- * `window.git`, matching a real desktop build — installing a fully-formed
- * stub is required for any test asserting Commit/Push visibility, or
- * `resolveGitBridge()` sees no bridge and renders nothing regardless of the
- * `isViewingActiveWorktree` result under test.
+ * `GitScopeActions` (the Commit/Push controls) is capability-gated on the Git
+ * bridge, matching a real desktop build — installing a stub is required for
+ * any test asserting Commit/Push visibility, or `useGitBridge()` sees no bridge
+ * and renders nothing regardless of the `isViewingActiveWorktree` result under
+ * test.
  */
 const HOST_PORT: RewindPort = {
   apply: vi.fn(),
@@ -43,16 +45,16 @@ const HOST = { rewindPort: () => HOST_PORT } as Pick<
   'rewindPort'
 > as AssistantThreadHostCapability;
 
+let installed: Partial<WorkspaceGitServices> = {};
+
 /** The desktop changes capability; the header only raises the host modal. */
 function installChangesBridge(): void {
   const unused = vi.fn(() => {
     throw new Error('the header only raises the modal');
   });
-  (window as unknown as { changes?: unknown }).changes = {
-    fileDiff: unused,
-    inventory: unused,
-    onInvalidated: unused,
-    resolveView: unused,
+  installed = {
+    ...installed,
+    changes: { fileDiff: unused, inventory: unused, onInvalidated: unused, resolveView: unused },
   };
 }
 
@@ -117,12 +119,16 @@ function installGitBridge(): void {
     ),
     unstage: vi.fn(async () => ok(null)),
   };
-  (window as unknown as { git?: GitBridge }).git = bridge;
+  installed = { ...installed, git: bridge };
+}
+
+/** Wraps a render in the host as it stands: serving the installed bridges only. */
+function workspaceHost() {
+  return workspaceGitWrapper(installed);
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as { git?: GitBridge }, 'git');
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  installed = {};
 });
 
 const AGENT_RUN_CHANGESET: Changeset = { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' };
@@ -173,7 +179,9 @@ describe('ChangesetHeader', () => {
       totalAdditions: null,
       totalDeletions: null,
     };
-    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view })} />);
+    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view })} />, {
+      wrapper: workspaceHost(),
+    });
 
     const additions = screen.getByTestId('changeset-stat-additions');
     const deletions = screen.getByTestId('changeset-stat-deletions');
@@ -190,7 +198,9 @@ describe('ChangesetHeader', () => {
       totalAdditions: 0,
       totalDeletions: 0,
     };
-    render(<ChangesetHeader {...baseProps({ changeset: GIT_SCOPE_CHANGESET, view })} />);
+    render(<ChangesetHeader {...baseProps({ changeset: GIT_SCOPE_CHANGESET, view })} />, {
+      wrapper: workspaceHost(),
+    });
 
     const additions = screen.getByTestId('changeset-stat-additions');
     const deletions = screen.getByTestId('changeset-stat-deletions');
@@ -204,7 +214,8 @@ describe('ChangesetHeader', () => {
     render(
       <AssistantThreadHostContext value={HOST}>
         <ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />
-      </AssistantThreadHostContext>
+      </AssistantThreadHostContext>,
+      { wrapper: workspaceHost() }
     );
     expect(screen.getByTestId('changeset-provenance')).toHaveTextContent(
       'Agent edits only — this turn'
@@ -212,7 +223,9 @@ describe('ChangesetHeader', () => {
   });
 
   it('states git-scope provenance in words, distinct from agent-run', () => {
-    render(<ChangesetHeader {...baseProps({ changeset: GIT_SCOPE_CHANGESET })} />);
+    render(<ChangesetHeader {...baseProps({ changeset: GIT_SCOPE_CHANGESET })} />, {
+      wrapper: workspaceHost(),
+    });
     expect(screen.getByTestId('changeset-provenance')).toHaveTextContent(
       'All working-tree changes'
     );
@@ -223,7 +236,8 @@ describe('ChangesetHeader', () => {
     render(
       <ChangesetHeader
         {...baseProps({ error: 'window.changes bridge threw ECONNRESET', onRetry })}
-      />
+      />,
+      { wrapper: workspaceHost() }
     );
 
     expect(screen.getByTestId('changeset-header-error')).toHaveTextContent(
@@ -240,19 +254,24 @@ describe('ChangesetHeader', () => {
       totalAdditions: null,
       totalDeletions: null,
     };
-    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: emptyView })} />);
+    render(
+      <ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: emptyView })} />,
+      { wrapper: workspaceHost() }
+    );
     expect(screen.getByTestId('changeset-header-empty')).toHaveTextContent(
       'No changes in this changeset'
     );
   });
 
   it('does NOT render the empty state when the view has not resolved (null)', () => {
-    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: null })} />);
+    render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET, view: null })} />, {
+      wrapper: workspaceHost(),
+    });
     expect(screen.queryByTestId('changeset-header-empty')).toBeNull();
   });
 
   it('shows an actionable message instead of a blank header when no workspace root is open', () => {
-    render(<ChangesetHeader {...baseProps({ rootId: null })} />);
+    render(<ChangesetHeader {...baseProps({ rootId: null })} />, { wrapper: workspaceHost() });
     expect(screen.getByTestId('changeset-header-no-root')).toHaveTextContent(
       'Open a workspace root'
     );
@@ -262,7 +281,8 @@ describe('ChangesetHeader', () => {
     render(
       <ChangesetHeader
         {...baseProps({ changeset: AGENT_RUN_CHANGESET, inventoryError: 'inventory load failed' })}
-      />
+      />,
+      { wrapper: workspaceHost() }
     );
     expect(screen.getByTestId('changeset-header-inventory-error')).toHaveTextContent(
       'inventory load failed'
@@ -282,7 +302,8 @@ describe('ChangesetHeader', () => {
           inventoryError: 'inventory load failed',
           onRetryInventory,
         })}
-      />
+      />,
+      { wrapper: workspaceHost() }
     );
 
     const container = screen.getByTestId('changeset-header-inventory-error');
@@ -357,7 +378,9 @@ describe('ChangesetHeader', () => {
     };
 
     installGitBridge();
-    render(<ChangesetHeader {...baseProps({ changeset, inventory, rootId: 'root-1' })} />);
+    render(<ChangesetHeader {...baseProps({ changeset, inventory, rootId: 'root-1' })} />, {
+      wrapper: workspaceHost(),
+    });
 
     expect(screen.queryByTestId('changeset-git-scope-actions')).not.toBeInTheDocument();
     expect(screen.getByTestId('changeset-actions-unavailable')).toBeInTheDocument();
@@ -393,7 +416,8 @@ describe('ChangesetHeader', () => {
     render(
       <ChangesetHeader
         {...baseProps({ changeset: GIT_SCOPE_CHANGESET, inventory, rootId: 'root-1' })}
-      />
+      />,
+      { wrapper: workspaceHost() }
     );
 
     expect(screen.getByTestId('changeset-git-scope-actions')).toBeInTheDocument();
@@ -407,7 +431,8 @@ describe('ChangesetHeader', () => {
     render(
       <AssistantThreadHostContext value={HOST}>
         <ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />
-      </AssistantThreadHostContext>
+      </AssistantThreadHostContext>,
+      { wrapper: workspaceHost() }
     );
 
     const action = screen.getByTestId('changeset-rewind-action');
@@ -434,7 +459,8 @@ describe('ChangesetHeader', () => {
     render(
       <AssistantThreadHostContext value={HOST}>
         <ChangesetHeader {...baseProps({ changeset: runRange })} />
-      </AssistantThreadHostContext>
+      </AssistantThreadHostContext>,
+      { wrapper: workspaceHost() }
     );
 
     await user.click(screen.getByTestId('changeset-rewind-action'));
@@ -450,13 +476,15 @@ describe('ChangesetHeader', () => {
   // synthesising a thread id.
   it('has NO rewind action for a git-scope changeset', () => {
     installGitBridge();
-    render(<ChangesetHeader {...baseProps({ changeset: GIT_SCOPE_CHANGESET })} />);
+    render(<ChangesetHeader {...baseProps({ changeset: GIT_SCOPE_CHANGESET })} />, {
+      wrapper: workspaceHost(),
+    });
 
     expect(screen.queryByTestId('changeset-rewind-action')).not.toBeInTheDocument();
   });
 
   it('has NO rewind action before a changeset is picked', () => {
-    render(<ChangesetHeader {...baseProps({ changeset: null })} />);
+    render(<ChangesetHeader {...baseProps({ changeset: null })} />, { wrapper: workspaceHost() });
 
     expect(screen.queryByTestId('changeset-rewind-action')).not.toBeInTheDocument();
   });
