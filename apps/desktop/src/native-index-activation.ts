@@ -139,9 +139,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       const creation = acquireIndexerHost(
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
         // R5(b) only, the close ladder: 30 s of cooperative close (source retirement and the
-        // close request) before the utility is killed, then 1 s before its still-joined exit is
-        // reported slow. Startup and requests have no deadline (R2): slowness never retires it.
-        { closeMs: 30_000, exitMs: 1000 },
+        // close request), then 30 s for the utility to exit after its close ACK, before it is
+        // killed; after a kill, 30 s before its still-joined exit is reported slow. With 1 s, a
+        // loaded Windows runner killed a utility that was already exiting, Windows refused it,
+        // and the index stayed blocked (queue run 40164820640). Startup and requests have no
+        // deadline (R2): slowness never retires it.
+        { closeMs: 30_000, exitMs: 30_000 },
         dependencies.lifecycleDelays
       );
       creation.catch(() => undefined);
