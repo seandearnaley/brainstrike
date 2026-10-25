@@ -2,12 +2,15 @@
  * BST-1779: the host binds every MCP tool with an inactivity budget. A call
  * that keeps reporting progress outlives its window; a silent one ends at it,
  * told it went silent. A server's configured `toolTimeoutMs` is that window.
+ *
+ * The guard's windows run on a fake clock: on real timers any event-loop stall
+ * longer than a window ended a progressing call as silent.
  */
 import { reportToolGuardActivity } from '@brainstrike/agent/tool-guard-deadline';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { HostToolContext } from '@brainstrike/agent-host';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { bindMcpTool } from '../src/mcp/mcp-tool-binding.js';
 
@@ -68,10 +71,26 @@ const context = (): HostToolContext =>
     toolCallId: 'call-1',
   }) as HostToolContext;
 
+/** Runs one bound call to its end on the fake clock, `runMs` after it starts. */
+async function runFor(tool: ReturnType<typeof boundWork>, runMs: number): Promise<unknown> {
+  const result = Promise.resolve(tool.execute({}, context()));
+  await vi.advanceTimersByTimeAsync(runMs);
+  return result;
+}
+
 describe('MCP tool binding inactivity budget (BST-1779)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('lets a call that keeps reporting progress run several windows and finish', async () => {
     const tool = boundWork(WINDOW_MS * 4, 20);
-    await expect(tool.execute({}, context())).resolves.toEqual({
+    await expect(runFor(tool, WINDOW_MS * 4)).resolves.toEqual({
       content: [{ text: 'done', type: 'text' }],
     });
   });
@@ -79,21 +98,21 @@ describe('MCP tool binding inactivity budget (BST-1779)', () => {
   it("gives a silent call its server's own window, longer than the host's", async () => {
     // Silent for 2 windows, on a server configured with 4: it finishes.
     const tool = boundWork(WINDOW_MS * 2, undefined, WINDOW_MS * 4);
-    await expect(tool.execute({}, context())).resolves.toEqual({
+    await expect(runFor(tool, WINDOW_MS * 2)).resolves.toEqual({
       content: [{ text: 'done', type: 'text' }],
     });
   });
 
   it("ends a silent call at its server's window, naming that window", async () => {
     const tool = boundWork(WINDOW_MS * 8, undefined, WINDOW_MS * 2);
-    await expect(tool.execute({}, context())).resolves.toMatchObject({
+    await expect(runFor(tool, WINDOW_MS * 2)).resolves.toMatchObject({
       error: { message: expect.stringContaining(`reported no progress for ${WINDOW_MS * 2} ms`) },
     });
   });
 
   it('ends a silent call at its window, saying it reported no progress', async () => {
     const tool = boundWork(WINDOW_MS * 4, undefined);
-    await expect(tool.execute({}, context())).resolves.toMatchObject({
+    await expect(runFor(tool, WINDOW_MS)).resolves.toMatchObject({
       error: {
         code: 'tool_timeout',
         message: expect.stringContaining(`reported no progress for ${WINDOW_MS} ms`),
