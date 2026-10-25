@@ -17,7 +17,7 @@ import {
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { act } from '@brainstrike/test-utils/react-act';
-import { renderHook, waitFor } from '@testing-library/react';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
@@ -147,6 +147,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Unmount before resetting the stores the tree subscribes to.
+  cleanup();
   useAssistantPreferencesStore.setState(preferences, true);
   useModelRegistryStore.setState(registry, true);
   useAssistantThreadStore.setState(threads, true);
