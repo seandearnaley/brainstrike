@@ -4,7 +4,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getRendererLogBuffer } from '../../log-buffer';
 import { LogsPageContent } from '../logs-page-content';
@@ -54,6 +54,8 @@ describe('desktop Logs tab', () => {
   });
 
   afterEach(() => {
+    // Unmount before resetting the stores the page subscribes to.
+    cleanup();
     getRendererLogBuffer().resume();
     getRendererLogBuffer().clear();
     useWorkspaceTabSelectionStore.getState().reset();
