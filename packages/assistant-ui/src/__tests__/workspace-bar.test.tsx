@@ -735,4 +735,39 @@ describe('BranchChip forge diagnostic', () => {
     expect(diagnostic).toHaveTextContent('GitHub CLI authentication is required.');
     expect(within(openMenu).getByTestId('workspace-bar-branch-row-feature/alpha')).toBeVisible();
   });
+
+  it('keeps a menu opened on the diagnostic open when the branch list arrives', async () => {
+    const user = setup();
+    const forgeDiagnostic = 'GitHub CLI (gh) was not found on PATH.';
+    const { rerender } = render(
+      <BranchChip checkout={checkout} forgeDiagnostic={forgeDiagnostic} />
+    );
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await screen.findByTestId('workspace-bar-branch-forge-diagnostic');
+
+    const menu: WorkspaceBarBranchMenu = {
+      onCreateBranch: vi.fn(),
+      onFetch: undefined,
+      onQueryChange: vi.fn(),
+      onSwitch: vi.fn(),
+      pending: false,
+      query: '',
+      rows: [
+        {
+          current: false,
+          disabledReason: null,
+          name: 'feature/alpha',
+          switchable: true,
+          worktreeName: null,
+        },
+      ],
+      scopeReason: null,
+    };
+    rerender(
+      <BranchChip branchMenu={menu} checkout={checkout} forgeDiagnostic={forgeDiagnostic} />
+    );
+
+    await user.click(await screen.findByTestId('workspace-bar-branch-row-feature/alpha'));
+    expect(menu.onSwitch).toHaveBeenCalledWith('feature/alpha');
+  });
 });
