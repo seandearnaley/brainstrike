@@ -44,13 +44,11 @@ test('a second send while the first run start is in flight stays in the composer
     .mockRejectedValue(new Error(RUN_REFUSED));
   const surface = await mountCompleted({ onNew });
   const send = surface.ui.getByRole('button', { name: 'Send' });
-  await act(async () => {
-    // Two Enters milliseconds apart, as a fast typist sends them.
-    await userEvent.fill(surface.input, 'First message');
-    await userEvent.keyboard('{Enter}');
-    await userEvent.fill(surface.input, 'Second message');
-    await userEvent.keyboard('{Enter}');
-  });
+  // Two Enters milliseconds apart, as a fast typist sends them.
+  await userEvent.fill(surface.input, 'First message');
+  await userEvent.keyboard('{Enter}');
+  await userEvent.fill(surface.input, 'Second message');
+  await userEvent.keyboard('{Enter}');
   await waitFor(() => expect(onNew).toHaveBeenCalledOnce());
   await settleFrames();
   expect(onNew).toHaveBeenCalledOnce();

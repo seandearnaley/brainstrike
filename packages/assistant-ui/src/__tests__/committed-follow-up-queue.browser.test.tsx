@@ -79,13 +79,9 @@ test('a message written during an active committed run is queued and sent once a
   source.publishPrefix(answerStepLength);
   const { ui } = await mount(source, onNew);
   const input = ui.getByRole('textbox', { name: 'Message input' });
-  await act(async () => {
-    await userEvent.fill(input, QUEUED);
-  });
+  await userEvent.fill(input, QUEUED);
   const queue = ui.getByRole('button', { name: 'Queue message to send after this run' });
-  await act(async () => {
-    await userEvent.click(queue);
-  });
+  await userEvent.click(queue);
   const chips = ui.getByRole('list', { name: 'Queued follow-up messages' });
   expect(chips).toHaveTextContent(QUEUED);
   expect(input).toHaveValue('');
