@@ -104,7 +104,7 @@ describe('same-thread connection changes', () => {
       expect([...mountedRows.keys()]).toEqual([baseline.headId, recordedPromptId, recordedRunId]);
       await act(async () => {
         await userEvent.click(surface.input);
-        await userEvent.keyboard('Keep this draft');
+        await userEvent.fill(surface.input, 'Keep this draft');
       });
       let draft = 'Keep this draft';
 
@@ -140,11 +140,12 @@ describe('same-thread connection changes', () => {
         expect(alert).toBeVisible();
         expect(surface.host.queryByText(DISCONNECTED)).toBeNull();
         expectRetained();
-        // Focus is live, not merely reported: the reader keeps typing.
+        // Focus is live, not merely reported: a key the reader presses lands
+        // in the draft.
         await act(async () => {
-          await userEvent.keyboard(` ${failure.kind}`);
+          await userEvent.keyboard('.');
         });
-        draft = `${draft} ${failure.kind}`;
+        draft = `${draft}.`;
         expectRetained();
       }
 
@@ -473,8 +474,8 @@ describe('keyboard approval and errors', () => {
     const { surface } = await mountCompleted({ onNew });
     const rows = [...messageRoots(surface.viewport).keys()];
     await act(async () => {
-      surface.input.focus();
-      await userEvent.keyboard('Report the result again{Enter}');
+      await userEvent.fill(surface.input, 'Report the result again');
+      await userEvent.keyboard('{Enter}');
     });
     const alert = await surface.host.findByRole('alert', { name: 'Agent command error' });
     return { alert, onNew, rows, surface };
@@ -485,8 +486,8 @@ describe('keyboard approval and errors', () => {
     async ({ onNew, visible }) => {
       const { surface } = await mountCompleted({ onNew });
       await act(async () => {
-        surface.input.focus();
-        await userEvent.keyboard('Continue{Enter}');
+        await userEvent.fill(surface.input, 'Continue');
+        await userEvent.keyboard('{Enter}');
       });
       const alert = await surface.host.findByRole('alert', { name: 'Agent command error' });
       expect(alert).toHaveTextContent(visible);
@@ -582,8 +583,7 @@ describe('refused dispatch and unavailable capabilities', () => {
     const { source, surface } = await mountCompleted({ onNew });
     const rows = [...messageRoots(surface.viewport).keys()];
     await act(async () => {
-      surface.input.focus();
-      await userEvent.keyboard('Follow up on the fixture');
+      await userEvent.fill(surface.input, 'Follow up on the fixture');
     });
     const send = surface.ui.getByRole('button', { name: 'Send' });
     expect(send).toBeEnabled();
