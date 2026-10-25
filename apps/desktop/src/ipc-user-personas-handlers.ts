@@ -1,8 +1,8 @@
 /**
  * Persona discovery IPC handlers (desktop main). Lists built-in + user-defined
  * personas — INCLUDING invalid user files with their parse/validation error —
- * for the Settings → Subagents panel. Mirrors ipc-user-commands-handlers:
- * injected fs + root catalog for unit tests, SecureRoot-backed real disk in production.
+ * for the Settings → Subagents panel. Injected fs + root catalog for unit
+ * tests, SecureRoot-backed real disk in production.
  */
 
 import { homedir } from 'node:os';
@@ -19,15 +19,21 @@ import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
 import {
   scanUserPersonas,
+  type UserPersonaScanDeps,
   type UserPersonaScanEntry,
 } from './assistant-server/user-personas-loader';
-import { resolveScanRoots, type UserCommandsListDeps } from './ipc-user-commands-handlers';
+import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 
-/** Same deps shape as the commands list handler (fs + root catalog + homedir). */
-export interface UserPersonasListDeps extends UserCommandsListDeps {
+export interface UserPersonasListDeps {
+  /** Injected fs surface (real disk in production, in-memory in tests). */
+  readonly fs: UserPersonaScanDeps;
+  /** The user's home directory (for `~/.brainstrike` / `~/.claude`). */
+  readonly homedir: () => string;
   readonly inspectAvailability?: (
     persona: AssistantPersonaDefinition
   ) => Promise<AssistantPersonaAvailability>;
+  /** Required authoritative workspace-root catalog; its failure rejects the listing. */
+  readonly workspaceRoots: WorkspaceRootPort;
 }
 
 function toListItem(entry: UserPersonaScanEntry): AssistantPersonaListItem {
@@ -82,7 +88,11 @@ export async function listUserPersonas(
     source: 'built-in',
     status: 'ok',
   }));
-  const roots = await resolveScanRoots(deps.workspaceRoots);
+  const roots = (await loadWorkspaceRootsFromCatalog(deps.workspaceRoots)).map((root) => ({
+    absPath: root.path,
+    displayName: root.displayName,
+    id: root.rootId,
+  }));
   const scan = scanUserPersonas({ homeDir: deps.homedir(), roots }, deps.fs);
   const definitions = new Map(
     [...BUILT_IN_PERSONAS, ...scan.personas].map((persona) => [persona.id, persona])

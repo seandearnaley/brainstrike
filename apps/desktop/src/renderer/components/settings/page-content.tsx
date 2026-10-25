@@ -231,7 +231,9 @@ async function changeMcpToolPreferences(
 
 export default function SettingsPageContent() {
   // Desktop reads provider facts only from its host; a missing host is an error, not Main.
-  const hostProviders = useAssistantThreadHost()?.providers;
+  const host = useAssistantThreadHost();
+  const hostProviders = host?.providers;
+  const hostDiscovery = host?.workspaceDiscovery;
   const assistantAvailability = useAssistantAvailability(
     useHostAssistantStatusFetcher() ?? refuseWithoutHost
   );
@@ -574,7 +576,9 @@ export default function SettingsPageContent() {
       }),
       createPermissionSettingsCategory(browserOrigins ? { browserOrigins } : undefined),
       createSubagentPersonasSettingsCategory(),
-      createSkillsSettingsCategory(),
+      createSkillsSettingsCategory(
+        hostDiscovery ? { scanSkills: () => hostDiscovery.scanSkills() } : {}
+      ),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
       createWorkspaceInstructionsSettingsCategory(),
       createWorkspaceSettingsCategory({
@@ -602,6 +606,7 @@ export default function SettingsPageContent() {
     browserOrigins,
     devInlineFixtureEnabled,
     hookReviewRoots,
+    hostDiscovery,
     hostProviders,
     mcpSettings,
     revealEnvFile,

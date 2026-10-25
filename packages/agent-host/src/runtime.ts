@@ -132,6 +132,7 @@ export async function startAgentHost(
     | 'searchState'
     | 'searchStateVectors'
     | 'searchWorkspace'
+    | 'workspaceDiscovery'
   > => ({
     bindCatalog: async (connection) => {
       if (!catalogStore) {
@@ -163,6 +164,7 @@ export async function startAgentHost(
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
     ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
+    ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
   });
   const ownedPlatform: HostPlatform = {
     close: closePlatform,

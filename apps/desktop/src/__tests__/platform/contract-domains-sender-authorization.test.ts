@@ -3,8 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerClipboardIpcHandlers } from '../../ipc-clipboard';
 import { registerContextFilesIpcHandlers } from '../../ipc-context-files';
 import { mcpAppsContract, mcpPathSelectionContract } from '../../ipc-domains/mcp.contract';
-import { registerSkillsIpcHandlers } from '../../ipc-skills';
-import { registerUserCommandsIpcHandlers } from '../../ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from '../../ipc-user-personas';
 import { createDesktopIpcRegistry, registerDomain } from '../../platform/desktop-ipc-registry';
 import type { Contract, Handlers } from '../../platform/ipc-contract';
@@ -45,24 +43,6 @@ const DOMAIN_CASES: readonly ContractDomainCase[] = [
     domain: 'contextFiles',
     register: (sentinel) =>
       registerContextFilesIpcHandlers(
-        { workspaceRoots: async () => ({ roots: [] }) },
-        vi.fn(async () => sentinel as never)
-      ),
-  },
-  {
-    channels: ['skills:scan'],
-    domain: 'skills',
-    register: (sentinel) =>
-      registerSkillsIpcHandlers(
-        { workspaceRoots: async () => ({ roots: [] }) },
-        vi.fn(async () => sentinel as never)
-      ),
-  },
-  {
-    channels: ['user-commands:list'],
-    domain: 'userCommands',
-    register: (sentinel) =>
-      registerUserCommandsIpcHandlers(
         { workspaceRoots: async () => ({ roots: [] }) },
         vi.fn(async () => sentinel as never)
       ),

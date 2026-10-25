@@ -37,7 +37,7 @@ export interface ContextFilesBridge {
   scan: () => Promise<WorkspaceContextFileStatus[]>;
 }
 
-// Compile-time exact-set proof (see skills-bridge.ts for the rationale).
+// Compile-time exact-set proof (see personas-bridge.ts for the rationale).
 const CONTEXT_FILES_BRIDGE_REQUIRED_METHOD_SET = {
   scan: true,
 } as const satisfies Record<keyof ContextFilesBridge, true>;
