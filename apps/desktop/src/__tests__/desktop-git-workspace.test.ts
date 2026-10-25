@@ -21,7 +21,7 @@ vi.mock('../assistant-server/worktree-service', () => ({
 import { createDesktopGitWorkspace } from '../agent-host-platform/desktop-git-workspace';
 import { watchGitCommonDirNatively } from '../assistant-server/git-inventory-watcher';
 
-function createWorkspace() {
+function createWorkspace({ subscribe = true } = {}) {
   const forgeService = {
     onRepositoryInvalidated: vi.fn(),
     stop: vi.fn(async () => undefined),
@@ -47,7 +47,9 @@ function createWorkspace() {
     userDataDir: '/tmp/brainstrike-git-workspace-test',
   });
   const events: GitWorkspaceEvent[] = [];
-  workspace.service.subscribe((event) => events.push(event));
+  if (subscribe) {
+    workspace.service.subscribe((event) => events.push(event));
+  }
   return { events, forgeService, gitInventoryService, workspace, worktreeService };
 }
 
@@ -69,6 +71,26 @@ describe('createDesktopGitWorkspace', () => {
       expect.objectContaining({ watchDirectory: watchGitCommonDirNatively })
     );
     expect(workspace.tools.resolveWorktreeService?.()).toBe(worktreeService);
+  });
+
+  it('starts no watcher or snapshot GC before a window subscribes or reads the inventory', async () => {
+    const { gitInventoryService, workspace } = createWorkspace({ subscribe: false });
+    workspace.attachThreadReads({
+      listThreads: () => [],
+      read: async () => [],
+      readLedger: () => ({ threads: [] }),
+    });
+    expect(gitInventoryService.start).not.toHaveBeenCalled();
+
+    gitInventoryService.getSnapshot.mockResolvedValue({ errors: [], repositories: [] });
+    const worktreeOptions = createWorktreeServiceMock.mock.calls[0]?.[0] as {
+      resolveInventory: () => Promise<unknown>;
+    };
+    await worktreeOptions.resolveInventory();
+    workspace.service.subscribe(() => undefined);
+
+    expect(gitInventoryService.start).toHaveBeenCalledTimes(1);
+    await workspace.close();
   });
 
   it('publishes changes-invalidated with a monotonic generation and fans the signal out to forge', () => {
