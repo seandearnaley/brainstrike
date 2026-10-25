@@ -14,7 +14,8 @@ import {
 } from '../src/native-children.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
-const SLEEPER = ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"];
+// stdin is the sleeper's lifeline: it exits once this test process lets the pipe go or dies.
+const SLEEPER = ['-e', "process.on('SIGTERM', () => {}); process.stdin.resume();"];
 const held: RootLock[] = [];
 const children: ChildProcess[] = [];
 const unsubscribe: (() => void)[] = [];
@@ -40,7 +41,10 @@ const newRoot = (): string => {
   return root;
 };
 const sleeper = (): ChildProcess => {
-  const child = spawnNativeChild(process.execPath, SLEEPER, { detached: true, stdio: 'ignore' });
+  const child = spawnNativeChild(process.execPath, SLEEPER, {
+    detached: true,
+    stdio: ['pipe', 'ignore', 'ignore'],
+  });
   children.push(child);
   return child;
 };

@@ -13,7 +13,11 @@ const { tryExclusiveFlock } = require('..');
 const posix = process.platform !== 'win32';
 let directory;
 const owned = [];
+const lifelines = [];
 afterEach(() => {
+  for (const lifeline of lifelines.splice(0)) {
+    lifeline.destroy();
+  }
   for (const pid of owned.splice(0)) {
     try {
       process.kill(pid, 'SIGKILL');
@@ -86,6 +90,10 @@ test('a descendant that inherited the descriptor holds the lock after its holder
   // descriptor as its fd 3 (libuv dup2s it, clearing close-on-exec), then waits
   // to be killed. The command shares the holder's stdout: it prints its pid
   // once its SIGTERM handler is installed, and a line for each SIGTERM.
+  // The holder's fd 3 is this test's lifeline, a pipe only this process holds
+  // the other end of. The holder waits on it, and the command reads it as its
+  // stdin and exits at its end, so neither outlives this test process however
+  // it ends; the command's copy keeps it open once the holder is killed.
   const holder = spawn(
     process.execPath,
     [
@@ -93,20 +101,22 @@ test('a descendant that inherited the descriptor holds the lock after its holder
       `
 const { spawn } = require('node:child_process');
 const { constants, openSync } = require('node:fs');
+const { Socket } = require('node:net');
 const { tryExclusiveFlock } = require(${JSON.stringify(path.join(__dirname, '..'))});
 const fd = openSync(process.argv[1], constants.O_RDWR | constants.O_CREAT, 0o600);
 if (!tryExclusiveFlock(fd)) throw new Error('holder could not lock');
-spawn(process.execPath, ['-e', "process.on('SIGTERM', () => console.log('SIGTERM')); console.log(process.pid); setInterval(() => {}, 1000);"], {
+spawn(process.execPath, ['-e', "process.on('SIGTERM', () => console.log('SIGTERM')); console.log(process.pid); process.stdin.resume();"], {
   detached: true,
-  stdio: ['ignore', 'inherit', 'ignore', fd],
+  stdio: [3, 'inherit', 'ignore', fd],
 });
-setInterval(() => {}, 1000);
+new Socket({ fd: 3, readable: true, writable: false }).resume();
 `,
       file,
     ],
-    { stdio: ['ignore', 'pipe', 'inherit'] }
+    { stdio: ['ignore', 'pipe', 'inherit', 'pipe'] }
   );
   owned.push(holder.pid);
+  lifelines.push(holder.stdio[3]);
   const lines = createInterface({ input: holder.stdout })[Symbol.asyncIterator]();
   const command = Number((await lines.next()).value);
   owned.push(command);
