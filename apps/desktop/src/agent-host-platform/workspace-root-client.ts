@@ -68,18 +68,9 @@ export function createDesktopWorkspaceRootCatalog(
     forgeCacheSnapshot: () => borrow((client) => client.forgeCacheSnapshot()),
     indexConfig: (request) => borrow((client) => client.indexConfig(request)),
     modelChoices: (request) => borrow((client) => client.modelChoices(request)),
+    // Joins admitted operations; each outcome stays its caller's, never a close failure.
     prepareClose: () => {
-      closing ??= Promise.allSettled([...pending]).then((results) => {
-        const failures = results.flatMap((result) =>
-          result.status === 'rejected' ? [result.reason] : []
-        );
-        if (failures.length > 0) {
-          throw new AggregateError(
-            failures,
-            'Main catalog operations failed during close preparation'
-          );
-        }
-      });
+      closing ??= Promise.allSettled([...pending]).then(() => undefined);
       return closing;
     },
     promptLibrary: (request) => borrow((client) => client.promptLibrary(request)),

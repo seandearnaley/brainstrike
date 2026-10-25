@@ -108,7 +108,7 @@ test('a borrow admitted before terminal close finishes its acquisition and opera
 });
 
 test.each(['acquisition', 'operation'] as const)(
-  'a rejected admitted %s stays visible to its caller and terminal drain',
+  "a rejected admitted %s stays its caller's; terminal drain joins it without adopting it",
   async (phase) => {
     const f = fixture();
     const admitted = Promise.withResolvers<void>();
@@ -130,12 +130,16 @@ test.each(['acquisition', 'operation'] as const)(
     const request = f.borrower.workspaceRoots({ operation: 'list' });
     const refused = expect(request).rejects.toBe(cause);
     await admitted.promise;
-    const closing = f.borrower.prepareClose();
-    const failedClose = expect(closing).rejects.toMatchObject({ errors: [cause] });
+    let drained = false;
+    const closing = f.borrower.prepareClose().then(() => {
+      drained = true;
+    });
+    await Promise.resolve();
+    expect(drained).toBe(false);
     release.resolve();
     await refused;
-    await failedClose;
-    await expect(f.borrower.prepareClose()).rejects.toMatchObject({ errors: [cause] });
+    await closing;
+    await expect(f.borrower.prepareClose()).resolves.toBeUndefined();
   }
 );
 
