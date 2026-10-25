@@ -49,7 +49,6 @@
       "default": "./vitest.base.mjs"
     },
     "./vitest-lost-file-reporter": "./vitest-lost-file-reporter.mjs",
-    "./workspace-src-aliases": "./workspace-src-aliases.mjs",
     "./electron": "./src/index.ts",
     "./worker": "./src/index.ts",
     "./playwright": "./src/playwright/failure-artifacts.ts",

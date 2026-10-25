@@ -9,8 +9,7 @@ Use the repository-pinned Node and pnpm versions. From the repository root:
 
 ```sh
 pnpm install
-pnpm build
-pnpm dev --filter @brainstrike/desktop
+pnpm dev
 ```
 
 From `apps/desktop`, `pnpm dev` starts the Vite renderer and builds/launches
@@ -22,9 +21,9 @@ Vite hot reload; restart Electron after changing main or preload code.
 | Command in `apps/desktop` | Purpose |
 | --- | --- |
 | `pnpm dev:renderer` | Start the renderer dev server |
-| `pnpm dev:main` | Build main/preload and helper entries |
+| `pnpm dev:main` | Build main/preload and helper entries, without the packaged-app import check |
 | `pnpm dev:electron` | Build and launch against the running dev server |
-| `pnpm build` | Build renderer and main |
+| `pnpm build` | Build renderer and main in parallel |
 | `pnpm start` | Build and launch the built renderer |
 | `pnpm type-check` | Check desktop TypeScript |
 

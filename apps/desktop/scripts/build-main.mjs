@@ -9,11 +9,17 @@
  *
  * The build options + entry list live in ./build-main-config.mjs (pure data,
  * pinned by src/__tests__/build-main-config.test.ts).
+ *
+ * `--dev` (the `dev:main` script) emits the same bundles but skips the
+ * packaged-app contract below: its walk through every reachable third-party
+ * module is about 10 of the 11 seconds this script takes, and a dev launch never
+ * packages. `build` runs it, so `pnpm build`, CI and `pack` still enforce it.
  */
 import { existsSync } from 'node:fs';
 import { cp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { build } from 'esbuild';
 import { NODE_BUILDS, PROCESS_LAUNCHERS } from './build-main-config.mjs';
 import {
@@ -78,15 +84,19 @@ async function writeProcessLaunchers() {
   }
 }
 
+const { values: flags } = parseArgs({ options: { dev: { default: false, type: 'boolean' } } });
+
 await cleanMainProcessOutputs();
 // Every Node-side entry Main, a utility process, a worker or the Windows command
 // path loads. None may reach Transformers.js or onnxruntime-node, which the
 // packaged app leaves out (BST-2148); the gate reads each build's own metafile.
-const builds = [];
-for (const options of NODE_BUILDS) {
-  builds.push((await build({ ...options, metafile: true })).metafile);
-}
+// The builds are independent, so esbuild runs them at once.
+const builds = await Promise.all(
+  NODE_BUILDS.map(async (options) => (await build({ ...options, metafile: true })).metafile)
+);
 await writeProcessLaunchers();
 await copyNodeGrammars();
 await assertPreloadBundlesAreSandboxSafe();
-assertNoNodeInferenceImports(await findNodeInferenceImports({ absWorkingDir: appRoot, builds }));
+if (!flags.dev) {
+  assertNoNodeInferenceImports(await findNodeInferenceImports({ absWorkingDir: appRoot, builds }));
+}
