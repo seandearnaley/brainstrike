@@ -213,9 +213,10 @@ async function startRootWatch(
   // Consumers match change paths against the handle-rooted prefix; `fs.watch`
   // reports names relative to the watched directory, so events are joined onto
   // the handle path as given. Root paths are normalized without a trailing
-  // separator so joined children can never gain a doubled separator.
+  // separator so joined children can never gain a doubled separator, except a
+  // filesystem root (`/`, `C:\`): `C:` alone is the drive's current directory.
   const rootPath =
-    handle.path.length > 1 && handle.path.endsWith(path.sep)
+    handle.path.endsWith(path.sep) && path.parse(handle.path).root !== handle.path
       ? handle.path.slice(0, -1)
       : handle.path;
 

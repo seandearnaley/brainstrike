@@ -88,6 +88,42 @@ describe('the permission policy store with an agent host client', () => {
     expect(store.usePermissionPolicySave.getState().error).toBe('The agent host is closing');
   });
 
+  it('lets no save that was pending at a factory reset bring the old policy back', async () => {
+    (window as Window & { agentHost?: unknown }).agentHost = {};
+    const values = new Map<string, string>();
+    const commit = Promise.withResolvers<void>();
+    const host = {
+      getItem: vi.fn(async (name: string) => values.get(name) ?? null),
+      removeItem: vi.fn(async (name: string) => {
+        values.delete(name);
+      }),
+      setItem: vi.fn(async (name: string, value: string) => {
+        await commit.promise;
+        values.set(name, value);
+      }),
+    };
+    const store = await import('../stores/permission-policy-store.ts');
+    store.provideHostPermissionPolicyPersistence(host);
+    await vi.waitFor(() =>
+      expect(store.usePermissionPolicyHydration.getState().status).toBe('ready')
+    );
+
+    const inFlight = store.usePermissionPolicyStore.getState().setCategoryPolicy('edit', 'deny');
+    const queued = store.usePermissionPolicyStore.getState().setYolo(true);
+    await vi.waitFor(() => expect(host.setItem).toHaveBeenCalledOnce());
+    store.resetPermissionPolicyStoreToDefaults();
+    commit.resolve();
+    await Promise.all([inFlight, queued]);
+    await vi.waitFor(() => expect(host.removeItem).toHaveBeenCalledOnce());
+
+    expect(store.usePermissionPolicyStore.getState()).toMatchObject({
+      policies: { edit: 'ask' },
+      yolo: false,
+    });
+    expect(host.setItem).toHaveBeenCalledOnce();
+    expect(values.has('permission-policy.v1')).toBe(false);
+  });
+
   it('never overwrites a policy it could not load', async () => {
     (window as Window & { agentHost?: unknown }).agentHost = {};
     const host = {

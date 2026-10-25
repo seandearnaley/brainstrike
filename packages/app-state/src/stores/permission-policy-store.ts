@@ -323,17 +323,26 @@ export const usePermissionPolicySave = create<{ error: string | null }>(() => ({
  */
 let hydrated: Promise<void> = Promise.resolve();
 let latestSave: Promise<void> = Promise.resolve();
+// A factory reset discards every save made before it, pending or in flight.
+let resets = 0;
 
 export const usePermissionPolicyStore = create<PermissionPolicyStore>()((set, get) => {
   const save = (
     change: (saved: PersistedPermissionPolicyData) => PersistedPermissionPolicyData
   ): Promise<void> => {
+    const made = resets;
     latestSave = latestSave.then(async () => {
       try {
         // A policy that failed to load is never overwritten from defaults.
         await hydrated;
+        if (made !== resets) {
+          return;
+        }
         const next = change(persistedSlice(get()));
         await storage.setItem(STORE_NAME, JSON.stringify({ state: next, version: STORE_VERSION }));
+        if (made !== resets) {
+          return;
+        }
         set(next);
         usePermissionPolicySave.setState({ error: null });
       } catch (error) {
@@ -426,8 +435,12 @@ void rehydratePermissionPolicy();
  * never survive a reset (FACTORY RESET CONTRACT).
  */
 export function resetPermissionPolicyStoreToDefaults(): void {
-  Promise.resolve()
-    .then(() => storage.removeItem(STORE_NAME))
+  resets += 1;
+  // The removal runs after any save already writing, so none can outlive it.
+  latestSave = latestSave
+    .then(async () => {
+      await storage.removeItem(STORE_NAME);
+    })
     .catch(() => {
       // Best effort: storage errors must not block the reset of in-memory state.
     });
