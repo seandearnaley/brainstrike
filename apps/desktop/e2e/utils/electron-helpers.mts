@@ -1115,7 +1115,9 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
         if (verboseLogging) {
           console.log('🔸 Mocked exists called with path:', p);
         }
-        return { ok: true, value: p.includes('/mock/') };
+        // Main spells mock paths natively (`C:\mock\…` on Windows), while this
+        // mock's own handles use `/mock/…`: match the `mock` segment in either.
+        return { ok: true, value: p.replaceAll('\\', '/').includes('/mock/') };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
