@@ -30,6 +30,10 @@ function slowProcess(timing: {
   readonly ignoresClose?: boolean;
   /** How long its exit takes after a kill. */
   readonly exitAfterKillMs?: number;
+  /** How long its exit takes after it answers `close`. */
+  readonly exitAfterCloseMs?: number;
+  /** Windows refuses to terminate a process that is already exiting. */
+  readonly refusesKill?: boolean;
 }) {
   const messages = new Set<(message: unknown) => void>();
   const exits = new Set<() => void>();
@@ -52,6 +56,9 @@ function slowProcess(timing: {
   const transport: IndexerTransport = {
     kill: () => {
       kills += 1;
+      if (timing.refusesKill) {
+        return false;
+      }
       exit(timing.exitAfterKillMs ?? 0);
       return true;
     },
@@ -78,7 +85,7 @@ function slowProcess(timing: {
       if (op === 'close') {
         if (!timing.ignoresClose) {
           deliver({ id, kind: 'response', ok: true, value: true }, 0);
-          exit(0);
+          exit(timing.exitAfterCloseMs ?? 0);
         }
         return;
       }
@@ -215,4 +222,29 @@ it('closes cooperatively with no stall when the process answers and exits', asyn
   await expect(closing).resolves.toBeUndefined();
   expect(process.kills()).toBe(0);
   expect(process.stalls).toEqual([]);
+});
+
+// Queue run 40164820640: an indexer that answered close took longer than `exitMs` to exit on a
+// loaded Windows runner, the kill was refused because it was already exiting, and the native
+// index stayed blocked until quit.
+it('joins the late exit of a process that answered close, and never kills it', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({
+    exitAfterCloseMs: 5000,
+    readyMs: 0,
+    refusesKill: true,
+    replyMs: 0,
+  });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  await connection.ready;
+
+  const closing = connection.close();
+  closing.catch(() => undefined);
+  await vi.advanceTimersByTimeAsync(5000);
+
+  await expect(closing).resolves.toBeUndefined();
+  expect(process.kills()).toBe(0);
+  expect(connection.exited).toBe(true);
+  expect(process.stalls).toEqual([`exit:${deadlines.exitMs}`]);
 });
