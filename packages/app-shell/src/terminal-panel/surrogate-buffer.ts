@@ -1,8 +1,8 @@
 /**
- * Surrogate-safe reassembly for the `window.terminal` data stream.
+ * Surrogate-safe reassembly for the terminal bridge data stream.
  *
  * The desktop pty backend splits a SINGLE pty output chunk across multiple
- * `terminal:data` events when it exceeds `MAX_EVENT_CHUNK_CHARS` (UTF-16 code
+ * `terminal/event` data pushes when it exceeds `MAX_EVENT_CHUNK_CHARS` (UTF-16 code
  * units). A split can land BETWEEN the two halves of a surrogate pair (e.g. an
  * emoji), so a chunk can end with a lone high surrogate whose matching low
  * surrogate arrives in the next event. The backend's own buffer is lossless

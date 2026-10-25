@@ -1,10 +1,10 @@
 /**
  * Desktop E2E for the Terminal panel (Phase-4 terminal feature; ledger P4 test-gap).
  *
- * Drives the BUILT Electron app against a REAL on-disk root: the terminal IPC
- * handlers spawn a REAL node-pty shell at the root cwd (no stub), so create /
- * type / output / exit / restart are exercised end to end through the preload
- * bridge + xterm UI. Output is read from xterm's `.xterm-rows` text spans
+ * Drives the BUILT Electron app against a REAL on-disk root: the agent host's
+ * terminals spawn a REAL node-pty shell at the root cwd (no stub), so create /
+ * type / output / exit / restart are exercised end to end through the window's
+ * host connection + xterm UI. Output is read from xterm's `.xterm-rows` text spans
  * (GPU-agnostic — no canvas assertions).
  *
  * Isolation: each test gets its OWN temp root dir (tracked + removed in

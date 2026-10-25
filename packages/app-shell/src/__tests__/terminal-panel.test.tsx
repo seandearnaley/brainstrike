@@ -1,6 +1,6 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render as renderElement, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { StrictMode } from 'react';
+import { type ReactElement, type ReactNode, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   CommandSessionBridge,
@@ -15,6 +15,11 @@ import type {
   TerminalExitEvent,
   TerminalResult,
 } from '../terminal-panel/terminal-bridge';
+import {
+  NO_WORKSPACE_TERMINAL_SERVICES,
+  type WorkspaceTerminalServices,
+  WorkspaceTerminalServicesProvider,
+} from '../workspace-terminal-services';
 
 // ── Controllable active-root + toast spies ────────────────────────────────────
 const mockRoot: {
@@ -136,6 +141,22 @@ const offData = vi.fn();
 const offExit = vi.fn();
 const resizeObserverDisconnect = vi.fn();
 
+// What the desktop provides for this test; reset to "no terminal cluster"
+// (web) before each test.
+let services: WorkspaceTerminalServices = NO_WORKSPACE_TERMINAL_SERVICES;
+
+function ProvidedServices({ children }: { readonly children: ReactNode }): ReactElement {
+  return (
+    <WorkspaceTerminalServicesProvider services={services}>
+      {children}
+    </WorkspaceTerminalServicesProvider>
+  );
+}
+
+function render(ui: ReactElement): ReturnType<typeof renderElement> {
+  return renderElement(ui, { wrapper: ProvidedServices });
+}
+
 function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
   const full: TerminalBridge = {
     create: vi.fn(async () => ok({ cwd: '/abs/repo', terminalId: 'pty-1' })),
@@ -152,7 +173,7 @@ function installBridge(bridge: Partial<TerminalBridge> = {}): TerminalBridge {
     write: vi.fn(async () => ({ ok: true }) as TerminalResult),
     ...bridge,
   };
-  (window as unknown as { terminal?: TerminalBridge }).terminal = full;
+  services = { ...services, terminal: full };
   return full;
 }
 
@@ -206,7 +227,7 @@ function installCommandSessionBridge(
     write: vi.fn(async () => ({ ok: true }) as CommandSessionResult),
     ...bridge,
   };
-  (window as unknown as { commandSessions?: CommandSessionBridge }).commandSessions = full;
+  services = { ...services, commandSessions: full };
   return full;
 }
 
@@ -245,11 +266,7 @@ describe('TerminalPanel', () => {
   });
 
   afterEach(() => {
-    Reflect.deleteProperty(window as unknown as { terminal?: TerminalBridge }, 'terminal');
-    Reflect.deleteProperty(
-      window as unknown as { commandSessions?: CommandSessionBridge },
-      'commandSessions'
-    );
+    services = NO_WORKSPACE_TERMINAL_SERVICES;
     vi.clearAllMocks();
   });
 

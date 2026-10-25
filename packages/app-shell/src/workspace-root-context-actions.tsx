@@ -4,9 +4,8 @@
  * cannot live in `file-explorer-ui` beside the other four: that package does
  * not — and must not — depend on `@brainstrike/app-shell`.
  *
- * Both are capability-gated by ABSENCE. `isTerminalBridgeAvailable()` is
- * resolved once per hook instance (the `use-workspace-bar-terminal.ts`
- * idiom), and `useCreateThreadInFolder()` returns `null` until the thread
+ * Both are capability-gated by ABSENCE. "Open in Terminal" exists only when
+ * `useTerminalBridge()` returns a provided bridge, and `useCreateThreadInFolder()` returns `null` until the thread
  * repository resolves — so web renders neither item and a booting desktop
  * renders no dead "New thread here".
  */
@@ -15,10 +14,10 @@ import { MessageSquarePlus, SquareTerminal } from 'lucide-react';
 import { useMemo } from 'react';
 import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
 import { useTerminalTargetStore } from './stores/terminal-target-store';
-import { isTerminalBridgeAvailable } from './terminal-panel/terminal-bridge';
+import { useTerminalBridge } from './workspace-terminal-services';
 
 export function useWorkspaceRootActions(): readonly AnyContextAction[] {
-  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  const terminalAvailable = useTerminalBridge() !== null;
   const createThreadInFolder = useCreateThreadInFolder();
   return useMemo(() => {
     const actions: AnyContextAction[] = [];

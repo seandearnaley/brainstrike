@@ -30,6 +30,9 @@ import {
   type McpSettingsEvent,
   McpSettingsEventSchema,
   parseHostParams,
+  TERMINAL_EVENT,
+  type TerminalEvent,
+  TerminalEventSchema,
 } from './protocol.ts';
 export interface HostClient extends HostAttachment {
   readonly catalog: HostCatalog;
@@ -44,6 +47,8 @@ export interface HostClient extends HostAttachment {
   onMcpSettings(listener: (event: McpSettingsEvent) => void): () => void;
   /** A subscribed thread's live tool telemetry; never committed, so a reload shows none. */
   onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void;
+  /** Output and exits of the terminals this client created. */
+  onTerminal(listener: (event: TerminalEvent) => void): () => void;
   /** An abort sends the request's JSON-RPC cancellation; the host settles it. */
   request<M extends HostMethod>(
     method: M,
@@ -89,6 +94,7 @@ export async function authenticateHostClient(
   const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
   const gitWorkspaceListeners = new Set<(event: GitWorkspaceEvent) => void>();
   const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
+  const terminalListeners = new Set<(event: TerminalEvent) => void>();
   const childListeners = new Set<(threadId: string) => void>();
   const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   const closeConnection = async (): Promise<void> => {
@@ -102,6 +108,7 @@ export async function authenticateHostClient(
     settingsListeners.clear();
     gitWorkspaceListeners.clear();
     presentationListeners.clear();
+    terminalListeners.clear();
     childListeners.clear();
     telemetryListeners.clear();
     try {
@@ -151,6 +158,15 @@ export async function authenticateHostClient(
       onExcessProperty: 'error',
     })(input);
     for (const listener of gitWorkspaceListeners) {
+      listener(event);
+    }
+  });
+  connection.onNotification(TERMINAL_EVENT, (input: unknown) => {
+    const event = wireDecoder(TerminalEventSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
+    for (const listener of terminalListeners) {
       listener(event);
     }
   });
@@ -227,6 +243,10 @@ export async function authenticateHostClient(
     onTelemetry: (listener) => {
       telemetryListeners.add(listener);
       return () => telemetryListeners.delete(listener);
+    },
+    onTerminal: (listener) => {
+      terminalListeners.add(listener);
+      return () => terminalListeners.delete(listener);
     },
     record,
     request: async <M extends HostMethod>(

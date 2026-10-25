@@ -7,26 +7,21 @@
  */
 import type { WorktreeListEntry } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
+import { TerminalHost } from './helpers/workspace-terminal-services-wrapper';
 
-const {
-  archiveSpy,
-  createSpy,
-  getSettingsSpy,
-  isTerminalBridgeAvailableMock,
-  listSpy,
-  openTerminalAtMock,
-} = vi.hoisted(() => ({
+const { archiveSpy, createSpy, getSettingsSpy, listSpy, openTerminalAtMock } = vi.hoisted(() => ({
   archiveSpy: vi.fn(),
   createSpy: vi.fn(),
   getSettingsSpy: vi.fn(),
-  isTerminalBridgeAvailableMock: vi.fn(() => true),
   listSpy: vi.fn(),
   openTerminalAtMock: vi.fn(),
 }));
 
-const wrapper = workspaceGitWrapper({
+/** The desktop host without a terminal bridge: worktrees only. */
+const withoutTerminal = workspaceGitWrapper({
   worktrees: stubWorktreesBridge({
     archive: archiveSpy,
     create: createSpy,
@@ -34,6 +29,12 @@ const wrapper = workspaceGitWrapper({
     list: listSpy,
   }),
 });
+
+/** The desktop host as it mounts: worktrees and a terminal bridge. */
+function wrapper({ children }: { readonly children?: ReactNode }): ReactElement {
+  return createElement(withoutTerminal, null, createElement(TerminalHost, null, children));
+}
+
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({
@@ -52,9 +53,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   }),
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: vi.fn() }));
-vi.mock('../terminal-panel/terminal-bridge', () => ({
-  isTerminalBridgeAvailable: isTerminalBridgeAvailableMock,
-}));
 vi.mock('../stores/terminal-target-store', () => ({
   useTerminalTargetStore: {
     getState: () => ({ openTerminalAt: openTerminalAtMock }),
@@ -187,7 +185,6 @@ describe('useWorktreeMode terminal wiring', () => {
   it('omits onOpenTerminal when the terminal bridge is unavailable even with a valid containing root', async () => {
     // Pins the capability gate itself: a valid rootId alone must not be
     // enough.
-    isTerminalBridgeAvailableMock.mockReturnValueOnce(false);
     const nested = entry({
       path: '/repo/.claude/worktrees/bright-fox',
       rootId: 'root-1',
@@ -195,7 +192,7 @@ describe('useWorktreeMode terminal wiring', () => {
     });
     listSpy.mockResolvedValue({ ok: true, value: [nested] });
     const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }), {
-      wrapper,
+      wrapper: withoutTerminal,
     });
     act(() => result.current?.onOpenPicker());
     // Same fallback-satisfiable-waitFor trap as above: gate on the RESOLVED

@@ -195,8 +195,8 @@ describe('desktop IPC registry', () => {
       trackWindowRole(8105, 'visible-ui');
       const handler = vi.fn();
       registry.registerAuthorizedInvoke(
-        'terminal',
-        'terminal:create',
+        'shell',
+        'shell:open-external',
         { roles: ['visible-ui'] },
         handler
       );
@@ -204,7 +204,9 @@ describe('desktop IPC registry', () => {
 
       await expect(
         registeredHandler?.({ sender: { id: 8105 }, senderFrame: { url } }, { rootId: 'r1' })
-      ).rejects.toThrow('Desktop IPC terminal:create rejected an unrecognized sender frame URL.');
+      ).rejects.toThrow(
+        'Desktop IPC shell:open-external rejected an unrecognized sender frame URL.'
+      );
       expect(handler).not.toHaveBeenCalled();
       clearWindowRoleByWebContentsId(8105);
     }
@@ -242,7 +244,12 @@ describe('desktop IPC registry', () => {
     });
     trackWindowRole(8107, 'visible-ui');
     const handler = vi.fn();
-    registry.registerAuthorizedInvoke('git', 'git:push', { roles: ['visible-ui'] }, handler);
+    registry.registerAuthorizedInvoke(
+      'shell',
+      'shell:open-path',
+      { roles: ['visible-ui'] },
+      handler
+    );
     const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
 
     await expect(
@@ -260,7 +267,12 @@ describe('desktop IPC registry', () => {
     });
     trackWindowRole(8108, 'visible-ui');
     const handler = vi.fn(() => 'pushed');
-    registry.registerAuthorizedInvoke('git', 'git:push', { roles: ['visible-ui'] }, handler);
+    registry.registerAuthorizedInvoke(
+      'shell',
+      'shell:open-path',
+      { roles: ['visible-ui'] },
+      handler
+    );
     const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
 
     await expect(
@@ -274,7 +286,12 @@ describe('desktop IPC registry', () => {
     const registry = createRegistry(ipcMain);
     trackWindowRole(8109, 'visible-ui');
     const handler = vi.fn();
-    registry.registerAuthorizedInvoke('git', 'git:push', { roles: ['visible-ui'] }, handler);
+    registry.registerAuthorizedInvoke(
+      'shell',
+      'shell:open-path',
+      { roles: ['visible-ui'] },
+      handler
+    );
     const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
     const disposedFrame = {
       get url(): string {
@@ -284,7 +301,7 @@ describe('desktop IPC registry', () => {
 
     await expect(
       registeredHandler?.({ sender: { id: 8109 }, senderFrame: disposedFrame })
-    ).rejects.toThrow('Desktop IPC git:push requires a live sender frame.');
+    ).rejects.toThrow('Desktop IPC shell:open-path requires a live sender frame.');
     expect(handler).not.toHaveBeenCalled();
     clearWindowRoleByWebContentsId(8109);
   });
@@ -294,7 +311,12 @@ describe('desktop IPC registry', () => {
     const registry = createRegistry(ipcMain);
     trackWindowRole(8110, 'visible-ui');
     const handler = vi.fn();
-    registry.registerAuthorizedInvoke('git', 'git:push', { roles: ['visible-ui'] }, handler);
+    registry.registerAuthorizedInvoke(
+      'shell',
+      'shell:open-path',
+      { roles: ['visible-ui'] },
+      handler
+    );
     const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
@@ -304,7 +326,7 @@ describe('desktop IPC registry', () => {
     try {
       await expect(
         registeredHandler?.({ sender: { id: 8110 }, senderFrame: { url: 'https://evil.example/' } })
-      ).rejects.toThrow('Desktop IPC git:push rejected an unrecognized sender frame URL.');
+      ).rejects.toThrow('Desktop IPC shell:open-path rejected an unrecognized sender frame URL.');
     } finally {
       unsubscribe();
       clearWindowRoleByWebContentsId(8110);
@@ -318,7 +340,7 @@ describe('desktop IPC registry', () => {
           (arg) =>
             typeof arg === 'object' &&
             arg !== null &&
-            (arg as Record<string, unknown>)['channel'] === 'git:push' &&
+            (arg as Record<string, unknown>)['channel'] === 'shell:open-path' &&
             (arg as Record<string, unknown>)['senderFrameUrl'] === 'https://evil.example/'
         )
     );
