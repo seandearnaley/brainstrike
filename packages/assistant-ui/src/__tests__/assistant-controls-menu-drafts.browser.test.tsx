@@ -47,9 +47,7 @@ async function typeStepDraft(draft: string): Promise<HTMLInputElement> {
   await userEvent.click(screen.getByRole('button', { name: 'Open assistant controls' }));
   await userEvent.click(await screen.findByText('Output & Limits', { selector: 'summary span' }));
   const steps = await screen.findByRole('spinbutton', { name: 'Max steps' });
-  await userEvent.clear(steps);
-  await userEvent.click(steps);
-  await userEvent.keyboard(draft);
+  await userEvent.fill(steps, draft);
   expect(steps).toHaveValue(Number(draft));
   expect(steps).toHaveFocus();
   return steps as HTMLInputElement;
@@ -152,8 +150,8 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open assistant controls' }));
     await userEvent.click(await screen.findByText('Output & Limits', { selector: 'summary span' }));
     const output = await screen.findByRole('spinbutton', { name: 'Output token limit' });
-    await userEvent.clear(output);
-    await userEvent.keyboard('99999{Enter}');
+    await userEvent.fill(output, '99999');
+    await userEvent.keyboard('{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('Output limit exceeds the 8,192 maximum.');
 
     await userEvent.click(screen.getByRole('switch', { name: 'Limit output tokens per step' }));
@@ -183,8 +181,8 @@ describe('ControlsMenu Output & Limits drafts (real browser)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open assistant controls' }));
     await userEvent.click(await screen.findByText('Output & Limits', { selector: 'summary span' }));
     const output = await screen.findByRole('spinbutton', { name: 'Output token limit' });
-    await userEvent.clear(output);
-    await userEvent.keyboard('99999{Enter}');
+    await userEvent.fill(output, '99999');
+    await userEvent.keyboard('{Enter}');
     expect(onValidation).toHaveBeenLastCalledWith('Output limit exceeds the 8,192 maximum.');
 
     // Focus leaves the field without toggling anything; Escape closes Controls.
