@@ -14,7 +14,7 @@ import {
 } from '../dropdown-menu';
 
 async function click(element: HTMLElement, options?: { force: boolean }): Promise<void> {
-  await act(() => userEvent.click(element, options));
+  await userEvent.click(element, options);
 }
 
 function ReopeningMenu() {
@@ -63,7 +63,7 @@ test('the trigger still closes an open menu and Escape still returns focus', asy
   await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
 
   await click(trigger);
-  await act(() => userEvent.keyboard('{Escape}'));
+  await userEvent.keyboard('{Escape}');
   await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
   await waitFor(() => expect(document.activeElement).toBe(trigger));
 });
