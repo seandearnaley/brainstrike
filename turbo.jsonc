@@ -14,20 +14,11 @@
     // This is the BUILD/TEST parallelism calibration, and it is inherited by
     // every invocation that does not pass its own cap — including CI's Build
     // job (`.github/workflows/test.yml` runs `pnpm turbo run build` uncapped on
-    // a 4-vCPU ubicloud runner) and local `pnpm build` / `pnpm check`. The
-    // capped lanes state their own: Type check (TURBO_CONCURRENCY=4), Unit
-    // (--concurrency=4 / =2), native-electron and coverage (=4).
-    //
-    // Do NOT raise this to satisfy `turbo run dev`. Turbo refuses to start when
-    // concurrency <= the number of persistent tasks in the SELECTION, and the
-    // ~40 workspace `dev` tasks are all persistent — that floor is a property
-    // of the dev selection, not a parallelism budget, and conflating the two is
-    // what produced the 28 → 29 → 30 → 31 → 32 bump treadmill (and a `pnpm dev`
-    // that died outright at 40 tasks vs. concurrency 40). The root `dev` script
-    // in package.json therefore carries its own `--concurrency`, set above the
-    // total workspace package count so it can never bind;
-    // scripts/__tests__/turbo-global-configuration.test.mjs enforces that
-    // against the real planned dev graph.
+    // a 4-vCPU ubicloud runner) and local `pnpm build` / `pnpm type-check`. The
+    // capped lanes state their own: `pnpm check` and `pnpm test` (=4), CI's
+    // Type check (TURBO_CONCURRENCY=4), Unit (--concurrency=4 / =2),
+    // native-electron and coverage (=4). Desktop's `dev` is the only persistent
+    // task, so `pnpm dev` needs no cap of its own.
     "concurrency": "40",
     // Turbo's cache key has no OS, CPU architecture or Node version. These put
     // them in: GitHub runners set RUNNER_OS/RUNNER_ARCH, pnpm's user agent names
@@ -148,16 +139,12 @@
       // drops the cascade and replays stale-green cached tests against edited
       // upstream source (see the topo comment for the full landmine rationale).
       // Packages whose tests genuinely need a built artifact declare the exact
-      // edge in their own turbo.json (B4 exceptions): packages/logging#test needs
-      // its own `build` (logger-dist-singleton.test.ts imports logging's dist by
-      // file URL); packages/utils#test needs its own `build`
-      // (typescript-build-contract.test.ts inspects emitted files);
-      // packages/secure-fs-native#test needs its own `build` (tests load the
-      // compiled .node addon; the edge must be a dependsOn, never an inline
-      // `pnpm build &&` in the script — that raced this task's
-      // concurrently-scheduled `build` as two simultaneous node-gyp rebuilds;
-      // see that package's turbo.json). Just-in-Time packages have no build, so
-      // nothing depends on one.
+      // edge in their own turbo.json: the native add-ons' own tests and the
+      // suites that load them depend on the add-on `build` (an edge, never an
+      // inline `pnpm build &&` in the script — that raced a concurrently
+      // scheduled `build` as two simultaneous node-gyp rebuilds; see
+      // packages/secure-fs-native/turbo.json). Every other package is source
+      // only and has no build, so nothing depends on one.
       "dependsOn": [
         "topo"
       ],
@@ -213,8 +200,8 @@
       // tasks in Strict env mode, so a variable absent from this list simply
       // never reaches vitest — which would silently restore the quiet skip this
       // exists to end. It sits in `env` rather than `passThroughEnv` because it
-      // is result-affecting: moot while `cache: false` holds, correct if that
-      // ever changes.
+      // is result-affecting: a run that requires the fence never replays one
+      // that skipped it.
       "env": [
         "BRAINSTRIKE_FENCE_DEPS_REQUIRED",
         "CI",
@@ -256,11 +243,14 @@
       // Development tasks usually shouldn't be cached as they are interactive/watch processes.
       "cache": false
     },
-    // --- Browser Test Task (Vitest 4 Browser Mode) --- //
+    // --- Browser Test Task (Vitest Browser Mode) --- //
     "test:browser": {
-      // Browser tests require the package to be built
+      // Browser suites run workspace source in Chromium and load no built
+      // output. `topo` carries the dependencies' source hashes, exactly as for
+      // `test`; a `build` edge here built the desktop app, the MCP lab,
+      // agent-evals and both native add-ons before any browser suite started.
       "dependsOn": [
-        "build"
+        "topo"
       ],
       // Turborepo runs tasks with a constrained environment. The Browser tests
       // CI job (test.yml, non-required lane) runs in the official Playwright
