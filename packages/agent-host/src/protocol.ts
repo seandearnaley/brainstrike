@@ -56,6 +56,10 @@ import {
 } from './protocol-selection.ts';
 import { HostStateHealthSchema } from './protocol-state-health.ts';
 import {
+  WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
+  WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
+} from './protocol-workspace-discovery.ts';
+import {
   RunVerdictDetailSchema,
   RunVerdictSchema,
   RunVerdictSourceSchema,
@@ -81,6 +85,7 @@ export * from './protocol-rewind.ts';
 export * from './protocol-search.ts';
 export * from './protocol-selection.ts';
 export * from './protocol-state-health.ts';
+export * from './protocol-workspace-discovery.ts';
 export * from './run-wire.ts';
 export * from './workspace-wire.ts';
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`, and the explicit
@@ -127,7 +132,8 @@ export * from './workspace-wire.ts';
 // without), a new variant.
 // v13 (2026-10-22): ChatGPT subscription sign-in is removed: `auth/connect`, `auth/cancel`,
 // `auth/disconnect`, `auth/status`, `auth/verify` and the host-to-client `client/open-external`
-// are gone, and a login credential is an API key or an AWS credential.
+// are gone, and a login credential is an API key or an AWS credential. Additions since:
+// `workspace/skills` and `workspace/commands` (ADR-0029 stage 2), new methods.
 export const AGENT_HOST_PROTOCOL_VERSION = 13;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
@@ -490,6 +496,7 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/read': Schema.Struct({ ...Thread, fromSeq: Seq }),
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
+  ...WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
   ...SELECTION_METHOD_SCHEMAS,
   'thread/start': Schema.Struct(Command),
   'thread/update': Schema.Struct({ ...Command, ...Thread, ...ThreadPresentation }).check(
@@ -1044,6 +1051,7 @@ export const HOST_RESULT_SCHEMAS = {
   'thread/read': Schema.Struct({ rows: Schema.mutable(Schema.Array(HostLogRowSchema)) }),
   ...REWIND_RESULT_SCHEMAS,
   ...SEARCH_RESULT_SCHEMAS,
+  ...WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
   ...SELECTION_RESULT_SCHEMAS,
   'thread/start': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ accepted: Schema.Literal(true) }),

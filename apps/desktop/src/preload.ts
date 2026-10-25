@@ -30,10 +30,8 @@ import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
-import { skillsContract } from './ipc-domains/skills.contract';
 import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
-import { userCommandsContract } from './ipc-domains/user-commands.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { worktreesContract } from './ipc-domains/worktrees.contract';
@@ -829,24 +827,6 @@ if (shouldExposeBridge('hooks')) {
 // user can opt an oversized file in. Web never constructs this bridge.
 if (shouldExposeBridge('contextFiles')) {
   exposeBridge('contextFiles', contextFilesContract);
-}
-
-// User-defined slash command discovery bridge (desktop-only). Capability-gated:
-// the composer's "/" menu calls `list` to load prompt-template commands scanned
-// from `.brainstrike/commands` + `.claude/commands`. Web never constructs this
-// bridge (no preload), so consumers must capability-check `window.userCommands`
-// rather than `isElectron()`.
-if (shouldExposeBridge('userCommands')) {
-  exposeBridge('userCommands', userCommandsContract);
-}
-
-// Agent Skills discovery bridge (desktop-only). Capability-gated: the Settings
-// → Skills panel and the composer's "/" menu call `scan` to list every skill
-// discovered across `.brainstrike/skills` + `.claude/skills` (mounted roots +
-// home). Web never constructs this bridge (no preload), so consumers must
-// capability-check `window.skills` rather than `isElectron()`.
-if (shouldExposeBridge('skills')) {
-  exposeBridge('skills', skillsContract);
 }
 
 // Subagent persona discovery bridge (desktop-only). Capability-gated: the
