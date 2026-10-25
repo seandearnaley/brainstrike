@@ -79,8 +79,7 @@ test('a message written during an active committed run is queued and sent once a
   const { ui } = await mount(source, onNew);
   const input = ui.getByRole('textbox', { name: 'Message input' });
   await act(async () => {
-    input.focus();
-    await userEvent.keyboard(QUEUED);
+    await userEvent.fill(input, QUEUED);
   });
   const queue = ui.getByRole('button', { name: 'Queue message to send after this run' });
   await act(async () => {

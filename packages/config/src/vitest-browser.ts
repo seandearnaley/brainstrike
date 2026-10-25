@@ -22,12 +22,12 @@ export interface BrowserTestConfig {
   /** Test file pattern for browser tests (default: '**\/*.browser.test.{ts,tsx}') */
   testPattern?: string;
   /**
-   * Playwright trace mode for debugging failed tests
-   * - 'off': No traces (default for local dev)
+   * Playwright trace mode for debugging failed tests (default: 'off')
+   * - 'off': No traces
    * - 'on': Always generate traces (performance impact)
    * - 'on-first-retry': Capture traces only when test is retried first time
    * - 'on-all-retries': Capture traces on every retry
-   * - 'retain-on-failure': Keep traces only for failed tests (recommended for CI)
+   * - 'retain-on-failure': Record every test and keep failed tests' traces
    * @see https://vitest.dev/config/browser/trace
    */
   trace?: 'off' | 'on' | 'on-first-retry' | 'on-all-retries' | 'retain-on-failure';
@@ -212,34 +212,49 @@ export function bindTraceChunkNameBounding(browser: TraceChunkCommandRegistry): 
   }
 }
 
+/** The iframe Vitest runs every file in when isolation is off. */
+const NON_ISOLATED_IFRAME_ID = '__vitest_all__';
+
+/** The test file a Vitest test iframe was loaded for (its `iframeId`). */
+function testIframeId(frame: Frame): string | null {
+  return URL.parse(frame.url())?.searchParams.get('iframeId') ?? null;
+}
+
 /**
- * Vitest reuses a page across isolated files. Commands arrive over its WebSocket
- * before Playwright has necessarily processed the previous iframe's detach event,
- * so the provider's name-only frame lookup can return that dying frame. Resolve
- * the current DOM element through Playwright instead; no frame, action or test
- * is retried, and the caller's existing timeout still owns the command.
+ * Vitest reuses a page across isolated files, and its provider finds the test
+ * iframe by name alone. Commands arrive over its WebSocket before Playwright
+ * has necessarily processed the previous iframe's detach event, so that lookup
+ * can return the dying frame. Vitest loads each file's iframe with the file's
+ * path as `iframeId`, and every command carries the path of the file that sent
+ * it, so the current frame is picked from Playwright's own frame list without
+ * another round trip to the browser (an element lookup here cost two per
+ * command, about a third of a loaded keyboard command). A frame Playwright has
+ * not seen yet is awaited; no frame, action or test is retried, and the
+ * caller's existing timeout still owns the command.
  */
 export function bindCurrentTestFrame(provider: Pick<BrowserProvider, 'getCommandsContext'>): void {
   const getContext = provider.getCommandsContext.bind(provider);
   provider.getCommandsContext = (sessionId) => {
     const context = getContext(sessionId);
+    const page = context['page'] as Page;
     return {
       ...context,
-      async frame(): Promise<Frame> {
-        const page = context['page'] as Page;
-        const element = await page.locator('iframe[data-vitest="true"]').elementHandle();
-        if (!element) {
-          throw new Error('Cannot resolve the current test iframe element.');
+      // Vitest merges this context into each command's, which holds `testPath`.
+      async frame(this: { readonly testPath?: string | undefined }): Promise<Frame> {
+        const { testPath } = this;
+        if (!testPath) {
+          throw new Error('A browser command arrived without the test file that sent it.');
         }
-        try {
-          const frame = await element.contentFrame();
-          if (!frame) {
-            throw new Error('Cannot resolve the current test iframe content frame.');
-          }
-          return frame;
-        } finally {
-          await element.dispose();
-        }
+        const isCurrent = (frame: Frame): boolean => {
+          const iframeId = testIframeId(frame);
+          return (
+            !frame.isDetached() && (iframeId === testPath || iframeId === NON_ISOLATED_IFRAME_ID)
+          );
+        };
+        return (
+          page.frames().find(isCurrent) ??
+          page.waitForEvent('framenavigated', { predicate: isCurrent, timeout: 0 })
+        );
       },
     };
   };
@@ -372,10 +387,13 @@ function resolveSetupFiles(setupFiles: readonly string[]): string[] {
 export function createBrowserProject(config: BrowserProjectConfig) {
   const testPattern = config.testPattern ?? '**/*.browser.test.{ts,tsx}';
   const headless = config.headless ?? true;
-  const isCI = resolveIsCI(config);
-
-  // Enable traces on failure in CI by default for debugging
-  const trace = config.trace ?? (isCI ? 'retain-on-failure' : 'off');
+  // Off unless a caller asks, in CI too. 'retain-on-failure' records every
+  // test (DOM snapshots and network, zipped) to keep the few that fail: in the
+  // assistant-ui lane that was about 45% of the work in the one Vitest process
+  // every browser worker shares, and the lane took 98 s instead of 123 s without it.
+  // Playwright's own CI default records only retried tests, and this repo does
+  // not retry. Failure screenshots stay on.
+  const trace = config.trace ?? 'off';
   const traceOutputDir = config.traceOutputDir ?? 'test-results';
 
   const { asyncUtilTimeout } = config;
@@ -405,6 +423,13 @@ export function createBrowserProject(config: BrowserProjectConfig) {
         trace: trace === 'off' ? ('off' as const) : { mode: trace, tracesDir: traceOutputDir },
       } satisfies BrowserConfigOptions,
       include: [testPattern],
+      // Every browser worker is a tab in one Chromium, driven through one
+      // Vitest process, so each worker past those two shared processes' share
+      // of the cores only queues behind the others. At Vitest's default
+      // (cores - 1) a loaded 16-core runner timed out up to 8 sub-second tests
+      // a run; at half the cores, Playwright's own default, the same runs
+      // passed and finished sooner.
+      maxWorkers: '50%',
       name: 'browser',
       // TEST_TIMEOUT_MULTIPLIER's only route into the browser page (BST-1299).
       // `process` does not exist there, so the caller resolves the budget in
