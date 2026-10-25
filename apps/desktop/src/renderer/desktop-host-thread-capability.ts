@@ -430,6 +430,11 @@ export function createWindowThreadCapability(
         });
       }
     },
+    // ADR-0029 stage 2: the host scans skills and commands as its runs do.
+    workspaceDiscovery: {
+      listCommands: async () => await (await client()).request('workspace/commands', {}),
+      scanSkills: async () => await (await client()).request('workspace/skills', {}),
+    },
     workspaceRepository: () => hostThreadWorkspaceRepository(threadClient),
   };
 }

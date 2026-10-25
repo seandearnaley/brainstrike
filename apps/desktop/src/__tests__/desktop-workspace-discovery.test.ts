@@ -1,15 +1,19 @@
 /**
- * Skills scan IPC handler tests: entry → serializable summary mapping (ok /
- * invalid / shadowed, with durable preference keys and exact validation
- * errors) and explicit catalog-failure propagation.
+ * The host's skills discovery (`workspace/skills`): entry → serializable
+ * summary mapping (ok / invalid / shadowed, with durable preference keys and
+ * exact validation errors) and explicit root-read failure propagation.
  */
 
 import path from 'node:path';
 import type { SkillContentDeps } from '@brainstrike/agent';
 import { __resetSkillScanWarningsForTests } from '@brainstrike/agent';
-import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import type { RuntimeWorkspaceRoot } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { scanSkillsForRenderer } from '../../ipc-skills-handlers';
+import {
+  type DesktopDiscoveryRoots,
+  discoverDesktopCommands,
+  discoverDesktopSkills,
+} from '../agent-host-platform/desktop-workspace-discovery';
 
 interface MemoryFs {
   dirs: Record<string, readonly { name: string; kind: 'file' | 'dir' }[]>;
@@ -66,33 +70,22 @@ const FS: MemoryFs = {
   },
 };
 
-const CATALOG_WITH_ROOT: WorkspaceRootPort = {
-  workspaceRoots: async () => ({
-    roots: [
-      {
-        createdAt: 1,
-        displayName: 'A',
-        id: 'root-a',
-        kind: 'path',
-        lastVerifiedAt: 1,
-        path: PROJECT,
-        status: 'live',
-      },
-    ],
-  }),
-};
+const ROOT_A: RuntimeWorkspaceRoot = { displayName: 'A', path: PROJECT, rootId: 'root-a' };
+
+function scan(roots: DesktopDiscoveryRoots): ReturnType<typeof discoverDesktopSkills> {
+  return discoverDesktopSkills(
+    { fs: () => makeFs(FS), homedir: () => HOME, roots },
+    new AbortController().signal
+  );
+}
 
 beforeEach(() => {
   __resetSkillScanWarningsForTests();
 });
 
-describe('scanSkillsForRenderer', () => {
+describe('discoverDesktopSkills', () => {
   it('maps ok, shadowed, and invalid entries to serializable summaries', async () => {
-    const result = await scanSkillsForRenderer({
-      fs: makeFs(FS),
-      homedir: () => HOME,
-      workspaceRoots: CATALOG_WITH_ROOT,
-    });
+    const result = await scan(async () => [ROOT_A]);
 
     const byStatus = new Map(result.entries.map((entry) => [entry.status, entry]));
     const ok = byStatus.get('ok');
@@ -118,31 +111,76 @@ describe('scanSkillsForRenderer', () => {
     expect(invalid?.errors?.join('\n')).toMatch(/must match directory name "broken"/);
   });
 
-  it('rejects catalog failure instead of degrading to global-only scanning', async () => {
+  it('rejects a root read failure instead of degrading to global-only scanning', async () => {
     const failure = new Error('Catalog unavailable');
     await expect(
-      scanSkillsForRenderer({
-        fs: makeFs(FS),
-        homedir: () => HOME,
-        workspaceRoots: {
-          workspaceRoots: async () => {
-            throw failure;
-          },
-        },
+      scan(async () => {
+        throw failure;
       })
     ).rejects.toBe(failure);
   });
 
-  it('scans global skills after an authoritative empty root catalog', async () => {
-    const result = await scanSkillsForRenderer({
-      fs: makeFs(FS),
-      homedir: () => HOME,
-      workspaceRoots: { workspaceRoots: async () => ({ roots: [] }) },
-    });
+  it('scans global skills when no root is live', async () => {
+    const result = await scan(async () => []);
     const names = result.entries
       .filter((entry) => entry.status === 'ok')
       .map((entry) => entry.name);
     expect(names).toContain('review');
     expect(result.entries.every((entry) => entry.sourceRootId === undefined)).toBe(true);
+  });
+});
+
+describe('discoverDesktopCommands', () => {
+  const commandFs = (disposed: { count: number }) => () => ({
+    dispose: () => {
+      disposed.count += 1;
+    },
+    listDir: (absDir: string) =>
+      absDir === `${PROJECT}/.brainstrike/commands`
+        ? {
+            entries: [{ isDirectory: false, isFile: true, name: 'review.md' }],
+            inspected: 1,
+            truncated: false,
+          }
+        : null,
+    readFile: (absFile: string) =>
+      absFile === `${PROJECT}/.brainstrike/commands/review.md`
+        ? { content: 'Review $ARGUMENTS', ok: true as const }
+        : { ok: false as const, reason: 'unreadable' as const },
+  });
+
+  it('lists root commands with their root and closes the scan handle', async () => {
+    const disposed = { count: 0 };
+    const result = await discoverDesktopCommands(
+      { fs: commandFs(disposed), homedir: () => HOME, roots: async () => [ROOT_A] },
+      new AbortController().signal
+    );
+    expect(result.roots).toEqual([{ displayName: 'A', id: 'root-a' }]);
+    expect(result.commands).toEqual([
+      expect.objectContaining({
+        id: 'review',
+        sourceRootId: 'root-a',
+        template: 'Review $ARGUMENTS',
+      }),
+    ]);
+    expect(disposed.count).toBe(1);
+  });
+
+  it('rejects a root read failure without scanning', async () => {
+    const failure = new Error('Catalog unavailable');
+    const disposed = { count: 0 };
+    await expect(
+      discoverDesktopCommands(
+        {
+          fs: commandFs(disposed),
+          homedir: () => HOME,
+          roots: async () => {
+            throw failure;
+          },
+        },
+        new AbortController().signal
+      )
+    ).rejects.toBe(failure);
+    expect(disposed.count).toBe(0);
   });
 });

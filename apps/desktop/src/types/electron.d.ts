@@ -23,11 +23,9 @@ import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
 import type { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
-import type { skillsContract } from '../ipc-domains/skills.contract';
 import type { settingsContract } from '../ipc-domains/storage-preferences.contract';
 import type { terminalContract } from '../ipc-domains/terminal.contract';
 import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
-import type { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
@@ -201,17 +199,6 @@ declare global {
     /** Desktop settings reset capability, derived from its pure contract. */
     settings?: TransportBridge<typeof settingsContract>;
     /**
-     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
-     * consumers MUST capability-check `window.skills`. The Settings → Skills
-     * panel and the composer's "/" menu call `scan` to list every skill
-     * discovered across `.brainstrike/skills` + `.claude/skills`.
-     *
-     * Derived from the desktop contract (BST-1648), which is itself pinned
-     * equal to `SkillsBridge` in `@brainstrike/assistant-contract` — nothing
-     * here can drift from the preload.
-     */
-    skills?: TransportBridge<typeof skillsContract>;
-    /**
      * Desktop-only terminal (PTY) bridge. Absent on web (no preload) — consumers
      * MUST capability-check `window.terminal`. `create` pins the shell cwd to a
      * validated workspace `rootId` (main resolves + containment-checks it). pty
@@ -222,16 +209,6 @@ declare global {
      */
     terminal?: TransportBridge<typeof terminalContract>;
     threadGroups?: TransportBridge<typeof threadGroupsContract>;
-    /**
-     * Desktop-only user-defined slash command discovery bridge. Absent on web
-     * (no preload) — consumers MUST capability-check `window.userCommands`. The
-     * composer's "/" menu calls `list` to load prompt-template commands scanned
-     * from `.brainstrike/commands` + `.claude/commands`.
-     *
-     * Derived from the desktop contract (BST-1648), which is itself pinned
-     * equal to app-shell's `UserCommandsBridge` — nothing here can drift.
-     */
-    userCommands?: TransportBridge<typeof userCommandsContract>;
     viewFilterPresets?: TransportBridge<typeof viewFilterPresetsContract>;
     /**
      * Desktop-only native window focus (BST-1864), derived from its pure IPC

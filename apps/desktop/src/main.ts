@@ -148,10 +148,8 @@ import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
-import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
-import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from './ipc-user-personas';
 import { registerViewFilterPresetsIpc } from './ipc-view-filter-presets';
 import { registerWorktreesIpcHandlers } from './ipc-worktrees';
@@ -1147,12 +1145,10 @@ ipcDisposers.add(
 );
 ipcDisposers.add('hooks', registerHooksIpcHandlers(desktopHookTrust, workspaceRootCatalog));
 ipcDisposers.add('context-files', registerContextFilesIpcHandlers(workspaceRootCatalog));
-ipcDisposers.add('skills', registerSkillsIpcHandlers(workspaceRootCatalog));
 ipcDisposers.add('prompt-library', registerPromptLibraryIpc(workspaceRootCatalog));
 ipcDisposers.add('thread-groups', registerThreadGroupsIpc(workspaceRootCatalog));
 ipcDisposers.add('view-filter-presets', registerViewFilterPresetsIpc(workspaceRootCatalog));
 ipcDisposers.add('model-catalog', registerModelCatalogIpc(modelCatalog));
-ipcDisposers.add('user-commands', registerUserCommandsIpcHandlers(workspaceRootCatalog));
 ipcDisposers.add(
   'user-personas',
   registerUserPersonasIpcHandlers(workspaceRootCatalog, modelCatalog)

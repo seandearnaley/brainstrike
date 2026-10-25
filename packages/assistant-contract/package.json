@@ -60,7 +60,6 @@
     "./tool-telemetry": "./src/tool-telemetry.ts",
     "./secrets-bridge": "./src/secrets-bridge.ts",
     "./subagent-settings": "./src/subagent-settings.ts",
-    "./skills-bridge": "./src/skills-bridge.ts",
     "./personas-bridge": "./src/personas-bridge.ts",
     "./context-files-bridge": "./src/context-files-bridge.ts",
     "./runtime-data": "./src/runtime-data.ts",
