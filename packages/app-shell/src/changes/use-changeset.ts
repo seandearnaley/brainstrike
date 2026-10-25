@@ -1,13 +1,7 @@
 /**
  * `useChangeset` (BST-1113, W3 Task 4): resolve a `Changeset` to its
- * `ChangesetView` via the desktop `window.changes` bridge, plus a lazy
- * per-file `fileDiff(path)` loader.
- *
- * Bridge-gated: `resolveChangesBridge()` is resolved ONCE per hook instance
- * (`useMemo` with an empty dependency array) rather than on every render —
- * `isChangesBridgeAvailable()` re-resolves (and, on a malformed bridge,
- * re-LOGS) on every call, which is a known wart of that helper this hook
- * deliberately avoids by holding its own resolved reference.
+ * `ChangesetView` via the Changes bridge from `useChangesBridge()`, plus a
+ * lazy per-file `fileDiff(path)` loader.
  *
  * `refresh`/`view`/`error` are also inert (no-ops, `null`) whenever `rootId`
  * or `changeset` is `null` — there is nothing to load, so no fetch fires and
@@ -62,8 +56,9 @@
  */
 import { createLogger } from '@brainstrike/logging';
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type ChangesBridge, resolveChangesBridge } from './changes-bridge';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useChangesBridge } from '../workspace-git-services';
+import type { ChangesBridge } from './changes-bridge';
 import {
   selectGitScopeRefreshNonce,
   useChangesLiveRefreshStore,
@@ -148,7 +143,7 @@ function describeInertReason(bridgePresent: boolean, rootId: string | null): str
 }
 
 export interface UseChangesetResult {
-  /** True when the desktop `window.changes` bridge is present and well-formed. */
+  /** True when the host serves the Changes bridge. */
   readonly available: boolean;
   /** The most recent load failure, or `null`. Cleared by a successful load. */
   readonly error: string | null;
@@ -182,7 +177,7 @@ export function useChangeset(
   changeset: Changeset | null
 ): UseChangesetResult {
   // Resolved ONCE per hook instance, not per render/call — see doc comment.
-  const bridge = useMemo(() => resolveChangesBridge(), []);
+  const bridge = useChangesBridge();
   const [view, setView] = useState<ChangesetView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generationRef = useRef(0);

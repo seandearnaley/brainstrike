@@ -16,15 +16,20 @@ import {
   type StartupMessage,
 } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
-import { type ClearContentResult, processStartTime } from '@brainstrike/state-store';
+import {
+  CHILD_CLOSE_BUDGET_MS,
+  type ClearContentResult,
+  processStartTime,
+} from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
-import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
+import { MessageChannelMain, type MessagePortMain } from 'electron';
 import {
   createHostNativeChildren,
   type HostNativeChildren,
 } from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
+import { forkUtility } from './fork-utility';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { joinProcessExit, type ProcessIdentity } from './process-exit-join';
@@ -63,15 +68,8 @@ type HostLeaseFork = (
   /** Main's environment plus the entries this lease forwards explicitly (the E2E delay seam). */
   env: NodeJS.ProcessEnv
 ) => HostLeaseUtilityProcess;
-/**
- * R5(b) (ADR-0026, owner decision 7.2(ii)): how long Main waits for its own host to exit after
- * asking it to close before it escalates to `kill()`. The exit is joined either way: the
- * escalation is a warn, never a failed close and never an abandoned process.
- */
-export const HOST_COOPERATIVE_CLOSE_MS = 30_000;
-
 export interface DesktopHostLeaseOptions {
-  /** The cooperative rung of the close ladder; defaults to `HOST_COOPERATIVE_CLOSE_MS`. */
+  /** The cooperative rung of the close ladder; defaults to `CHILD_CLOSE_BUDGET_MS` (ADR-0030). */
   readonly cooperativeCloseMs?: number;
   readonly entryPath?: string;
   readonly fork?: HostLeaseFork;
@@ -387,7 +385,7 @@ async function ownPlatform(
 /** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
 export function createDesktopHostLease(options: DesktopHostLeaseOptions): DesktopHostLease {
   const ladder: CloseLadder = {
-    cooperativeMs: options.cooperativeCloseMs ?? HOST_COOPERATIVE_CLOSE_MS,
+    cooperativeMs: options.cooperativeCloseMs ?? CHILD_CLOSE_BUDGET_MS,
     delays: options.lifecycleDelays,
   };
   if (!(Number.isFinite(ladder.cooperativeMs) && ladder.cooperativeMs > 0)) {
@@ -452,7 +450,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           const fork: HostLeaseFork =
             options.fork ??
             ((path, args, env) =>
-              utilityProcess.fork(path, [...args], { env, serviceName: 'Brainstrike Host Lease' }));
+              forkUtility(path, args, { env, serviceName: 'Brainstrike Host Lease' }));
           const platformOptions =
             options.platformModule === undefined ? undefined : await options.platformOptions?.();
           combined.throwIfAborted();

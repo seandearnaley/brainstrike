@@ -12,9 +12,14 @@ if (!pidFile) {
   throw new Error('BRAINSTRIKE_STDIO_TEST_PID_FILE is required');
 }
 const rawConnectDelayMs = process.env['BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS'];
-const connectDelayMs = rawConnectDelayMs === undefined ? 0 : Number(rawConnectDelayMs);
+// `held` never answers the handshake, so only the host can end the child.
+const holdsHandshake = rawConnectDelayMs === 'held';
+const connectDelayMs =
+  rawConnectDelayMs === undefined || holdsHandshake ? 0 : Number(rawConnectDelayMs);
 if (!Number.isSafeInteger(connectDelayMs) || connectDelayMs < 0) {
-  throw new Error('BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS must be a non-negative safe integer');
+  throw new Error(
+    "BRAINSTRIKE_STDIO_TEST_CONNECT_DELAY_MS must be a non-negative safe integer or 'held'"
+  );
 }
 
 async function readState() {
@@ -60,7 +65,11 @@ server.setRequestHandler('tools/call', async () => {
   await updateState((state) => ({ ...state, toolCalls: (state.toolCalls ?? 0) + 1 }));
   return { content: [{ text: 'owned stdio probe completed', type: 'text' }] };
 });
-if (connectDelayMs > 0) {
-  await new Promise((resolve) => setTimeout(resolve, connectDelayMs));
+if (holdsHandshake) {
+  setInterval(() => undefined, 60_000);
+} else {
+  if (connectDelayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, connectDelayMs));
+  }
+  await server.connect(new StdioServerTransport());
 }
-await server.connect(new StdioServerTransport());

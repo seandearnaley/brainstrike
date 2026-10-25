@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { Schema } from 'effect';
 import { getEditDiagnostics } from '../assistant-server/lsp-diagnostics';
+import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
 import { agentNavigationTarget } from '../browser/browser-url';
 import {
   desktopHostToolExecutors,
@@ -37,6 +38,8 @@ export function desktopHostSharedTools(options: {
   readonly appPaths?: HostAppPaths | undefined;
   /** The admission's roots, revalidated against their live owners. */
   readonly freshRoots: () => Promise<unknown>;
+  /** The host's worktree and forge services, for the worktree tools and shell correlation. */
+  readonly gitWorkspace: DesktopWorktreeServices;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
   /** The host's own Tavily key owner, never Main's view of the store. */
@@ -64,6 +67,7 @@ export function desktopHostSharedTools(options: {
     diagnostics: (args) => getEditDiagnostics(args),
     executors: desktopHostToolExecutors(
       options.request,
+      options.gitWorkspace,
       options.threadId,
       selected.nativeRuntime,
       options.appPaths

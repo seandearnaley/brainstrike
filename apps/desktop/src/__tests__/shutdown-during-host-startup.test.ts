@@ -7,9 +7,8 @@ import { createAgentHostMainClient } from '../agent-host-main-client';
 import { createDesktopWorkspaceRootCatalog } from '../agent-host-platform/workspace-root-client';
 // BST-2247: quitting while the agent host is still starting. Main's real shutdown runner and
 // the owners its steps call (native index activation, its profile runtime, the desktop
-// catalog client, Main's own host client and the startup snapshot maintenance), over a host
-// start-up that never completes on its own. The step order mirrors main.ts.
-import type { SnapshotService } from '../assistant-server/snapshot-service';
+// catalog client and Main's own host client), over a host start-up that never completes on
+// its own. The step order mirrors main.ts.
 import {
   HOST_LEASE_CLOSED,
   isRetirementRefusal,
@@ -23,7 +22,6 @@ import {
   type DesktopShutdownStepRun,
 } from '../main/desktop-graceful-shutdown';
 import { prepareMainCatalogClose } from '../main/main-catalog-close';
-import { startSnapshotStartupMaintenance } from '../main/snapshot-lifecycle';
 import { fixture, mocks, resetActivationFixture } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
@@ -37,18 +35,7 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     () => activation.acquireProfile(),
     () => undefined
   );
-  const maintenanceLog = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
   const workspaceRoots = createDesktopWorkspaceRootCatalog(() => activation.acquireProfile());
-  const maintenance = startSnapshotStartupMaintenance({
-    logger: maintenanceLog,
-    readHostThreadIds: async () =>
-      new Set((await mainClient.request('ledger/read', {})).threads.map((row) => row.threadId)),
-    readHostThreadRows: async (threadId) =>
-      (await mainClient.request('thread/read', { fromSeq: 0, threadId })).rows,
-    snapshotService: {} as SnapshotService,
-    snapshotsBaseDir: '/unused/snapshots',
-    workspaceRoots,
-  });
   const catalogWrite = workspaceRoots.workspaceRoots({
     operation: 'register',
     root: {
@@ -67,9 +54,8 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
   const steps = Object.fromEntries(
     DESKTOP_SHUTDOWN_STEP_ORDER.map((step) => [step, noop])
   ) as Record<DesktopShutdownStepName, DesktopShutdownStepRun>;
-  steps['snapshot-maintenance'] = () => maintenance.stop();
   steps['main-catalog'] = () =>
-    prepareMainCatalogClose({ prepareClose: async () => undefined }, null, workspaceRoots);
+    prepareMainCatalogClose({ prepareClose: async () => undefined }, workspaceRoots);
   steps['native-index'] = async () => {
     await mainClient.close();
     await activation.close();
@@ -101,11 +87,6 @@ async function quitWhileStarting(activation: Activation, fenced: () => void = ()
     expect.objectContaining({ trigger: 'before-quit' })
   );
   // The borrowers stopped as quit began, with the typed retirement refusal.
-  expect(maintenanceLog.info).toHaveBeenCalledWith(
-    'Workspace snapshot orphan sweep stopped: the app is quitting',
-    expect.objectContaining({ reason: expect.stringContaining('terminal retirement') })
-  );
-  expect(maintenanceLog.error).not.toHaveBeenCalled();
   const refused = await ledgerRead.then(
     () => undefined,
     (error: unknown) => error

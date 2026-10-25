@@ -6,7 +6,7 @@ import { createStateIndexOwner } from '../src/host-state-index-owner.js';
 
 const dbPath = '/state/state-index.sqlite';
 const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] };
-const deadlines = { closeMs: 50, exitMs: 50 };
+const deadlines = { closeMs: 50 };
 const info = {
   dbPath,
   embedding: { indexMode: 'text-only' },
@@ -35,7 +35,7 @@ interface FakeWorker {
   readonly answers: readonly Answer[];
   /** The process dies on its own. */
   crash: () => void;
-  /** False: it refuses termination, so its exit cannot be joined. */
+  /** False: it refuses termination, as Windows does for a process already exiting; it exits on `crash`. */
   killable: boolean;
   kills: number;
   /** How its startup ends: ready, a startup error (which retires it), or never. */
@@ -235,36 +235,47 @@ it('a replacement whose startup fails is typed, and the next request replaces it
   await index.close();
 });
 
-it('a faulted worker whose exit cannot be joined is never asked again, and nothing starts beside it', async () => {
+// ADR-0030: Windows refuses to kill a process that is already exiting; its exit is still the only end.
+it('a faulted worker whose kill is refused is joined at its exit, and nothing starts beside it', async () => {
   const stuck = fake(['garble'], { killable: false });
   const { index, starts } = owner([stuck, fake(['serve'])]);
   await index.open();
-  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
-  const killed = stuck.kills;
-
-  // The next request joins its exit (another termination attempt), not its failed client.
-  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
-  expect(stuck.kills).toBeGreaterThan(killed);
+  const failed = index.port.stateHealth();
+  failed.catch(() => undefined);
+  const waiting = index.port.stateHealth();
+  waiting.catch(() => undefined);
+  await settle();
+  // One kill request, never repeated, and no worker starts beside the one still exiting.
+  expect(stuck.kills).toBe(1);
   expect(starts()).toBe(1);
 
-  stuck.killable = true;
+  stuck.crash();
+  await expect(failed).rejects.toMatchObject(typed('state-index.unavailable'));
+  await expect(waiting).rejects.toMatchObject(typed('state-index.unavailable'));
+  expect(starts()).toBe(1);
   await expect(index.port.stateHealth()).resolves.toEqual(healthy);
   expect(starts()).toBe(2);
   await index.close();
 });
 
-it('a failed replacement whose exit cannot be joined stays owned; nothing starts beside it', async () => {
+it('a failed replacement whose kill is refused is joined at its exit before the next starts', async () => {
   const replacement = fake(['serve'], { killable: false, starts: 'error' });
   const { index, starts } = owner([fake(['crash']), replacement, fake(['serve'])]);
   await index.open();
   await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
 
-  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+  const replacing = index.port.stateHealth();
+  replacing.catch(() => undefined);
+  const waiting = index.port.stateHealth();
+  waiting.catch(() => undefined);
+  await settle();
   expect(starts()).toBe(2);
-  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
-  expect(starts()).toBe(2);
+  expect(replacement.kills).toBe(1);
 
-  replacement.killable = true;
+  replacement.crash();
+  await expect(replacing).rejects.toMatchObject(typed('state-index.unavailable'));
+  await expect(waiting).rejects.toMatchObject(typed('state-index.unavailable'));
+  expect(starts()).toBe(2);
   await expect(index.port.stateHealth()).resolves.toEqual(healthy);
   expect(starts()).toBe(3);
   await index.close();
@@ -337,20 +348,26 @@ it('close stops a replacement still starting, and nothing starts after it', asyn
   expect(starts()).toBe(2);
 });
 
-it('close keeps ownership of a retired worker it cannot join, reports it, and retries on the next close', async () => {
+it('close joins a retired worker whose kill is refused at its exit, and admits nothing meanwhile', async () => {
   const stuck = fake(['garble'], { killable: false });
   const { index, starts } = owner([stuck]);
   await index.open();
-  await expect(index.port.stateHealth()).rejects.toBeInstanceOf(BoundaryFailureError);
+  const failed = index.port.stateHealth();
+  failed.catch(() => undefined);
+  await settle();
 
-  await expect(index.close()).rejects.toBeDefined();
+  let closed = false;
+  const closing = index.close().then(() => {
+    closed = true;
+  });
+  await settle();
+  expect(closed).toBe(false);
   await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
-  const killed = stuck.kills;
+  expect(stuck.kills).toBe(1);
 
-  // The worker can now be stopped: the next close retries the join and succeeds.
-  stuck.killable = true;
-  await expect(index.close()).resolves.toBeUndefined();
-  expect(stuck.kills).toBeGreaterThan(killed);
+  stuck.crash();
+  await expect(failed).rejects.toBeInstanceOf(BoundaryFailureError);
+  await closing;
   // Admission stays fenced: closing never reopens the owner.
   await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
   expect(starts()).toBe(1);

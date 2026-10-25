@@ -37,6 +37,7 @@ function emptyCatalogHost(): HostClient {
     closed: new Promise<void>(() => undefined),
     onChildrenChanged: vi.fn(() => () => undefined),
     onEvent: vi.fn(() => () => undefined),
+    onGitWorkspace: vi.fn(() => () => undefined),
     onMcpPresentation: vi.fn(() => () => undefined),
     onMcpSettings: vi.fn(() => () => undefined),
     onTelemetry: vi.fn(() => () => undefined),

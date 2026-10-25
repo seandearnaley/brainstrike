@@ -51,8 +51,9 @@ a worker or process entry beside a module takes that module's own extension.
 ## Prefer removal
 
 When an area keeps failing, change the design and prefer removing the mechanism
-over patching it. Do not answer a failure with a new timer, retry, guard script,
-contract test or rule. Tests assert behaviour a user would notice or a durable-data
+over patching it. Never patch a patch: when a fix does not hold, revert it and fix
+the design instead of stacking a second fix on the first. Do not answer a failure
+with a new timer, retry, guard script, contract test or rule. Tests assert behaviour a user would notice or a durable-data
 invariant, not internal call order or the text of other files.
 
 ## Time is the scarcest resource

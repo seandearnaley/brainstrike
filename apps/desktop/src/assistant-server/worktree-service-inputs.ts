@@ -47,7 +47,7 @@ export interface WorktreeServiceDeps {
   readonly hasRunningThread: (worktreeId: string) => Promise<boolean>;
   readonly readSettings: () => Promise<WorktreeSettings>;
   /**
-   * The cached inventory snapshot — the same one `window.changes.inventory()`
+   * The cached inventory snapshot — the same one `changes/inventory` host method
    * serves. `options.forceFresh` (threaded to `WorktreeAdoptDeps.resolveInventory`,
    * used only by `reconcileWorktreesFromShell`'s post-command read) requests a
    * build guaranteed to start after the call, main.ts's wiring maps it to

@@ -37,7 +37,6 @@ export async function acquireIndexerHost(
     [...options.rootIds].sort(),
     [...(options.scopes ?? [])].map((scope) => JSON.stringify(scope)).sort(),
     deadlines.closeMs,
-    deadlines.exitMs,
   ]);
   if (owner && (owner.closing || owner.identity !== identity)) {
     throw new Error(

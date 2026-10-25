@@ -7,7 +7,7 @@ import type * as Transport from '../src/transport.js';
 
 // The transport forks the process entry beside its own module, so this suite
 // drives the built transport; the source owns its type.
-const { createIndexerConnection, IndexerLifecycleError }: typeof Transport = await import(
+const { createIndexerConnection }: typeof Transport = await import(
   new URL('../src/transport.ts', import.meta.url).href
 );
 
@@ -44,14 +44,14 @@ async function fixture(killMode: 'real' | 'refuse' | 'throw') {
     await exited;
   });
   let attempts = 0;
-  let permitted = killMode === 'real';
+  const permitted = killMode === 'real';
   const connection = createIndexerConnection(
     {
       dbPath: path.join(directory, 'index.sqlite'),
       embedding: { indexMode: 'vector-configured', profile },
       rootIds: ['root-a'],
     },
-    { closeMs: 100, exitMs: 100 },
+    { closeMs: 100 },
     {
       kill: () => {
         attempts += 1;
@@ -79,9 +79,6 @@ async function fixture(killMode: 'real' | 'refuse' | 'throw') {
     }
   );
   return {
-    allowKill: () => {
-      permitted = true;
-    },
     attempts: () => attempts,
     child,
     connection,
@@ -105,22 +102,28 @@ describe('real process close ladder ownership', () => {
     await host.connection.close();
     expect(host.attempts()).toBe(1);
   });
+  // ADR-0030: a kill is a request. Windows refuses to terminate a process that is already
+  // exiting, so a refused or failing kill is logged, never a fault: the process stays owned and
+  // close ends at its exit, with no second kill.
   for (const mode of ['refuse', 'throw'] as const) {
-    it(`retains live ownership after kill ${mode} and allows explicit joined cleanup`, async () => {
+    it(`keeps joining the exit after a kill ${mode}, and close resolves when the process exits`, async () => {
       const host = await fixture(mode);
       // Close ends the never-ready startup; that startup's own rejection is not this test's.
       host.connection.ready.catch(() => undefined);
-      const error = await host.connection.close().catch((failure: unknown) => failure);
-      expect(error).toBeInstanceOf(IndexerLifecycleError);
+      let settled = false;
+      const closing = host.connection.close().finally(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(settled).toBe(false);
       expect(host.connection.exited).toBe(false);
       expect(host.attempts()).toBe(1);
       expect(() => process.kill(host.child.pid!, 0)).not.toThrow();
-      host.allowKill();
-      await expect(host.connection.close()).resolves.toBeUndefined();
+      // The process finishes exiting on its own (its fixture exits when its channel closes).
+      host.child.disconnect();
+      await expect(closing).resolves.toBeUndefined();
       expect(host.connection.exited).toBe(true);
-      expect(host.attempts()).toBe(2);
-      await host.connection.close();
-      expect(host.attempts()).toBe(2);
+      expect(host.attempts()).toBe(1);
     });
   }
 });

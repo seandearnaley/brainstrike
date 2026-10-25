@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SnapshotService } from '../../assistant-server/snapshot-service';
-import { startSnapshotStartupMaintenance } from '../../main/snapshot-lifecycle';
+import { startSnapshotStartupMaintenance } from '../agent-host-platform/host-snapshot-maintenance';
+import type { SnapshotService } from '../assistant-server/snapshot-service';
 
 const mocks = vi.hoisted(() => ({
   gc: vi.fn(),
 }));
 
-vi.mock('../../assistant-server/snapshot-startup-gc', () => ({
+vi.mock('../assistant-server/snapshot-startup-gc', () => ({
   runSnapshotStartupGc: mocks.gc,
 }));
 

@@ -1,12 +1,14 @@
 import type { GitInventory } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ChangesBridge } from '../changes-bridge';
+import {
+  stubChangesBridge,
+  workspaceGitWrapper,
+} from '../../__tests__/helpers/workspace-git-services-wrapper';
 import { useChangesLiveRefreshStore } from '../changes-live-refresh-store';
 import { useGitInventory } from '../use-git-inventory';
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   useChangesLiveRefreshStore.getState().reset();
 });
 
@@ -24,18 +26,11 @@ describe('useGitInventory under the React Compiler', () => {
       });
       return { ok: true, value: fresh } as const;
     });
-    // `resolveChangesBridge` requires a fully formed bridge.
-    const bridge: ChangesBridge = {
-      fileDiff: vi.fn(),
-      inventory,
-      onInvalidated: vi.fn(() => () => {}),
-      resolveView: vi.fn(),
-    };
-    (window as unknown as { changes?: ChangesBridge }).changes = bridge;
+    const wrapper = workspaceGitWrapper({ changes: stubChangesBridge({ inventory }) });
 
     const { rerender, result } = renderHook(
       (active: boolean) => useGitInventory({ active, deferInitialLoad: !active }),
-      { initialProps: true }
+      { initialProps: true, wrapper }
     );
     await waitFor(() => expect(result.current.inventory).toEqual(stale));
 

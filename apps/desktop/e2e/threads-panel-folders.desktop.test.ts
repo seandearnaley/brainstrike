@@ -4,7 +4,7 @@
  * Drives the BUILT Electron app against a REAL `git init`'d folder so the
  * whole chain under test is production code: main's root registry, renderer
  * root reconciliation into the durable `roots` table, `useThreadFolderRows`'
- * batched `roots` lookup, `useThreadBranchByRootPath`'s `window.changes` git
+ * batched `roots` lookup, `useThreadBranchByRootPath`'s host Changes bridge git
  * inventory, `buildThreadListSections`' folder view, and the folder header's
  * "New thread here" bind. Nothing about the panel is mocked.
  *
@@ -198,7 +198,7 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     await expect(unassignedSection.getByTestId('thread-folder-new-thread')).toHaveCount(0);
 
     // The branch badge is the row's most local fact in folder grouping, and it
-    // comes from the real `window.changes` git inventory keyed by the root's
+    // comes from the real host Changes bridge git inventory keyed by the root's
     // path — a bound row gets `main`, the unbound row has no root to key on and
     // therefore no badge at all (with no runs seeded there is no provider or
     // model badge either, so the whole badge strip is absent).

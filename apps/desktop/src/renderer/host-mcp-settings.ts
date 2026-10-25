@@ -9,17 +9,11 @@ import type {
 import type { McpContentCapability } from '@brainstrike/app-shell/mcp-content-capability';
 import type { McpStatusCapability } from '@brainstrike/app-shell/mcp-status-capability';
 import type { McpToolsCapability } from '@brainstrike/app-shell/mcp-tools-capability';
-import {
-  isBoundaryRefusal,
-  type McpHostOperationResult,
-  type McpTaskBridge,
-} from '@brainstrike/assistant-contract';
-import { createLogger } from '@brainstrike/logging';
+import type { McpHostOperationResult, McpTaskBridge } from '@brainstrike/assistant-contract';
 import type { McpElicitationBridge } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
+import { hostStream } from './host-stream';
 import { unwrapContent } from './mcp-content-outcome';
-
-const logger = createLogger('DesktopHostMcpSettings');
 
 /** The host methods behind the desktop's MCP settings, server status and presentations. */
 type DesktopMcpSettingsMethod = Extract<
@@ -49,50 +43,6 @@ export interface DesktopHostMcpSettings {
   subscribe(listener: (event: McpSettingsEvent) => void): () => void;
   /** Task changes and server input; this window's presenter follows them once. */
   subscribePresentation(listener: (event: McpPresentationEvent) => void): () => void;
-}
-
-/** One host stream: listeners join it, and the first one opens it on the host. */
-function hostStream<E>(label: string, open: (dispatch: (event: E) => void) => Promise<void>) {
-  let opening: Promise<void> | undefined;
-  const listeners = new Set<(event: E) => void>();
-  const dispatch = (event: E): void => {
-    for (const listener of [...listeners]) {
-      listener(event);
-    }
-  };
-  const openOnce = (): void => {
-    if (opening || listeners.size === 0) {
-      return;
-    }
-    const attempt = open(dispatch);
-    opening = attempt;
-    attempt.catch((error: unknown) => {
-      // Each surface reports its own read failures; the next listener retries the stream.
-      if (isBoundaryRefusal(error)) {
-        logger.warn(`${label} subscription refused`, { error });
-      } else {
-        logger.error(`${label} subscription failed`, { error });
-      }
-      if (opening === attempt) {
-        opening = undefined;
-      }
-    });
-  };
-  return {
-    dispatch,
-    /** BST-2004: a replaced host has none of this window's streams. */
-    reopen: (): void => {
-      opening = undefined;
-      openOnce();
-    },
-    subscribe: (listener: (event: E) => void): (() => void) => {
-      listeners.add(listener);
-      openOnce();
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-  };
 }
 
 let windowSettings: DesktopHostMcpSettings | undefined;

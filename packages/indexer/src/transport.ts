@@ -1,7 +1,7 @@
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { canonicalRoot } from '@brainstrike/state-store';
+import { CHILD_SIGNAL_GRACE_MS, canonicalRoot } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import {
   commitResultSchema,
@@ -88,19 +88,16 @@ import { validateStateModule } from './state-projection.ts';
 
 const duration = Schema.Finite.check(Schema.isGreaterThan(0));
 /**
- * The connection's only clocks: its close ladder (lifecycle R5(b)), cooperative close, then a
- * kill we own, then the exit, which is always joined. A request and the startup have no
- * deadline: a slow reply is load, never death, so the process is retired only on its exit or a
- * transport or protocol fault (R2).
+ * The connection's only clock: its close window (lifecycle R5(b), ADR-0030). A request and the
+ * startup have no deadline: a slow reply is load, never death, so the process is retired only on
+ * its exit or a transport or protocol fault (R2).
  */
 const deadlinesSchema = Schema.Struct({
-  /** R5(b): how long the cooperative `close` request may take before the process is killed. */
-  closeMs: duration,
   /**
-   * R5(b): how long the process may take to exit after its close ACK before it is killed; after
-   * a kill, how long before the still-joined exit is reported slow. Never abandons the join.
+   * From the cooperative `close` request to the process's exit, not to its ACK. A process that
+   * has not exited by then is killed, and its exit is still joined.
    */
-  exitMs: duration,
+  closeMs: duration,
 });
 export type IndexerDeadlines = typeof deadlinesSchema.Type;
 /**
@@ -110,30 +107,21 @@ export type IndexerDeadlines = typeof deadlinesSchema.Type;
 export const INDEXER_STARTUP_STALL_WARN_MS = 10_000;
 /**
  * A stage that is taking longer than its window: `startup` (R3, nothing happens), `close` (the
- * cooperative close escalates to a kill) or `exit` (the exit is late; after a kill it is still
- * joined). The host logs it; none is a failure.
+ * close window ran out and the process is killed) or `exit` (a killed process has not exited
+ * after `CHILD_SIGNAL_GRACE_MS`; its exit is still joined). The host logs it; none is a failure.
  */
 export type IndexerStallStage = 'startup' | 'close' | 'exit';
 export interface IndexerTransport {
+  /** A request: Windows refuses to terminate a process that is already exiting (ADR-0030). */
   kill(): boolean;
   onError(listener: (error: unknown) => void): () => void;
   onExit(listener: () => void): () => void;
+  /** The host's log of a refused or failed kill request. The exit is still joined. */
+  onKillRefused?(cause: unknown): void;
   onMessage(listener: (message: unknown) => void): () => void;
   /** The host's log of a slow stage (`IndexerStallStage`), at the window it outlived. */
   onStall?(stage: IndexerStallStage, elapsedMs: number): void;
   send(message: object): void;
-}
-export class IndexerLifecycleError extends AggregateError {
-  readonly close: () => Promise<void>;
-
-  constructor(errors: unknown[], close: () => Promise<void>) {
-    super(
-      errors,
-      'Indexer failed and process cleanup is incomplete; retry close before replacing its owner.'
-    );
-    this.close = close;
-    this.name = 'IndexerLifecycleError';
-  }
 }
 /** The desktop's options: the portable rules, then its file-path rules for the database and the state root. */
 export function validateIndexerOptions(input: unknown): typeof optionsSchema.Type {
@@ -190,8 +178,6 @@ export function createIndexerConnection(
     resolveExit = resolve;
   });
   let retirement: Promise<void> | undefined;
-  let killRequested = false;
-  let cleanupFailure: unknown;
   /** Whether the process exits within `ms`; the exit itself stays joinable either way. */
   const exitsWithin = (ms: number): Promise<boolean> =>
     new Promise((resolve) => {
@@ -201,35 +187,29 @@ export function createIndexerConnection(
         resolve(true);
       });
     });
-  /** R5(b): after a kill the exit is joined for as long as it takes; a late one is reported. */
-  const joinExit = async (): Promise<void> => {
-    if (!(await exitsWithin(deadlines.exitMs))) {
-      transport.onStall?.('exit', deadlines.exitMs);
-      await exit;
-    }
-  };
+  /**
+   * R5(b), ADR-0030: one kill request, then the exit, joined for as long as it takes. A refused
+   * kill is not a fault (Windows refuses an exiting process); only the exit ends the process.
+   */
   const retire = (): Promise<void> => {
     if (exited) {
       return Promise.resolve();
     }
     retirement ??= (async () => {
-      if (!killRequested) {
-        // A refused kill is a fault, not a clock: the live process stays owned for a retry.
+      try {
         if (!transport.kill()) {
-          throw new IndexerError(
-            'indexer-kill-failed',
-            'Indexer termination was refused; its process owner remains retained.'
+          transport.onKillRefused?.(
+            new IndexerError('indexer-kill-refused', 'Indexer termination was refused.')
           );
         }
-        killRequested = true;
+      } catch (cause) {
+        transport.onKillRefused?.(cause);
       }
-      await joinExit();
+      if (!(await exitsWithin(CHILD_SIGNAL_GRACE_MS))) {
+        transport.onStall?.('exit', CHILD_SIGNAL_GRACE_MS);
+        await exit;
+      }
     })();
-    // Retain the cleanup outcome, including failed kill/exit joins, for close and
-    // startup/request callers. The live transport is never discarded on failure.
-    retirement.catch((error: unknown) => {
-      cleanupFailure = error;
-    });
     return retirement;
   };
   const client = new RpcClient(
@@ -252,11 +232,7 @@ export function createIndexerConnection(
   ];
   const failAndJoin = async (error: unknown): Promise<never> => {
     client.fail(error);
-    try {
-      await retire();
-    } catch (failure) {
-      throw new IndexerLifecycleError([error, failure], close);
-    }
+    await retire();
     throw error;
   };
   const call = async <T>(
@@ -284,16 +260,16 @@ export function createIndexerConnection(
     }
   };
   /**
-   * The cooperative `close` request. Outliving `closeMs` is the R5(b) escalation, not a failure;
-   * any other failure is returned. Either way the client fails with it, which retires the
-   * process: a kill, then the joined exit.
+   * The cooperative `close` request, bounded by the close window. Outliving it is the R5(b)
+   * escalation (`escalated`), not a failure; any other failure is returned as `refused`. Either
+   * way the client fails with it, which retires the process: a kill, then the joined exit.
    */
-  const requestClose = async (): Promise<unknown> => {
+  const requestClose = async (): Promise<{ escalated: boolean; refused?: unknown }> => {
     try {
       client.assertActive();
     } catch {
       // A failed client takes no request; its failure was already its callers'. Retire it.
-      return undefined;
+      return { escalated: false };
     }
     let escalated = false;
     try {
@@ -307,14 +283,10 @@ export function createIndexerConnection(
         },
         timeoutMs: deadlines.closeMs,
       });
-      return undefined;
+      return { escalated: false };
     } catch (error) {
       client.fail(error);
-      if (escalated) {
-        transport.onStall?.('close', deadlines.closeMs);
-        return undefined;
-      }
-      return error;
+      return escalated ? { escalated } : { escalated, refused: error };
     }
   };
   let closeAttempt: Promise<void> | undefined;
@@ -324,36 +296,23 @@ export function createIndexerConnection(
       return Promise.resolve();
     }
     closeAttempt ??= (async () => {
-      if (cleanupFailure !== undefined) {
-        retirement = undefined;
-        cleanupFailure = undefined;
+      const requested = Date.now();
+      const { escalated, refused } = await requestClose();
+      // The window runs from the request to the exit, not to the ACK: after its ACK the process
+      // exits on its own, and one that has not by the end of the window is killed.
+      let outlived = escalated;
+      if (!(exited || retirement)) {
+        const remainingMs = deadlines.closeMs - (Date.now() - requested);
+        outlived = !(remainingMs > 0 && (await exitsWithin(remainingMs)));
       }
-      const failures: unknown[] = [];
-      const refused = await requestClose();
+      if (outlived) {
+        transport.onStall?.('close', deadlines.closeMs);
+      }
+      await retire();
       if (refused !== undefined) {
-        failures.push(refused);
+        throw new AggregateError([refused], 'Indexer close failed; process exit was joined.');
       }
-      // After its close ACK the process exits on its own; one that has not within `exitMs` is
-      // killed. A process already being killed goes straight to the joined exit.
-      if (!(exited || killRequested || (await exitsWithin(deadlines.exitMs)))) {
-        transport.onStall?.('exit', deadlines.exitMs);
-      }
-      try {
-        await retire();
-      } catch (failure) {
-        failures.push(failure);
-      }
-      if (failures.length > 0) {
-        if (!exited) {
-          throw new IndexerLifecycleError(failures, close);
-        }
-        throw new AggregateError(failures, 'Indexer close failed; process exit was joined.');
-      }
-    })().finally(() => {
-      if (!exited) {
-        closeAttempt = undefined;
-      }
-    });
+    })();
     return closeAttempt;
   };
   // Catch-up is a series of bounded steps, so no request carries a whole backlog; a read

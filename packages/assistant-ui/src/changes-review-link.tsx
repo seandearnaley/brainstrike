@@ -23,7 +23,7 @@ function countDistinctFiles(entries: readonly AssistantEditCheckpointRecord[]): 
 /**
  * "Edited N files → Review" entry point into the Changes surface (BST-1114).
  * Renders null when: there is no `ChangesReviewProvider` binding (web, or a
- * desktop build without the `window.changes` bridge), this message's run has
+ * desktop build without the Changes bridge), this message's run has
  * not reached its terminal `run.finished` event yet (`selectFinishedRunId`
  * already anchors this to the ONE message that received that event — an
  * approval-split run's earlier legs never satisfy it), the active thread id

@@ -1,7 +1,7 @@
-import { resolveWorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
+import { useWorktreesBridge } from '@brainstrike/app-shell/workspace-git-services';
 import type { WorktreeSettingsStatus } from '@brainstrike/settings-ui/settings/system/worktree-settings-section';
 import type { WorktreeSettings, WorktreeSetupCommand } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export interface UseWorktreeSettingsResult {
   readonly save: (next: {
@@ -14,13 +14,13 @@ export interface UseWorktreeSettingsResult {
 
 /**
  * Renderer-side state for Settings → Workspace. The bridge is
- * capability-checked (absent in web / a broken preload), never gated by
- * `isElectron()`. A load or save failure surfaces the main-process message
+ * capability-checked (absent when the host serves no worktrees), never gated
+ * by `isElectron()`. A load or save failure surfaces the host's message
  * verbatim — see `worktree-settings-section.tsx`'s no-silent-fallback
  * contract.
  */
 export function useWorktreeSettings(): UseWorktreeSettingsResult {
-  const bridge = useMemo(() => resolveWorktreesBridge(), []);
+  const bridge = useWorktreesBridge();
   const [settings, setSettings] = useState<WorktreeSettings | null>(null);
   const [status, setStatus] = useState<WorktreeSettingsStatus>(
     bridge ? { kind: 'loading' } : { kind: 'unavailable' }
