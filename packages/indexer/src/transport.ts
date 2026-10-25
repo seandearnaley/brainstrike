@@ -101,16 +101,12 @@ const deadlinesSchema = Schema.Struct({
 });
 export type IndexerDeadlines = typeof deadlinesSchema.Type;
 /**
- * R3: a startup with no ready report after this long is reported stalled, once. It never fails
- * or retires the process; startup fails only on a startup error, a fault or the exit.
+ * A stage that is taking longer than its window: `close` (the close window ran out and the
+ * process is killed) or `exit` (a killed process has not exited after `CHILD_SIGNAL_GRACE_MS`;
+ * its exit is still joined). The host logs it; neither is a failure. Startup has no window: it
+ * ends only on the ready report, a startup error, a fault or the exit (ADR-0031).
  */
-export const INDEXER_STARTUP_STALL_WARN_MS = 10_000;
-/**
- * A stage that is taking longer than its window: `startup` (R3, nothing happens), `close` (the
- * close window ran out and the process is killed) or `exit` (a killed process has not exited
- * after `CHILD_SIGNAL_GRACE_MS`; its exit is still joined). The host logs it; none is a failure.
- */
-export type IndexerStallStage = 'startup' | 'close' | 'exit';
+export type IndexerStallStage = 'close' | 'exit';
 export interface IndexerTransport {
   /** A request: Windows refuses to terminate a process that is already exiting (ADR-0030). */
   kill(): boolean;
@@ -576,21 +572,12 @@ export function createIndexerConnection(
       ),
   };
   const ready = (async () => {
-    const stall =
-      transport.onStall &&
-      setTimeout(
-        () => transport.onStall?.('startup', INDEXER_STARTUP_STALL_WARN_MS),
-        INDEXER_STARTUP_STALL_WARN_MS
-      );
-    stall?.unref?.();
     try {
       transport.send(options);
       decoder(infoSchema)(await client.ready);
       return port;
     } catch (error) {
       return failAndJoin(error);
-    } finally {
-      clearTimeout(stall);
     }
   })();
   return {

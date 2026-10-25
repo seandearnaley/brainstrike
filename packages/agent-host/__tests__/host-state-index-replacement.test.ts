@@ -401,3 +401,30 @@ it('replacements that cannot be created stop at the bound like any other', async
   expect(starts()).toBe(4);
   await index.close();
 });
+
+// The host's `ready` never waits for its index: a request sent while the first worker starts joins that start.
+it('a request sent while the first worker is starting is served by that worker', async () => {
+  const { index, starts } = owner([fake(['serve'])]);
+  const opening = index.open();
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  await opening;
+  expect(starts()).toBe(1);
+  await index.close();
+});
+
+it('a first start that fails rejects open, and the next request is served by a replacement', async () => {
+  const { index, starts } = owner([fake(['serve'], { starts: 'error' }), fake(['serve'])]);
+  await expect(index.open()).rejects.toMatchObject({ code: 'open-failed' });
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(2);
+  await index.close();
+});
+
+it('a close while the first worker is still starting ends its open without a failure', async () => {
+  const { index, starts } = owner([fake(['serve'], { starts: 'never' })]);
+  const opening = index.open();
+  await index.close();
+  await expect(opening).resolves.toBeUndefined();
+  await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
+  expect(starts()).toBe(1);
+});

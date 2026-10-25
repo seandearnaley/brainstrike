@@ -136,11 +136,12 @@ indexer request, startup, canonical attach or scan has a deadline: a slow reply 
 load, and nothing retires the utility, refuses its other calls or closes admission
 for it. The process is retired only on its exit or a transport/protocol fault,
 whose request is never retried. Admission closes only on `close()`, `destroy()`,
-the exit or such a fault. A startup without a ready report after 10 s is logged as
-stalled, once. The only clock is the close window (R5(b), `closeMs`, ADR-0030): it runs
+the exit or such a fault. A slow startup is neither failed nor reported. The only clock is the close window (R5(b), `closeMs`, ADR-0030): it runs
 from the close request to the exit, and a process still running then gets one kill.
 The kill is a request; a refused one is logged, never a fault, and the exit is then
-joined however long it takes, with a warning after `CHILD_SIGNAL_GRACE_MS`. The agent host's state index joins a
+joined however long it takes, with a warning after `CHILD_SIGNAL_GRACE_MS`. The agent host's state index starts its
+worker without gating the host's `ready`: each request joins that start, and a start
+that fails is logged as `host_state_index_start_failed`. It joins a
 retired worker's exit and starts a new one on its next request; three
 replacements in a row with none served (crashes, never slow replies) stop it
 (`state-index.retired`). The background coverage reader has no deadline either;
