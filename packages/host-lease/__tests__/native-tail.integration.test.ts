@@ -29,7 +29,6 @@ const end = (identity: Identity): void => {
 };
 
 const roots: string[] = [];
-const started: Identity[] = [];
 const hosts: ChildProcess[] = [];
 
 afterEach(async () => {
@@ -39,9 +38,8 @@ afterEach(async () => {
       host.kill('SIGKILL');
       await exited;
     }
-  }
-  for (const identity of started.splice(0)) {
-    end(identity);
+    // Closing the lifeline ends every native process the host started, recorded or not.
+    host.stdio[3]?.destroy();
   }
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
@@ -60,21 +58,27 @@ test('after its host dies, a Root is refused until every native process the host
     {
       cwd: fileURLToPath(new URL('..', import.meta.url)),
       detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      // fd 3 is the lifeline: the host and its command end when this process lets it go or dies.
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
       windowsHide: true,
     }
   );
   hosts.push(host);
+  const [, stdout, stderr] = host.stdio;
+  if (!(stdout && stderr)) {
+    throw new Error('The host has no output pipes');
+  }
   let errors = '';
-  host.stderr.on('data', (chunk: Buffer) => {
+  stderr.on('data', (chunk: Buffer) => {
     errors += chunk.toString();
   });
-  const lines = createInterface({ input: host.stdout });
+  const lines = createInterface({ input: stdout });
   const line = (await lines[Symbol.asyncIterator]().next()).value;
   lines.close();
-  expect(line, errors).toBeTypeOf('string');
-  const { command, host: owner } = decodeStarted(JSON.parse(line as string));
-  started.push(command);
+  if (typeof line !== 'string') {
+    throw new Error(`The host reported no process identities: ${errors}`);
+  }
+  const { command, host: owner } = decodeStarted(JSON.parse(line));
   expect(running(command)).toBe(true);
 
   const exited = once(host, 'exit');
