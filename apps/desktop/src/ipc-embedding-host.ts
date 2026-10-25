@@ -179,6 +179,32 @@ type QueryOutcome =
   | { readonly kind: 'result'; readonly embedding: number[] }
   | { readonly kind: 'cancelled' | 'error'; readonly error: unknown };
 
+/** The boundary failure a query that did not produce an embedding ends with. */
+function queryOutcomeFailure(outcome: Exclude<QueryOutcome, { readonly kind: 'result' }>): unknown {
+  if (outcome.kind === 'cancelled') {
+    return refusalError(
+      'availability',
+      'embedding.query-cancelled',
+      'The search was cancelled before its embedding finished.',
+      'Search again.'
+    );
+  }
+  // An unavailable device is the user's setting to change, not a fault (BST-2058).
+  if (isEmbeddingDeviceUnavailable(outcome.error)) {
+    return refusalError(
+      'configuration',
+      'embedding.webgpu-unavailable',
+      'WebGPU is not available on this device.',
+      'Choose WASM in Settings → Search & Indexing.'
+    );
+  }
+  return outcome.error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 function assertQueryRequestId(value: unknown): string {
   if (!(typeof value === 'string' && value.length > 0 && value.length <= 128)) {
     throw new Error('Query requestId is required.');
@@ -238,26 +264,17 @@ function registerQueryEmbeddingRequests(
             (embedding) => ({ embedding, kind: 'result' }),
             (error: unknown) => ({
               error,
+              // Cancelled is the abort itself, whichever owner raised it: this request's
+              // cancel or closed requester, or a Stop/reset retiring the hosted transport.
               kind:
-                controller.signal.aborted && error === controller.signal.reason
-                  ? 'cancelled'
-                  : 'error',
+                error === controller.signal.reason || isAbortError(error) ? 'cancelled' : 'error',
             })
           );
         queries.set(key, { completion, controller });
         try {
           const outcome = await completion;
           if (outcome.kind !== 'result') {
-            // An unavailable device is the user's setting to change, not a fault (BST-2058).
-            if (isEmbeddingDeviceUnavailable(outcome.error)) {
-              throw refusalError(
-                'configuration',
-                'embedding.webgpu-unavailable',
-                'WebGPU is not available on this device.',
-                'Choose WASM in Settings → Search & Indexing.'
-              );
-            }
-            throw outcome.error;
+            throw queryOutcomeFailure(outcome);
           }
           return outcome.embedding;
         } finally {

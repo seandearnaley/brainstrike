@@ -8,7 +8,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils';
-import { unpinnedEmbeddingDType } from './inference-plan.ts';
+import { DEFAULT_WORKER_SLICE_SIZE, unpinnedEmbeddingDType } from './inference-plan.ts';
 import { parseModelSizeEstimateBytes } from './model-size-estimate.ts';
 import { getRegisteredEmbeddingQueueFactory } from './runtime-config.ts';
 import type {
@@ -23,21 +23,6 @@ import type {
 } from './types.ts';
 
 const logger = createLogger('TransformersBackend');
-
-/**
- * Texts per worker slice when no `streamBatchSize` is configured. Each completed slice
- * reports progress, which is what keeps a document request's 60 s liveness window open
- * in the embedding host; one unsliced 64-text request outlived it on WASM (BST-2090).
- */
-export const DEFAULT_WORKER_SLICE_SIZE = {
-  // WASM cost is linear in slice size (1-64 texts measured), so one text is free; the chunker's
-  // largest chunk (6,000 chars) takes 1.1 s in granite q8 on an M-series Mac: 3x inside 60 s on a
-  // host up to 18x slower (a 2-vCPU runner measured over 5x).
-  wasm: 1,
-  // Slices of 16 cost WebGPU nothing: 16 granite fp16 chunks of 2,048 chars take 0.16 s on an
-  // M-series Mac, the per-text cost of 64, while 4-text calls cost 55% more per text.
-  webgpu: 16,
-} as const satisfies Record<'wasm' | 'webgpu', number>;
 
 /** The capability itself, not a window: a worker's embeddings run in workers of its own (BST-1940). */
 function supportsWorkerQueue(): boolean {

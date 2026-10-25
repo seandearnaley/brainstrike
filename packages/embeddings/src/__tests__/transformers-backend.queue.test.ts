@@ -596,9 +596,8 @@ describe('TransformersBackend queue integration', () => {
           vectors: texts.map(() => Float32Array.from([0.4, 0.6])),
         };
       });
-      const { DEFAULT_WORKER_SLICE_SIZE, TransformersBackend } = await import(
-        '../transformers-backend.js'
-      );
+      const { TransformersBackend } = await import('../transformers-backend.js');
+      const { DEFAULT_WORKER_SLICE_SIZE } = await import('../inference-plan.js');
       const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
         '../runtime-config.js'
       );
