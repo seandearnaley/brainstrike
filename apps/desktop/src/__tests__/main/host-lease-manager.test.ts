@@ -232,7 +232,7 @@ describe('desktop host lease ownership', () => {
       expect(child.posts).not.toContainEqual({ method: 'close' });
     }
   });
-  it('retires a lost host whose connection it reset as it exited, and keeps every other close failure (BST-2143)', async () => {
+  it('reports every attachment close failure of a lost host; the client decides which ones fail (BST-2143)', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const reset = (): Error => Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
     const lostOwner = (close: () => Promise<void>) => {
@@ -249,14 +249,15 @@ describe('desktop host lease ownership', () => {
       return { child, owner };
     };
 
-    // Main's unread catalog request makes the dying host's kernel reset the
-    // socket: that reset is the loss already reported, not a failed release.
+    // The host client's close fails only for a frame it could not decode or
+    // dispatch, never for its socket's reset (client-transport-close.test.ts),
+    // so the lease excuses nothing: whatever the close reports fails the release.
     const peerReset = lostOwner(async () => {
       throw new AggregateError([reset(), reset()], 'Host client receive and disposal failed');
     });
     await peerReset.owner.acquire();
     peerReset.child.exit(0);
-    await peerReset.owner.close();
+    await expect(peerReset.owner.close()).rejects.toThrow('receive and disposal failed');
 
     const other = new Error('socket cleanup failed');
     const failedCleanup = lostOwner(async () => {
@@ -290,21 +291,17 @@ describe('desktop host lease ownership', () => {
     asked.exit(0);
     await expect(clearing).rejects.toThrow('ECONNRESET');
   });
-  it('retires a host that reset its connection while closing on its own, and still joins its exit (BST-2192)', async () => {
+  it('retires a host that ended its connection while closing on its own, and still joins its exit (BST-2192)', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     // A signal to Main's process group closes the host too. It ends Main's
     // connection with Main's write in flight, and exits only after Main's
-    // shutdown has started releasing the lease.
+    // shutdown has started releasing the lease. The client's close does not
+    // fail for that write's EPIPE (client-transport-close.test.ts).
     const reset = (): Error => Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
     const selfClosing = () => {
       const child = new Child();
       child.exitOnClose = false;
-      attachment = {
-        ...attachment,
-        close: vi.fn(async () => {
-          throw reset();
-        }),
-      };
+      attachment = { ...attachment, close: vi.fn(async () => undefined) };
       const onLost = vi.fn();
       const owner = createDesktopHostLease({
         fork: () => {
@@ -333,7 +330,13 @@ describe('desktop host lease ownership', () => {
     failed.child.exit(1);
     await expect(failing).rejects.toThrow('exited with code 1');
 
-    // A host this app only attached to has no exit for this owner to join.
+    // Whatever an attachment's close does report still fails the release.
+    attachment = {
+      ...attachment,
+      close: vi.fn(async () => {
+        throw reset();
+      }),
+    };
     launch.mockResolvedValue(attachment);
     const attached = createDesktopHostLease({ root });
     await attached.acquire();
