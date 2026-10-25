@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { constants } from 'node:fs';
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -436,6 +437,16 @@ async function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promis
       resolve();
     });
   });
+}
+
+/** SIGKILLs a child that outlived its SIGTERM and joins its exit, so its folders can go. */
+async function killAndWaitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+  const exited = once(child, 'exit');
+  child.kill('SIGKILL');
+  await exited;
 }
 
 function harnessSource(serverOrigin: string, appDocument: string): string {
@@ -1431,10 +1442,9 @@ test(
         });
       } finally {
         if (packagedApplication) {
-          packagedApplication.child.kill('SIGTERM');
-          await waitForProcessExit(packagedApplication.child).catch(() => {
-            packagedApplication?.child.kill('SIGKILL');
-          });
+          const { child } = packagedApplication;
+          child.kill('SIGTERM');
+          await waitForProcessExit(child).catch(() => killAndWaitForExit(child));
           await packagedApplication.browser.close().catch(() => undefined);
         }
         await disposeAdmission?.().catch(() => undefined);
