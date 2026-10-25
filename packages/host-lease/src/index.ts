@@ -1,5 +1,6 @@
 export { attachHost, attachStartedHost, type HostAttachment } from './client.ts';
 export {
+  HOST_STARTUP_TIMEOUT_MS,
   type HostLaunchOptions,
   type HostSpawner,
   LiveHostUnavailableError,

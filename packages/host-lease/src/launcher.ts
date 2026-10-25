@@ -483,6 +483,9 @@ async function startAndAttach(launch: Launch): Promise<Step> {
   return step;
 }
 
+/** How long a launch waits for an owner it did not start, unless its caller sets another. */
+export const HOST_STARTUP_TIMEOUT_MS = 30_000;
+
 export async function launchHost(
   root: string,
   options: HostLaunchOptions
@@ -491,7 +494,7 @@ export async function launchHost(
     throw new TypeError('Host data root must be absolute');
   }
   assertNotSyncedRoot(root);
-  const startupTimeoutMs = options.startupTimeoutMs ?? 30_000;
+  const startupTimeoutMs = options.startupTimeoutMs ?? HOST_STARTUP_TIMEOUT_MS;
   if (!(Number.isFinite(startupTimeoutMs) && startupTimeoutMs > 0)) {
     throw new RangeError('Host launch deadlines must be positive finite milliseconds');
   }

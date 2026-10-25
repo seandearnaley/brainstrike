@@ -67,7 +67,16 @@
     // base.json an invisible input and replay stale-green caches repo-wide (the
     // #1066/#1207 landmine). Each package's own tsconfig*.json is already a
     // $TURBO_DEFAULT$ input of that package, so it is not listed here.
+    //
+    // The workflows and composite actions ARE listed: they install the toolchain,
+    // native build inputs and test tools (ripgrep, Electron, Node headers) every CI
+    // task runs against, and set its env. Unlisted, a CI-only change replayed every
+    // shard from cache and was never run: #4306 swapped Windows' ripgrep and its
+    // own queue run replayed Windows desktop-5 in 4 min (10.7 min when run), and
+    // the next uncached runs failed.
     "inputs": [
+      ".github/actions/**", // Composite setup: toolchain, install, native build inputs
+      ".github/workflows/**", // Runner images, installed test tools, task env
       "pnpm-workspace.yaml", // allowBuilds, overrides and install settings
       "package.json", // Root devEngines pins the Node version (native ABI)
       "packages/*/tsconfig/*.json", // Shared tsconfig preset (base.json); sole hash carrier for ~40 raw-path consumers

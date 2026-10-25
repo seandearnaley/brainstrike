@@ -53,7 +53,9 @@ let closing: Promise<void> | undefined;
 function close(): void {
   closing ??= runtime.retireProfile().then(() => {
     report({ event: 'closed' });
-    app.exit(0);
+    // Quit as the product does: app.exit tears Electron down without joining its
+    // utility children, and a refused host still exiting then crashed it (0xC0000005).
+    app.quit();
   });
   closing.catch((cause: unknown) => {
     report({ event: 'failed', message: String(cause) });
