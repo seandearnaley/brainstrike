@@ -67,8 +67,9 @@ Each stage ships alone, runs the Windows queue lane and the quit E2E specs, and 
 its Main side and quit step:
 
 1. This ADR.
-2. Services only the host calls: worktrees, snapshots and rewind, diagnostics reads and
-   skills. Their `platform/*` and `desktop-read/*` methods go.
+2. Worktrees, snapshots and rewind, and skills, commands and personas. The host calls
+   these back today, and the Worktrees and Changes panels read them over IPC; both
+   callers move to the host, and their `platform/*` methods and IPC domains go.
 3. Git, changes and forge. Their IPC domains and the `git-inventory` and `forge` steps go.
 4. Terminals and LSP. The `child-processes` step goes.
 5. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
