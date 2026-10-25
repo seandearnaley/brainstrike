@@ -11,7 +11,7 @@ import {
   RootLock,
   RootLockedError,
 } from '@brainstrike/state-store';
-import { attachHost, type HostAttachment } from './client.ts';
+import { attachHost, HOST_STARTUP_TIMEOUT_MS, type HostAttachment } from './client.ts';
 import type { HostRecord } from './record.ts';
 import { readHostRecord } from './record-file.ts';
 import { HOST_LEASE_CLOSING, HOST_LEASE_CONNECTION_CLOSED } from './refusal.ts';
@@ -41,13 +41,6 @@ export interface StartedHost {
  * the launch puts no deadline on it.
  */
 export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<StartedHost>;
-/**
- * R5(a), the R2 exception: attaching to an owner this launch did not start (a
- * host a CLI started, or the winner of a start race) is bounded, because a
- * live but unreachable owner that is not ours is refused (`LiveHostUnavailableError`),
- * never waited on, killed or replaced.
- */
-const OWNER_ATTACH_TIMEOUT_MS = 1500;
 export interface HostLaunchOptions {
   /**
    * Attaches to an owner this launch did not start, within `timeoutMs`. The
@@ -269,7 +262,6 @@ async function attachOrAwaitExit(
   root: string,
   record: HostRecord,
   deadline: number,
-  timeoutMs: number,
   attachClient: Launch['attachClient'],
   cancel: AbortSignal
 ): Promise<HostAttachment | null> {
@@ -277,11 +269,7 @@ async function attachOrAwaitExit(
     // The attach never outlasts its phase's deadline: the launch's, or the
     // attach budget of a host this launch started (BST-2176). The caller's
     // signal cancels it sooner (BST-2279).
-    return await attachClient(
-      record,
-      Math.max(1, Math.min(timeoutMs, deadline - Date.now())),
-      cancel
-    );
+    return await attachClient(record, remaining(deadline), cancel);
   } catch (cause) {
     if (cancel.aborted) {
       throw cancel.reason;
@@ -372,6 +360,7 @@ interface Launch {
   readonly readRecord: ReadRecord;
   readonly root: string;
   readonly signal: AbortSignal;
+  readonly startupTimeoutMs: number;
 }
 /** An attachment, or AGAIN: the owner left, so acquisition starts over. */
 const AGAIN = Symbol('acquire again');
@@ -382,14 +371,8 @@ function remaining(deadline: number): number {
 }
 async function attachOwner(launch: Launch, record: HostRecord, deadline: number): Promise<Step> {
   return (
-    (await attachOrAwaitExit(
-      launch.root,
-      record,
-      deadline,
-      OWNER_ATTACH_TIMEOUT_MS,
-      launch.attachClient,
-      launch.signal
-    )) ?? AGAIN
+    (await attachOrAwaitExit(launch.root, record, deadline, launch.attachClient, launch.signal)) ??
+    AGAIN
   );
 }
 /** The race this starter lost: attach to its winner, or start over once that winner left. */
@@ -418,7 +401,7 @@ async function attachWinner(launch: Launch, cause: unknown): Promise<Step> {
 /**
  * The Node CLI starter's host, which has no private channel to its launcher:
  * attached over its socket from its ready record, like any owner and under
- * the owner attach bound. An idle CLI host can leave, and another owner take
+ * a startup bound of its own, measured from its ready report. An idle CLI host can leave, and another owner take
  * the root, before the attach; a host no longer holding the root sends the
  * launch back to the start.
  */
@@ -427,7 +410,7 @@ async function attachStartedOwner(launch: Launch, record: HostRecord): Promise<S
   if (!(lease && matches(record, lease))) {
     return AGAIN;
   }
-  return attachOwner(launch, record, Date.now() + OWNER_ATTACH_TIMEOUT_MS);
+  return attachOwner(launch, record, Date.now() + launch.startupTimeoutMs);
 }
 /** Retire a host the launch gave up on; a failed retirement joins the launch's own failure. */
 async function retireAfter(started: StartedHost, cause: unknown): Promise<never> {
@@ -491,7 +474,7 @@ export async function launchHost(
     throw new TypeError('Host data root must be absolute');
   }
   assertNotSyncedRoot(root);
-  const startupTimeoutMs = options.startupTimeoutMs ?? 30_000;
+  const startupTimeoutMs = options.startupTimeoutMs ?? HOST_STARTUP_TIMEOUT_MS;
   if (!(Number.isFinite(startupTimeoutMs) && startupTimeoutMs > 0)) {
     throw new RangeError('Host launch deadlines must be positive finite milliseconds');
   }
@@ -508,6 +491,7 @@ export async function launchHost(
     readRecord: (path) => readHostRecord(path, options.beforeRecordRead),
     root,
     signal: options.signal ?? new AbortController().signal,
+    startupTimeoutMs,
   };
   for (;;) {
     launch.signal.throwIfAborted();
