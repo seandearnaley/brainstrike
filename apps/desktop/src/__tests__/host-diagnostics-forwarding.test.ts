@@ -30,7 +30,7 @@ afterEach(async () => {
 
 function forwarding(send: (record: unknown) => Promise<unknown>) {
   const tap = forwardHostDiagnostics(send);
-  closers.push(() => tap.close().catch(() => undefined));
+  closers.push(() => tap.stop());
   return tap;
 }
 
@@ -58,7 +58,7 @@ describe('agent host diagnostic forwarding (BST-2202)', () => {
     createLogger('McpHostRuntime').error('MCP record');
     createLogger('DesktopMcpDiagnosticDelivery').error('MCP delivery failed');
     createLogger('DesktopHostDiagnosticDelivery').error('Delivery failed');
-    await tap.close();
+    tap.stop();
 
     expect(sent).toHaveLength(1);
     const [forwarded] = sent;
@@ -78,17 +78,20 @@ describe('agent host diagnostic forwarding (BST-2202)', () => {
     expect(JSON.stringify(sent)).not.toContain('sk-fixture-forwarding-secret');
   });
 
-  it('reports a failed delivery on the host only, once, and fails its close with it', async () => {
+  it('reports a failed delivery on the host only, once', async () => {
     configureLogger({ level: LogLevel.INFO });
     const records: LogRecord[] = [];
     closers.push(addLogListener((record) => records.push(record)));
     let attempts = 0;
-    const tap = forwarding(async () => {
+    let delivery: Promise<unknown> = Promise.resolve();
+    forwarding(() => {
       attempts += 1;
-      throw new Error('Main connection closed');
+      delivery = Promise.reject(new Error('Main connection closed'));
+      return delivery;
     });
     createLogger('AgentHost').error('Run failed', { correlationId: randomUUID() });
-    await expect(tap.close()).rejects.toThrow('Agent host diagnostic delivery failed');
+    // The tap's own handler was attached first, so it has run once this settles.
+    await delivery.catch(() => undefined);
     // The delivery failure is logged, and never itself forwarded again.
     expect(attempts).toBe(1);
     expect(
@@ -96,15 +99,14 @@ describe('agent host diagnostic forwarding (BST-2202)', () => {
     ).toHaveLength(1);
   });
 
-  it('stops forwarding once closed', async () => {
+  it('stops forwarding once stopped', () => {
     const sent: unknown[] = [];
     const tap = forwarding(async (record) => {
       sent.push(record);
       return null;
     });
-    await tap.close();
-    createLogger('AgentHost').error('After close');
-    await tap.close();
+    tap.stop();
+    createLogger('AgentHost').error('After stop');
     expect(sent).toEqual([]);
   });
 });

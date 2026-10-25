@@ -15,18 +15,20 @@ const ChildMessageSchema = Schema.Union([
     deletedFiles: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
     event: Schema.Literal('content-cleared'),
   }),
+  // A POSIX command group this host started, or its leader's exit (`@brainstrike/utils/process-groups`).
+  Schema.Struct({
+    event: Schema.Literal('command-group'),
+    pgid: Schema.Int.check(Schema.isGreaterThan(0)),
+    state: Schema.Literals(['started', 'ended']),
+  }),
 ]);
 export type HostChildMessage = typeof ChildMessageSchema.Type;
 export const decodeHostChildMessage = makeThrowingDecoder(ChildMessageSchema, {
   onExcessProperty: 'error',
 });
 
-/**
- * Main's controls, as an LSP client's `shutdown`: the host closes while its stdio is still
- * open, because its close still answers to Main (its MCP join, the git index refresh,
- * its diagnostics). Its stdin's end is the client gone.
- */
-const ControlSchema = Schema.Struct({ method: Schema.Literals(['close', 'clear-content']) });
+/** Main's one control. Main asks the host to close by ending its stdin. */
+const ControlSchema = Schema.Struct({ method: Schema.Literal('clear-content') });
 export type HostChildControl = typeof ControlSchema.Type;
 export const decodeHostChildControl = makeThrowingDecoder(ControlSchema, {
   onExcessProperty: 'error',

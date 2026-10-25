@@ -49,7 +49,7 @@ function stdioFailure(): void {
 }
 
 describe('desktop MCP diagnostic delivery', () => {
-  it('forwards the canonical redacted record once and waits for its acknowledgement before the close receipt', async () => {
+  it('forwards the canonical redacted record once and a drain waits for its acknowledgement', async () => {
     configureLogger({ level: LogLevel.INFO });
     const acknowledgement = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
@@ -68,7 +68,7 @@ describe('desktop MCP diagnostic delivery', () => {
       createLogger('UnrelatedHost').warn('must not cross the MCP adapter');
       await entered.promise;
       let closed = false;
-      const closing = relay.shutdown(report).then(() => {
+      const closing = relay.drain().then(() => {
         closed = true;
       });
       await Promise.resolve();
@@ -76,7 +76,7 @@ describe('desktop MCP diagnostic delivery', () => {
       expect(delivered).toHaveLength(1);
       acknowledgement.resolve();
       await closing;
-      expect(delivered).toHaveLength(2);
+      expect(delivered).toHaveLength(1);
       expect(delivered[0]).toMatchObject({
         record: {
           args: [
@@ -103,7 +103,6 @@ describe('desktop MCP diagnostic delivery', () => {
       });
       expect(JSON.stringify(delivered)).not.toContain('smoke-fake-long-bearer-secret');
       expect(JSON.stringify(delivered)).not.toContain('smoke-fake-code');
-      expect(delivered[1]).toEqual({ hostCloseReport: report, type: 'shutdown' });
     } finally {
       acknowledgement.resolve();
       relay.dispose();
@@ -182,7 +181,6 @@ describe('desktop MCP diagnostic delivery', () => {
           expect.objectContaining({ level: 'error', message: 'MCP diagnostic delivery failed' }),
         ])
       );
-      await expect(relay.shutdown(report)).rejects.toThrow('MCP diagnostic delivery failed');
       relay.dispose();
       const count = request.mock.calls.length;
       stdioFailure();
@@ -228,22 +226,15 @@ function compositionOptions(
 }
 
 describe('desktop MCP composition receipts', () => {
-  it('joins physical shutdown and Main acknowledgement before returning, then unregisters the tap', async () => {
+  it("joins the runtime's physical close, asks Main for nothing, and unregisters the tap", async () => {
     const joined = Promise.withResolvers<typeof report>();
-    const acknowledged = Promise.withResolvers<void>();
-    const entered = Promise.withResolvers<void>();
     const services = {
       close: vi.fn(() => joined.promise),
       runtime: { host: {} },
     } as unknown as hostServices.McpHostServices;
     const create = vi.spyOn(hostServices, 'createMcpHostServices').mockResolvedValue(services);
     const start = vi.spyOn(McpSettingsAuthority.prototype, 'start').mockResolvedValue();
-    const request = vi.fn(async (method: string, _payload: unknown) => {
-      if (method === MCP_STORE_METHODS.diagnostics) {
-        entered.resolve();
-        await acknowledged.promise;
-      }
-    });
+    const request = vi.fn(async (_method: string, _payload: unknown) => undefined);
     const host = await createDesktopNodeMcpHost(compositionOptions(request));
     let completed = false;
     const closing = host.close().then(() => {
@@ -251,20 +242,16 @@ describe('desktop MCP composition receipts', () => {
     });
     try {
       await vi.waitFor(() => expect(services.close).toHaveBeenCalledOnce());
-      expect(request).toHaveBeenCalledTimes(1); // ready, no receipt before physical join
-      joined.resolve(report);
-      await entered.promise;
       expect(completed).toBe(false);
-      expect(request.mock.calls[1]?.[1]).toEqual({ hostCloseReport: report, type: 'shutdown' });
-      acknowledged.resolve();
+      joined.resolve(report);
       await closing;
       expect(completed).toBe(true);
+      // Only `ready` reached Main; a record after the close crosses nothing.
       stdioFailure();
       await Promise.resolve();
-      expect(request).toHaveBeenCalledTimes(2);
+      expect(request).toHaveBeenCalledTimes(1);
     } finally {
       joined.resolve(report);
-      acknowledged.resolve();
       await host.close();
       create.mockRestore();
       start.mockRestore();

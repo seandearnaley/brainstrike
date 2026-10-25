@@ -13,7 +13,8 @@ vi.mock('@brainstrike/agent-host/client', () => ({
 
 /**
  * The host's side of its stdio: what it reports, the channels Main opens, and Main's
- * controls. Its `exit` comes before the end of its stdout, as a real process's can.
+ * controls. Main asks it to close by ending its stdin. Its `exit` comes before the end of
+ * its stdout, as a real process's can.
  */
 class Child extends EventEmitter {
   pid: number | undefined = 123;
@@ -38,14 +39,14 @@ class Child extends EventEmitter {
       },
       message: (message) => {
         this.controls.push(message);
-        if (JSON.stringify(message) === '{"method":"close"}') {
-          this.closes += 1;
-          if (this.exitOnClose) {
-            this.exit(0);
-          }
-        }
       },
       opened: (channel) => this.channels.push(channel),
+    });
+    void this.#stdio.ended.then(() => {
+      this.closes += 1;
+      if (this.exitOnClose) {
+        this.exit(0);
+      }
     });
   }
   report(message: unknown): void {
@@ -213,22 +214,16 @@ describe('desktop host child', () => {
     const entry = join(directory, 'host.mjs');
     const holderPid = join(directory, 'holder.pid');
     // A real host process: it starts a child that inherits its stderr and outlives it, then
-    // reports ready and exits when Main asks it to close.
+    // reports ready and exits when its stdin ends.
     await writeFile(
       entry,
       `import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
-import { createInterface } from 'node:readline';
 const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'ignore', 'inherit'] });
 holder.unref();
 writeFileSync(${JSON.stringify(holderPid)}, String(holder.pid));
 process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'host/message', params: { event: 'ready' } }) + '\\n');
-createInterface({ input: process.stdin }).on('line', (line) => {
-  const frame = JSON.parse(line);
-  if (frame.method === 'host/message' && frame.params.method === 'close') {
-    process.exit(0);
-  }
-});
+process.stdin.on('end', () => process.exit(0)).resume();
 `
     );
     let holder: number | undefined;
@@ -250,6 +245,71 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       await rm(directory, { force: true, recursive: true });
     }
   });
+
+  it.skipIf(process.platform === 'win32').each(['its grace ran out', 'it was killed'] as const)(
+    'leaves no command group the host started running once %s',
+    async (ending) => {
+      const { spawn } = await import('node:child_process');
+      const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const { joinProcessExit, processStartTime } = await import(
+        '@brainstrike/test-utils/process-identity'
+      );
+      const { createDesktopHostLease } = await import('../../host-lease-manager');
+      const directory = await mkdtemp(join(tmpdir(), 'host-command-group-'));
+      const entry = join(directory, 'host.mjs');
+      const commandPid = join(directory, 'command.pid');
+      // A real host whose close hangs: it starts a SIGTERM-immune command as the leader of
+      // its own group, reports that group, and ignores the end of its stdin.
+      await writeFile(
+        entry,
+        `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+const command = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { detached: true, stdio: 'ignore' });
+command.unref();
+writeFileSync(${JSON.stringify(commandPid)}, String(command.pid));
+const send = (params) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'host/message', params }) + '\\n');
+send({ event: 'command-group', pgid: command.pid, state: 'started' });
+send({ event: 'ready' });
+process.stdin.resume();
+setInterval(() => {}, 1000);
+`
+      );
+      let command: { readonly pid: number; readonly start: string } | undefined;
+      try {
+        const host = spawn(process.execPath, [entry], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const lost = Promise.withResolvers<number>();
+        const owner = createDesktopHostLease({
+          closeGraceMs: 200,
+          onLost: (code) => lost.resolve(code),
+          root,
+          spawn: () => host,
+        });
+        await owner.acquire();
+        const pid = Number(await readFile(commandPid, 'utf8'));
+        const start = processStartTime(pid);
+        if (start === null) {
+          throw new Error('The command exited before the host ended');
+        }
+        command = { pid, start };
+        if (ending === 'it was killed') {
+          process.kill(host.pid ?? 0, 'SIGKILL');
+          await lost.promise;
+        } else {
+          await owner.close();
+        }
+        // Joined at its OS exit: nothing else would end a SIGTERM-immune command.
+        await joinProcessExit(pid, start);
+        await owner.close();
+      } finally {
+        if (command && processStartTime(command.pid) === command.start) {
+          process.kill(command.pid, 'SIGKILL');
+        }
+        await rm(directory, { force: true, recursive: true });
+      }
+    }
+  );
 
   it('ends a ready host that never answers Main’s initialize when the app closes', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');

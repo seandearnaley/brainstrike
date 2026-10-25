@@ -15,6 +15,7 @@ import { sha256OfBuffer } from '@brainstrike/host-capabilities/hooks';
 import { createLogger } from '@brainstrike/logging';
 import { CHILD_SIGNAL_GRACE_MS, terminateTree } from '@brainstrike/state-store/native-children';
 import type { WorktreeSetupOutcome, WorktreeSetupSkippedCopy } from '@brainstrike/types';
+import { trackChildProcessGroup } from '@brainstrike/utils/process-groups';
 import { isPathWithin } from './worktree-paths';
 import type { WorktreeSetupInput } from './worktree-service';
 
@@ -531,6 +532,9 @@ async function executeSetupCommand(
       detached: !isWindows,
       env,
     });
+    if (!isWindows) {
+      trackChildProcessGroup(child);
+    }
     const onStdout = (chunk: Buffer): void => appendStreamChunk(stdout, chunk);
     const onStderr = (chunk: Buffer): void => appendStreamChunk(stderr, chunk);
     child.stdout.on('data', onStdout);

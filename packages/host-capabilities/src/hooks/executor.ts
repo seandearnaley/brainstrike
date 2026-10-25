@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type { ScopedLogger } from '@brainstrike/logging';
+import { trackChildProcessGroup } from '@brainstrike/utils/process-groups';
 import { resolveShellInvocation } from '../native-tools/execute-command-tool.ts';
 import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.ts';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.ts';
@@ -274,6 +275,9 @@ function executeHook(
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    if (!isWindows) {
+      trackChildProcessGroup(child);
+    }
 
     let stdout = '';
     let stderr = '';

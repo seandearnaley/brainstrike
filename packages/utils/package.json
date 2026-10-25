@@ -27,6 +27,7 @@
     "./browser-download": "./src/browser-download.ts",
     "./collator": "./src/collator.ts",
     "./create-debounce": "./src/create-debounce.ts",
+    "./process-groups": "./src/process-groups.ts",
     "./error-utils": "./src/error-utils.ts",
     "./env-utils": "./src/env-utils.ts",
     "./filter-utils": "./src/filter-utils.ts",

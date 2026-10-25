@@ -30,6 +30,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { createLogger } from '@brainstrike/logging';
 import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store/native-children';
+import { trackChildProcessGroup } from '@brainstrike/utils/process-groups';
 
 import {
   assertExecRequestSatisfiable,
@@ -616,14 +617,19 @@ export interface ChildProcessLike {
 
 const realSpawnDeps: FenceSpawnDeps = {
   killGroup: terminateProcessGroup,
-  spawnProcess: (command, args, { cwd, env }) =>
-    spawn(command, [...args], {
+  spawnProcess: (command, args, { cwd, env }) => {
+    const child = spawn(command, [...args], {
       cwd,
       detached: true,
       env,
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
-    }),
+    });
+    if (platform !== 'win32') {
+      trackChildProcessGroup(child);
+    }
+    return child;
+  },
 };
 
 export interface SpawnFencedOptions {
