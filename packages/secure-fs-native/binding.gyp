@@ -19,7 +19,10 @@
           "AdditionalOptions": ["/std:c++17"],
           "TreatWarningAsError": "true",
           "WarningLevel": 4
-        }
+        },
+        # No linker PDB: nothing reads one, and concurrent native links sharing
+        # mspdbsrv failed on Windows CI (LNK1318, RPC server unavailable).
+        "VCLinkerTool": { "GenerateDebugInformation": "false" }
       }
     }
   ]
