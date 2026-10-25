@@ -1,9 +1,13 @@
 import { createRequire } from 'node:module';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { build } from 'esbuild';
 import { expect, it } from 'vitest';
 import { McpAppProvenanceAuthority } from '../src/index.js';
 
-it('admits the official SDK production bundle within the unchanged resource budget', async () => {
+// Bundling the real SDK is heavy work; on a loaded Windows runner it outlived Vitest's 5 s default.
+it('admits the official SDK production bundle within the unchanged resource budget', {
+  timeout: getAdjustedTimeout('heavy'),
+}, async () => {
   const entry = createRequire(import.meta.url).resolve('@modelcontextprotocol/ext-apps');
   const output = await build({
     bundle: true,

@@ -9,6 +9,7 @@ import {
   attachHost,
   createNodeHostSpawner,
   decodeHostRecord,
+  HOST_STARTUP_TIMEOUT_MS,
   type HostAttachment,
   type HostRecord,
   launchHost,
@@ -27,7 +28,19 @@ import { electronExecutablePath } from '../helpers/electron-executable';
  * runner a cooperative close has outlived 10 s.
  */
 const APP_CLOSE_BUDGET_MS = HOST_COOPERATIVE_CLOSE_MS + 5000 * getTimeoutMultiplier();
-const TEST_BUDGET_MS = getAdjustedTimeout('uiComponent') + APP_CLOSE_BUDGET_MS;
+/** How long a SIGTERM'd Electron or a released host may take to exit; full CPU load outlived 5 s. */
+const PROCESS_EXIT_MS = 5000 * getTimeoutMultiplier();
+/**
+ * Attaching is bounded the same way: Electron's launch, then the lease's own startup
+ * deadline, which an app that loses the Root race waits out for the winner's host. Two
+ * apps starting at once on a loaded Windows runner have outlived a 20 s clock.
+ */
+const appAttachBudgetMs = (startupTimeoutMs: number): number =>
+  startupTimeoutMs + 10_000 * getTimeoutMultiplier();
+const TEST_BUDGET_MS =
+  getAdjustedTimeout('uiComponent') +
+  appAttachBudgetMs(HOST_STARTUP_TIMEOUT_MS) +
+  APP_CLOSE_BUDGET_MS;
 
 const decodeReport = makeThrowingDecoder(
   Schema.Struct({
@@ -102,7 +115,7 @@ afterAll(async () => {
           }
           await runWithTimeout(() => app.exited, {
             onTimeout: () => new Error('Electron survived SIGTERM; preserve its profile'),
-            timeoutMs: 5000,
+            timeoutMs: PROCESS_EXIT_MS,
           });
         } catch (retireError) {
           cleanupFailures.push(retireError);
@@ -131,10 +144,14 @@ async function waitGone(pid: number, start: string): Promise<void> {
         await new Promise<void>((resolve) => setTimeout(resolve, 20));
       }
     },
-    { onTimeout: () => new Error(`Host pid ${pid} stayed alive`), timeoutMs: 5000 }
+    { onTimeout: () => new Error(`Host pid ${pid} stayed alive`), timeoutMs: PROCESS_EXIT_MS }
   );
 }
-function startApp(root: string, startupTimeoutMs?: number, platformModule?: string): AppChild {
+function startApp(
+  root: string,
+  startupTimeoutMs = HOST_STARTUP_TIMEOUT_MS,
+  platformModule?: string
+): AppChild {
   const env = { ...process.env };
   Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
   env['NODE_PATH'] = resolve('node_modules');
@@ -148,7 +165,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     driver,
     root,
     platformModule ? agentEntrypoint : entrypoint,
-    String(startupTimeoutMs ?? 30_000),
+    String(startupTimeoutMs),
     `--user-data-dir=${userData}`,
   ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {
@@ -231,7 +248,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   const app: AppChild = {
     attached: runWithTimeout(() => completion.promise, {
       onTimeout: () => new Error(`Electron did not attach: ${stderr}`),
-      timeoutMs: 10_000 * getTimeoutMultiplier(),
+      timeoutMs: appAttachBudgetMs(startupTimeoutMs),
     }),
     close: async () => {
       if (!closingReported && child.exitCode === null && child.signalCode === null) {
@@ -444,7 +461,7 @@ describe(
       app.process.kill('SIGTERM');
       await runWithTimeout(() => app.exited, {
         onTimeout: () => new Error('Synthetic Electron parent survived SIGTERM'),
-        timeoutMs: 5000,
+        timeoutMs: PROCESS_EXIT_MS,
       });
       activeApps.delete(app);
       await attachment.closed;
