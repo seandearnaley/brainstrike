@@ -2,7 +2,7 @@ import type { IndexerOptions, IndexerPort, ScopedIndexerPort } from '@brainstrik
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type { IndexerConnection, IndexerDeadlines } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
-import { app, utilityProcess } from 'electron';
+import { app } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import {
   type CanonicalRemoteWorkspaceDependencies,
@@ -10,6 +10,7 @@ import {
   type CanonicalWorkspaceAttachment,
 } from './canonical-utility-parent';
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
+import { forkUtility } from './fork-utility';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
@@ -107,7 +108,7 @@ export class IndexerHostManager {
     if (this.#closed) {
       throw new Error('Indexer host closed before launch.');
     }
-    const child = utilityProcess.fork(this.#entryPath, [], {
+    const child = forkUtility(this.#entryPath, [], {
       env: { ...process.env, ...this.#lifecycleDelays?.().childEnv(['indexer-request']) },
       serviceName: 'brainstrike-indexer',
     });
@@ -163,6 +164,9 @@ export class IndexerHostManager {
         };
         child.on('exit', exit);
         return () => child.off('exit', exit);
+      },
+      onKillRefused: (cause) => {
+        logger.warn('Indexer utility refused its kill; still joining its exit', { cause });
       },
       onMessage: (listener) => {
         const message = (value: unknown): void => {

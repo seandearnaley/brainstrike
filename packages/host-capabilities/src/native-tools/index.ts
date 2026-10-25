@@ -17,7 +17,6 @@ export * from './gutter-prefix-guard.ts';
 export * from './host-projection-rewrites.ts';
 export * from './host-stores.ts';
 export * from './host-tools.ts';
-export * from './kill-grace.ts';
 export * from './lsp-inspection-shapes.ts';
 export * from './manage-canvas-tool.ts';
 export * from './manage-task-list-tool.ts';

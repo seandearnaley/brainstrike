@@ -43,7 +43,7 @@ test('paged native Library reads preserve all recorded chunks and refuse foreign
       rootIds: [],
       scopes: [scope],
     },
-    { closeMs: 5000, exitMs: 5000 }
+    { closeMs: 5000 }
   );
   try {
     const plan = await port.prepareScopedFile({
@@ -162,7 +162,7 @@ test('chunk bounds give each bound file its stored line ranges, and an unwritten
       rootIds: [],
       scopes: [scope],
     },
-    { closeMs: 5000, exitMs: 5000 }
+    { closeMs: 5000 }
   );
   try {
     const plan = await port.prepareScopedFile({

@@ -15,6 +15,7 @@ import { getFileSizeConfig } from '@brainstrike/file-system';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
+import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import type { CanonicalRemoteIngestion } from './canonical-utility-parent';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { generateHostedEmbeddings } from './hosted-embeddings';
@@ -138,13 +139,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       const databasePath = path.join(resolveDesktopDatabaseProfileDirectory(), 'index.sqlite');
       const creation = acquireIndexerHost(
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
-        // R5(b) only, the close ladder: 30 s of cooperative close (source retirement and the
-        // close request), then 30 s for the utility to exit after its close ACK, before it is
-        // killed; after a kill, 30 s before its still-joined exit is reported slow. With 1 s, a
-        // loaded Windows runner killed a utility that was already exiting, Windows refused it,
-        // and the index stayed blocked (queue run 40164820640). Startup and requests have no
-        // deadline (R2): slowness never retires it.
-        { closeMs: 30_000, exitMs: 30_000 },
+        // R5(b) only (ADR-0030): from the close request to the utility's exit, then a kill and
+        // the still-joined exit. Startup and requests have no deadline (R2).
+        { closeMs: CHILD_CLOSE_BUDGET_MS },
         dependencies.lifecycleDelays
       );
       creation.catch(() => undefined);

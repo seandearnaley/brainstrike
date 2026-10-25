@@ -24,6 +24,7 @@ import { spawn } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
+import { endTreeOnDeadline } from '@brainstrike/state-store/native-children';
 import type { StructuredFileDiffParams } from '@brainstrike/types';
 import {
   createGitService,
@@ -175,7 +176,8 @@ function classifyGitRun(
  *     Overflow never kills git: Git for Windows' `cmd\git.exe` is a launcher,
  *     and a kill stops only the launcher while the real git keeps running in
  *     the repository. Closing the pipe ends both.
- *   - 'timeout': the timeout or the caller's AbortSignal killed the run.
+ *   - 'timeout': the timeout or the caller's AbortSignal ended the run. Either
+ *     ends git's whole tree, so the real git under the launcher ends too.
  *   - 'notFound': `git` could not be spawned (ENOENT).
  * - `exitCode` is null whenever the run did not complete on its own terms.
  */
@@ -195,7 +197,12 @@ function runGitProcess({
   readonly timeoutMs: number;
 }): Promise<GitCommandRun> {
   return new Promise<GitCommandRun>((resolve) => {
-    const child = spawn('git', [...args], { cwd, env, signal, timeout: timeoutMs });
+    const child = spawn('git', [...args], { cwd, env });
+    const deadline = endTreeOnDeadline(child, {
+      onError: (cause) => logger.warn('Could not end the git process tree', { cause }),
+      signal,
+      timeoutMs,
+    });
     const stdout = captureBounded(child.stdout);
     const stderr = captureBounded(child.stderr);
     let spawnError: NodeJS.ErrnoException | undefined;
@@ -203,10 +210,11 @@ function runGitProcess({
       spawnError ??= error;
     });
     child.on('close', (code) => {
+      deadline.clear();
       const failureReason = classifyGitRun(
         stdout.truncated || stderr.truncated,
         spawnError,
-        child.killed
+        deadline.ended
       );
       const captured = stdout.bytes();
       const run = {

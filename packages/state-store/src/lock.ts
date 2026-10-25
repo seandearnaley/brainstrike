@@ -129,9 +129,35 @@ function posixStartTime(pid: number): string | null {
 
 type ProcessIdentityAddon = Pick<
   typeof import('@brainstrike/windows-job-native'),
-  'getProcessCreationTime'
+  'getProcessCreationTime' | 'waitForProcessExit'
 >;
 let processIdentityAddon: ProcessIdentityAddon | undefined;
+
+function windowsProcessIdentity(): ProcessIdentityAddon {
+  processIdentityAddon ??= createRequire(import.meta.url)(
+    '@brainstrike/windows-job-native'
+  ) as ProcessIdentityAddon;
+  return processIdentityAddon;
+}
+
+/** How often POSIX re-reads the identity of a process this process cannot wait for. */
+const POSIX_EXIT_POLL_MS = 25;
+
+/**
+ * Settles once the process `pid` that started at `start` (from {@link processStartTime}) has
+ * exited (ADR-0030). Windows waits on the process's own handle, which the OS signals at its exit.
+ * On POSIX only a parent can wait for its child, and Electron reaps its utilities itself, so the
+ * identity is re-read until it is gone (an exited zombie has none).
+ */
+export async function joinProcessExit(pid: number, start: string): Promise<void> {
+  if (process.platform === 'win32') {
+    await windowsProcessIdentity().waitForProcessExit(pid, start);
+    return;
+  }
+  while (processStartTime(pid) === start) {
+    await new Promise((resolve) => setTimeout(resolve, POSIX_EXIT_POLL_MS));
+  }
+}
 
 /**
  * Keep the same lossless FILETIME previously returned by .NET Process.StartTime.
@@ -139,10 +165,7 @@ let processIdentityAddon: ProcessIdentityAddon | undefined;
  * throw. Native handle queries avoid blocking every contender on PowerShell.
  */
 function windowsStartTime(pid: number): string | null {
-  processIdentityAddon ??= createRequire(import.meta.url)(
-    '@brainstrike/windows-job-native'
-  ) as ProcessIdentityAddon;
-  return processIdentityAddon.getProcessCreationTime(pid);
+  return windowsProcessIdentity().getProcessCreationTime(pid);
 }
 
 /** kill(pid, 0): ESRCH = gone; EPERM = exists (another user's process). */
