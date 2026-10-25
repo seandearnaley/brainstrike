@@ -8,7 +8,7 @@ import type Database from 'better-sqlite3';
 import { afterEach, describe, expect, test } from 'vitest';
 import { readAll, SqliteReader } from '../src/sqlite-reader.js';
 import { STATE_DB, StateStore } from '../src/state-store.js';
-import { cleanupDirs, freshDir, sleep } from './helpers/fs.js';
+import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { fixture, killKids, runTs } from './helpers/proc.js';
 import {
   appendInputs,
@@ -21,6 +21,9 @@ import {
 } from './helpers/testkit.js';
 
 const T = 't1';
+const LSOF_ROUNDS = 6;
+const ROUND_WRITES = 10;
+
 afterEach(() => {
   killKids();
   cleanupDirs();
@@ -53,25 +56,29 @@ describe('item 7 · single writer', () => {
         const readerPid = Number((await reader.line('reading')).split(' ')[1]);
         const samples: OpenFile[][] = [];
         const r = rng(7);
-        const end = Date.now() + 1500;
-        let next = Date.now();
-        while (Date.now() < end) {
-          await appendInputs(store, T, [{ content: prose(r, 120), type: 'text' }]);
-          if (Date.now() >= next) {
-            samples.push(lsofUnder([process.pid, readerPid], root));
-            next = Date.now() + 150;
-          }
-          await sleep(1);
+        // A fixed number of rounds, not a wall-clock window: each round writes while the reader
+        // follows, then samples, however long lsof takes on a loaded machine.
+        for (let round = 0; round < LSOF_ROUNDS; round += 1) {
+          await appendInputs(
+            store,
+            T,
+            Array.from({ length: ROUND_WRITES }, () => ({ content: prose(r, 120), type: 'text' }))
+          );
+          samples.push(lsofUnder([process.pid, readerPid], root));
         }
+        // The reader followed every event the writer committed.
+        const committed = new SqliteReader(root);
+        const total = [...readAll(committed, T)].filter((item) => item.kind === 'event').length;
+        committed.close();
+        await reader.line(`seen=${total};`);
         reader.p.stdin?.write('stop\n');
-        expect(Number((await reader.line('read')).split(' ')[1])).toBeGreaterThan(120);
+        expect(Number((await reader.line('read ')).split(' ')[1])).toBe(total);
         await reader.exit();
         const flat = samples.flat();
         const real = realpathSync(root);
         const rel = (n: string): string => relative(real, n).split('\\').join('/');
         const dataFile = (f: OpenFile): boolean =>
           rel(f.name).endsWith(STATE_DB) && /^\d+$/.test(f.fd);
-        expect(samples.length).toBeGreaterThan(3);
         // positive controls: the instrument sees both processes on the truth
         expect(flat.some((f) => f.pid === process.pid && dataFile(f))).toBe(true);
         expect(flat.some((f) => f.pid === readerPid && dataFile(f))).toBe(true);
