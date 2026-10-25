@@ -14,6 +14,30 @@ const logger = createLogger('RendererClose');
  */
 export const RENDERER_CLOSE_PREPARATION_MS = 30_000;
 
+const isPrepared = (data: unknown): boolean =>
+  !!data &&
+  typeof data === 'object' &&
+  Object.keys(data).length === 1 &&
+  'prepared' in data &&
+  data.prepared === true;
+
+/** A renderer's refusal names each producer that failed, as its preload reported it. */
+function closePreparationRefusal(data: unknown): string {
+  const refusal = 'Renderer producers did not acknowledge close preparation';
+  if (
+    data &&
+    typeof data === 'object' &&
+    'prepared' in data &&
+    data.prepared === false &&
+    'failures' in data &&
+    Array.isArray(data.failures) &&
+    data.failures.every((failure) => typeof failure === 'string')
+  ) {
+    return `${refusal}: ${data.failures.join('; ')}`;
+  }
+  return refusal;
+}
+
 export interface RendererCloseWindow {
   destroy(): void;
   isDestroyed(): boolean;
@@ -128,14 +152,8 @@ export function prepareDocumentUnload(
       if (acknowledged) {
         return;
       }
-      if (
-        !data ||
-        typeof data !== 'object' ||
-        Object.keys(data).length !== 1 ||
-        !('prepared' in data) ||
-        data.prepared !== true
-      ) {
-        finish(new Error('Renderer producers did not acknowledge close preparation'));
+      if (!isPrepared(data)) {
+        finish(new Error(closePreparationRefusal(data)));
         return;
       }
       acknowledged = true;

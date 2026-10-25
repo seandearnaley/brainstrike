@@ -150,7 +150,14 @@ document it owns, then unloads the document whatever the answer:
   proceeds: the document is replaced either way.
 
 The renderer fences its UI (`inert`), joins the flushes, closes its host transport
-and acknowledges Main's private reply port. The latch belongs to that document
+and acknowledges Main's private reply port. A write its owner refused as unavailable
+(category `availability`: the profile closed, the store read-only, the view closing)
+settled with nothing left to deliver, so it is logged at warn and the flush succeeds.
+The case that needs this is a host stopped just before quit: the write waits on the
+frame's one reconnect, which quit's fenced profile refuses with its terminal reason.
+Outside quit the same write reaches the relaunched host. Any other rejection fails
+the flush, and the negative ACK names each cause, since the context bridge carries
+only an error's message. The latch belongs to that document
 generation; a reloaded document starts a fresh registry. A page never vetoes an
 unload Main owns. Hidden hosts retain their existing retirement order.
 
