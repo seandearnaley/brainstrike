@@ -709,13 +709,10 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      # node-gyp fetches Node's headers on Windows (setup-workspace), which
-      # flakes; the bounded install retry covers that download.
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: 'true'
-          install-attempts: '3'
 
       - name: Provision the Electron binary
         uses: ./.github/actions/provision-electron
@@ -764,6 +761,27 @@ jobs:
       - name: Integration tests
         if: github.event_name != 'push' || !inputs.merge-queue
         run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+
+      # A failed real-app proof keeps its evidence (the app's output, first failure,
+      # cleanup verdict) in the runner's temp directory; uploaded, a Windows failure
+      # names its cause instead of only a test timeout.
+      - name: Collect app proof evidence
+        if: failure() && matrix.partition == 'desktop'
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'app-proof-evidence'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Get-ChildItem -Path ([System.IO.Path]::GetTempPath()) -Directory -Filter 'brainstrike-*-evidence' |
+            Copy-Item -Destination $out -Recurse
+
+      - name: Upload app proof evidence
+        if: failure() && matrix.partition == 'desktop'
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-app-proof-evidence-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/app-proof-evidence/
+          retention-days: 3
+          if-no-files-found: warn
 
   # Fan-in over the Windows shards, like Unit over unit-shard.
   windows:
