@@ -11,7 +11,7 @@ export interface EnvironmentConfig {
   isCodex: boolean;
   isGitHubActions: boolean;
   retries: number;
-  workers: number;
+  workers: number | string;
 }
 
 export interface PlaywrightCliOverrides {
@@ -85,9 +85,12 @@ export const detectEnvironment = () => {
 };
 
 /**
- * Get worker count based on environment capabilities
+ * Get worker count based on environment capabilities. A developer or sign-off
+ * machine gets Playwright's own default, half its logical cores: a fixed 2 left
+ * a 16-thread Windows box running the whole desktop suite two apps at a time.
+ * https://playwright.dev/docs/api/class-testconfig#test-config-workers
  */
-export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>) => {
+export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>): number | string => {
   const { isCodex, isGitHubActions, isCI } = env || detectEnvironment();
 
   if (isCodex) {
@@ -99,7 +102,7 @@ export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>) => {
   if (isCI) {
     return 1; // Other CI environments, be conservative
   }
-  return 2; // Local development default
+  return '50%';
 };
 
 /**

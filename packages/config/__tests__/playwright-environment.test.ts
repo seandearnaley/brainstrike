@@ -54,6 +54,7 @@ describe('playwright-environment helpers', () => {
     expect(getWorkerCount({ isCI: true, isCodex: true, isGitHubActions: false })).toBe(1);
     expect(getWorkerCount({ isCI: true, isCodex: false, isGitHubActions: true })).toBe(2);
     expect(getWorkerCount({ isCI: true, isCodex: false, isGitHubActions: false })).toBe(1);
+    expect(getWorkerCount({ isCI: false, isCodex: false, isGitHubActions: false })).toBe('50%');
     expect(getRetryCount({ isCI: true, isCodex: true, isGitHubActions: false })).toBe(1);
     expect(getRetryCount({ isCI: false, isCodex: false, isGitHubActions: false })).toBe(0);
   });
