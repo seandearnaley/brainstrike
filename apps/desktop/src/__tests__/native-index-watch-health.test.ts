@@ -102,6 +102,20 @@ it('keeps native reads admitted with incomplete proofs during recoverable watche
       state: 'degraded',
       timestamp: 1,
     });
+    // Dropped events are a rescan on every OS watcher, never a source failure.
+    for (const backend of ['inotify', 'windows'] as const) {
+      emit({
+        backend,
+        failure: {
+          code: 'rescan-required',
+          message: 'The file system watcher dropped events; the root must be re-scanned.',
+          retryable: true,
+          terminal: false,
+        },
+        state: 'degraded',
+        timestamp: 1,
+      });
+    }
     const partial = await activation.withRead(async (read) => ({
       authority: await read.getAuthority(),
       info: await read.port.info(),
