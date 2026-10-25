@@ -21,7 +21,7 @@ const logger = createLogger('ChangesLiveRefreshStore');
  *   for every repo: a missed refresh is silent staleness, an extra refetch is
  *   just work.
  *
- * The wire `generation` is a per-main-process monotonic send counter;
+ * The wire `generation` is a per-window monotonic counter;
  * `ingestInvalidation` drops stale/duplicate deliveries so a redundant IPC
  * replay can never double-refetch. Repository view evidence from both sources
  * enters one bounded trailing batch: nothing is discarded, and a refetch
