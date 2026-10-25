@@ -129,6 +129,8 @@ export async function runIndexerProcess(
           },
           (error: unknown) => {
             send({ error: fault(error), id: request.id, kind: 'response', ok: false });
+            // The exit code carries the outcome too: the parent may see the exit first.
+            process.exitCode = 1;
             endpoint.finish();
           }
         );
@@ -354,6 +356,7 @@ export async function runIndexerProcess(
           (error: unknown) => {
             send({ error: fault(error), id: request.id, kind: 'response', ok: false });
             if (request.op === 'close') {
+              process.exitCode = 1;
               endpoint.finish();
             }
           }

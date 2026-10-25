@@ -115,7 +115,8 @@ export interface IndexerTransport {
   /** A request: Windows refuses to terminate a process that is already exiting (ADR-0030). */
   kill(): boolean;
   onError(listener: (error: unknown) => void): () => void;
-  onExit(listener: () => void): () => void;
+  /** The OS exit, with its code (`null` when a signal ended it). */
+  onExit(listener: (code: number | null) => void): () => void;
   /** The host's log of a refused or failed kill request. The exit is still joined. */
   onKillRefused?(cause: unknown): void;
   onMessage(listener: (message: unknown) => void): () => void;
@@ -172,6 +173,7 @@ export function createIndexerConnection(
   const options = validateIndexerOptions(input);
   const deadlines = validateIndexerDeadlines(deadlineInput);
   let exited = false;
+  let exitCode: number | null | undefined;
   let closing = false;
   let resolveExit!: () => void;
   const exit = new Promise<void>((resolve) => {
@@ -221,8 +223,9 @@ export function createIndexerConnection(
   const disposers = [
     transport.onMessage((message) => client.receive(message)),
     transport.onError((error) => client.fail(error)),
-    transport.onExit(() => {
+    transport.onExit((code) => {
       exited = true;
+      exitCode = code;
       resolveExit();
       client.fail(new IndexerError('indexer-exited', 'Indexer process exited.'));
       for (const dispose of disposers) {
@@ -309,7 +312,12 @@ export function createIndexerConnection(
         transport.onStall?.('close', deadlines.closeMs);
       }
       await retire();
-      if (refused !== undefined) {
+      // The exit is the close's completion (ADR-0030); its ACK may never arrive, because
+      // the process exits right after sending it. A clean exit is a close that succeeded.
+      if (
+        refused !== undefined &&
+        !(exitCode === 0 && refused instanceof IndexerError && refused.code === 'indexer-exited')
+      ) {
         throw new AggregateError([refused], 'Indexer close failed; process exit was joined.');
       }
     })();

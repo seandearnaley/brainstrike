@@ -57,6 +57,11 @@ export class WorkspaceRootMountTable {
     return new Set(this.sessionRootIds);
   }
 
+  /** Ids of the persisted (not session) mounts. */
+  persistedIds(): Set<string> {
+    return new Set(this.ids().filter((rootId) => !this.sessionRootIds.has(rootId)));
+  }
+
   /** Presentation paths of the mounts the database is allowed to converge on. */
   persistedMountedPaths(excludeRootId?: string): string[] {
     const paths: string[] = [];

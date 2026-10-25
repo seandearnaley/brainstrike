@@ -9,7 +9,7 @@ import type { HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.ts';
-import { toBoundaryResponseError } from './boundary-wire.ts';
+import { HOST_CLOSING, toBoundaryResponseError } from './boundary-wire.ts';
 import { bindHostBrowserOriginMethods } from './browser-origin-answers.ts';
 import type { HostCore } from './core.ts';
 import { hostChildStatusChanged } from './core-child-runs.ts';
@@ -75,7 +75,10 @@ export interface HostConnectionOptions {
   readonly providers?: HostProviderService;
   /** BST-2227: the embedder `memory/embedder/probe` tests, where the host has a composer. */
   readonly resolveMemoryEmbedder?: HostPlatform['resolveMemoryEmbedder'];
-  /** The transport's retirement: each in-flight request's signal aborts as `host.closing`. */
+  /**
+   * The transport's retirement: each in-flight request's signal aborts as `host.closing`, and a
+   * request that arrives afterwards is refused as `host.closing`.
+   */
   readonly retiring?: AbortSignal;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
@@ -98,11 +101,6 @@ const HOST_CLEANUP_FAILED = fault({
   category: 'internal',
   code: 'host.cleanup-failed',
   message: 'Host cleanup failed, so the agent host kept its Root.',
-});
-const HOST_CLOSING = refusal({
-  category: 'availability',
-  code: 'host.closing',
-  message: 'The agent host is closing.',
 });
 
 export function bindHostConnection(
@@ -166,6 +164,8 @@ export function bindHostConnection(
       connection.sendNotification(HOST_RUN_TELEMETRY, telemetry).catch(() => connection.dispose());
     }
   });
+  // A socket refuses from its host's close; a private client from its own retirement.
+  const isClosing = (): boolean => lifecycle?.closing === true || retiring?.aborted === true;
   const handle = <M extends HostMethod>(
     method: M,
     request: (params: HostParams<M>, signal: AbortSignal) => unknown
@@ -184,7 +184,7 @@ export function bindHostConnection(
           if (disposed || (!initialized && method !== 'initialize')) {
             throw new BoundaryFailureError(UNAUTHENTICATED);
           }
-          if (lifecycle?.closing) {
+          if (isClosing()) {
             throw new BoundaryFailureError(HOST_CLOSING);
           }
           return await request(parseHostParams(method, input), controller.signal);
