@@ -220,9 +220,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       watchFailures: new Map(),
     };
     graph = current;
-    // One registry mutation: a folder removed meanwhile is removed after these borrows.
+    // One registry mutation: a folder removed meanwhile is removed after these borrows. A
+    // superseded generation stops borrowing and fails after the mutation: its cancellation is
+    // this owner's, never a failure of the registry's mutation (which quit's close joins).
+    const superseded = (): boolean => current.controller.signal.aborted || graph !== current;
     await dependencies.application.roots.borrowRestoredRoots(async (descriptors, borrow) => {
-      assertCurrent(current);
+      if (superseded()) {
+        return;
+      }
       const roots = (await dependencies.catalog.workspaceRoots({ operation: 'list' })).roots.filter(
         (root) => root.status === 'live'
       );
@@ -239,9 +244,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           dependencies.application.watches.subscribe.bind(dependencies.application.watches)
         );
         current.leases.set(lease.rootId, lease);
-        assertCurrent(current);
+        if (superseded()) {
+          return;
+        }
       }
     });
+    assertCurrent(current);
     const port = await runtime.acquire();
     assertCurrent(current);
     const authorized = await authority();
