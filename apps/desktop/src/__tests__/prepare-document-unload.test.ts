@@ -210,3 +210,22 @@ test('escalates a renderer that never answers to destroy after its ladder, then 
   expectReleased(window);
   expect(vi.getTimerCount()).toBe(0);
 });
+
+test('a late ACK, inside the ladder, resolves without retiring the renderer', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  const window = windowFixture();
+  let prepared = false;
+  const preparing = prepareDocumentUnload(window).then(() => {
+    prepared = true;
+  });
+  await vi.advanceTimersByTimeAsync(RENDERER_CLOSE_PREPARATION_MS - 1);
+  expect(prepared).toBe(false);
+  channels.created[0]?.port1.emit('message', { data: { prepared: true } });
+  // The renderer may close its end after it acknowledged.
+  channels.created[0]?.port1.emit('close');
+  await preparing;
+  expect(prepared).toBe(true);
+  expect(window.destroy).not.toHaveBeenCalled();
+  expectReleased(window);
+  expect(vi.getTimerCount()).toBe(0);
+});
