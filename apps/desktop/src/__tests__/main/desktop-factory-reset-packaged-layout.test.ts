@@ -2,11 +2,11 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { acquireProfileResetLease } from '@brainstrike/host-lease';
-import { RootLock } from '@brainstrike/state-store';
+import { RootLock, RootLockedError } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveDatabaseLocation } from '../../database-location';
 import { resetDesktopApplicationData } from '../../desktop-factory-reset';
+import { acquireProfileResetLease } from '../../profile-reset-lease';
 
 /** Whether the temp directory's file system ignores case: macOS and Windows by default, not Linux. */
 const tmpFoldsCase = ((): boolean => {
@@ -81,11 +81,11 @@ describe('factory reset with the packaged macOS database layout', () => {
       expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
       expect(existsSync(path.join(sessionData, 'engine-container'))).toBe(true);
       expect(result.preservedPaths).toContain(RootLock.dirOf(lease.root));
-      await expect(RootLock.acquire(profile)).rejects.toMatchObject({ name: 'RootLockedError' });
+      expect(() => RootLock.acquire(profile)).toThrow(RootLockedError);
     } finally {
       lease.release();
     }
-    const next = await RootLock.acquire(profile);
+    const next = RootLock.acquire(profile);
     next.release();
   });
 
@@ -118,9 +118,7 @@ describe('factory reset with the packaged macOS database layout', () => {
         });
         expect(existsSync(RootLock.dirOf(lease.root))).toBe(true);
         expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
-        await expect(RootLock.acquire(profileDirectory)).rejects.toMatchObject({
-          name: 'RootLockedError',
-        });
+        expect(() => RootLock.acquire(profileDirectory)).toThrow(RootLockedError);
       } finally {
         lease.release();
       }

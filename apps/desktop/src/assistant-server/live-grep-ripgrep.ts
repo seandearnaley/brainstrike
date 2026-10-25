@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { createLogger } from '@brainstrike/logging';
-import { endTreeOnDeadline, trackNativeChild } from '@brainstrike/state-store/native-children';
+import { endTreeOnDeadline } from '@brainstrike/state-store/native-children';
 import {
   BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS,
   UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES,
@@ -413,9 +413,6 @@ export function runRipgrep(args: {
       signal: args.signal,
       timeoutMs,
     });
-    // execFile cannot pass the Root's flock (an ADR-0017 limit); the host's supervisor still
-    // learns this bounded search process.
-    child.once('exit', trackNativeChild(child.pid, { group: false }));
   });
 }
 

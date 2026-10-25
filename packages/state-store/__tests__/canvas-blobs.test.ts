@@ -81,10 +81,7 @@ test('Canvas version metadata and shared HTML survive bundle import; collection 
     const importedRoot = freshDir('canvas-import');
     StateStore.importBundle(bundle, importedRoot);
     const importedIndexer = new TruthIndexer(importedRoot);
-    const imported = await StateStore.open(importedRoot, {
-      indexer: importedIndexer,
-      onForeignLock: () => true, // same-host copied-root confirmation
-    });
+    const imported = await StateStore.open(importedRoot, { indexer: importedIndexer });
     try {
       expect((await imported.read(threadId)).map((row) => row.raw)).toEqual(
         before.map((row) => row.raw)

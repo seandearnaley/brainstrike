@@ -2,7 +2,7 @@
 // ordinary-app-owned-host-<fault>.integration.test.ts so Vitest can run them on
 // different workers and native shards instead of one 90 s file.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host';
@@ -13,12 +13,7 @@ import {
   encodeFileMentionId,
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
-import {
-  joinProcessExit,
-  processStartTime,
-  RootLock,
-  RootLockedError,
-} from '@brainstrike/state-store';
+import { joinProcessExit, processStartTime } from '@brainstrike/test-utils/process-identity';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron } from 'playwright';
 import { expect, test } from 'vitest';
@@ -49,6 +44,8 @@ import {
   type OwnedTestProcess,
   retireOwnedTestProcesses,
 } from './helpers/retire-owned-test-processes';
+import { isRootHeld } from './helpers/root-held';
+import { sharedDescriptors } from './helpers/shared-descriptors';
 
 const desktop = resolve(import.meta.dirname, '../..');
 // A send's admission (MCP discovery, memory resolution) and each model step
@@ -235,7 +232,7 @@ setInterval(() => {}, 1000);
       process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), phase })}\n`);
     };
     try {
-      expect(RootLock.inspect(profile)).toBeNull();
+      expect(isRootHeld(profile)).toBe(false);
       checkpoint('ordinary-launch-start');
       application = await _electron.launch(options);
       await routeRecordedModelMetadata(application);
@@ -326,12 +323,11 @@ setInterval(() => {}, 1000);
         await ensureAssistantShellVisible(page);
         client = await attachHostThroughWindow(page);
       };
-      const record = client.host;
-      expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
-      expect(record.pid).not.toBe(process.pid);
-      const start = processStartTime(record.pid);
-      if (start) {
-        owners.push({ kind: 'child', pid: record.pid, start });
+      expect(client.host.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
+      expect(client.host.pid).not.toBe(process.pid);
+      const record = { ...client.host, start: processStartTime(client.host.pid) };
+      if (record.start) {
+        owners.push({ kind: 'child', pid: record.pid, start: record.start });
       }
       let discoveredThreadId: string | undefined;
       await expect
@@ -703,43 +699,43 @@ setInterval(() => {}, 1000);
         return { kind: 'command' as const, pid, start };
       });
       owners.push(...commandIdentities);
+      const main = application?.process().pid;
+      if (process.platform !== 'win32' && main !== undefined) {
+        // Main marks its descriptors close-on-exec before it spawns the host: neither the
+        // host nor the command it started holds Main's files, pipes or sockets.
+        const executable = electronExecutablePath();
+        const runtime = executable.includes('.app/')
+          ? executable.slice(0, executable.indexOf('.app/') + '.app/'.length)
+          : `${dirname(executable)}${sep}`;
+        for (const pid of [record.pid, ...commandPids]) {
+          expect(sharedDescriptors(main, pid, runtime)).toEqual([]);
+        }
+      }
       if (fault === 'utility-loss') {
-        const originalOwner = RootLock.inspect(profile)?.owner;
         expect(processStartTime(record.pid)).toBe(record.start);
-        // Explicit fault injection targets only this test's proven-owned utility.
-        // The real native executor still owns its existing SIGTERM/grace tail.
+        // Explicit fault injection targets only this test's proven-owned host.
         process.kill(record.pid, 'SIGKILL');
         await expect.poll(() => processStartTime(record.pid)).not.toBe(record.start);
         const before = commandIdentities.filter(
           ({ pid, start }) => processStartTime(pid) === start
         );
         expect(before.length).toBeGreaterThan(0);
-        let contender: RootLock | undefined;
-        let refusal: unknown;
-        try {
-          contender = await RootLock.acquire(profile);
-        } catch (cause) {
-          refusal = cause;
-        }
-        const after = commandIdentities.filter(({ pid, start }) => processStartTime(pid) === start);
+        // ADR-0031: the dead host's lock died with it. The SIGTERM-immune command it
+        // started holds nothing. Main disconnects the window from its dead host, and the
+        // window's next client gets a new host on the root.
+        await client.closed;
+        client = await attachHostThroughWindow(page);
+        const replacement = client.host.pid;
         await writeFile(
           join(evidence, 'utility-loss-root-reuse.json'),
           JSON.stringify(
-            {
-              after,
-              before,
-              contender: contender?.owner,
-              originalOwner,
-              refusal: refusal instanceof Error ? refusal.message : null,
-              utility: { pid: record.pid, start: record.start },
-            },
+            { before, replacement, utility: { pid: record.pid, start: record.start } },
             null,
             2
           )
         );
-        contender?.release();
-        expect(after.length).toBeGreaterThan(0);
-        expect(refusal).toBeInstanceOf(RootLockedError);
+        expect(replacement).not.toBe(record.pid);
+        expect(isRootHeld(profile)).toBe(true);
         return;
       }
       const activeRows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
@@ -758,7 +754,7 @@ setInterval(() => {}, 1000);
       await ensureAssistantShellVisible(page);
       await page.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
       client = await attachHostThroughWindow(page);
-      expect(client.host).toEqual(record);
+      expect(client.host.pid).toBe(record.pid);
       expect(
         (await client.request('thread/read', { fromSeq: 0, threadId })).rows.slice(
           0,
@@ -833,7 +829,7 @@ setInterval(() => {}, 1000);
       await closeElectronApp({ app: application });
       application = undefined;
       expect(processStartTime(record.pid)).not.toBe(record.start);
-      expect(RootLock.inspect(profile)?.owner.released).toBe(true);
+      expect(isRootHeld(profile)).toBe(false);
       application = await _electron.launch(options);
       await routeRecordedModelMetadata(application);
       await capture(application);
@@ -951,7 +947,7 @@ setInterval(() => {}, 1000);
             errors: errors.map(String),
             failure: failure ? String(failure) : null,
             remaining,
-            rootReleased: RootLock.inspect(profile)?.owner.released,
+            rootReleased: !isRootHeld(profile),
           },
           null,
           2

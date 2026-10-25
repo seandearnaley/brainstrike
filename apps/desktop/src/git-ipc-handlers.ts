@@ -20,10 +20,11 @@
  * git failures are logged and surfaced, never thrown across IPC and never
  * silently swallowed.
  */
+import { spawn } from 'node:child_process';
 import type { Readable } from 'node:stream';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
-import { endTreeOnDeadline, spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { endTreeOnDeadline } from '@brainstrike/state-store/native-children';
 import type { StructuredFileDiffParams } from '@brainstrike/types';
 import {
   createGitService,
@@ -196,7 +197,7 @@ function runGitProcess({
   readonly timeoutMs: number;
 }): Promise<GitCommandRun> {
   return new Promise<GitCommandRun>((resolve) => {
-    const child = spawnNativeChild('git', args, { cwd, env });
+    const child = spawn('git', args, { cwd, env });
     const deadline = endTreeOnDeadline(child, {
       onError: (cause) => logger.warn('Could not end the git process tree', { cause }),
       signal,

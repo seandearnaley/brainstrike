@@ -1,10 +1,10 @@
 import { PassThrough } from 'node:stream';
-import { HOST_VERSION } from '@brainstrike/host-lease';
 import { authenticateHostClient, type HostClient } from './client-connection.ts';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
+import type { HostClientOrigin } from './ports.ts';
 import { loadHostPlatform } from './process-entry.ts';
-import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
-import { openAgentHost } from './runtime.ts';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from './protocol.ts';
+import { type OpenedAgentHost, openAgentHost } from './runtime.ts';
 import { stdioConnection } from './transports.ts';
 
 /** A client of a host this process opened, and that host's close. */
@@ -25,30 +25,13 @@ export async function openStandaloneHost(
   platformModule: string,
   platformOptions: HostPlatformLaunchOptions
 ): Promise<StandaloneHost> {
-  const options = { lifetime: 'persistent', root } as const;
   const host = await openAgentHost(root, (context) =>
-    loadHostPlatform(platformModule, options, context, platformOptions)
+    loadHostPlatform(platformModule, { root }, context, platformOptions)
   );
-  const toHost = new PassThrough();
-  const toClient = new PassThrough();
-  const unbind = host.bindClientConnection(stdioConnection(toHost, toClient), 'public-socket');
-  const transportClosed = Promise.withResolvers<void>();
-  const closeTransport = async (): Promise<void> => {
-    toHost.destroy();
-    toClient.destroy();
-    transportClosed.resolve();
-  };
   let client: HostClient;
   try {
-    client = await authenticateHostClient(
-      stdioConnection(toClient, toHost),
-      { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
-      closeTransport,
-      transportClosed.promise
-    );
+    client = await connectInProcessClient(host, 'public-socket');
   } catch (cause) {
-    await closeTransport();
-    unbind();
     await host.close();
     throw cause;
   }
@@ -58,10 +41,39 @@ export async function openStandaloneHost(
       try {
         await client.close();
       } finally {
-        unbind();
         await host.close();
       }
     },
     idle: () => host.core.holds.idle(),
   };
+}
+/**
+ * A client of `host` over an in-memory stream pair, as `origin`: the same JSON-RPC schema
+ * as any other transport, and holding the stream is its authority.
+ */
+export async function connectInProcessClient(
+  host: OpenedAgentHost,
+  origin: HostClientOrigin
+): Promise<HostClient> {
+  const toHost = new PassThrough();
+  const toClient = new PassThrough();
+  const unbind = host.bindClientConnection(stdioConnection(toHost, toClient), origin);
+  const transportClosed = Promise.withResolvers<void>();
+  const closeTransport = async (): Promise<void> => {
+    toHost.destroy();
+    toClient.destroy();
+    unbind();
+    transportClosed.resolve();
+  };
+  try {
+    return await authenticateHostClient(
+      stdioConnection(toClient, toHost),
+      { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
+      closeTransport,
+      transportClosed.promise
+    );
+  } catch (cause) {
+    await closeTransport();
+    throw cause;
+  }
 }

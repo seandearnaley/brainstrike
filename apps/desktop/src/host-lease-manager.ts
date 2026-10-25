@@ -3,18 +3,14 @@ import { constants } from 'node:os';
 import type { Readable, Writable } from 'node:stream';
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
-import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
-import { HOST_VERSION, startupFailure } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
-import type { ClearContentResult } from '@brainstrike/state-store';
+import { markDescriptorsCloseOnExec } from '@brainstrike/secure-fs-native';
+import { type ClearContentResult, RootLockedError } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { mainPlatformConnection, type PlatformMessagePort } from './agent-host-platform/connection';
-import {
-  createHostNativeChildren,
-  type HostNativeChildren,
-} from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import {
@@ -56,13 +52,16 @@ type HostLeaseSpawn = (
 ) => HostChildProcess;
 /**
  * Electron's own Node runs the headless host entry, so its native add-ons match; under
- * plain Node the same entry runs unchanged. Its stderr is copied to Main's.
+ * plain Node the same entry runs unchanged. Its stderr is copied to Main's. Chromium opens
+ * descriptors without close-on-exec, so Main marks them first: the host and every command it
+ * starts inherit only the stdio given here, and none can hold Main's files or sockets.
  */
 export function spawnHostProcess(
   entrypoint: string,
   args: readonly string[],
   env: NodeJS.ProcessEnv
 ): HostChildProcess {
+  markDescriptorsCloseOnExec();
   const child = spawn(process.execPath, [entrypoint, ...args], {
     // biome-ignore lint/style/useNamingConvention: Electron's documented Node-mode switch.
     env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
@@ -93,11 +92,8 @@ export interface DesktopHostLeaseOptions {
     readonly exited: Promise<number>;
     readonly requested: boolean;
   }) => void;
-  /** Main's platform, served on the host's platform channel, and its supervisor of the host's native processes. */
-  readonly platform?: (
-    nativeChildren: HostNativeChildren,
-    port: PlatformMessagePort
-  ) => {
+  /** Main's platform, served on the host's platform channel. */
+  readonly platform?: (port: PlatformMessagePort) => {
     close(): Promise<void>;
   };
   /** Trusted Node composition module; the GUI and CLI use the same kernel. */
@@ -224,7 +220,9 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
         cleanup();
         resolve();
       } else if (decoded.event === 'failed') {
-        failed(startupFailure(root, decoded));
+        failed(
+          decoded.kind === 'root-locked' ? new RootLockedError(root) : new Error(decoded.message)
+        );
       }
     };
     child.messages.add(message);
@@ -290,8 +288,6 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   let releasing: Promise<void> | undefined;
   let ownedChild: OwnedChild | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
-  /** A lost host's native processes, settled once their SIGTERM grace ran (ADR-0017). */
-  let lostTail: Promise<void> | undefined;
   let clients = 0;
   const closeScope = (): Promise<void> => {
     releasing ??= runAtPromiseBoundary(Scope.close(scope, Exit.void));
@@ -307,15 +303,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       const spawnHost = options.spawn ?? spawnHostProcess;
       const platformOptions = await options.platformOptions?.();
       abort.signal.throwIfAborted();
-      let nativeChildren: HostNativeChildren | undefined;
-      if (options.platform) {
-        const children = createHostNativeChildren(options.root);
-        nativeChildren = children;
-        // Runs last: join the host's native processes once the host and platform are gone.
-        await addFinalizer(scope, () => children.close({ rootOwned: ownedChild?.ready === true }));
-      }
       let platform: { close(): Promise<void> } | undefined;
-      // Runs after the host has exited, before its native processes are joined.
+      // Runs after the host has exited.
       await addFinalizer(scope, async () => {
         await platform?.close();
       });
@@ -330,8 +319,6 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           { ...process.env, ...options.lifecycleDelays?.childEnv(['host-ready']) }
         ),
         () => {
-          // A lost host leaves its native processes to Main once it has exited (ADR-0017).
-          lostTail = child.exited.then(() => nativeChildren?.retire());
           // A child lost before ready fails its acquisition instead.
           if (child.ready) {
             options.onLost?.({ exited: child.exited, requested: child.relaunchRequested });
@@ -342,14 +329,14 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       // Listening from the spawn on: the child's one report is never missed.
       const ready = awaitReady(child, options.root, abort.signal);
       ready.catch(() => undefined);
-      // Runs first: the host exits before its platform and native processes are released.
+      // Runs first: the host exits before its platform is released.
       await addFinalizer(scope, async () => {
         await stopChild(child, graceMs);
         await options.lifecycleDelays?.delay('child-exit');
       });
-      if (options.platform && nativeChildren) {
+      if (options.platform) {
         // Before the host's startup asks for it; the channel holds requests until Main serves it.
-        platform = options.platform(nativeChildren, child.stdio.open('platform'));
+        platform = options.platform(child.stdio.open('platform'));
       }
       options.onChildStarted?.();
       await ready;
@@ -432,11 +419,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
     close: (reason = new BoundaryFailureError(HOST_LEASE_CLOSED)) => {
       retired = true;
       abort.abort(reason);
-      // A lost host's processes keep their SIGTERM grace, even when the next
-      // client's admission is what closes this owner (BST-2004).
-      return (acquiring?.catch(() => undefined) ?? Promise.resolve())
-        .then(() => lostTail)
-        .then(closeScope);
+      return (acquiring?.catch(() => undefined) ?? Promise.resolve()).then(closeScope);
     },
   };
 }

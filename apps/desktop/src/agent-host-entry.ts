@@ -4,7 +4,6 @@
 import '@brainstrike/secure-fs-native/default-owner';
 import { enableCompileCache } from 'node:module';
 import type { OpenedAgentHost } from '@brainstrike/agent-host';
-import { lifecycleDelay, takeLifecycleDelays } from '@brainstrike/host-lease/lifecycle-delays';
 import { configureLogger } from '@brainstrike/logging';
 import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
 import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
@@ -14,6 +13,7 @@ import {
   type HostChildMessage,
 } from './host-child-messages';
 import { openHostStdio } from './host-stdio';
+import { lifecycleDelay, takeLifecycleDelays } from './lifecycle-delays';
 
 /**
  * The agent host as a headless program, as `codex app-server` is Codex Desktop's: it

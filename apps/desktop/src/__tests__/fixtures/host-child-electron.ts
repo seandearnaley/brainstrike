@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { configureLogger } from '@brainstrike/logging';
-import { processStartTime } from '@brainstrike/state-store';
+import { processStartTime } from '@brainstrike/test-utils/process-identity';
 import { app } from 'electron';
 import { createDesktopHostLease, spawnHostProcess } from '../../host-lease-manager';
 

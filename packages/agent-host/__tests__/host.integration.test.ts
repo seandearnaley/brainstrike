@@ -15,17 +15,21 @@ import type { JSONSchema7 } from 'ai';
 import type { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import { attachAgentHost, type HostClient } from '../src/client.js';
+import type { HostClient } from '../src/client.js';
 import { authenticateHostClient } from '../src/client-connection.js';
-import { bindHostConnection } from '../src/connection.js';
 import type { HostPlatform, HostTool } from '../src/ports.js';
-import type { HostEvent, HostLogRow } from '../src/protocol.js';
-import { type AgentHost, startAgentHost } from '../src/runtime.js';
+import {
+  AGENT_HOST_PROTOCOL_VERSION,
+  HOST_VERSION,
+  type HostEvent,
+  type HostLogRow,
+} from '../src/protocol.js';
+import { type InProcessHost, openInProcessHost } from '../src/test-fixtures/in-process-host.js';
 import { nodePortConnection, stdioConnection } from '../src/transports.js';
 import { parallelToolModel, scriptedModel } from './fixtures/scripted-model.js';
 
 const roots: string[] = [];
-const hosts: AgentHost[] = [];
+const hosts: InProcessHost[] = [];
 const clients: HostClient[] = [];
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
@@ -40,7 +44,7 @@ async function setup(
   toolOverride?: HostTool
 ): Promise<{
   root: string;
-  host: AgentHost;
+  host: InProcessHost;
   client: HostClient;
   model: MockLanguageModelV4;
   platform: HostPlatform;
@@ -72,11 +76,14 @@ async function setup(
       },
     },
   };
-  const host = await startAgentHost({ lifetime: 'persistent', root }, platform);
-  hosts.push(host);
-  const client = await attachAgentHost(host.record);
-  clients.push(client);
+  const host = await reopen(root, platform);
+  const client = await host.connect();
   return { client, host, model, platform, root };
+}
+async function reopen(root: string, platform: HostPlatform): Promise<InProcessHost> {
+  const host = await openInProcessHost(root, platform);
+  hosts.push(host);
+  return host;
 }
 async function start(client: HostClient): Promise<{ threadId: string; runId: string }> {
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
@@ -210,14 +217,13 @@ test('logical commands deduplicate, conflicting reuse and stale/wrong-run decisi
   await event(client, threadId, 'run.finished');
 });
 
-test('client loss leaves the host run alive, reconnect catches up, Stop joins and releases the root', async () => {
+test('client loss leaves the host run alive, reconnect catches up, and host close releases the root', async () => {
   const { root, client, host } = await setup();
   const { threadId, runId } = await start(client);
   await event(client, threadId, 'interaction.requested');
   const before = (await client.request('thread/read', { fromSeq: 0, threadId })).rows.at(-1)!.seq;
   await client.close();
-  const rejoined = await attachAgentHost(host.record);
-  clients.push(rejoined);
+  const rejoined = await host.connect();
   expect(
     (await rejoined.request('log/subscribe', { fromSeq: before - 1, threadId })).rows[0]?.seq
   ).toBe(before);
@@ -227,27 +233,20 @@ test('client loss leaves the host run alive, reconnect catches up, Stop joins an
   expect((await event(rejoined, threadId, 'run.finished')).outcome).toBe('stopped');
   await expect(readFile(join(root, 'permitted.txt'))).rejects.toThrow();
   await host.close();
-  await rejoined.closed;
-  expect(RootLock.inspect(root)?.owner.released).toBe(true);
-  await expect(readFile(join(root, 'host.json'))).rejects.toThrow();
-});
-
-test('a bad token never attaches or starts a run', async () => {
-  const { host } = await setup();
-  await expect(attachAgentHost({ ...host.record, token: 'f'.repeat(64) })).rejects.toThrow();
-  expect(host.clientCount).toBe(1);
+  RootLock.acquire(root).release();
 });
 
 test('MessagePort and stdio dispatch the same authenticated schema into the same host/store', async () => {
   const { host } = await setup();
+  const expected = { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION };
   const channel = new MessageChannel();
   const server = nodePortConnection(channel.port1);
-  bindHostConnection(server, host.core, host.record, () => undefined);
+  host.bindClientConnection(server, 'public-socket');
   const portClosed = Promise.withResolvers<void>();
   channel.port2.once('close', () => portClosed.resolve());
   const portClient = await authenticateHostClient(
     nodePortConnection(channel.port2),
-    host.record,
+    expected,
     async () => {
       channel.port2.close();
       channel.port1.close();
@@ -261,11 +260,11 @@ test('MessagePort and stdio dispatch the same authenticated schema into the same
   const input = new PassThrough();
   const output = new PassThrough();
   const stdioServer = stdioConnection(input, output);
-  bindHostConnection(stdioServer, host.core, host.record, () => undefined);
+  host.bindClientConnection(stdioServer, 'public-socket');
   const stdioClosed = Promise.withResolvers<void>();
   const stdioClient = await authenticateHostClient(
     stdioConnection(output, input),
-    host.record,
+    expected,
     async () => {
       input.destroy();
       output.destroy();
@@ -285,10 +284,8 @@ test('restart continues an unanswered approval and deduplicates its accepted res
   const { threadId, runId } = await start(client);
   const pending = await event(client, threadId, 'interaction.requested');
   await host.close();
-  const resumed = await startAgentHost({ lifetime: 'persistent', root }, platform);
-  hosts.push(resumed);
-  const next = await attachAgentHost(resumed.record);
-  clients.push(next);
+  const resumed = await reopen(root, platform);
+  const next = await resumed.connect();
   const decision = {
     commandId: randomUUID(),
     decision: 'approve' as const,
@@ -304,10 +301,7 @@ test('restart continues an unanswered approval and deduplicates its accepted res
   );
   expect(model.doStreamCalls).toHaveLength(2);
   await resumed.close();
-  const again = await startAgentHost({ lifetime: 'persistent', root }, platform);
-  hosts.push(again);
-  const final = await attachAgentHost(again.record);
-  clients.push(final);
+  const final = await (await reopen(root, platform)).connect();
   expect(await final.request('interaction/respond', decision)).toEqual({ accepted: true });
   const { rows } = await final.request('thread/read', { fromSeq: 0, threadId });
   expect(rows.filter((row) => row.event.type === 'effect.started')).toHaveLength(1);
@@ -358,11 +352,11 @@ test('Stop acknowledges only after the dispatched native child has physically ex
   expect((await event(client, threadId, 'run.finished')).outcome).toBe('stopped');
 });
 
-test('host/stop replies after the owned native child and Root join, then closes every client', async () => {
+test('host close ends the owned native child and releases the Root', async () => {
   const started = Promise.withResolvers<number>();
   let exited = false;
   const native: HostTool = {
-    description: 'Run an owned child through host shutdown',
+    description: 'Run an owned child through host close',
     execute: async (_input, context) => {
       const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
         signal: context.signal,
@@ -386,96 +380,18 @@ test('host/stop replies after the owned native child and Root join, then closes 
       });
       return { joined: true };
     },
-    identity: 'owned-host-stop-process-fixture-1',
+    identity: 'owned-host-close-process-fixture-1',
     inputSchema: z.object({ text: z.string() }),
     risk: 'read',
   };
   const { client, root, host } = await setup(undefined, native);
-  const other = await attachAgentHost(host.record);
-  clients.push(other);
   await start(client);
   const pid = await started.promise;
   expect(process.kill(pid, 0)).toBe(true);
-  expect(await client.request('host/stop', {})).toEqual({
-    outcome: 'stopped',
-    rootReleased: true,
-  });
+  await host.close();
   expect(exited).toBe(true);
   expect(() => process.kill(pid, 0)).toThrow();
-  expect(RootLock.inspect(root)?.owner.released).toBe(true);
-  await expect(readFile(join(root, 'host.json'))).rejects.toThrow();
-  const contender = await RootLock.acquire(root);
-  await contender.release();
-  await Promise.all([client.closed, other.closed, host.closed]);
-});
-
-test('host/stop client loss retains Root until the held platform join settles', async () => {
-  const entered = Promise.withResolvers<void>();
-  const joined = Promise.withResolvers<void>();
-  const { root, client, host, platform } = await setup();
-  platform.close = async () => {
-    entered.resolve();
-    await joined.promise;
-  };
-  const request = client.request('host/stop', {});
-  request.catch(() => undefined);
-  try {
-    await entered.promise;
-    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
-    await client.close();
-    await expect(request).rejects.toThrow();
-    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
-  } finally {
-    joined.resolve();
-  }
-  await host.closed;
-  expect(RootLock.inspect(root)?.owner.released).toBe(true);
-  const contender = await RootLock.acquire(root);
-  await contender.release();
-});
-
-test('host/stop fences later commands while the platform join is pending', async () => {
-  const entered = Promise.withResolvers<void>();
-  const joined = Promise.withResolvers<void>();
-  const { root, client, host, platform } = await setup();
-  platform.close = async () => {
-    entered.resolve();
-    await joined.promise;
-  };
-  const request = client.request('host/stop', {});
-  try {
-    await entered.promise;
-    await expect(client.request('thread/start', { commandId: randomUUID() })).rejects.toThrow(
-      /closing/
-    );
-    await expect(client.request('host/stop', {})).rejects.toThrow(/closing/);
-    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
-  } finally {
-    joined.resolve();
-  }
-  expect(await request).toEqual({ outcome: 'stopped', rootReleased: true });
-  await host.closed;
-});
-
-test('host/stop reports cleanup failure and retains Root instead of reporting release', async () => {
-  const { root, client, host, platform } = await setup();
-  const store = host.core.store;
-  if (!(store instanceof StateStore)) {
-    throw new Error('Shutdown fixture did not acquire its real SQLite store');
-  }
-  platform.close = async () => {
-    throw new Error('Owned fixture cleanup failed');
-  };
-  try {
-    await expect(client.request('host/stop', {})).rejects.toThrow(/cleanup failed/i);
-    await expect(host.closed).rejects.toThrow();
-    await expect(RootLock.acquire(root)).rejects.toBeInstanceOf(RootLockedError);
-  } finally {
-    // This fixture platform acquired no external resources. Retain the failed
-    // production close result, then release only the test's owned SQLite root.
-    await store.close();
-    hosts.splice(hosts.indexOf(host), 1);
-  }
+  RootLock.acquire(root).release();
 });
 
 // Tool output wide enough to cross the store's spool boundary, owned here and
@@ -513,13 +429,8 @@ test('large tool content is spooled before publication and survives host reopen 
   const committed = await client.request('thread/read', { fromSeq: 0, threadId });
   await host.close();
   const freshModel = scriptedModel();
-  const reopened = await startAgentHost(
-    { lifetime: 'persistent', root },
-    { ...platform, resolveModel: async () => freshModel }
-  );
-  hosts.push(reopened);
-  const next = await attachAgentHost(reopened.record);
-  clients.push(next);
+  const reopened = await reopen(root, { ...platform, resolveModel: async () => freshModel });
+  const next = await reopened.connect();
   expect(await next.request('thread/read', { fromSeq: 0, threadId })).toEqual(committed);
   await next.request('run/start', {
     commandId: randomUUID(),
@@ -546,13 +457,8 @@ test('restart uses a fresh model with committed approval context and executes th
   const pending = await event(client, threadId, 'interaction.requested');
   await host.close();
   const freshModel = scriptedModel('write_file');
-  const reopened = await startAgentHost(
-    { lifetime: 'persistent', root },
-    { ...platform, resolveModel: async () => freshModel }
-  );
-  hosts.push(reopened);
-  const next = await attachAgentHost(reopened.record);
-  clients.push(next);
+  const reopened = await reopen(root, { ...platform, resolveModel: async () => freshModel });
+  const next = await reopened.connect();
   await next.request('interaction/respond', {
     commandId: randomUUID(),
     decision: 'approve',
@@ -577,15 +483,9 @@ test('parallel SDK calls retain both approvals and two clients answer without du
   const { root, host, client, platform } = await setup();
   await host.close();
   const model = parallelToolModel('write_file');
-  const parallelHost = await startAgentHost(
-    { lifetime: 'persistent', root },
-    { ...platform, resolveModel: async () => model }
-  );
-  hosts.push(parallelHost);
-  const first = await attachAgentHost(parallelHost.record);
-  clients.push(first);
-  const second = await attachAgentHost(parallelHost.record);
-  clients.push(second);
+  const parallelHost = await reopen(root, { ...platform, resolveModel: async () => model });
+  const first = await parallelHost.connect();
+  const second = await parallelHost.connect();
   const { threadId, runId } = await start(first);
   await expect
     .poll(
@@ -630,13 +530,8 @@ test('a final permitted call completes at the existing model-step limit without 
   const { root, host, client, platform } = await setup();
   await host.close();
   const model = scriptedModel('write_file');
-  const limited = await startAgentHost(
-    { lifetime: 'persistent', root },
-    { ...platform, maxSteps: 1, resolveModel: async () => model }
-  );
-  hosts.push(limited);
-  const next = await attachAgentHost(limited.record);
-  clients.push(next);
+  const limited = await reopen(root, { ...platform, maxSteps: 1, resolveModel: async () => model });
+  const next = await limited.connect();
   const { threadId, runId } = await start(next);
   const pending = await event(next, threadId, 'interaction.requested');
   await next.request('interaction/respond', {

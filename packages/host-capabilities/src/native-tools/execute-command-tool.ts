@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -19,7 +19,7 @@ import {
   resolveWorkspaceRoot,
 } from '@brainstrike/assistant-service/node-workspace-services';
 import { createLogger } from '@brainstrike/logging';
-import { CHILD_SIGNAL_GRACE_MS, spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store/native-children';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.ts';
@@ -433,7 +433,7 @@ function runWindowsCommand(args: ProcessArguments): Promise<SpawnOutcome> {
           args.releaseWorkspaceLease?.();
         },
         spawnWrapper: () =>
-          spawnNativeChild(process.execPath, [wrapperPath], {
+          spawn(process.execPath, [wrapperPath], {
             cwd: args.cwd,
             detached: false,
             env: wrapperEnvironment,
@@ -494,8 +494,7 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
     let child: ChildProcess;
     try {
       const childEnvironment = commandEnvironment(env);
-      // In the agent host the command inherits the Root's flock (ADR-0017).
-      child = spawnNativeChild(executable, argv, {
+      child = spawn(executable, argv, {
         cwd,
         detached: true,
         env: childEnvironment,

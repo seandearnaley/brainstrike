@@ -29,8 +29,8 @@ async function crashPurge(at: string): Promise<void> {
   say(`error crash point ${at} was not reached`);
 }
 
-async function hold(host: string | undefined): Promise<void> {
-  const store = await StateStore.open(root, host ? { host } : {});
+async function hold(): Promise<void> {
+  const store = await StateStore.open(root);
   say(`holding ${process.pid}`);
   process.stdin.on('data', (d) => {
     if (String(d).includes('close')) {
@@ -45,7 +45,7 @@ async function hold(host: string | undefined): Promise<void> {
 if (scenario === 'crash-purge') {
   await crashPurge(String(arg));
 } else if (scenario === 'hold') {
-  await hold(arg);
+  await hold();
 } else {
   throw new Error(`store-proc: unknown scenario ${scenario}`);
 }

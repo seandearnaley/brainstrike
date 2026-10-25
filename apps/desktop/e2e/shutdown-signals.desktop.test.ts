@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { processStartTime } from '@brainstrike/test-utils/process-identity';
+import { isRootHeld } from '../src/__tests__/helpers/root-held';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostProcess, waitForAppHost, withAppHost } from './utils/agent-host-log';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -25,16 +26,13 @@ async function assertProbe(userDataDir: string, threadId: string): Promise<void>
   expect(snapshot.threads.find((thread) => thread.threadId === threadId)?.title).toBe(PROBE_TITLE);
 }
 
-/** Verify the profile's published host record names the live process that owns its Root. */
+/** The live host process, which holds the profile's Root. */
 async function ownedHost(
   userDataDir: string
 ): Promise<{ pid: number; start: string; root: string }> {
   const root = realpathSync(path.join(userDataDir, 'profiles', 'test'));
   const host = await readHostProcess(userDataDir);
-  const lock = RootLock.inspect(root);
-  expect(lock?.owner).toMatchObject({ pid: host.pid, root, start: host.start });
-  expect(lock?.owner.released).not.toBe(true);
-  expect(processStartTime(host.pid)).toBe(host.start);
+  expect(isRootHeld(root)).toBe(true);
   return { ...host, root };
 }
 
@@ -107,7 +105,7 @@ test.describe('Shutdown signals join the profile owner', () => {
     expect(readOutput()).toContain('Graceful shutdown completed');
     expect(readOutput()).not.toContain('forcing exit');
     expect(processStartTime(host.pid)).not.toBe(host.start);
-    expect(RootLock.inspect(host.root)?.owner.released).toBe(true);
+    expect(isRootHeld(host.root)).toBe(false);
     const restarted = (await electron.restart()).window;
     await waitForAppReady(restarted);
     await waitForAppHost(restarted);
@@ -116,7 +114,7 @@ test.describe('Shutdown signals join the profile owner', () => {
     expect(reopened.pid).not.toBe(host.pid);
   });
 
-  test('negative control: a verified disposable host crash retains its stale record and committed state recovers', async ({
+  test('negative control: a SIGKILLed host holds nothing and committed state recovers', async ({
     electron,
     window,
   }, testInfo) => {
@@ -137,8 +135,8 @@ test.describe('Shutdown signals join the profile owner', () => {
     await expect
       .poll(() => processStartTime(host.pid), { timeout: CLOSE_TIMEOUT_MS })
       .not.toBe(host.start);
-    expect(RootLock.inspect(host.root)?.owner).toMatchObject({ pid: host.pid, start: host.start });
-    expect(RootLock.inspect(host.root)?.owner.released).not.toBe(true);
+    // The OS released the dead host's lock with it.
+    expect(isRootHeld(host.root)).toBe(false);
     try {
       await electron.closeForStateSeeding();
     } finally {

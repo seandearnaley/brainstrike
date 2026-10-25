@@ -62,10 +62,9 @@ default is `BUILTIN\Administrators`. Process entries import
 `@brainstrike/secure-fs-native/default-owner` first rather than calling it.
 
 Root establishment distinguishes genuine `ENOENT` from `ERR_SECURE_FS_ROOT`.
-`tryExclusiveFlock` is POSIX-only; inherited descriptors share its open-file lock,
-so close the owned descriptor rather than unlocking the shared lock. Windows
-same-directory replacement uses its separate native primitive.
+`tryExclusiveLock` holds a file's exclusive lock on one native handle no child
+inherits (flock(2) on POSIX, `LockFileEx` on Windows); `release()` closes it.
 
 Builds/scripts belong to [`package.json`](package.json). See
-[lease](../../docs/agents/host-lease.md) and
+[root lock](../../docs/agents/root-lock.md) and
 [shared contribution/validation policy](../../AGENTS.md).

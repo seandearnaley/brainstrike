@@ -8,7 +8,6 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { hostThreadWorkspaceRepository } from '@brainstrike/host-conversation';
-import type { HostRecord } from '@brainstrike/host-lease';
 import { expect, test, vi } from 'vitest';
 import {
   createMessageConnection,
@@ -24,23 +23,15 @@ test('joins an admitted workspace save ACK before closing the frame host connect
   const input = new PassThrough();
   const output = new PassThrough();
   const closed = Promise.withResolvers<void>();
-  const record: HostRecord = {
-    endpoint: '/tmp/disposable-workspace-close-ack',
-    hostVersion: '0.1.0',
-    pid: process.pid,
-    protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-    start: 'disposable workspace ACK fixture',
-    token: 'a'.repeat(64),
-  };
+  const record = { hostVersion: '0.1.0', protocolVersion: AGENT_HOST_PROTOCOL_VERSION };
   const server = createMessageConnection(
     new StreamMessageReader(input),
     new StreamMessageWriter(output)
   );
   server.onRequest('initialize', () => ({
     hostVersion: record.hostVersion,
-    pid: record.pid,
+    pid: process.pid,
     protocolVersion: record.protocolVersion,
-    start: record.start,
   }));
   const admitted = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();

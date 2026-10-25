@@ -1,9 +1,8 @@
 import { PassThrough } from 'node:stream';
 import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
-import type { HostRecord } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
 import { expect, test } from 'vitest';
-import { authenticateHostClient } from '../src/client-connection.js';
+import { authenticateHostClient, type HostClientExpectation } from '../src/client-connection.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from '../src/protocol.js';
 import { stdioConnection } from '../src/transports.js';
 
@@ -12,19 +11,14 @@ test('the client distinguishes owned parser failures from ordinary invalid wire 
   const input = new PassThrough();
   const output = new PassThrough();
   const server = stdioConnection(input, output);
-  const record: HostRecord = {
-    endpoint: '/tmp/unused-wire-decoder-fixture',
+  const record: HostClientExpectation = {
     hostVersion: '0.1.0',
-    pid: 1,
     protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-    start: 'fixture',
-    token: 'a'.repeat(64),
   };
   server.onRequest('initialize', () => ({
     hostVersion: record.hostVersion,
-    pid: record.pid,
+    pid: 1,
     protocolVersion: record.protocolVersion,
-    start: record.start,
   }));
   let status: unknown = {};
   server.onRequest('mcp/status/read', () => status);

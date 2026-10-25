@@ -1,13 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { ProfileResetLease } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { RootLock } from '@brainstrike/state-store';
+import { processStartTime } from '@brainstrike/test-utils/process-identity';
 import { app, session } from 'electron';
 import { resolveDesktopDatabaseProfileDirectory } from '../../desktop-database-location';
 import { createDesktopProfileResetOwner } from '../../desktop-profile-reset-owner';
 import { createDesktopFactoryResetHandler } from '../../desktop-reset-platform';
 import { createDesktopHostLease, spawnHostProcess } from '../../host-lease-manager';
+import type { ProfileResetLease } from '../../profile-reset-lease';
 
 const userData = process.argv[2];
 const entryPath = process.argv[3];
@@ -122,7 +123,7 @@ app
         assert(existsSync(RootLock.dirOf(profile)), 'userData purge removed reset namespace');
         let refused = false;
         try {
-          await RootLock.acquire(profile);
+          RootLock.acquire(profile);
         } catch (cause) {
           refused = cause instanceof Error && cause.name === 'RootLockedError';
         }

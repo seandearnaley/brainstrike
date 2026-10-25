@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { LIFECYCLE_DELAYS_ENV } from '@brainstrike/host-lease/lifecycle-delays';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { RendererExitedError } from '../desktop-shutdown-state';
 import { createLifecycleDelaySeam } from '../lifecycle-delay-seam';
+import { LIFECYCLE_DELAYS_ENV } from '../lifecycle-delays';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { prepareDocumentUnload, RENDERER_CLOSE_PREPARATION_MS } from '../prepare-document-unload';
 

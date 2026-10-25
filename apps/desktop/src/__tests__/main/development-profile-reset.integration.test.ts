@@ -2,10 +2,10 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acquireProfileResetLease } from '@brainstrike/host-lease';
 import { expect, it } from 'vitest';
 import { joinProfileDirectory, resolveDevelopmentUserDataPath } from '../../database-location';
 import { resetDesktopApplicationData } from '../../desktop-factory-reset';
+import { acquireProfileResetLease } from '../../profile-reset-lease';
 
 it('clears the selected development profile without deleting live Session containers or another profile', async () => {
   const rootPath = await mkdtemp(join(tmpdir(), 'brainstrike-development-reset-'));

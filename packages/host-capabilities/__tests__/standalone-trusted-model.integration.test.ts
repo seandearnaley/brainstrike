@@ -13,7 +13,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
-import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -82,7 +81,7 @@ async function standaloneHost(env: Readonly<Record<string, string>>, platformMod
     });
   cleanup.push(async () => {
     await rm(workspace, { force: true, recursive: true });
-    await removeFixtureRoot(dataRoot);
+    await rm(dataRoot, { force: true, recursive: true });
   });
   const run = async (model: string) => {
     const result = await command([

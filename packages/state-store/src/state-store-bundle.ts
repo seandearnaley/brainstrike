@@ -12,8 +12,8 @@ import {
   realpathSync,
   writeFileSync,
 } from 'node:fs';
+import { hostname } from 'node:os';
 import { isAbsolute, join, relative, sep, win32 } from 'node:path';
-import type { RootLock } from './lock.ts';
 import { blobsOf } from './run-log-format.mjs';
 import { openRo, vacuumInto } from './sqlite.ts';
 import { readAll, SqliteReader } from './sqlite-reader.ts';
@@ -52,8 +52,6 @@ function checkedBundleSource(bundleRoot: string, path: string): string {
   }
   return source;
 }
-
-const GENERATION_FILE = /^g[0-9]{12}$/;
 
 /** Per-thread watermarks (max seq) of an exported state DB. */
 function watermarksOf(statePath: string): ExportedThread[] {
@@ -94,13 +92,11 @@ export async function exportStateBundle({
   bundleDir,
   statePath,
   blobsPath,
-  lock,
   beforeBlobs,
 }: {
   bundleDir: string;
   statePath: string;
   blobsPath: string;
-  lock: RootLock;
   beforeBlobs: (() => void | Promise<void>) | undefined;
 }): Promise<Manifest> {
   const dest = join(bundleDir, STATE_DB);
@@ -115,18 +111,11 @@ export async function exportStateBundle({
     }
     copyFileSync(src, join(bundleDir, BLOBS_DIR, h));
   }
-  // A root-shaped copy carries the root's lock, exactly as a file-level backup would.
-  mkdirSync(join(bundleDir, 'lock'), { recursive: true });
-  for (const n of readdirSync(lock.dir).filter((x) => GENERATION_FILE.test(x))) {
-    copyFileSync(join(lock.dir, n), join(bundleDir, 'lock', n));
-  }
-  const files = listFiles(bundleDir)
-    .filter((p) => !p.startsWith('lock/'))
-    .map((p) => {
-      const buf = readFileSync(join(bundleDir, p));
-      return { bytes: buf.length, path: p, sha256: sha256Hex(buf) };
-    });
-  const m: Manifest = { files, format: 1, sourceHost: lock.owner.host, threads };
+  const files = listFiles(bundleDir).map((p) => {
+    const buf = readFileSync(join(bundleDir, p));
+    return { bytes: buf.length, path: p, sha256: sha256Hex(buf) };
+  });
+  const m: Manifest = { files, format: 1, sourceHost: hostname(), threads };
   writeFileSync(join(bundleDir, 'manifest.json'), JSON.stringify(m, null, 1));
   return m;
 }
@@ -142,13 +131,7 @@ export function importStateBundle(bundleDir: string, targetRoot: string): Manife
   for (const file of m.files) {
     assertBundleRelativePath(file.path);
   }
-  const lockFiles = existsSync(join(bundleRoot, 'lock'))
-    ? readdirSync(checkedBundleSource(bundleRoot, 'lock')).map((name) => `lock/${name}`)
-    : [];
-  for (const path of lockFiles) {
-    assertBundleRelativePath(path);
-  }
-  for (const path of [...m.files.map((file) => file.path), ...lockFiles]) {
+  for (const path of m.files.map((file) => file.path)) {
     checkedBundleSource(bundleRoot, path);
   }
   if (existsSync(targetRoot) && readdirSync(targetRoot).length > 0) {
@@ -176,9 +159,6 @@ export function importStateBundle(bundleDir: string, targetRoot: string): Manife
     if (f.path !== 'manifest.json') {
       copy(f.path);
     }
-  }
-  for (const path of lockFiles) {
-    copy(path);
   }
   return m;
 }

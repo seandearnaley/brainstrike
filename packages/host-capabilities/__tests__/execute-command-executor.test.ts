@@ -6,13 +6,13 @@
  * Windows, and refuses a fenced-out start directory or invalid input before
  * any process starts.
  */
+import * as childProcess from 'node:child_process';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent/tool-runtime';
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import * as nativeChildren from '@brainstrike/state-store/native-children';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   createSharedNativeHostTools,
@@ -23,15 +23,15 @@ import {
 } from '../src/native-tools/index.js';
 import { packageWindowsCommandEntry } from './fixtures/execute-command.js';
 
-vi.mock('@brainstrike/state-store/native-children', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/state-store/native-children')>();
-  return { ...actual, spawnNativeChild: vi.fn(actual.spawnNativeChild) };
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, spawn: vi.fn(actual.spawn) };
 });
 
 let root = '';
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'bs-execute-command-executor-')));
-  vi.mocked(nativeChildren.spawnNativeChild).mockClear();
+  vi.mocked(childProcess.spawn).mockClear();
 });
 afterEach(async () => {
   await disposeLiveChildProcesses();
@@ -98,7 +98,7 @@ test('runs echo in the call root, projects it, and reads the Windows wrapper onl
     timedOut: false,
     truncated: false,
   });
-  expect(nativeChildren.spawnNativeChild).toHaveBeenCalledTimes(1);
+  expect(childProcess.spawn).toHaveBeenCalledTimes(1);
   expect(windowsCommandEntry).toHaveBeenCalledTimes(process.platform === 'win32' ? 1 : 0);
   expect(
     await tool.toModelOutput?.({
@@ -119,13 +119,13 @@ test('a start directory outside the root is refused before any process starts', 
     },
     ok: false,
   });
-  expect(nativeChildren.spawnNativeChild).not.toHaveBeenCalled();
+  expect(childProcess.spawn).not.toHaveBeenCalled();
 });
 
 test('input the Effect Schema owner rejects never reaches a process', async () => {
   const tool = shellTool({ windowsCommandEntry: vi.fn() });
   expect(await tool.execute({ command: 42 }, call())).toMatchObject({ ok: false });
-  expect(nativeChildren.spawnNativeChild).not.toHaveBeenCalled();
+  expect(childProcess.spawn).not.toHaveBeenCalled();
 });
 
 test('a shell correlation hears the completed command; without one nothing is correlated', async () => {
@@ -152,5 +152,5 @@ test('a shell correlation hears the completed command; without one nothing is co
     exitCode: expect.any(Number),
     rootId: root,
   });
-  expect(nativeChildren.spawnNativeChild).toHaveBeenCalledTimes(2);
+  expect(childProcess.spawn).toHaveBeenCalledTimes(2);
 });

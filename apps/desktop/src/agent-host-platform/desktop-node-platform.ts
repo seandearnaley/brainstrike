@@ -36,7 +36,6 @@ import {
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
@@ -269,25 +268,6 @@ export async function createDesktopHostConfiguration(
     }
   };
   serveHostRootCleanup(connection);
-  // ADR-0017: Main supervises the native processes this host starts, and ends their
-  // process groups if the host dies. Windows reports none: the host's kill-on-close Job
-  // ends them with it.
-  if (process.platform !== 'win32') {
-    const notify = (method: string, child: NativeChild): void => {
-      const failed = (cause: unknown): void =>
-        logger.error('Main did not learn of a native process', { cause, method, pid: child.pid });
-      try {
-        connection.sendNotification(method, child).catch(failed);
-      } catch (cause) {
-        failed(cause);
-      }
-    };
-    const unobserve = observeNativeChildren({
-      exited: (child) => notify('platform/native-child/exited', child),
-      started: (child) => notify('platform/native-child/started', child),
-    });
-    await startup.register(async () => unobserve());
-  }
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {

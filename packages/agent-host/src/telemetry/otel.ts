@@ -1,7 +1,7 @@
 import { runWithTimeout } from '@brainstrike/effect-kit';
-import { HOST_VERSION } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { registerTelemetry } from 'ai';
+import { HOST_VERSION } from '../protocol.ts';
 import { configureHostTelemetryContent } from './host-telemetry.ts';
 
 const logger = createLogger('AgentHostTracing');

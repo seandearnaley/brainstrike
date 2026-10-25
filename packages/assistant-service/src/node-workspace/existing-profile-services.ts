@@ -39,7 +39,7 @@ export function openExistingNodeWorkspaceServices<TCatalog extends WorkspaceRoot
     const profileDirectory = await realpath(
       joinProfileDirectory(location.rootPath, location.profile)
     );
-    const acquiredRoot = ownedStartup.store.lock.owner.root;
+    const acquiredRoot = ownedStartup.store.lock.root;
     ownedStartup.signal.throwIfAborted();
     if (ownedStartup.store.lock.isReleased || profileDirectory !== acquiredRoot) {
       throw new Error('Selected profile does not belong to the acquired canonical Root.');

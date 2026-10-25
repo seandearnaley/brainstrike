@@ -1,39 +1,21 @@
 import { extname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  HOST_VERSION,
-  type HostRuntime,
-  type HostStartOptions,
-  ResourceOwner,
-  secureDirectory,
-  startHost,
-} from '@brainstrike/host-lease';
-import {
   assertNotSyncedRoot,
   type ClearContentResult,
   StateStore,
   StateStoreStartupError,
 } from '@brainstrike/state-store';
-import {
-  createMessageConnection,
-  type Message,
-  type MessageConnection,
-  StreamMessageReader,
-  StreamMessageWriter,
-} from 'vscode-jsonrpc/node';
+import type { MessageConnection } from 'vscode-jsonrpc/node';
 import { serveHostCatalog } from './catalog/transport.ts';
 import { bindHostConnection, type HostConnectionOptions, type HostIdentity } from './connection.ts';
 import { HostCore } from './core.ts';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
 import type { HostClientOrigin, HostPlatform } from './ports.ts';
-import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } from './protocol.ts';
+import { secureDirectory } from './private-directory.ts';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from './protocol.ts';
+import { ResourceOwner } from './resource-owner.ts';
 
-export interface AgentHost extends HostRuntime {
-  /** Binds a transport the launching parent supplied, as the given client origin. */
-  bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
-  clearAndRetireContent(): Promise<ClearContentResult>;
-  readonly core: HostCore;
-}
 export interface HostStartupContext {
   /** Register a partial resource's join before starting its first side effect. */
   register(close: () => Promise<void>): Promise<void>;
@@ -88,17 +70,6 @@ function platformClientServices(
     ...(platform?.terminals ? { terminals: platform.terminals } : {}),
     ...(platform?.workspaceDiscovery ? { workspaceDiscovery: platform.workspaceDiscovery } : {}),
   };
-}
-/**
- * `HOST_CLOSING_EVENT`, before the connection refuses new requests. A client that
- * is already gone fails the write; it has nothing left to be told.
- */
-function announceClosing(connection: MessageConnection): void {
-  connection.sendNotification(HOST_CLOSING_EVENT).catch(() => undefined);
-}
-/** `HOST_DRAINED_EVENT`, once every request the connection read is answered. */
-async function announceDrained(connection: MessageConnection): Promise<void> {
-  await connection.sendNotification(HOST_DRAINED_EVENT).catch(() => undefined);
 }
 /** The owned facade forwards each optional capability the acquired platform supplies. */
 function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
@@ -253,8 +224,6 @@ function composeHostRoot(
               import.meta.url
             )
           ),
-          // ADR-0017: the native processes this host starts inherit its Root.
-          shareWithNativeChildren: true,
           startup: {
             acquire: async (acquired) => {
               catalogStore = acquired;
@@ -363,7 +332,6 @@ export async function openAgentHost(
     hostVersion: HOST_VERSION,
     pid: process.pid,
     protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-    start: store.lock.owner.start,
   };
   let clearContent = false;
   let cleared: ClearContentResult | undefined;
@@ -383,7 +351,7 @@ export async function openAgentHost(
   };
   return {
     bindClientConnection: (connection, origin) =>
-      bindHostConnection(connection, core, identity, () => undefined, {
+      bindHostConnection(connection, core, identity, {
         origin,
         ...host.clientCapabilities(),
       }),
@@ -400,219 +368,5 @@ export async function openAgentHost(
     },
     close,
     core,
-  };
-}
-
-export async function startAgentHost(
-  options: HostStartOptions,
-  inputPlatform: HostPlatformInitializer,
-  signal: AbortSignal = new AbortController().signal
-): Promise<AgentHost> {
-  signal.throwIfAborted();
-  let runtime: HostRuntime | undefined;
-  let closing = false;
-  const cancelled = (): void => {
-    // BST-1977: a socket can already be authenticated while host.json's
-    // publication acknowledgement is held. Fence that command owner now;
-    // startup rollback still owns the store/root until every join settles.
-    void (runtime ? runtime.close() : host.core()?.close())?.catch(() => undefined);
-  };
-  const host = composeHostRoot(options.root, inputPlatform, signal, cancelled);
-  // Each private client's retirement, like a socket's: announce, refuse, then answer what it read.
-  const privateClients = new Set<() => Promise<void>>();
-  let privateClientsRetired: Promise<void> | undefined;
-  const retirePrivateClients = (): Promise<void> => {
-    privateClientsRetired ??= Promise.all([...privateClients].map((retire) => retire())).then(
-      () => undefined
-    );
-    return privateClientsRetired;
-  };
-  let clearContent = false;
-  let cleared: ClearContentResult | undefined;
-  let clearing: Promise<ClearContentResult> | undefined;
-  signal.addEventListener('abort', cancelled, { once: true });
-  try {
-    runtime = await startHost(
-      options,
-      {
-        acceptSocket: (socket, record, attached, lifecycle) => {
-          const core = host.core();
-          if (!core) {
-            socket.destroy(new Error('Host store is unavailable'));
-            return;
-          }
-          const replyFinished = Promise.withResolvers<void>();
-          const retiring = new AbortController();
-          let dispatchingMessage: Message | undefined;
-          let shutdownMessage: Message | undefined;
-          socket.once('close', () => replyFinished.resolve());
-          const reader = new StreamMessageReader(socket);
-          const connection = createMessageConnection(
-            reader,
-            new StreamMessageWriter(socket),
-            undefined,
-            {
-              messageStrategy: {
-                handleMessage: async (message, next) => {
-                  const previous = dispatchingMessage;
-                  dispatchingMessage = message;
-                  let handled: Promise<void>;
-                  try {
-                    handled = Promise.resolve(next(message));
-                  } finally {
-                    dispatchingMessage = previous;
-                  }
-                  try {
-                    await handled;
-                  } finally {
-                    if (message === shutdownMessage) {
-                      replyFinished.resolve();
-                    }
-                  }
-                },
-              },
-            }
-          );
-          bindHostConnection(connection, core, record, attached, {
-            lifecycle: {
-              get closing(): boolean {
-                return lifecycle.closing;
-              },
-              stop: () => {
-                shutdownMessage = dispatchingMessage;
-                return lifecycle.stop(replyFinished.promise);
-              },
-            },
-            retiring: retiring.signal,
-            ...host.clientCapabilities(),
-          });
-          socket.once('close', () => connection.dispose());
-          // Keep refusing new requests while dispatched work joins. Once it
-          // settles, stop reads before joining the received decode/dispatch tail:
-          // an empty dispatch queue does not mean the reader is empty (BST-2282).
-          return async () => {
-            announceClosing(connection);
-            retiring.abort();
-            await connection.drain();
-            socket.pause();
-            await reader.drain();
-            await connection.drain();
-            await announceDrained(connection);
-          };
-        },
-        acquireRoot: async (retainRun) => {
-          const { core, store } = await host.open(retainRun);
-          return {
-            close: async () => {
-              // A private client's admitted requests write their answers before Core and the
-              // store close, as a socket's do before its transport is destroyed.
-              await retirePrivateClients();
-              await closeHostStoreAfterCore(
-                () => core.close(),
-                async () => {
-                  if (clearContent) {
-                    cleared = await store.clearContent();
-                    return;
-                  }
-                  await store.close();
-                }
-              );
-            },
-            lock: store.lock,
-          };
-        },
-        beginClose: () => {
-          closing = true;
-          // Started with the fence; the Root finalizer joins this same promise and its failure.
-          void retirePrivateClients().catch(() => undefined);
-          // The Root finalizer below joins this exact idempotent Core promise.
-          // Observe early rejection without consuming it or releasing the store.
-          void host
-            .core()
-            ?.close()
-            .catch(() => undefined);
-        },
-        protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-      },
-      signal
-    );
-  } catch (cause) {
-    signal.removeEventListener('abort', cancelled);
-    if (cause instanceof AgentHostStartupError) {
-      throw cause;
-    }
-    try {
-      await host.closePlatform();
-    } catch (cleanupCause) {
-      throw new AggregateError([cause, cleanupCause], 'Host startup and platform cleanup failed');
-    }
-    throw cause;
-  }
-  const core = host.core();
-  if (!core) {
-    await runtime.close();
-    throw new Error('Host store was not initialized');
-  }
-  const disconnected = (): void => signal.removeEventListener('abort', cancelled);
-  runtime.closed.then(disconnected, disconnected);
-  return {
-    attachClient: () => runtime.attachClient(),
-    bindClientConnection: (connection, origin) => {
-      // A private client is attached, like a socket client, from its
-      // initialize until its transport closes.
-      let detach: (() => void) | undefined;
-      const retiring = new AbortController();
-      const unbind = bindHostConnection(
-        connection,
-        core,
-        runtime.record,
-        () => {
-          detach = runtime.attachClient();
-        },
-        { origin, retiring: retiring.signal, ...host.clientCapabilities() }
-      );
-      const retire = async (): Promise<void> => {
-        announceClosing(connection);
-        retiring.abort();
-        await connection.drain();
-        // A frame read after this is refused, so nothing admitted is left unanswered.
-        await announceDrained(connection);
-      };
-      privateClients.add(retire);
-      const closed = connection.onClose(() => {
-        privateClients.delete(retire);
-        detach?.();
-      });
-      return () => {
-        privateClients.delete(retire);
-        closed.dispose();
-        detach?.();
-        unbind();
-      };
-    },
-    clearAndRetireContent: () => {
-      if (clearing !== undefined) {
-        return clearing;
-      }
-      if (closing) {
-        return Promise.reject(new Error('Host retirement has already started'));
-      }
-      clearContent = true;
-      clearing = runtime.close().then(() => {
-        if (!cleared) {
-          throw new Error('Host content clear did not produce a committed receipt');
-        }
-        return cleared;
-      });
-      return clearing;
-    },
-    get clientCount(): number {
-      return runtime.clientCount;
-    },
-    close: () => runtime.close(),
-    closed: runtime.closed,
-    core,
-    record: runtime.record,
-    retainRun: () => runtime.retainRun(),
   };
 }

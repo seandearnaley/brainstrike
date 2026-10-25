@@ -1,6 +1,8 @@
 // D5 holder (spike scripts/dur/d5-holder.ts on the state store): open the store on <root> (taking the root lock), append
-// one row, print READY, hold until a clean close is requested (stdin CLOSE or SIGTERM) or SIGKILL (a stale lock).
-// With argv[3] === 'try': attempt to open and report the outcome.
+// one row, print READY, hold until a clean close is requested (stdin CLOSE or SIGTERM) or SIGKILL.
+// With argv[3] === 'try': attempt to open and report the outcome. With argv[3] === 'child': also start a child process
+// that outlives this one (it ends when the test closes its stdin) and print its pid.
+import { spawn } from 'node:child_process';
 import { RootLockedError } from '../../src/lock.js';
 import { StateStore } from '../../src/state-store.js';
 
@@ -10,7 +12,7 @@ try {
   store = await StateStore.open(root);
 } catch (e) {
   if (e instanceof RootLockedError) {
-    process.stdout.write(`REFUSED owner=${e.owner.pid}\n`);
+    process.stdout.write('REFUSED\n');
     process.exit(3);
   }
   throw e;
@@ -36,5 +38,13 @@ process.stdin.on('data', (d) => {
     closeCleanly();
   }
 });
+if (mode === 'child') {
+  // Its stdin is this process's stdin, so it lives until the test closes that pipe.
+  const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], {
+    stdio: ['inherit', 'ignore', 'ignore'],
+  });
+  child.unref();
+  process.stdout.write(`CHILD pid=${child.pid}\n`);
+}
 process.stdout.write(`READY pid=${process.pid}\n`);
 setInterval(() => undefined, 1000);

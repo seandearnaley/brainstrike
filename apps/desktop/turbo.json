@@ -22,9 +22,9 @@
     },
     "test": {
       // The unit suites load native add-ons. assistant-server/skills-fs-deps
-      // imports @brainstrike/secure-fs-native statically, and host-lease-manager's
-      // tests read real process start times, which load windows-job-native on
-      // Windows. Each add-on's uncached `node-gyp rebuild` first removes build/,
+      // imports @brainstrike/secure-fs-native statically, and worktree-setup's
+      // timeout test reads real process start times, which load windows-job-native
+      // on Windows. Each add-on's uncached `node-gyp rebuild` first removes build/,
       // so without these edges a run that schedules it beside this task fails
       // with "Could not locate the bindings file" (BST-2243). This is the same
       // edge as state-store's `test`. On Windows the suites run commands through

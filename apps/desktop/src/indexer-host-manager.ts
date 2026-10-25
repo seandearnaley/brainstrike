@@ -14,7 +14,6 @@ import { forkUtility } from './fork-utility';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
-import { endExitedProcess, liveProcessIdentity, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('IndexerHostManager');
 
@@ -113,10 +112,6 @@ export class IndexerHostManager {
       serviceName: 'brainstrike-indexer',
     });
     this.#kill = () => child.kill();
-    let identity: ProcessIdentity | undefined;
-    child.once('spawn', () => {
-      identity = liveProcessIdentity(child.pid);
-    });
     const protocolErrors = new Set<(error: unknown) => void>();
     const canonical = new CanonicalUtilityParent(
       (message) => {
@@ -154,16 +149,9 @@ export class IndexerHostManager {
           });
           listener(code);
         };
-        // Electron's `exit` precedes the OS exit; the utility has exited once that is joined.
         const exit = (code: number): void => {
           this.#closed = true;
-          void endExitedProcess(identity).then(
-            () => exited(code),
-            (cause: unknown) => {
-              logger.error('Could not end the indexer utility after its exit', { cause });
-              exited(code);
-            }
-          );
+          exited(code);
         };
         child.on('exit', exit);
         return () => child.off('exit', exit);

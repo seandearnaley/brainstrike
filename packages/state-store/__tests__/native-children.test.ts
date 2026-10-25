@@ -1,25 +1,11 @@
-// ADR-0017: every native process a host starts belongs to exactly one held Root lease, and its supervisor hears about
-// it. That no new owner takes a dead host's Root while a native process it started still runs is host-lease's
-// native-tail integration test, on every OS.
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
-import { processStartTime, RootLock } from '../src/lock.js';
-import {
-  type NativeChild,
-  observeNativeChildren,
-  spawnNativeChild,
-  terminateTree,
-} from '../src/native-children.js';
-import { cleanupDirs, freshDir } from './helpers/fs.js';
+import { terminateTree } from '../src/native-children.js';
 
 // stdin is the sleeper's lifeline: it exits once this test process lets the pipe go or dies.
 const SLEEPER = ['-e', "process.on('SIGTERM', () => {}); process.stdin.resume();"];
-const held: RootLock[] = [];
 const children: ChildProcess[] = [];
-const unsubscribe: (() => void)[] = [];
 
 afterEach(async () => {
   for (const child of children.splice(0)) {
@@ -28,56 +14,20 @@ afterEach(async () => {
       await once(child, 'exit');
     }
   }
-  for (const lock of held.splice(0)) {
-    lock.release();
+});
+/** A zombie has exited: only a reap is pending, which a container's init may never do. */
+const isRunning = (pid: number): boolean => {
+  if (process.platform === 'win32') {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
   }
-  for (const stop of unsubscribe.splice(0)) {
-    stop();
-  }
-  cleanupDirs();
-});
-const newRoot = (): string => {
-  const root = join(freshDir('flock'), 'root');
-  mkdirSync(root, { recursive: true });
-  return root;
+  const state = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+  return state.status === 0 && !state.stdout.trim().startsWith('Z');
 };
-const sleeper = (): ChildProcess => {
-  const child = spawnNativeChild(process.execPath, SLEEPER, {
-    detached: true,
-    stdio: ['pipe', 'ignore', 'ignore'],
-  });
-  children.push(child);
-  return child;
-};
-
-test('a host spawn after its Root was released, or between two held Roots, is refused', async () => {
-  const first = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
-  const second = await RootLock.acquire(newRoot(), { shareWithNativeChildren: true });
-  expect(() => sleeper()).toThrow(/several shared Root leases/);
-  second.release();
-  first.release();
-  expect(() => sleeper()).toThrow(/Root lease is released/);
-});
-
-test("the observer learns each native child's process group and its exit", async () => {
-  held.push(await RootLock.acquire(newRoot(), { shareWithNativeChildren: true }));
-  const events: [string, NativeChild][] = [];
-  unsubscribe.push(
-    observeNativeChildren({
-      exited: (child) => events.push(['exited', child]),
-      started: (child) => events.push(['started', child]),
-    })
-  );
-  const child = sleeper();
-  const identity = { group: true, pid: child.pid, start: processStartTime(child.pid ?? 0) };
-  expect(events).toEqual([['started', identity]]);
-  child.kill('SIGKILL');
-  await once(child, 'exit');
-  expect(events).toEqual([
-    ['started', identity],
-    ['exited', identity],
-  ]);
-});
 
 // ADR-0030: on Windows a kill stops only the program it names, so a launcher or shim would leave
 // the real program running under it.
@@ -98,12 +48,12 @@ setInterval(() => {}, 1000);`,
   const program = Number(String(line).trim());
   const exited = once(launcher, 'exit');
   try {
-    expect(processStartTime(program)).not.toBeNull();
+    expect(isRunning(program)).toBe(true);
     await terminateTree(launcher.pid ?? 0);
     await exited;
-    await expect.poll(() => processStartTime(program)).toBeNull();
+    await expect.poll(() => isRunning(program)).toBe(false);
   } finally {
-    if (processStartTime(program) !== null) {
+    if (isRunning(program)) {
       process.kill(program, 'SIGKILL');
     }
   }

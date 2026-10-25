@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { acquireProfileResetLease, type ProfileResetLease } from '@brainstrike/host-lease';
+import { acquireProfileResetLease, type ProfileResetLease } from './profile-reset-lease';
 
 /** Borrows the existing profile retirement owner, then holds its canonical lock through deletion. */
 export function createDesktopProfileResetOwner(options: {

@@ -22,7 +22,6 @@ afterAll(() => {
 });
 
 interface Verify {
-  readonly brokeStale: number;
   readonly check: {
     shown: number;
     lost: number;
@@ -81,7 +80,7 @@ test(
       };
       results.push(t);
       process.stdout.write(
-        `[kill #${i}] kill@${t.killAfterFirstShownMs}ms load=${loadavg()[0]?.toFixed(2)} ${verify.openError ? `OPEN ERROR ${verify.openError.split('\n')[0]}` : `shown=${verify.check.shown} lost=${verify.check.lost} mismatched=${verify.check.mismatched} committedNotShown=${JSON.stringify(verify.check.committedNotShown)} integrity=${verify.validity.integrity} gaps=${verify.validity.gaps} brokeStale=${verify.brokeStale} open=${verify.openMs}ms ${verify.check.firstProblem ?? ''}`}\n`
+        `[kill #${i}] kill@${t.killAfterFirstShownMs}ms load=${loadavg()[0]?.toFixed(2)} ${verify.openError ? `OPEN ERROR ${verify.openError.split('\n')[0]}` : `shown=${verify.check.shown} lost=${verify.check.lost} mismatched=${verify.check.mismatched} committedNotShown=${JSON.stringify(verify.check.committedNotShown)} integrity=${verify.validity.integrity} gaps=${verify.validity.gaps} open=${verify.openMs}ms ${verify.check.firstProblem ?? ''}`}\n`
       );
     }
     const shown = results.reduce((n, r) => n + (r.check?.shown ?? 0), 0);
@@ -96,7 +95,6 @@ test(
       if (process.platform !== 'win32') {
         expect(r.hostSignal).toBe('SIGKILL');
       }
-      expect(r.brokeStale, `trial ${r.trial}: the dead host's lock was recovered`).toBe(1);
       expect(r.validity).toEqual({ gaps: 0, integrity: 'ok' });
       expect(r.check.shown).toBeGreaterThan(0);
       expect(r.check.lost, `trial ${r.trial}: ${r.check.firstProblem ?? ''}`).toBe(0);

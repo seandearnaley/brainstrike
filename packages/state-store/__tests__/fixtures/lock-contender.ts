@@ -1,7 +1,7 @@
 // D5 race contender: report READY after startup, acquire on the parent's
 // ACQUIRE command, and retain a won lock until every contender has decided.
 import { createInterface } from 'node:readline';
-import { processStartTime, RootLock, RootLockedError } from '../../src/lock.js';
+import { RootLock, RootLockedError } from '../../src/lock.js';
 
 const [root, clockOffset = '0'] = process.argv.slice(2) as [string, string?];
 const offsetMs = Number(clockOffset);
@@ -25,15 +25,11 @@ commands.on('line', (line: string) => {
   }
   throw new Error(`Unexpected race command: ${line}`);
 });
-// Startup and process identity lookup finish before the parent opens the race.
-if (processStartTime(process.pid) === null) {
-  throw new Error('cannot read own start time');
-}
 process.stdout.write('READY\n');
 const at = await acquire.promise;
 try {
   const lateMs = now() - at;
-  const l = await RootLock.acquire(root);
+  const l = RootLock.acquire(root);
   const acquiredAt = now();
   process.stdout.write('DECIDED WON\n');
   await release.promise;
@@ -43,9 +39,7 @@ try {
   process.exit(0);
 } catch (e) {
   if (e instanceof RootLockedError) {
-    process.stdout.write(
-      `REFUSED ${e.owner.pid} late=${now() - at}ms decided=${now()}\nDECIDED REFUSED\n`
-    );
+    process.stdout.write(`REFUSED late=${now() - at}ms decided=${now()}\nDECIDED REFUSED\n`);
     process.exit(0);
   }
   process.stdout.write(`ERROR ${(e as Error)?.message ?? String(e)}\nDECIDED ERROR\n`);

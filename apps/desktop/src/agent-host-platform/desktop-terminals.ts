@@ -47,7 +47,7 @@ import type {
 } from '@brainstrike/agent-host';
 import type { TerminalEvent } from '@brainstrike/agent-host/protocol';
 import { createLogger } from '@brainstrike/logging';
-import { terminateTree, trackNativeChild } from '@brainstrike/state-store/native-children';
+import { terminateTree } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import type { CommandSessionManager } from '../assistant-server/command-session-manager';
@@ -295,10 +295,6 @@ export function createDesktopTerminals({
         });
         return { error: `Failed to start terminal: ${message}`, ok: false };
       }
-      // ADR-0017: node-pty cannot hand the shell the Root's descriptor, so the
-      // supervisor tracks it instead. The pty leads its own session and group.
-      const supervised = trackNativeChild(ptyProcess.pid, { group: true });
-
       const terminalId = `pty-${randomUUID()}`;
       let resolveExited: () => void = () => undefined;
       const exited = new Promise<void>((resolve) => {
@@ -313,7 +309,6 @@ export function createDesktopTerminals({
       live.set(terminalId, entry);
       owned.add(entry);
       void exited.then(() => {
-        supervised();
         if (entry.reap) {
           void entry.reap.then(
             () => owned.delete(entry),

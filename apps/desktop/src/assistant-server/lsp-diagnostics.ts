@@ -26,7 +26,7 @@
  * that timed out or threw is reported as an UNANSWERED leg, never degraded to
  * the empty value a real "nothing here" answer produces.
  */
-import type { ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -48,7 +48,7 @@ import {
   toQueryFailure,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import { spawnNativeChild, terminateTree } from '@brainstrike/state-store/native-children';
+import { terminateTree } from '@brainstrike/state-store/native-children';
 import {
   createMessageConnection,
   type MessageConnection,
@@ -385,7 +385,7 @@ class LspServerConnection {
     // those descendants outlive the server's own exit for a moment. On Windows
     // a live process pins its cwd, so a Root cwd would keep the Root directory
     // undeletable after disposal returned.
-    this.child = spawnNativeChild(process.execPath, [server.cliPath, ...server.args], {
+    this.child = spawn(process.execPath, [server.cliPath, ...server.args], {
       // ELECTRON_RUN_AS_NODE lets the packaged app run the server's JS entry
       // through Electron's bundled Node (there is no standalone `node`).
       // biome-ignore lint/style/useNamingConvention: OS env var name is fixed

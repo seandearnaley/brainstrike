@@ -5,10 +5,12 @@ import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { RootLock } from '@brainstrike/state-store';
+import { processStartTime } from '@brainstrike/test-utils/process-identity';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { isRootHeld } from '../helpers/root-held';
 
 const resultSchema = Schema.Struct({
   message: Schema.optional(Schema.String),
@@ -107,7 +109,7 @@ describe('real Electron desktop reset lease adapter', () => {
       expect(report.events.indexOf('profile')).toBeLessThan(report.events.indexOf('storage'));
       expect(report.events.indexOf('storage')).toBeLessThan(report.events.indexOf('renderer'));
       expect(processStartTime(report.nativePid)).not.toBe(report.nativeStart);
-      expect(RootLock.inspect(profile)?.owner.released).toBe(true);
+      expect(isRootHeld(profile)).toBe(false);
       if (mode === 'storage-failure') {
         expect(report.first).toEqual({
           message: 'Injected Electron storage failure',
@@ -117,7 +119,7 @@ describe('real Electron desktop reset lease adapter', () => {
         expect(report.events.filter((event) => event === 'guard')).toHaveLength(1);
         expect(report.events.filter((event) => event === 'profile')).toHaveLength(2);
       }
-      const contender = await RootLock.acquire(profile);
+      const contender = RootLock.acquire(profile);
       contender.release();
     },
     60_000
@@ -127,7 +129,7 @@ describe('real Electron desktop reset lease adapter', () => {
     const profile = join(directory, 'external-owner', 'data', 'profiles', 'default');
     await mkdir(profile, { recursive: true });
     // This test process is the external owner: the app's reset must refuse it, not take it.
-    const owner = await RootLock.acquire(profile);
+    const owner = RootLock.acquire(profile);
     try {
       const { report } = await run('external-owner');
       expect(report.result.success).toBe(false);

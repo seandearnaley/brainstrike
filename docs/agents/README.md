@@ -13,7 +13,7 @@ against current source and tests. Historical notes are reference, not more rules
 | Logs, hydration and memory | [Persistence](assistant-persistence.md) |
 | Providers, credentials and MCP | [Providers](assistant-providers.md), [provider cassettes](provider-cassettes.md) |
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
-| Canonical SQLite state and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
+| Canonical SQLite state and root lock | [StateStore](state-store.md), [root lock](root-lock.md) |
 | Derived search and indexing | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
 | Embeddings and local LLM | [Local inference](local-inference.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |

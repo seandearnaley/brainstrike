@@ -119,9 +119,9 @@ The host's Git inventory service follows the same joined-producer rule; it retai
 its watcher generation through failed stop and refuses restart until retirement
 succeeds.
 
-Git runs in the agent host as a plain Node child on every platform (ADR-0027),
-spawned through `spawnNativeChild` so it holds the Root (ADR-0017); there is no
-per-command native Job for quit to join. Windows agent commands keep their wrapper and
+Git runs in the agent host as a plain Node child on every platform (ADR-0027). It
+does not hold the Root (ADR-0031), and there is no per-command native Job for quit
+to join. Windows agent commands keep their wrapper and
 Job. The git runner settles at the child's `close`; output past its capture ceiling
 closes the pipe instead of killing git, since a kill on Windows reaches only the
 `cmd\git.exe` launcher and leaves the real git running in the repository.

@@ -10,7 +10,7 @@ import {
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
 import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-result-contract';
-import { joinProcessExit, processStartTime, RootLock } from '@brainstrike/state-store';
+import { joinProcessExit, processStartTime } from '@brainstrike/test-utils/process-identity';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron, type ElectronApplication } from 'playwright';
 import { expect, onTestFinished } from 'vitest';
@@ -29,6 +29,7 @@ import { electronExecutablePath, FOREGROUND_RENDERER_SWITCHES } from './electron
 import { launchAppWithLauncher } from './electron-launcher-watchdog';
 import { writeFirstFailure } from './failure-evidence';
 import { type OwnedTestProcess, retireOwnedTestProcesses } from './retire-owned-test-processes';
+import { isRootHeld } from './root-held';
 
 const desktop = resolve(import.meta.dirname, '../../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -233,7 +234,7 @@ export async function qualifyOrdinaryAppIndexedText(
       ELECTRON_IS_E2E_TEST: 'true',
       OPENROUTER_BASE_URL: model.baseUrl,
     });
-    expect(RootLock.inspect(profile)).toBeNull();
+    expect(isRootHeld(profile)).toBe(false);
     checkpoint('ordinary-search-launch-start');
     application = await launchAppWithLauncher(() =>
       _electron.launch({
@@ -318,12 +319,11 @@ export async function qualifyOrdinaryAppIndexedText(
     workspaceRootId = await addWorkspaceFolder(page, workspace);
     // Observe the host created by the app, through its own window's connect.
     client = await attachHostThroughWindow(page);
-    const record = client.host;
-    expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
-    expect(record.pid).not.toBe(process.pid);
-    const start = processStartTime(record.pid);
-    if (start) {
-      owners.push({ kind: 'child', pid: record.pid, start });
+    expect(client.host.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
+    expect(client.host.pid).not.toBe(process.pid);
+    const record = { ...client.host, start: processStartTime(client.host.pid) };
+    if (record.start) {
+      owners.push({ kind: 'child', pid: record.pid, start: record.start });
     }
     const mountedRootId = workspaceRootId;
     if (!mountedRootId) {
@@ -511,7 +511,7 @@ export async function qualifyOrdinaryAppIndexedText(
       const stillLive = [...nativeOwners, { name: 'agent-host', ...record }].filter(
         ({ pid, start }) => start && processStartTime(pid) === start
       );
-      const rootReleased = RootLock.inspect(profile)?.owner.released;
+      const rootReleased = !isRootHeld(profile);
       await writeFile(
         join(evidence, 'host-stop-verdict.json'),
         JSON.stringify(
@@ -550,8 +550,7 @@ export async function qualifyOrdinaryAppIndexedText(
     }
   } finally {
     await release();
-    const root = RootLock.inspect(profile);
-    const rootReleased = root?.owner.released ?? null;
+    const rootReleased = !isRootHeld(profile);
     if (application && rootReleased !== true) {
       errors.push(new Error('Ordinary app-owned Root did not release its lock'));
     }
@@ -566,7 +565,6 @@ export async function qualifyOrdinaryAppIndexedText(
           providerBaseUrl: model.baseUrl,
           providerClosed,
           remaining,
-          rootAbsent: root === null,
           rootReleased,
         },
         null,

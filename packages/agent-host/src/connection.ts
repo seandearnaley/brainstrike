@@ -1,10 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
-import {
-  BoundaryFailureError,
-  fault,
-  refusal,
-  refusalError,
-} from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, refusal, refusalError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.ts';
@@ -51,19 +45,12 @@ import {
   searchHostThreads,
 } from './thread-search.ts';
 
-interface HostConnectionLifecycle {
-  readonly closing: boolean;
-  /** Resolves after Root cleanup joins; the transport owns its final response write. */
-  stop(): Promise<void>;
-}
-
 export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
   /** ADR-0029 stage 2: the desktop's git cluster, where the host owns one. */
   readonly gitWorkspace?: HostGitWorkspace;
-  readonly lifecycle?: HostConnectionLifecycle;
   /** The desktop's MCP content browsing, where the host serves it. */
   readonly mcpContent?: HostMcpContentService;
   /** The desktop's MCP Tasks cards and server input, where the host presents them. */
@@ -76,11 +63,6 @@ export interface HostConnectionOptions {
   readonly providers?: HostProviderService;
   /** BST-2227: the embedder `memory/embedder/probe` tests, where the host has a composer. */
   readonly resolveMemoryEmbedder?: HostPlatform['resolveMemoryEmbedder'];
-  /**
-   * The transport's retirement: each in-flight request's signal aborts as `host.closing`, and a
-   * request that arrives afterwards is refused as `host.closing`.
-   */
-  readonly retiring?: AbortSignal;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
   /** The semantic arm's index operations, where the host owns a state index. */
@@ -92,16 +74,11 @@ export interface HostConnectionOptions {
   readonly workspaceDiscovery?: HostWorkspaceDiscovery;
 }
 
-/**
- * What a connection's initialize answers with. A socket's identity carries the
- * token its client must present; a transport the launcher handed over has none.
- */
+/** What a connection's initialize answers with. */
 export interface HostIdentity {
   readonly hostVersion: string;
   readonly pid: number;
   readonly protocolVersion: number;
-  readonly start: string;
-  readonly token?: string;
 }
 /** All transports enter this same authenticated method dispatcher. */
 const logger = createLogger('AgentHostConnection');
@@ -111,30 +88,22 @@ const UNAUTHENTICATED = refusal({
   code: 'host.unauthenticated',
   message: 'This connection has not authenticated with the agent host.',
 });
-const HOST_CLEANUP_FAILED = fault({
-  category: 'internal',
-  code: 'host.cleanup-failed',
-  message: 'Host cleanup failed, so the agent host kept its Root.',
-});
 
 export function bindHostConnection(
   connection: MessageConnection,
   core: HostCore,
   identity: HostIdentity,
-  attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
   const {
     auth,
     gitWorkspace,
-    lifecycle,
     mcpContent,
     mcpPresentation,
     mcpSettings,
     origin = 'public-socket',
     providers,
     resolveMemoryEmbedder,
-    retiring,
     searchState,
     searchStateVectors,
     searchWorkspace,
@@ -179,8 +148,6 @@ export function bindHostConnection(
       connection.sendNotification(HOST_RUN_TELEMETRY, telemetry).catch(() => connection.dispose());
     }
   });
-  // A socket refuses from its host's close; a private client from its own retirement.
-  const isClosing = (): boolean => lifecycle?.closing === true || retiring?.aborted === true;
   const handle = <M extends HostMethod>(
     method: M,
     request: (params: HostParams<M>, signal: AbortSignal) => unknown
@@ -192,15 +159,9 @@ export function bindHostConnection(
         const cancelled = token.onCancellationRequested(() =>
           controller.abort(new Error('The client cancelled the request'))
         );
-        // BST-2174: retirement cancels the work that reads this signal, then joins it.
-        const retire = (): void => controller.abort(new BoundaryFailureError(HOST_CLOSING));
-        retiring?.addEventListener('abort', retire, { once: true });
         try {
           if (disposed || (!initialized && method !== 'initialize')) {
             throw new BoundaryFailureError(UNAUTHENTICATED);
-          }
-          if (isClosing()) {
-            throw new BoundaryFailureError(HOST_CLOSING);
           }
           return await request(parseHostParams(method, input), controller.signal);
         } catch (cause) {
@@ -218,27 +179,10 @@ export function bindHostConnection(
             : response;
         } finally {
           cancelled.dispose();
-          retiring?.removeEventListener('abort', retire);
         }
       })
     );
   };
-  handle('host/stop', async () => {
-    if (!lifecycle) {
-      throw refusalError(
-        'configuration',
-        'host.lifecycle-unavailable',
-        'Host lifecycle is unavailable on this transport'
-      );
-    }
-    try {
-      await lifecycle.stop();
-    } catch (cause) {
-      // The physical cleanup's causes are logged under the fault's correlation id.
-      throw new BoundaryFailureError(HOST_CLEANUP_FAILED, { cause });
-    }
-    return { outcome: 'stopped', rootReleased: true };
-  });
   handle('initialize', async (params) => {
     if (
       initialized ||
@@ -251,21 +195,8 @@ export function bindHostConnection(
         'Host protocol or version mismatch'
       );
     }
-    if (
-      identity.token !== undefined &&
-      !(
-        params.token !== undefined &&
-        timingSafeEqual(Buffer.from(params.token, 'hex'), Buffer.from(identity.token, 'hex'))
-      )
-    ) {
-      throw refusalError(
-        'authorization',
-        'host.authentication-failed',
-        'Host authentication failed'
-      );
-    }
-    // Authentication is already proved; reserve this connection before the
-    // asynchronous resource registration so a second initialize cannot enter.
+    // Reserve this connection before the asynchronous resource registration so a
+    // second initialize cannot enter.
     initialized = true;
     await options.bindCatalog?.({
       onRequest: ((method: string, handler: (input: unknown) => Promise<unknown>) => {
@@ -275,7 +206,7 @@ export function bindHostConnection(
             if (!initialized || disposed) {
               throw new BoundaryFailureError(UNAUTHENTICATED);
             }
-            if (retired || lifecycle?.closing) {
+            if (retired) {
               throw new BoundaryFailureError(HOST_CLOSING);
             }
             return await handler(input);
@@ -297,12 +228,10 @@ export function bindHostConnection(
         };
       }) as MessageConnection['onRequest'],
     });
-    attached();
     return {
       hostVersion: identity.hostVersion,
       pid: identity.pid,
       protocolVersion: identity.protocolVersion,
-      start: identity.start,
     };
   });
   bindHostAuthMethods(handle, auth, origin);

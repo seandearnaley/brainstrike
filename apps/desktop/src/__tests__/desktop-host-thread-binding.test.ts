@@ -51,7 +51,7 @@ function fixture() {
     close: vi.fn(async () => undefined),
     // A live client: its transport stays open until the test or the frame closes it.
     closed: new Promise<void>(() => undefined),
-    host: { hostVersion: 'test', pid: 1, protocolVersion: 1, start: 'test' },
+    host: { hostVersion: 'test', pid: 1, protocolVersion: 1 },
     onChildrenChanged: vi.fn(() => () => undefined),
     onEvent: vi.fn(() => () => undefined),
     onGitWorkspace: vi.fn(() => () => undefined),

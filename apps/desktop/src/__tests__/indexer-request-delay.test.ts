@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { parseLifecycleDelays } from '@brainstrike/host-lease/lifecycle-delays';
+
 import { afterEach, expect, it, vi } from 'vitest';
 import { indexerMessageDelivery } from '../indexer-request-delay';
+import { parseLifecycleDelays } from '../lifecycle-delays';
 
 afterEach(() => {
   vi.useRealTimers();

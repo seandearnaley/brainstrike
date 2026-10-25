@@ -3,7 +3,6 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, expect, test } from 'vitest';
-import { RootLock } from '../src/lock.js';
 import { StateStore } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { TruthIndexer } from './helpers/truth-indexer.js';
@@ -145,7 +144,7 @@ test('physical index retirement blocks clear and later writes until the existing
     await expect(
       store.append([{ event: { content: 'late', type: 'user.message' }, threadId: 'late' }])
     ).rejects.toThrow();
-    expect(RootLock.inspect(root)?.owner.released).not.toBe(true);
+    expect(store.lock.isReleased).toBe(false);
     expect(await store.read('thread')).toHaveLength(1);
   } finally {
     release.resolve();

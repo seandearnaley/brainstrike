@@ -1,5 +1,5 @@
 {
-  "version": 13,
+  "version": 14,
   "methods": [
     "auth/clear",
     "auth/credential/delete",
@@ -37,7 +37,6 @@
     "hooks/trust/read",
     "hooks/untrust",
     "host/status",
-    "host/stop",
     "initialize",
     "interaction/respond",
     "interaction/resume",

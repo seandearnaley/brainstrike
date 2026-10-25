@@ -11,7 +11,7 @@ const { applyPrivateDirectorySync, verifyPrivateDirectorySync } = require('..');
 const windows = process.platform === 'win32';
 const WINDOWS_ONLY = windows
   ? false
-  : 'Windows DACLs only: on POSIX, host-lease keeps checking the directory mode (0700) and its uid';
+  : 'Windows DACLs only: on POSIX a private directory is its mode (0700) and its uid';
 const POSIX_ONLY = windows ? 'POSIX only: Windows implements both calls' : false;
 
 let directory;
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 // The independent oracle: .NET's view of the directory's owner and DACL, read by
-// path, the same reader the host-lease PowerShell verify used. A mutation edits
+// path. A mutation edits
 // the DACL first; `user-owner` makes the fresh directory the user's own, as an
 // unelevated token does, whatever this token's default owner for new objects is.
 const aclCommand = `

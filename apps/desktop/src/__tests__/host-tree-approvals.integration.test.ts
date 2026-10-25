@@ -8,13 +8,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { hostChildCallSign } from '@brainstrike/agent-host';
 import {
-  type AgentHost,
-  attachAgentHost,
-  type HostClient,
-  hostChildCallSign,
-  startAgentHost,
-} from '@brainstrike/agent-host';
+  type InProcessHost,
+  openInProcessHost,
+} from '@brainstrike/agent-host/test-fixtures/in-process-host';
 import { scriptedDelegation } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import {
@@ -28,12 +26,10 @@ import { respondToHostApproval } from '../renderer/host-approval-response';
 import { HostTreeApprovals } from '../renderer/host-tree-approvals';
 
 const roots: string[] = [];
-const hosts: AgentHost[] = [];
-const clients: HostClient[] = [];
+const hosts: InProcessHost[] = [];
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
-  await Promise.all(clients.splice(0).map((client) => client.close()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
@@ -47,61 +43,56 @@ async function delegatingHost(
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-host-tree-approvals-'));
   roots.push(root);
-  const host = await startAgentHost(
-    { lifetime: 'persistent', root },
-    {
-      close: async () => undefined,
-      delegation: {
-        personas: [
-          {
-            allowedToolIds: ['ask_user', 'write_file'],
-            description: 'Writes workspace files.',
-            id: 'writer',
-            instructions: 'You are the Writer.',
-            label: 'Writer',
-            maxSteps: 4,
-            mode: 'worker',
-          },
-        ],
-        // A child never delegates, so only the root offers the delegation tool.
-        settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 1 },
-      },
-      maxSteps: 4,
-      readPermissionPolicy: () => ({
-        policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask', read: 'allow' },
-        yolo: false,
-      }),
-      resolveModel: async () =>
-        scriptedDelegation(
-          { input: { prompt: 'Write the notes' }, toolId: 'agent-writer' },
-          childCalls
-        ),
-      tools: {
-        ask_user: {
-          description: 'Ask the user a question',
-          execute: async (_input, context) => context.resumeData,
-          identity: 'native-ask-user-generation-1',
-          inputSchema: z.object({ question: z.string() }),
-          interaction: { kind: 'question', resumeSchema: z.object({ answer: z.string() }) },
-          risk: 'read',
+  const host = await openInProcessHost(root, {
+    close: async () => undefined,
+    delegation: {
+      personas: [
+        {
+          allowedToolIds: ['ask_user', 'write_file'],
+          description: 'Writes workspace files.',
+          id: 'writer',
+          instructions: 'You are the Writer.',
+          label: 'Writer',
+          maxSteps: 4,
+          mode: 'worker',
         },
-        write_file: {
-          description: 'Write a workspace file',
-          execute: async (input) => {
-            writes.push(input);
-            return { written: true };
-          },
-          identity: 'native-write-generation-1',
-          inputSchema: z.object({ path: z.string() }),
-          risk: 'edit',
-        },
+      ],
+      // A child never delegates, so only the root offers the delegation tool.
+      settings: { ...DEFAULT_RUNTIME_SUBAGENT_SETTINGS, maxDepth: 1 },
+    },
+    maxSteps: 4,
+    readPermissionPolicy: () => ({
+      policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask', read: 'allow' },
+      yolo: false,
+    }),
+    resolveModel: async () =>
+      scriptedDelegation(
+        { input: { prompt: 'Write the notes' }, toolId: 'agent-writer' },
+        childCalls
+      ),
+    tools: {
+      ask_user: {
+        description: 'Ask the user a question',
+        execute: async (_input, context) => context.resumeData,
+        identity: 'native-ask-user-generation-1',
+        inputSchema: z.object({ question: z.string() }),
+        interaction: { kind: 'question', resumeSchema: z.object({ answer: z.string() }) },
+        risk: 'read',
       },
-    }
-  );
+      write_file: {
+        description: 'Write a workspace file',
+        execute: async (input) => {
+          writes.push(input);
+          return { written: true };
+        },
+        identity: 'native-write-generation-1',
+        inputSchema: z.object({ path: z.string() }),
+        risk: 'edit',
+      },
+    },
+  });
   hosts.push(host);
-  const client = await attachAgentHost(host.record);
-  clients.push(client);
-  return client;
+  return await host.connect();
 }
 
 test('the committed child approval already counts its call while the stream consumer is held', async () => {

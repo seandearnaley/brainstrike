@@ -2,6 +2,7 @@
   "name": "@brainstrike/test-utils",
   "version": "0.1.0",
   "devDependencies": {
+    "@brainstrike/windows-job-native": "workspace:*",
     "@mastra/core": "1.78.0",
     "@mastra/memory": "1.38.0",
     "@playwright/test": "catalog:",
@@ -53,7 +54,8 @@
     "./worker": "./src/index.ts",
     "./playwright": "./src/playwright/failure-artifacts.ts",
     "./provider-cassette": "./src/provider-cassette.ts",
-    "./react-act": "./src/react-act.ts"
+    "./react-act": "./src/react-act.ts",
+    "./process-identity": "./src/process-identity.ts"
   },
   "license": "MIT",
   "peerDependencies": {

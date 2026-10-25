@@ -189,7 +189,7 @@ test('current-format export and import retain canonical source-only bytes', asyn
     ).toMatchObject({ bytes: original.stat.size, sha256: original.contentHash });
     const importedRoot = freshDir('source-catalog-import');
     StateStore.importBundle(bundle, importedRoot);
-    const imported = await StateStore.open(importedRoot, { onForeignLock: () => true });
+    const imported = await StateStore.open(importedRoot);
     try {
       const file = prepared.files[0];
       if (!file) {

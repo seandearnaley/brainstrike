@@ -1,7 +1,9 @@
-import { HOST_STARTUP_TIMEOUT_MS } from '@brainstrike/host-lease';
 import type { Page } from 'playwright';
 import { expect } from 'vitest';
 import { z } from 'zod';
+
+/** This test's bound on the host's startup; the product itself sets none (ADR-0031). */
+const HOST_START_BOUND_MS = 30_000;
 
 /**
  * Adds `workspace` through the ordinary Add Folder grant/mount flow (the folder picker answers
@@ -31,7 +33,7 @@ export async function addWorkspaceFolder(page: Page, workspace: string): Promise
         rootId = z.array(z.object({ rootId: z.string() })).parse(roots)[0]?.rootId;
         return rootId !== undefined;
       },
-      { timeout: HOST_STARTUP_TIMEOUT_MS }
+      { timeout: HOST_START_BOUND_MS }
     )
     .toBe(true);
   if (rootId === undefined) {

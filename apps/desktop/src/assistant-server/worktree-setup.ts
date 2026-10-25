@@ -6,18 +6,14 @@
  * Failure is visible and non-blocking: the worktree exists and is usable
  * either way, and the bounded outcome is persisted on its ledger row.
  */
-import type { ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256OfBuffer } from '@brainstrike/host-capabilities/hooks';
 import { createLogger } from '@brainstrike/logging';
-import {
-  CHILD_SIGNAL_GRACE_MS,
-  spawnNativeChild,
-  terminateTree,
-} from '@brainstrike/state-store/native-children';
+import { CHILD_SIGNAL_GRACE_MS, terminateTree } from '@brainstrike/state-store/native-children';
 import type { WorktreeSetupOutcome, WorktreeSetupSkippedCopy } from '@brainstrike/types';
 import { isPathWithin } from './worktree-paths';
 import type { WorktreeSetupInput } from './worktree-service';
@@ -530,7 +526,7 @@ async function executeSetupCommand(
     let exitStatus: { code: number | null; signal: NodeJS.Signals | null } | undefined;
     let processTreeExitTimer: ReturnType<typeof setTimeout> | undefined;
     let processTreeKilled = false;
-    const child = spawnNativeChild(file, args, {
+    const child = spawn(file, args, {
       cwd: input.worktree.path,
       detached: !isWindows,
       env,
