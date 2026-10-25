@@ -339,23 +339,15 @@ export async function qualifyOrdinaryAppIndexedText(
       .poll(
         async () => {
           const publication = await page.evaluate(async (rootId) => {
-            const capability = window.indexSearch;
+            const capability = window.__brainstrikeTestHooks__?.indexSearch;
             if (!capability) {
               throw new Error('The ordinary desktop has no native index capability');
             }
-            const statusResult = await capability.status();
-            if (!statusResult.ok) {
-              throw new Error(statusResult.error.message);
-            }
-            const status = statusResult.value;
+            const status = await capability.status();
             if (status.kind !== 'ready' || status.embedding.indexMode !== 'text-only') {
               return { ready: false, status };
             }
-            const coverageResult = await capability.coverageBatch([{ rootIds: [rootId] }]);
-            if (!coverageResult.ok) {
-              throw new Error(coverageResult.error.message);
-            }
-            const observation = coverageResult.value;
+            const observation = await capability.coverageBatch([{ rootIds: [rootId] }]);
             if (observation.kind === 'blocked') {
               throw new Error(observation.reason);
             }

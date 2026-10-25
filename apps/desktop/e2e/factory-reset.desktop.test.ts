@@ -10,6 +10,7 @@ import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { captureResetLogs } from './utils/reset-log-capture';
 import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
+import { recentWorkspaceRoots, restoredWorkspaceRoots } from './utils/seed-root';
 
 type ConfirmOverrideTarget = typeof globalThis & {
   confirm: () => boolean;
@@ -386,21 +387,13 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
           }
           await expect(window.getByText(fileName, { exact: true })).toBeVisible();
         }
-        const readFolders = async (page: import('@playwright/test').Page) =>
-          await page.evaluate(async () => {
-            const storage = (
-              globalThis as typeof globalThis & {
-                electronAPI?: { storage?: { getItem: (key: string) => Promise<string | null> } };
-              }
-            ).electronAPI?.storage;
-            if (!storage) {
-              throw new Error('Desktop storage capability unavailable');
-            }
-            const values = await Promise.all(
-              ['rootsList', 'recentRootsList'].map((key) => storage.getItem(key))
-            );
-            return values.map((value): unknown => (value === null ? [] : JSON.parse(value)));
-          });
+        // The host's folder ledgers: its restored roots and its recent grants.
+        const readFolders = async (
+          page: import('@playwright/test').Page
+        ): Promise<readonly (readonly unknown[])[]> => [
+          await restoredWorkspaceRoots(page),
+          await recentWorkspaceRoots(page),
+        ];
         const mounted = await readFolders(window);
         expect(mounted[0]).toHaveLength(folderCount);
         expect(mounted[1]).toHaveLength(folderCount);

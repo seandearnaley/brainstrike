@@ -15,8 +15,8 @@ import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import { IndexerUtilityExitedError } from '../indexer-utility-exit';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import {
   type NativeIndexSources,
   retireNativeIndexSources,
@@ -24,7 +24,10 @@ import {
 } from '../native-index-source-retirement';
 import { textSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
-import { createActivationCatalogFixture } from './native-activation-catalog-fixture';
+import { createActivationCatalogFixture, forkNoUtility } from './native-activation-catalog-fixture';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 const catalogFixture = createActivationCatalogFixture();
 
@@ -41,9 +44,6 @@ const mocks = vi.hoisted(() => ({
     start: vi.fn(),
   },
   readyPort: vi.fn(),
-}));
-vi.mock('../desktop-database-location', () => ({
-  resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
 vi.mock('../host-lease-manager', () => ({
   createDesktopHostLease: () => ({ acquire: async () => {}, close: mocks.closeProfile }),
@@ -127,23 +127,25 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     }),
   };
 }
-function fixture(applicationOverride?: ApplicationIpcDomain) {
+function fixture(applicationOverride?: HostFolders) {
   const application = {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: catalogFixture.catalog,
+    databasePath: '/owned/profile/index.sqlite',
     embedding: transport,
+    forkLentUtility: forkNoUtility,
+    hostedEmbeddings: unused,
     modelCatalog: catalogFixture.modelCatalog,
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     settings: async () => textSettings(),
-    storage: { getItem: unused },
   });
   return { activation, onReceipt, transport };
 }
@@ -262,7 +264,7 @@ it.each([
         restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
       }),
       watches: { subscribe: unused },
-    } as unknown as ApplicationIpcDomain;
+    } as unknown as HostFolders;
     const native = writer();
     const verify = vi.fn(native.verifyScopedManifest);
     native.verifyScopedManifest = verify;

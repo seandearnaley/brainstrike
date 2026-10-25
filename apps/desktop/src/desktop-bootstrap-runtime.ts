@@ -18,6 +18,7 @@ import {
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { createDesktopProfileRuntime, type DesktopProfileRuntime } from './desktop-profile-runtime';
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
+import { E2E_FILE_SYSTEM_FIXTURE_FILE } from './e2e-file-system-fixture';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
@@ -245,6 +246,17 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
           userDataPath: app.getPath('userData'),
         },
         credentialStore,
+        // An E2E launch's host serves its folders from the fixture the test writes.
+        ...(isElectronE2ETestMode()
+          ? {
+              e2e: {
+                fileSystemFixturePath: path.join(
+                  app.getPath('userData'),
+                  E2E_FILE_SYSTEM_FIXTURE_FILE
+                ),
+              },
+            }
+          : {}),
         ...(environment.failures.length > 0 ? { envFileFailures: [...environment.failures] } : {}),
       }),
       root: resolveDesktopDatabaseProfileDirectory(),

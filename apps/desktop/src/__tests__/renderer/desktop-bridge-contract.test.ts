@@ -17,7 +17,7 @@ describe('validateDesktopBridgeContract', () => {
     if (result.ok) {
       throw new Error('Expected contract validation to fail.');
     }
-    expect(result.missing).toContain('window.electronAPI.fileSystem.requestDirectoryAccess');
+    expect(result.missing).toContain('window.electronAPI.folderPicker.requestDirectoryAccess');
     expect(result.missing).toContain('window.modelCatalog.read');
     expect(result.missing).toContain('window.agentHost.onPrepareClose');
     expect(result.missing).toContain('window.logging.getPreferences');
@@ -54,18 +54,14 @@ describe('validateDesktopBridgeContract', () => {
       electronAPI: {
         content: { clear: async () => ({}) },
         factoryReset: { resetLocal: async () => ({ success: true }) },
-        fileSystem: {
-          exists: async () => true,
-          readDirectory: async () => [],
-          readFile: async () => '',
+        folderPicker: {
+          addRoot: async () => ({}),
           requestDirectoryAccess: async () => ({
             kind: 'directory',
             name: 'root',
             path: '/tmp/root',
             platform: 'electron',
           }),
-          restoreLastFolder: async () => null,
-          saveLastFolder: async () => undefined,
         },
         storage: {
           clear: async () => undefined,

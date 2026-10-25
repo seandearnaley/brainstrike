@@ -40,6 +40,11 @@ async function execute(
   return { config: saved === undefined ? null : decodeIndexConfig(JSON.parse(saved)) };
 }
 
+/** The host's own index config owner reads and writes the setting directly. */
+export function localIndexConfigStore(store: IndexConfigSettings): IndexConfigPort {
+  return { indexConfig: (request) => execute(store, request) };
+}
+
 /** Decoded on arrival and served by the one acquired writer, never a second store. */
 export function serveIndexConfigStore(
   connection: Pick<MessageConnection, 'onRequest'>,

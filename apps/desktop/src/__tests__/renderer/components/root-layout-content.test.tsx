@@ -67,6 +67,9 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
   registerDesktopEmbeddingRuntimeConfig: registerDesktopEmbeddingRuntimeConfigMock,
 }));
 
+// The window's real connector loads the browser JSON-RPC transport; no host connects here.
+vi.mock('../../../renderer/agent-host-client', () => ({ connectDesktopAgentHost: vi.fn() }));
+
 // This layout fixture supplies its own child surfaces; actual host/port binding
 // is exercised by the desktop host-thread integration and projection tests.
 // No agent host in jsdom: the composer menu gets no host MCP tools.
@@ -171,6 +174,11 @@ const workspaceTerminalsMock = vi.fn(
 );
 vi.mock('../../../renderer/host-terminals', () => ({
   resolveDesktopWorkspaceTerminalServices: () => workspaceTerminalsMock(),
+}));
+
+// ...and the search index (default none = web-safe).
+vi.mock('../../../renderer/host-workspace-index', () => ({
+  resolveDesktopWorkspaceIndex: () => null,
 }));
 
 const TERMINAL_BRIDGE: TerminalBridge = {

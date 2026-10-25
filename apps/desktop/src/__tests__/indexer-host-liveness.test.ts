@@ -30,19 +30,10 @@ type FakeUtility = EventEmitter & {
   canonicalOps: string[];
   kill: () => boolean;
   kills: number;
+  pid: undefined;
   postMessage: (message: unknown) => void;
 };
-const forks = vi.hoisted(() => ({ count: 0, next: undefined as unknown }));
-
-vi.mock('electron', () => ({
-  app: { isReady: () => true },
-  utilityProcess: {
-    fork: () => {
-      forks.count += 1;
-      return forks.next;
-    },
-  },
-}));
+const forks = { count: 0 };
 
 /** An indexer utility that answers indexer requests and canonical `attach` after `SLOW_MS`. */
 function slowUtility(slow: {
@@ -60,6 +51,7 @@ function slowUtility(slow: {
       return true;
     },
     kills: 0,
+    pid: undefined,
     postMessage: (message: unknown): void => {
       if (!started) {
         started = true;
@@ -152,7 +144,6 @@ function workspace(rootId: string): CanonicalRemoteWorkspaceDependencies {
 }
 
 async function manager(utility: FakeUtility): Promise<IndexerHostManager> {
-  forks.next = utility;
   return IndexerHostManager.create(
     {
       dbPath,
@@ -166,7 +157,10 @@ async function manager(utility: FakeUtility): Promise<IndexerHostManager> {
     },
     // Desktop's production native-index deadlines (native-index-activation.ts).
     { closeMs: 30_000 },
-    '/explicit/entry.js'
+    () => {
+      forks.count += 1;
+      return utility;
+    }
   );
 }
 

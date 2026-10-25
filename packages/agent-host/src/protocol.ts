@@ -65,11 +65,23 @@ import {
   WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
 } from './protocol-workspace-discovery.ts';
 import {
+  WORKSPACE_FILES_METHOD_SCHEMAS,
+  WORKSPACE_FILES_RESULT_SCHEMAS,
+} from './protocol-workspace-files.ts';
+import {
+  WORKSPACE_INDEX_METHOD_SCHEMAS,
+  WORKSPACE_INDEX_RESULT_SCHEMAS,
+} from './protocol-workspace-index.ts';
+import {
   RunVerdictDetailSchema,
   RunVerdictSchema,
   RunVerdictSourceSchema,
 } from './run-verdict-wire.ts';
-import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.ts';
+import {
+  HostHookSkipSchema,
+  HostImageAttachmentSchema,
+  HostRunTelemetrySchema,
+} from './run-wire.ts';
 import {
   HostEditBaselineSchema,
   HostEditRevertOutcomeSchema,
@@ -93,6 +105,8 @@ export * from './protocol-selection.ts';
 export * from './protocol-state-health.ts';
 export * from './protocol-terminals.ts';
 export * from './protocol-workspace-discovery.ts';
+export * from './protocol-workspace-files.ts';
+export * from './protocol-workspace-index.ts';
 export * from './run-wire.ts';
 export * from './workspace-wire.ts';
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`, and the explicit
@@ -260,48 +274,6 @@ export type HostChildOrigin = (typeof HostChildOriginSchema)['Type'];
  */
 export const HostChildStatusSchema = Schema.Literals(['working', 'needs-input', 'idle']);
 export type HostChildStatus = (typeof HostChildStatusSchema)['Type'];
-/**
- * The host's announcement, on each connection, that it is retiring (as HTTP/2's
- * GOAWAY). The host sends it first, then refuses new requests as `host.closing`
- * and answers every request it read. Its client refuses later sends unsent.
- */
-export const HOST_CLOSING_EVENT = 'host/closing';
-/**
- * The retiring host's last frame before it closes the transport (as TLS's
- * close_notify): every request it read on this connection is answered above it.
- * So a request still unanswered at the close was never read, and its client
- * refuses it as `host.closing`. Without this frame, as when the host crashes
- * mid-retirement, an unanswered request may have run: it stays a lost connection.
- */
-export const HOST_DRAINED_EVENT = 'host/drained';
-/**
- * BST-1932: the host's notice that a thread's children changed status (a child
- * run started, paused for a person, was answered or ended). A client re-reads
- * `thread/children` for `threadId` only when told.
- */
-export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
-export const HostChildrenChangedSchema = Schema.Struct(Thread);
-/**
- * A run's live telemetry, sent to the thread's log subscribers and never
- * committed (ADR-0011 amendment): a tool's shell-output slice or MCP progress,
- * which names its `toolCallId`, or the model's text and reasoning stream,
- * which names none. The committed tool result and `model.step` messages own
- * that content; a reload shows them and no telemetry.
- *
- * Each stream's chunks are numbered by `ordinal`, from 0: a tool call's, or a
- * run's text and reasoning. A `log/subscribe` result replays the thread's
- * running calls and open steps, so a view that opens mid-call shows what it
- * missed and skips any ordinal it already applied.
- */
-export const HOST_RUN_TELEMETRY = 'run/telemetry';
-export const HostRunTelemetrySchema = Schema.Struct({
-  ...Thread,
-  chunk: Schema.MutableJson,
-  ordinal: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
-  runId: Id,
-  toolCallId: Schema.optional(Id),
-});
-export type HostRunTelemetry = (typeof HostRunTelemetrySchema)['Type'];
 /** One settled background invocation delivered to its parent (BST-1932). */
 export const HostChildDeliveryEntrySchema = Schema.Struct({
   childRunId: Id,
@@ -373,6 +345,8 @@ export const HOST_METHOD_SCHEMAS = {
   ...MCP_SETTINGS_METHOD_SCHEMAS,
   ...PERMISSION_POLICY_METHOD_SCHEMAS,
   ...TERMINAL_METHOD_SCHEMAS,
+  ...WORKSPACE_FILES_METHOD_SCHEMAS,
+  ...WORKSPACE_INDEX_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
   'auth/clear': Schema.Record(Schema.String, Schema.Never),
@@ -967,6 +941,8 @@ export const HOST_RESULT_SCHEMAS = {
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   ...PERMISSION_POLICY_RESULT_SCHEMAS,
   ...TERMINAL_RESULT_SCHEMAS,
+  ...WORKSPACE_FILES_RESULT_SCHEMAS,
+  ...WORKSPACE_INDEX_RESULT_SCHEMAS,
   'auth/clear': Schema.Struct({ cleared: Schema.Boolean }),
   'auth/credential/delete': Schema.Struct({ deleted: Schema.Boolean }),
   'auth/credential/set': Schema.Struct({ stored: Schema.Literal(true) }),

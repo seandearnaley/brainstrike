@@ -42,9 +42,11 @@ import {
 import {
   desktopHostToolExecutors,
   type HostAppPaths,
+  type HostRetrieval,
 } from '../../agent-host-platform/host-executed-tools';
 import type { PlatformSelection } from '../../agent-host-platform/platform-wire';
 import { getEditDiagnostics } from '../../assistant-server/lsp-diagnostics';
+import { unusedHostRetrieval } from '../fixtures/host-retrieval';
 
 type NativeToolDefinitions = HostToolDefinitions;
 export type HostMainRequest = (
@@ -124,6 +126,8 @@ export interface HostNativeToolsOptions {
   readonly readFileCursorRegistry?: ReadWorkspaceFileCursorRegistry;
   readonly request?: HostMainRequest;
   readonly resolvedToolResultBudget?: ScaledToolResultBudget;
+  /** The host's index and retrieval catalog; defaults to one no read may reach. */
+  readonly retrieval?: HostRetrieval;
   readonly threadId?: string;
   readonly webExtract?: WebExtractToolDependencies;
   readonly webSearch?: WebSearchToolDependencies;
@@ -158,6 +162,7 @@ export function buildHostNativeTools(
         {},
         threadId,
         options.native ?? nativeRuntimeFor(runtimeData),
+        options.retrieval ?? unusedHostRetrieval(),
         options.appPaths
       )),
   };

@@ -112,7 +112,6 @@ app
         }
         await session.defaultSession.clearStorageData();
       },
-      runTransition: (work) => work(),
       runtimes: [],
       sessionDataPath,
       userDataPath: userData,

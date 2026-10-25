@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
+import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   LocalEmbeddingHostClient,
@@ -18,7 +18,6 @@ import {
   readHostPermissionPolicy,
 } from '@brainstrike/agent-host';
 import { fromBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
-import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
@@ -39,6 +38,12 @@ import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
+import {
+  agentHostLifecycleDelaySeam,
+  agentHostLifecycleDelays,
+} from '../agent-host-lifecycle-delays';
+import { createCatalogRetrievalStore } from '../assistant-server/retrieval-store-catalog';
+import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { createWorkspaceRootResolver } from '../git-ipc-handlers';
 import { mainPlatformConnection } from './connection';
@@ -50,14 +55,19 @@ import {
   type DesktopRunSelection,
 } from './desktop-run-admission';
 import { createDesktopTerminals } from './desktop-terminals';
+import { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
 import { desktopWorkspaceDiscovery } from './desktop-workspace-discovery';
+import { createDesktopWorkspaceFiles } from './desktop-workspace-files';
+import { createDesktopWorkspaceIndex } from './desktop-workspace-index';
+import { createDesktopWorkspaceRoots } from './desktop-workspace-roots';
+import { createE2eSyntheticFiles } from './e2e-synthetic-files';
 import { forwardHostDiagnostics } from './host-diagnostics';
+import { PLATFORM_FOLDER_GRANTED, PLATFORM_FOLDER_OPENED } from './host-folders-wire';
+import { PLATFORM_EMBEDDING_STOP, PLATFORM_RUNTIME_PREFERENCES_READ } from './host-index-wire';
+import { createHostUtilityLending, serveUtilityReports } from './host-lent-utility';
+import { serveMainRequests } from './host-main-requests';
 import { mainQueryEmbedding } from './host-retrieval-clients';
-import {
-  disposeHostTools,
-  hostCommandSessionManager,
-  serveHostRootCleanup,
-} from './host-tool-process';
+import { disposeHostTools, hostCommandSessionManager } from './host-tool-process';
 import {
   createDesktopHostMemoryConfiguration,
   desktopMemoryModels,
@@ -67,14 +77,15 @@ import { resolveDesktopMemoryEmbedderProbe } from './memory-vector-configuration
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
+  PLATFORM_EMBEDDING_DOCUMENTS,
+  PLATFORM_EMBEDDING_RESTART,
   PlatformCatalogModelResultSchema,
+  PlatformEmbeddingDocumentsResultSchema,
   PlatformLocalModelResultSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
-  PlatformWorkspaceAcquireResultSchema,
-  PlatformWorktreeFolderResultSchema,
 } from './platform-wire';
-import { IndexSearchResultSchema, IndexStatusSchema } from './retrieval-wire';
+import { PLATFORM_UTILITY_FORK, PLATFORM_UTILITY_KILL } from './utility-lending-wire';
 
 const logger = createLogger('DesktopNodePlatform');
 function desktopRuntimeConfiguration(selected: DesktopRunSelection): RuntimeData & {
@@ -160,36 +171,15 @@ function borrowedLocalInference(
   };
 }
 /**
- * BST-1930 stage e: Main's facts, read over the private connection for the
- * host's run admission. A workspace borrow is Main's until the host releases
- * the lease it named.
+ * BST-1930 stage e: the host's run admission reads Main's settings over the private
+ * connection; the folders, their binding and the index are this host's own.
  */
-function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionReads {
+function desktopAdmissionReads(
+  request: PlatformRequest,
+  local: Pick<DesktopAdmissionReads, 'acquireWorkspace' | 'indexStatus' | 'liveWorkspaceRoots'>
+): DesktopAdmissionReads {
   return {
-    acquireWorkspace: async ({ binding, signal, threadId }) => {
-      const leaseId = randomUUID();
-      const { roots } = Schema.decodeUnknownSync(PlatformWorkspaceAcquireResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(
-        await request(
-          'platform/admission/workspace/acquire',
-          { binding, leaseId, threadId },
-          signal
-        )
-      );
-      let closing: Promise<void> | undefined;
-      return {
-        close: () =>
-          (closing ??= request('platform/admission/workspace/release', { leaseId }).then(
-            () => undefined
-          )),
-        revalidate: async (revalidation) => {
-          await request('platform/admission/workspace/revalidate', { leaseId }, revalidation);
-        },
-        roots,
-      };
-    },
+    ...local,
     catalogModel: async (target, signal) =>
       Schema.decodeUnknownSync(PlatformCatalogModelResultSchema, {
         errors: 'all',
@@ -200,15 +190,6 @@ function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionReads {
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/observers', { candidates }, signal)),
-    indexStatus: async (signal) =>
-      Schema.decodeUnknownSync(IndexStatusSchema, { errors: 'all', onExcessProperty: 'ignore' })(
-        await request('platform/admission/index-status', {}, signal)
-      ),
-    liveWorkspaceRoots: async (signal) =>
-      Schema.decodeUnknownSync(CliWorkspaceRootsSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/admission/roots', {}, signal)),
     localRuntimeModel: async (target, signal) =>
       Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
         errors: 'all',
@@ -234,7 +215,21 @@ export async function createDesktopHostConfiguration(
   platformOptions?: HostPlatformLaunchOptions
 ): Promise<DesktopHostConfiguration> {
   const port = await parentPlatformPort();
-  const connection = mainPlatformConnection(port);
+  // ADR-0030 decision 1: Main forks this host's index utilities and lends their channels.
+  const lending = createHostUtilityLending({
+    fork: async (forkRequest) => {
+      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+        await request(PLATFORM_UTILITY_FORK, forkRequest)
+      );
+    },
+    kill: async (utilityId) => {
+      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+        await request(PLATFORM_UTILITY_KILL, { utilityId })
+      );
+    },
+  });
+  const connection = mainPlatformConnection(port, lending.attachPort);
+  serveUtilityReports(connection, lending);
   // The profile's one credential authority: the single writer and token holder.
   const host = await createHostCapabilities({
     env: process.env,
@@ -268,7 +263,11 @@ export async function createDesktopHostConfiguration(
       cancellation.dispose();
     }
   };
-  serveHostRootCleanup(connection);
+  const notifyMain = (method: string, params: unknown): void => {
+    connection.sendNotification(method, params).catch((cause: unknown) => {
+      logger.warn('Main did not receive a host notification', { cause, method });
+    });
+  };
   // ADR-0017: Main supervises the native processes this host starts, and ends their
   // process groups if the host dies. Windows reports none: the host's kill-on-close Job
   // ends them with it.
@@ -311,19 +310,102 @@ export async function createDesktopHostConfiguration(
   const gitWorkspace = createDesktopGitWorkspace({
     homePath: homedir(),
     logger,
-    openWorktreeFolder: async (path) =>
-      wireDecoder(PlatformWorktreeFolderResultSchema, { errors: 'all', onExcessProperty: 'error' })(
-        await request('platform/worktree/open-folder', { path })
-      ),
-    refreshWorkspaceIndex: async (rootId) => {
-      wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
-        await request('platform/index/refresh', { rootId })
-      );
+    // The ledger authorizes a managed worktree's mount; no picker grant is needed. Main's
+    // window is then asked to show it, as for any folder Main opens.
+    openWorktreeFolder: async (path) => {
+      const root = await folders.roots.addRootByPath(path);
+      notifyMain(PLATFORM_FOLDER_OPENED, { path: root.handle.path });
+      return { displayName: root.displayName, path: root.handle.path, rootId: root.rootId };
     },
+    refreshWorkspaceIndex: (rootId) => workspaceIndex.requestWorkspaceScan(rootId),
     store: startup.store,
     userDataDir,
   });
   await startup.register(() => gitWorkspace.close());
+  // ADR-0029 stage 4: the desktop's folders, their one watcher each, and the Explorer's reads.
+  const synthetic = platformOptions?.e2e
+    ? createE2eSyntheticFiles(platformOptions.e2e.fileSystemFixturePath)
+    : undefined;
+  const folders = createDesktopWorkspaceRoots({
+    lifecycleDelays: agentHostLifecycleDelays,
+    managedWorktreeAuthorizer: async (candidate) =>
+      (await gitWorkspace.service['worktrees/classify-path']({ path: candidate }, startup.signal))
+        .classification,
+    // Only the index borrows restored folders, so it exists by the time a restore reports one.
+    onRestoredRootsChanged: () => workspaceIndex.rootsChanged(),
+    // Main lists a granted folder in the OS recent documents and the File menu.
+    onRootGranted: (grantedPath) => notifyMain(PLATFORM_FOLDER_GRANTED, { path: grantedPath }),
+    store: startup.store,
+    synthetic,
+  });
+  await startup.register(() => folders.close());
+  // ADR-0029 stage 4: the native search index, over this host's store and folders. Main lends
+  // it the index utilities and the embedding renderer.
+  let closing = false;
+  const workspaceIndex = createDesktopWorkspaceIndex({
+    databasePath: path.join(startup.store.root, 'index.sqlite'),
+    embedding: {
+      destroyAndRestart: async () => {
+        wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+          await request(PLATFORM_EMBEDDING_RESTART, {})
+        );
+      },
+      documentEmbeddings: async (payload, options) =>
+        wireDecoder(PlatformEmbeddingDocumentsResultSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(await request(PLATFORM_EMBEDDING_DOCUMENTS, { request: payload }, options?.signal)).map(
+          (vector) => [...vector]
+        ),
+    },
+    folders,
+    forkLentUtility: lending.fork,
+    hostedCredentials: {
+      readRuntimePreferences: async () =>
+        wireDecoder(Schema.NullOr(Schema.String), { errors: 'all', onExcessProperty: 'error' })(
+          await request(PLATFORM_RUNTIME_PREFERENCES_READ, {})
+        ),
+      readSecret: (provider) => host.auth.secrets().getKey(provider),
+    },
+    isClosing: () => closing || startup.signal.aborted,
+    lifecycleDelays: agentHostLifecycleDelaySeam,
+    store: startup.store,
+  });
+  await startup.register(() => workspaceIndex.close());
+  serveMainRequests(connection, {
+    // Main's embedding Stop: the index pauses before the renderer stops.
+    embeddingStop: () =>
+      workspaceIndex.embeddingStop(async () => {
+        wireDecoder(Schema.Null, { errors: 'all', onExcessProperty: 'error' })(
+          await request(PLATFORM_EMBEDDING_STOP, {})
+        );
+      }),
+    folders,
+  });
+  // A run's workspace binding borrows this host's own mounted folders.
+  const workspace = new DesktopWorkspaceBindingAuthority({
+    borrowRoot: (root) =>
+      folders.roots.borrowSourceRootForPath(
+        root.path,
+        folders.watches.subscribe.bind(folders.watches)
+      ),
+    // BST-1990: names a removed folder in the refusal, whatever its status now.
+    readRootNames: async (ids) => {
+      const { roots } = await startup.store.workspaceRoots({ operation: 'list' });
+      return new Map(
+        roots.filter((root) => ids.includes(root.id)).map((root) => [root.id, root.displayName])
+      );
+    },
+    readRoots: () => loadWorkspaceRootsFromCatalog(startup.store),
+    readWorktree: (id) => gitWorkspace.readWorktree(id),
+  });
+  await startup.register(() => workspace.close());
+  const files = createDesktopWorkspaceFiles({
+    deleteRootData: (rootId) => workspaceIndex.deleteRootData(rootId),
+    folders,
+    onRootsChanged: () => workspaceIndex.rootsChanged(),
+    synthetic,
+  });
   // ADR-0029 stage 3: the Terminal panel's terminals and command-session inventory.
   const terminals = createDesktopTerminals({
     commandSessions: hostCommandSessionManager(),
@@ -332,7 +414,15 @@ export async function createDesktopHostConfiguration(
   await startup.register(() => terminals.close());
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
-  const admissionReads = mainAdmissionReads(request);
+  const admissionReads = desktopAdmissionReads(request, {
+    acquireWorkspace: (borrow) => workspace.acquire(borrow),
+    indexStatus: () => workspaceIndex.search.status(),
+    liveWorkspaceRoots: () => loadWorkspaceRootsFromCatalog(startup.store),
+  });
+  const retrieval = {
+    indexSearch: workspaceIndex.search,
+    store: createCatalogRetrievalStore(startup.store),
+  };
   const runAdmission = createDesktopRunAdmission(
     admissionReads,
     async () => {
@@ -355,6 +445,8 @@ export async function createDesktopHostConfiguration(
   return {
     attachThreadReads: (reads) => gitWorkspace.attachThreadReads(reads),
     auth: host.auth,
+    // A content clear retires the index and the folders' bookkeeping before the store clears.
+    clearRetainedContent: () => workspaceIndex.clearForContent(),
     close: async () => {
       // The MCP runtime joins while Main's platform connection is still open.
       await mcpHost.close();
@@ -366,8 +458,14 @@ export async function createDesktopHostConfiguration(
       if (reapFailures.length > 0) {
         throw new AggregateError(reapFailures, 'Host process cleanup failed');
       }
-      // The git cluster retires while Main can still refresh a rewound root's index.
+      // The git cluster retires before the index it refreshes.
       await gitWorkspace.close();
+      // The index, its run bindings and the folders it borrows, while Main still lends the
+      // index's utilities and embedding renderer.
+      closing = true;
+      await workspace.close();
+      await workspaceIndex.close();
+      await folders.close();
       // Accepted error records are delivered while Main's connection is open.
       const [delivered] = await Promise.allSettled([diagnostics.close()]);
       await request('platform/close', {});
@@ -380,8 +478,10 @@ export async function createDesktopHostConfiguration(
         await request('platform/ready', {}, startup.signal)
       );
     },
+    files,
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     gitWorkspace: gitWorkspace.service,
+    index: workspaceIndex.index,
     mcp: mcpHost.services.mcp,
     mcpContent: mcpHost.content,
     mcpPresentation: mcpHost.presentation,
@@ -438,6 +538,7 @@ export async function createDesktopHostConfiguration(
         readFileCursorRegistry,
         request,
         resolveTavilyApiKey: host.resolveTavilyApiKey,
+        retrieval,
         selected,
         threadId: admission.threadId,
       });
@@ -524,32 +625,25 @@ export async function createDesktopHostConfiguration(
         'Select a model for this thread and retry.'
       );
     },
-    resolveWorkspaceRoot: async ({ rootId, signal }) =>
-      wireDecoder(Schema.String.check(Schema.isMinCodePoints(1)), {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/workspace/root', { rootId }, signal)),
+    resolveWorkspaceRoot: async ({ rootId }) => {
+      const root = (await loadWorkspaceRootsFromCatalog(startup.store)).find(
+        (candidate) => candidate.rootId === rootId
+      );
+      if (!root) {
+        throw new Error('The workspace root is no longer mounted');
+      }
+      return root.path;
+    },
     // The shadow-git owner restores a host thread's rewind and its redo.
     rewindFiles: gitWorkspace.rewindFiles,
     searchWorkspace: async (input, signal) => {
-      const result = Schema.decodeUnknownSync(IndexSearchResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'ignore',
-      })(
-        await request(
-          'desktop-read/index/search',
-          {
-            request: {
-              limit: input.limit,
-              mode: input.mode,
-              rootIds: [input.rootId],
-              text: input.query,
-            },
-            threadId: input.threadId,
-          },
-          signal
-        )
-      );
+      signal.throwIfAborted();
+      const result = await workspaceIndex.search.search({
+        limit: input.limit,
+        mode: input.mode,
+        rootIds: [input.rootId],
+        text: input.query,
+      });
       signal.throwIfAborted();
       return {
         candidateCount: result.candidateCount,
@@ -584,10 +678,7 @@ export async function createDesktopHostConfiguration(
         signal.throwIfAborted();
         return;
       }
-      wireDecoder(Schema.Struct({ accepted: Schema.Literal(true) }), {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/workspace/validate', { binding, threadId }, signal));
+      await workspace.validateWorkspaceBinding({ binding, signal, threadId });
     },
     // ADR-0029 stage 2: Settings and the "/" menu read these here, not from Main.
     workspaceDiscovery: desktopWorkspaceDiscovery((signal) =>

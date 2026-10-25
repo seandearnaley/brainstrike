@@ -19,6 +19,7 @@ import { afterEach, beforeEach, expect, test } from 'vitest';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import { createDesktopRunAdmission } from '../agent-host-platform/desktop-run-admission';
 import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
+import { unusedHostRetrieval } from './fixtures/host-retrieval';
 import recorded from './fixtures/thread-folder-tool-calls.json';
 
 interface Root {
@@ -99,6 +100,7 @@ async function admit(flow: Flow) {
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request: mainRequest,
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected,
     threadId: 'host-thread',
   });

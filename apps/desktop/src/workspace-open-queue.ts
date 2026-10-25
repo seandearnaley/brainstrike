@@ -18,7 +18,7 @@ const logger = createLogger('WorkspaceOpenQueue');
  * failure this queue exists to prevent.
  *
  * It is a DELIVERY buffer, never an authorization: each request is a path
- * string that the renderer still has to route through `fs:addRootByPath`.
+ * string that the renderer still has to route through the host's `files/add-root-by-path`.
  */
 export interface WorkspaceOpenRequest {
   readonly origin: WorkspaceOpenOrigin;
@@ -133,7 +133,7 @@ export function enqueueFolderCandidates(
  *
  * macOS `open-file` routinely delivers FILE paths as a matter of course
  * ("Open With…" on a document), so a non-directory candidate is the expected
- * case here, not an edge one. Forwarding one through to `fs:addRootByPath`
+ * case here, not an edge one. Forwarding one through to the host's `files/add-root-by-path`
  * would describe a wiring mismatch as a permission problem (the same
  * match-the-failure-to-the-remedy reasoning as ruling S2). A stat failure
  * (ENOENT, EACCES, a dangling symlink) is treated the same as "not a
@@ -142,7 +142,7 @@ export function enqueueFolderCandidates(
  *
  * This is a data-shape filter, not a new authorization gate — it decides
  * nothing about whether a directory may be MOUNTED (that is still
- * `fs:addRootByPath`'s two ordered gates, ruling S1); it only keeps a request
+ * the host's `files/add-root-by-path`'s two ordered gates, ruling S1); it only keeps a request
  * that can never succeed off the IPC channel.
  *
  * Sliced to `MAX_PENDING_OPEN_REQUESTS` BEFORE the sync `fs.statSync` loop,

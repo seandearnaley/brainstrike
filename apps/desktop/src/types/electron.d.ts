@@ -121,9 +121,6 @@ declare global {
         path?: string;
       }>;
     };
-    indexSearch?: TransportBridge<
-      typeof import('../ipc-domains/index-search.contract').indexSearchContract
-    >;
     logging: {
       getPreferences: () => Promise<BoundaryResult<LoggingSettingsPayload>>;
       setPreferences: (

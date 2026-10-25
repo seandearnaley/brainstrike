@@ -84,11 +84,14 @@ function recordedHost(): Pick<HostClient, 'request'> {
     request: async <Method extends HostMethod>(
       method: Method,
       params: HostParams<Method>
-    ): Promise<HostResults[Method]> =>
-      Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+    ): Promise<HostResults[Method]> => {
+      // Widened once: indexing the result map by a generic method is too deep for tsc.
+      const schema: Schema.ConstraintDecoder<unknown> = HOST_RESULT_SCHEMAS[method];
+      return Schema.decodeUnknownSync(schema, {
         errors: 'all',
         onExcessProperty: 'error',
-      })(answer(method, params)) as HostResults[Method],
+      })(answer(method, params)) as HostResults[Method];
+    },
   };
 }
 /** The renderer diagnostic store with no correlated events. */

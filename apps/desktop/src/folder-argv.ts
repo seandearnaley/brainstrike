@@ -8,7 +8,7 @@ import path from 'node:path';
  * about the filesystem, and authorizes nothing. `main.ts` stats each result
  * (`filterDirectoryOpenCandidates` in `workspace-open-queue.ts`) to confirm it
  * is a real, readable directory before it ever reaches the queue, and the
- * renderer routes a survivor through `fs:addRootByPath`, whose two gates
+ * renderer routes a survivor through the host's `files/add-root-by-path`, whose two gates
  * decide whether it may be MOUNTED at all (ruling S1). argv is
  * attacker-influencable — another process can launch this app with any
  * argument — so nothing downstream of here treats a candidate as consent.

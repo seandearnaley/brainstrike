@@ -107,30 +107,29 @@ describe('desktop graceful shutdown', () => {
       'factory-reset',
       'renderers',
       'main-catalog',
-      'native-index',
+      'agent-host',
       'mcp-runtime',
-      'file-system',
       'embedding-host',
       'database-drain',
     ]);
   });
 
-  it('joins filesystem retirement before stopping inference hosts or closing the database', async () => {
+  it("joins the agent host's retirement before stopping inference hosts or closing the database", async () => {
     const retirement = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const { events, options } = createHarness({
-      'file-system': async () => {
+      'agent-host': async () => {
         entered.resolve();
         await retirement.promise;
       },
     });
 
     const shutdown = createDesktopGracefulShutdown(options).run('before-quit');
-    // If the filesystem step is absent, the run completes and the assertions
+    // If the agent-host step is absent, the run completes and the assertions
     // still report the skipped ownership boundary instead of hanging this test.
     await Promise.race([entered.promise, shutdown]);
 
-    expect(events).toContain('step:file-system');
+    expect(events).toContain('step:agent-host');
     expect(events).not.toContain('step:embedding-host');
     expect(events).not.toContain('close:database');
 
@@ -138,7 +137,7 @@ describe('desktop graceful shutdown', () => {
     await shutdown;
 
     expect(events.indexOf('step:embedding-host')).toBeGreaterThan(
-      events.indexOf('step:file-system')
+      events.indexOf('step:agent-host')
     );
     expect(events).toContain('close:database');
   });
@@ -262,7 +261,7 @@ describe('desktop graceful shutdown', () => {
     expect(planRun).toHaveBeenCalledTimes(1);
   });
 
-  it('a renderers step that takes 15 s still runs file-system and exits 0', async () => {
+  it('a renderers step that takes 15 s still runs the agent-host step and exits 0', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
     const { events, logger, options } = createHarness(
       { renderers: () => new Promise<void>((resolve) => setTimeout(resolve, 15_000)) },
@@ -274,7 +273,7 @@ describe('desktop graceful shutdown', () => {
     await running;
 
     expect(stepEvents(events)).toEqual(DESKTOP_SHUTDOWN_STEP_ORDER.map((name) => `step:${name}`));
-    expect(events).toContain('step:file-system');
+    expect(events).toContain('step:agent-host');
     expect(events.slice(-2)).toEqual([
       'close:error-log-sink',
       'log:info:Graceful shutdown completed',
@@ -289,14 +288,14 @@ describe('desktop graceful shutdown', () => {
       expect.objectContaining({
         steps: expect.arrayContaining([
           { elapsedMs: 15_000, failed: false, step: 'renderers' },
-          { elapsedMs: 0, failed: false, step: 'file-system' },
+          { elapsedMs: 0, failed: false, step: 'agent-host' },
         ]),
       })
     );
   });
 
   // The steps a 2-core Windows run found in flight when the old deadline forced exit 1.
-  it.each(['main-catalog', 'native-index'] as const)(
+  it.each(['main-catalog', 'agent-host'] as const)(
     'a %s step that takes 15 s is joined, every later step runs, and nothing forces an exit',
     async (slow) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });

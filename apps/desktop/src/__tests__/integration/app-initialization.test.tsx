@@ -40,10 +40,10 @@ describe('App Initialization Integration', () => {
     // Test that the electron API mock is available
     expect(window.electronAPI).toBeDefined();
     const electronApi = window.electronAPI;
-    if (!(electronApi && 'storage' in electronApi && 'fileSystem' in electronApi)) {
+    if (!(electronApi && 'storage' in electronApi && 'folderPicker' in electronApi)) {
       throw new Error('Expected the Electron API mock to be available.');
     }
     expect(electronApi.storage).toBeDefined();
-    expect(electronApi.fileSystem).toBeDefined();
+    expect(electronApi.folderPicker).toBeDefined();
   });
 });

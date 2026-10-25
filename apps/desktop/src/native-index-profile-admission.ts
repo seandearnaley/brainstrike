@@ -1,21 +1,20 @@
-import type { HostAttachment } from '@brainstrike/host-lease';
 import {
   nativeIndexClosedError,
   nativeIndexStateError as stateError,
 } from './native-index-lifecycle-errors';
 import type { NativeIndexLifecycle } from './native-index-lifecycle-owner';
 
-interface ProfileAdmissionRuntime {
+interface ProfileAdmissionRuntime<Attachment> {
   acquireProfile(
     options: { readonly indexIndependent: true },
     signal?: AbortSignal
-  ): Promise<HostAttachment>;
+  ): Promise<Attachment>;
   retireFailedProfile(): Promise<boolean>;
 }
 
-export interface NativeIndexProfileAdmission {
+export interface NativeIndexProfileAdmission<Attachment> {
   /** A borrow of the profile's host (a client's, or index work's): started, joined, or refused. */
-  acquire(signal?: AbortSignal): Promise<HostAttachment>;
+  acquire(signal?: AbortSignal): Promise<Attachment>;
   /** Quit begins: every borrow still waiting for the host's start-up is refused now. */
   fenceTerminal(): void;
 }
@@ -31,19 +30,19 @@ export interface NativeIndexProfileAdmission {
  * itself stays its profile owner's, which cancels it when the profile retires in the
  * native-index shutdown step; a refused borrower only stops waiting for it.
  */
-export function createNativeIndexProfileAdmission(
+export function createNativeIndexProfileAdmission<Attachment>(
   lifecycle: Promise<NativeIndexLifecycle>,
-  runtime: ProfileAdmissionRuntime,
+  runtime: ProfileAdmissionRuntime<Attachment>,
   /** Opens the idle index from its saved settings; never waited on. */
   openResumed: () => void
-): NativeIndexProfileAdmission {
+): NativeIndexProfileAdmission<Attachment> {
   const fenced = Promise.withResolvers<never>();
   fenced.promise.catch(() => undefined);
   let terminal = false;
   // The idle generation this admission last resumed from a host release; it opens once a
   // host is admitted. A later resume is a new generation, so this never matches it.
   let resumed: number | undefined;
-  const admitProfile = async (signal?: AbortSignal): Promise<HostAttachment> => {
+  const admitProfile = async (signal?: AbortSignal): Promise<Attachment> => {
     const owner = await lifecycle;
     const recover = async (): Promise<boolean> => {
       if (!(await runtime.retireFailedProfile())) {
@@ -66,7 +65,7 @@ export function createNativeIndexProfileAdmission(
     if (state.kind === 'closed' && !recovered) {
       throw stateError(state);
     }
-    const admit = async (): Promise<HostAttachment> => {
+    const admit = async (): Promise<Attachment> => {
       const attachment = await runtime.acquireProfile({ indexIndependent: true }, signal);
       state = await owner.state();
       if (state.kind === 'closed') {

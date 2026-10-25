@@ -166,6 +166,15 @@ export function isBoundaryRefusal(cause: unknown): cause is BoundaryFailureError
   return cause instanceof BoundaryFailureError && cause.failure.kind === 'refusal';
 }
 /**
+ * The work's owner is unavailable: it closed for a reset or quit (a closing
+ * agent host's `host.closing` included), is preparing, or opened read-only.
+ * A read or write refused this way is expected while it lasts, so callers log
+ * it at warn and keep their last state; every other failure is a fault.
+ */
+export function isOwnerUnavailable(cause: unknown): cause is BoundaryFailureError {
+  return isBoundaryRefusal(cause) && cause.failure.category === 'availability';
+}
+/**
  * BST-2144: the state store opened damaged, so it is read-only and refused a
  * write. Expected until the store is restored: callers that write on startup
  * stop quietly, and the damaged-store notice explains it.

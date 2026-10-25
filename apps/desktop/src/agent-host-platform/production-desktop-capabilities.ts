@@ -13,28 +13,25 @@ import {
   type CatalogEmbeddingModel,
   decodeCatalogEmbeddingModel,
 } from '@brainstrike/indexing-contract';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import type { WorkspaceRootPort } from '@brainstrike/state-store';
-import type { RetrievalStore } from '../assistant-server/retrieval-store';
-import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveOllamaModelForAdmission } from '../ipc-runtime';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
-import type { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
-import type { DesktopPlatformCapabilities } from './main-platform';
+import type { DesktopPlatformCapabilities, MainAdmissionReads } from './main-platform';
 import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 
 /** Supplied by the existing settings owner, never parsed from client configuration. */
 export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cliOwnerIntent']>;
 
-/** Main's tool services for host threads. */
-export interface DesktopHostToolServices {
-  readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | undefined;
+/** Main's services a host's run admission reads. */
+export interface DesktopAdmissionServices {
+  readonly embeddingHostManager?:
+    | Pick<
+        EmbeddingHostManager,
+        'destroyAndRestart' | 'documentEmbeddings' | 'queryEmbedding' | 'stop'
+      >
+    | undefined;
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
-  readonly nativeIndexSearch?: IndexSearchCapability | undefined;
-  readonly retrievalStore: RetrievalStore;
-  readonly workspaceRoots: WorkspaceRootPort;
 }
 
 /** A hosted recall embedder's catalog dimensions, from the provider registry. */
@@ -92,22 +89,14 @@ async function readLocalEmbeddingHostDevice(
 
 /**
  * The facts a host-composed run admission reads from Main (BST-1930 stage e):
- * the model catalog and live roots in Main's database, the live binding
- * authority and the embedding host.
+ * the model catalog, the local runtimes and the embedding host.
  */
 function desktopAdmissionReads(
-  dependencies: DesktopHostToolServices,
+  dependencies: DesktopAdmissionServices,
   readCliOwnerIntent: DesktopCliOwnerIntentReader | undefined,
-  workspaceAuthority: DesktopWorkspaceBindingAuthority | undefined,
   readLocalEmbeddingDevice: ((signal: AbortSignal) => Promise<'webgpu' | 'wasm'>) | undefined
-): DesktopAdmissionReads {
+): MainAdmissionReads {
   return {
-    acquireWorkspace: async (request) => {
-      if (!workspaceAuthority) {
-        throw new Error('Desktop run has no live workspace binding owner');
-      }
-      return await workspaceAuthority.acquire(request);
-    },
     catalogModel: async ({ model, provider }) => {
       const row = (await dependencies.modelCatalog.read()).models.find(
         (candidate) => candidate.id === model && candidate.providerId === provider
@@ -135,12 +124,6 @@ function desktopAdmissionReads(
         )
         .map((model) => `${model.providerId}/${model.id}`);
     },
-    indexStatus: async () =>
-      dependencies.nativeIndexSearch
-        ? await dependencies.nativeIndexSearch.status()
-        : { kind: 'unavailable', reason: 'This desktop has no workspace index.' },
-    liveWorkspaceRoots: async () =>
-      await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots),
     localRuntimeModel: async ({ endpoint, model }, signal) => {
       const result = await resolveOllamaModelForAdmission(model, endpoint, signal);
       return result.state === 'resolved'
@@ -164,33 +147,15 @@ function desktopAdmissionReads(
 
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
-  dependencies: DesktopHostToolServices,
+  dependencies: DesktopAdmissionServices,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
-  workspaceAuthority?: DesktopWorkspaceBindingAuthority,
   readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   return {
-    admission: desktopAdmissionReads(
-      dependencies,
-      readCliOwnerIntent,
-      workspaceAuthority,
-      readLocalEmbeddingDevice
-    ),
-    ...(workspaceAuthority
-      ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
-      : {}),
-    hostTools: desktopHostToolServices(dependencies),
+    admission: desktopAdmissionReads(dependencies, readCliOwnerIntent, readLocalEmbeddingDevice),
+    hostTools: desktopHostToolServices,
     ...(dependencies.embeddingHostManager
       ? { localEmbedding: dependencies.embeddingHostManager }
       : {}),
-    resolveWorkspaceRoot: async (rootId) => {
-      const root = (await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots)).find(
-        (candidate) => candidate.rootId === rootId
-      );
-      if (!root) {
-        throw new Error('The workspace root is no longer mounted');
-      }
-      return root.path;
-    },
   };
 }

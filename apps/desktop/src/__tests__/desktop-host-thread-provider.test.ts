@@ -60,6 +60,8 @@ function fixture() {
     onMcpSettings: vi.fn(() => () => undefined),
     onTelemetry: vi.fn(() => () => undefined),
     onTerminal: vi.fn(() => () => undefined),
+    onWorkspaceFiles: vi.fn(() => () => undefined),
+    onWorkspaceIndex: vi.fn(() => () => undefined),
     record: {
       endpoint: '/tmp/recorded-host-fixture',
       hostVersion: '0.1.0',
@@ -71,11 +73,14 @@ function fixture() {
     request: async <Method extends HostMethod>(
       method: Method,
       params: HostParams<Method>
-    ): Promise<HostResults[Method]> =>
-      Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+    ): Promise<HostResults[Method]> => {
+      // Widened once: indexing the result map by a generic method is too deep for tsc.
+      const schema: Schema.ConstraintDecoder<unknown> = HOST_RESULT_SCHEMAS[method];
+      return Schema.decodeUnknownSync(schema, {
         errors: 'all',
         onExcessProperty: 'error',
-      })(await request(method, params)) as HostResults[Method],
+      })(await request(method, params)) as HostResults[Method];
+    },
   };
   connect.mockResolvedValue(client);
   return {

@@ -110,14 +110,7 @@ describe('renderer main entry', () => {
     window.electronAPI = {
       content: { clear: vi.fn() },
       factoryReset: { resetLocal: vi.fn() },
-      fileSystem: {
-        exists: vi.fn(),
-        readDirectory: vi.fn(),
-        readFile: vi.fn(),
-        requestDirectoryAccess: vi.fn(),
-        restoreLastFolder: vi.fn(),
-        saveLastFolder: vi.fn(),
-      },
+      folderPicker: { addRoot: vi.fn(), requestDirectoryAccess: vi.fn() },
       getUserDataPath: vi.fn(),
       storage: {
         clear: vi.fn(),

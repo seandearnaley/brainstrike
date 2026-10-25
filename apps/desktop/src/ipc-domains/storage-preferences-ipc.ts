@@ -1,14 +1,7 @@
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
-import { isElectronE2ETestMode } from '../electron-e2e-test-mode';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
-import {
-  assertRendererWritableDesktopStorageKey,
-  isMainOwnedDesktopStorageKey,
-  MAIN_OWNED_DESKTOP_STORAGE_KEYS,
-} from '../platform/desktop-storage-authority';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from '../platform/vector-preferences-storage-key';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
 import {
@@ -42,19 +35,11 @@ export function registerStoragePreferencesIpcHandlers({
   const registry = createDesktopIpcRegistry({ ipcMain });
 
   registerDomain(registry, 'storage', storageContract, {
-    clear: async () => {
-      // Renderer factory-reset cleanup may clear preference slices, but only
-      // desktop main's reset barrier may erase root authority ledgers.
-      await storage.clearExcept(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
-    },
+    clear: () => storage.clear(),
     getAllKeys: () => storage.getAllKeys(),
     getItem: (key) => storage.getItem(key),
-    removeItem: (key) => {
-      assertRendererWritableDesktopStorageKey(key);
-      return storage.removeItem(key);
-    },
+    removeItem: (key) => storage.removeItem(key),
     setItem: async (key, value) => {
-      assertRendererWritableDesktopStorageKey(key);
       const previous = await storage.getItem(key);
       await storage.setItem(key, value);
       if (previous !== value) {
@@ -62,33 +47,6 @@ export function registerStoragePreferencesIpcHandlers({
       }
     },
   });
-
-  if (isElectronE2ETestMode()) {
-    // These channels deliberately remain a conditional adapter instead of a
-    // discoverable contract: production must not register them, while the
-    // global contract manifest requires every exported invoke unconditionally.
-    const visibleUiPolicy = { roles: ['visible-ui'] } as const;
-    registry.registerAuthorizedInvoke(
-      'storage',
-      DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
-      visibleUiPolicy,
-      async (_event, key: unknown, value: unknown) => {
-        if (!isMainOwnedDesktopStorageKey(key)) {
-          throw new Error('E2E main-owned storage seed requires a main-owned key.');
-        }
-        if (typeof value !== 'string') {
-          throw new TypeError('E2E main-owned storage seed value must be a string.');
-        }
-        return storage.setItem(key, value);
-      }
-    );
-    registry.registerAuthorizedInvoke(
-      'storage',
-      DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
-      visibleUiPolicy,
-      async () => storage.clear()
-    );
-  }
 
   // BST-1380: hidden inference hosts resolve their device preference from the
   // SAME canonical record the visible UI writes. They receive this scoped

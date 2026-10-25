@@ -1,3 +1,4 @@
+import type { HostParams } from '@brainstrike/agent-host/protocol';
 import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/app-reload';
 import { registerDurableFlush } from '@brainstrike/app-state/renderer-close';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -15,7 +16,6 @@ import {
 } from '@brainstrike/assistant-contract/boundary-result';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   addLogListener,
   applyLoggingPreferences,
@@ -28,11 +28,11 @@ import {
   redactSensitiveLogValue,
 } from '@brainstrike/logging';
 import { createWriteBehindStorageAdapter } from '@brainstrike/storage';
+import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
-import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import { connectDesktopAgentHost } from './agent-host-client';
 import {
@@ -40,9 +40,10 @@ import {
   isElectronRendererUserAgent,
   validateDesktopBridgeContract,
 } from './desktop-bridge-contract';
+import { windowHostConnection } from './desktop-host-connection';
 import { resolveDesktopRendererRole } from './desktop-renderer-role';
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
-import { createIpcCapability } from './ipc-capability';
+import { type DesktopWorkspaceIndex, resolveDesktopWorkspaceIndex } from './host-workspace-index';
 import './log-buffer';
 import './styles.css';
 import { EmbeddingHostApp } from './components/embedding-host-app';
@@ -70,11 +71,19 @@ if (bridgeValidation.ok && window.agentHost) {
   );
 }
 
-// Create renderer-specific adapters that use IPC
-const baseFileSystemAdapter = new ElectronRendererFileSystemAdapter();
+// The Explorer's folders, reads and watchers are the agent host's (ADR-0029 stage 4).
+const baseFileSystemAdapter = new ElectronRendererFileSystemAdapter(windowHostConnection());
 const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, {
   platform: 'electron',
 });
+/** Test mode only: the host's folder ledgers, which E2E seeds and reads back. */
+const workspaceRootTestHooks = {
+  recentWorkspaceRoots: () => baseFileSystemAdapter.listRecentRoots(),
+  restoreWorkspaceRoots: () => baseFileSystemAdapter.restoreRoots(),
+  seedWorkspaceRoots: async (seed: HostParams<'files/e2e/seed-roots'>): Promise<void> => {
+    await (await windowHostConnection().current()).request('files/e2e/seed-roots', seed);
+  },
+};
 /**
  * Main's storage owns Explorer persistence (and the theme key). Its writes coalesce here for
  * this long, then go to Main; every document unload joins the flush (ADR-0026 R1).
@@ -272,8 +281,14 @@ declare global {
     __BRAINSTRIKE_READY__?: boolean;
     __brainstrikeTestHooks__?: {
       enableCatalogModels: (modelIds: readonly string[]) => Promise<void>;
-      indexSearch?: IndexSearchCapability;
+      indexSearch?: DesktopWorkspaceIndex;
       notifySecretsChanged: () => void;
+      /** Every folder the host restores, as the Explorer reads them. */
+      restoreWorkspaceRoots: () => Promise<RootDescriptor[]>;
+      /** The host's recent-folder grants, newest first. */
+      recentWorkspaceRoots: () => Promise<readonly RecentRootEntry[]>;
+      /** Write the folder ledgers a test starts from, before the reload that restores them. */
+      seedWorkspaceRoots: (seed: HostParams<'files/e2e/seed-roots'>) => Promise<void>;
       setAssistantModel: (compositeKey: string) => void;
     };
   }
@@ -305,6 +320,7 @@ function App() {
       return;
     }
 
+    const workspaceIndex = resolveDesktopWorkspaceIndex();
     window.__brainstrikeTestHooks__ = {
       // BST-2242: through the renderer's catalog store, as Settings and the
       // picker's Enable write, so the composer sees the committed snapshot.
@@ -316,13 +332,12 @@ function App() {
         await useModelRegistryStore.getState().ensureRegistry(catalog);
         await useModelRegistryStore.getState().setModelsEnabled(catalog, modelIds, true);
       },
-      // Functional fixtures use the production consumer adapter; window.indexSearch remains the raw transport.
-      ...(window.indexSearch
-        ? { indexSearch: createIpcCapability(window.indexSearch, indexSearchContract) }
-        : {}),
+      // Functional fixtures read the index through the production consumer adapter.
+      ...(workspaceIndex ? { indexSearch: workspaceIndex } : {}),
       notifySecretsChanged: () => {
         useSecretsStore.getState().notifySecretsChanged();
       },
+      ...workspaceRootTestHooks,
       setAssistantModel: (compositeKey: string) => {
         useAssistantPreferencesStore.getState().setModel(compositeKey);
       },

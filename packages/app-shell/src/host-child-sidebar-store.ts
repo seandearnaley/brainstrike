@@ -1,3 +1,4 @@
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import { createLogger } from '@brainstrike/logging';
 import type {
   AssistantThreadHostCapability,
@@ -149,6 +150,11 @@ export class HostChildSidebarStore {
   ): void {
     // A collapse, or a newer read of the same parent, supersedes this answer.
     if (this.requests.get(threadId) !== request) {
+      return;
+    }
+    if (isOwnerUnavailable(listed)) {
+      // The host is closing or preparing: the rows keep their last state.
+      logger.warn('Host child threads are unavailable', { threadId });
       return;
     }
     if (listed instanceof Error) {

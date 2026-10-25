@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { QueryRequest } from '../protocol.js';
 import { spawnUtilityQueryProcess } from '../utility-process.js';
 
-// Same utilityProcess event/IPC boundary exercised by test/electron-utility.cjs.
+// Same lent utility event/port boundary exercised by test/electron-utility.cjs.
 function utilityHost() {
   return Object.assign(new EventEmitter(), {
     kill: vi.fn(() => true),
@@ -15,9 +15,7 @@ function utilityHost() {
 describe('utility reader ownership', () => {
   it('forwards requests and diagnostics, releases listeners, and never kills a retired owner', async () => {
     const host = utilityHost();
-    const fork = vi.fn(() => host);
-    const process = spawnUtilityQueryProcess(fork);
-    expect(fork).toHaveBeenCalledWith(expect.stringMatching(/utility-query-host\.ts$/u));
+    const process = spawnUtilityQueryProcess(host);
     expect(process.pid).toBe(host.pid);
     const request: QueryRequest = { databasePath: '/owned/index.sqlite', id: 1, kind: 'open' };
     process.postMessage(request);
@@ -55,7 +53,7 @@ describe('utility reader ownership', () => {
   it('retains a failed retirement for retry and joins the eventual utility exit', () => {
     const host = utilityHost();
     host.kill.mockReturnValueOnce(false);
-    const process = spawnUtilityQueryProcess(() => host, '/owned/utility-query-host.js');
+    const process = spawnUtilityQueryProcess(host);
     const exit = vi.fn();
     const offExit = process.onExit(exit);
     expect(() => process.kill()).toThrow();

@@ -2,6 +2,7 @@ import { type ElectronApplication, expect, type Page } from '@playwright/test';
 import { setVectorDevicePreference } from '../embedding-worker-renderer.shared';
 import { updateIndexConfig } from './index-config';
 import { loadElectronHelpers } from './load-electron-helpers';
+import { seedWorkspaceLedgers } from './seed-root';
 
 /** Shared setup for the desktop index E2E tests: the device, a paused workspace, the host reading. */
 
@@ -31,26 +32,7 @@ export async function seedPausedWorkspace(
   if (!firstRoot) {
     throw new Error('seedPausedWorkspace needs at least one root.');
   }
-  await page.evaluate(
-    async ({ first, seeded }) => {
-      const storage = (
-        window as Window & {
-          electronAPI?: { storage?: { setItem?: (key: string, value: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem is unavailable.');
-      }
-      await storage.setItem('lastFolderPath', first);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify(
-          seeded.map((root, index) => ({ addedAt: 1_800_000_000_000 + index, ...root }))
-        )
-      );
-    },
-    { first: firstRoot.path, seeded: roots }
-  );
+  await seedWorkspaceLedgers(page, { lastFolderPath: firstRoot.path, recentPaths: [], roots });
   // Paused, so the idle baseline is taken with the workspace open and nothing indexing.
   await updateIndexConfig(page, { paused: true, policy: 'full-root' });
   await setVectorDevicePreference(page, device);

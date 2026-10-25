@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { withAppHost } from './agent-host-log';
+import { restoredWorkspaceRoots } from './seed-root';
 
 /** A host-committed mounted workspace descriptor. */
 export interface WorkspaceRootRow {
@@ -18,23 +19,13 @@ export interface SeedThreadSpec {
 
 /** Every reconciled root row, in id order. */
 async function readWorkspaceRootRows(page: Page): Promise<readonly WorkspaceRootRow[]> {
-  return await page.evaluate(async () => {
-    const files = window.electronAPI?.fileSystem;
-    if (!files) {
-      throw new Error('Desktop filesystem capability is unavailable');
-    }
-    const reply = await files.restoreRoots();
-    if (!reply.ok) {
-      throw new Error(reply.error.message);
-    }
-    return reply.value
-      .map((root) => ({
-        displayName: root.displayName,
-        id: root.rootId,
-        path: root.handle.path ?? null,
-      }))
-      .sort((a, b) => a.id.localeCompare(b.id));
-  });
+  return (await restoredWorkspaceRoots(page))
+    .map((root) => ({
+      displayName: root.displayName,
+      id: root.rootId,
+      path: root.handle.path,
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 /** Wait for the one host-committed mount expected by a fresh single-root fixture. */

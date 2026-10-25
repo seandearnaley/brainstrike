@@ -9,9 +9,10 @@ import { useDatabaseStatusStore } from '../stores/database-status-store.ts';
 
 /**
  * Keeps the global database status store in sync with the native model catalog connection state.
- * Runs even when the Database tab is not mounted so the status bar reflects reality.
+ * Runs even when the Database tab is not mounted so the status bar reflects reality. The search
+ * index's lifecycle, where the desktop supplies it, announces a reopened host.
  */
-export function useDatabaseStatusSync(): void {
+export function useDatabaseStatusSync(lifecycle: IndexLifecycleCapability | null): void {
   const transport =
     typeof window === 'undefined'
       ? undefined
@@ -20,10 +21,6 @@ export function useDatabaseStatusSync(): void {
   const catalog = transport
     ? createBoundaryCapability<ModelCatalogCapability>(transport)
     : undefined;
-  const lifecycle =
-    typeof window === 'undefined'
-      ? undefined
-      : (window as Window & { indexSearch?: IndexLifecycleCapability }).indexSearch;
 
   useEffect(() => {
     const store = useDatabaseStatusStore.getState();

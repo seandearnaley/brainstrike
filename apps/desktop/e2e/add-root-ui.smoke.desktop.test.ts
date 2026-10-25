@@ -25,8 +25,6 @@ import {
   freshRepo as createFreshRepo,
   createTempDirTracker,
 } from './utils/git-fixtures';
-import { updateIndexConfig } from './utils/index-config';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { nodeCommand, nodeText } from './utils/node-command';
 import { seedRoot } from './utils/seed-root';
 
@@ -62,28 +60,11 @@ test.describe('Add Folder to Workspace (smoke)', () => {
     test.setTimeout(90_000);
 
     // Seed one already-open root with indexing paused (smoke-fast).
-    await page.evaluate(
-      async ({ rootOne }) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-          }
-        ).electronAPI?.storage;
-        if (!storage?.setItem) {
-          throw new Error('electronAPI.storage.setItem is unavailable');
-        }
-        await storage.setItem('lastFolderPath', rootOne);
-        await storage.setItem(
-          'rootsList',
-          JSON.stringify([{ addedAt: 1_800_000_000_000, path: rootOne, rootId: 'smoke-root-1' }])
-        );
-      },
-      { rootOne: ROOT_ONE_DIR }
-    );
-    await updateIndexConfig(page, { paused: true });
-
-    const { reloadRenderer } = await loadElectronHelpers();
-    await reloadRenderer(page, 'add-root-smoke-seeded');
+    await seedRoot(page, ROOT_ONE_DIR, {
+      disableBackgroundIndexing: true,
+      reloadReason: 'add-root-smoke-seeded',
+      rootId: 'smoke-root-1',
+    });
 
     // Root #1 renders.
     await expect(page.getByText('alpha-1.ts').first()).toBeVisible({ timeout: 60_000 });

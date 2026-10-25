@@ -1,11 +1,13 @@
-import { HOST_OBSERVER_AWAITING_REASONS } from '@brainstrike/agent-host/protocol';
+import {
+  HOST_OBSERVER_AWAITING_REASONS,
+  InferencePlanSchema,
+} from '@brainstrike/agent-host/protocol';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
   ReferencedFileFailureSchema,
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import {
@@ -13,7 +15,7 @@ import {
   PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
 } from './platform-client-configuration';
-import { InferencePlanSchema, QueryEmbeddingPayloadSchema } from './retrieval-wire';
+import { QueryEmbeddingPayloadSchema } from './retrieval-wire';
 
 export {
   PlatformClientConfigurationSchema,
@@ -45,10 +47,6 @@ export const PlatformNativeChildSchema = Schema.Struct({
   group: Schema.Boolean,
   pid: Schema.Int.check(Schema.isGreaterThan(0)),
   start: Schema.String.check(Schema.isMinCodePoints(1)),
-});
-export const PlatformWorkspaceBindingRequestSchema = Schema.Struct({
-  binding: ThreadWorkspaceBindingSchema,
-  threadId: Id,
 });
 /** The indexer's one vector profile rule validates a recall embedding profile. */
 const PlatformVectorProfileSchema = Schema.declare(
@@ -157,15 +155,12 @@ export const PlatformSelectionSchema = Schema.Struct({
  * (`RefusableOutcomeSchema`, BST-1996).
  */
 export const PlatformEmbeddingQuerySchema = Schema.Struct({ request: QueryEmbeddingPayloadSchema });
-/** A worktree an agent created, mounted by Main as a workspace folder (ADR-0028 step 3). */
-export const PlatformWorktreeFolderSchema = Schema.Struct({ path: Id });
-export const PlatformWorktreeFolderResultSchema = Schema.Struct({
-  displayName: Schema.String,
-  path: Id,
-  rootId: Id,
-});
-/** A root a rewind restored, for Main's native index to rescan. */
-export const PlatformIndexRefreshSchema = Schema.Struct({ rootId: Id });
+/** The workspace index's document embeddings, from Main's embedding renderer. */
+export const PLATFORM_EMBEDDING_DOCUMENTS = 'platform/embedding/documents';
+/** The index's remedy for an unresponsive embedding renderer. */
+export const PLATFORM_EMBEDDING_RESTART = 'platform/embedding/restart';
+export const PlatformEmbeddingDocumentsSchema = Schema.Struct({ request: Schema.Unknown });
+export const PlatformEmbeddingDocumentsResultSchema = Schema.Array(Schema.Array(Schema.Number));
 export type PlatformSelection = (typeof PlatformSelectionSchema)['Type'];
 /**
  * thread/memory/read: the admission's pure preconditions, with nothing
@@ -236,13 +231,3 @@ export const PlatformMemoryVectorsResultSchema = Schema.NullOr(
     profile: PlatformVectorProfileSchema,
   })
 );
-export const PlatformWorkspaceLeaseSchema = Schema.Struct({
-  leaseId: Schema.String.check(Schema.isUUID()),
-});
-export const PlatformWorkspaceAcquireSchema = Schema.Struct({
-  ...PlatformWorkspaceLeaseSchema.fields,
-  ...{ binding: ThreadWorkspaceBindingSchema, threadId: Id },
-});
-export const PlatformWorkspaceAcquireResultSchema = Schema.Struct({
-  roots: CliWorkspaceRootsSchema,
-});

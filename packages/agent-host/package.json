@@ -47,6 +47,7 @@
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/state-store": "workspace:*",

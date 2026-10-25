@@ -26,8 +26,7 @@ import {
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
-import { observeNativeReaderStartup } from '../native-index-startup-window';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { textSettings, vectorSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
@@ -47,6 +46,9 @@ import {
   workspaceLease,
   writer,
 } from './native-index-activation-fixture';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 beforeEach(resetActivationFixture);
 afterEach(resetFileSizeConfig);
@@ -257,9 +259,8 @@ it('exposes actual native progress while the initial folder scan is still runnin
   await vi.waitFor(() => expect(mocks.manager.attachCanonicalWorkspace).toHaveBeenCalledOnce());
   const scanSettled = vi.fn();
   void initial.then(scanSettled);
-  await expect(observeNativeReaderStartup(activation.acquireRead(), vi.fn())).resolves.toEqual({
-    kind: 'ready',
-  });
+  // The first read opens while the scan still runs.
+  await activation.acquireRead();
   expect(scanSettled).not.toHaveBeenCalled();
   expect((await activation.acquireRead()).info).toBeTypeOf('function');
   expect(await activation.getSearchAuthority()).toMatchObject({
@@ -401,7 +402,7 @@ it('joins retained rooted-row convergence before admitting the replacement write
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
     }),
     watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   // The folder's semantic-search row: once text search is saved, no binding owns it.
   const records: NativeCanonicalCatalogRecord[] = [
     {
@@ -583,10 +584,11 @@ it('finishes folder VECTOR startup with its verified receipt and no missing-vect
   const documentEmbeddings = vi.fn(unused);
   const activation = createActivation({
     application: mountedRoot(),
+    databasePath: '/owned/profile/index.sqlite',
     embedding: { destroyAndRestart: vi.fn(), documentEmbeddings },
+    hostedEmbeddings: unused,
     onError: vi.fn(),
     settings: async () => semanticSettings(),
-    storage: { getItem: unused },
   });
   await activation.acquire();
   expect(activation.getReadiness()).toMatchObject([{ scanComplete: true, scope: workspace }]);

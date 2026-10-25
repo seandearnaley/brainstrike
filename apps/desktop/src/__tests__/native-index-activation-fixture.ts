@@ -15,11 +15,15 @@ import { vi } from 'vitest';
 import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { textSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
+import { forkNoUtility } from './native-activation-catalog-fixture';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -47,26 +51,29 @@ const mocks = vi.hoisted(() => ({
 
 export { mocks };
 
+/** Main's profile runtime over the mocked host lease; `mocks.loseHost` loses its ready host. */
+export function profileRuntime() {
+  return createDesktopProfileRuntime((lost) => {
+    mocks.loseHost.mockImplementation(lost);
+    return createDesktopHostLease({ root: '/owned/profile' });
+  });
+}
+
 /** Load the product constructor through the module that owns these hoisted mocks. */
 export function createActivation(
   options: Omit<
     Parameters<typeof createNativeIndexActivation>[0],
-    'profile' | 'catalog' | 'modelCatalog'
+    'profile' | 'catalog' | 'modelCatalog' | 'forkLentUtility'
   >
 ): ReturnType<typeof createNativeIndexActivation> {
   return createNativeIndexActivation({
     ...options,
     catalog: mocks.catalog,
+    forkLentUtility: forkNoUtility,
     modelCatalog: mocks.modelCatalog,
-    profile: createDesktopProfileRuntime((lost) => {
-      mocks.loseHost.mockImplementation(lost);
-      return createDesktopHostLease({ root: '/owned/profile' });
-    }),
+    profile: profileRuntime(),
   });
 }
-vi.mock('../desktop-database-location', () => ({
-  resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
-}));
 vi.mock('../host-lease-manager', () => ({
   createDesktopHostLease: () => {
     mocks.createProfileOwner();
@@ -173,29 +180,28 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
     }),
   };
 }
-export function fixture(applicationOverride?: ApplicationIpcDomain) {
+export function fixture(applicationOverride?: HostFolders) {
   /** Main's config owner; a test saves a change by resolving the next read with it. */
   const settings = vi.fn<() => Promise<NativeIndexSettings>>(async () => textSettings());
   const application = {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const onError = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: mocks.catalog,
+    databasePath: '/owned/profile/index.sqlite',
     embedding: transport,
+    forkLentUtility: forkNoUtility,
+    hostedEmbeddings: unused,
     modelCatalog: mocks.modelCatalog,
     onError,
     onReceipt,
-    profile: createDesktopProfileRuntime((lost) => {
-      mocks.loseHost.mockImplementation(lost);
-      return createDesktopHostLease({ root: '/owned/profile' });
-    }),
+    profile: profileRuntime(),
     settings,
-    storage: { getItem: unused },
   });
   return { activation, onError, onReceipt, settings, transport };
 }
@@ -244,14 +250,14 @@ export function workspaceLease(
   };
 }
 /** Main's application domain with the one granted folder `root`, mounted by `lease`. */
-export function mountedRoot(lease = workspaceLease()): ApplicationIpcDomain {
+export function mountedRoot(lease = workspaceLease()): HostFolders {
   return {
     roots: restoredRoots({
       borrowSourceRoot: async () => lease,
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
     }),
     watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
 }
 /** A folder attachment whose first scan finds no files and completes. */
 export async function emptyWorkspace(

@@ -93,8 +93,8 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
 
 Terminal quit prepares Main's workspace mutations before profile retirement; the
 agent host retires its worktree operations, Git inventory, forge, snapshot
-maintenance, terminals, command sessions, language servers and shell commands in its
-own close (ADR-0029). Accepted workflows finish while
+maintenance, terminals, command sessions, language servers, shell commands, folder
+watchers and native index in its own close (ADR-0029). Accepted workflows finish while
 mounts, git, setup and the authenticated catalog remain available; new mutations are
 refused.
 The catalog borrower then fences new calls and joins admitted acquisitions and
@@ -108,11 +108,12 @@ Quit has one terminal reason: the typed native-index refusal of kind `closed`,
 reason `shutdown`. Boundaries keep it as the cause of whatever they rethrow, and a
 log site that classifies it records it at debug, never as an error.
 
-Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
+The host's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
-each joins its subscribes and unsubscribes in a graceful-shutdown step. One still
-on the libuv thread pool when Electron frees Main's Node environment completes
-into a dead JS context and aborts Main (BST-2244). An owner keeps a subscription
+each joins its subscribes and unsubscribes in the host's close. One still on the
+libuv thread pool when its Node environment is freed completes into a dead JS
+context and aborts the process (BST-2244); since ADR-0029 stage 4 that process is
+the host, not Main. An owner keeps a subscription
 whose unsubscribe failed until a retry succeeds; each terminal dispose retries it
 once and rejects visibly if it fails again (BST-2248).
 The host's Git inventory service follows the same joined-producer rule; it retains

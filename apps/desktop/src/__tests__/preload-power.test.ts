@@ -73,7 +73,6 @@ describe('preload power bridge', () => {
       | {
           storage: {
             clear: () => Promise<unknown>;
-            clearAllForE2e?: () => Promise<unknown>;
             setItem: (key: string, value: string) => Promise<unknown>;
           };
         }
@@ -125,29 +124,6 @@ describe('preload power bridge', () => {
     const powerApi = getPowerApi();
     expect(powerApi).toBeDefined();
     expect(typeof powerApi?.onPowerState).toBe('function');
-  });
-
-  it('keeps the product clear in test mode; only the harness full clear erases root ledgers', async () => {
-    mockInvoke.mockClear();
-    // Factory reset's renderer step: Main's reset barrier alone may erase the root ledgers.
-    await getElectronApi()?.storage.clear();
-    await getElectronApi()?.storage.clearAllForE2e?.();
-
-    expect(mockInvoke.mock.calls).toEqual([['storage:clear'], ['storage:clearAllForE2e']]);
-  });
-
-  it('routes only main-owned E2E seed keys through the bounded helper', async () => {
-    mockInvoke.mockClear();
-    await getElectronApi()?.storage.setItem('rootsList', '[]');
-    await getElectronApi()?.storage.setItem('assistant-preferences.v1', '{}');
-
-    expect(mockInvoke).toHaveBeenNthCalledWith(1, 'storage:seedMainOwnedForE2e', 'rootsList', '[]');
-    expect(mockInvoke).toHaveBeenNthCalledWith(
-      2,
-      'storage:setItem',
-      'assistant-preferences.v1',
-      '{}'
-    );
   });
 
   it('subscribes to app:power-state IPC channel', () => {

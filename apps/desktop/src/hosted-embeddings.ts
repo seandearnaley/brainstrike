@@ -1,4 +1,3 @@
-import { ASSISTANT_PREFERENCES_STORE_NAME } from '@brainstrike/app-state/stores/assistant-preferences-store-name';
 import { resolveHostedProviderKey } from '@brainstrike/assistant-contract/provider-key-resolution';
 import {
   CohereEmbeddingProvider,
@@ -16,13 +15,11 @@ import {
   resolveRuntimeBaseUrl,
 } from '@brainstrike/local-runtime';
 import { createLogger } from '@brainstrike/logging';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import {
   HOSTED_EMBEDDING_MISSING_KEY_MESSAGE,
   HostedEmbeddingError,
   hostedRefusal,
 } from './hosted-embedding-error';
-import { getSecretsService } from './secrets';
 
 const logger = createLogger('DesktopHostedEmbeddings');
 
@@ -30,12 +27,21 @@ const ERROR_MESSAGES = {
   missingApiKey: HOSTED_EMBEDDING_MISSING_KEY_MESSAGE,
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
 };
+/** The credential owner's reads a hosted embedding needs: the stored key and the runtime URL. */
+export interface HostedEmbeddingCredentials {
+  /** The serialized assistant preferences, which hold a local runtime's configured URL. */
+  readRuntimePreferences(): Promise<string | null>;
+  readSecret(provider: HostedProviderType): Promise<string | null>;
+}
 type HostedEmbeddingProvider =
   | OpenAIEmbeddingProvider
   | GoogleEmbeddingProvider
   | CohereEmbeddingProvider
   | VoyageEmbeddingProvider;
-async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
+async function resolveEmbeddingApiKey(
+  provider: HostedProviderType,
+  credentials: HostedEmbeddingCredentials
+): Promise<string | undefined> {
   // Shared resolution order (BST-979): the environment is authoritative, the
   // keychain is the fallback — previously this path was keychain-first, so a
   // key rotated via env could stay shadowed by a stale stored key. The
@@ -46,11 +52,10 @@ async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<str
   if (fromEnvironment) {
     return fromEnvironment;
   }
-  const secrets = getSecretsService();
   const stored = await resolveHostedProviderKey({
     envKeyNames: [],
     envSources: [],
-    readSecret: () => secrets.getKey(provider),
+    readSecret: () => credentials.readSecret(provider),
   });
   if (stored.secretReadError) {
     logger.warn('Stored embedding API key is unreadable and no env key exists', {
@@ -134,17 +139,17 @@ export async function generateHostedEmbeddings(input: {
   readonly texts: readonly string[];
   readonly purpose: 'document' | 'query';
   readonly signal: AbortSignal;
-  readonly storage?: Pick<ElectronStorageAdapter, 'getItem'>;
+  readonly credentials: HostedEmbeddingCredentials;
 }): Promise<number[][]> {
   input.signal.throwIfAborted();
-  const apiKey = await resolveEmbeddingApiKey(input.provider);
+  const apiKey = await resolveEmbeddingApiKey(input.provider, input.credentials);
   input.signal.throwIfAborted();
   if (hostedProviderRequiresApiKey(input.provider) && !apiKey) {
     throw missingKey();
   }
   const endpoint =
     input.provider === 'ollama' || input.provider === 'lmstudio'
-      ? await resolveConfiguredRuntimeEmbeddingEndpoint(input.provider, input.storage)
+      ? await resolveConfiguredRuntimeEmbeddingEndpoint(input.provider, input.credentials)
       : undefined;
   input.signal.throwIfAborted();
   const provider = createHostedProvider(
@@ -200,9 +205,9 @@ function missingKey(): HostedEmbeddingError {
 /** Read the existing runtime settings record used by discovery; malformed choices stay visible. */
 async function resolveConfiguredRuntimeEmbeddingEndpoint(
   provider: 'ollama' | 'lmstudio',
-  storage?: Pick<ElectronStorageAdapter, 'getItem'>
+  credentials: HostedEmbeddingCredentials
 ): Promise<string> {
-  const serialized = storage ? await storage.getItem(ASSISTANT_PREFERENCES_STORE_NAME) : null;
+  const serialized = await credentials.readRuntimePreferences();
   let configured: string | undefined;
   if (serialized !== null) {
     const envelope: unknown = JSON.parse(serialized);
