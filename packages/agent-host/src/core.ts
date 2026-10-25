@@ -174,9 +174,9 @@ export class HostCore {
     closing: () => this.closing,
     deletions: this.deletions,
     foldRows: (rows) => this.foldRows(rows),
+    hold: () => this.holds.hold(),
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
-    retainRun: () => this.holds.retain(),
     runs: () => this.runs,
     startNextRun: (params, origin, refused) => this.startNextRun(params, origin, refused),
     wake: (threadId) =>

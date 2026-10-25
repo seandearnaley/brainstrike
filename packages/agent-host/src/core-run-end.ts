@@ -24,10 +24,10 @@ export interface HostRunEndPorts {
   readonly closing: () => boolean;
   readonly deletions: ReadonlyMap<string, unknown>;
   readonly foldRows: (rows: readonly HostLogRow[]) => void;
+  /** A run's end holds the host until the run or wake it leads to is admitted. */
+  readonly hold: () => () => void;
   readonly presentations: Pick<HostThreadPresentationState, 'finishing' | 'settle'>;
   readonly read: (threadId: string) => Promise<HostLogRow[]>;
-  /** Holds the host open: a run's end holds it until the run or wake it leads to is admitted. */
-  readonly retainRun: () => () => void;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
   readonly startNextRun: (
     params: HostParams<'run/start'>,
@@ -56,7 +56,7 @@ export class HostRunEnds {
     // The run releases its own hold once its owner settles; this one covers the
     // gap from there to the next run or the parent's wake, so a host that is
     // waiting to go quiet never sees none between them.
-    let hold = ports.closing() ? undefined : ports.retainRun();
+    let hold: (() => void) | undefined = ports.hold();
     // While its admission is live: a completed run asks for a title, a failed one withdraws it.
     ports.presentations.finishing(run, outcome, ports.runs().values());
     return finishHostRunWithProviderBilling(
