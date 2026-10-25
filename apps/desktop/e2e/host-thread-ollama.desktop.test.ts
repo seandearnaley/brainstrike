@@ -152,7 +152,7 @@ test('a host thread on a discovered Ollama model sends, renders the reply and co
   const ollama = await startOllamaReplay('qwen3-14b');
   try {
     const region = await sendOnOllama(page, () => homePage.openSettings(), ollama, 'qwen3:14b');
-    await expect(region.getByText(REPLY)).toBeVisible({ timeout: 90_000 });
+    await expect(region.getByText(REPLY, { exact: true })).toBeVisible({ timeout: 90_000 });
 
     // Every call, the run and its title alike, went to the native route at
     // the admitted window: 40,960 reported, capped at 32,768.
