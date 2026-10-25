@@ -14,7 +14,7 @@
  */
 import { type ExecFileException, execFile } from 'node:child_process';
 import { createLogger } from '@brainstrike/logging';
-import { endTreeOnDeadline } from '@brainstrike/state-store/native-children';
+import { endTreeOnDeadline, trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { ForgePullRequest, ForgeUnavailable } from '@brainstrike/types';
 import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
 
@@ -132,6 +132,8 @@ export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, 
       resolve({ exitCode: null, failureReason: 'abort', stderr: '', stdout: '' });
       return;
     }
+    // ADR-0017: the host's supervisor hears of gh, which execFile cannot hand the Root.
+    let exited: () => void = () => undefined;
     const child = execFile(
       'gh',
       [...args],
@@ -141,6 +143,7 @@ export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, 
         maxBuffer: GH_MAX_BUFFER_BYTES,
       },
       (error, stdout, stderr) => {
+        exited();
         deadline.clear();
         if (!error) {
           resolve({ exitCode: 0, stderr, stdout });
@@ -152,6 +155,7 @@ export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, 
         }
       }
     );
+    exited = trackNativeChild(child.pid, { group: false });
     // The timeout and the abort end gh's whole tree, not only the program Node started.
     const deadline = endTreeOnDeadline(child, {
       onError: (cause) => logger.warn('Could not end the gh process tree', { cause }),

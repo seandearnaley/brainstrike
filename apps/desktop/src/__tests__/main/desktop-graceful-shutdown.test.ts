@@ -105,7 +105,6 @@ describe('desktop graceful shutdown', () => {
   it('pins the documented order: a reset in flight first, the database drain last, no log-sink step', () => {
     expect(DESKTOP_SHUTDOWN_STEP_ORDER).toEqual([
       'factory-reset',
-      'snapshot-maintenance',
       'renderers',
       'main-catalog',
       'child-processes',
@@ -113,8 +112,6 @@ describe('desktop graceful shutdown', () => {
       'mcp-runtime',
       'file-system',
       'embedding-host',
-      'git-inventory',
-      'forge',
       'database-drain',
     ]);
   });
@@ -150,7 +147,7 @@ describe('desktop graceful shutdown', () => {
   it('isolates a failing step and logs every failure once, after the database close and before the sink closes', async () => {
     const { events, logger, options } = createHarness({
       'embedding-host': () => Promise.reject(new Error('stop failed')),
-      forge: () => {
+      'mcp-runtime': () => {
         throw new TypeError('unregister threw');
       },
     });
@@ -161,8 +158,12 @@ describe('desktop graceful shutdown', () => {
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith('Graceful shutdown completed with cleanup failures', {
       failures: [
+        expect.objectContaining({
+          message: 'unregister threw',
+          name: 'TypeError',
+          step: 'mcp-runtime',
+        }),
         expect.objectContaining({ message: 'stop failed', step: 'embedding-host' }),
-        expect.objectContaining({ message: 'unregister threw', name: 'TypeError', step: 'forge' }),
       ],
       trigger: 'signal',
     });
@@ -174,7 +175,7 @@ describe('desktop graceful shutdown', () => {
       expect.objectContaining({
         steps: expect.arrayContaining([
           { elapsedMs: 0, failed: true, step: 'embedding-host' },
-          { elapsedMs: 0, failed: true, step: 'forge' },
+          { elapsedMs: 0, failed: true, step: 'mcp-runtime' },
         ]),
       })
     );
@@ -296,7 +297,7 @@ describe('desktop graceful shutdown', () => {
   });
 
   // The steps a 2-core Windows run found in flight when the old deadline forced exit 1.
-  it.each(['snapshot-maintenance', 'main-catalog', 'native-index', 'forge'] as const)(
+  it.each(['main-catalog', 'native-index'] as const)(
     'a %s step that takes 15 s is joined, every later step runs, and nothing forces an exit',
     async (slow) => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });

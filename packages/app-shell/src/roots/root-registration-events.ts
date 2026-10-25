@@ -11,9 +11,8 @@
  * reconciliation hook's own `registerRoot`/`resolveDbRootId` callbacks without
  * restructuring the provider tree.
  *
- * This module is the decoupled alternative: a MODULE-SCOPED event bus, the
- * same scope `resolveChangesBridge`/`resolveWorktreesBridge` already use in
- * `use-roots-reconciliation.ts` for cross-subtree singletons. It never
+ * This module is the decoupled alternative: a MODULE-SCOPED event bus for a
+ * cross-subtree singleton. It never
  * restructures the reconciliation state machine — it only NOTIFIES, from the
  * two places that machine already learns a root's durable id (the boot batch
  * in `applyBootReconciliationResult` and the mid-session path in

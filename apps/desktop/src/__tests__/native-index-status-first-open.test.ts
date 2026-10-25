@@ -40,8 +40,6 @@ it('the admission’s index status read answers preparing during the first open,
       rebuild: activation.rebuild,
       withRead: activation.withRead,
     }),
-    resolveForgeService: () => null,
-    resolveWorktreeService: () => null,
   }).admission;
   // Boot order: Main starts the first open before the agent host exists (main.ts acquireRead).
   const boot = activation.acquireRead();

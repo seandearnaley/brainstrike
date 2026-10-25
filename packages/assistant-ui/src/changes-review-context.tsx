@@ -16,7 +16,7 @@ export interface ChangesReviewContextValue {
  * Capability-injection seam for the "→ Review" assistant-turn footer link
  * (BST-1114), modelled on `RunVerdictContext`: a separate context rather than
  * folded into `EditCheckpointContext`, because the Changes capability
- * (desktop `window.changes` bridge) and the checkpoint journal gate on
+ * (the desktop Changes bridge) and the checkpoint journal gate on
  * different bridges and can be present/absent independently.
  */
 const ChangesReviewContext = createContext<ChangesReviewContextValue | null>(null);

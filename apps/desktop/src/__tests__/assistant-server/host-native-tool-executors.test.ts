@@ -45,6 +45,7 @@ describe('host-executed native tools', () => {
       ...SHARED_NATIVE_TOOL_EXECUTORS,
       ...desktopHostToolExecutors(
         unexpectedMainRequest,
+        {},
         'host-thread',
         NATIVE_WITH_SKILLS,
         APP_PATHS

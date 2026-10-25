@@ -1,6 +1,6 @@
 /**
  * Wire shapes of the narrow Main reads and window-bound calls the agent host's
- * own tools make (`desktop-read/*`, `platform/worktree/*`, `platform/shell/*`).
+ * own tools make (`desktop-read/*`, `platform/browser/*`).
  * Shared by Main's handlers and the host's clients; imports nothing Main-only.
  * Optional fields are exact (`exactOptional`), matching the store types under
  * `exactOptionalPropertyTypes`.
@@ -17,91 +17,6 @@ import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
-
-export const PlatformShellCompletedSchema = Schema.Struct({
-  command: Schema.String,
-  precedingWorktreePaths: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-  rootId: Id,
-  runId: Schema.optional(Id),
-  threadId: Id,
-});
-
-/** The worktrees Main's ledger adopted from the command, for the host to commit. */
-export const PlatformShellCompletedResultSchema = Schema.Struct({
-  adopted: Schema.mutable(
-    Schema.Array(Schema.Struct({ branch: Schema.NullOr(Id), path: Id, worktreeId: Id }))
-  ),
-});
-
-export const WorktreePathsResultSchema = Schema.Struct({
-  paths: Schema.NullOr(Schema.mutable(Schema.Array(Schema.String))),
-});
-
-/** A Main read scoped to one admitted host thread. */
-export const ThreadRequestSchema = Schema.Struct({ threadId: Id });
-
-const GitError = Schema.Struct({ error: Schema.String, ok: Schema.Literal(false) });
-function gitResult<T extends Schema.Constraint>(value: T) {
-  return Schema.Union([Schema.Struct({ ok: Schema.Literal(true), value }), GitError], {
-    mode: 'oneOf',
-  });
-}
-
-export const WorktreeListResultSchema = gitResult(
-  Schema.mutable(
-    Schema.Array(
-      Schema.Struct({
-        branch: Schema.NullOr(Schema.String),
-        detached: Schema.Boolean,
-        disabledReason: Schema.NullOr(Schema.String),
-        externalTool: Schema.NullOr(Schema.String),
-        id: Schema.NullOr(Schema.String),
-        managed: Schema.Boolean,
-        name: Schema.String,
-        path: Schema.String,
-        primary: Schema.Boolean,
-        provenance: Schema.String,
-        repoCommonDir: Schema.String,
-        repositoryRoot: Schema.String,
-        rootId: Schema.NullOr(Schema.String),
-        usable: Schema.Boolean,
-      })
-    )
-  )
-);
-
-export const WorktreeCreateResultSchema = gitResult(
-  Schema.Struct({
-    root: Schema.Struct({ displayName: Schema.String, path: Schema.String, rootId: Schema.String }),
-    setup: Schema.Struct({ reason: Schema.NullOr(Schema.String), status: Schema.String }),
-    worktree: Schema.Struct({
-      branch: Schema.NullOr(Schema.String),
-      id: Schema.String,
-      path: Schema.String,
-    }),
-  })
-);
-
-export const WorktreeArchiveResultSchema = gitResult(
-  Schema.Struct({ snapshotRef: Schema.String, worktree: Schema.Struct({ id: Schema.String }) })
-);
-
-export const WorktreeCreateRequestSchema = Schema.Struct({
-  params: Schema.Struct({
-    baseRef: Schema.String.check(Schema.isMinCodePoints(1)),
-    branch: Schema.String.check(Schema.isMinCodePoints(1)),
-    name: Schema.String.check(Schema.isMinCodePoints(1)),
-    rootId: Id,
-  }),
-  runId: Schema.optionalKey(Id),
-  threadId: Id,
-});
-
-export const WorktreeArchiveRequestSchema = Schema.Struct({
-  params: Schema.Struct({ force: Schema.optionalKey(Schema.Boolean), worktreeId: Id }),
-  runId: Schema.optionalKey(Id),
-  threadId: Id,
-});
 
 const BrowserFailure = Schema.Struct({
   error: Schema.Literals([

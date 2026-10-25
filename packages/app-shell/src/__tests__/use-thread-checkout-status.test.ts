@@ -3,8 +3,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useThreadCheckoutStatus } from '../hooks/use-thread-checkout-status';
+import { stubGitBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
-// The two id spaces the chip straddles, deliberately DIFFERENT: `window.git`
+// The two id spaces the chip straddles, deliberately DIFFERENT: the Git bridge
 // speaks the durable `roots.id`, while the FILE_EXPLORER_REFRESH_EVENT mapping
 // in use-changes-live-refresh keys registrations on the file-explorer ADAPTER
 // rootId. They coincide for reconciled-insert roots and diverge for legacy
@@ -13,6 +14,7 @@ const ADAPTER_ROOT_ID = 'adapter-a';
 const DB_ROOT_ID = 'db-a';
 
 const status = vi.fn();
+const gitHost = workspaceGitWrapper({ git: stubGitBridge({ status }) });
 
 const { loggerMock } = vi.hoisted(() => ({
   loggerMock: {
@@ -32,27 +34,9 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
 beforeEach(() => {
   loggerMock.warn.mockClear();
   useChangesLiveRefreshStore.getState().reset();
-  (window as Window & { git?: unknown }).git = {
-    aheadBehind: vi.fn(),
-    commit: vi.fn(),
-    commitFiles: vi.fn(),
-    createBranch: vi.fn(),
-    diff: vi.fn(),
-    fetch: vi.fn(),
-    history: vi.fn(),
-    pull: vi.fn(),
-    push: vi.fn(),
-    repository: vi.fn(),
-    stage: vi.fn(),
-    status,
-    structuredFileDiff: vi.fn(),
-    switchBranch: vi.fn(),
-    unstage: vi.fn(),
-  };
 });
 
 afterEach(() => {
-  (window as Window & { git?: unknown }).git = undefined;
   status.mockReset();
 });
 
@@ -70,12 +54,14 @@ describe('useThreadCheckoutStatus', () => {
         upstream: 'origin/main',
       },
     });
-    const { result } = renderHook(() =>
-      useThreadCheckoutStatus({
-        adapterRootId: ADAPTER_ROOT_ID,
-        dbRootId: DB_ROOT_ID,
-        path: '/ws/a',
-      })
+    const { result } = renderHook(
+      () =>
+        useThreadCheckoutStatus({
+          adapterRootId: ADAPTER_ROOT_ID,
+          dbRootId: DB_ROOT_ID,
+          path: '/ws/a',
+        }),
+      { wrapper: gitHost }
     );
     await waitFor(() =>
       expect(result.current).toEqual({
@@ -128,12 +114,14 @@ describe('useThreadCheckoutStatus', () => {
       },
     };
     status.mockResolvedValue(cleanStatus);
-    const { result } = renderHook(() =>
-      useThreadCheckoutStatus({
-        adapterRootId: ADAPTER_ROOT_ID,
-        dbRootId: DB_ROOT_ID,
-        path: '/ws/a',
-      })
+    const { result } = renderHook(
+      () =>
+        useThreadCheckoutStatus({
+          adapterRootId: ADAPTER_ROOT_ID,
+          dbRootId: DB_ROOT_ID,
+          path: '/ws/a',
+        }),
+      { wrapper: gitHost }
     );
     await waitFor(() => expect(result.current.checkout?.dirty).toBe(false));
     expect(result.current.settled).toBe(true);
@@ -175,12 +163,14 @@ describe('useThreadCheckoutStatus', () => {
         upstream: null,
       },
     });
-    const { result } = renderHook(() =>
-      useThreadCheckoutStatus({
-        adapterRootId: ADAPTER_ROOT_ID,
-        dbRootId: DB_ROOT_ID,
-        path: '/ws/a',
-      })
+    const { result } = renderHook(
+      () =>
+        useThreadCheckoutStatus({
+          adapterRootId: ADAPTER_ROOT_ID,
+          dbRootId: DB_ROOT_ID,
+          path: '/ws/a',
+        }),
+      { wrapper: gitHost }
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     expect(result.current.checkout).toBeUndefined();
@@ -191,10 +181,11 @@ describe('useThreadCheckoutStatus', () => {
     await waitFor(() => expect(result.current.settled).toBe(true));
 
     // No root at all: nothing to await, so settled immediately.
-    const { result: nullRoot } = renderHook(() => useThreadCheckoutStatus(null));
+    const { result: nullRoot } = renderHook(() => useThreadCheckoutStatus(null), {
+      wrapper: gitHost,
+    });
     expect(nullRoot.current).toEqual({ checkout: undefined, failure: null, settled: true });
 
-    (window as Window & { git?: unknown }).git = undefined;
     const { result: noBridge } = renderHook(() =>
       useThreadCheckoutStatus({
         adapterRootId: ADAPTER_ROOT_ID,
@@ -209,12 +200,14 @@ describe('useThreadCheckoutStatus', () => {
 
   it('surfaces a failed status as undefined and logs — never a fake clean state', async () => {
     status.mockResolvedValueOnce({ error: 'boom', ok: false });
-    const { result } = renderHook(() =>
-      useThreadCheckoutStatus({
-        adapterRootId: ADAPTER_ROOT_ID,
-        dbRootId: DB_ROOT_ID,
-        path: '/ws/a',
-      })
+    const { result } = renderHook(
+      () =>
+        useThreadCheckoutStatus({
+          adapterRootId: ADAPTER_ROOT_ID,
+          dbRootId: DB_ROOT_ID,
+          path: '/ws/a',
+        }),
+      { wrapper: gitHost }
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     expect(result.current.checkout).toBeUndefined();
@@ -242,12 +235,14 @@ describe('useThreadCheckoutStatus', () => {
         upstream: null,
       },
     });
-    const { result } = renderHook(() =>
-      useThreadCheckoutStatus({
-        adapterRootId: ADAPTER_ROOT_ID,
-        dbRootId: DB_ROOT_ID,
-        path: '/ws/a',
-      })
+    const { result } = renderHook(
+      () =>
+        useThreadCheckoutStatus({
+          adapterRootId: ADAPTER_ROOT_ID,
+          dbRootId: DB_ROOT_ID,
+          path: '/ws/a',
+        }),
+      { wrapper: gitHost }
     );
     await waitFor(() => expect(result.current.failure).toBe('git binary missing'));
     expect(result.current.checkout).toBeUndefined();
@@ -270,7 +265,7 @@ describe('useThreadCheckoutStatus', () => {
     const { rerender, result } = renderHook(
       ({ dbRootId }: { dbRootId: string }) =>
         useThreadCheckoutStatus({ adapterRootId: ADAPTER_ROOT_ID, dbRootId, path: '/ws/a' }),
-      { initialProps: { dbRootId: DB_ROOT_ID } }
+      { initialProps: { dbRootId: DB_ROOT_ID }, wrapper: gitHost }
     );
     await waitFor(() => expect(result.current.failure).toBe('boom'));
 
@@ -293,12 +288,14 @@ describe('useThreadCheckoutStatus', () => {
       },
     };
     status.mockResolvedValue(cleanStatus);
-    renderHook(() =>
-      useThreadCheckoutStatus({
-        adapterRootId: ADAPTER_ROOT_ID,
-        dbRootId: DB_ROOT_ID,
-        path: '/ws/a',
-      })
+    renderHook(
+      () =>
+        useThreadCheckoutStatus({
+          adapterRootId: ADAPTER_ROOT_ID,
+          dbRootId: DB_ROOT_ID,
+          path: '/ws/a',
+        }),
+      { wrapper: gitHost }
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
     // The bridge speaks the DB id space, and only that one.
@@ -357,8 +354,9 @@ describe('useThreadCheckoutStatus', () => {
       },
     };
     status.mockResolvedValue(cleanStatus);
-    renderHook(() =>
-      useThreadCheckoutStatus({ adapterRootId: null, dbRootId: DB_ROOT_ID, path: '/ws/a' })
+    renderHook(
+      () => useThreadCheckoutStatus({ adapterRootId: null, dbRootId: DB_ROOT_ID, path: '/ws/a' }),
+      { wrapper: gitHost }
     );
     await waitFor(() => expect(status).toHaveBeenCalledTimes(1));
 
@@ -417,7 +415,7 @@ describe('useThreadCheckoutStatus', () => {
           dbRootId: rootId,
           path: `/ws/${rootId}`,
         }),
-      { initialProps: { rootId: 'root-a' } }
+      { initialProps: { rootId: 'root-a' }, wrapper: gitHost }
     );
     await waitFor(() => expect(result.current.checkout?.branch).toBe('root-a-branch'));
     expect(result.current.settled).toBe(true);

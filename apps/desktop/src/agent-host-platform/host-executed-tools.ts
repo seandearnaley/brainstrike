@@ -8,7 +8,6 @@ import {
   type NativeToolExecutor,
   type ShellCorrelationDependencies,
 } from '@brainstrike/host-capabilities/native-tools';
-import { createLogger } from '@brainstrike/logging';
 import {
   type BrowserToolRunner,
   browserToolExecutors,
@@ -35,7 +34,10 @@ import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-co
 import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index-summary';
-import type { WorktreeToolCapability } from '../assistant-server/worktree-tools';
+import {
+  type DesktopWorktreeServices,
+  desktopWorktreeToolDependencies,
+} from '../assistant-server/worktree-tool-dependencies';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
 import {
@@ -51,15 +53,8 @@ import {
   BrowserReadPageResultSchema,
   DiagnosticEventItemsSchema,
   DiagnosticFingerprintItemsSchema,
-  PlatformShellCompletedResultSchema,
-  WorktreeArchiveResultSchema,
-  WorktreeCreateResultSchema,
-  WorktreeListResultSchema,
-  WorktreePathsResultSchema,
 } from './host-tool-wire';
 import type { PlatformSelection } from './platform-wire';
-
-const logger = createLogger('DesktopHostTools');
 
 /** Desktop tools the agent host runs in its own process beside the shared ones. */
 const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
@@ -93,81 +88,43 @@ export function isHostExecutedNativeToolId(id: string): boolean {
 type MainRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
 
 /**
- * A host command's worktree/forge correlation, through Main's narrow RPCs until
- * the worktree ledger is a host fact: the pre-command path snapshot, then the
- * completed command under the host run's identity. Neither ever blocks the
- * command; the reconcile fails closed to "adopt nothing" without a snapshot.
+ * A host command's worktree/forge correlation over the host's own worktree
+ * ledger: the pre-command path snapshot, then the completed command under the
+ * host run's identity. Neither ever blocks the command; the reconcile fails
+ * closed to "adopt nothing" without a snapshot.
  */
 function hostShellCorrelation(
-  request: MainRequest,
+  services: DesktopWorktreeServices,
   threadId: string,
   runId: string | undefined,
   shellWorktrees: HostToolContext['shellWorktrees']
 ): ShellCorrelationDependencies {
+  const { shellCorrelation, worktreeTools } = desktopWorktreeToolDependencies(services, {
+    runId,
+    threadId,
+  });
   return {
-    shellCorrelation: {
-      onCommandCompleted: ({ command, precedingWorktreePaths, rootId }) => {
-        // Only a git-worktree or PR-creating command has anything for Main to correlate.
-        const signals = scanShellCommandForGitSignals(command);
-        if (!(signals.touchedWorktrees || signals.createdPullRequest)) {
-          return;
+    ...(shellCorrelation
+      ? {
+          shellCorrelation: {
+            onCommandCompleted: (completed) => {
+              // Only a git-worktree or PR-creating command has anything to correlate.
+              const signals = scanShellCommandForGitSignals(completed.command);
+              if (!(signals.touchedWorktrees || signals.createdPullRequest)) {
+                return;
+              }
+              const adopted = shellCorrelation
+                .onCommandCompleted(completed)
+                .then((rows) =>
+                  rows.map(({ branch, id, path }) => ({ branch, path, worktreeId: id }))
+                );
+              // Core commits each adopted worktree under this call, joined by its run.
+              shellWorktrees?.(adopted);
+            },
+          },
         }
-        const adopted = request('platform/shell/completed', {
-          command,
-          precedingWorktreePaths: precedingWorktreePaths ? [...precedingWorktreePaths] : null,
-          rootId,
-          ...(runId ? { runId } : {}),
-          threadId,
-        })
-          .then(
-            (reply) =>
-              wireDecoder(PlatformShellCompletedResultSchema, {
-                errors: 'all',
-                onExcessProperty: 'error',
-              })(reply).adopted
-          )
-          .catch((error: unknown) => {
-            logger.error('shell correlation request failed', { error, rootId });
-            return [];
-          });
-        // Core commits each adopted worktree under this call, joined by its run.
-        shellWorktrees?.(adopted);
-      },
-    },
-    worktreeTools: {
-      list: async () => {
-        const { paths } = wireDecoder(WorktreePathsResultSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(await request('platform/worktree/paths', { threadId }));
-        return paths
-          ? { ok: true, value: paths.map((path) => ({ path })) }
-          : { error: 'Worktrees are unavailable in this session.', ok: false };
-      },
-    },
-  };
-}
-
-/** Main's worktree service for one host run, until the worktree ledger is a host fact. */
-function hostWorktreeTools(
-  request: MainRequest,
-  threadId: string,
-  runId: string | undefined
-): WorktreeToolCapability {
-  const run = { ...(runId ? { runId } : {}), threadId };
-  return {
-    archive: async (params) =>
-      wireDecoder(WorktreeArchiveResultSchema, { errors: 'all' })(
-        await request('platform/worktree/archive', { ...run, params })
-      ),
-    create: async (params) =>
-      wireDecoder(WorktreeCreateResultSchema, { errors: 'all' })(
-        await request('platform/worktree/create', { ...run, params })
-      ),
-    list: async () =>
-      wireDecoder(WorktreeListResultSchema, { errors: 'all' })(
-        await request('platform/worktree/list', { threadId })
-      ),
+      : {}),
+    ...(worktreeTools ? { worktreeTools } : {}),
   };
 }
 
@@ -266,6 +223,8 @@ function hostSkillExecutors(
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
+  /** The host's worktree and forge services, which each run borrows under its own identity. */
+  worktrees: DesktopWorktreeServices,
   threadId: string,
   /** The run's admitted native runtime: its roots, retrieval scope and skills. */
   native: PlatformSelection['nativeRuntime'],
@@ -302,8 +261,12 @@ export function desktopHostToolExecutors(
       rootsFromRuntime: true,
     })),
     ...selfInspectionExecutors(hostDiagnosticsReader(request, threadId)),
-    ...worktreeToolExecutors(({ runtimeData }) =>
-      hostWorktreeTools(request, threadId, runtimeData?.memory?.runId)
+    ...worktreeToolExecutors(
+      ({ runtimeData }) =>
+        desktopWorktreeToolDependencies(worktrees, {
+          runId: runtimeData?.memory?.runId,
+          threadId,
+        }).worktreeTools
     ),
     ...(appPaths
       ? { [NATIVE_TOOL_ID.runPython]: runPythonExecutor(hostCodeExecution(appPaths)) }
@@ -311,7 +274,7 @@ export function desktopHostToolExecutors(
     ...hostSkillExecutors(native, appPaths),
     [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor({
       correlation: ({ ports, runtimeData }) =>
-        hostShellCorrelation(request, threadId, runtimeData?.memory?.runId, ports.shellWorktrees),
+        hostShellCorrelation(worktrees, threadId, runtimeData?.memory?.runId, ports.shellWorktrees),
       // Desktop's own bundled wrapper, emitted beside this host bundle.
       windowsCommandEntry: () =>
         resolveBundledSiblingPath('Windows command', 'windows-command-entry.cjs'),
