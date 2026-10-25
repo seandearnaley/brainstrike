@@ -113,13 +113,9 @@ describe('AssistantActivityParts (hydrated messages)', () => {
         ]}
       />
     );
-    // AssistantMessageText lazy-loads its markdown renderer via a dynamic
-    // import (see assistant-message-text.tsx); the real panel preloads it on
-    // mount, but this isolated Harness does not, so the text part isn't
-    // guaranteed to be in the DOM the instant the group is. `findByText`
-    // waits for the async import to resolve, matching the pattern already
-    // used in assistant-activity-timeline.behavior.test.tsx. Only once the
-    // text node has settled can the group-exclusion check be meaningful.
+    // AssistantMessageText renders its markdown chunk from an effect, so the
+    // text part can land a commit after the group. Only once the text node is
+    // in place can the group-exclusion check be meaningful.
     const text = await screen.findByText('Answer.');
     const group = screen.getByTestId('assistant-activity-group');
     expect(group.contains(text)).toBe(false);
