@@ -23,7 +23,7 @@ async function attachToFakeHost() {
   const directory = await mkdtemp(join(tmpdir(), 'bs-client-transport-'));
   const endpoint =
     process.platform === 'win32'
-      ? `\\\\.\\pipe\\bs-client-transport-${crypto.randomUUID()}`
+      ? `\\\\.\\pipe\\brainstrike-${crypto.randomUUID().replaceAll('-', '')}`
       : join(directory, 's');
   const record: HostRecord = {
     endpoint,
