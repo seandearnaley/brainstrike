@@ -69,10 +69,10 @@ async function chooseModel(page: Page): Promise<void> {
 }
 
 /** Add the folder through the actual picker; the profile host records it as its one live root. */
-async function addRoot({ page, userData }: OrdinaryDevApp): Promise<string> {
+async function addRoot({ hostRoot, page }: OrdinaryDevApp): Promise<string> {
   await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
   await expect(page.getByTestId('single-root-header-row')).toContainText('brainstrike');
-  const roots = (await readHostRootRecords(userData)).filter((root) => root.status === 'live');
+  const roots = (await readHostRootRecords(hostRoot)).filter((root) => root.status === 'live');
   expect(roots).toHaveLength(1);
   const id = roots[0]?.id;
   if (!id) {

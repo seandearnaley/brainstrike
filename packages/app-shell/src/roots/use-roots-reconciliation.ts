@@ -61,7 +61,13 @@ function refreshNativeIndexAfterRootRegistration(
   // Main retains and joins reconfiguration. Folder selection waits only for its
   // canonical write, while the index status owns ingestion progress and failure.
   void registration.rootsRegistered().catch((error: unknown) => {
-    logger.error('Native index refresh after root registration failed', { error });
+    // A closed or preparing index (a reset, a quit, a replacement host) re-reads the roots when
+    // it opens; the index status shows that state.
+    if (isOwnerUnavailable(error)) {
+      logger.warn('Native index refresh after root registration refused', { error });
+    } else {
+      logger.error('Native index refresh after root registration failed', { error });
+    }
   });
 }
 

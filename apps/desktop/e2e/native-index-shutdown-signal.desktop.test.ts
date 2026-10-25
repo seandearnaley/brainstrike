@@ -63,17 +63,30 @@ function parse(output: string): LogRecord[] {
     });
 }
 
-/** Main's structured stdout from now on, with a wait for a record that matches. */
+/**
+ * Main's structured output from now on, with a wait for a record that matches. The agent host's
+ * records (the index's scan receipt among them, ADR-0029 stage 4) reach Main's stderr, so both
+ * streams are read; their complete lines keep the order they arrived in.
+ */
 function capture(mainProcess: ChildProcess): Capture {
-  let output = '';
+  const lines: string[] = [];
   const listeners = new Set<() => void>();
-  mainProcess.stdout?.on('data', (chunk: Buffer) => {
-    output += chunk.toString('utf8');
-    for (const listener of listeners) {
-      listener();
-    }
-  });
-  const read = () => ({ output, records: parse(output) });
+  for (const stream of [mainProcess.stdout, mainProcess.stderr]) {
+    let partial = '';
+    stream?.on('data', (chunk: Buffer) => {
+      const [last = '', ...complete] = `${partial}${chunk.toString('utf8')}`.split('\n').reverse();
+      partial = last;
+      lines.push(...complete.reverse());
+      for (const listener of listeners) {
+        listener();
+      }
+    });
+  }
+  // `parse` drops its last segment as a line still being written; every line here is complete.
+  const read = () => {
+    const output = `${lines.join('\n')}\n`;
+    return { output, records: parse(output) };
+  };
   return {
     read,
     waitFor: (match, timeoutMs) =>
@@ -210,7 +223,8 @@ async function signalAfterScan(
   );
   expect(reports).toHaveLength(1);
   expect(reports[0]?.map((step) => step.step)).toEqual(
-    expect.arrayContaining(['renderers', 'native-index', 'embedding-host', 'database-close'])
+    // The agent host's exit joins its search index (ADR-0029 stage 4).
+    expect.arrayContaining(['renderers', 'agent-host', 'embedding-host', 'database-close'])
   );
   expect(reports[0]?.filter((step) => step.failed)).toEqual([]);
 }

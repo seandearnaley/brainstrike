@@ -1,9 +1,6 @@
 import { access } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  isStateStoreReadOnly,
-  refusalError,
-} from '@brainstrike/assistant-contract/boundary-failure';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   createNativeSecureRoot,
   type ManagedWorktreeAuthorizer,
@@ -20,7 +17,7 @@ import {
 } from '@brainstrike/file-system/native-watch';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
 import { type LifecycleDelays, lifecycleDelay } from '@brainstrike/host-lease/lifecycle-delays';
-import type { StateStore } from '@brainstrike/state-store';
+import { type StateStore, StateStoreReadOnlyError } from '@brainstrike/state-store';
 import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
@@ -186,8 +183,9 @@ export function createDesktopWorkspaceRoots({
     disposeCommandSessionsForRoot: (rootId) => hostCommandSessionManager().disposeRoot(rootId),
     evictLspServersForRoot,
     getRootsCatalog: async () => store,
-    // A damaged store opened read-only (BST-2144); its refusal is expected.
-    isExpectedCatalogRefusal: isStateStoreReadOnly,
+    // A damaged store opened read-only (BST-2144); its refusal is expected. The host writes
+    // its own store, so the refusal is the store's error, not one that crossed a boundary.
+    isExpectedCatalogRefusal: (error) => error instanceof StateStoreReadOnlyError,
     onRestoredRootsChanged,
     onRootGranted,
     pathExists: async (rootPath) =>

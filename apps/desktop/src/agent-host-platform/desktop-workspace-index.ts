@@ -1,5 +1,6 @@
 import type { HostWorkspaceIndex, WorkspaceIndexEvent } from '@brainstrike/agent-host';
 import { localIndexConfigStore } from '@brainstrike/agent-host/catalog';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { createNativeScopedSearchCapability } from '@brainstrike/assistant-service/node-native-text-services';
 import type { CanonicalHostedEmbeddings } from '@brainstrike/canonical-ingestion';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -12,6 +13,7 @@ import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { createDesktopModelCatalog } from '../model-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { NativeIndexActivationDependencies, NativeIndexProfile } from '../native-index-graph';
 import { observeNativeIndex } from '../native-index-observations';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
@@ -68,6 +70,23 @@ function hostIndexProfile(): NativeIndexProfile {
       await beforeClose;
     },
     retireFailed: async () => false,
+  };
+}
+
+/**
+ * A client's index request: the index's own refusals (closed, preparing, off, setup) cross typed,
+ * as Main's IPC answered them; anything else is logged here and crosses as the internal fault.
+ */
+function typedIndexFailures<P, R>(run: (params: P) => Promise<R>): (params: P) => Promise<R> {
+  return async (params) => {
+    try {
+      return await run(params);
+    } catch (error) {
+      throw new BoundaryFailureError(
+        nativeIndexBoundaryFailure(error, (message, fields) => logger.error(message, fields)),
+        { cause: error }
+      );
+    }
   };
 }
 
@@ -202,26 +221,26 @@ export function createDesktopWorkspaceIndex(
   });
   const done = {};
   const index: HostWorkspaceIndex = {
-    'index/config/read': () => indexConfig.read(),
-    'index/config/update': (patch) => indexConfig.update(patch),
-    'index/coverage': (request) => search.coverage(request),
-    'index/coverage-batch': ({ requests }) => search.coverageBatch(requests),
-    'index/file-chunks': (request) => search.fileChunks(request),
-    'index/grep': (request) => search.grep(request),
-    'index/rebuild': async () => {
+    'index/config/read': typedIndexFailures(() => indexConfig.read()),
+    'index/config/update': typedIndexFailures((patch) => indexConfig.update(patch)),
+    'index/coverage': typedIndexFailures((request) => search.coverage(request)),
+    'index/coverage-batch': typedIndexFailures(({ requests }) => search.coverageBatch(requests)),
+    'index/file-chunks': typedIndexFailures((request) => search.fileChunks(request)),
+    'index/grep': typedIndexFailures((request) => search.grep(request)),
+    'index/rebuild': typedIndexFailures(async () => {
       await search.rebuild();
       return done;
-    },
-    'index/retry': async () => {
+    }),
+    'index/retry': typedIndexFailures(async () => {
       await rootData.transition(() => activation.retryIndexing());
       return done;
-    },
-    'index/roots-registered': async () => {
+    }),
+    'index/roots-registered': typedIndexFailures(async () => {
       await registration.rootsRegistered();
       return done;
-    },
-    'index/search': (request) => search.search(request),
-    'index/status': () => search.status(),
+    }),
+    'index/search': typedIndexFailures((request) => search.search(request)),
+    'index/status': typedIndexFailures(() => search.status()),
     subscribe: (listener) => {
       listeners.add(listener);
       if (observation) {

@@ -130,8 +130,11 @@ export function createDesktopWorkspaceFiles({
           'Folder seeding is available only to a desktop E2E launch'
         );
       }
+      // The ledgers become exactly the seed; an empty seed is a profile with no folders.
       const { storage } = folders;
-      await storage.setItem('lastFolderPath', lastFolderPath);
+      await (lastFolderPath.length === 0
+        ? storage.removeItem('lastFolderPath')
+        : storage.setItem('lastFolderPath', lastFolderPath));
       await storage.setItem(
         'rootsList',
         JSON.stringify(
@@ -142,12 +145,10 @@ export function createDesktopWorkspaceFiles({
           }))
         )
       );
-      if (recentPaths.length > 0) {
-        await storage.setItem(
-          'recentRootsList',
-          JSON.stringify(recentPaths.map((recentPath) => ({ lastGrantedAt: 1, path: recentPath })))
-        );
-      }
+      await storage.setItem(
+        'recentRootsList',
+        JSON.stringify(recentPaths.map((recentPath) => ({ lastGrantedAt: 1, path: recentPath })))
+      );
       return {};
     },
     'files/exists': async ({ path: requestedPath }) => {
