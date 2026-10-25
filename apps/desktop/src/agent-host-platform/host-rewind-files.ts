@@ -64,7 +64,7 @@ function sortedDrift(
  * refuses rather than restoring into a stale path. Roots go one at a time.
  * The host log is the record: no ledger row is written.
  */
-function createHostRewindFiles(owners: HostRewindFilesOwners) {
+export function createHostRewindFiles(owners: HostRewindFilesOwners) {
   const previews = new Map<string, StoredPreview>();
   async function rootHandle(
     service: SnapshotService,
