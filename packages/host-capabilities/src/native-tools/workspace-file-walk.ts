@@ -2,10 +2,9 @@ import { execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
-import { trackNativeChild } from '@brainstrike/state-store/native-children';
+import { endTreeOnDeadline, trackNativeChild } from '@brainstrike/state-store/native-children';
 import {
   createBackgroundIndexingEntryPolicy,
   createWorkspaceIgnoreMatcher,
@@ -20,7 +19,6 @@ import {
 import { isWithinRoot } from './workspace-path.ts';
 
 const logger = createLogger('AssistantWorkspaceFileWalk');
-const execFileAsync = promisify(execFile);
 
 /**
  * Hard ceiling on files visited per root, independent of any caller limit. An
@@ -148,20 +146,22 @@ async function readGitConfigValue(
   args: readonly string[],
   options: { cwd: string }
 ): Promise<string | undefined> {
-  try {
-    const query = execFileAsync('git', [...args], {
-      cwd: options.cwd,
-      timeout: 2000,
+  const stdout = await new Promise<string | undefined>((resolve) => {
+    const child = execFile('git', [...args], { cwd: options.cwd }, (error, output) => {
+      deadline.clear();
+      resolve(error ? undefined : output);
+    });
+    // The bound ends git's whole tree, not only a launcher (ADR-0030).
+    const deadline = endTreeOnDeadline(child, {
+      onError: (cause) => logger.warn('Could not end the git config query', { cause }),
+      timeoutMs: 2000,
     });
     // execFile cannot pass the Root's flock (an ADR-0017 limit); the host's supervisor still
     // learns this bounded git process.
-    query.child.once('exit', trackNativeChild(query.child.pid, { group: false }));
-    const { stdout } = await query;
-    const value = stdout.trim();
-    return value === '' ? undefined : value;
-  } catch {
-    return;
-  }
+    child.once('exit', trackNativeChild(child.pid, { group: false }));
+  });
+  const value = stdout?.trim();
+  return value === '' ? undefined : value;
 }
 
 function expandHome(target: string): string {

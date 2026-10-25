@@ -45,7 +45,7 @@ const backlogs: Readonly<Record<string, number>> = {
  * backlog / STATE_CATCH_UP_STEP_EVENTS steps. A clock budget measured against an
  * earlier calibration failed whenever parallel lanes loaded the machine.
  */
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
 const profile = {
   dimensions: 4,

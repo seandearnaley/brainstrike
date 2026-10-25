@@ -165,7 +165,7 @@ async function manager(utility: FakeUtility): Promise<IndexerHostManager> {
       ],
     },
     // Desktop's production native-index deadlines (native-index-activation.ts).
-    { closeMs: 30_000, exitMs: 1000 },
+    { closeMs: 30_000 },
     '/explicit/entry.js'
   );
 }

@@ -6,7 +6,7 @@ import type {
   StateMessageVectorPort,
   StateObservationVectorPort,
 } from '@brainstrike/indexer';
-import { type IndexerConnection, IndexerLifecycleError } from '@brainstrike/indexer/transport';
+import type { IndexerConnection } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('AgentHostStateIndex');
@@ -50,16 +50,6 @@ export interface StateIndexOwner {
 }
 
 const closingError = (): Error => new Error('Host resource owner is closing');
-
-/**
- * The connection retires its worker only on a transport or protocol failure, or
- * its exit; no request has a deadline. Afterwards the worker has exited, or the
- * connection reports that it could not join the exit. Any other failure is the
- * live worker's answer.
- */
-function retires(connection: IndexerConnection, cause: unknown): boolean {
-  return connection.exited || cause instanceof IndexerLifecycleError;
-}
 
 /** A retired worker, as the host's boundary reports it: the next request restarts it. */
 function retiredFailure(cause: unknown): BoundaryFailureError {
@@ -231,7 +221,9 @@ export function createStateIndexOwner(options: {
       return value;
     } catch (cause) {
       // A live worker's refusal is the request's own answer; only retirement is the owner's.
-      if (!retires(live.connection, cause)) {
+      // The connection retires its worker only on a transport or protocol failure, and a
+      // retirement always joins the exit (ADR-0030).
+      if (!live.connection.exited) {
         throw cause;
       }
       retire(live.connection, cause);

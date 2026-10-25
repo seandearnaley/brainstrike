@@ -137,10 +137,10 @@ load, and nothing retires the utility, refuses its other calls or closes admissi
 for it. The process is retired only on its exit or a transport/protocol fault,
 whose request is never retried. Admission closes only on `close()`, `destroy()`,
 the exit or such a fault. A startup without a ready report after 10 s is logged as
-stalled, once. The only clocks are the close ladder's (R5(b), `closeMs`/`exitMs`):
-a cooperative close (canonical attachments, then the close request) that outlives
-its window escalates to one kill, and the exit is then joined however long it
-takes, with a warning when it is late. The agent host's state index joins a
+stalled, once. The only clock is the close window (R5(b), `closeMs`, ADR-0030): it runs
+from the close request to the exit, and a process still running then gets one kill.
+The kill is a request; a refused one is logged, never a fault, and the exit is then
+joined however long it takes, with a warning after `CHILD_SIGNAL_GRACE_MS`. The agent host's state index joins a
 retired worker's exit and starts a new one on its next request; three
 replacements in a row with none served (crashes, never slow replies) stop it
 (`state-index.retired`). The background coverage reader has no deadline either;
