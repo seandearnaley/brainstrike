@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
+import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
+import { createSecretsMcpBearerCredentialWriter } from '@brainstrike/host-capabilities/mcp/bearer-credential';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
@@ -13,25 +15,24 @@ const TOKEN = 'e2e-bearer-token-5a';
 
 /**
  * The agent host reads MCP bearer references from the profile credential file
- * (an isolated run's store). The token is filed under the reference as a
- * stored API key, exactly as the host's credential writer records one.
+ * (an isolated run's store). The token is filed under the reference by the
+ * host's own bearer credential writer over that file store, so the file is
+ * private exactly as the host requires: POSIX mode 0600, or on Windows a
+ * protected owner-only DACL that a plain `writeFile` with `mode` never sets.
  */
 async function storeBearerCredential(userDataDir: string, id: string): Promise<void> {
-  const file = path.join(userDataDir, 'brainstrike-credentials.json');
-  const current = await readFile(file, 'utf8').then(
-    (raw) =>
-      JSON.parse(raw) as { records: Record<string, string>; secrets: Record<string, string> },
-    () => ({ records: {}, secrets: {} })
-  );
-  const next = {
-    records: current.records,
-    secrets: {
-      ...current.secrets,
-      [`mcp-credentials:${id}`]: JSON.stringify({ key: TOKEN, type: 'api_key' }),
-    },
-    version: 1,
-  };
-  await writeFile(file, JSON.stringify(next), { encoding: 'utf8', mode: 0o600 });
+  const credentials = createHostCredentials({
+    selection: { kind: 'file', path: path.join(userDataDir, 'brainstrike-credentials.json') },
+  });
+  try {
+    const reference = await createSecretsMcpBearerCredentialWriter(
+      credentials.secrets(),
+      () => id
+    ).create(TOKEN);
+    expect(reference).toEqual({ id, store: 'mcp-credentials' });
+  } finally {
+    await credentials.close();
+  }
 }
 
 async function openTools(page: Page): Promise<void> {
