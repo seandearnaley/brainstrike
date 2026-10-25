@@ -2,7 +2,11 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { attachAgentHost } from '@brainstrike/agent-host';
 
-/** Each committed row carries its time, so the rows show which phase of a failed run stalled. */
+/**
+ * Each committed row carries its time, so the rows show which phase of a failed run stalled.
+ * Start it without awaiting, close the client, then await it: a stuck host never answers, and
+ * the close settles its pending requests.
+ */
 export async function writeCommittedThreadRows(
   client: Awaited<ReturnType<typeof attachAgentHost>> | undefined,
   evidence: string
@@ -22,4 +26,15 @@ export async function writeCommittedThreadRows(
   } catch (cause) {
     await writeFile(join(evidence, 'committed-rows-failure.json'), JSON.stringify(String(cause)));
   }
+}
+
+export async function writeFirstFailure(evidence: string, cause: unknown): Promise<void> {
+  await writeFile(
+    join(evidence, 'first-failure.json'),
+    JSON.stringify(
+      { message: String(cause), stack: cause instanceof Error ? cause.stack : undefined },
+      null,
+      2
+    )
+  );
 }
