@@ -177,7 +177,7 @@ describe('provider cassette recorder', () => {
     expect(exchange?.response.chunks.map((chunk) => chunk.bytes)).toEqual(
       FRAMES.map((frame) => frame.length)
     );
-    // Arrival times are recorded, so a paced replay can keep concurrent conversations in order.
+    // Arrival times are recorded, so a replay can keep concurrent conversations in order.
     expect(exchange?.response.chunks.at(-1)?.atMs).toBeGreaterThanOrEqual(10);
     expect(exchange?.response).toMatchObject({
       contentType: 'text/event-stream',
@@ -386,7 +386,7 @@ describe('provider cassette replay', () => {
     }
   });
 
-  it('keeps concurrent exchanges in their recorded finishing order when paced, whatever order they arrive in', async () => {
+  it('ends a response only after the conversations the recording had finished by then settle, whatever order they arrive in', async () => {
     const provider = await startStandInProvider();
     const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
     recorders.push(recorder);
@@ -416,8 +416,20 @@ describe('provider cassette replay', () => {
       throw new Error('expected two exchanges');
     }
     const cassette = { ...recorded, exchanges: [timed(a, 0, 150), timed(b, 200, 20)] };
-    const server = await startReplay(createProviderCassetteReplay(cassette, { pace: 1 }));
     const finished: string[] = [];
+    let aSettled = (): void => undefined;
+    const aCommitted = new Promise<void>((resolve) => {
+      aSettled = resolve;
+    });
+    const waitedOn: string[] = [];
+    const server = await startReplay(
+      createProviderCassetteReplay(cassette, {
+        settled: (lane) => {
+          waitedOn.push(lane);
+          return lane === 'Read a.txt' ? aCommitted : Promise.resolve();
+        },
+      })
+    );
     const request = (content: string) =>
       fetch(`${server.url}/OPENROUTER_BASE_URL/chat/completions`, {
         body: JSON.stringify(turn(content)),
@@ -425,11 +437,58 @@ describe('provider cassette replay', () => {
       })
         .then(readChunks)
         .then(() => finished.push(content));
-    // b arrives first and a 30 ms later: served from each arrival, b would finish first.
+    // b arrives first and is served at once, but its last chunk waits for a's
+    // conversation to commit its end, as it had in the recording.
     const bDone = request('Read b.txt');
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    await Promise.all([request('Read a.txt'), bDone]);
+    await request('Read a.txt');
+    expect(finished).toEqual(['Read a.txt']);
+    aSettled();
+    await bDone;
     expect(finished).toEqual(['Read a.txt', 'Read b.txt']);
+    expect(waitedOn).toEqual(['Read a.txt']);
+  });
+
+  it('answers a title without waiting for a conversation, since its own run waits on it', async () => {
+    const provider = await startStandInProvider();
+    const recorder = await startProviderCassetteRecorder({ upstreams: upstreamsAt(provider.url) });
+    recorders.push(recorder);
+    const title = JSON.stringify({
+      messages: [{ content: 'Title this', role: 'user' }],
+      model: 'm',
+    });
+    for (const body of [JSON.stringify(turn('Read a.txt')), title]) {
+      await readChunks(
+        await fetch(`${recorder.baseUrlFor('OPENROUTER_BASE_URL')}/chat/completions`, {
+          body,
+          method: 'POST',
+        })
+      );
+    }
+    // As recorded, the title ends after the conversation's last response.
+    const recorded = cassetteOf(recorder);
+    const cassette = {
+      ...recorded,
+      exchanges: recorded.exchanges.map((exchange, index) => ({
+        ...exchange,
+        startedAtMs: index * 1000,
+      })),
+    };
+    const waitedOn: string[] = [];
+    const server = await startReplay(
+      createProviderCassetteReplay(cassette, {
+        settled: (lane) => {
+          waitedOn.push(lane);
+          return new Promise<void>(() => undefined);
+        },
+      })
+    );
+    const answer = await fetch(`${server.url}/OPENROUTER_BASE_URL/chat/completions`, {
+      body: title,
+      method: 'POST',
+    });
+    expect(answer.status).toBe(200);
+    await readChunks(answer);
+    expect(waitedOn).toEqual([]);
   });
 
   it('keeps a request the client abandoned before any answer, and replays it unanswered', async () => {

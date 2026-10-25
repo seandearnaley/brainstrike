@@ -33,6 +33,7 @@ import {
   committedConversation,
   delegatedChildThreadIds,
   isSettledConversation,
+  isSettledLane,
   type RenderedDelegationCard,
 } from './utils/conversation-invariants';
 import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
@@ -98,13 +99,31 @@ function scenarioNamed(id: string): ProviderCassetteScenario {
   return scenario;
 }
 
+/** Where a scenario's app keeps its profile, and the workspace inside it. */
+interface ScenarioPaths {
+  readonly profile: string;
+  readonly workspace: string;
+}
+
 function replayOf(
   scenario: ProviderCassetteScenario,
   cassette: ProviderCassette
-): (workspace: string) => ModelProviderCassetteScript {
-  return (workspace) => ({
+): (paths: ScenarioPaths) => ModelProviderCassetteScript {
+  return ({ profile, workspace }) => ({
     cassette,
     ...(scenario.pace === undefined ? {} : { pace: scenario.pace }),
+    settled: async (lane) => {
+      await expect
+        .poll(
+          async () =>
+            isSettledLane(
+              (await readHostThreadTree(profile)).map(({ rows }) => rows),
+              lane
+            ),
+          { timeout: 60_000 }
+        )
+        .toBe(true);
+    },
     substitutions: [{ from: workspace, to: WORKSPACE_PLACEHOLDER }],
   });
 }
@@ -128,7 +147,7 @@ interface DesktopRun<S> {
  */
 async function inDesktopApp<S extends CassetteRouteScript, T>(
   scenario: ProviderCassetteScenario,
-  setup: { readonly apiKey: string; readonly script: (workspace: string) => S },
+  setup: { readonly apiKey: string; readonly script: (paths: ScenarioPaths) => S },
   testInfo: TestInfo,
   inspect: (run: DesktopRun<S>) => Promise<T>
 ): Promise<T> {
@@ -143,7 +162,7 @@ async function inDesktopApp<S extends CassetteRouteScript, T>(
     await mkdir(path.dirname(path.join(workspace, file)), { recursive: true });
     await writeFile(path.join(workspace, file), content);
   }
-  const script = setup.script(workspace);
+  const script = setup.script({ profile, workspace });
   const provider = await startModelProviderShim(script);
   let joined = false;
   const context = await launchElectronAppWithOptions({
@@ -245,7 +264,7 @@ async function recordInDesktopApp(scenario: ProviderCassetteScenario, testInfo: 
     scenario,
     {
       apiKey: key,
-      script: (workspace) => ({
+      script: ({ workspace }) => ({
         record: createProviderCassetteRecording({
           substitutions: [{ from: workspace, to: WORKSPACE_PLACEHOLDER }],
           upstreams: recordingUpstreams(),
