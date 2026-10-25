@@ -37,11 +37,23 @@ export function createDesktopWorkspaceGitServices(
   connection: DesktopHostConnection
 ): WorkspaceGitServices {
   let attached: HostClient | undefined;
+  // Each host numbers its events from 1, and a replacement host starts again.
+  // Consumers drop a generation they have already seen, so this window
+  // renumbers what it receives to stay monotonic across hosts.
+  let generation = 0;
+  const receive = (event: GitWorkspaceEvent): void => {
+    generation += 1;
+    events.dispatch(
+      event.type === 'changes-invalidated'
+        ? { event: { ...event.event, generation }, type: event.type }
+        : { event: { ...event.event, generation }, type: event.type }
+    );
+  };
   const client = async (): Promise<HostClient> => {
     const host = await connection.current();
     if (host !== attached) {
       attached = host;
-      host.onGitWorkspace(events.dispatch);
+      host.onGitWorkspace(receive);
     }
     return host;
   };
