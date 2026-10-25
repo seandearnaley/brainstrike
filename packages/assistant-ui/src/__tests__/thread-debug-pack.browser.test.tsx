@@ -1,6 +1,5 @@
 import { type ThreadMessageLike, useExternalStoreRuntime } from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
-import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
 import type { FileExportsBridge } from '@brainstrike/utils/browser-download';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -90,9 +89,7 @@ test.each([390, 900])(
     expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(
       panel.getBoundingClientRect().bottom + 1
     );
-    await act(async () => {
-      await page.getByRole('button', { exact: true, name: 'Download debug pack' }).click();
-    });
+    await page.getByRole('button', { exact: true, name: 'Download debug pack' }).click();
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     const payload = save.mock.calls[0]?.[0];
     expect(payload?.filename).toMatch(/^brainstrike-thread-debug-.*\.json$/);
@@ -101,9 +98,7 @@ test.each([390, 900])(
     ]);
     expect(screen.getByText('Debug pack saved. Review before sharing.')).toBeVisible();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-    await act(async () => {
-      await page.getByRole('button', { exact: true, name: 'Download debug pack' }).click();
-    });
+    await page.getByRole('button', { exact: true, name: 'Download debug pack' }).click();
     await waitFor(() => expect(buildThreadPack).toHaveBeenCalledTimes(2));
   }
 );

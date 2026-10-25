@@ -14,7 +14,7 @@
  * setup file at all, and therefore no way for the multiplier to reach
  * `waitFor` (BST-1299).
  */
-import { inject } from 'vitest';
+import { beforeEach, inject } from 'vitest';
 import {
   ASYNC_UTIL_TIMEOUT_PROVIDE_KEY,
   configureAsyncUtilTimeout,
@@ -22,3 +22,12 @@ import {
 import './vitest-provided-context.js';
 
 configureAsyncUtilTimeout(inject(ASYNC_UTIL_TIMEOUT_PROVIDE_KEY));
+
+// A real browser delivers input as events, so React schedules what an input
+// causes the way the shipped app does. React's act environment is on only
+// inside `act`, which Testing Library turns on for its own scopes, as in
+// Vitest's own React renderer. Held open around an input, an act scope keeps
+// back the very updates the browser waits on before it can deliver that input.
+beforeEach(() => {
+  Reflect.set(globalThis, 'IS_REACT_ACT_ENVIRONMENT', false);
+});
