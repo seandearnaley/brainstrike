@@ -574,11 +574,17 @@ export interface ProviderCassetteReplay {
 export interface ProviderCassetteReplayOptions {
   /**
    * 0 (default) serves each chunk on the next task; 1 waits out the recorded
-   * times, each response no earlier than its recorded start after the first
-   * request, so concurrent conversations (background children) settle in
-   * their recorded order. Values between scale those times.
+   * chunk times within a response. Values between scale those times.
    */
   readonly pace?: number;
+  /**
+   * Resolves once the conversation whose first user message is `lane` has
+   * committed the end of every run it started. A response's last chunk waits
+   * for each other conversation the recording had finished by then, so
+   * concurrent conversations (background children) settle in their recorded
+   * order however slowly the client commits them.
+   */
+  readonly settled?: (lane: string) => Promise<void>;
   readonly substitutions?: readonly ProviderCassetteSubstitution[];
 }
 
@@ -586,15 +592,15 @@ const nextTask = (): Promise<void> => new Promise((resolve) => setImmediate(reso
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Writes a recorded response's head and chunks, paced by `pace` from
- * `notBefore` (or from now, if that has passed). Resolves false when the client
- * hung up first; an unanswered response (status null) writes nothing.
+ * Writes a recorded response's head and chunks, paced by `pace`; the last
+ * chunk waits for `beforeLast`. Resolves false when the client hung up first;
+ * an unanswered response (status null) writes nothing.
  */
 async function writeRecorded(
   recorded: ProviderCassetteResponse,
   response: ServerResponse,
   pace: number,
-  notBefore: number
+  beforeLast: () => Promise<void>
 ): Promise<boolean> {
   if (recorded.status !== null) {
     response.writeHead(
@@ -603,12 +609,15 @@ async function writeRecorded(
     );
   }
   const bytes = Buffer.from(recorded.body, 'utf8');
-  const servedAt = Math.max(Date.now(), notBefore);
+  const servedAt = Date.now();
   let offset = 0;
-  for (const chunk of recorded.chunks) {
+  for (const [index, chunk] of recorded.chunks.entries()) {
     const wait = chunk.atMs * pace - (Date.now() - servedAt);
     // One chunk per read, as the provider delivered them.
     await (pace > 0 && wait > 0 ? delay(wait) : nextTask());
+    if (index === recorded.chunks.length - 1) {
+      await beforeLast();
+    }
     if (response.destroyed) {
       return false;
     }
@@ -616,6 +625,28 @@ async function writeRecorded(
     offset += chunk.bytes;
   }
   return true;
+}
+
+/** When an exchange's response ended in the recording, from the recording's start. */
+function recordedEndMs(exchange: ProviderCassetteExchange): number {
+  return exchange.startedAtMs + (exchange.response.chunks.at(-1)?.atMs ?? 0);
+}
+
+/** Each conversation's recorded end: when the last response of its first user message ended. */
+function conversationEnds(
+  exchanges: readonly ProviderCassetteExchange[]
+): ReadonlyMap<string, number> {
+  const ends = new Map<string, number>();
+  for (const exchange of exchanges) {
+    // A one-shot request (a title) belongs to no conversation.
+    if (exchange.key.lane !== '') {
+      ends.set(
+        exchange.key.lane,
+        Math.max(ends.get(exchange.key.lane) ?? 0, recordedEndMs(exchange))
+      );
+    }
+  }
+  return ends;
 }
 
 /** Resolves when the client hangs up: the response's own close, not a fully read request. */
@@ -636,10 +667,21 @@ export function createProviderCassetteReplay(
 ): ProviderCassetteReplay {
   const substitutions = options.substitutions ?? [];
   const pace = options.pace ?? 0;
+  const { settled } = options;
   const remaining = [...cassette.exchanges];
-  const firstStartedAtMs = Math.min(...cassette.exchanges.map((exchange) => exchange.startedAtMs));
-  /** When the first request was served: the recording's first arrival, replayed. */
-  let replayStartedAt: number | undefined;
+  const ends = conversationEnds(cassette.exchanges);
+  /** Waits for every other conversation the recording had finished before `exchange` ended. */
+  const settledBefore = async (exchange: ProviderCassetteExchange): Promise<void> => {
+    if (!settled) {
+      return;
+    }
+    const end = recordedEndMs(exchange);
+    await Promise.all(
+      [...ends]
+        .filter(([lane, laneEnd]) => lane !== exchange.key.lane && laneEnd < end)
+        .map(([lane]) => settled(lane))
+    );
+  };
   let holding = 0;
   return {
     holding: () => holding,
@@ -653,10 +695,7 @@ export function createProviderCassetteReplay(
       }
       remaining.splice(index, 1);
       const recorded = exchange.response;
-      replayStartedAt ??= Date.now();
-      // Never before its recorded start, so concurrent exchanges finish in their recorded order.
-      const notBefore = replayStartedAt + (exchange.startedAtMs - firstStartedAtMs) * pace;
-      if (!(await writeRecorded(recorded, response, pace, notBefore))) {
+      if (!(await writeRecorded(recorded, response, pace, () => settledBefore(exchange)))) {
         return;
       }
       if (recorded.ended === 'complete') {

@@ -4,6 +4,7 @@
  * recorded through the cassette recorder. Both derive the settled
  * conversation's shape and invariant violations (./conversation-shape.ts).
  */
+import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import {
   assembleProviderCassette,
   PROVIDER_CASSETTE_UPSTREAMS,
@@ -12,7 +13,7 @@ import {
   type ProviderCassetteKnob,
   startProviderCassetteRecorder,
 } from '@brainstrike/test-utils/provider-cassette';
-import { isSettledConversation } from '../../../e2e/utils/conversation-invariants';
+import { isSettledConversation, isSettledLane } from '../../../e2e/utils/conversation-invariants';
 import {
   type ModelProviderRefusal,
   resolveProviderEgressEnvironment,
@@ -27,6 +28,7 @@ import { type ConversationShape, conversationShape } from './conversation-shape'
 import {
   createStandaloneWorkspace,
   pollUntil,
+  type StandaloneProviderHost,
   startStandaloneProviderHost,
 } from './standalone-provider-host';
 
@@ -64,20 +66,32 @@ function credentialEnvironment(
   return { [override]: key };
 }
 
+/** Every committed thread's rows: the roots and their children. */
+async function threadRows(
+  host: StandaloneProviderHost
+): Promise<readonly (readonly HostLogRow[])[]> {
+  const roots = await host.threads();
+  const children = await Promise.all(roots.map((root) => host.children(root)));
+  return Promise.all([...new Set([...roots, ...children.flat()])].map((id) => host.rows(id)));
+}
+
 /**
  * Runs the scenario on a fresh standalone host and derives its settled shape.
  * `streaming` says the run's answer is streaming, so a Stop now cuts it off.
+ * `started` receives the host before the scenario's prompt is sent.
  */
 async function drive(
   scenario: ProviderCassetteScenario,
   environment: Readonly<Record<string, string>>,
   workspace: string,
-  streaming: () => boolean
+  streaming: () => boolean,
+  started: (host: StandaloneProviderHost) => void = () => undefined
 ): Promise<ScenarioResult> {
   const host = await startStandaloneProviderHost({
     environment: { ['MASTRA_OFFLINE']: 'true', ...environment },
     workspace,
   });
+  started(host);
   try {
     let threadId: string;
     if (scenario.stop) {
@@ -119,9 +133,16 @@ export async function replayScenario(
   cassette: ProviderCassette
 ): Promise<ReplayResult> {
   const { remove, workspace } = await createStandaloneWorkspace(WORKSPACE_NAME, scenario.files);
+  let host: StandaloneProviderHost | undefined;
   const shim = await startModelProviderShim({
     cassette,
     ...(scenario.pace === undefined ? {} : { pace: scenario.pace }),
+    settled: async (lane) => {
+      await pollUntil(
+        async () => (host ? isSettledLane(await threadRows(host), lane) : false),
+        Boolean
+      );
+    },
     substitutions: [{ from: workspace, to: WORKSPACE_PLACEHOLDER }],
   });
   try {
@@ -132,7 +153,10 @@ export async function replayScenario(
         ...credentialEnvironment(scenario, REPLAY_KEY),
       },
       workspace,
-      () => shim.heldExchanges() > 0
+      () => shim.heldExchanges() > 0,
+      (started) => {
+        host = started;
+      }
     );
     return {
       ...result,

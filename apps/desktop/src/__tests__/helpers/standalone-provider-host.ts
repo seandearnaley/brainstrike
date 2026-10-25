@@ -49,6 +49,8 @@ export interface StandaloneProviderHost {
     readonly runId: string;
     readonly threadId: string;
   }>;
+  /** Every root thread id, in the host's order. */
+  readonly threads: () => Promise<readonly string[]>;
   readonly workspace: string;
 }
 const RunIdentity = z.object({ runId: z.string(), threadId: z.string() });
@@ -172,6 +174,16 @@ export async function startStandaloneProviderHost(options: {
       ]);
       const { runId } = z.object({ runId: z.string() }).parse(JSON.parse(startedRun.stdout));
       return { runId, threadId };
+    },
+    threads: async () => {
+      const listed = await cli(['threads', 'list']);
+      if (listed.code !== 0) {
+        throw new Error(`threads list failed: ${listed.stderr}`);
+      }
+      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/list'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(JSON.parse(listed.stdout)).threads.map((thread) => thread.threadId);
     },
     workspace,
   };
