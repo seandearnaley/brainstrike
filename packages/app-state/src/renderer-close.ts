@@ -35,7 +35,14 @@ export function prepareRendererClose(): Promise<void> {
       result.status === 'rejected' ? [result.reason] : []
     );
     if (failures.length > 0) {
-      throw new AggregateError(failures, 'Durable writers failed to flush before unload');
+      // Only the message crosses the context bridge to Main, so it names every cause.
+      const causes = failures.map((failure) =>
+        failure instanceof Error ? failure.message : String(failure)
+      );
+      throw new AggregateError(
+        failures,
+        `Durable writers failed to flush before unload: ${causes.join('; ')}`
+      );
     }
   });
   return preparing;
