@@ -4,7 +4,7 @@ import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
-import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
+import { RESET_REOPEN_CANCELLED, whileResetRetiresProfile } from './desktop-shutdown-state';
 import { indexConfigCause, isQuitTerminalRefusal } from './native-index-boundary-failure';
 
 interface DesktopResetRuntime {
@@ -261,7 +261,7 @@ export function createDesktopFactoryResetHandler({
         ? resetInFlight.result
         : resetInFlight.result.then(() => startReset(mode));
     }
-    const completion = runReset(mode);
+    const completion = whileResetRetiresProfile(() => runReset(mode));
     // Only the renderer boundary converts an accepted reset's rejection to a
     // result envelope. Terminal close must join its original completion.
     const result = completion

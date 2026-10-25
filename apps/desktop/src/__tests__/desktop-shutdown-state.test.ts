@@ -11,6 +11,7 @@ import {
   markDesktopShuttingDown,
   RESET_REOPEN_CANCELLED,
   RendererExitedError,
+  whileResetRetiresProfile,
 } from '../desktop-shutdown-state';
 
 // What a quit leaves waiting work with (ADR-0015), and what it never covers.
@@ -72,6 +73,25 @@ describe('isExpectedShutdownRefusal (app NOT shutting down)', () => {
   it.each(Object.entries(retirements))('keeps %s a failure', (_name, error) => {
     expect(isExpectedShutdownRefusal(error)).toBe(false);
   });
+});
+
+// A reset retiring the profile's host expects only that retirement, and only while it runs.
+describe('isExpectedShutdownRefusal (a reset retiring the profile)', () => {
+  it.each(Object.entries(retirements))('expects %s during the reset', async (_name, error) => {
+    await whileResetRetiresProfile(async () => {
+      expect(isExpectedShutdownRefusal(error)).toBe(true);
+    });
+    expect(isExpectedShutdownRefusal(error)).toBe(false);
+  });
+
+  it.each(Object.entries(unrelated))(
+    'keeps %s a failure during the reset',
+    async (_name, error) => {
+      await whileResetRetiresProfile(async () => {
+        expect(isExpectedShutdownRefusal(error)).toBe(false);
+      });
+    }
+  );
 });
 
 describe('desktop shutdown flag', () => {
