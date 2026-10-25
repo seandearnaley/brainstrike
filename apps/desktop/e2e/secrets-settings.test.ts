@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { waitForAppHost } from './utils/agent-host-log';
 
 /**
  * The Provider Hub (BST-1358) replaced the "API Keys" category: credentials
@@ -95,6 +96,12 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     await expect(window.getByTestId('provider-docs-link-anthropic')).toBeVisible();
     // A disconnected provider has nothing to probe.
     await expect(window.getByTestId('provider-test-connection-anthropic')).toBeDisabled();
+
+    // Settings saves a key through the agent host, the only credential writer,
+    // and a save waits while the host is still starting. Hosted 2-vCPU Windows
+    // took 18 s from spawn to ready, longer than the 10 s the Stored expectation
+    // below is given, so the save starts only once the host is attached.
+    await waitForAppHost(window);
 
     // Inline editor: Set expands the row, Enter saves (keyboard flow). The
     // editor is where the registry's key-format hint belongs — at the moment
