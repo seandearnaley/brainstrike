@@ -78,6 +78,13 @@ async function run(mode: string) {
     env,
     maxBuffer: 10_000_000,
     timeout: 45_000,
+  }).catch((cause: unknown) => {
+    // A failed or timed-out driver's own output is the only record of where it stopped.
+    const output = cause as { stderr?: unknown; stdout?: unknown };
+    throw new Error(
+      `Electron reset driver failed (${mode}).\nstdout:\n${String(output.stdout)}\nstderr:\n${String(output.stderr)}`,
+      { cause }
+    );
   });
   const report = stdout.split('\n').find((line) => line.startsWith('RESET_ADAPTER_PROOF '));
   if (!report) {

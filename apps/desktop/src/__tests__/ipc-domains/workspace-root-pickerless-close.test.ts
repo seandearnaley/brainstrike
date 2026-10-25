@@ -202,7 +202,8 @@ test.each(['storage failure', 'authorizer exception', 'authorizer denial'] as co
           },
         });
       }
-      await expect(preparation).rejects.toMatchObject({ errors: [failure] });
+      // The refusal is the caller's; quit joins it without failing.
+      await expect(preparation).resolves.toBeUndefined();
       expect(open).not.toHaveBeenCalled();
       expect(request).not.toHaveBeenCalled();
       expect(storage.setItem).not.toHaveBeenCalled();

@@ -26,13 +26,18 @@ app.setPath('sessionData', sessionDataPath);
 app.on('window-all-closed', () => undefined);
 const native = createDesktopHostLease({ entryPath, root: profile });
 const events: string[] = [];
+/** Each step is written as it happens, so a driver that stops shows how far it got. */
+function record(event: string): void {
+  events.push(event);
+  process.stdout.write(`RESET_EVENT ${event}\n`);
+}
 // Main's composition: the profile reset owner retires the native owner, then
 // holds the canonical profile lock through deletion.
 const profileReset = createDesktopProfileResetOwner({
   profilePath: resolveDesktopDatabaseProfileDirectory,
   retireProfile: async () => {
     await native.close();
-    events.push('native-stop');
+    record('native-stop');
   },
 });
 let guard: ProfileResetLease | undefined;
@@ -68,17 +73,17 @@ app
     const run = createDesktopFactoryResetHandler({
       completeSuccessfulReset: async () => {
         assert(guard?.isReleased === true, 'Renderer replacement preceded guard release');
-        events.push('renderer');
+        record('renderer');
       },
       logger: { debug: () => undefined, error: () => undefined, info: () => undefined },
       prepareDatabaseProfileReset: async () => {
         guard = await profileReset.prepare();
-        events.push('guard');
+        record('guard');
         return guard;
       },
       resetLocalDatabase: async (lease) => {
         await profileReset.clear(lease);
-        events.push('profile');
+        record('profile');
       },
       resetPersistentStorageAfterDataDeletion: async () => {
         assert(guard?.isReleased === false, 'Guard released before storage purge');
@@ -100,7 +105,7 @@ app
           refused = cause instanceof Error && cause.name === 'RootLockedError';
         }
         assert(refused, 'Contender entered during Electron storage purge');
-        events.push('storage');
+        record('storage');
         if (mode === 'storage-failure' && !storageFailed) {
           storageFailed = true;
           throw new Error('Injected Electron storage failure');
@@ -112,8 +117,10 @@ app
       sessionDataPath,
       userDataPath: userData,
     }).reset;
+    process.stdout.write('RESET_STEP first-reset\n');
     const first = await run();
     const retained = guard?.isReleased === false;
+    process.stdout.write(`RESET_STEP first-reset-settled ${JSON.stringify(first)}\n`);
     const result = mode === 'storage-failure' ? await run() : first;
     if (mode === 'external-cli') {
       assert(
@@ -142,7 +149,9 @@ app
     );
   })
   .then(async () => {
+    process.stdout.write('RESET_STEP final-close\n');
     await native.close();
+    process.stdout.write('RESET_STEP exit\n');
     app.exit(0);
   })
   .catch((cause: unknown) => {

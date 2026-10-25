@@ -104,6 +104,7 @@ async function twoFolders() {
     await registry.dispose();
   });
   return {
+    activation: f.activation,
     alpha,
     bravo,
     /** Hold the index's next catalog listing. */
@@ -154,6 +155,19 @@ it('a folder removed while an open reads the catalog is removed after its borrow
   for (const error of folders.reported) {
     expect(error).toMatchObject(replacedGeneration);
   }
+});
+
+it('quit during an open closes the folder registry cleanly, the open answering its retirement', async () => {
+  const folders = await twoFolders();
+  const listing = folders.holdListing();
+  const registered = folders.registration.rootsRegistered().catch((error: unknown) => error);
+  await listing.entered;
+  // Quit fences native work, then joins the registry's in-flight mutation (the open's borrows).
+  folders.activation.fenceTerminal();
+  const prepared = folders.registry.prepareClose();
+  listing.release();
+  await expect(prepared).resolves.toBeUndefined();
+  await registered;
 });
 
 it('a folder removed while its sources borrow it answers with its retirement', async () => {

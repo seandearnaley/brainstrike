@@ -20,7 +20,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { warnSpy, wire } = vi.hoisted(() => {
+const { fakeChildren, warnSpy, wire } = vi.hoisted(() => {
   const state = {
     notificationHandlers: new Map<string, (params: unknown) => void>(),
     /** Diagnostics published in response to didOpen (null = never publishes). */
@@ -30,7 +30,11 @@ const { warnSpy, wire } = vi.hoisted(() => {
     /** Per-method responder; a never-settling promise models a timeout. */
     respond: (_method: string): Promise<unknown> => Promise.resolve(null),
   };
-  return { warnSpy: vi.fn(), wire: state };
+  return {
+    fakeChildren: new Map<number, { kill: () => boolean }>(),
+    warnSpy: vi.fn(),
+    wire: state,
+  };
 });
 
 // This suite isolates per-leg query failures. Real project policy and document
@@ -86,10 +90,19 @@ vi.mock('node:child_process', async (importOriginal) => {
         queueMicrotask(() => child.emit('exit', 0, null));
         return true;
       };
+      fakeChildren.set(child.pid, child);
       return child;
     },
   };
 });
+
+// The fake server's pid names no real process: ending its tree kills the fake.
+vi.mock('@brainstrike/state-store/native-children', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/state-store/native-children')>()),
+  terminateTree: async (pid: number) => {
+    fakeChildren.get(pid)?.kill();
+  },
+}));
 
 vi.mock('vscode-jsonrpc/node', () => ({
   createMessageConnection: () => ({

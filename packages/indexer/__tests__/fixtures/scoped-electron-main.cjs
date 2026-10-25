@@ -46,7 +46,7 @@ app
       const child = utilityProcess.fork(path.join(__dirname, 'scoped-electron-utility.cjs'));
       return createIndexerConnection(
         options,
-        { closeMs: 5000, exitMs: 5000 },
+        { closeMs: 5000 },
         {
           kill: () => child.kill(),
           onError: (listener) => {

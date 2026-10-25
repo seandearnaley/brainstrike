@@ -5,5 +5,4 @@
  */
 export const REAL_INDEXER_DEADLINES = {
   closeMs: 5000,
-  exitMs: 5000,
 } as const;
