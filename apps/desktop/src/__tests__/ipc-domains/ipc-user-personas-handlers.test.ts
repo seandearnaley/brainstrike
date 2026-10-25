@@ -1,6 +1,6 @@
 /**
  * Persona discovery IPC: built-ins + user personas (valid AND invalid) in one
- * list for the settings panel. Mirrors ipc-user-commands-handlers coverage.
+ * list for the settings panel.
  */
 
 import { BUILT_IN_PERSONAS } from '@brainstrike/assistant-contract';
