@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost, readHostRow } from '@brainstrike/agent-host';
-import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
+import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import {
   attachHost,
   createNodeHostSpawner,
@@ -15,32 +15,21 @@ import {
   launchHost,
 } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
-import { getAdjustedTimeout, getTimeoutMultiplier } from '@brainstrike/test-utils/test-timeouts';
+import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import { HOST_COOPERATIVE_CLOSE_MS } from '../../host-lease-manager';
 import { electronExecutablePath } from '../helpers/electron-executable';
 
 /**
- * The fixture's close is its lease's close ladder (R5(b)): the cooperative rung, then a kill
- * and the exit. The test sets no tighter clock than the product's own; on a hosted Windows
- * runner a cooperative close has outlived 10 s.
+ * The test waits on the real events (the attach report, Electron's exit, the host's exit) and
+ * sets no clock of its own. One bound covers each test: Electron's launch, the lease's own
+ * startup deadline (an app that loses the Root race waits it out for the winner's host), and
+ * the close ladder (R5(b)).
  */
-const APP_CLOSE_BUDGET_MS = HOST_COOPERATIVE_CLOSE_MS + 5000 * getTimeoutMultiplier();
-/** How long a SIGTERM'd Electron or a released host may take to exit; full CPU load outlived 5 s. */
-const PROCESS_EXIT_MS = 5000 * getTimeoutMultiplier();
-/**
- * Attaching is bounded the same way: Electron's launch, then the lease's own startup
- * deadline, which an app that loses the Root race waits out for the winner's host. Two
- * apps starting at once on a loaded Windows runner have outlived a 20 s clock.
- */
-const appAttachBudgetMs = (startupTimeoutMs: number): number =>
-  startupTimeoutMs + 10_000 * getTimeoutMultiplier();
 const TEST_BUDGET_MS =
-  getAdjustedTimeout('uiComponent') +
-  appAttachBudgetMs(HOST_STARTUP_TIMEOUT_MS) +
-  APP_CLOSE_BUDGET_MS;
+  getAdjustedTimeout('uiComponent') + HOST_STARTUP_TIMEOUT_MS + HOST_COOPERATIVE_CLOSE_MS;
 
 const decodeReport = makeThrowingDecoder(
   Schema.Struct({
@@ -113,10 +102,7 @@ afterAll(async () => {
           if (app.process.exitCode === null && app.process.signalCode === null) {
             app.process.kill('SIGTERM');
           }
-          await runWithTimeout(() => app.exited, {
-            onTimeout: () => new Error('Electron survived SIGTERM; preserve its profile'),
-            timeoutMs: PROCESS_EXIT_MS,
-          });
+          await app.exited;
         } catch (retireError) {
           cleanupFailures.push(retireError);
         }
@@ -135,17 +121,12 @@ afterAll(async () => {
   if (cleanupFailures.length > 0) {
     throw new AggregateError(cleanupFailures, 'Electron test child cleanup failed');
   }
-});
+}, TEST_BUDGET_MS);
+/** A host this test did not spawn has no exit event here: its pid identity is polled. */
 async function waitGone(pid: number, start: string): Promise<void> {
-  await runWithTimeout(
-    async (signal) => {
-      while (processStartTime(pid) === start) {
-        signal.throwIfAborted();
-        await new Promise<void>((resolve) => setTimeout(resolve, 20));
-      }
-    },
-    { onTimeout: () => new Error(`Host pid ${pid} stayed alive`), timeoutMs: PROCESS_EXIT_MS }
-  );
+  while (processStartTime(pid) === start) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  }
 }
 function startApp(
   root: string,
@@ -246,23 +227,12 @@ function startApp(
     }
   });
   const app: AppChild = {
-    attached: runWithTimeout(() => completion.promise, {
-      onTimeout: () => new Error(`Electron did not attach: ${stderr}`),
-      timeoutMs: appAttachBudgetMs(startupTimeoutMs),
-    }),
+    attached: completion.promise,
     close: async () => {
       if (!closingReported && child.exitCode === null && child.signalCode === null) {
         await sendControl('close');
       }
-      const code = await runWithTimeout(() => exited, {
-        // The fixture reports `closed` before app.exit: its presence says whether the
-        // lease's close or Electron's own exit is the part that did not finish.
-        onTimeout: () =>
-          new Error(
-            `Electron did not close; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`
-          ),
-        timeoutMs: APP_CLOSE_BUDGET_MS,
-      });
+      const code = await exited;
       activeApps.delete(app);
       if (reportFailures.length > 0) {
         throw new AggregateError(
@@ -281,6 +251,12 @@ function startApp(
   };
   app.attached.catch(() => undefined);
   activeApps.add(app);
+  // A test that times out on one of these waits still names what Electron said.
+  onTestFailed(() => {
+    console.error(
+      `Electron fixture stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`
+    );
+  });
   return app;
 }
 async function cli(root: string): Promise<HostAttachment> {
@@ -459,10 +435,7 @@ describe(
       const attachment = await cli(root);
       // This synthetic parent has no SIGTERM handler: death bypasses close IPC.
       app.process.kill('SIGTERM');
-      await runWithTimeout(() => app.exited, {
-        onTimeout: () => new Error('Synthetic Electron parent survived SIGTERM'),
-        timeoutMs: PROCESS_EXIT_MS,
-      });
+      await app.exited;
       activeApps.delete(app);
       await attachment.closed;
       await waitGone(record.pid, record.start);
