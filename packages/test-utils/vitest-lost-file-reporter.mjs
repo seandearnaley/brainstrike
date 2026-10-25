@@ -27,8 +27,7 @@
 // independent of that channel, and names the file so the run is triaged
 // instead of reflexively rerun.
 //
-// A plain `.mjs` at the package root (like `vitest.base.mjs` and
-// `workspace-src-aliases.mjs`): reporters are loaded by the vitest NODE
+// A plain `.mjs` at the package root (like `vitest.base.mjs`): reporters are loaded by the vitest NODE
 // process before any package build, so this must not depend on `dist/`.
 
 /** Run outcomes where unfinished modules are expected rather than lost. */

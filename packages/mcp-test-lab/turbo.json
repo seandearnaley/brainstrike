@@ -4,7 +4,6 @@
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/test-utils/workspace-src-aliases.mjs",
         "$TURBO_ROOT$/package.json",
         "$TURBO_ROOT$/packages/*/package.json",
         "$TURBO_ROOT$/packages/config/*/package.json",
