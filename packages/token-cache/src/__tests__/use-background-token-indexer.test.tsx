@@ -255,10 +255,10 @@ describe('useBackgroundTokenIndexer', () => {
       type: 'index-batch',
     });
     const cancellation = new Error('selection cleared');
-    act(() => {
+    await act(async () => {
       result.current.cancelIndexing(cancellation);
+      await expect(indexing).rejects.toBe(cancellation);
     });
-    await expect(indexing).rejects.toBe(cancellation);
   });
 
   it('clears isIndexing when worker returns only skipped results', async () => {
@@ -1543,11 +1543,10 @@ describe('useBackgroundTokenIndexer', () => {
     });
 
     const cancellation = new Error('selection cleared');
-    act(() => {
+    await act(async () => {
       result.current.cancelIndexing(cancellation);
+      await expect(indexPromise).rejects.toBe(cancellation);
     });
-
-    await expect(indexPromise).rejects.toBe(cancellation);
     expect(result.current.isIndexing).toBe(false);
     expect(result.current.progress).toBeNull();
   });
@@ -1567,10 +1566,10 @@ describe('useBackgroundTokenIndexer', () => {
     });
     await waitFor(() => expect(worker.postMessage).toHaveBeenCalledTimes(1));
     const cancellation = new Error('selection cleared');
-    act(() => {
+    await act(async () => {
       result.current.cancelIndexing(cancellation);
+      await expect(cancelled).rejects.toBe(cancellation);
     });
-    await expect(cancelled).rejects.toBe(cancellation);
     expect(mockLogger.error).not.toHaveBeenCalled();
     expect(mockEmitIndexingError).not.toHaveBeenCalled();
     expect(onFileError).not.toHaveBeenCalled();

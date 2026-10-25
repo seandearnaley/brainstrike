@@ -1,6 +1,5 @@
 import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import { wireDecoder, wireResultDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
@@ -36,8 +35,22 @@ import {
   type TerminalEvent,
   TerminalEventSchema,
 } from './protocol.ts';
-export interface HostClient extends HostAttachment {
+/**
+ * What a client expects the host's initialize to answer. A socket client knows the
+ * host's record and presents its token; a client on a transport its launcher handed
+ * over knows only the versions it speaks.
+ */
+export interface HostClientExpectation {
+  readonly hostVersion: string;
+  readonly pid?: number;
+  readonly protocolVersion: number;
+  readonly start?: string;
+  readonly token?: string;
+}
+export interface HostClient {
   readonly catalog: HostCatalog;
+  close(): Promise<void>;
+  readonly closed: Promise<void>;
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
@@ -85,13 +98,13 @@ function readResult<M extends HostMethod>(method: M, result: unknown): HostResul
   });
   throw new BoundaryFailureError({ ...INTERNAL_FAULT, correlationId }, { cause: parsed.failure });
 }
-/** Browser-safe connection; the private lease record comes from the owning launcher. */
-export async function authenticateHostClient(
+/** Browser-safe connection; what it expects of the host comes from the owning launcher. */
+export async function authenticateHostClient<E extends HostClientExpectation>(
   connection: MessageConnection,
-  record: HostRecord,
+  record: E,
   closeTransport: () => Promise<void>,
   transportClosed: Promise<void>
-): Promise<HostClient> {
+): Promise<HostClient & { readonly record: E }> {
   const listeners = new Set<(row: HostLogRow) => void>();
   const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
   const gitWorkspaceListeners = new Set<(event: GitWorkspaceEvent) => void>();
@@ -201,16 +214,16 @@ export async function authenticateHostClient(
       await connection.sendRequest('initialize', {
         hostVersion: record.hostVersion,
         protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-        token: record.token,
+        ...(record.token === undefined ? {} : { token: record.token }),
       })
     );
     if (
-      reply.pid !== record.pid ||
-      reply.start !== record.start ||
+      (record.pid !== undefined && reply.pid !== record.pid) ||
+      (record.start !== undefined && reply.start !== record.start) ||
       reply.hostVersion !== record.hostVersion ||
       reply.protocolVersion !== record.protocolVersion
     ) {
-      throw new Error('Host initialize reply does not match its lease record');
+      throw new Error('Host initialize reply does not match what this client expects');
     }
   } catch (cause) {
     try {

@@ -5,7 +5,6 @@ import {
   refusal,
   refusalError,
 } from '@brainstrike/assistant-contract';
-import type { HostRecord } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.ts';
@@ -93,6 +92,17 @@ export interface HostConnectionOptions {
   readonly workspaceDiscovery?: HostWorkspaceDiscovery;
 }
 
+/**
+ * What a connection's initialize answers with. A socket's identity carries the
+ * token its client must present; a transport the launcher handed over has none.
+ */
+export interface HostIdentity {
+  readonly hostVersion: string;
+  readonly pid: number;
+  readonly protocolVersion: number;
+  readonly start: string;
+  readonly token?: string;
+}
 /** All transports enter this same authenticated method dispatcher. */
 const logger = createLogger('AgentHostConnection');
 
@@ -110,7 +120,7 @@ const HOST_CLEANUP_FAILED = fault({
 export function bindHostConnection(
   connection: MessageConnection,
   core: HostCore,
-  record: HostRecord,
+  identity: HostIdentity,
   attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
@@ -232,8 +242,8 @@ export function bindHostConnection(
   handle('initialize', async (params) => {
     if (
       initialized ||
-      params.protocolVersion !== record.protocolVersion ||
-      params.hostVersion !== record.hostVersion
+      params.protocolVersion !== identity.protocolVersion ||
+      params.hostVersion !== identity.hostVersion
     ) {
       throw refusalError(
         'configuration',
@@ -241,7 +251,13 @@ export function bindHostConnection(
         'Host protocol or version mismatch'
       );
     }
-    if (!timingSafeEqual(Buffer.from(params.token, 'hex'), Buffer.from(record.token, 'hex'))) {
+    if (
+      identity.token !== undefined &&
+      !(
+        params.token !== undefined &&
+        timingSafeEqual(Buffer.from(params.token, 'hex'), Buffer.from(identity.token, 'hex'))
+      )
+    ) {
       throw refusalError(
         'authorization',
         'host.authentication-failed',
@@ -283,10 +299,10 @@ export function bindHostConnection(
     });
     attached();
     return {
-      hostVersion: record.hostVersion,
-      pid: record.pid,
-      protocolVersion: record.protocolVersion,
-      start: record.start,
+      hostVersion: identity.hostVersion,
+      pid: identity.pid,
+      protocolVersion: identity.protocolVersion,
+      start: identity.start,
     };
   });
   bindHostAuthMethods(handle, auth, origin);
@@ -311,7 +327,7 @@ export function bindHostConnection(
     probeHostMemoryEmbedder(resolveMemoryEmbedder, params, signal)
   );
   handle('thread/read', async (params) => ({
-    rows: await core.read(params.threadId, params.fromSeq),
+    rows: await core.published.read(params.threadId, params.fromSeq),
   }));
   handle('workspace/search', async (params, signal) => {
     if (!searchWorkspace) {
@@ -394,7 +410,7 @@ export function bindHostConnection(
       views: (current?.views ?? 0) + 1,
     });
     try {
-      const rows = await core.read(params.threadId, params.fromSeq);
+      const rows = await core.published.read(params.threadId, params.fromSeq);
       // Taken after the read, in the tick the response is sent: the replay
       // applies over the rows, and later telemetry follows it (ADR-0011 amendment).
       return { rows, telemetry: core.liveTelemetry.replay(params.threadId) };

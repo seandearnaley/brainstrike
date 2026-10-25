@@ -18,7 +18,13 @@ import { authenticateHostClient, type HostClient } from './client-connection.ts'
 import { closeReceivedConnection } from './client-receive-lifetime.ts';
 import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
 
-export { authenticateHostClient, type HostClient } from './client-connection.ts';
+export {
+  authenticateHostClient,
+  type HostClient,
+  type HostClientExpectation,
+} from './client-connection.ts';
+/** A client of a host found by its record, attached over that record's socket. */
+export type SocketHostClient = HostClient & { readonly record: HostRecord };
 
 function compatibleRecord(input: HostRecord): HostRecord {
   const record = decodeHostRecord(input);
@@ -32,7 +38,10 @@ function compatibleRecord(input: HostRecord): HostRecord {
 }
 
 /** Connect and initialize on the record's socket; `signal` destroys the socket and rejects. */
-async function connectAgentHost(record: HostRecord, signal: AbortSignal): Promise<HostClient> {
+async function connectAgentHost(
+  record: HostRecord,
+  signal: AbortSignal
+): Promise<SocketHostClient> {
   signal.throwIfAborted();
   const socket = new Socket();
   let reader: StreamMessageReader | undefined;
@@ -103,9 +112,9 @@ export async function attachAgentHost(
   input: HostRecord,
   timeoutMs = HOST_STARTUP_TIMEOUT_MS,
   cancel?: AbortSignal
-): Promise<HostClient> {
+): Promise<SocketHostClient> {
   const record = compatibleRecord(input);
-  let attaching: Promise<HostClient> | undefined;
+  let attaching: Promise<SocketHostClient> | undefined;
   try {
     return await runWithTimeout(
       (signal) => {
@@ -135,6 +144,6 @@ export async function attachAgentHost(
 export async function attachStartedAgentHost(
   input: HostRecord,
   signal: AbortSignal
-): Promise<HostClient> {
+): Promise<SocketHostClient> {
   return await connectAgentHost(compatibleRecord(input), signal);
 }

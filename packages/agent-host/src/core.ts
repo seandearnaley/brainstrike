@@ -51,6 +51,7 @@ import {
   type HostRunTelemetry,
   parseHostParams,
 } from './protocol.ts';
+import { HostPublishedRows, type HostRowListener } from './published-rows.ts';
 import {
   acquireHostRunAdmission,
   bindHostRunAdmission,
@@ -158,7 +159,7 @@ export class HostCore {
   private readonly children = new HostChildRuns();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
-  private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
+  readonly published = new HostPublishedRows((threadId, fromSeq) => this.read(threadId, fromSeq));
   /** Live telemetry: its listeners, and the replay a late subscriber receives. */
   readonly liveTelemetry = new HostTelemetryReplay();
   private readonly pendingAdmissions = new Map<AbortController, string>();
@@ -231,7 +232,7 @@ export class HostCore {
     // ADR-0029: the platform's workspace services ask Core which runs are live.
     platform.attachThreadReads?.({
       listThreads: () => core.listThreads(),
-      read: (threadId, fromSeq) => core.read(threadId, fromSeq),
+      read: (threadId, fromSeq) => core.published.read(threadId, fromSeq),
       readLedger: () => core.readLedger(),
     });
     for (const run of core.runs.values()) {
@@ -311,23 +312,22 @@ export class HostCore {
       undefined,
       durability
     );
-    const rows = await Promise.all(committed.map((row) => readHostRow(this.store, row)));
-    this.catalog.noteCommitted(rows);
-    beforePublish?.(rows);
-    for (const row of rows) {
-      this.projections.apply(row);
-      this.selections.fold(row);
-      this.liveTelemetry.committed(row);
-      for (const listener of this.listeners) {
-        listener(row, this.children.parentOf(row.threadId));
+    return this.published.fold(committed, async () => {
+      const rows = await Promise.all(committed.map((row) => readHostRow(this.store, row)));
+      this.catalog.noteCommitted(rows);
+      beforePublish?.(rows);
+      for (const row of rows) {
+        this.projections.apply(row);
+        this.selections.fold(row);
+        this.liveTelemetry.committed(row);
+        this.published.publish(row, this.children.parentOf(row.threadId));
       }
-    }
-    return rows;
+      return rows;
+    });
   }
 
-  onCommitted(listener: (row: HostLogRow, parentThreadId?: string) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+  onCommitted(listener: HostRowListener): () => void {
+    return this.published.subscribe(listener);
   }
 
   /** A running tool's live telemetry, published to listeners and never committed. */
@@ -997,7 +997,7 @@ export class HostCore {
       pendingAdmissions: this.pendingAdmissions.keys(),
       runs: () => [...this.runs.values()],
     });
-    this.listeners.clear();
+    this.published.close();
     this.liveTelemetry.clear();
     reportRetiredHostOutcomes(outcomes);
   }

@@ -163,6 +163,16 @@ if (typeof window !== 'undefined') {
     value: mockAgent,
     writable: true,
   });
+
+  // jsdom implements Range without its layout methods. CodeMirror measures its
+  // selection with them (coordsAtPos), so every measure of a mounted CodeSurface
+  // logged "getClientRects is not a function". jsdom does no layout, so a Range
+  // gets the same empty boxes jsdom already gives an element.
+  if (!Reflect.has(Range.prototype, 'getClientRects')) {
+    Range.prototype.getClientRects = () => document.createElement('span').getClientRects();
+    Range.prototype.getBoundingClientRect = () =>
+      document.createElement('span').getBoundingClientRect();
+  }
 }
 
 const mockProviderDefinitions = [
