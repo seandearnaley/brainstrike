@@ -3,6 +3,7 @@ import { runWithTimeout } from '@brainstrike/effect-kit';
 import {
   decodeHostRecord,
   HOST_LEASE_CONNECTION_CLOSED,
+  HOST_STARTUP_TIMEOUT_MS,
   HOST_VERSION,
   HostLeaseRefusalError,
   type HostRecord,
@@ -91,7 +92,7 @@ async function connectAgentHost(record: HostRecord, signal: AbortSignal): Promis
  */
 export async function attachAgentHost(
   input: HostRecord,
-  timeoutMs = 1500,
+  timeoutMs = HOST_STARTUP_TIMEOUT_MS,
   cancel?: AbortSignal
 ): Promise<HostClient> {
   const record = compatibleRecord(input);

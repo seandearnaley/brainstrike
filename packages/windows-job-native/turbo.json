@@ -7,7 +7,11 @@
       // RUNNER_ARCH, pnpm's user agent (OS and arch) and package.json (which pins
       // Node through devEngines), so one platform's binary is never replayed on
       // another (the arm64/x64 failure in PR #1749).
-      "outputs": ["build/Release/**"]
+      "outputs": ["build/Release/**"],
+      // CI's setup-workspace points node-gyp at Node's own headers for this
+      // version, so the two native builds never fetch and extract them into
+      // node-gyp's shared cache at once. Not hashed: package.json pins the version.
+      "passThroughEnv": ["npm_config_nodedir"]
     },
     "test": {
       // The tests load the compiled addon, so they need this package's own build

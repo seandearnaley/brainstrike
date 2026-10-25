@@ -1,6 +1,7 @@
 // The ordinary app-owned host proof, one test per fault. Each fault has its own
 // ordinary-app-owned-host-<fault>.integration.test.ts so Vitest can run them on
 // different workers and native shards instead of one 90 s file.
+import { appendFileSync } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
@@ -201,7 +202,6 @@ setInterval(() => {}, 1000);
     let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
     let failure: unknown;
     const errors: unknown[] = [];
-    const outputs: string[] = [];
     const owners: OwnedTestProcess[] = [];
     const captured = new WeakSet<NonNullable<typeof application>>();
     const capture = async (app: NonNullable<typeof application>): Promise<void> => {
@@ -211,8 +211,11 @@ setInterval(() => {}, 1000);
         if (process.pid && start) {
           owners.push({ kind: 'app', pid: process.pid, start });
         }
-        process.stdout?.on('data', (data: Buffer) => outputs.push(data.toString()));
-        process.stderr?.on('data', (data: Buffer) => outputs.push(data.toString()));
+        // Written as it arrives: a proof that outlives its test timeout never reaches its
+        // finally, and the app's own output is what names a startup failure.
+        const output = join(evidence, 'output.log');
+        process.stdout?.on('data', (data: Buffer) => appendFileSync(output, data));
+        process.stderr?.on('data', (data: Buffer) => appendFileSync(output, data));
         captured.add(app);
       }
       for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
@@ -969,7 +972,6 @@ setInterval(() => {}, 1000);
         errors.push(cause);
       }
       const remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
-      await writeFile(join(evidence, 'output.log'), outputs.join(''));
       await writeFile(
         join(evidence, 'cleanup.json'),
         JSON.stringify(

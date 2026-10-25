@@ -61,11 +61,12 @@ is joined. The first window waits for neither the host nor the index.
 The bounds that remain apply only to owners a launch did not start (R5(a), the
 R2 exception: not ours to wait on):
 
-- **Startup, 30 s** (`startupTimeoutMs`), measured from the launch's start:
-  waiting for a starting or leaving owner, and attaching to an existing owner or
-  a race's winner. It never bounds the start or attach of the launch's own host.
-- **Owner attach, 1.5 s**: the handshake with such an owner, clipped to what the
-  startup deadline has left; a live but unreachable owner is refused.
+- **Startup, 30 s** (`HOST_STARTUP_TIMEOUT_MS`, or `startupTimeoutMs`),
+  measured from the launch's start: waiting for a starting or leaving owner, and
+  the handshake with an existing owner or a race's winner; a live but unreachable
+  owner is refused at it. The handshake has no tighter bound of its own: a loaded
+  runner slows it 100-300 times, and a 1.5 s bound refused live CLI hosts. It never
+  bounds the start or attach of the launch's own host.
 - The caller's `signal` (quit) ends either wait at once with its own reason
   (BST-2279): quit has no deadline of its own to bound them (ADR-0026).
 - **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
@@ -73,8 +74,9 @@ R2 exception: not ours to wait on):
   (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the
   group of a detached host) if the host has not exited within 10 s
   (`HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`). A forced kill is an error, never a
-  clean retirement. It attaches the host it started over its socket under the
-  owner attach bound, and starts again if another owner replaced that host.
+  clean retirement. It attaches the host it started over its socket under a
+  startup bound measured from its ready report, and starts again if another owner
+  replaced that host.
 
 An app-owned host closes when its parent process identity disappears; it has no
 startup grace, because Main's lifetime channel alone ties it to Main. An ordinary
