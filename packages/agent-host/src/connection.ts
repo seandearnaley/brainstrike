@@ -49,6 +49,8 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
+  /** Whether the host's close has begun; from then on a new request is refused as `host.closing`. */
+  readonly closing?: () => boolean;
   /** ADR-0029 stage 2: the desktop's git cluster, where the host owns one. */
   readonly gitWorkspace?: HostGitWorkspace;
   /** The desktop's MCP content browsing, where the host serves it. */
@@ -97,6 +99,7 @@ export function bindHostConnection(
 ): () => void {
   const {
     auth,
+    closing,
     gitWorkspace,
     mcpContent,
     mcpPresentation,
@@ -163,6 +166,9 @@ export function bindHostConnection(
           if (disposed || (!initialized && method !== 'initialize')) {
             throw new BoundaryFailureError(UNAUTHENTICATED);
           }
+          if (closing?.()) {
+            throw new BoundaryFailureError(HOST_CLOSING);
+          }
           return await request(parseHostParams(method, input), controller.signal);
         } catch (cause) {
           // A typed failure travels as the response data; anything else is
@@ -206,7 +212,7 @@ export function bindHostConnection(
             if (!initialized || disposed) {
               throw new BoundaryFailureError(UNAUTHENTICATED);
             }
-            if (retired) {
+            if (retired || closing?.()) {
               throw new BoundaryFailureError(HOST_CLOSING);
             }
             return await handler(input);

@@ -119,6 +119,35 @@ function retire(host: OpenedAgentHost) {
   return { closing, state };
 }
 
+test('a host closing refusal retires client admission while its earlier write still joins', async () => {
+  const root = await freshRoot('bs-refused-client-');
+  const { connect, entered, host, release } = await openHeldHost(root);
+  const client = await connect();
+  const other = await connect();
+  const registering = client.catalog.workspaceRoots({
+    operation: 'register',
+    root: { displayName: 'workspace', path: root, preferredId: randomUUID() },
+  });
+  await entered.promise;
+  const closing = host.close();
+  const refusal: unknown = await client.catalog
+    .workspaceRoots({ operation: 'list' })
+    .catch((cause: unknown) => cause);
+  expect(refusal).toMatchObject({ code: 'host.closing', failure: { kind: 'refusal' } });
+  // Every client's new request is refused the same way, an RPC as a catalog command.
+  await expect(other.request('thread/list', {})).rejects.toMatchObject({
+    code: 'host.closing',
+    failure: { kind: 'refusal' },
+  });
+  release.resolve();
+  await registering;
+  await closing;
+  // The next catalog command is not written into the transport whose host already
+  // refused this client as terminally closing, and neither is an RPC.
+  await expect(client.catalog.workspaceRoots({ operation: 'list' })).rejects.toBe(refusal);
+  await expect(client.request('thread/list', {})).rejects.toBe(refusal);
+});
+
 /**
  * A visible-UI client on the host's private transport. `drop` loses the client's
  * later frames in transit, as frames the host never reads before it exits; `exit`
