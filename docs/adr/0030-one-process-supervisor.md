@@ -110,10 +110,16 @@ not patched around.
 
 1. **No orphans.** Killing the test runner (SIGKILL, and Stop-Process on Windows) while the
    lifecycle suites run leaves zero processes behind, on sean-ubuntu and sean-pc.
-2. **Single-core Windows.** The Stop, quit and close lanes (the indexer and host-lease
+2. **Slow Windows.** The Stop, quit and close lanes (the indexer and host-lease
    lifecycle suites and the desktop quit, shutdown-signal and app-owned Stop E2E specs) pass
-   20 of 20 on sean-pc with the test run pinned to one core while below-normal busy loops
-   hold every other core, at the default timeouts with no retries. With busy loops at normal
+   20 of 20 on sean-pc with the test run pinned to two cores while below-normal busy loops
+   hold every other core, at the default timeouts with no retries. Not one core: Electron's
+   Windows event loop shares libuv's completion port between two threads, and Electron
+   widens the port for them only when the machine has one processor
+   (`base::SysInfo::NumberOfProcessors() == 1`, electron#15975), not when the process's
+   affinity allows one. Pinned to one core of sean-pc's sixteen, every Electron process
+   spins on that port: Main burned 45-50 CPU-s and app-owned Stop timed out, while on two
+   cores Main used 2.2 CPU-s and the same test took 12 s. With busy loops at normal
    priority, every unpinned system process (Defender's scans of the files the tests write,
    svchost, dwm) lands on the one core they leave and a 0.7 s test took 31 s. Busy loops on the test's own core leave it a
    quarter of a core, where no fixed harness budget holds (Vitest's 5 s watchdog, the 20 s
