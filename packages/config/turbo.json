@@ -14,9 +14,6 @@
       // tsconfig.json extends the repo-root tsconfig.json, which no other
       // package reads, so it is this package's input rather than a global one.
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tsconfig.json"]
-    },
-    "build": {
-      "outputs": ["tsconfig/**", "biome/**", "tailwind/**"]
     }
   }
 }
