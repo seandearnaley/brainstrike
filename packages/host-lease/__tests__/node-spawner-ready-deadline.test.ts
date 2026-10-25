@@ -1,12 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
-import {
-  createNodeHostSpawner,
-  HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS,
-  HOST_STARTER_READY_TIMEOUT_MS,
-} from '../src/node-spawner.js';
+import { createNodeHostSpawner, HOST_STARTER_READY_TIMEOUT_MS } from '../src/node-spawner.js';
 
 const recorded = vi.hoisted(() => ({ deadlines: [] as number[] }));
 
@@ -68,9 +65,8 @@ test('the host starter waits the production readiness deadline, and a cancelled 
       createNodeHostSpawner({ readyTimeoutMs: 1234 })(start, new AbortController().signal)
     ).rejects.toThrow('Recorded readiness deadline');
     expect(HOST_STARTER_READY_TIMEOUT_MS).toBe(30_000);
-    expect(HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS).toBe(10_000);
-    // Each spawn: its readiness wait, then its cancelled child's exit wait.
-    expect(recorded.deadlines).toEqual([30_000, 10_000, 1234, 1234]);
+    // Each spawn: its readiness wait, then its cancelled child's exit wait (the one close budget).
+    expect(recorded.deadlines).toEqual([30_000, CHILD_CLOSE_BUDGET_MS, 1234, 1234]);
   } finally {
     await rm(root, { force: true, recursive: true });
   }

@@ -194,18 +194,18 @@ describe('AgentEgressHost.prepare', () => {
     ).rejects.toThrow('exited before it admitted loopback');
   });
 
-  it('kills a proxy that stays silent: it may have applied the set (fail closed)', async () => {
-    vi.useFakeTimers();
-    try {
-      const silent = fakeUtility('silent');
-      const prepared = new AgentEgressHost(() => silent.utility).prepare(['localhost:1']);
-      const settled = expect(prepared).rejects.toThrow('did not admit loopback servers in time');
-      await vi.advanceTimersByTimeAsync(5000);
-      await settled;
-      expect(silent.killed.count).toBe(1);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('waits for a slow answer from a live proxy, and never kills it for being slow', async () => {
+    const silent = fakeUtility('silent');
+    let settled = false;
+    const prepared = new AgentEgressHost(() => silent.utility)
+      .prepare(['localhost:1'])
+      .finally(() => {
+        settled = true;
+      });
+    prepared.catch(() => undefined);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(silent.killed.count).toBe(0);
   });
 });
 
