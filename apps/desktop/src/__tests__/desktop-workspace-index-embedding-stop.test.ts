@@ -69,6 +69,7 @@ function openIndex(options: FakeActivationOptions) {
     hostedCredentials: {},
     isClosing: () => false,
     lifecycleDelays: {},
+    signal: new AbortController().signal,
     store: {},
   } as unknown as Parameters<typeof createDesktopWorkspaceIndex>[0]);
   onTestFinished(() => workspaceIndex.close());

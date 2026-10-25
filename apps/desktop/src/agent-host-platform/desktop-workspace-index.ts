@@ -53,6 +53,8 @@ interface DesktopWorkspaceIndexOptions {
   readonly hostedCredentials: HostedEmbeddingCredentials;
   readonly isClosing: () => boolean;
   readonly lifecycleDelays: LifecycleDelaySeam;
+  /** The host's own cancellation: once it is closing, the index stops observing itself. */
+  readonly signal: AbortSignal;
   readonly store: StateStore;
 }
 
@@ -208,10 +210,10 @@ export function createDesktopWorkspaceIndex(
     observeChanges: activation.observeChanges,
     observeLifecycle: activation.observeLifecycle,
     publish: (observation) => publish({ observation, type: 'lifecycle' }),
-    signal: observer.signal,
+    signal: AbortSignal.any([observer.signal, options.signal]),
     status: search.status,
   }).catch((error: unknown) => {
-    if (error !== observer.signal.reason) {
+    if (error !== observer.signal.reason && error !== options.signal.reason) {
       reportError('Native lifecycle observer failed', error);
     }
   });

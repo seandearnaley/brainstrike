@@ -373,6 +373,7 @@ export async function createDesktopHostConfiguration(
     },
     isClosing: () => closing || startup.signal.aborted,
     lifecycleDelays: agentHostLifecycleDelaySeam,
+    signal: startup.signal,
     store: startup.store,
   });
   await startup.register(() => workspaceIndex.close());

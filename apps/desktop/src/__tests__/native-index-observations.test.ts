@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { createNativeCanonicalPublication } from '@brainstrike/canonical-ingestion';
+import { IndexerError } from '@brainstrike/indexer';
 import {
   type IndexerCoverageBatch,
   type IndexerStatus,
@@ -9,6 +10,19 @@ import {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
+
+const loggedErrors = vi.hoisted(() => vi.fn());
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: (...args: Parameters<typeof actual.createLogger>) => ({
+      ...actual.createLogger(...args),
+      error: loggedErrors,
+    }),
+  };
+});
+
 import { observeNativeIndex } from '../native-index-observations';
 
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
@@ -112,6 +126,7 @@ function mainIndex() {
     lifecycle: (observation: NativeIndexLifecycleObservation) => lifecycle?.(observation),
     published,
     status,
+    stop: () => controller.abort(new Error('The host is closing.')),
   };
 }
 
@@ -167,4 +182,23 @@ it('publishes a read Main could not make: a replaced index as preparing, any oth
       reason: expect.stringContaining('Settings'),
     })
   );
+});
+
+it('neither publishes nor reports a read that ends after its host stopped observing', async () => {
+  const main = mainIndex();
+  main.lifecycle({ generation: 1, kind: 'ready' });
+  await vi.waitFor(() => expect(main.published).toHaveLength(1));
+  // The host is closing: its indexer exits under the read it was making.
+  const held = Promise.withResolvers<void>();
+  main.status.mockImplementationOnce(async () => {
+    await held.promise;
+    throw new IndexerError('indexer-exited', 'Indexer process exited.');
+  });
+  main.change(2);
+  main.stop();
+  held.resolve();
+  await vi.waitFor(() => expect(main.status).toHaveBeenCalledTimes(2));
+  await Promise.resolve();
+  expect(main.published).toHaveLength(1);
+  expect(loggedErrors).not.toHaveBeenCalled();
 });

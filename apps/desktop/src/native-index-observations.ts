@@ -5,7 +5,6 @@ import type {
   NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
-import { isExpectedShutdownRefusal } from './desktop-shutdown-state';
 import { nativeIndexBoundaryFailure } from './native-index-boundary-failure';
 
 const logger = createLogger('NativeIndexObservations');
@@ -30,8 +29,8 @@ const PREPARING_CODES: ReadonlySet<string> = new Set([
 ]);
 
 async function readProgress(
-  dependencies: Pick<Dependencies, 'coverageBatch' | 'status'>
-): Promise<NativeIndexObservation['progress']> {
+  dependencies: Pick<Dependencies, 'coverageBatch' | 'signal' | 'status'>
+): Promise<NativeIndexObservation['progress'] | undefined> {
   try {
     const status = await dependencies.status();
     // No folder has nothing to cover; the native capability refuses an empty scope (BST-1988).
@@ -41,16 +40,14 @@ async function readProgress(
     const coverage = await dependencies.coverageBatch([{ rootIds: status.authorizedRootIds }]);
     return { coverage, kind: 'read', status };
   } catch (error) {
-    // ADR-0015: a read the app's quit retired is the expected outcome (BST-2192: a signal to
-    // Main's process group ends the SQLite query process under it).
-    const quitting = isExpectedShutdownRefusal(error);
-    const failure = nativeIndexBoundaryFailure(error, (message, fields) => {
-      if (quitting) {
-        logger.info(message, fields);
-      } else {
-        logger.error(message, fields);
-      }
-    });
+    // Its owner stopped observing (the host is closing): the read it cancelled is not a fault,
+    // and nothing is published for it (ADR-0031).
+    if (dependencies.signal.aborted) {
+      return;
+    }
+    const failure = nativeIndexBoundaryFailure(error, (message, fields) =>
+      logger.error(message, fields)
+    );
     if (failure.kind === 'refusal' && PREPARING_CODES.has(failure.code)) {
       return {
         kind: 'read',
@@ -83,7 +80,7 @@ export async function observeNativeIndex(dependencies: Dependencies): Promise<vo
         stale = false;
         const observed = lifecycle;
         const progress = await readProgress(dependencies);
-        if (dependencies.signal.aborted) {
+        if (progress === undefined || dependencies.signal.aborted) {
           return;
         }
         if (observed) {
