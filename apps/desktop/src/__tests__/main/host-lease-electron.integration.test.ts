@@ -28,6 +28,8 @@ import { electronExecutablePath } from '../helpers/electron-executable';
  * runner a cooperative close has outlived 10 s.
  */
 const APP_CLOSE_BUDGET_MS = HOST_COOPERATIVE_CLOSE_MS + 5000 * getTimeoutMultiplier();
+/** How long a SIGTERM'd Electron or a released host may take to exit; full CPU load outlived 5 s. */
+const PROCESS_EXIT_MS = 5000 * getTimeoutMultiplier();
 /**
  * Attaching is bounded the same way: Electron's launch, then the lease's own startup
  * deadline, which an app that loses the Root race waits out for the winner's host. Two
@@ -113,7 +115,7 @@ afterAll(async () => {
           }
           await runWithTimeout(() => app.exited, {
             onTimeout: () => new Error('Electron survived SIGTERM; preserve its profile'),
-            timeoutMs: 5000,
+            timeoutMs: PROCESS_EXIT_MS,
           });
         } catch (retireError) {
           cleanupFailures.push(retireError);
@@ -142,7 +144,7 @@ async function waitGone(pid: number, start: string): Promise<void> {
         await new Promise<void>((resolve) => setTimeout(resolve, 20));
       }
     },
-    { onTimeout: () => new Error(`Host pid ${pid} stayed alive`), timeoutMs: 5000 }
+    { onTimeout: () => new Error(`Host pid ${pid} stayed alive`), timeoutMs: PROCESS_EXIT_MS }
   );
 }
 function startApp(
@@ -459,7 +461,7 @@ describe(
       app.process.kill('SIGTERM');
       await runWithTimeout(() => app.exited, {
         onTimeout: () => new Error('Synthetic Electron parent survived SIGTERM'),
-        timeoutMs: 5000,
+        timeoutMs: PROCESS_EXIT_MS,
       });
       activeApps.delete(app);
       await attachment.closed;
