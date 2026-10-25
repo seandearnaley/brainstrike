@@ -31,6 +31,8 @@ import type {
   HostProviderService,
   HostTerminals,
   HostWorkspaceDiscovery,
+  HostWorkspaceFiles,
+  HostWorkspaceIndex,
 } from './ports.ts';
 import {
   HOST_CHILDREN_CHANGED,
@@ -50,6 +52,8 @@ import {
   putHostSearchVectors,
   searchHostThreads,
 } from './thread-search.ts';
+import { bindHostWorkspaceFileMethods } from './workspace-files-connection.ts';
+import { bindHostWorkspaceIndexMethods } from './workspace-index-connection.ts';
 
 interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -61,8 +65,12 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly bindCatalog?: (connection: Pick<MessageConnection, 'onRequest'>) => Promise<void>;
+  /** ADR-0029 stage 4: the desktop's folders, Explorer reads and watchers. */
+  readonly files?: HostWorkspaceFiles;
   /** ADR-0029 stage 2: the desktop's git cluster, where the host owns one. */
   readonly gitWorkspace?: HostGitWorkspace;
+  /** ADR-0029 stage 4: the desktop's native search index and its settings. */
+  readonly index?: HostWorkspaceIndex;
   readonly lifecycle?: HostConnectionLifecycle;
   /** The desktop's MCP content browsing, where the host serves it. */
   readonly mcpContent?: HostMcpContentService;
@@ -127,6 +135,7 @@ export function bindHostConnection(
   const {
     auth,
     gitWorkspace,
+    index,
     lifecycle,
     mcpContent,
     mcpPresentation,
@@ -139,6 +148,7 @@ export function bindHostConnection(
     searchStateVectors,
     searchWorkspace,
     terminals,
+    files,
     workspaceDiscovery,
   } = options;
   let initialized = false;
@@ -312,6 +322,8 @@ export function bindHostConnection(
   bindHostMcpContentMethods(handle, mcpContent, origin);
   disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
   disposables.push(bindHostTerminalMethods(handle, connection, terminals, origin));
+  disposables.push(bindHostWorkspaceFileMethods(handle, connection, files, origin));
+  disposables.push(bindHostWorkspaceIndexMethods(handle, connection, index, origin));
   bindHostHookTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
   bindHostBrowserOriginMethods(handle, core.store, origin);

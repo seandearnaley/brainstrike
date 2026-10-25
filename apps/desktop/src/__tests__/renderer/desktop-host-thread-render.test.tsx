@@ -41,6 +41,8 @@ function emptyCatalogHost(): HostClient {
     onMcpSettings: vi.fn(() => () => undefined),
     onTelemetry: vi.fn(() => () => undefined),
     onTerminal: vi.fn(() => () => undefined),
+    onWorkspaceFiles: vi.fn(() => () => undefined),
+    onWorkspaceIndex: vi.fn(() => () => undefined),
     request: async <Method extends HostMethod>(
       method: Method,
       _params: HostParams<Method>
@@ -48,7 +50,9 @@ function emptyCatalogHost(): HostClient {
       if (!(method in answers)) {
         throw new Error(`Unexpected host request ${method}`);
       }
-      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS[method], {
+      // Widened once: indexing the result map by a generic method is too deep for tsc.
+      const schema: Schema.ConstraintDecoder<unknown> = HOST_RESULT_SCHEMAS[method];
+      return Schema.decodeUnknownSync(schema, {
         errors: 'all',
         onExcessProperty: 'error',
       })(answers[method]) as HostResults[Method];

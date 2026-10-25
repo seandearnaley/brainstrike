@@ -7,6 +7,12 @@ import type {
 } from '@brainstrike/state-store';
 import type { SourceFileRecord } from '@brainstrike/types';
 import { vi } from 'vitest';
+import type { ForkLentUtility } from '../lent-utility';
+
+/** The activation's utility fork, for fixtures whose indexer and query owners are mocked. */
+export const forkNoUtility: ForkLentUtility = (kind) => {
+  throw new Error(`This fixture forks no ${kind} utility.`);
+};
 
 function sourceRecord(record: NativeCanonicalCatalogRecord): SourceFileRecord {
   if (record.contentHash === null) {

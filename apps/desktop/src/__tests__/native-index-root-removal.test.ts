@@ -8,8 +8,8 @@
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeRootRegistration } from '../native-root-registration';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
@@ -26,6 +26,9 @@ import {
   resetActivationFixture,
   unused,
 } from './native-index-activation-fixture';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 beforeEach(resetActivationFixture);
 
@@ -75,7 +78,7 @@ async function twoFolders() {
   const f = fixture({
     roots: registry,
     watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain);
+  } as unknown as HostFolders);
   const transitions = createNativeRootDataDeletion({
     acquire: unused,
     captureOwner: unused,

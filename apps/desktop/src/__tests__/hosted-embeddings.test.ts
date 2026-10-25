@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { createHostedProvider, generateHostedEmbeddings } from '../hosted-embeddings';
 
-vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => 'test-key' }) }));
+/** The host's stored key and preferences: a saved key, and no local runtime URL. */
+const credentials = {
+  readRuntimePreferences: async (): Promise<string | null> => null,
+  readSecret: async (): Promise<string | null> => 'test-key',
+};
 const existing = [
   { dimensions: 1536, modelId: 'text-embedding-3-small', provider: 'openai' },
   { dimensions: 3072, modelId: 'gemini-embedding-001', provider: 'google' },
@@ -47,9 +51,9 @@ describe.each(existing)('existing $provider dispatch', (selected) => {
       });
       vi.stubGlobal('fetch', fetch);
       const signal = new AbortController().signal;
-      expect(await generateHostedEmbeddings({ ...selected, purpose, signal, texts })).toEqual(
-        vectors
-      );
+      expect(
+        await generateHostedEmbeddings({ ...selected, credentials, purpose, signal, texts })
+      ).toEqual(vectors);
       expect(fetch).toHaveBeenCalledOnce();
       const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
       if (selected.provider === 'cohere') {
@@ -83,6 +87,7 @@ it('preserves a provider failure that settles independently after cancellation',
   );
   await expect(
     generateHostedEmbeddings({
+      credentials,
       dimensions: 768,
       modelId: 'saved-model',
       provider: 'ollama',
@@ -104,6 +109,7 @@ it('preserves the exact owned cancellation after provider settlement', async () 
   );
   await expect(
     generateHostedEmbeddings({
+      credentials,
       dimensions: 768,
       modelId: 'saved-model',
       provider: 'ollama',
@@ -117,8 +123,8 @@ it('preserves the exact owned cancellation after provider settlement', async () 
 it.each(['ollama', 'lmstudio'] as const)(
   'uses the same saved %s remote endpoint and token for documents and queries',
   async (provider) => {
-    const storage = {
-      getItem: vi.fn(async () =>
+    const readRuntimePreferences = vi.fn(
+      async (): Promise<string | null> =>
         JSON.stringify({
           state: {
             providerSettings: {
@@ -126,8 +132,7 @@ it.each(['ollama', 'lmstudio'] as const)(
             },
           },
         })
-      ),
-    };
+    );
     const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ Authorization: 'Bearer test-key' });
       return new Response(
@@ -138,16 +143,16 @@ it.each(['ollama', 'lmstudio'] as const)(
     vi.stubGlobal('fetch', fetch);
     for (const purpose of ['document', 'query'] as const) {
       await generateHostedEmbeddings({
+        credentials: { ...credentials, readRuntimePreferences },
         dimensions: 768,
         modelId: 'remote-model',
         provider,
         purpose,
         signal: new AbortController().signal,
-        storage,
         texts: ['text'],
       });
     }
-    expect(storage.getItem).toHaveBeenCalledWith('assistant-preferences.v1');
+    expect(readRuntimePreferences).toHaveBeenCalled();
     expect(fetch.mock.calls.map((call) => call[0])).toEqual([
       'https://gpu.example.test:8443/runtime/v1/embeddings',
       'https://gpu.example.test:8443/runtime/v1/embeddings',
@@ -168,6 +173,7 @@ describe('typed hosted embedding refusals', () => {
   async function refusal(): Promise<unknown> {
     return await generateHostedEmbeddings({
       ...request,
+      credentials,
       signal: new AbortController().signal,
     }).then(
       () => {

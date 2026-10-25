@@ -3,6 +3,7 @@ import {
   describeHookSkip,
   describeReferencedFileFailure,
   describeRunAttempt,
+  isOwnerUnavailable,
   providerCallWarningDetail,
   providerCallWarningLabel,
   readProviderCallWarning,
@@ -233,6 +234,8 @@ export interface HostThreadSnapshot {
   readonly error: string | undefined;
   /** True until the subscription's replay arrives or is refused. */
   readonly isLoading: boolean;
+  /** The replay was refused because the host is closing or preparing: expected, not a fault. */
+  readonly ownerUnavailable: boolean;
   /**
    * The last seq the subscription's replay returned (0 for an empty log). A row
    * past it was committed after the replay's read, so it is live, never history.
@@ -304,6 +307,7 @@ export class CommittedThreadSession {
     connected: true,
     error: undefined,
     isLoading: true,
+    ownerUnavailable: false,
     replayedThrough: undefined,
     rows: [],
   };
@@ -390,6 +394,7 @@ export class CommittedThreadSession {
           this.update({
             error: describeBoundaryError(cause),
             isLoading: false,
+            ownerUnavailable: isOwnerUnavailable(cause),
           });
         }
       }

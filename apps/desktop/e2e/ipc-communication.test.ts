@@ -46,43 +46,17 @@ test.describe('IPC Communication', { tag: '@desktop-ipc-reset' }, () => {
     expect(storageTest.removedValue).toBeNull();
   });
 
-  test('should handle file system operations via IPC', async ({ window }) => {
-    const fileSystemTest = await window.evaluate(async () => {
-      const electronAPI = (window as any).electronAPI;
-      if (!electronAPI?.fileSystem) {
-        return { error: 'FileSystem API not available', success: false };
+  test("picks a folder through Main's folder picker IPC", async ({ window }) => {
+    const picked = await window.evaluate(async () => {
+      const picker = globalThis.window.electronAPI?.folderPicker;
+      if (!picker) {
+        throw new Error('The desktop folder picker is unavailable');
       }
-
-      try {
-        if (typeof electronAPI.fileSystem.requestDirectoryAccess !== 'function') {
-          return { error: 'requestDirectoryAccess method not available', success: false };
-        }
-
-        if (typeof electronAPI.fileSystem.exists !== 'function') {
-          return { error: 'exists method not available', success: false };
-        }
-
-        const directoryResult = await electronAPI.fileSystem.requestDirectoryAccess();
-        const existsResult = await electronAPI.fileSystem.exists('/mock/test/path');
-
-        return {
-          canCheckExists: existsResult.ok && typeof existsResult.value === 'boolean',
-          hasDirectoryAccess: directoryResult.ok && directoryResult.value !== null,
-          success: true,
-        };
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error), success: false };
-      }
+      const reply = await picker.requestDirectoryAccess();
+      return reply.ok ? reply.value.kind : reply.error.message;
     });
 
-    if (fileSystemTest.error) {
-      console.log('FileSystem API test skipped:', fileSystemTest.error);
-      expect(fileSystemTest.success).toBe(false);
-      return;
-    }
-
-    expect(fileSystemTest.success).toBe(true);
-    expect(fileSystemTest.canCheckExists).toBe(true);
+    expect(picked).toBe('directory');
   });
 
   test('should handle IPC errors gracefully', async ({ window }) => {

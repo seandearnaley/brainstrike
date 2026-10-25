@@ -62,6 +62,14 @@ import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
 import type { TERMINAL_METHOD_SCHEMAS, TerminalEvent } from './protocol-terminals.ts';
+import type {
+  WORKSPACE_FILES_METHOD_SCHEMAS,
+  WorkspaceFilesEvent,
+} from './protocol-workspace-files.ts';
+import type {
+  WORKSPACE_INDEX_METHOD_SCHEMAS,
+  WorkspaceIndexEvent,
+} from './protocol-workspace-index.ts';
 import type { HostStateSearch, HostStateSearchVectors } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -657,6 +665,57 @@ export type HostTerminals = HostCommandSessionMethods & {
   open(send: (event: TerminalEvent) => void): HostTerminalSession;
 };
 
+type HostWorkspaceFilesWireMethod = keyof typeof WORKSPACE_FILES_METHOD_SCHEMAS;
+/** The watch methods, whose watchers belong to the client that started them. */
+export type HostWorkspaceWatchMethod = Extract<
+  HostWorkspaceFilesWireMethod,
+  'files/unwatch' | 'files/watch' | 'files/watch-retry'
+>;
+export type HostWorkspaceFileMethod = Exclude<
+  HostWorkspaceFilesWireMethod,
+  HostWorkspaceWatchMethod
+>;
+export type HostWorkspaceWatchSessionMethods = {
+  readonly [M in HostWorkspaceWatchMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+export type HostWorkspaceFileMethods = {
+  readonly [M in HostWorkspaceFileMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+
+/** One client's watchers: their events go only to it, and they stop when it closes. */
+export type HostWorkspaceWatchSession = HostWorkspaceWatchSessionMethods & {
+  /** Stops every watcher this client started and joins their native retirement. */
+  close(): Promise<void>;
+};
+
+/**
+ * ADR-0029 stage 4: the desktop's workspace folders, Explorer reads and
+ * watchers, over the one root registry the host's tools and index borrow.
+ */
+export type HostWorkspaceFiles = HostWorkspaceFileMethods & {
+  /** Opens one client's watchers; each of their events goes to `send`. */
+  open(send: (event: WorkspaceFilesEvent) => void): HostWorkspaceWatchSession;
+};
+
+/** The index's request methods; `index/subscribe` is the connection's own. */
+export type HostWorkspaceIndexMethod = Exclude<
+  keyof typeof WORKSPACE_INDEX_METHOD_SCHEMAS,
+  'index/subscribe'
+>;
+export type HostWorkspaceIndexMethods = {
+  readonly [M in HostWorkspaceIndexMethod]: (params: HostParams<M>) => Promise<HostResults[M]>;
+};
+
+/**
+ * ADR-0029 stage 4: the desktop's native search index (Search, coverage, a
+ * file's chunks, rebuild and retry) and its saved settings. Each method
+ * answers its own wire method.
+ */
+export type HostWorkspaceIndex = HostWorkspaceIndexMethods & {
+  /** The current lifecycle and settings, then each change, for every subscribed client. */
+  subscribe(listener: (event: WorkspaceIndexEvent) => void): () => void;
+};
+
 /** Core's reads of its threads, for a platform service that asks which runs are live. */
 export interface HostThreadReads {
   listThreads(): HostResults['thread/list']['threads'];
@@ -780,15 +839,24 @@ export interface HostPlatform {
   attachThreadReads?(reads: HostThreadReads): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
+  /**
+   * A content clear: the derived state this platform keeps beside the store (the desktop's
+   * workspace index and its folder bookkeeping) retires before Core closes and the store clears.
+   */
+  clearRetainedContent?(): Promise<void>;
   close(): Promise<void>;
   /** The default admission's delegation capability; `admitRun` sets it per admission. */
   readonly delegation?: HostDelegation | undefined;
+  /** The desktop's workspace folders, Explorer reads and watchers; absent in the CLI. */
+  readonly files?: HostWorkspaceFiles;
   /** Purge process-local caches scoped to a thread Core just deleted. */
   forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
   readonly generatesThreadTitles?: boolean | undefined;
   /** The desktop's git cluster; absent where the host owns no workspace git (the CLI). */
   readonly gitWorkspace?: HostGitWorkspace;
+  /** The desktop's native search index and its settings; absent in the CLI. */
+  readonly index?: HostWorkspaceIndex;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
   /** Runs the MCP App tool calls Core admits; absent where the host has no MCP. */

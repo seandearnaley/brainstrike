@@ -16,6 +16,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { readDesktopHostSystemContext } from '../../agent-host-platform/desktop-host-context';
 import { desktopHostToolExecutors } from '../../agent-host-platform/host-executed-tools';
 import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
+import { unusedHostRetrieval } from '../fixtures/host-retrieval';
 import {
   buildHostNativeTools,
   nativeRuntimeFor,
@@ -312,6 +313,7 @@ function buildPromptBudgetDesktopTools(
         {},
         'prompt-budget-thread',
         nativeRuntimeFor(runtimeData),
+        unusedHostRetrieval(),
         PROMPT_BUDGET_APP_PATHS
       ),
       [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(

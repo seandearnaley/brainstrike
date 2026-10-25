@@ -68,6 +68,17 @@ const TRANSITIONING = refusal({
   code: 'native-index-transitioning',
   message: 'The search index is preparing.',
 });
+/** The agent host's GOAWAY, and the window's own connection while it unloads. */
+const HOST_CLOSING = refusal({
+  category: 'availability',
+  code: 'host.closing',
+  message: 'The agent host is closing',
+});
+const VIEW_CLOSING = refusal({
+  category: 'availability',
+  code: 'host.view-closing',
+  message: 'The desktop host view is closing',
+});
 const SOURCE_FAILURE = refusal({
   category: 'availability',
   code: 'native-index-source-failure',
@@ -258,6 +269,37 @@ it('shows why Main could not read the config instead of waiting forever', async 
     })
   );
   expect(capability.status).not.toHaveBeenCalled();
+  mounted.unmount();
+});
+
+it.each([
+  ['the host closes', HOST_CLOSING],
+  ['the window unloads', VIEW_CLOSING],
+])('shows no sync error when the folder restore is refused because %s', async (_kind, failure) => {
+  // A reset closes the agent host and reloads the window while the restore is in flight.
+  adapter.restoreRoots.mockRejectedValueOnce(new BoundaryFailureError(failure));
+  const capability = {
+    ...mainConfig(() => new Promise<IndexConfig>(() => {})),
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(),
+    grep: vi.fn(),
+    onLifecycleChanged: vi.fn(() => () => {}),
+    rebuild: vi.fn(),
+    rootsRegistered: vi.fn(async () => {}),
+    search: vi.fn(),
+    status: vi.fn(),
+  };
+  const mounted = render(
+    <NativeWorkspaceIndexProvider capability={capability}>
+      <span>Workspace</span>
+    </NativeWorkspaceIndexProvider>
+  );
+  await waitFor(() => expect(adapter.restoreRoots).toHaveBeenCalled());
+  await act(async () => {});
+  expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+    lastError: null,
+    state: 'waiting',
+  });
   mounted.unmount();
 });
 

@@ -1,4 +1,5 @@
 import type {
+  IndexLifecycleCapability,
   IndexRetryCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -24,7 +25,7 @@ export interface AppLayoutProps {
   currentPath: string;
   /** Retry indexing after the embedding host stopped responding; desktop injects it. */
   readonly nativeIndexRetry?: IndexRetryCapability | null;
-  readonly nativeIndexSearch?: IndexSearchCapability | null;
+  readonly nativeIndexSearch?: (IndexSearchCapability & IndexLifecycleCapability) | null;
   onNavigationClick?: (path: string) => void;
   onOpenSettings?: () => void;
   sidebarContent?: ReactNode;

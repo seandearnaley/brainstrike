@@ -81,9 +81,17 @@ its Main side and quit step:
    copies held nothing: the `terminal` and `commandSessions` IPC domains, their
    preload bridges, the `child-processes` step and the matching reset stops go, and
    a disconnected root's language servers are evicted in the host.
-4. File watching and Explorer reads. `@parcel/watcher` leaves Main; the `file-system`
-   step and ADR-0027's native-thread join go.
-5. MCP control, then index activation if the retrieval decision keeps it.
+4. File watching, Explorer reads and index activation. The root registry, its
+   `@parcel/watcher` subscriptions, Explorer reads, run workspace binding and the native
+   index (search, root registration and deletion, content clear) move into the host,
+   which serves them as `files/*` and `index/*` methods on the renderer's port. Main
+   keeps the OS folder dialogs (the pick is mounted by the host), forks the index's
+   utility processes and lends their ports (ADR-0030 decision 1), and lends the
+   embedding renderer. The index opens and closes with its host, so a factory reset
+   retires it by retiring the host. The `file-system` and `native-index` quit steps, the
+   file-system, watch and index-search IPC domains, Main's root registry and its
+   main-owned storage keys go. The derived index stays (decision 5).
+5. MCP control.
 
 Quit then ends as: factory reset, renderers, `host/stop`, join utility and hidden
 renderer exits, database close.

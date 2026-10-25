@@ -80,46 +80,15 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   files: {
     addRoot: 'fs:addRoot',
-    addRootByPath: 'fs:addRootByPath',
-    deleteRootData: 'fs:deleteRootData',
-    exists: 'fs:exists',
-    listRecentRoots: 'fs:listRecentRoots',
-    readDirectory: 'fs:readDirectory',
-    readFile: 'fs:readFile',
-    readFileByAbsolutePath: 'fs:readFileByAbsolutePath',
-    readFileByPath: 'fs:readFileByPath',
-    removeRoot: 'fs:removeRoot',
     requestDirectoryAccess: 'fs:requestDirectoryAccess',
-    restoreLastFolder: 'fs:restoreLastFolder',
-    restoreRoots: 'fs:restoreRoots',
-    saveLastFolder: 'fs:saveLastFolder',
-    unwatch: 'fs:unwatch',
-    watch: 'fs:watch',
-    watchEvent: 'fs:watch-event',
-    watchHealth: 'fs:watch-health',
-    watchRetry: 'fs:watch-retry',
-    watchTelemetry: 'fs:watch-telemetry',
   },
+
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
     trustProjectHooks: 'hooks:trust-project-hooks',
     untrustProjectHooks: 'hooks:untrust-project-hooks',
   },
-  indexSearch: {
-    configChanged: 'index-search:config-changed',
-    coverage: 'index-search:coverage',
-    coverageBatch: 'index-search:coverage-batch',
-    fileChunks: 'index-search:file-chunks',
-    grep: 'index-search:grep',
-    lifecycleChanged: 'index-search:lifecycle-changed',
-    readConfig: 'index-search:read-config',
-    rebuild: 'index-search:rebuild',
-    retryIndexing: 'index-search:retry-indexing',
-    rootsRegistered: 'index-search:roots-registered',
-    search: 'index-search:search',
-    status: 'index-search:status',
-    updateConfig: 'index-search:update-config',
-  },
+
   // Logging settings/ingest surface; `platform/logging-api-contract.ts`
   // re-exports this group as LOGGING_API_CHANNELS (its validators need
   // @brainstrike/logging, which a preload cannot require).
@@ -181,11 +150,9 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   storage: {
     clear: 'storage:clear',
-    clearAllForE2e: 'storage:clearAllForE2e',
     getAllKeys: 'storage:getAllKeys',
     getItem: 'storage:getItem',
     removeItem: 'storage:removeItem',
-    seedMainOwnedForE2e: 'storage:seedMainOwnedForE2e',
     setItem: 'storage:setItem',
   },
   threadGroups: { readRoots: 'thread-groups:read-roots', request: 'thread-groups:request' },
@@ -228,7 +195,7 @@ export const DESKTOP_IPC_CHANNELS = {
     openFolderPicker: 'workspace:open-folder-picker',
     // One-way main→renderer push: argv / open-file / second-instance / File ▸
     // Open Recent ask the FOCUSED window to CONNECT a path. A request, never a
-    // grant — the renderer routes it through `fs:addRootByPath`, whose gates
+    // grant — the renderer adds it through the agent host's `files/add-root-by-path`, whose gates
     // decide. NOT an `ipcMain.handle` channel.
     openPath: 'workspace:open-path',
     // The ONLY channel in this domain that runs renderer→main. Sent by

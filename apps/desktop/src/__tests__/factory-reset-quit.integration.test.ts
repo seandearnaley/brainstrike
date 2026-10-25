@@ -117,15 +117,13 @@ test.for(Object.keys(QUIT_POINTS) as (keyof typeof QUIT_POINTS)[])(
       await expect
         .poll(() => existsSync(join(profile, 'host.json')), { timeout: 60_000 })
         .toBe(true);
+      await window.waitForFunction(() => globalThis.window.__brainstrikeTestHooks__ !== undefined);
       await window.evaluate(async () => {
-        const api = globalThis.window.electronAPI;
-        if (!(api && 'fileSystem' in api)) {
-          throw new Error('Desktop filesystem capability unavailable');
+        const hooks = globalThis.window.__brainstrikeTestHooks__;
+        if (!hooks) {
+          throw new Error('Desktop test hooks unavailable');
         }
-        const reply = await api.fileSystem.restoreRoots();
-        if (!reply.ok) {
-          throw new Error(reply.error.message);
-        }
+        await hooks.restoreWorkspaceRoots();
       });
       await window.evaluate(() => {
         const api = globalThis.window.electronAPI;

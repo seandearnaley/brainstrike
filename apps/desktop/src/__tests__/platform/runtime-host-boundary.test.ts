@@ -1,36 +1,12 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { createApplicationIpcDomain } from '../../ipc-handlers';
+import { describe, expect, it } from 'vitest';
 import {
   collectDesktopSourceFiles,
   findRuntimeHostBoundaryViolations,
   findRuntimeHostBoundaryViolationsInDesktopSource,
 } from './runtime-host-boundary';
-
-const ipcOwners = vi.hoisted(() => ({
-  clear: vi.fn(async () => undefined),
-  files: vi.fn(async () => undefined),
-  path: vi.fn(async () => undefined),
-  reset: vi.fn(async () => undefined),
-  storage: vi.fn(async () => undefined),
-  watch: vi.fn(async () => undefined),
-}));
-vi.mock('../../ipc-domains/file-system-ipc', () => ({
-  createFileSystemIpcDomain: vi.fn(() => ({ close: ipcOwners.files, roots: {} })),
-}));
-vi.mock('../../ipc-domains/file-system-watch-ipc', () => ({
-  registerFileSystemWatchIpcHandlers: vi.fn(() => ipcOwners.watch),
-}));
-vi.mock('../../ipc-domains/storage-preferences-ipc', () => ({
-  registerStoragePreferencesIpcHandlers: vi.fn(() => ipcOwners.storage),
-}));
-vi.mock('../../ipc-factory-reset', () => ({
-  registerContentClearIpcHandlers: vi.fn(() => ipcOwners.clear),
-  registerFactoryResetIpcHandlers: vi.fn(() => ipcOwners.reset),
-  registerProfilePathIpcHandlers: vi.fn(() => ipcOwners.path),
-}));
 
 function readDesktopSource(relativePath: string): string {
   return readFileSync(path.resolve(process.cwd(), 'src', relativePath), 'utf8');
@@ -162,30 +138,6 @@ describe('runtime host boundary', () => {
 
   it('keeps current desktop source free of runtime-host boundary violations', () => {
     expect(findRuntimeHostBoundaryViolationsInDesktopSource()).toEqual([]);
-  });
-
-  it('joins every owned application IPC domain even when one retirement fails', async () => {
-    const failure = new Error('Source lease retirement failed');
-    ipcOwners.files.mockRejectedValueOnce(failure);
-    const domain = createApplicationIpcDomain(
-      {} as Parameters<typeof createApplicationIpcDomain>[0],
-      {} as Parameters<typeof createApplicationIpcDomain>[1],
-      () => null,
-      {
-        getRootsCatalog: async () => {
-          throw new Error('Unexpected catalog read during registration');
-        },
-        getUserDataPath: () => '/disposable/profile',
-        onClearContent: async () => {
-          throw new Error('Unexpected content clear');
-        },
-        onResetLocal: async () => ({ success: true }),
-      }
-    );
-    await expect(domain.close()).rejects.toMatchObject({ errors: [failure] });
-    for (const owner of Object.values(ipcOwners)) {
-      expect(owner).toHaveBeenCalledOnce();
-    }
   });
 
   it('keeps main process startup free of ad hoc IPC registration', () => {

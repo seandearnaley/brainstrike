@@ -3,7 +3,6 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clipboardContract } from '../ipc-domains/clipboard.contract';
 import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
-import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import { settingsContract, storageContract } from '../ipc-domains/storage-preferences.contract';
@@ -37,7 +36,6 @@ const CONTRACT_BRIDGES = {
   assistantPersonas: userPersonasContract,
   clipboard: clipboardContract,
   contextFiles: contextFilesContract,
-  indexSearch: indexSearchContract,
   promptLibrary: promptLibraryContract,
   settings: settingsContract,
   threadGroups: threadGroupsContract,

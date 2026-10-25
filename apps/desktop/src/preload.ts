@@ -23,14 +23,12 @@ import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
-import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
-import { indexSearchContract } from './ipc-domains/index-search.contract';
+import { folderPickerContract } from './ipc-domains/folder-picker.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
 import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
 
@@ -85,9 +83,6 @@ ipcRenderer.on(
 ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, payload: unknown) => {
   window.postMessage({ payload, type: 'agent-host/disconnected' }, '*');
 });
-// This set only selects the E2E-only seed channel; MAIN validates the exact
-// authoritative allowlist again on every call.
-const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
 import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
@@ -259,27 +254,10 @@ if (shouldExposeBridge('electronAPI')) {
       ...createIpcBridge(ipcRenderer, factoryResetContract),
       unavailableReason: getFactoryResetUnavailableReason(process.platform),
     },
-    fileSystem: {
-      ...createIpcBridge(ipcRenderer, fileSystemContract),
-      ...createIpcBridge(ipcRenderer, fileSystemWatchContract),
-    },
+    folderPicker: createIpcBridge(ipcRenderer, folderPickerContract),
     // Current profile path, independent of database engine ownership.
     getUserDataPath: databasePathBridge.getUserDataPath,
-    storage: {
-      // A factory reset's renderer step clears the product way in E2E too: only Main's
-      // reset barrier erases the root ledgers its live index reads.
-      clear: storageBridge.clear,
-      ...(DESKTOP_TEST_MODE
-        ? { clearAllForE2e: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.clearAllForE2e) }
-        : {}),
-      getAllKeys: storageBridge.getAllKeys,
-      getItem: storageBridge.getItem,
-      removeItem: storageBridge.removeItem,
-      setItem: (key: string, value: string) =>
-        DESKTOP_TEST_MODE && MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E.has(key)
-          ? ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e, key, value)
-          : storageBridge.setItem(key, value),
-    },
+    storage: storageBridge,
   } satisfies VisibleDesktopElectronApi;
   assertDesktopElectronApiKeyParity('visible-ui', electronAPI);
   contextBridge.exposeInMainWorld('electronAPI', electronAPI);
@@ -313,9 +291,6 @@ contextBridge.exposeInMainWorld('envBootstrap', {
 
 // Settings Store API (factory reset support)
 exposeBridge('settings', settingsContract);
-if (shouldExposeBridge('indexSearch')) {
-  exposeBridge('indexSearch', indexSearchContract);
-}
 
 contextBridge.exposeInMainWorld('desktopLifecycle', {
   isTestMode: DESKTOP_TEST_MODE,

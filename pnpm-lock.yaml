@@ -1228,6 +1228,9 @@ importers:
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
+      '@brainstrike/indexing-contract':
+        specifier: workspace:*
+        version: link:../indexing-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging

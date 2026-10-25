@@ -1,12 +1,12 @@
 import path from 'node:path';
+import {
+  type SecureWorkspaceRoot,
+  WorkspaceRootRegistry,
+} from '@brainstrike/assistant-service/node-workspace-services';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { type Mock, vi } from 'vitest';
-import {
-  type SecureWorkspaceRoot,
-  WorkspaceRootRegistry,
-} from '../../ipc-domains/workspace-root-registry';
 
 export function registryRoot(
   id: string,

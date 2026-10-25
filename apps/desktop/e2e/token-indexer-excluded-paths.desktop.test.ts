@@ -24,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { clickExplorerTreeAction } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { seedRoot } from './utils/seed-root';
 
 /** Mirrors the real defect: a `'\0'` join separator written as a literal NUL. */
 const NUL_BEARING_SOURCE = `export function key(ids: string[]): string {\n  return ids.join('\0');\n}\n`;
@@ -69,29 +69,10 @@ test.describe('token indexer honours background-indexing path exclusions', () =>
       records.push({ level: message.type(), message: text, text });
     });
 
-    await page.evaluate(
-      async ({ root }) => {
-        const storage = (
-          globalThis as typeof globalThis & {
-            electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-          }
-        ).electronAPI?.storage;
-        if (!storage?.setItem) {
-          throw new Error('electronAPI.storage.setItem is unavailable');
-        }
-        await storage.setItem('lastFolderPath', root);
-        await storage.setItem(
-          'rootsList',
-          JSON.stringify([
-            { addedAt: 1_800_000_000_000, path: root, rootId: 'excluded-paths-root' },
-          ])
-        );
-      },
-      { root: ROOT_DIR }
-    );
-
-    const { reloadRenderer } = await loadElectronHelpers();
-    await reloadRenderer(page, 'token-indexer-excluded-paths');
+    await seedRoot(page, ROOT_DIR, {
+      reloadReason: 'token-indexer-excluded-paths',
+      rootId: 'excluded-paths-root',
+    });
 
     // Top-level rows first: the tree is lazily enumerated, so nothing below a
     // directory exists until it is expanded.

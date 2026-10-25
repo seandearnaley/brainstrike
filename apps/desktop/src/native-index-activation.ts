@@ -17,8 +17,6 @@ import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-
 import { createLogger } from '@brainstrike/logging';
 import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import type { CanonicalRemoteIngestion } from './canonical-utility-parent';
-import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
-import { generateHostedEmbeddings } from './hosted-embeddings';
 import {
   acquireIndexerHost,
   closeIndexerRuntime,
@@ -55,10 +53,17 @@ import {
   NativeSourceRetirementFailure,
 } from './native-index-lifecycle-owner';
 import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
-import { createNativeIndexProfileAdmission } from './native-index-profile-admission';
+import {
+  createNativeIndexProfileAdmission,
+  type NativeIndexProfileAdmission,
+} from './native-index-profile-admission';
 import { createNativeIndexFailures } from './native-index-reopen';
 import { createNativeIndexRetry } from './native-index-retry';
-import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
+import {
+  createNativeIndexRuntime,
+  type NativeIndexAuthority,
+  type NativeIndexRuntime,
+} from './native-index-runtime';
 import { type NativeIndexSettings, prepareSavedNativeIndexPause } from './native-index-settings';
 import {
   type NativeIndexSources,
@@ -132,16 +137,17 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       settings: current.settings,
     });
   };
-  const runtime = createNativeIndexRuntime({
+  const runtime: NativeIndexRuntime<unknown> = createNativeIndexRuntime({
     admitProfile: (signal) => admission.acquire(signal),
     closeQueries: closeAllIndexQueries,
     createIndexOwner: async (authorized) => {
-      const databasePath = path.join(resolveDesktopDatabaseProfileDirectory(), 'index.sqlite');
+      const { databasePath } = dependencies;
       const creation = acquireIndexerHost(
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
         // R5(b) only (ADR-0030): from the close request to the utility's exit, then a kill and
         // the still-joined exit. Startup and requests have no deadline (R2).
         { closeMs: CHILD_CLOSE_BUDGET_MS },
+        dependencies.forkLentUtility,
         dependencies.lifecycleDelays
       );
       creation.catch(() => undefined);
@@ -158,7 +164,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     getAuthority: authority,
     getFileInvalidator: () => graph?.publication?.invalidateFile,
     installQueryTarget: () =>
-      installIndexQueryTarget(getReadyIndexerHost, { deadlineMs: 1000, startupDeadlineMs: 5000 }),
+      installIndexQueryTarget(
+        getReadyIndexerHost,
+        { deadlineMs: 1000, startupDeadlineMs: 5000 },
+        dependencies.forkLentUtility
+      ),
     profile: dependencies.profile,
   });
   const suspendSources = async (current: Graph): Promise<void> => {
@@ -394,8 +404,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         };
       }
       const inference = new NativeCanonicalInference({
-        hostedEmbeddings: (input) =>
-          generateHostedEmbeddings({ ...input, storage: dependencies.storage }),
+        hostedEmbeddings: dependencies.hostedEmbeddings,
         resolver: profileResolver,
         scope,
         transport: dependencies.embedding,
@@ -700,9 +709,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       dependencies.onError('open after resume', error);
     }
   };
-  const admission = createNativeIndexProfileAdmission(lifecycle, runtime, () => {
-    void openResumed();
-  });
+  const admission: NativeIndexProfileAdmission<unknown> = createNativeIndexProfileAdmission(
+    lifecycle,
+    runtime,
+    () => {
+      void openResumed();
+    }
+  );
   const fenceTerminal = (): void => {
     failures.cancel();
     admission.fenceTerminal();

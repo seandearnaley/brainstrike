@@ -16,6 +16,7 @@ function checkpoints(recording: unknown) {
     connected: true,
     error: undefined,
     isLoading: false,
+    ownerUnavailable: false,
     replayedThrough: rows.at(-1)?.seq ?? 0,
     rows,
   };

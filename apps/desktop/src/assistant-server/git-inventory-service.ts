@@ -573,7 +573,7 @@ function toBuildFailureSnapshot(error: unknown): GitInventorySnapshot {
  * so it throws instead.
  *
  * No factory-reset runtime entry is registered for this service: like the
- * `fs:watch-telemetry` in-memory counters documented in
+ * folder watch telemetry counters documented in
  * `docs/agents/platform-contracts.md`, every piece of state here — the
  * cached snapshot, the dirty flag, the live watcher subscriptions — is
  * process-lifetime-only and rebuilt from disk plus the DB `roots` table on

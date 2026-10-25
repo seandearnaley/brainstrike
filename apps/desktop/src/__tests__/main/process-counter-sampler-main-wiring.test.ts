@@ -47,16 +47,15 @@ describe('Main process sampler owner composition', () => {
       const closeLog = vi.fn();
       const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn() };
       const steps: Record<DesktopShutdownStepName, DesktopShutdownStepRun> = {
+        'agent-host': () => {},
         'database-drain': () => {},
         'embedding-host': () => {},
         'factory-reset': () => {},
-        'file-system': () => {},
         'main-catalog': () => {},
         'mcp-runtime': () => {},
-        'native-index': () => {},
         renderers: () => {},
       };
-      steps['native-index'] = () => {
+      steps['agent-host'] = () => {
         if (failEarlierOwner) {
           throw new Error('Recorded native owner retirement failure');
         }

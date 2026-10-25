@@ -260,15 +260,20 @@ function nativeProgressError(error: unknown): string {
 }
 
 /**
- * Main's lifecycle owner refuses with `native-index-closed` or `native-index-transitioning` while
- * an owner (a reset, a newer generation) replaces the index: it is preparing, as its status says.
- * Every other failure, typed or not, is the sync surface's error.
+ * The index refuses with `native-index-closed` or `native-index-transitioning` while an owner (a
+ * reset, a newer generation) replaces it. Its agent host refuses with `host.closing` while a reset
+ * or quit closes it, and the window's connection refuses with `host.view-closing` while the window
+ * unloads (a reset's reload). Each one means the index is preparing, as its status says. Every
+ * other failure, typed or not, is the sync surface's error.
  */
+const PREPARING_CODES: ReadonlySet<string> = new Set([
+  'native-index-closed',
+  'native-index-transitioning',
+  'host.closing',
+  'host.view-closing',
+]);
 function isPreparingRefusal(failure: BoundaryFailure): boolean {
-  return (
-    failure.kind === 'refusal' &&
-    (failure.code === 'native-index-closed' || failure.code === 'native-index-transitioning')
-  );
+  return failure.kind === 'refusal' && PREPARING_CODES.has(failure.code);
 }
 
 function publishNativeFailure(error: unknown): void {

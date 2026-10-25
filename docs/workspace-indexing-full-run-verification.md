@@ -43,7 +43,7 @@ node apps/desktop/scripts/benchmark-workspace-index-pipeline.mjs \
 
 ```bash
 pnpm --filter @brainstrike/app-shell run type-check
-pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/ipc-domains/file-system-ipc.test.ts
+pnpm --filter @brainstrike/desktop exec vitest run src/__tests__/native-index-activation.test.ts
 pnpm --filter @brainstrike/desktop run type-check:e2e
 pnpm --filter @brainstrike/desktop exec playwright test e2e/full-workspace-index.desktop.test.ts --workers=1 --reporter=line
 ```

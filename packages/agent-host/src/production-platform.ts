@@ -120,11 +120,17 @@ export interface ProductionHostPlatformOptions {
   readonly attachThreadReads?: HostPlatform['attachThreadReads'];
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
+  /** A content clear's derived state beside the store, retired before Core closes. */
+  readonly clearRetainedContent?: HostPlatform['clearRetainedContent'];
   close(): Promise<void>;
+  /** ADR-0029 stage 4: the desktop's folders, Explorer reads and watchers. */
+  readonly files?: HostPlatform['files'];
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
   /** ADR-0029 stage 2: the desktop's git cluster. */
   readonly gitWorkspace?: HostPlatform['gitWorkspace'];
+  /** ADR-0029 stage 4: the desktop's native search index and its settings. */
+  readonly index?: HostPlatform['index'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   /** The desktop's MCP content browsing (BST-1930 c5d). */
@@ -282,7 +288,9 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
  */
 type ProductionClientService =
   | 'auth'
+  | 'files'
   | 'gitWorkspace'
+  | 'index'
   | 'mcpContent'
   | 'mcpPresentation'
   | 'mcpSettings'
@@ -295,7 +303,9 @@ function productionClientServices(
 ): Pick<HostPlatform, ProductionClientService> {
   return {
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.files ? { files: options.files } : {}),
     ...(options.gitWorkspace ? { gitWorkspace: options.gitWorkspace } : {}),
+    ...(options.index ? { index: options.index } : {}),
     ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),
     ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),
     ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
@@ -709,6 +719,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           profile: decodeVectorProfile(request.profile),
         }),
     },
+    ...(options.clearRetainedContent ? { clearRetainedContent: options.clearRetainedContent } : {}),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),

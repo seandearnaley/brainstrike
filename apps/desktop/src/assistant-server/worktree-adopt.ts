@@ -130,7 +130,7 @@ async function assertReachable(
 }
 
 /**
- * Mount authorization for the picker-less `fs:addRootByPath` grant (spec §6.2,
+ * Mount authorization for the picker-less the host's `files/add-root-by-path` grant (spec §6.2,
  * widened in the BST-1392 follow-up): a candidate is authorized exactly when a
  * LIVE ledger row exists for its realpath AND the checkout passes the SAME
  * `isReachableCheckout` predicate adoption applies — under the realpath'd

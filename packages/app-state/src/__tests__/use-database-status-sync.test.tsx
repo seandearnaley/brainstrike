@@ -1,5 +1,9 @@
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
+import type {
+  IndexLifecycleCapability,
+  NativeIndexObservation,
+} from '@brainstrike/indexing-contract/indexer-client';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,7 +18,7 @@ describe('useDatabaseStatusSync', () => {
   it('reports the native writer only after its catalog read', async () => {
     const pending = Promise.withResolvers<BoundaryResult<{ models: []; providers: [] }>>();
     vi.stubGlobal('modelCatalog', { read: () => pending.promise });
-    renderHook(() => useDatabaseStatusSync());
+    renderHook(() => useDatabaseStatusSync(null));
     expect(useDatabaseStatusStore.getState().loading).toBe(true);
     await act(async () => pending.resolve({ ok: true, value: { models: [], providers: [] } }));
     expect(useDatabaseStatusStore.getState()).toMatchObject({
@@ -36,16 +40,16 @@ describe('useDatabaseStatusSync', () => {
       .fn()
       .mockResolvedValueOnce({ error: closed, ok: false })
       .mockResolvedValueOnce({ ok: true, value: { models: [], providers: [] } });
-    let notify: ((observation: { generation: number; kind: 'ready' }) => void) | undefined;
+    let notify: ((observation: NativeIndexObservation) => void) | undefined;
     const unsubscribe = vi.fn();
     vi.stubGlobal('modelCatalog', { read });
-    vi.stubGlobal('indexSearch', {
-      onLifecycleChanged: (listener: typeof notify) => {
+    const lifecycle: IndexLifecycleCapability = {
+      onLifecycleChanged: (listener) => {
         notify = listener;
         return unsubscribe;
       },
-    });
-    const hook = renderHook(() => useDatabaseStatusSync());
+    };
+    const hook = renderHook(() => useDatabaseStatusSync(lifecycle));
     await waitFor(() =>
       expect(useDatabaseStatusStore.getState()).toMatchObject({
         connected: false,
@@ -53,7 +57,12 @@ describe('useDatabaseStatusSync', () => {
         testResult: closed.message,
       })
     );
-    await act(async () => notify?.({ generation: 2, kind: 'ready' }));
+    await act(async () =>
+      notify?.({
+        lifecycle: { generation: 2, kind: 'ready' },
+        progress: { kind: 'read', status: { kind: 'unavailable', reason: 'Preparing' } },
+      })
+    );
     await waitFor(() =>
       expect(useDatabaseStatusStore.getState()).toMatchObject({ connected: true, loading: false })
     );
@@ -65,7 +74,7 @@ describe('useDatabaseStatusSync', () => {
     vi.stubGlobal('modelCatalog', {
       read: async () => ({ error: INTERNAL_FAULT, ok: false }),
     });
-    renderHook(() => useDatabaseStatusSync());
+    renderHook(() => useDatabaseStatusSync(null));
     await waitFor(() =>
       expect(useDatabaseStatusStore.getState()).toMatchObject({
         connected: false,
@@ -80,7 +89,7 @@ describe('useDatabaseStatusSync', () => {
   });
 
   it('keeps loading when the model catalog is not available', () => {
-    renderHook(() => useDatabaseStatusSync());
+    renderHook(() => useDatabaseStatusSync(null));
 
     const state = useDatabaseStatusStore.getState();
     expect(state.loading).toBe(true);

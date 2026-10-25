@@ -1,4 +1,4 @@
-import type { WorkspaceRootRegistry } from '../../ipc-domains/workspace-root-registry';
+import type { WorkspaceRootRegistry } from '@brainstrike/assistant-service/node-workspace-services';
 
 /**
  * A registry stub as the open borrows from it: one restore-and-borrow step over the stub's own

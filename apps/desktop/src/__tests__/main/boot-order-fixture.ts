@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
 
-/** Main startup uses the native profile and reader owners. */
-
 const mockSession = {
   defaultSession: {
     on: vi.fn(),
@@ -165,120 +163,19 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-const { applicationDomainCapture } = vi.hoisted(() => ({
-  applicationDomainCapture: {
-    close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
-    options: null as
-      | null
-      | Parameters<typeof import('../../ipc-handlers').createApplicationIpcDomain>[3],
-  },
-}));
-
-vi.mock('../../ipc-handlers', async () => {
-  const actual = await vi.importActual<typeof import('../../ipc-handlers')>('../../ipc-handlers');
+// The profile's agent host never finishes starting: Main boots without one.
+vi.mock('../../desktop-profile-runtime', async () => {
+  const actual = await vi.importActual<typeof import('../../desktop-profile-runtime')>(
+    '../../desktop-profile-runtime'
+  );
   return {
     ...actual,
-    createApplicationIpcDomain: (...args: Parameters<typeof actual.createApplicationIpcDomain>) => {
-      const domain = actual.createApplicationIpcDomain(...args);
-      const close = vi.fn(() => domain.close());
-      applicationDomainCapture.close = close;
-      applicationDomainCapture.options = args[3];
-      return { ...domain, close };
-    },
-  };
-});
-
-const {
-  nativeActualPrepareForPause,
-  nativeAcquireProfile,
-  nativeAcquire,
-  nativeAcquireRead,
-  nativeCloseForShutdown,
-  nativePrepareForPause,
-  nativeRebuild,
-  nativeReconfigureForReset,
-  publicEmbeddingStop,
-} = vi.hoisted(() => ({
-  nativeAcquire: vi.fn<() => Promise<void>>(async () => undefined),
-  nativeAcquireProfile: vi.fn<() => Promise<void>>(() => new Promise(() => undefined)),
-  nativeAcquireRead: vi.fn<() => Promise<void>>(async () => undefined),
-  nativeActualPrepareForPause: {
-    current: null as
-      | null
-      | ReturnType<
-          typeof import('../../native-index-activation').createNativeIndexActivation
-        >['prepareSavedPause'],
-  },
-  nativeCloseForShutdown: vi.fn(async (): Promise<void> => undefined),
-  nativePrepareForPause: vi.fn<
-    ReturnType<
-      typeof import('../../native-index-activation').createNativeIndexActivation
-    >['prepareSavedPause']
-  >(async () => null),
-  nativeRebuild: { current: null as null | (() => Promise<void>) },
-  nativeReconfigureForReset: { current: null as null | (() => Promise<void>) },
-  publicEmbeddingStop: {
-    current: null as null | import('../../embedding-host-manager').EmbeddingHostManager['stop'],
-  },
-}));
-vi.mock('../../native-index-activation', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../native-index-activation')>();
-  return {
-    ...actual,
-    createNativeIndexActivation: (
-      ...args: Parameters<typeof actual.createNativeIndexActivation>
-    ) => {
-      const owner = actual.createNativeIndexActivation(...args);
-      nativeActualPrepareForPause.current = owner.prepareSavedPause;
-      return {
-        ...owner,
-        acquire: nativeAcquire,
-        acquireProfile: nativeAcquireProfile,
-        acquireRead: nativeAcquireRead,
-        close: nativeCloseForShutdown,
-        prepareSavedPause: nativePrepareForPause,
-        rebuild: () => nativeRebuild.current?.() ?? owner.rebuild(),
-        reconfigure: () => nativeReconfigureForReset.current?.() ?? owner.reconfigure(),
-      };
-    },
-  };
-});
-
-const { indexConfigCapture } = vi.hoisted(() => ({
-  indexConfigCapture: {
-    current: null as null | import('../../index-config').DesktopIndexConfigDependencies,
-  },
-}));
-vi.mock('../../index-config', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../index-config')>();
-  return {
-    ...actual,
-    createDesktopIndexConfig: (
-      dependencies: import('../../index-config').DesktopIndexConfigDependencies
-    ) => {
-      indexConfigCapture.current = dependencies;
-      return actual.createDesktopIndexConfig(dependencies);
-    },
-  };
-});
-
-/** Main's config owner's dependencies, as `main.ts` composed them. */
-function requireIndexConfig(): import('../../index-config').DesktopIndexConfigDependencies {
-  if (!indexConfigCapture.current) {
-    throw new Error('main.ts never created its search index config owner');
-  }
-  return indexConfigCapture.current;
-}
-
-vi.mock('../../ipc-embedding-host', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../ipc-embedding-host')>();
-  return {
-    registerEmbeddingHostIpcHandlers: (
-      ...args: Parameters<typeof actual.registerEmbeddingHostIpcHandlers>
-    ) => {
-      publicEmbeddingStop.current = args[1].stop;
-      return actual.registerEmbeddingHostIpcHandlers(...args);
-    },
+    createDesktopProfileRuntime: (
+      ...args: Parameters<typeof actual.createDesktopProfileRuntime>
+    ) => ({
+      ...actual.createDesktopProfileRuntime(...args),
+      acquire: () => new Promise<never>(() => undefined),
+    }),
   };
 });
 
@@ -334,20 +231,8 @@ export function installMainBootFixture(): void {
     bootWindowCapture.current = null;
     vi.doMock('electron', electronForOneBoot);
     vi.clearAllMocks();
-    nativeAcquireProfile.mockReset().mockImplementation(() => new Promise(() => undefined));
-    nativeAcquire.mockReset().mockResolvedValue(undefined);
-    nativeAcquireRead.mockReset().mockResolvedValue(undefined);
-    nativeCloseForShutdown.mockReset().mockResolvedValue(undefined);
     shutdownPlanCapture.current = null;
     shutdownPlanCapture.run = null;
-    applicationDomainCapture.close = null;
-    applicationDomainCapture.options = null;
-    nativeReconfigureForReset.current = null;
-    nativeRebuild.current = null;
-    nativeActualPrepareForPause.current = null;
-    indexConfigCapture.current = null;
-    nativePrepareForPause.mockReset().mockResolvedValue(null);
-    publicEmbeddingStop.current = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
@@ -372,21 +257,10 @@ export function installMainBootFixture(): void {
 }
 
 export {
-  applicationDomainCapture,
   bootWindow,
   createLoggerMock,
   isDesktopShuttingDownMock,
   mockApp,
-  nativeAcquire,
-  nativeAcquireProfile,
-  nativeAcquireRead,
-  nativeActualPrepareForPause,
-  nativeCloseForShutdown,
-  nativePrepareForPause,
-  nativeRebuild,
-  nativeReconfigureForReset,
-  publicEmbeddingStop,
-  requireIndexConfig,
   requireMainLogger,
   shutdownPlanCapture,
 };

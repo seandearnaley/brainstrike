@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import * as playwrightEnvironment from '@brainstrike/config/playwright-environment';
-import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 import agentDevToolsDefaults from '../../agent-devtools-defaults.json' with { type: 'json' };
@@ -1078,84 +1077,6 @@ export async function setupDialogMocking(app: ElectronApplication): Promise<void
 
 export async function mockFileSystemOperations(window: Page): Promise<void> {
   await window.evaluate((verboseLogging: boolean) => {
-    const electronAPI = (
-      window as unknown as {
-        electronAPI?: { fileSystem?: Record<string, unknown> };
-      }
-    ).electronAPI;
-
-    if (electronAPI?.fileSystem) {
-      if (verboseLogging) {
-        console.log('🔸 Setting up file system API mocks...');
-      }
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.requestDirectoryAccess = async () => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked requestDirectoryAccess called');
-        }
-        return {
-          ok: true,
-          value: {
-            id: 'mock-directory-handle',
-            kind: 'directory',
-            name: 'mock-test-directory',
-            path: '/mock/test/directory',
-            platform: 'electron',
-            type: 'directory',
-          },
-        };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.exists = async (p: string) => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked exists called with path:', p);
-        }
-        return { ok: true, value: p.includes('/mock/') };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.readDirectory = async (_p: string) => {
-        const rootPath = '/mock/test/directory';
-        if (verboseLogging) {
-          console.log('🔸 Mocked readDirectory called with path:', _p);
-        }
-        return { ok: true, value: getTestDirectoryStructure(rootPath) };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.readFile = async (_p: string) => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked readFile called with path:', _p);
-        }
-        return { ok: true, value: 'Mock file content for testing' };
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.writeFile = async (p: string, content: string) => {
-        if (verboseLogging) {
-          console.log(
-            '🔸 Mocked writeFile called with path:',
-            p,
-            'content length:',
-            content.length
-          );
-        }
-        return true;
-      };
-      // @ts-expect-error - runtime mock only
-      electronAPI.fileSystem.watchDirectory = async (p: string) => {
-        if (verboseLogging) {
-          console.log('🔸 Mocked watchDirectory called with path:', p);
-        }
-        return {
-          unwatch: () => {
-            if (verboseLogging) {
-              console.log('🔸 Mocked unwatch called');
-            }
-          },
-        };
-      };
-    } else if (verboseLogging) {
-      console.log('🔸 No electronAPI.fileSystem found to mock');
-    }
-
     const w = window as unknown as { showDirectoryPicker?: () => Promise<unknown> };
     if (w.showDirectoryPicker) {
       w.showDirectoryPicker = async () => {

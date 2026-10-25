@@ -43,6 +43,21 @@ export const HostPlatformLaunchOptionsSchema = Schema.Struct({
       { mode: 'oneOf' }
     )
   ),
+  /**
+   * Present only in a desktop E2E launch: the user-data file a test may write its mock
+   * file system into. Its presence is the host's test mode for workspace folders.
+   */
+  e2e: Schema.optional(
+    Schema.Struct({
+      fileSystemFixturePath: Schema.String.check(
+        Schema.makeFilter((value) =>
+          isAbsolute(value)
+            ? undefined
+            : { issue: 'The E2E file-system fixture path must be absolute', path: [] }
+        )
+      ),
+    })
+  ),
   envFileFailures: Schema.optional(
     Schema.mutable(
       Schema.Array(

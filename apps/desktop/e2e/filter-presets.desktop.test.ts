@@ -1,31 +1,16 @@
 import path from 'node:path';
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import type { E2eFileSystemFixture } from '../src/e2e-file-system-fixture';
 import {
   clickExplorerTreeAction,
   expectExplorerTreeActionsReachable,
+  installE2eFileSystemFixture,
   mockRootPath,
 } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
-
-interface ElectronE2eFileSystemFixture {
-  directoriesByPath: Record<string, unknown[]>;
-  fileContentsByPath: Record<string, string>;
-  readDirectoryCalls: string[];
-  readFileByPathCalls: string[];
-  readFileCalls: string[];
-  requestDirectoryAccessCount: number;
-  rootHandle: {
-    id: string;
-    kind: 'directory';
-    name: string;
-    path: string;
-    platform: 'electron';
-    type: 'directory';
-  };
-}
 
 const PRESET_LOAD_TIMEOUT_MS = 25_000;
 const FILTER_PRESET_TEST_TIMEOUT_MS = 60_000;
@@ -462,7 +447,7 @@ async function installFilteredEmptyFolderFixture(
   electronApp: ElectronApplication,
   rootPath: string
 ): Promise<void> {
-  const fixture: ElectronE2eFileSystemFixture = {
+  const fixture: E2eFileSystemFixture = {
     directoriesByPath: {
       [rootPath]: [
         {
@@ -592,27 +577,15 @@ async function installFilteredEmptyFolderFixture(
       [path.join(rootPath, 'apps/web/app.ts')]: 'export const app = 1;',
       [path.join(rootPath, 'packages/core.ts')]: 'export const core = 1;',
     },
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
     rootHandle: {
-      id: 'mock-filter-empty-folder-root',
       kind: 'directory',
       name: 'mock-filter-empty-folder-root',
       path: rootPath,
       platform: 'electron',
-      type: 'directory',
     },
   };
 
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+  await installE2eFileSystemFixture(electronApp, fixture);
 }
 
 async function selectMockRoot(window: Page): Promise<void> {

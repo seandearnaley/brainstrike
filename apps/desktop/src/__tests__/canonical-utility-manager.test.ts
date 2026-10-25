@@ -20,17 +20,17 @@ const engine = vi.hoisted(() => ({
   destroy: vi.fn(async () => {}),
   exited: false,
 }));
-let child: EventEmitter & { postMessage: (message: unknown) => void; kill: () => boolean };
+let child: EventEmitter & {
+  kill: () => boolean;
+  pid: undefined;
+  postMessage: (message: unknown) => void;
+};
 /** The answer to the one canonical call `answering` holds. */
 let held: (() => void) | undefined;
 /** When set, the indexer connection becomes ready only when the test resolves it. */
 let heldReady: Promise<unknown> | undefined;
 let owner = '';
 
-vi.mock('electron', () => ({
-  app: { isReady: () => true },
-  utilityProcess: { fork: () => child },
-}));
 vi.mock('@brainstrike/indexer/transport', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/indexer/transport')>();
   return {
@@ -133,13 +133,14 @@ function host(closeMs = 100): Promise<IndexerHostManager> {
       ],
     },
     { closeMs },
-    '/explicit/entry.js'
+    () => child
   );
 }
 /** A utility that answers every canonical call at once, except a `hold` call: `held` answers it. */
 function answering(hold?: string): void {
   child = Object.assign(new EventEmitter(), {
     kill: () => true,
+    pid: undefined,
     postMessage: (input: unknown): void => {
       const frame = decodeCanonicalFrame(input);
       if (frame.kind !== 'call') {
@@ -194,6 +195,7 @@ it('refuses an attachment the fence overtook in start, with the typed retirement
   const frames: unknown[] = [];
   child = Object.assign(new EventEmitter(), {
     kill: () => true,
+    pid: undefined,
     postMessage: (input: unknown): void => {
       frames.push(input);
     },
@@ -295,6 +297,7 @@ function dyingOnClose(owners: number): Promise<void> {
   let closes = 0;
   child = Object.assign(new EventEmitter(), {
     kill: () => true,
+    pid: undefined,
     postMessage: (input: unknown): void => {
       const frame = decodeCanonicalFrame(input);
       if (frame.kind !== 'call') {

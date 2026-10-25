@@ -1,7 +1,10 @@
-import { type QueryProcess, queryHostEntryPath } from './process.ts';
+import type { QueryProcess } from './process.ts';
 import type { QueryRequest } from './protocol.ts';
 
-/** Electron's documented surface, injected to keep this library Node-only. */
+/**
+ * Electron's documented utility surface, injected to keep this library Node-only. The utility
+ * runs `utility-query-host.ts`; its messages travel over the port its parent transferred to it.
+ */
 export interface QueryUtilityProcess {
   readonly kill: () => boolean;
   readonly off: {
@@ -18,11 +21,7 @@ export interface QueryUtilityProcess {
   readonly postMessage: (message: QueryRequest) => void;
 }
 
-export function spawnUtilityQueryProcess(
-  fork: (entryPath: string) => QueryUtilityProcess,
-  entryPath = queryHostEntryPath('utility')
-): QueryProcess {
-  const host = fork(entryPath);
+export function spawnUtilityQueryProcess(host: QueryUtilityProcess): QueryProcess {
   let exited = false;
   const observeExit = (): void => {
     exited = true;

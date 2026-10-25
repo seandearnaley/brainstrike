@@ -1,3 +1,4 @@
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
@@ -433,7 +434,11 @@ export function useRootsReconciliation({
         publishReconciliationSettled(true);
       })
       .catch((err: unknown) => {
-        logger.error('Root reconciliation failed', { error: err });
+        if (isOwnerUnavailable(err)) {
+          logger.warn('Root reconciliation refused', { error: err });
+        } else {
+          logger.error('Root reconciliation failed', { error: err });
+        }
         // Resolve with an empty map so waiters never hang.
         resolve(new Map());
         publishReconciliationSettled(true);

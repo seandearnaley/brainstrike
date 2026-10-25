@@ -21,12 +21,13 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
+import { HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } from './boundary-wire.ts';
 import { serveHostCatalog } from './catalog/transport.ts';
 import { bindHostConnection, type HostConnectionOptions, type HostIdentity } from './connection.ts';
 import { HostCore } from './core.ts';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
 import type { HostClientOrigin, HostPlatform } from './ports.ts';
-import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } from './protocol.ts';
+import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.ts';
 
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
@@ -58,7 +59,9 @@ export class AgentHostStartupError extends AggregateError {
 /** The services a client calls on the host directly, each absent where the platform has none. */
 type PlatformClientService =
   | 'auth'
+  | 'files'
   | 'gitWorkspace'
+  | 'index'
   | 'mcpContent'
   | 'mcpPresentation'
   | 'mcpSettings'
@@ -74,7 +77,9 @@ function platformClientServices(
 ): Pick<HostConnectionOptions, PlatformClientService> {
   return {
     ...(platform?.auth ? { auth: platform.auth } : {}),
+    ...(platform?.files ? { files: platform.files } : {}),
     ...(platform?.gitWorkspace ? { gitWorkspace: platform.gitWorkspace } : {}),
+    ...(platform?.index ? { index: platform.index } : {}),
     ...(platform?.mcpContent ? { mcpContent: platform.mcpContent } : {}),
     ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
@@ -130,6 +135,8 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
 
 /** The store, platform and Core of one data root, composed the same way by every host shape. */
 interface HostRoot {
+  /** Retires what the platform keeps beside the store (the desktop's index), before a content clear. */
+  readonly clearRetainedContent: () => Promise<void>;
   readonly clientCapabilities: () => Pick<
     HostConnectionOptions,
     'bindCatalog' | PlatformClientService
@@ -215,6 +222,9 @@ function composeHostRoot(
   };
   let core: HostCore | undefined;
   return {
+    clearRetainedContent: async () => {
+      await currentPlatform().clearRetainedContent?.();
+    },
     clientCapabilities: () => ({
       bindCatalog: async (connection) => {
         if (!catalogStore) {
@@ -392,6 +402,7 @@ export async function openAgentHost(
         throw new Error('Host close has already started');
       }
       clearContent = true;
+      await host.clearRetainedContent();
       await close();
       if (!cleared) {
         throw new Error('Host content clear did not produce a committed receipt');
@@ -598,12 +609,14 @@ export async function startAgentHost(
         return Promise.reject(new Error('Host retirement has already started'));
       }
       clearContent = true;
-      clearing = runtime.close().then(() => {
+      clearing = (async () => {
+        await host.clearRetainedContent();
+        await runtime.close();
         if (!cleared) {
           throw new Error('Host content clear did not produce a committed receipt');
         }
         return cleared;
-      });
+      })();
       return clearing;
     },
     get clientCount(): number {

@@ -1,10 +1,11 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
+const { EventEmitter } = require('node:events');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { app, utilityProcess } = require('electron');
+const { app, MessageChannelMain, utilityProcess } = require('electron');
 
 const profileDirectory = process.env.SQLITE_QUERY_TEST_USER_DATA_DIR;
 const indexDirectory = process.env.SQLITE_QUERY_TEST_INDEX_DIR;
@@ -28,6 +29,29 @@ const proof = (pattern, overrides = {}) => ({
   rootIds: ['proof-root'],
   ...overrides,
 });
+// Main's lending (apps/desktop fork-utility.ts `lendUtility`): the utility receives one port in
+// its first parent-port message and speaks its whole protocol over it.
+const lend = (host) => {
+  const { port1, port2 } = new MessageChannelMain();
+  const events = new EventEmitter();
+  port2.on('message', (event) => events.emit('message', event.data));
+  port2.start();
+  host.on('error', (...report) => events.emit('error', ...report));
+  host.once('exit', (code) => {
+    port2.close();
+    events.emit('exit', code);
+  });
+  host.postMessage({ event: 'utility-port' }, [port1]);
+  return {
+    kill: () => host.kill(),
+    off: (event, listener) => events.off(event, listener),
+    on: (event, listener) => events.on(event, listener),
+    get pid() {
+      return host.pid;
+    },
+    postMessage: (message) => port2.postMessage(message),
+  };
+};
 // Quadratic backtracking over runaway-root's 300,000-character line: tens of seconds.
 // `\w` overlaps `\d`, so V8 cannot make the `+` atomic as it does for `[a-z]+[0-9]`.
 const runaway = {
@@ -41,23 +65,25 @@ const runaway = {
 app
   .whenReady()
   .then(async () => {
-    const { SqliteQueryClient, SqliteQueryDeadlineError, spawnUtilityQueryProcess } = await import(
-      '../src/index.ts'
-    );
+    const {
+      queryHostEntryPath,
+      SqliteQueryClient,
+      SqliteQueryDeadlineError,
+      spawnUtilityQueryProcess,
+    } = await import('../src/index.ts');
     const before = hash();
     const open = async (deadlineMs = 1000) => {
       const client = await SqliteQueryClient.open({
         databasePath,
         deadlineMs,
-        spawn: () =>
-          spawnUtilityQueryProcess((entryPath) => {
-            const host = utilityProcess.fork(entryPath, [], {
-              serviceName: 'sqlite-query-proof',
-              stdio: 'inherit',
-            });
-            processes.push(host);
-            return host;
-          }),
+        spawn: () => {
+          const host = utilityProcess.fork(queryHostEntryPath('utility'), [], {
+            serviceName: 'sqlite-query-proof',
+            stdio: 'inherit',
+          });
+          processes.push(host);
+          return spawnUtilityQueryProcess(lend(host));
+        },
         startupDeadlineMs: 5000,
       });
       owned.push(client);

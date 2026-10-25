@@ -133,14 +133,6 @@ describe('preload runtime contract', () => {
     expect(preloadSource).not.toMatch(/['"]logging:[^'"]+['"]/);
   });
 
-  it('keeps the E2E seed routing keys sourced from MAIN authority', () => {
-    const preloadSource = readPreloadSource();
-    expect(preloadSource).toContain("from './platform/desktop-storage-authority'");
-    expect(preloadSource).toContain(
-      'MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS)'
-    );
-  });
-
   it('keeps deterministic E2E local-runtime bridge responses in preload', () => {
     const preloadSource = readPreloadSource();
 
