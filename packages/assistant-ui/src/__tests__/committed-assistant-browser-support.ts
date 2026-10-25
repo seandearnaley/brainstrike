@@ -265,13 +265,6 @@ interface ChildPhase {
   readonly rootSelectorRenders: RenderCounts;
 }
 
-export function setActEnvironment(enabled: boolean): boolean {
-  const scope = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
-  const previous = scope.IS_REACT_ACT_ENVIRONMENT ?? false;
-  scope.IS_REACT_ACT_ENVIRONMENT = enabled;
-  return previous;
-}
-
 export const ZERO_COUNTS: RenderCounts = { approval: 0, prompt: 0, saved: 0, tool: 0 };
 const countsSince = (now: RenderCounts, before: RenderCounts): RenderCounts => ({
   approval: now.approval - before.approval,
@@ -458,55 +451,50 @@ export async function measureRecordedTextPublications(
       const target = attributeRenders ? attributed : samples;
       const handles = await mountTrial({ baseline, firstChild, saved });
       const { counts, views } = handles;
-      const previousActEnvironment = setActEnvironment(false);
-      try {
-        // Independent child source: its own recorded progress, concurrently mounted.
-        const rootBefore = views.root;
-        const childBefore = views.child;
-        const countsBefore = { ...counts };
-        for (const publication of childProgress) {
-          handles.publishChild(publication);
-          await drainMicrotasks();
-          await yieldTask();
-        }
-        await waitForQuiescence();
-        child.push({
-          childCommits: views.child - childBefore,
-          publications: childProgress.length,
-          rootCommits: views.root - rootBefore,
-          rootSelectorRenders: countsSince(counts, countsBefore),
+      // Independent child source: its own recorded progress, concurrently mounted.
+      const rootBefore = views.root;
+      const childBefore = views.child;
+      const countsBefore = { ...counts };
+      for (const publication of childProgress) {
+        handles.publishChild(publication);
+        await drainMicrotasks();
+        await yieldTask();
+      }
+      await waitForQuiescence();
+      child.push({
+        childCommits: views.child - childBefore,
+        publications: childProgress.length,
+        rootCommits: views.root - rootBefore,
+        rootSelectorRenders: countsSince(counts, countsBefore),
+      });
+      // What each publication leaves rendered in the answer's text part.
+      const publishedText: Record<TextKind, string> = {
+        'text-delta': tokenText,
+        'text-end': tokenText,
+        'text-start': '',
+      };
+      for (const kind of TEXT_KINDS) {
+        const unrelated = watchUnchanged({
+          composer: handles.composer,
+          prompt: handles.promptRow,
+          saved: handles.savedRow,
+          toolCard: handles.toolCard,
         });
-        // What each publication leaves rendered in the answer's text part.
-        const publishedText: Record<TextKind, string> = {
-          'text-delta': tokenText,
-          'text-end': tokenText,
-          'text-start': '',
-        };
-        for (const kind of TEXT_KINDS) {
-          const unrelated = watchUnchanged({
-            composer: handles.composer,
-            prompt: handles.promptRow,
-            saved: handles.savedRow,
-            toolCard: handles.toolCard,
-          });
-          const before = { ...counts };
-          const toolCardBefore = views.toolCard;
-          const timing = await measurePublication(
-            () => handles.publishText(kind),
-            attributeRenders,
-            () => renderedAnswerText(handles.answer) === publishedText[kind]
-          );
-          const unrelatedDom = unrelated.read();
-          unrelated.stop();
-          target[kind].push({
-            ...timing,
-            selectorRenders: countsSince(counts, before),
-            toolCardRenders: views.toolCard - toolCardBefore,
-            unrelatedDom,
-          });
-        }
-      } finally {
-        setActEnvironment(previousActEnvironment);
+        const before = { ...counts };
+        const toolCardBefore = views.toolCard;
+        const timing = await measurePublication(
+          () => handles.publishText(kind),
+          attributeRenders,
+          () => renderedAnswerText(handles.answer) === publishedText[kind]
+        );
+        const unrelatedDom = unrelated.read();
+        unrelated.stop();
+        target[kind].push({
+          ...timing,
+          selectorRenders: countsSince(counts, before),
+          toolCardRenders: views.toolCard - toolCardBefore,
+          unrelatedDom,
+        });
       }
       if (!handles.answer.textContent?.includes(tokenText)) {
         throw new Error('The recorded token never became visible.');

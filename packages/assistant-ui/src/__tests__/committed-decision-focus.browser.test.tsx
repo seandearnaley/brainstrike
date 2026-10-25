@@ -163,9 +163,7 @@ describe('pending committed decisions', () => {
     expect(approve).toHaveAttribute('aria-disabled', 'true');
     expect(decline).toHaveAttribute('aria-disabled', 'true');
     // The guard, not a disabled attribute, refuses the repeat.
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     expect(respond).toHaveBeenCalledOnce();
     expect(approve).toHaveFocus();
 
@@ -205,9 +203,7 @@ describe('pending committed decisions', () => {
     expect(await within(decision).findByRole('alert')).toHaveTextContent(STALE_INTERACTION);
     expect(approve).not.toHaveAttribute('aria-disabled');
     expect(approve).toHaveFocus();
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(respond).toHaveBeenCalledTimes(2));
   });
 
@@ -241,9 +237,7 @@ describe('pending committed decisions', () => {
       await settleAnimations(region);
       const card = cardOf(form);
       if (kind === 'question') {
-        await act(async () => {
-          await userEvent.click(within(form).getByRole('checkbox', { name: 'Local' }));
-        });
+        await userEvent.click(within(form).getByRole('checkbox', { name: 'Local' }));
       }
       const button = within(form).getByRole('button', { name: submit });
 
@@ -251,9 +245,7 @@ describe('pending committed decisions', () => {
       await waitFor(() => expect(respond).toHaveBeenCalledOnce());
       expect(button).toHaveFocus();
       expect(button).toHaveAttribute('aria-disabled', 'true');
-      await act(async () => {
-        await userEvent.keyboard('{Enter}');
-      });
+      await userEvent.keyboard('{Enter}');
       expect(respond).toHaveBeenCalledOnce();
 
       await act(async () => {
@@ -278,10 +270,8 @@ test('dismissing a command error by keyboard returns focus to the composer', asy
   await ui.findByText('Host run completed.');
   await settleAnimations(region);
   const input = ui.getByRole('textbox', { name: 'Message input' });
-  await act(async () => {
-    await userEvent.fill(input, 'Report the result again');
-    await userEvent.keyboard('{Enter}');
-  });
+  await userEvent.fill(input, 'Report the result again');
+  await userEvent.keyboard('{Enter}');
   const host = region.parentElement;
   if (!host) {
     throw new Error('The committed conversation wrapper is missing.');
@@ -289,9 +279,7 @@ test('dismissing a command error by keyboard returns focus to the composer', asy
   const alert = await within(host).findByRole('alert', { name: 'Agent command error' });
   const dismiss = within(alert).getByRole('button', { name: 'Dismiss' });
   await tabTo(dismiss, 'backward');
-  await act(async () => {
-    await userEvent.keyboard('{Enter}');
-  });
+  await userEvent.keyboard('{Enter}');
   expect(within(host).queryByRole('alert', { name: 'Agent command error' })).toBeNull();
   expect(input).toHaveFocus();
 });

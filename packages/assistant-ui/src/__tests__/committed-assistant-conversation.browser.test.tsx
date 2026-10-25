@@ -103,10 +103,8 @@ describe('same-thread connection changes', () => {
       expect(surface.ui.getByRole('button', { name: APPROVE })).toBeVisible();
       const mountedRows = messageRoots(surface.viewport);
       expect([...mountedRows.keys()]).toEqual([baseline.headId, recordedPromptId, recordedRunId]);
-      await act(async () => {
-        await userEvent.click(surface.input);
-        await userEvent.fill(surface.input, 'Keep this draft');
-      });
+      await userEvent.click(surface.input);
+      await userEvent.fill(surface.input, 'Keep this draft');
       let draft = 'Keep this draft';
 
       const expectRetained = (): void => {
@@ -143,9 +141,7 @@ describe('same-thread connection changes', () => {
         expectRetained();
         // Focus is live, not merely reported: a key the reader presses lands
         // in the draft.
-        await act(async () => {
-          await userEvent.keyboard('.');
-        });
+        await userEvent.keyboard('.');
         draft = `${draft}.`;
         expectRetained();
       }
@@ -382,9 +378,7 @@ describe('keyboard approval and errors', () => {
     // Keyboard only: from the composer, reverse Tab order reaches the decision.
     await act(async () => surface.input.focus());
     await tabTo(approve, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     expect(respond).toHaveBeenCalledOnce();
     expect(respond).toHaveBeenCalledWith(EXACT_APPROVAL);
     const committed = store.getSnapshot().repository;
@@ -427,9 +421,7 @@ describe('keyboard approval and errors', () => {
     const { approve, source, surface } = await mountPendingApproval(vi.fn(() => admitted.promise));
     await act(async () => surface.input.focus());
     await tabTo(approve, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     expect
       .soft(focusPlacement(surface.root), 'after keyboard dispatch')
       .toBe('inside the conversation');
@@ -452,9 +444,7 @@ describe('keyboard approval and errors', () => {
     const committed = store.getSnapshot().repository;
     await act(async () => surface.input.focus());
     await tabTo(approve, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     const alert = await within(card).findByRole('alert');
     expect(alert).toHaveTextContent(STALE_INTERACTION);
     expect(alert).toBeVisible();
@@ -462,9 +452,7 @@ describe('keyboard approval and errors', () => {
     expect(store.getSnapshot().repository).toBe(committed);
     await act(async () => surface.input.focus());
     await tabTo(approve, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(respond).toHaveBeenCalledTimes(2));
     expect(respond.mock.calls).toEqual([[EXACT_APPROVAL], [EXACT_APPROVAL]]);
     expect(card).toBeInTheDocument();
@@ -474,10 +462,8 @@ describe('keyboard approval and errors', () => {
     const onNew = rejectingNew();
     const { surface } = await mountCompleted({ onNew });
     const rows = [...messageRoots(surface.viewport).keys()];
-    await act(async () => {
-      await userEvent.fill(surface.input, 'Report the result again');
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.fill(surface.input, 'Report the result again');
+    await userEvent.keyboard('{Enter}');
     const alert = await surface.host.findByRole('alert', { name: 'Agent command error' });
     return { alert, onNew, rows, surface };
   }
@@ -486,10 +472,8 @@ describe('keyboard approval and errors', () => {
     'the command alert renders only the public boundary outcome: $visible',
     async ({ onNew, visible }) => {
       const { surface } = await mountCompleted({ onNew });
-      await act(async () => {
-        await userEvent.fill(surface.input, 'Continue');
-        await userEvent.keyboard('{Enter}');
-      });
+      await userEvent.fill(surface.input, 'Continue');
+      await userEvent.keyboard('{Enter}');
       const alert = await surface.host.findByRole('alert', { name: 'Agent command error' });
       expect(alert).toHaveTextContent(visible);
       expect(alert).not.toHaveTextContent('/Users/');
@@ -507,9 +491,7 @@ describe('keyboard approval and errors', () => {
     expect([...messageRoots(surface.viewport).keys()]).toEqual(rows);
     const dismiss = within(alert).getByRole('button', { name: 'Dismiss' });
     await tabTo(dismiss, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     expect(surface.host.queryByRole('alert', { name: 'Agent command error' })).toBeNull();
     expect(surface.input).toHaveValue('Report the result again');
   });
@@ -518,9 +500,7 @@ describe('keyboard approval and errors', () => {
     const { alert, surface } = await refuseSend();
     const dismiss = within(alert).getByRole('button', { name: 'Dismiss' });
     await tabTo(dismiss, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     expect(surface.host.queryByRole('alert', { name: 'Agent command error' })).toBeNull();
     expect(focusPlacement(surface.root)).toBe('inside the conversation');
   });
@@ -554,9 +534,7 @@ describe('refused dispatch and unavailable capabilities', () => {
     await act(async () => source.setConnection(false));
     await act(async () => surface.input.focus());
     await tabTo(approve, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     expect(await within(card).findByRole('alert')).toHaveTextContent(UNAVAILABLE);
     expect(respond).not.toHaveBeenCalled();
     expect(within(card).getByRole('button', { name: APPROVE })).toBeEnabled();
@@ -569,9 +547,7 @@ describe('refused dispatch and unavailable capabilities', () => {
     await act(async () => source.setConnection(true));
     await act(async () => surface.input.focus());
     await tabTo(approve, 'backward');
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(respond).toHaveBeenCalledOnce());
     expect(respond).toHaveBeenCalledWith(EXACT_APPROVAL);
     await act(async () => source.publishPrefix(respondedLength));
@@ -583,25 +559,19 @@ describe('refused dispatch and unavailable capabilities', () => {
     const onNew = vi.fn(async () => undefined);
     const { source, surface } = await mountCompleted({ onNew });
     const rows = [...messageRoots(surface.viewport).keys()];
-    await act(async () => {
-      await userEvent.fill(surface.input, 'Follow up on the fixture');
-    });
+    await userEvent.fill(surface.input, 'Follow up on the fixture');
     const send = surface.ui.getByRole('button', { name: 'Send' });
     expect(send).toBeEnabled();
     await act(async () => source.setConnection(false));
     expect(send).toBeDisabled();
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     expect(onNew).not.toHaveBeenCalled();
     expect(surface.input).toHaveValue('Follow up on the fixture');
     expect(surface.input).toHaveFocus();
 
     await act(async () => source.setConnection(true));
     expect(send).toBeEnabled();
-    await act(async () => {
-      await userEvent.keyboard('{Enter}');
-    });
+    await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(onNew).toHaveBeenCalledOnce());
     expect(onNew).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -623,14 +593,10 @@ describe('refused dispatch and unavailable capabilities', () => {
     if (!(userRow && answerRow)) {
       throw new Error('Missing recorded prompt or answer row.');
     }
-    await act(async () => {
-      await userEvent.hover(userRow);
-    });
+    await userEvent.hover(userRow);
     expect(await within(userRow).findByRole('button', { name: 'Copy message' })).toBeVisible();
     expect(within(userRow).queryByRole('button', { name: 'Edit message' })).toBeNull();
-    await act(async () => {
-      await userEvent.hover(answerRow);
-    });
+    await userEvent.hover(answerRow);
     expect(await within(answerRow).findByRole('button', { name: 'Copy message' })).toBeVisible();
     expect(within(answerRow).queryByRole('button', { name: 'Regenerate response' })).toBeNull();
 
@@ -638,13 +604,9 @@ describe('refused dispatch and unavailable capabilities', () => {
     const onEdit = vi.fn(async () => undefined);
     const onReload = vi.fn(async () => undefined);
     view.rerender(<Surface actions={{ onEdit, onNew, onReload }} store={store} />);
-    await act(async () => {
-      await userEvent.hover(userRow);
-    });
+    await userEvent.hover(userRow);
     expect(await within(userRow).findByRole('button', { name: 'Edit message' })).toBeVisible();
-    await act(async () => {
-      await userEvent.hover(answerRow);
-    });
+    await userEvent.hover(answerRow);
     const regenerate = await within(answerRow).findByRole('button', {
       name: 'Regenerate response',
     });

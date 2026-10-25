@@ -15,7 +15,6 @@ import {
   recordedRunId,
   recordedStore,
   rejectingNew,
-  setActEnvironment,
   settleAnimations,
   waitForQuiescence,
 } from './committed-assistant-browser-support';
@@ -111,10 +110,6 @@ test('a streamed token costs the same parse and commits at 10% of a long reply a
   await within(region).findByText(recordedPrompt);
   await settleAnimations(region);
   instrumentation.assertInstalled();
-  const previousActEnvironment = setActEnvironment(false);
-  onTestFinished(() => {
-    setActEnvironment(previousActEnvironment);
-  });
 
   // The recorded run's own live text-delta chunk, carrying the long reply's text.
   const { chunk, runId } = TEXT_TELEMETRY['text-delta'];
