@@ -1,5 +1,4 @@
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
-import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,21 +15,33 @@ vi.mock('@brainstrike/ui', () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
 
+// The agent host's command scan; absent without a host (web).
+const hostState: {
+  host: { readonly workspaceDiscovery: AssistantHostWorkspaceDiscovery } | undefined;
+} = { host: undefined };
+vi.mock('../assistant-thread-host-context', () => ({
+  useAssistantThreadHost: () => hostState.host,
+}));
+
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import type { AssistantHostWorkspaceDiscovery } from '../assistant-thread-host-context';
 import { useUserDefinedSlashCommands } from '../use-user-defined-slash-commands';
 
-interface MutableWindow {
-  userCommands?: { list?: () => Promise<BoundaryResult<UserSlashCommandsListResult>> } | undefined;
-}
-
-function asMutableWindow(): MutableWindow {
-  return window as unknown as MutableWindow;
+function setListCommands(listCommands: () => Promise<UserSlashCommandsListResult>): void {
+  hostState.host = {
+    workspaceDiscovery: {
+      listCommands,
+      scanSkills: () => Promise.reject(new Error('Skills are not under test')),
+    },
+  };
 }
 
 function setBridge(result: UserSlashCommandsListResult | null): void {
-  asMutableWindow().userCommands = result
-    ? { list: () => Promise.resolve({ ok: true, value: result }) }
-    : undefined;
+  if (result) {
+    setListCommands(() => Promise.resolve(result));
+  } else {
+    hostState.host = undefined;
+  }
 }
 
 beforeEach(() => {
@@ -39,14 +50,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  asMutableWindow().userCommands = undefined;
+  hostState.host = undefined;
   vi.restoreAllMocks();
 });
 
 const THREAD = 'thread-1';
 
 describe('useUserDefinedSlashCommands', () => {
-  it('returns an empty list when the desktop bridge is absent (web capability gating)', () => {
+  it('returns an empty list without a host (web capability gating)', () => {
     setBridge(null);
     const { result } = renderHook(() => useUserDefinedSlashCommands(THREAD));
     expect(result.current).toEqual([]);
@@ -202,11 +213,11 @@ describe('useUserDefinedSlashCommands', () => {
     const deferreds: ((result: UserSlashCommandsListResult) => void)[] = [];
     const list = vi.fn(
       () =>
-        new Promise<BoundaryResult<UserSlashCommandsListResult>>((resolve) => {
-          deferreds.push((value) => resolve({ ok: true, value }));
+        new Promise<UserSlashCommandsListResult>((resolve) => {
+          deferreds.push(resolve);
         })
     );
-    asMutableWindow().userCommands = { list };
+    setListCommands(list);
 
     const { result } = renderHook(() => useUserDefinedSlashCommands(THREAD));
     // Mount kicked off the first load (generation 1) — still pending.

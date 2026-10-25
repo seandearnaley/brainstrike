@@ -1,9 +1,9 @@
 /**
  * Settings → Skills panel: master toggle + per-skill enable switches over the
- * capability-gated `window.skills` scan bridge. Invalid skills render their
- * exact validation errors, shadowed skills name their winner, a scan failure
- * renders a DISTINCT error state with Retry (never the empty state), and web
- * (no bridge) shows an honest desktop-only note.
+ * agent host's skills scan. Invalid skills render their exact validation
+ * errors, shadowed skills name their winner, a scan failure renders a DISTINCT
+ * error state with Retry (never the empty state), and web (no host scan) shows
+ * an honest desktop-only note.
  */
 
 import '@testing-library/jest-dom/vitest';
@@ -12,24 +12,10 @@ import {
   useSkillsPreferencesStore,
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
-import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SkillsSettingsSection } from '../settings/system/skills-settings-section';
-
-interface SkillsBridge {
-  scan: () => Promise<SkillsScanResultSummary>;
-}
-
-function setBridge(bridge: SkillsBridge | undefined): void {
-  const host = window as { skills?: BoundaryTransport<SkillsBridge> };
-  if (bridge === undefined) {
-    Reflect.deleteProperty(host, 'skills');
-  } else {
-    host.skills = { scan: async () => ({ ok: true, value: await bridge.scan() }) };
-  }
-}
 
 const SCAN: SkillsScanResultSummary = {
   entries: [
@@ -76,30 +62,18 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  setBridge(undefined);
 });
 
 describe('SkillsSettingsSection', () => {
-  it('shows an honest desktop-only note when the bridge is absent (web)', () => {
-    setBridge(undefined);
+  it('shows an honest desktop-only note without a host scan (web)', () => {
     render(<SkillsSettingsSection />);
     expect(screen.getByTestId('skills-master-toggle')).toBeInTheDocument();
     expect(screen.getByText(/desktop/i)).toBeInTheDocument();
   });
 
-  it('treats a present-but-malformed bridge as absent (shared resolver fails closed)', () => {
-    Object.defineProperty(window, 'skills', {
-      configurable: true,
-      value: { scan: 'not-a-function' },
-    });
-    render(<SkillsSettingsSection />);
-    expect(screen.getByText(/desktop/i)).toBeInTheDocument();
-  });
-
   it('lists scanned skills with enable switches and toggling writes the durable key', async () => {
-    setBridge({ scan: () => Promise.resolve(SCAN) });
     const user = userEvent.setup();
-    render(<SkillsSettingsSection />);
+    render(<SkillsSettingsSection scanSkills={() => Promise.resolve(SCAN)} />);
 
     const toggle = await screen.findByTestId('skill-toggle-root:root-a:pdf-processing');
     expect(toggle).toHaveAttribute('data-state', 'checked');
@@ -112,42 +86,36 @@ describe('SkillsSettingsSection', () => {
   });
 
   it('renders invalid skills with their exact errors and no switch', async () => {
-    setBridge({ scan: () => Promise.resolve(SCAN) });
-    render(<SkillsSettingsSection />);
+    render(<SkillsSettingsSection scanSkills={() => Promise.resolve(SCAN)} />);
     expect(await screen.findByText(/Skill name cannot be empty/)).toBeInTheDocument();
     expect(screen.queryByTestId('skill-toggle-global:broken')).not.toBeInTheDocument();
   });
 
   it('renders shadowed skills with the winner named', async () => {
-    setBridge({ scan: () => Promise.resolve(SCAN) });
-    render(<SkillsSettingsSection />);
+    render(<SkillsSettingsSection scanSkills={() => Promise.resolve(SCAN)} />);
     expect(await screen.findByText(/shadowed/i)).toBeInTheDocument();
   });
 
   it('surfaces spec warnings on valid skills', async () => {
-    setBridge({ scan: () => Promise.resolve(SCAN) });
-    render(<SkillsSettingsSection />);
+    render(<SkillsSettingsSection scanSkills={() => Promise.resolve(SCAN)} />);
     expect(await screen.findByText(/600 lines/)).toBeInTheDocument();
   });
 
   it('master switch writes the store', async () => {
-    setBridge({ scan: () => Promise.resolve({ entries: [] }) });
     const user = userEvent.setup();
-    render(<SkillsSettingsSection />);
+    render(<SkillsSettingsSection scanSkills={() => Promise.resolve({ entries: [] })} />);
     await user.click(screen.getByTestId('skills-master-toggle'));
     expect(useSkillsPreferencesStore.getState().masterEnabled).toBe(false);
   });
 
   it('renders a DISTINCT error state with Retry on scan failure (never the empty state)', async () => {
     let calls = 0;
-    setBridge({
-      scan: () => {
-        calls += 1;
-        return calls === 1 ? Promise.reject(new Error('ipc down')) : Promise.resolve(SCAN);
-      },
-    });
+    const scanSkills = (): Promise<SkillsScanResultSummary> => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(new Error('host down')) : Promise.resolve(SCAN);
+    };
     const user = userEvent.setup();
-    render(<SkillsSettingsSection />);
+    render(<SkillsSettingsSection scanSkills={scanSkills} />);
 
     expect(await screen.findByTestId('skills-scan-error')).toBeInTheDocument();
     expect(screen.queryByText(/no skills found/i)).not.toBeInTheDocument();
@@ -157,8 +125,7 @@ describe('SkillsSettingsSection', () => {
   });
 
   it('shows an honest empty state when the scan finds nothing', async () => {
-    setBridge({ scan: () => Promise.resolve({ entries: [] }) });
-    render(<SkillsSettingsSection />);
+    render(<SkillsSettingsSection scanSkills={() => Promise.resolve({ entries: [] })} />);
     expect(await screen.findByText(/no skills found/i)).toBeInTheDocument();
   });
 });

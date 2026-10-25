@@ -10,11 +10,9 @@ import { gitContract } from '../ipc-domains/git.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
-import { skillsContract } from '../ipc-domains/skills.contract';
 import { settingsContract, storageContract } from '../ipc-domains/storage-preferences.contract';
 import { terminalContract } from '../ipc-domains/terminal.contract';
 import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
-import { userCommandsContract } from '../ipc-domains/user-commands.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from '../ipc-domains/window-focus.contract';
@@ -52,10 +50,8 @@ const CONTRACT_BRIDGES = {
   indexSearch: indexSearchContract,
   promptLibrary: promptLibraryContract,
   settings: settingsContract,
-  skills: skillsContract,
   terminal: terminalContract,
   threadGroups: threadGroupsContract,
-  userCommands: userCommandsContract,
   viewFilterPresets: viewFilterPresetsContract,
   windowFocus: windowFocusContract,
   worktrees: worktreesContract,
@@ -404,8 +400,6 @@ describe('preload contract-derived bridges', () => {
   it.each([
     ['assistantPersonas', 'list', DESKTOP_IPC_CHANNELS.userPersonas.list],
     ['contextFiles', 'scan', DESKTOP_IPC_CHANNELS.contextFiles.scan],
-    ['skills', 'scan', DESKTOP_IPC_CHANNELS.skills.scan],
-    ['userCommands', 'list', DESKTOP_IPC_CHANNELS.userCommands.list],
   ])('%s.%s invokes %s and transports the envelope', async (name, method, channelName) => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: { marker: name } });
     await expect(exposedApi(name)[method]?.()).resolves.toEqual({

@@ -81,6 +81,8 @@
     "thread/workspace/binding/update",
     "thread/workspace/read",
     "thread/workspace/set",
-    "workspace/search"
+    "workspace/commands",
+    "workspace/search",
+    "workspace/skills"
   ]
 }

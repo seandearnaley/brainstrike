@@ -15,7 +15,9 @@ import type {
   ProviderCredential,
   ProviderVerificationSnapshot,
   ReferencedFileFailure,
+  SkillsScanResultSummary,
   ToolRiskCategory,
+  UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantContextBreakdown,
@@ -594,6 +596,15 @@ export interface HostProviderService {
 }
 
 /**
+ * ADR-0029 stage 2: the skills and user slash commands on the platform's live
+ * roots and home directory, for the Settings panel and the composer's "/" menu.
+ */
+export interface HostWorkspaceDiscovery {
+  commands(signal: AbortSignal): Promise<UserSlashCommandsListResult>;
+  skills(signal: AbortSignal): Promise<SkillsScanResultSummary>;
+}
+
+/**
  * The desktop host's MCP settings authority (BST-1930 c5a): the config file, the
  * global extension dials, and the discovered tools with their saved preferences.
  * It also reports the runtime's server status and runs lifecycle control (c5b).
@@ -784,5 +795,7 @@ export interface HostPlatform {
     readonly signal: AbortSignal;
     readonly threadId: string;
   }): Promise<void>;
+  /** Skills and user slash commands on the live roots; absent where the host has none. */
+  readonly workspaceDiscovery?: HostWorkspaceDiscovery;
 }
 export type HostSdkTools = ToolSet;
