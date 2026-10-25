@@ -91,9 +91,10 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
   completes under the lease, whose exit is joined without a rung.
 - Hidden renderer hosts are destroyed and their `closed` joined.
 
-Terminal quit prepares Main's workspace mutations before child-process or profile
-retirement; the agent host retires its worktree operations, Git inventory, forge and
-snapshot maintenance in its own close (ADR-0029). Accepted workflows finish while
+Terminal quit prepares Main's workspace mutations before profile retirement; the
+agent host retires its worktree operations, Git inventory, forge, snapshot
+maintenance, terminals, command sessions, language servers and shell commands in its
+own close (ADR-0029). Accepted workflows finish while
 mounts, git, setup and the authenticated catalog remain available; new mutations are
 refused.
 The catalog borrower then fences new calls and joins admitted acquisitions and

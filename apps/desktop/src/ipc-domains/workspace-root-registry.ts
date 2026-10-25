@@ -2,8 +2,10 @@ import {
   WorkspaceRootRegistry as NodeWorkspaceRootRegistry,
   type WorkspaceRootRegistryOptions,
 } from '@brainstrike/assistant-service/node-workspace-services';
-import { disposeDesktopAndHostCommandSessionsForRoot } from '../agent-host-platform/host-command-session-client';
-import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
+import {
+  disposeHostCommandSessionsForRoot,
+  evictHostLspServersForRoot,
+} from '../agent-host-platform/host-root-cleanup-client';
 
 export type { SecureWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 
@@ -20,8 +22,8 @@ export class WorkspaceRootRegistry extends NodeWorkspaceRootRegistry {
     super({
       ...options,
       disposeCommandSessionsForRoot:
-        options.disposeCommandSessionsForRoot ?? disposeDesktopAndHostCommandSessionsForRoot,
-      evictLspServersForRoot: options.evictLspServersForRoot ?? evictLspServersForRoot,
+        options.disposeCommandSessionsForRoot ?? disposeHostCommandSessionsForRoot,
+      evictLspServersForRoot: options.evictLspServersForRoot ?? evictHostLspServersForRoot,
     });
   }
 }

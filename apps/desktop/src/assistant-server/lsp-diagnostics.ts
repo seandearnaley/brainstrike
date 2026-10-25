@@ -16,8 +16,8 @@
  * Servers are Node child processes spawned in the agent host (the renderer-only
  * rule covers inference, not tooling — mirrors executeCommand's spawner). The
  * pool is keyed by workspace `rootId`; every server MUST be torn down on root
- * switch, factory reset, and app quit — see disposeLspServers /
- * evictLspServersForRoot and their wiring in main.ts + file-system-ipc.
+ * removal, factory reset, and app quit — see disposeLspServers /
+ * evictLspServersForRoot and their wiring in host-tool-process.ts.
  *
  * NO SILENT FALLBACKS: an unresolvable server, an unsupported language, or a
  * diagnostics timeout all resolve to an honest non-fatal result — never a
@@ -905,8 +905,8 @@ export async function getLspInspection(args: GetLspInspectionArgs): Promise<LspI
 }
 
 /**
- * Dispose every pooled language server (SIGKILL — no orphans). Wired into
- * main.ts factory-reset runtimes AND graceful shutdown, mirroring the shell
+ * Dispose every pooled language server (SIGKILL — no orphans). Joined by the
+ * agent host's close, which quit and factory reset wait for, beside the shell
  * and terminal process reapers. Returns the count disposed. Awaits pending
  * creations first so a server mid-spawn cannot slip past teardown.
  */

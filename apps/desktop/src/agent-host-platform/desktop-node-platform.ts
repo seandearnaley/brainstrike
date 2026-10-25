@@ -40,6 +40,7 @@ import { type NativeChild, observeNativeChildren } from '@brainstrike/state-stor
 import { Schema } from 'effect';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { resolveBundledSiblingPath } from '../bundled-sibling-path';
+import { createWorkspaceRootResolver } from '../git-ipc-handlers';
 import { mainPlatformConnection } from './connection';
 import { createDesktopGitWorkspace } from './desktop-git-workspace';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
@@ -48,10 +49,15 @@ import {
   type DesktopAdmissionReads,
   type DesktopRunSelection,
 } from './desktop-run-admission';
+import { createDesktopTerminals } from './desktop-terminals';
 import { desktopWorkspaceDiscovery } from './desktop-workspace-discovery';
 import { forwardHostDiagnostics } from './host-diagnostics';
 import { mainQueryEmbedding } from './host-retrieval-clients';
-import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
+import {
+  disposeHostTools,
+  hostCommandSessionManager,
+  serveHostRootCleanup,
+} from './host-tool-process';
 import {
   createDesktopHostMemoryConfiguration,
   desktopMemoryModels,
@@ -262,7 +268,7 @@ export async function createDesktopHostConfiguration(
       cancellation.dispose();
     }
   };
-  serveHostCommandSessions(connection);
+  serveHostRootCleanup(connection);
   // ADR-0017: Main supervises the native processes this host starts, and ends their
   // process groups if the host dies. Windows reports none: the host's kill-on-close Job
   // ends them with it.
@@ -318,6 +324,12 @@ export async function createDesktopHostConfiguration(
     userDataDir,
   });
   await startup.register(() => gitWorkspace.close());
+  // ADR-0029 stage 3: the Terminal panel's terminals and command-session inventory.
+  const terminals = createDesktopTerminals({
+    commandSessions: hostCommandSessionManager(),
+    resolver: createWorkspaceRootResolver(startup.store),
+  });
+  await startup.register(() => terminals.close());
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
   const admissionReads = mainAdmissionReads(request);
@@ -346,8 +358,14 @@ export async function createDesktopHostConfiguration(
     close: async () => {
       // The MCP runtime joins while Main's platform connection is still open.
       await mcpHost.close();
-      // The language servers, command trees and command sessions this host spawned.
-      await disposeHostTools();
+      // The terminals, language servers, command trees and command sessions this host spawned.
+      const reaped = await Promise.allSettled([terminals.close(), disposeHostTools()]);
+      const reapFailures = reaped.flatMap((outcome) =>
+        outcome.status === 'rejected' ? [outcome.reason] : []
+      );
+      if (reapFailures.length > 0) {
+        throw new AggregateError(reapFailures, 'Host process cleanup failed');
+      }
       // The git cluster retires while Main can still refresh a rewound root's index.
       await gitWorkspace.close();
       // Accepted error records are delivered while Main's connection is open.
@@ -557,6 +575,7 @@ export async function createDesktopHostConfiguration(
       };
     },
     selectProjectionRewrites: selectHostProjectionRewrites,
+    terminals: terminals.service,
     validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {
       // An admission's check revalidates the binding that run itself holds.
       const admitted = runId ? admittedRuns.get(runId) : undefined;
