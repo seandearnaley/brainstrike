@@ -45,14 +45,7 @@ async function removeCapturedRoot(deletion: Deletion): Promise<void> {
   // Read only AFTER joining admitted work: a pre-stop snapshot can miss a late ACK.
   const authority = owner.readAuthority();
   const rootId = reservation.mounted.rootId;
-  if (
-    !(
-      authority.rootIds.includes(rootId) &&
-      authority.scopes.some((scope) => scope.kind === 'workspace' && scope.rootId === rootId)
-    )
-  ) {
-    throw new Error('The original native owner has no authorized scope for this root.');
-  }
+  // A folder outside the partition (a worktree not opted in) has no bindings: nothing to remove.
   for (const binding of authority.fileBindings) {
     if (binding.rootId !== rootId) {
       continue;
