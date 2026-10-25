@@ -119,7 +119,12 @@ not patched around.
    (`base::SysInfo::NumberOfProcessors() == 1`, electron#15975), not when the process's
    affinity allows one. Pinned to one core of sean-pc's sixteen, every Electron process
    spins on that port: Main burned 45-50 CPU-s and app-owned Stop timed out, while on two
-   cores Main used 2.2 CPU-s and the same test took 12 s. With busy loops at normal
+   cores Main used 2.2 CPU-s and the same test took 12 s. Two cores is not a lower bar: the
+   hosted Windows runners this repository uses have two (private-repository
+   `windows-latest`), and a real one-processor machine gets Electron's wider port. The spin
+   still reaches any Electron process whose threads are starved on a saturated machine, CI
+   included, so criterion 3 stays the proof under real load, and the fix for the spin itself
+   belongs in Electron (always size the port for its two threads), not in a timeout here. With busy loops at normal
    priority, every unpinned system process (Defender's scans of the files the tests write,
    svchost, dwm) lands on the one core they leave and a 0.7 s test took 31 s. Busy loops on the test's own core leave it a
    quarter of a core, where no fixed harness budget holds (Vitest's 5 s watchdog, the 20 s
