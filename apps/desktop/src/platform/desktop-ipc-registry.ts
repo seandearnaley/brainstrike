@@ -17,17 +17,13 @@ export type DesktopIpcDomain =
   | 'viewFilterPresets'
   | 'agent'
   | 'browser'
-  | 'changes'
   | 'clipboard'
-  | 'commandSessions'
   | 'contextFiles'
   | 'db'
   | 'diagnostics'
   | 'embeddings'
   | 'fileExports'
   | 'files'
-  | 'forge'
-  | 'git'
   | 'hooks'
   | 'logging'
   | 'mcp'
@@ -36,13 +32,11 @@ export type DesktopIpcDomain =
   | 'runtime'
   | 'shell'
   | 'storage'
-  | 'terminal'
   | 'tools'
   | 'userPersonas'
   | 'vectorPreferences'
   | 'windowFocus'
-  | 'workspace'
-  | 'worktrees';
+  | 'workspace';
 
 // Main-process-only signal for every authorization rejection (the renderer
 // sees a curated error that never echoes its own input). The rejected frame

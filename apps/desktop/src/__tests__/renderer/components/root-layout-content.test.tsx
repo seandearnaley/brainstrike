@@ -5,6 +5,11 @@ import {
   useWorktreesBridge,
   type WorkspaceGitServices,
 } from '@brainstrike/app-shell/workspace-git-services';
+import {
+  NO_WORKSPACE_TERMINAL_SERVICES,
+  type TerminalBridge,
+  type WorkspaceTerminalServices,
+} from '@brainstrike/app-shell/workspace-terminal-services';
 import type { WorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
@@ -159,12 +164,23 @@ vi.mock('../../../renderer/components/git-page-content', () => ({
   default: () => <div data-testid="git-page-content" />,
 }));
 
-// The Terminal surface is capability-gated the same way (default false =
-// web-safe). Mocking the availability subpath keeps @xterm out of this test.
-const terminalBridgeAvailableMock = vi.fn(() => false);
-vi.mock('@brainstrike/app-shell/terminal-panel/availability', () => ({
-  isTerminalBridgeAvailable: () => terminalBridgeAvailableMock(),
+// The agent host serves the terminal cluster the same way (default none =
+// web-safe); the page content mock below keeps @xterm out of this test.
+const workspaceTerminalsMock = vi.fn(
+  (): WorkspaceTerminalServices => NO_WORKSPACE_TERMINAL_SERVICES
+);
+vi.mock('../../../renderer/host-terminals', () => ({
+  resolveDesktopWorkspaceTerminalServices: () => workspaceTerminalsMock(),
 }));
+
+const TERMINAL_BRIDGE: TerminalBridge = {
+  create: vi.fn(),
+  destroy: vi.fn(),
+  onData: vi.fn(),
+  onExit: vi.fn(),
+  resize: vi.fn(),
+  write: vi.fn(),
+};
 
 vi.mock('../../../renderer/components/terminal-page-content', () => ({
   default: () => <div data-testid="terminal-page-content" />,
@@ -296,7 +312,7 @@ describe('RootLayoutContent', () => {
     // Default: Git + Terminal + Worktrees bridges unavailable (web-safe).
     // clearAllMocks wiped the impls.
     workspaceGitMock.mockReturnValue(NO_WORKSPACE_GIT_SERVICES);
-    terminalBridgeAvailableMock.mockReturnValue(false);
+    workspaceTerminalsMock.mockReturnValue(NO_WORKSPACE_TERMINAL_SERVICES);
   });
 
   afterEach(() => {
@@ -371,18 +387,20 @@ describe('RootLayoutContent', () => {
     expect(within(gitSlot).getByTestId('git-page-content')).toBeInTheDocument();
   });
 
-  it('does NOT surface the Terminal tab when window.terminal is absent (web-safe gate)', () => {
-    terminalBridgeAvailableMock.mockReturnValue(false);
+  it('does NOT surface the Terminal tab when the host serves no terminal bridge (web-safe gate)', () => {
     render(<RootLayoutContent />);
     expect(screen.queryByTestId('nav-item-/terminal')).not.toBeInTheDocument();
     expect(screen.queryByTestId('terminal-page-slot')).not.toBeInTheDocument();
   });
 
-  it('passes the terminal surface WITHOUT a nav item when window.terminal is available (BST-1270)', () => {
+  it('passes the terminal surface WITHOUT a nav item when the host serves the terminal bridge (BST-1270)', () => {
     // Terminal became a workspace app: the desktop still constructs the
     // surface (capability-gated), but the sidebar nav no longer lists it —
     // the workspace "+" menu / ⌘T own the entry points now.
-    terminalBridgeAvailableMock.mockReturnValue(true);
+    workspaceTerminalsMock.mockReturnValue({
+      ...NO_WORKSPACE_TERMINAL_SERVICES,
+      terminal: TERMINAL_BRIDGE,
+    });
     render(<RootLayoutContent />);
     expect(screen.queryByTestId('nav-item-/terminal')).not.toBeInTheDocument();
     const terminalSlot = screen.getByTestId('terminal-page-slot');

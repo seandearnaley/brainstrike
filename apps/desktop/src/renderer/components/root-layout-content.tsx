@@ -9,13 +9,10 @@ import {
   type RootLayoutContentProps,
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
-// Capability check from the dependency-light `availability` subpath (NOT
-// `/terminal-panel`, which also re-exports TerminalPanel + @xterm/*) so the
-// startup check does not defeat the lazy code-split in terminal-page-content.tsx.
-import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { WorkspaceGitServicesProvider } from '@brainstrike/app-shell/workspace-git-services';
+import { WorkspaceTerminalServicesProvider } from '@brainstrike/app-shell/workspace-terminal-services';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
@@ -37,6 +34,7 @@ import {
   resolveDesktopMcpTaskBridge,
   resolveDesktopMcpToolsCapability,
 } from '../host-mcp-settings';
+import { resolveDesktopWorkspaceTerminalServices } from '../host-terminals';
 import { createIpcCapability } from '../ipc-capability';
 import { createDesktopLocalSearchEmbedder } from '../local-search-embedder';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
@@ -97,9 +95,10 @@ export default function RootLayoutContent() {
   const workspaceGit = useMemo(() => resolveDesktopWorkspaceGitServices(), []);
   const changesAvailable = workspaceGit.changes !== null;
   const gitAvailable = workspaceGit.git !== null;
-  // Capability gate: only surface the Terminal tab when the desktop
-  // `window.terminal` pty bridge is present (no isElectron check). Resolved once.
-  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  // ...and the terminal cluster: pty terminals and the command-session
+  // inventory. The Terminal tab is offered only when its bridge is present.
+  const workspaceTerminals = useMemo(() => resolveDesktopWorkspaceTerminalServices(), []);
+  const terminalAvailable = workspaceTerminals.terminal !== null;
   const worktreesAvailable = workspaceGit.worktrees !== null;
   // Capability gate: only surface the Browser tab when the desktop
   // `window.browser` bridge is present (no isElectron check). Resolved once.
@@ -340,23 +339,25 @@ export default function RootLayoutContent() {
   const content = (
     <TokenCacheWrapper>
       <WorkspaceGitServicesProvider services={workspaceGit}>
-        <McpTaskBridgeProvider bridge={mcpTaskBridge}>
-          <McpElicitationCapabilityProvider capability={mcpElicitationCapability}>
-            <McpToolsCapabilityProvider capability={mcpToolsCapability}>
-              <McpStatusCapabilityProvider capability={mcpStatusCapability}>
-                <McpContentCapabilityProvider capability={mcpContentCapability}>
-                  <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
-                    <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
-                      <DesktopHostThreadProvider>
-                        <RootLayout {...sharedProps} />
-                      </DesktopHostThreadProvider>
-                    </ToolResultRendererProvider>
-                  </McpAppsEnablementProvider>
-                </McpContentCapabilityProvider>
-              </McpStatusCapabilityProvider>
-            </McpToolsCapabilityProvider>
-          </McpElicitationCapabilityProvider>
-        </McpTaskBridgeProvider>
+        <WorkspaceTerminalServicesProvider services={workspaceTerminals}>
+          <McpTaskBridgeProvider bridge={mcpTaskBridge}>
+            <McpElicitationCapabilityProvider capability={mcpElicitationCapability}>
+              <McpToolsCapabilityProvider capability={mcpToolsCapability}>
+                <McpStatusCapabilityProvider capability={mcpStatusCapability}>
+                  <McpContentCapabilityProvider capability={mcpContentCapability}>
+                    <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
+                      <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
+                        <DesktopHostThreadProvider>
+                          <RootLayout {...sharedProps} />
+                        </DesktopHostThreadProvider>
+                      </ToolResultRendererProvider>
+                    </McpAppsEnablementProvider>
+                  </McpContentCapabilityProvider>
+                </McpStatusCapabilityProvider>
+              </McpToolsCapabilityProvider>
+            </McpElicitationCapabilityProvider>
+          </McpTaskBridgeProvider>
+        </WorkspaceTerminalServicesProvider>
       </WorkspaceGitServicesProvider>
     </TokenCacheWrapper>
   );
