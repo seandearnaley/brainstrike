@@ -153,38 +153,108 @@ const ReadOnlyBranchChip = ({
   </span>
 );
 
-/** A minimal menu whose only content is the forge diagnostic — no branchMenu supplied. */
-const DiagnosticOnlyBranchChip = ({
-  ahead,
-  behind,
-  checkout,
-  forgeDiagnostic,
-  interactiveName,
-  label,
-}: BranchChipGlyphProps & {
-  readonly forgeDiagnostic: string;
-  readonly interactiveName: string;
-}): ReactElement => (
-  <DropdownMenu>
-    <DropdownMenuTrigger
-      aria-label={interactiveName}
-      className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
-      data-dirty={checkout.dirty ? 'true' : 'false'}
-      data-testid="workspace-bar-branch-chip"
-      title={interactiveName}
-      type="button"
-    >
-      <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
-      <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" className="w-80">
-      <ForgeDiagnosticSection reason={forgeDiagnostic} />
-    </DropdownMenuContent>
-  </DropdownMenu>
-);
+/** The branch switcher's half of the chip menu: filter, rows, create and fetch. */
+const BranchSwitcherSection = ({
+  branchMenu,
+  newBranchName,
+  onNewBranchNameChange,
+}: {
+  readonly branchMenu: WorkspaceBarBranchMenu;
+  readonly newBranchName: string;
+  readonly onNewBranchNameChange: (name: string) => void;
+}): ReactElement => {
+  const trimmedNewBranchName = newBranchName.trim();
+  const createBranch = (): void => {
+    if (branchMenu.pending || trimmedNewBranchName.length === 0) {
+      return;
+    }
+    branchMenu.onCreateBranch(trimmedNewBranchName);
+    onNewBranchNameChange('');
+  };
 
-/** The full interactive switcher — a forge diagnostic joins it when one is available. */
-const InteractiveBranchMenu = ({
+  return (
+    <>
+      <div className="p-1">
+        <Input
+          aria-label="Filter branches"
+          className="h-8 font-mono text-xs"
+          data-testid="workspace-bar-branch-search"
+          onChange={(event) => branchMenu.onQueryChange(event.target.value)}
+          onKeyDown={(event) => event.stopPropagation()}
+          placeholder="Filter branches"
+          value={branchMenu.query}
+        />
+      </div>
+      <DropdownMenuLabel className="px-3 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
+        Local branches
+      </DropdownMenuLabel>
+      {branchMenu.pending ? (
+        <span className="block px-3 py-1 text-[10px] text-muted-foreground">
+          Branch operation in progress.
+        </span>
+      ) : null}
+      {branchMenu.scopeReason ? (
+        <span
+          className="block px-3 py-2 text-muted-foreground text-xs"
+          data-testid="workspace-bar-branch-scope-reason"
+        >
+          {branchMenu.scopeReason}
+        </span>
+      ) : (
+        branchMenu.rows.map((row) => <BranchMenuRow key={row.name} menu={branchMenu} row={row} />)
+      )}
+      <DropdownMenuSeparator />
+      <div className="flex gap-1 p-1">
+        <Input
+          aria-label="New branch name"
+          className="h-8 font-mono text-xs"
+          data-testid="workspace-bar-branch-new-name"
+          disabled={branchMenu.pending}
+          onChange={(event) => onNewBranchNameChange(event.target.value)}
+          onKeyDown={(event) => event.stopPropagation()}
+          placeholder="New branch name"
+          value={newBranchName}
+        />
+        <Button
+          data-testid="workspace-bar-branch-create"
+          disabled={branchMenu.pending || trimmedNewBranchName.length === 0}
+          onClick={createBranch}
+          size="icon-sm"
+          title="Create branch"
+          type="button"
+          variant="outline"
+        >
+          <GitBranchPlus aria-hidden="true" className="size-3.5" />
+          <span className="sr-only">Create branch</span>
+        </Button>
+      </div>
+      {branchMenu.onFetch ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            data-testid="workspace-bar-branch-fetch"
+            disabled={branchMenu.pending}
+            onSelect={branchMenu.onFetch}
+          >
+            <RefreshCw aria-hidden="true" className="size-3.5" />
+            Fetch
+          </DropdownMenuItem>
+        </>
+      ) : null}
+    </>
+  );
+};
+
+/**
+ * The interactive chip: the branch switcher, the forge diagnostic, or both.
+ *
+ * ONE component for every combination, so the menu survives its data
+ * arriving. The forge diagnostic usually lands before the branch list does;
+ * as separate components, the switch from diagnostic-only to switcher
+ * remounted the trigger and silently closed a menu the user had just opened.
+ * Here a menu opened on the diagnostic simply gains its branch rows.
+ */
+const BranchMenuChip = ({
   ahead,
   behind,
   branchMenu,
@@ -193,19 +263,11 @@ const InteractiveBranchMenu = ({
   label,
   summary,
 }: BranchChipGlyphProps & {
-  readonly branchMenu: WorkspaceBarBranchMenu;
-  readonly forgeDiagnostic?: string | undefined;
+  readonly branchMenu: WorkspaceBarBranchMenu | undefined;
+  readonly forgeDiagnostic: string | undefined;
   readonly summary: string;
 }): ReactElement => {
   const [newBranchName, setNewBranchName] = useState('');
-  const trimmedNewBranchName = newBranchName.trim();
-  const createBranch = (): void => {
-    if (branchMenu.pending || trimmedNewBranchName.length === 0) {
-      return;
-    }
-    branchMenu.onCreateBranch(trimmedNewBranchName);
-    setNewBranchName('');
-  };
 
   return (
     <DropdownMenu>
@@ -220,79 +282,15 @@ const InteractiveBranchMenu = ({
         <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-80">
-        <div className="p-1">
-          <Input
-            aria-label="Filter branches"
-            className="h-8 font-mono text-xs"
-            data-testid="workspace-bar-branch-search"
-            onChange={(event) => branchMenu.onQueryChange(event.target.value)}
-            onKeyDown={(event) => event.stopPropagation()}
-            placeholder="Filter branches"
-            value={branchMenu.query}
+        {branchMenu ? (
+          <BranchSwitcherSection
+            branchMenu={branchMenu}
+            newBranchName={newBranchName}
+            onNewBranchNameChange={setNewBranchName}
           />
-        </div>
-        <DropdownMenuLabel className="px-3 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-          Local branches
-        </DropdownMenuLabel>
-        {branchMenu.pending ? (
-          <span className="block px-3 py-1 text-[10px] text-muted-foreground">
-            Branch operation in progress.
-          </span>
         ) : null}
-        {branchMenu.scopeReason ? (
-          <span
-            className="block px-3 py-2 text-muted-foreground text-xs"
-            data-testid="workspace-bar-branch-scope-reason"
-          >
-            {branchMenu.scopeReason}
-          </span>
-        ) : (
-          branchMenu.rows.map((row) => <BranchMenuRow key={row.name} menu={branchMenu} row={row} />)
-        )}
-        <DropdownMenuSeparator />
-        <div className="flex gap-1 p-1">
-          <Input
-            aria-label="New branch name"
-            className="h-8 font-mono text-xs"
-            data-testid="workspace-bar-branch-new-name"
-            disabled={branchMenu.pending}
-            onChange={(event) => setNewBranchName(event.target.value)}
-            onKeyDown={(event) => event.stopPropagation()}
-            placeholder="New branch name"
-            value={newBranchName}
-          />
-          <Button
-            data-testid="workspace-bar-branch-create"
-            disabled={branchMenu.pending || trimmedNewBranchName.length === 0}
-            onClick={createBranch}
-            size="icon-sm"
-            title="Create branch"
-            type="button"
-            variant="outline"
-          >
-            <GitBranchPlus aria-hidden="true" className="size-3.5" />
-            <span className="sr-only">Create branch</span>
-          </Button>
-        </div>
-        {branchMenu.onFetch ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              data-testid="workspace-bar-branch-fetch"
-              disabled={branchMenu.pending}
-              onSelect={branchMenu.onFetch}
-            >
-              <RefreshCw aria-hidden="true" className="size-3.5" />
-              Fetch
-            </DropdownMenuItem>
-          </>
-        ) : null}
-        {forgeDiagnostic ? (
-          <>
-            <DropdownMenuSeparator />
-            <ForgeDiagnosticSection reason={forgeDiagnostic} />
-          </>
-        ) : null}
+        {branchMenu && forgeDiagnostic ? <DropdownMenuSeparator /> : null}
+        {forgeDiagnostic ? <ForgeDiagnosticSection reason={forgeDiagnostic} /> : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -303,17 +301,11 @@ const InteractiveBranchMenu = ({
  * diagnostic this preserves W1's read-only labelled image; desktop callers
  * can opt into the switcher by supplying an already-gated branch menu model.
  *
- * A forge diagnostic joins the existing switcher menu when one is available.
- * Without a branch menu, it gets a minimal diagnostic-only menu so the reason
- * remains visible and keyboard-accessible. The reason is never tooltip-only.
- *
- * A thin dispatcher over three EXHAUSTIVE, mutually exclusive sub-components —
- * checked directly on `branchMenu` and `forgeDiagnostic` (rather than a single
- * up-front disjunction guard plus a nested `if (!forgeDiagnostic) throw` to
- * recover the narrowing) so each branch's own truthy check is what narrows
- * its variable, with nothing left unreachable to maintain. Split out of one
- * function (BST-1391 fix round) once that restructuring pushed this
- * component's own cognitive complexity past biome's cap.
+ * A forge diagnostic joins the switcher menu, or forms the whole menu when
+ * there is no switcher yet, so the reason stays visible and
+ * keyboard-accessible. The reason is never tooltip-only. Both menu states are
+ * one component (see `BranchMenuChip`) so an open menu survives either
+ * model arriving.
  */
 export const BranchChip = ({
   branchMenu,
@@ -336,9 +328,9 @@ export const BranchChip = ({
     .filter((part) => part !== null)
     .join(' · ');
 
-  if (branchMenu) {
+  if (branchMenu || forgeDiagnostic) {
     return (
-      <InteractiveBranchMenu
+      <BranchMenuChip
         ahead={ahead}
         behind={behind}
         branchMenu={branchMenu}
@@ -346,19 +338,6 @@ export const BranchChip = ({
         forgeDiagnostic={forgeDiagnostic}
         label={label}
         summary={summary}
-      />
-    );
-  }
-
-  if (forgeDiagnostic) {
-    return (
-      <DiagnosticOnlyBranchChip
-        ahead={ahead}
-        behind={behind}
-        checkout={checkout}
-        forgeDiagnostic={forgeDiagnostic}
-        interactiveName={interactiveBranchName(summary, forgeDiagnostic)}
-        label={label}
       />
     );
   }
