@@ -137,7 +137,7 @@ function startStateIndexWorker(options: { readonly dbPath: string }): IndexerCon
       };
     },
     onExit: (listener) => {
-      const exited = (): void => listener();
+      const exited = (code: number): void => listener(code);
       worker.on('exit', exited);
       return () => {
         worker.off('exit', exited);

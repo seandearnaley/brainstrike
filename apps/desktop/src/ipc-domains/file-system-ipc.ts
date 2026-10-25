@@ -553,6 +553,7 @@ export function createFileSystemIpcDomain({
     // expected. So is a damaged store, which opened read-only (BST-2144).
     isExpectedCatalogRefusal: (error) =>
       isExpectedShutdownRefusal(error) || isStateStoreReadOnly(error),
+    onRestoredRootsChanged: onWorkspaceRootsChanged,
     onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
     resolveCanonicalRoot: async (rootPath) => {
