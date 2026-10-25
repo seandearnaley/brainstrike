@@ -1,12 +1,14 @@
-# Gates every merge-queue batch; the nightly on main runs only its Unit jobs.
+# Gates every merge-queue batch; the nightly on main runs only its Unit and
+# Windows jobs.
 # Per-PR hosted CI is off; main lands through the merge queue after `pnpm check`.
 
 name: Test
 
 on:
   # BST-2233: no schedule of its own. nightly.yml calls this workflow each
-  # night with `nightly: true`: only the complete Unit run (every package, the
-  # state-store soak) runs, because every other job gates each queue batch.
+  # night with `nightly: true`: only the complete Unit and Windows runs (every
+  # package, the state-store soak) run, because every other job gates each
+  # queue batch and a batch runs Unit and Windows on affected packages only.
   workflow_dispatch:
   # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
   # on each Mergify merge-queue batch, so the queue's fast tier is these jobs,
@@ -680,7 +682,7 @@ jobs:
   # Linux test host installs it.
   windows-shard:
     name: Windows (${{ matrix.shard }})
-    if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0' && !inputs.nightly
+    if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0'
     needs: [admission, unit-plan]
     runs-on: windows-latest
     timeout-minutes: 40
@@ -768,7 +770,7 @@ jobs:
   # Fan-in over the Windows shards, like Unit over unit-shard.
   windows:
     name: Windows
-    if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission, unit-plan, windows-shard]
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -1268,18 +1270,18 @@ jobs:
             exit 1
           fi
 
-  # A red night must announce itself. The nightly runs only the Unit jobs, so
-  # their results go to the shared Linear notifier, which files one
-  # `nightly-alert` issue per red workflow and comments on later nights.
+  # A red night must announce itself. The nightly runs only the Unit and
+  # Windows jobs, so their results go to the shared Linear notifier, which files
+  # one `nightly-alert` issue per red workflow and comments on later nights.
   notify-linear:
     name: Notify Linear
-    needs: [admission, unit-plan, unit-shard, unit]
+    needs: [admission, unit-plan, unit-shard, unit, windows-shard, windows]
     if: ${{ github.repository == 'seandearnaley/brainstrike' && always() && github.event_name == 'schedule' }}
     uses: ./.github/workflows/nightly-linear-alert.yml
     with:
       # This workflow's own name: in nightly.yml's call, github.workflow is
       # the caller's (BST-2233).
       workflow_name: Test
-      results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }}
+      results: admission=${{ needs.admission.result }},unit-plan=${{ needs.unit-plan.result }},unit-shard=${{ needs.unit-shard.result }},unit=${{ needs.unit.result }},windows-shard=${{ needs.windows-shard.result }},windows=${{ needs.windows.result }}
     secrets:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
