@@ -3,13 +3,11 @@
   "description": "Persistent token cache with background worker for file explorer.",
   "version": "0.1.0",
   "dependencies": {
-    "@brainstrike/effect-kit": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/worker-runtime": "workspace:*",
-    "effect": "catalog:",
     "xxhash-wasm": "catalog:"
   },
   "devDependencies": {

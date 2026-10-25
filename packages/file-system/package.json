@@ -16,8 +16,7 @@
     "electron": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "esbuild": "catalog:"
+    "vitest": "catalog:"
   },
   "exports": {
     ".": "./src/index.ts",

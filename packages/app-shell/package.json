@@ -18,7 +18,6 @@
     "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
-    "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
     "@brainstrike/token-cache": "workspace:*",
