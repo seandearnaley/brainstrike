@@ -55,6 +55,15 @@ function request() {
     texts: ['  document one\n', 'document two'],
   });
 }
+/** A worker that answers each slice it is given with the fixture result of each of its texts. */
+function bySlice(batch: readonly EmbeddingResult[]) {
+  const texts = request().payload.texts;
+  return async (...args: unknown[]): Promise<EmbeddingResult[]> =>
+    (args[0] as readonly string[]).flatMap((text) => {
+      const result = batch[texts.indexOf(text)];
+      return result ? [result] : [];
+    });
+}
 // BST-1993: the granite catalog plan Main resolves, CLS pooling included.
 const granitePlan = {
   device: 'webgpu' as const,
@@ -95,8 +104,8 @@ async function mount() {
 }
 describe('hidden pinned document batch', () => {
   installEmbeddingHostRuntimeFixture();
-  it('runs document semantics once, retains order and pins without catalog resolution', async () => {
-    generateDocumentEmbeddingsMock.mockResolvedValue(results());
+  it('runs document semantics one worker slice per turn, retains order and pins without catalog resolution', async () => {
+    generateDocumentEmbeddingsMock.mockImplementation(bySlice(results()));
     await mount();
     const next = request();
     await act(async () => documentEmbeddingsListenerRef.current?.(next));
@@ -108,10 +117,13 @@ describe('hidden pinned document batch', () => {
         })
       )
     );
-    expect(generateDocumentEmbeddingsMock).toHaveBeenCalledExactlyOnceWith(next.payload.texts, {
-      onProgress: expect.any(Function),
-      signal: expect.any(AbortSignal),
-    });
+    // WASM slices hold one text each, so each text is its own inference call, in order.
+    expect(generateDocumentEmbeddingsMock.mock.calls).toEqual(
+      next.payload.texts.map((text) => [
+        [text],
+        { onProgress: expect.any(Function), signal: expect.any(AbortSignal) },
+      ])
+    );
     expect(generateQueryEmbeddingMock).not.toHaveBeenCalled();
     expect(initializeWithModelMock).not.toHaveBeenCalled();
     expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining(plan));
@@ -123,7 +135,7 @@ describe('hidden pinned document batch', () => {
       };
       options.onProgress({ stage: 'setup' });
       options.onProgress({ completed: 1, stage: 'inference' });
-      return results();
+      return bySlice(results())(...args);
     });
     await mount();
     const next = request();
@@ -141,6 +153,9 @@ describe('hidden pinned document batch', () => {
     ).toEqual([
       ['progress', { stage: 'setup' }],
       ['progress', { completed: 1, stage: 'inference' }],
+      // The second slice counts its text over the whole batch.
+      ['progress', { stage: 'setup' }],
+      ['progress', { completed: 2, stage: 'inference' }],
       ['result', { embeddings: results().map((result) => result.embedding) }],
     ]);
     expect(reportDocumentEmbeddingsResponseMock.mock.calls[0]?.[0]).toMatchObject({
@@ -151,11 +166,15 @@ describe('hidden pinned document batch', () => {
   });
   it('requests CLS pooling for the granite profile and keeps mean the default elsewhere (BST-1993)', async () => {
     generateDocumentEmbeddingsMock
-      .mockResolvedValueOnce(results())
+      .mockImplementationOnce(bySlice(results()))
+      .mockImplementationOnce(bySlice(results()))
       .mockResolvedValueOnce(graniteResults('cls'));
     await mount();
     await act(async () => documentEmbeddingsListenerRef.current?.(request()));
     await waitFor(() => expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledOnce());
+    expect(reportDocumentEmbeddingsResponseMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'result' })
+    );
     expect(initializeMock).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ pooling: 'cls' })
     );
@@ -275,7 +294,7 @@ describe('hidden pinned document batch', () => {
     if (invalid === 'nonfinite') {
       second.embedding[0] = Number.NaN;
     }
-    generateDocumentEmbeddingsMock.mockResolvedValue(batch);
+    generateDocumentEmbeddingsMock.mockImplementation(bySlice(batch));
     await mount();
     await act(async () => documentEmbeddingsListenerRef.current?.(request()));
     await waitFor(() =>
@@ -290,8 +309,8 @@ describe('hidden pinned document batch', () => {
   it('an active cancel fences only its request while physical settlement serializes the next batch', async () => {
     const pending = Promise.withResolvers<EmbeddingResult[]>();
     generateDocumentEmbeddingsMock
-      .mockReturnValueOnce(pending.promise)
-      .mockResolvedValueOnce(results());
+      .mockImplementation(bySlice(results()))
+      .mockReturnValueOnce(pending.promise);
     await mount();
     const first = request();
     const second = request();
@@ -319,7 +338,8 @@ describe('hidden pinned document batch', () => {
       expect.objectContaining({ requestId: first.requestId })
     );
     pending.resolve(results());
-    await waitFor(() => expect(generateDocumentEmbeddingsMock).toHaveBeenCalledTimes(2));
+    // The canceled batch ends at its first slice; the next batch runs both of its slices.
+    await waitFor(() => expect(generateDocumentEmbeddingsMock).toHaveBeenCalledTimes(3));
     await waitFor(() =>
       expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledWith(
         expect.objectContaining({ requestId: second.requestId, type: 'result' })

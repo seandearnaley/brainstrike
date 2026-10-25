@@ -36,12 +36,12 @@ function documentRequest() {
   });
 }
 
-/** Queues one request behind a held FIFO, optionally cancels it, then closes its generation. */
+/** Queues one batch behind a held earlier batch, optionally cancels it, then closes its generation. */
 async function closeWithQueuedRequest(cancel: boolean) {
   const owner = createQueryEmbeddingRuntimeOwner({ read: readModelCatalogMock });
   const fifo = Promise.withResolvers<void>();
   const physical = Promise.withResolvers<void>();
-  owner.executionTailRef.current = fifo.promise;
+  owner.documentTailRef.current = fifo.promise;
   const handle = vi.fn(async () => {});
   const unsubscribe = subscribeDocumentEmbeddingsRequests({
     handle,
@@ -72,7 +72,7 @@ async function closeWithQueuedRequest(cancel: boolean) {
   expect(reportDocumentEmbeddingsResponseMock).not.toHaveBeenCalled();
   physical.resolve();
   await closing;
-  await owner.executionTailRef.current;
+  await owner.documentTailRef.current;
   expect(handle).not.toHaveBeenCalled();
   return queued;
 }

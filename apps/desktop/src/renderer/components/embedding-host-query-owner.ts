@@ -24,11 +24,24 @@ export interface QueryEmbeddingRuntimeOwner extends QueryEmbeddingStateRefs {
   closed: boolean;
   readonly closeRef: MutableRefObject<Promise<void> | null>;
   readonly disposalRef: MutableRefObject<Promise<void> | null>;
-  readonly executionTailRef: MutableRefObject<Promise<void>>;
+  /** Document batches run one at a time, in arrival order; each takes one turn per slice. */
+  readonly documentTailRef: MutableRefObject<Promise<void>>;
   readonly inferenceController: AbortController;
   readonly inferenceRef: MutableRefObject<Promise<unknown> | null>;
   readonly physicalRetirementRef: MutableRefObject<Promise<void> | null>;
   readonly requests: Map<string, AbortController>;
+  readonly turns: InferenceTurns;
+}
+
+/**
+ * The host's one inference queue. One turn runs at a time: a whole query, or one slice of a
+ * document batch. When a turn ends, the oldest waiting query goes next, so a search waits for
+ * at most the slice in flight, never the rest of a batch. FIFO within each kind.
+ */
+export interface InferenceTurns {
+  readonly documents: (() => void)[];
+  held: boolean;
+  readonly queries: (() => void)[];
 }
 
 export function createQueryEmbeddingRuntimeOwner(
@@ -41,22 +54,68 @@ export function createQueryEmbeddingRuntimeOwner(
     closed: false,
     closeRef: { current: null },
     disposalRef: { current: null },
-    executionTailRef: { current: Promise.resolve() },
+    documentTailRef: { current: Promise.resolve() },
     inferenceController: new AbortController(),
     inferenceRef: { current: null },
     physicalRetirementRef: { current: null },
     requests: new Map(),
     serviceStateRef: { current: null },
+    turns: { documents: [], held: false, queries: [] },
   };
 }
 
-/** FIFO includes service selection and initialization, not just queue submission. */
-export function enqueueQueryEmbeddingOperation(
+function releaseInferenceTurn(turns: InferenceTurns): void {
+  const next = turns.queries.shift() ?? turns.documents.shift();
+  if (next) {
+    next();
+  } else {
+    turns.held = false;
+  }
+}
+
+/** Resolves once this caller holds the turn; the returned release passes it on exactly once. */
+export function acquireInferenceTurn(
+  owner: QueryEmbeddingRuntimeOwner,
+  kind: 'document' | 'query'
+): Promise<() => void> {
+  const { turns } = owner;
+  let released = false;
+  const release = (): void => {
+    if (!released) {
+      released = true;
+      releaseInferenceTurn(turns);
+    }
+  };
+  if (!turns.held) {
+    turns.held = true;
+    return Promise.resolve(release);
+  }
+  return new Promise((resolve) => {
+    (kind === 'query' ? turns.queries : turns.documents).push(() => resolve(release));
+  });
+}
+
+/** Service selection and initialization run inside the turn, not just queue submission. */
+export async function runInferenceTurn<Result>(
+  owner: QueryEmbeddingRuntimeOwner,
+  kind: 'document' | 'query',
+  operation: () => Promise<Result>
+): Promise<Result> {
+  const release = await acquireInferenceTurn(owner, kind);
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+/** Document batches settle in arrival order; their slices interleave only with queries. */
+export function enqueueDocumentEmbeddingsOperation(
   owner: QueryEmbeddingRuntimeOwner,
   operation: () => Promise<void>
 ): Promise<void> {
-  const execution = owner.executionTailRef.current.then(operation);
-  owner.executionTailRef.current = execution.then(
+  const execution = owner.documentTailRef.current.then(operation);
+  owner.documentTailRef.current = execution.then(
     () => undefined,
     () => undefined
   );

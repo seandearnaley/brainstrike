@@ -3,13 +3,9 @@ import { createBoundaryCapability } from '@brainstrike/assistant-contract/bounda
 import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
+import { DEFAULT_WORKER_SLICE_SIZE } from '@brainstrike/embeddings/inference-plan';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
-import {
-  createForegroundEmbeddingGate,
-  type ForegroundEmbeddingGate,
-  POWER_BROADCAST_CHANNEL,
-  runCoordinatedQueryEmbedding,
-} from '@brainstrike/embeddings/worker';
+import { POWER_BROADCAST_CHANNEL } from '@brainstrike/embeddings/worker';
 import { isEmbeddingDeviceUnavailable } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { type MutableRefObject, useEffect, useRef } from 'react';
@@ -50,6 +46,7 @@ import {
   joinQueryEmbeddingFailure,
   type QueryEmbeddingRuntimeOwner,
   type QueryEmbeddingServiceState,
+  runInferenceTurn,
   runOwnedQueryEmbeddingInference,
 } from './embedding-host-query-owner';
 import {
@@ -67,7 +64,6 @@ import {
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 
 const logger = createLogger('EmbeddingHostRuntime');
-const QUERY_DRAIN_TIMEOUT_MS = 5000;
 async function ensureEmbeddingQueueBootstrapLoaded(isCurrent: () => boolean): Promise<void> {
   const module = await import('../create-embedding-queue');
   await module.reopenEmbeddingQueue(isCurrent);
@@ -173,7 +169,6 @@ async function handleQueryEmbeddingRequest(options: {
   readonly catalog: Pick<ModelCatalogCapability, 'read'> | undefined;
   readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
-  readonly gate: ForegroundEmbeddingGate;
   readonly isCurrent: () => boolean;
   readonly queryOwner: QueryEmbeddingRuntimeOwner;
   readonly signal: AbortSignal;
@@ -186,7 +181,6 @@ async function handleQueryEmbeddingRequest(options: {
     catalog,
     embeddingRuntimeRef,
     fatalErrorRef,
-    gate,
     isCurrent,
     queryOwner,
     signal,
@@ -208,6 +202,68 @@ async function handleQueryEmbeddingRequest(options: {
       stage,
     });
   };
+  /** Runs inside the caller's inference turn: the service it returns is current for that turn. */
+  const prepareService = async (): Promise<QueryEmbeddingServiceState> => {
+    signal.throwIfAborted();
+    if (fatalErrorRef.current) {
+      throw new Error(fatalErrorRef.current);
+    }
+    reportQueryPhase('service-preparation');
+    const serviceState = await getQueryEmbeddingService(
+      catalog,
+      request,
+      runtimeIdRef,
+      queryOwner,
+      isCurrent,
+      (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        fatalErrorRef.current = message;
+        queryEmbeddingActiveCountRef.current = 0;
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+          active: false,
+          embeddingRuntime: embeddingRuntimeRef.current,
+          lastError: message,
+        });
+      },
+      signal
+    );
+    assertQueryEmbeddingRuntimeCurrent(isCurrent);
+    return serviceState;
+  };
+  const acceptResults = (
+    serviceState: QueryEmbeddingServiceState,
+    results: readonly EmbeddingResult[],
+    expectedCount: number
+  ): void => {
+    assertQueryEmbeddingRuntimeCurrent(isCurrent);
+    signal.throwIfAborted();
+    if (results.length !== expectedCount) {
+      throw new Error('Embedding host returned an incorrect vector count.');
+    }
+    for (const result of results) {
+      assertEmbeddingResultDimensions(request, result);
+      assertPinnedQueryEmbeddingResult(request, result);
+    }
+    const runtime = results[0]?.runtime;
+    if (!runtime) {
+      return;
+    }
+    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
+      serviceState.selectedDevicePreference,
+      runtime,
+      embeddingHostDevice(embeddingRuntimeRef.current)
+    );
+    const mismatch = createBackendMismatchError(embeddingRuntimeRef.current);
+    if (mismatch) {
+      fatalErrorRef.current = mismatch;
+      throw new Error(mismatch);
+    }
+    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+      active: true,
+      embeddingRuntime: embeddingRuntimeRef.current,
+    });
+  };
+
   queryEmbeddingActiveCountRef.current += 1;
   reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
     active: true,
@@ -221,105 +277,62 @@ async function handleQueryEmbeddingRequest(options: {
     if (request.runtimeId !== runtimeIdRef.current) {
       throw new Error('Embedding host query request targeted a stale runtime.');
     }
-    const result = await runCoordinatedQueryEmbedding({
-      drainTimeoutMs: QUERY_DRAIN_TIMEOUT_MS,
-      gate,
-      generate: async () => {
-        reportQueryPhase('service-preparation');
-        const serviceState = await getQueryEmbeddingService(
-          catalog,
-          request,
-          runtimeIdRef,
-          queryOwner,
-          isCurrent,
-          (error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            fatalErrorRef.current = message;
-            queryEmbeddingActiveCountRef.current = 0;
-            reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-              active: false,
-              embeddingRuntime: embeddingRuntimeRef.current,
-              lastError: message,
-            });
-          },
-          signal
-        );
-        assertQueryEmbeddingRuntimeCurrent(isCurrent);
-        reportQueryPhase('inference');
-        const generated = await runOwnedQueryEmbeddingInference<
-          EmbeddingResult | EmbeddingResult[]
-        >(
-          queryOwner,
-          (inferenceSignal) =>
-            request.channel === 'document-embeddings'
-              ? serviceState.service.generateEmbeddings(request.payload.texts, {
-                  // Main re-arms the batch window on setup heartbeats and on each slice
-                  // (liveness, not settlement).
-                  onProgress: (progress) =>
-                    reportDocumentEmbeddingsResponse(
-                      createEmbeddingHostDocumentEmbeddingsProgressReport(request, progress)
-                    ),
-                  signal: inferenceSignal,
-                })
-              : serviceState.service.generateQueryEmbedding(request.payload.query, {
-                  signal: inferenceSignal,
-                }),
-          signal
-        );
-        assertQueryEmbeddingRuntimeCurrent(isCurrent);
-        signal.throwIfAborted();
-        const results = Array.isArray(generated) ? generated : [generated];
-        const expectedCount =
-          request.channel === 'document-embeddings' ? request.payload.texts.length : 1;
-        if (results.length !== expectedCount) {
-          throw new Error('Embedding host returned an incorrect vector count.');
-        }
-        for (const result of results) {
-          assertEmbeddingResultDimensions(request, result);
-          assertPinnedQueryEmbeddingResult(request, result);
-        }
-        reportQueryPhase('complete');
-        const runtime = results[0]?.runtime;
-        if (runtime) {
-          embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
-            serviceState.selectedDevicePreference,
-            runtime,
-            embeddingHostDevice(embeddingRuntimeRef.current)
+    if (request.channel === 'document-embeddings') {
+      // One inference turn per worker slice: a query that arrives mid-batch takes the next
+      // turn, so a search waits for the slice in flight, not the rest of the batch.
+      const { inferencePlan, texts } = request.payload;
+      const sliceSize = DEFAULT_WORKER_SLICE_SIZE[inferencePlan.device];
+      const embeddings: number[][] = [];
+      for (let start = 0; start < texts.length; start += sliceSize) {
+        const slice = texts.slice(start, start + sliceSize);
+        const generated = await runInferenceTurn(queryOwner, 'document', async () => {
+          const serviceState = await prepareService();
+          const results = await runOwnedQueryEmbeddingInference(
+            queryOwner,
+            (inferenceSignal) =>
+              serviceState.service.generateEmbeddings(slice, {
+                // Main re-arms the batch window on setup heartbeats and on each slice
+                // (liveness, not settlement), counted over the whole batch.
+                onProgress: (progress) =>
+                  reportDocumentEmbeddingsResponse(
+                    createEmbeddingHostDocumentEmbeddingsProgressReport(
+                      request,
+                      progress.stage === 'inference'
+                        ? { completed: start + progress.completed, stage: 'inference' }
+                        : progress
+                    )
+                  ),
+                signal: inferenceSignal,
+              }),
+            signal
           );
-          const mismatch = createBackendMismatchError(embeddingRuntimeRef.current);
-          if (mismatch) {
-            fatalErrorRef.current = mismatch;
-            throw new Error(mismatch);
-          }
-          reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
-            active: true,
-            embeddingRuntime: embeddingRuntimeRef.current,
-          });
-        }
-        return generated;
-      },
-      isWorkerActive: () => activeRef.current,
-      onDrainTimeout: () => {
-        logger.warn('Embedding host query rejected because background drain did not complete', {
-          requestId: request.requestId,
-          runtimeId: request.runtimeId,
+          acceptResults(serviceState, results, slice.length);
+          return results;
         });
-      },
-      signal,
-    });
-    if (request.channel === 'document-embeddings' && Array.isArray(result)) {
+        for (const result of generated) {
+          embeddings.push(result.embedding);
+        }
+      }
       reportDocumentEmbeddingsResponse(
-        createEmbeddingHostDocumentEmbeddingsResultReport(
-          request,
-          result.map((item) => item.embedding)
-        )
+        createEmbeddingHostDocumentEmbeddingsResultReport(request, embeddings)
       );
-    } else if (request.channel === 'query-embedding' && !Array.isArray(result)) {
+    } else {
+      // The query listener already holds this request's inference turn.
+      const serviceState = await prepareService();
+      reportQueryPhase('inference');
+      const result = await runOwnedQueryEmbeddingInference(
+        queryOwner,
+        (inferenceSignal) =>
+          serviceState.service.generateQueryEmbedding(request.payload.query, {
+            signal: inferenceSignal,
+          }),
+        signal
+      );
+      acceptResults(serviceState, [result], 1);
+      reportQueryPhase('complete');
       reportQueryEmbeddingResponse(
         createEmbeddingHostQueryEmbeddingResultReport(request, result.embedding)
       );
-    } else {
-      throw new Error('Embedding response did not match request kind.');
     }
   } catch (requestError) {
     const error = await joinQueryEmbeddingFailure(queryOwner, requestError);
@@ -376,7 +389,6 @@ export function EmbeddingHostRuntime(): null {
     startBackground(): Promise<void>;
   } | null>(null);
   const queryEmbeddingOwnerRef = useRef<QueryEmbeddingRuntimeOwner | null>(null);
-  const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
 
   useEffect(() => {
     const catalog = window.modelCatalog
@@ -591,7 +603,6 @@ export function EmbeddingHostRuntime(): null {
             catalog: queryOwner.catalog,
             embeddingRuntimeRef,
             fatalErrorRef,
-            gate: gateRef.current,
             isCurrent,
             queryEmbeddingActiveCountRef: queryOwner.activeCountRef,
             queryOwner,
@@ -614,7 +625,6 @@ export function EmbeddingHostRuntime(): null {
             catalog: queryOwner.catalog,
             embeddingRuntimeRef,
             fatalErrorRef,
-            gate: gateRef.current,
             isCurrent,
             queryEmbeddingActiveCountRef: queryOwner.activeCountRef,
             queryOwner,
