@@ -257,6 +257,67 @@ Napi::Value GetProcessCreationTime(const Napi::CallbackInfo& info) {
   return Napi::String::New(env, creation);
 }
 
+// Joins one process's exit on its own handle: the OS signals it when the process has
+// exited, so no owner polls for it. The worker owns the handle and closes it.
+class ProcessExitWorker final : public Napi::AsyncWorker {
+ public:
+  ProcessExitWorker(Napi::Env env, HANDLE process, Napi::Promise::Deferred deferred)
+      : Napi::AsyncWorker(env), process_(process), deferred_(deferred) {}
+  ~ProcessExitWorker() override { CloseHandle(process_); }
+
+  void Execute() override {
+    const DWORD wait = WaitForSingleObject(process_, INFINITE);
+    if (wait != WAIT_OBJECT_0) {
+      SetError(WindowsError("WaitForSingleObject", wait == WAIT_FAILED ? GetLastError() : wait));
+    }
+  }
+  void OnOK() override { deferred_.Resolve(Env().Undefined()); }
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+ private:
+  HANDLE process_;
+  Napi::Promise::Deferred deferred_;
+};
+
+Napi::Value WaitForProcessExit(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  const double value = info.Length() == 2 && info[0].IsNumber()
+                           ? info[0].As<Napi::Number>().DoubleValue()
+                           : 0;
+  if (!std::isfinite(value) || value <= 0 || value > UINT32_MAX || std::floor(value) != value ||
+      !info[1].IsString()) {
+    Napi::TypeError::New(env, "Expected a positive integer PID and its creation time.")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const std::string expected = info[1].As<Napi::String>().Utf8Value();
+  Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+                               static_cast<DWORD>(value));
+  if (process == nullptr) {
+    const DWORD error = GetLastError();
+    if (error == ERROR_INVALID_PARAMETER) {
+      deferred.Resolve(env.Undefined());  // no such process: it has exited
+    } else {
+      deferred.Reject(Napi::Error::New(env, WindowsError("OpenProcess", error)).Value());
+    }
+    return deferred.Promise();
+  }
+  std::string creation, error;
+  if (!ReadCreationTime(process, &creation, &error)) {
+    CloseHandle(process);
+    deferred.Reject(Napi::Error::New(env, error).Value());
+    return deferred.Promise();
+  }
+  if (creation != expected) {
+    CloseHandle(process);  // the PID now names another process: the one asked for has exited
+    deferred.Resolve(env.Undefined());
+    return deferred.Promise();
+  }
+  (new ProcessExitWorker(env, process, deferred))->Queue();
+  return deferred.Promise();
+}
+
 bool ReadCommandMembers(HANDLE job, std::vector<ULONG_PTR>* members, std::string* error) {
   JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
   if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting,
@@ -608,6 +669,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("activeProcessCount", Napi::Function::New(env, ActiveProcessCount));
   exports.Set("initialize", Napi::Function::New(env, Initialize));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, TerminateOtherProcesses));
+  exports.Set("waitForProcessExit", Napi::Function::New(env, WaitForProcessExit));
 #else
   exports.Set("createCommandJob", Napi::Function::New(env, Unsupported));
   exports.Set("getCurrentProcessIdentity", Napi::Function::New(env, Unsupported));
@@ -615,6 +677,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("activeProcessCount", Napi::Function::New(env, Unsupported));
   exports.Set("initialize", Napi::Function::New(env, Unsupported));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, Unsupported));
+  exports.Set("waitForProcessExit", Napi::Function::New(env, Unsupported));
 #endif
   return exports;
 }

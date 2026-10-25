@@ -9,7 +9,7 @@ import { Schema } from 'effect';
 import { afterEach, describe, expect, it } from 'vitest';
 import { decoder, type EmbeddingProfile, profileSchema, vectorSchema } from '../src/contracts.js';
 
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const profile = {
   dimensions: 384,
   dtype: 'q8',

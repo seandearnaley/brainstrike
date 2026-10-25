@@ -111,7 +111,7 @@ describe('command session manager', () => {
         spawned.push(process);
         return process as unknown as IPty;
       }) as never,
-      treeKill: (_pid, _signal, callback) => callback?.(),
+      terminateTree: () => Promise.resolve(),
     });
   }
 
@@ -580,7 +580,7 @@ describe('command session manager', () => {
         abortController.abort();
         return process as unknown as IPty;
       }) as never,
-      treeKill: (_pid, _signal, callback) => callback?.(),
+      terminateTree: () => Promise.resolve(),
     });
 
     await expect(
