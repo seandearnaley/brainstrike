@@ -63,7 +63,7 @@ export interface ExitedCommandSession extends CommandSessionBase {
 
 export type CommandSessionInfo = ExitedCommandSession | RunningCommandSession;
 
-export interface StartCommandSessionInput {
+interface StartCommandSessionInput {
   readonly cols?: number;
   readonly command: string;
   /** Absolute or workspace-relative start directory. */

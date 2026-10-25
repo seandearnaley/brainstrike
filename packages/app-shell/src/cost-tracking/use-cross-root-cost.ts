@@ -12,7 +12,7 @@ import { getThreadGroupsCapability } from '../thread-groups-capability';
  * bucket or a legacy path-remapped join miss). NULL root_id is the
  * unattributed bucket.
  */
-export type CrossRootUsageQueryRow = CrossRootUsageRow;
+type CrossRootUsageQueryRow = CrossRootUsageRow;
 
 /** Desktop usage comes exclusively from the agent host. */
 export interface CrossRootCostState {

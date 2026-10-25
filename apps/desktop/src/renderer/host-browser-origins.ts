@@ -8,7 +8,7 @@ export interface DesktopHostBrowserOrigins {
 }
 
 /** Over one host connection: the host owns the answers; this window only asks. */
-export function createDesktopHostBrowserOrigins(
+function createDesktopHostBrowserOrigins(
   connection: DesktopHostConnection
 ): DesktopHostBrowserOrigins {
   return {

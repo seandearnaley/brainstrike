@@ -284,7 +284,6 @@ export {
   disposeQueryEmbeddingServiceMock,
   documentEmbeddingsCancelListenerRef,
   documentEmbeddingsListenerRef,
-  embeddingQueueBootstrapMock,
   ensureVectorPreferencesHydratedMock,
   generateDocumentEmbeddingsMock,
   generateQueryEmbeddingMock,
@@ -302,7 +301,6 @@ export {
   retireEmbeddingQueueMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
-  stopMock,
   storeState,
   webgpuAdapterListenerRef,
 };

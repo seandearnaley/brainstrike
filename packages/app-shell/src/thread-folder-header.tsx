@@ -20,7 +20,7 @@ import type { ReactElement } from 'react';
  * the section's tooltip so the missing drag target reads as a rule rather than
  * a gap.
  */
-export const THREAD_FOLDER_GROUPING_HINT =
+const THREAD_FOLDER_GROUPING_HINT =
   "Grouped by the thread's primary folder — change it from the composer's folder chip.";
 
 export function ThreadFolderHeader({

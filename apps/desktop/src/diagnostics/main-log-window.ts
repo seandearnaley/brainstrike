@@ -9,13 +9,13 @@ export interface MainLogWindowRequest {
   readonly until: string;
 }
 
-export interface MainLogWindowFile {
+interface MainLogWindowFile {
   readonly firstTime: string | null;
   readonly lastTime: string | null;
   readonly name: string;
 }
 
-export interface MainLogWindowCounts {
+interface MainLogWindowCounts {
   readonly emptyChildResults: number;
   readonly toolTimeouts: number;
   readonly unhandledRejections: number;

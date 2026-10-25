@@ -57,7 +57,7 @@ import { type GitCommandRunner, toErrorMessage } from './git-service';
 import type { SnapshotService } from './snapshot-service';
 
 /** W7 snapshot-engine wiring (threaded from main.ts via the changes IPC options). */
-export interface ChangesetDiffServiceSnapshotDeps {
+interface ChangesetDiffServiceSnapshotDeps {
   /** Host threads' turns, from the host's committed log (BST-1977). */
   readonly hostThreads: HostThreadTurns;
   readonly resolveService: () => SnapshotService | null;

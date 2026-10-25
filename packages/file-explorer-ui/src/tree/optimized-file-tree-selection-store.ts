@@ -30,7 +30,7 @@ export interface FileTreeSelectionInputs {
  * letting the cell read `selectionModel`) keeps the cell off any input whose
  * identity changes per toggle.
  */
-export type FileTreeNodeCellState = NodeSelectionState;
+type FileTreeNodeCellState = NodeSelectionState;
 
 export interface FileTreeSelectionStore {
   /**

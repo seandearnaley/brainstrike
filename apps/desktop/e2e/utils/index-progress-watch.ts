@@ -10,7 +10,7 @@ export interface IndexProgressCounts {
   readonly fileCount: number;
 }
 
-export type IndexProgressVerdict = 'progressing' | 'stalled';
+type IndexProgressVerdict = 'progressing' | 'stalled';
 
 export interface IndexProgressWatch {
   /** Records counts read at `atMs`; `stalled` once they have not changed for the window. */

@@ -32,10 +32,10 @@ export function vectorProfileHash(input: unknown): string {
 export function supportedVectorProfile(profile: VectorProfile): void {
   decoder(vectorProfileSchema)(profile);
 }
-export function scopeKey(scope: IndexScope): string {
+function scopeKey(scope: IndexScope): string {
   return JSON.stringify(scope);
 }
-export function matchesScope(
+function matchesScope(
   file: Pick<IndexFileBinding, 'rootId' | 'embeddingSetId'>,
   scope: IndexScope
 ): boolean {

@@ -40,7 +40,7 @@ const FAIL_SAFE_PREFERENCE: SkillsContextRequest = {
  * DROPPED with a warn (never coerced) and the fail-safe default applies —
  * mirrors `readWorkspaceInstructionsPreference`.
  */
-export function readSkillsPreference(value: unknown): SkillsContextRequest {
+function readSkillsPreference(value: unknown): SkillsContextRequest {
   if (value === undefined) {
     return FAIL_SAFE_PREFERENCE;
   }

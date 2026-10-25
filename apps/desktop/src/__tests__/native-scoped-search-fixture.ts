@@ -31,7 +31,7 @@ export const binding = {
   rootId,
   sourcePath: '/workspace/root-a/notes.md',
 };
-export const hit = {
+const hit = {
   ...binding,
   chunkId: 'b'.repeat(64),
   chunkIndex: 0,

@@ -61,7 +61,7 @@ const KEYBOARD_FOCUS_KEYS = new Set([
   'End',
   'Home',
 ]);
-export const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
+const DEFAULT_AUTO_PAGED_ROW_THRESHOLD = 200;
 const MIN_FALLBACK_VIRTUAL_ROWS = 1;
 // Performance-only fallback cache keyed by table container element.
 // WeakMap ensures container entries are reclaimed after unmount.

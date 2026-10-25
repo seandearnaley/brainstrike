@@ -36,7 +36,7 @@ export interface EmbeddingConfig {
 /**
  * Hosted model configuration (subset of ModelConfig for API-based models)
  */
-export interface HostedModelConfig {
+interface HostedModelConfig {
   /** Context window size in tokens */
   contextWindow: number;
   /** Description for UI */

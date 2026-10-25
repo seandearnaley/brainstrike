@@ -36,7 +36,7 @@ export const MISSING_AWS_REGION_DETAIL =
  * would exfiltrate the bearer token and prompt content. The message stays
  * STATIC — the (attacker-controllable) value is never echoed.
  */
-export const INVALID_AWS_REGION_DETAIL =
+const INVALID_AWS_REGION_DETAIL =
   'The configured AWS region is not a valid AWS region identifier (expected a value like "us-east-1"). Fix the region for Bedrock in Settings or in AWS_REGION.';
 
 /**

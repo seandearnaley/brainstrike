@@ -19,7 +19,7 @@ export const TASKS_WIRE_ALIASES = Object.freeze({
   'tasks/update': 'brainstrike-lab/tasks/update',
 } as const);
 
-export type TasksWireMethod = keyof typeof TASKS_WIRE_ALIASES;
+type TasksWireMethod = keyof typeof TASKS_WIRE_ALIASES;
 
 /** Key under which a `task` tool result crosses the SDK funnel as `complete`. */
 export const TASKS_LAB_RESULT_KEY = 'brainstrike-lab/task-result';

@@ -25,7 +25,7 @@ type IndexedDoc = WebDocEntry & {
   sentenceTokens: Array<{ text: string; tokens: Set<string> }>;
 };
 
-export interface SearchResult {
+interface SearchResult {
   highlight: string;
   id: string;
   score: number;

@@ -66,7 +66,7 @@ export const KIND_PRIORITY: Readonly<Record<ContextSpanKind, number>> = {
   semantic: 2,
 };
 
-export function fileKey(span: Pick<ContextSpan, 'path' | 'rootId' | 'rootName'>): string {
+function fileKey(span: Pick<ContextSpan, 'path' | 'rootId' | 'rootName'>): string {
   return `${span.rootId ?? `name:${span.rootName ?? ''}`}\u0000${span.path}`;
 }
 

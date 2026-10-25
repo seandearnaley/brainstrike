@@ -23,7 +23,7 @@ const SNIPPET_CHARS = 240;
 type HostThreadSearchCore = Pick<HostCore, 'listChildren' | 'listThreads' | 'read' | 'threadTimes'>;
 
 /** One committed conversation row the derived state index matched (`searchState`). */
-export interface HostStateSearchHit {
+interface HostStateSearchHit {
   /** bm25: lower is a better match. */
   readonly rank: number;
   readonly role: 'assistant' | 'user';
@@ -43,7 +43,7 @@ export type HostStateSearch = (request: {
 }) => Promise<readonly HostStateSearchHit[]>;
 
 /** One row the derived state index found nearest a query vector (`searchStateSimilar`). */
-export interface HostStateSimilarHit {
+interface HostStateSimilarHit {
   readonly role: 'assistant' | 'user';
   readonly runId: string;
   /** Cosine similarity: higher is a better match. */

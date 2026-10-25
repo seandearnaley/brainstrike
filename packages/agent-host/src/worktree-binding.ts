@@ -63,7 +63,7 @@ export function foldHostWorktreeEntry(
  * hand-off writes it: the worktree is the operating root, and the folder it
  * was created from stays the checkout to return to and a secondary root.
  */
-export function enteredWorktreeBinding(
+function enteredWorktreeBinding(
   current: ThreadWorkspaceBinding | null,
   worktree: HostEnteredWorktree
 ): ThreadWorkspaceBinding {

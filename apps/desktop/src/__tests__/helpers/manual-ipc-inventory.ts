@@ -1,6 +1,6 @@
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
-export type ManualIpcRegistrationStatus =
+type ManualIpcRegistrationStatus =
   | 'remaining-migration'
   | 'separate-capability'
   | 'separate-protocol';

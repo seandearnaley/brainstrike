@@ -34,7 +34,7 @@ export interface ModelProviderCassetteScript {
  * with the client's own credentials, and the exchange is kept in `record`.
  * Opt-in only (provider-cassette record mode); never a default.
  */
-export interface ModelProviderRecordScript {
+interface ModelProviderRecordScript {
   readonly record: ProviderCassetteRecording;
 }
 

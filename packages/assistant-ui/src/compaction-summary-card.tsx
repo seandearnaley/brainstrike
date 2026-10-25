@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import type { HostContextCompaction } from './compaction-summary-message';
 
 /** A host compaction's committed facts beside its summary (BST-2201). */
-export type CompactionSummaryDetails = Omit<HostContextCompaction, 'kind' | 'summary'>;
+type CompactionSummaryDetails = Omit<HostContextCompaction, 'kind' | 'summary'>;
 
 export interface CompactionSummaryCardProps {
   readonly children: ReactNode;

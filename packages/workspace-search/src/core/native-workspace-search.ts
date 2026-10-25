@@ -166,7 +166,7 @@ export interface NativeSearchPools {
   grep: IndexerSearchResult | null;
   vector?: IndexerSearchResult;
 }
-export interface NativeFusedHit {
+interface NativeFusedHit {
   hit: IndexerSearchHit;
   rrfScore: number;
 }

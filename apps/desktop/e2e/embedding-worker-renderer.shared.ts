@@ -5,36 +5,21 @@ import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-re
 import type { Page } from '@playwright/test';
 import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { test, waitForAppReadyInTest } from './embedding-worker-renderer/electron-app-fixture';
-import { expect } from './fixtures/electron-fixture';
-import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 
 export type {
   ElectronApplication,
-  Locator,
   Page,
 } from './embedding-worker-renderer/electron-app-fixture';
 export {
-  closeElectronAppInTest,
-  DESKTOP_DEV_RENDERER_PORT,
-  DESKTOP_DEV_RENDERER_URL,
   expect,
-  getBufferedElectronOutputInTest,
-  isDisposedElectronEvaluateError,
-  launchElectronDevAppInTest,
-  os,
-  path,
-  reloadRendererInTest,
   test,
   waitForAppReadyInTest,
-  waitForTcpPortOpen,
   withTemporaryProcessEnv,
 } from './embedding-worker-renderer/electron-app-fixture';
-export { ensureMockWorkspaceOpen } from './utils/layout-helpers';
-export type { WorkspaceSemanticSearchSnapshot } from './utils/workspace-search-helpers';
+
 // Workspace Search is the surviving semantic-search surface; these replace the
 // retired Collection Browser hybrid-search harness.
 export {
-  getWorkspaceSemanticSearchSnapshot,
   openWorkspaceSearchPanel,
   runWorkspaceSemanticSearch,
   waitForWorkspaceSemanticSearchResults,
@@ -189,30 +174,6 @@ export async function getRendererLogRecords(page: Page): Promise<BufferedLogReco
 
     return [...logBuffer.getRecords()];
   });
-}
-
-export async function ensureFileExplorerPanelVisible(page: Page): Promise<void> {
-  const explorerPanel = getContextExplorerFileExplorerPanel(page);
-  const showExplorerPanelButton = page
-    .getByTestId('show-explorer-panel')
-    .or(page.getByRole('button', { name: /show explorer/i }));
-
-  if (
-    !(await explorerPanel.isVisible().catch(() => false)) &&
-    (await showExplorerPanelButton.isVisible().catch(() => false))
-  ) {
-    await showExplorerPanelButton.click();
-  }
-
-  await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
-}
-
-export async function getVisibleAlertTexts(page: Page): Promise<string[]> {
-  return await page.evaluate(() =>
-    Array.from(document.querySelectorAll('[role="alert"], [role="status"]'))
-      .map((node) => node.textContent?.trim() ?? '')
-      .filter((text) => text.length > 0)
-  );
 }
 
 export function extractUnexpectedLifecycleLogs(

@@ -8,7 +8,7 @@ import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 
 /** The Node host is not running (or not yet ready), so no MCP request can be served. */
-export class McpRuntimeUnavailableError extends Error {
+class McpRuntimeUnavailableError extends Error {
   readonly category = 'transport' as const;
   readonly code = 'mcp-runtime-unavailable';
   constructor() {

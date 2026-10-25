@@ -15,7 +15,7 @@ const MAX_FAILURE_MESSAGE_CHARACTERS = 240;
 const INLINE_MEDIA_TYPES = new Set(['file-data', 'image-data', 'media']);
 const URL_MEDIA_TYPES = new Set(['file-url', 'image-url']);
 
-export type TokenMeasurementFailureCode =
+type TokenMeasurementFailureCode =
   | 'counter-execution-failed'
   | 'counter-initialization-failed'
   | 'projection-serialization-failed'
@@ -362,7 +362,7 @@ function failedMeasurement(code: TokenMeasurementFailureCode): FailedMeasurement
 }
 
 /** One tool's measured definition share, for the context-breakdown wire part. */
-export interface ToolDefinitionTokensEntry {
+interface ToolDefinitionTokensEntry {
   readonly name: string;
   readonly tokens: number;
 }

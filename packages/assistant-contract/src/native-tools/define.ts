@@ -18,7 +18,7 @@ import type { EffectToolInputSchema } from './schemas/effect-tool-input.ts';
 import type { NativeToolDefaultMetadata } from './taxonomy.ts';
 
 /** One Effect-authored boundary per native tool. */
-export type NativeToolInputSchema = EffectToolInputSchema<unknown>;
+type NativeToolInputSchema = EffectToolInputSchema<unknown>;
 
 /** Where a desktop native tool is advertised and registered. */
 export type NativeToolSurface =
@@ -175,7 +175,7 @@ export interface DesktopNativeToolDefinition<
 }
 
 /** Mastra's canonical Agent Skills tool ids (deliberately NOT `brainstrike.*`-namespaced). */
-export type SkillNativeToolIdLiteral = 'skill' | 'skill_read' | 'skill_search';
+type SkillNativeToolIdLiteral = 'skill' | 'skill_read' | 'skill_search';
 
 /**
  * A Mastra-owned Agent Skills tool. Brainstrike does not execute it, but it

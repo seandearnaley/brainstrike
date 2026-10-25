@@ -51,7 +51,7 @@ type ManageCommandSessionResult =
   | { readonly id: string; readonly removed: true; readonly rootId: string }
   | { readonly session: CommandSessionInfo; readonly writtenUtf16CodeUnits: number };
 
-export const COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES = 5500;
+const COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES = 5500;
 const UTF8_ENCODER = new TextEncoder();
 
 type CommandSessionTranscriptInfo =
@@ -84,7 +84,7 @@ type CommandSessionTransformFunction = (
   context: CommandSessionTransformContext
 ) => Promise<unknown> | unknown;
 
-export interface CommandSessionPayloadTransformTarget {
+interface CommandSessionPayloadTransformTarget {
   readonly approval?: CommandSessionTransformFunction;
   readonly error?: CommandSessionTransformFunction;
   readonly input?: CommandSessionTransformFunction;

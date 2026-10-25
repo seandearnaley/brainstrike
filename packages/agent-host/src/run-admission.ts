@@ -117,7 +117,7 @@ function immutableData<T>(input: T): T {
   ) as T;
 }
 /** Retain the selected executors and configuration without freezing the source registry. */
-export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
+function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
   const mcpAuthorities = Object.fromEntries(
     Object.entries(selected.tools).flatMap(([id, tool]) =>
       tool.mcpAuthority ? [[id, tool.mcpAuthority]] : []
@@ -544,7 +544,7 @@ export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
   return run.admission.tools;
 }
 /** A finished step's answerable approval requests, each bound to its registered tool. */
-export function hostStepInteractions(
+function hostStepInteractions(
   run: HostRunState,
   content: StepResult<ToolSet>['content']
 ): Extract<

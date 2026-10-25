@@ -72,7 +72,7 @@ export function EditCheckpointProvider({
  * data layer populates the map for every listed entry, so the fallback only
  * shows on a data-layer failure — which is exactly when a click would fail.
  */
-export function availabilityForEntry(
+function availabilityForEntry(
   availabilityById: ReadonlyMap<string, AssistantCheckpointUndoAvailability>,
   entryId: string
 ): AssistantCheckpointUndoAvailability {

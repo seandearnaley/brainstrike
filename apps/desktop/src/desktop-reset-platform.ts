@@ -7,20 +7,20 @@ import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
 import { indexConfigCause, isQuitTerminalRefusal } from './native-index-boundary-failure';
 
-export interface DesktopResetRuntime {
+interface DesktopResetRuntime {
   readonly name: string;
   readonly stop: () => Promise<unknown>;
   /** Stop admission without deleting configuration retained by content clearing. */
   readonly stopForContent?: () => Promise<unknown>;
 }
 
-export interface DesktopResetLogger {
+interface DesktopResetLogger {
   readonly debug: (message: string, error: unknown) => void;
   readonly error: (message: string, error: unknown) => void;
   readonly info: (message: string) => void;
 }
 
-export interface DesktopContentClearCounts {
+interface DesktopContentClearCounts {
   readonly deletedChunks: number | null;
   readonly deletedFiles: number;
 }
@@ -58,7 +58,7 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly userDataPath: string;
 }
 
-export interface DesktopFactoryResetResult {
+interface DesktopFactoryResetResult {
   readonly deletedChunks?: number | null;
   readonly deletedFiles?: number;
   message?: string;

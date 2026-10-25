@@ -47,7 +47,7 @@ export const MAX_MODEL_TOOL_RESULT_CHAR_BUDGET =
  * anchor remains only their backward-compatible default when no run budget is
  * supplied.
  */
-export const MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS = 1500;
+const MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS = 1500;
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET =
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 const TOOL_RESULT_PREVIEW_CHARS = 8000;
@@ -371,24 +371,6 @@ function isBoundedTruncatedToolOutput(output: unknown): output is {
     typeof record['preview'] === 'string' &&
     record['truncated'] === true
   );
-}
-
-export function readToolOutputErrorText(output: unknown): string {
-  if (typeof output === 'string' && output.length > 0) {
-    return output;
-  }
-  if (output && typeof output === 'object') {
-    const record = output as Record<string, unknown>;
-    const error = record['error'];
-    if (typeof error === 'string' && error.length > 0) {
-      return error;
-    }
-    const message = record['message'];
-    if (typeof message === 'string' && message.length > 0) {
-      return message;
-    }
-  }
-  return 'Tool execution failed';
 }
 
 /**

@@ -31,7 +31,7 @@ import { connect, isIP, type Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { type RefusedAddressClass, refusedAddressClass } from './address-policy';
 
-export interface ResolvedAddress {
+interface ResolvedAddress {
   readonly address: string;
   readonly family: 4 | 6;
 }

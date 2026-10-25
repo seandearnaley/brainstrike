@@ -58,7 +58,7 @@ export function hostDelegationRunsInBackground(
     override?.disposition === 'awaited'
   );
 }
-export const HostChildResultSchema = Schema.Struct({
+const HostChildResultSchema = Schema.Struct({
   childThreadId: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
   status: Schema.Literals([
     'started',
@@ -87,7 +87,7 @@ export function hostInvocationLimitText(settings: RuntimeSubagentSettings): stri
  * One HostCore-dispatched `agent-<persona>` tool per persona. Spawning never
  * asks (report §4 "Spawn and parallel"); the child's own tools pass the gate.
  */
-export function createHostDelegationTools(delegation: HostDelegation): Record<string, HostTool> {
+function createHostDelegationTools(delegation: HostDelegation): Record<string, HostTool> {
   return Object.fromEntries(
     delegation.personas.map((persona): [string, HostTool] => [
       delegationToolNameForPersona(persona.id),
@@ -135,7 +135,7 @@ export function withHostDelegationTools(
  * a sole `*` every parent tool. Task-list state stays the parent's, and
  * delegation tools are granted by depth, never inherited.
  */
-export function narrowHostChildTools(
+function narrowHostChildTools(
   parent: Readonly<Record<string, HostTool>>,
   persona: AssistantPersonaDefinition
 ): Record<string, HostTool> {
@@ -158,7 +158,7 @@ export function narrowHostChildTools(
  * The shipped wrap-up feedback (packages/agent/src/mastra/build-persona-subagents.ts,
  * removed with BST-1935): a child's last step is reserved for its summary.
  */
-export const CHILD_WRAP_UP_FEEDBACK =
+const CHILD_WRAP_UP_FEEDBACK =
   'You are at your step limit and this is your final turn — no further tool calls will run. ' +
   'Using ONLY what you already found above, write your summary now: what you looked for, ' +
   'what you found, and the concrete file paths. If you covered only part of the task, say ' +

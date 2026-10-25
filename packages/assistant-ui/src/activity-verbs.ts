@@ -45,7 +45,7 @@ export type VerbFamily = (typeof VERB_FAMILIES)[number];
  * alone); `'plural'` counts only from two ("Read 2 files", but a single read
  * stays the bare "Read").
  */
-export type ActivityFileCountMode = 'always' | 'plural';
+type ActivityFileCountMode = 'always' | 'plural';
 
 export interface ActivityVerb {
   /** Present participle while the step runs: "Reading". */

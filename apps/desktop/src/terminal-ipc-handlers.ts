@@ -96,11 +96,11 @@ const MAX_DIMENSION = 5000;
 const MAX_EVENT_CHUNK_CHARS = 256 * 1024;
 
 /** A successful result carries a value; a failure carries a human-readable error. */
-export type TerminalResult<T = void> =
+type TerminalResult<T = void> =
   | (T extends void ? { ok: true } : { ok: true; value: T })
   | { ok: false; error: string };
 
-export interface TerminalCreateParams {
+interface TerminalCreateParams {
   readonly cols?: number;
   /**
    * Absolute path INSIDE the resolved root to pin the shell to. Omitted ⇒ the
@@ -113,36 +113,36 @@ export interface TerminalCreateParams {
   readonly rows?: number;
 }
 
-export interface TerminalCreateResult {
+interface TerminalCreateResult {
   /** The canonical, containment-checked absolute cwd the shell started in. */
   readonly cwd: string;
   /** Opaque id the renderer uses for write/resize/destroy + event correlation. */
   readonly terminalId: string;
 }
 
-export interface TerminalWriteParams {
+interface TerminalWriteParams {
   readonly data: string;
   readonly terminalId: string;
 }
 
-export interface TerminalResizeParams {
+interface TerminalResizeParams {
   readonly cols: number;
   readonly rows: number;
   readonly terminalId: string;
 }
 
-export interface TerminalDestroyParams {
+interface TerminalDestroyParams {
   readonly terminalId: string;
 }
 
 /** One-way payload pushed to the owning renderer when the pty emits output. */
-export interface TerminalDataEvent {
+interface TerminalDataEvent {
   readonly data: string;
   readonly terminalId: string;
 }
 
 /** One-way payload pushed to the owning renderer when the pty process exits. */
-export interface TerminalExitEvent {
+interface TerminalExitEvent {
   readonly exitCode: number;
   /** Terminating signal number when killed by a signal (else null). */
   readonly signal: number | null;
@@ -191,7 +191,7 @@ function nextTerminalId(): string {
  * POSIX fallback would ENOENT. The shell is spawned with NO args (an
  * interactive terminal, not a one-shot `-c` command).
  */
-export function resolveTerminalShell(platform: NodeJS.Platform = process.platform): string {
+function resolveTerminalShell(platform: NodeJS.Platform = process.platform): string {
   if (platform === 'win32') {
     return process.env['ComSpec'] || 'cmd.exe';
   }
@@ -554,7 +554,7 @@ export async function disposeAllTerminals(): Promise<number> {
 }
 
 /** Kill + drop every terminal owned by a destroyed/navigated-away renderer. */
-export function disposeTerminalsForWebContents(ownerId: number): number {
+function disposeTerminalsForWebContents(ownerId: number): number {
   let reaped = 0;
   for (const [terminalId, entry] of Array.from(liveTerminals.entries())) {
     if (entry.ownerId !== ownerId) {
@@ -568,13 +568,6 @@ export function disposeTerminalsForWebContents(ownerId: number): number {
     logger.info('Started terminal cleanup for destroyed renderer', { count: reaped, ownerId });
   }
   return reaped;
-}
-
-/** Test-only: current count of live terminals.
- * @internal Terminal IPC regressions verify that sessions are retired.
- */
-export function liveTerminalCountForTest(): number {
-  return liveTerminals.size;
 }
 
 /**
