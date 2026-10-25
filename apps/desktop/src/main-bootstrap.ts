@@ -3,9 +3,10 @@
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
 import { app, dialog } from 'electron';
-import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
+import { applyDesktopPaths, getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 import { applyDesktopLoginShellEnvironment, initializeDesktopEnvironment } from './desktop-env';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
+import { completePendingFactoryReset } from './factory-reset-relaunch';
 import { resolveLoginShellEnvironment } from './login-shell-environment';
 
 function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown()): void {
@@ -38,6 +39,13 @@ if (process.argv.includes('--version')) {
       argv: process.argv,
       env: process.env,
       isPackaged: app.isPackaged,
+      userDataPath: app.getPath('userData'),
+    });
+    applyDesktopPaths();
+    // Before Electron or the runtime opens anything in userData or the profile: Electron joins
+    // this entry's top-level await before it loads `Local State` or opens any session.
+    await completePendingFactoryReset({
+      logsPath: app.getPath('logs'),
       userDataPath: app.getPath('userData'),
     });
     const runtime = getDesktopBootstrapRuntime();

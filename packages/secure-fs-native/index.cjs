@@ -77,8 +77,16 @@ function tryExclusiveLock(lockPath) {
   return native.held() ? new ExclusiveLock(native) : null;
 }
 
+/** The exclusive lock on `lockPath`, once no other handle holds it: the OS wakes the wait. */
+async function waitForExclusiveLock(lockPath) {
+  const native = new NativeExclusiveLock(lockPath, true);
+  await native.wait();
+  return new ExclusiveLock(native);
+}
+
 exports.SecureRoot = SecureRoot;
 exports.tryExclusiveLock = tryExclusiveLock;
+exports.waitForExclusiveLock = waitForExclusiveLock;
 exports.markDescriptorsCloseOnExec = markDescriptorsCloseOnExec;
 
 exports.applyPrivateDirectorySync = applyPrivateDirectorySync;

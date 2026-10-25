@@ -90,17 +90,6 @@ describe('desktop diagnostics IPC', () => {
       processCounters: {
         getSnapshot: vi.fn(() => ({ installedAt: '2026-09-15T02:00:00.000Z', samples: [] })),
       },
-      reset: {
-        getSnapshot: vi.fn(() => ({
-          lastCompletedAt: null,
-          lastDeletedPathCount: 0,
-          lastError: null,
-          lastFailedAt: null,
-          lastPreservedPathCount: 0,
-          status: 'idle',
-          userDataPath: '/tmp/user-data',
-        })),
-      },
       telemetry: { getRuntimeMetrics: vi.fn(() => []) },
     } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
 
@@ -111,7 +100,6 @@ describe('desktop diagnostics IPC', () => {
       value: {
         database: { hasDatabaseHandle: true },
         databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
-        reset: { userDataPath: '<redacted>' },
         telemetry: {
           backgroundRuntimeMetrics: [],
           embedding: { batchTransfer: { totalBytes: 0 }, peakVectorsInFlight: 0 },

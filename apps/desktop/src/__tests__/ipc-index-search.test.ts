@@ -8,7 +8,6 @@ import type {
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { getFactoryResetUnavailableReason } from '../factory-reset-availability';
 import { IndexConfigRefused, IndexConfigStoreFailed } from '../index-config';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
@@ -589,14 +588,13 @@ it('shows a settings store failure with its remedy and the reference its cause i
     () => undefined,
     (error: unknown) => (error as { readonly failure: unknown }).failure
   );
-  const factoryReset = getFactoryResetUnavailableReason(process.platform) === undefined;
   expect(failure).toEqual({
     category: 'internal',
     code: 'index-config.store-failed',
     correlationId: expect.any(String),
     kind: 'fault',
     message: 'The search index settings could not be saved.',
-    ...(factoryReset ? { remedy: expect.stringContaining('Factory Reset in Settings') } : {}),
+    remedy: expect.stringContaining('Factory Reset in Settings'),
   });
   expect(JSON.stringify(failure)).not.toContain('/private/profile');
   expect(registryError).toHaveBeenCalledExactlyOnceWith(

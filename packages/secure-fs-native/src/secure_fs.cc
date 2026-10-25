@@ -1617,34 +1617,38 @@ Napi::Value ApplyPrivateDirectorySync(const Napi::CallbackInfo& info) {
 // handle CreateFileW opens non-inheritable. Either way no child process ever
 // holds it, a second open in any process (this one included) is refused, and
 // the OS drops it when the handle closes or its process dies, however it dies.
+//
+// `new ExclusiveLock(path)` tries the lock once. `new ExclusiveLock(path, true)`
+// only opens the file; its `wait()` then takes the lock with the blocking call on
+// a libuv worker thread, so the OS itself wakes it when the holder's handle closes.
 class ExclusiveLock : public Napi::ObjectWrap<ExclusiveLock> {
  public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("ExclusiveLock",
                 DefineClass(env, "ExclusiveLock",
                             {InstanceMethod("held", &ExclusiveLock::Held),
-                             InstanceMethod("release", &ExclusiveLock::Release)}));
+                             InstanceMethod("release", &ExclusiveLock::Release),
+                             InstanceMethod("wait", &ExclusiveLock::Wait)}));
     return exports;
   }
 
   explicit ExclusiveLock(const Napi::CallbackInfo& info) : Napi::ObjectWrap<ExclusiveLock>(info) {
     const Napi::Env env = info.Env();
-    if (info.Length() != 1 || !info[0].IsString()) {
+    const bool deferred = info.Length() == 2 && info[1].IsBoolean() &&
+                          info[1].As<Napi::Boolean>().Value();
+    if ((info.Length() != 1 && !deferred) || !info[0].IsString()) {
       throw Napi::TypeError::New(env, "ExclusiveLock requires one absolute lock file path");
     }
     const auto path = info[0].As<Napi::String>().Utf8Value();
     if (path.empty() || path.find('\0') != std::string::npos) {
       throw Napi::TypeError::New(env, "ExclusiveLock requires one absolute lock file path");
     }
-#ifdef _WIN32
-    const auto wide = Utf8ToWide(path);
-    // Other opens are shared so a contender is refused by the lock, not by the open.
-    PrivateHandle file(CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE,
-                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                                   OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
-    if (file.Get() == kInvalidHandle) {
-      ThrowWindowsError(env, "Lock file open failed", GetLastError());
+    PrivateHandle file(OpenLockFile(env, path));
+    if (deferred) {
+      pending_ = std::make_unique<PrivateHandle>(file.Release());
+      return;
     }
+#ifdef _WIN32
     OVERLAPPED whole = {};
     if (LockFileEx(file.Get(), LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, MAXDWORD,
                    MAXDWORD, &whole) == 0) {
@@ -1655,14 +1659,6 @@ class ExclusiveLock : public Napi::ObjectWrap<ExclusiveLock> {
       return;
     }
 #else
-    PrivateHandle file(open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600));
-    if (file.Get() == kInvalidHandle) {
-      const int code = errno;
-      const auto error = Napi::Error::New(env, std::string("Lock file open failed: ") +
-                                                   std::strerror(code));
-      error.Value().Set("errno", Napi::Number::New(env, code));
-      throw error;
-    }
     for (;;) {
       if (flock(file.Get(), LOCK_EX | LOCK_NB) == 0) {
         break;
@@ -1716,7 +1712,113 @@ class ExclusiveLock : public Napi::ObjectWrap<ExclusiveLock> {
     return env.Undefined();
   }
 
+  // Blocks a worker thread in the OS lock call until no other handle holds the lock.
+  class WaitWorker final : public Napi::AsyncWorker {
+   public:
+    WaitWorker(Napi::Env env, Napi::Promise::Deferred deferred, ExclusiveLock* owner)
+        : Napi::AsyncWorker(env, "brainstrike:secure-fs:exclusive-lock-wait"),
+          deferred_(deferred),
+          owner_(owner),
+          file_(owner->pending_->Get()),
+          keep_alive_(Napi::Persistent(owner->Value())) {}
+
+    void Execute() override {
+#ifdef _WIN32
+      OVERLAPPED whole = {};
+      // A handle opened without FILE_FLAG_OVERLAPPED: the call returns once the lock is granted.
+      if (LockFileEx(file_, LOCKFILE_EXCLUSIVE_LOCK, 0, MAXDWORD, MAXDWORD, &whole) == 0) {
+        code_ = GetLastError();
+      }
+#else
+      while (flock(file_, LOCK_EX) != 0) {
+        if (errno != EINTR) {
+          code_ = errno;
+          return;
+        }
+      }
+#endif
+    }
+
+    void OnOK() override {
+      const Napi::Env env = Env();
+      if (code_ != 0) {
+        owner_->pending_.reset();
+#ifdef _WIN32
+        deferred_.Reject(Napi::Error::New(env, "Lock failed (Win32 error " +
+                                                   std::to_string(code_) + ")")
+                             .Value());
+#else
+        const auto error =
+            Napi::Error::New(env, std::string("flock failed: ") + std::strerror(code_));
+        error.Value().Set("errno", Napi::Number::New(env, code_));
+        deferred_.Reject(error.Value());
+#endif
+        return;
+      }
+      owner_->handle_ = std::move(owner_->pending_);
+      deferred_.Resolve(env.Undefined());
+    }
+
+    void OnError(const Napi::Error& error) override {
+      owner_->pending_.reset();
+      deferred_.Reject(error.Value());
+    }
+
+   private:
+    Napi::Promise::Deferred deferred_;
+    ExclusiveLock* owner_;
+    NativeHandle file_;
+#ifdef _WIN32
+    DWORD code_ = 0;
+#else
+    int code_ = 0;
+#endif
+    Napi::ObjectReference keep_alive_;
+  };
+
+  // Resolves once this deferred lock is held; one wait per object.
+  Napi::Value Wait(const Napi::CallbackInfo& info) {
+    const Napi::Env env = info.Env();
+    const auto deferred = Napi::Promise::Deferred::New(env);
+    if (pending_ == nullptr || waiting_) {
+      deferred.Reject(
+          Napi::Error::New(env, "ExclusiveLock.wait needs a deferred lock that is not waiting")
+              .Value());
+      return deferred.Promise();
+    }
+    waiting_ = true;
+    (new WaitWorker(env, deferred, this))->Queue();
+    return deferred.Promise();
+  }
+
+  static NativeHandle OpenLockFile(Napi::Env env, const std::string& path) {
+#ifdef _WIN32
+    const auto wide = Utf8ToWide(path);
+    // Other opens are shared so a contender is refused by the lock, not by the open.
+    const NativeHandle file =
+        CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS,
+                    FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == kInvalidHandle) {
+      ThrowWindowsError(env, "Lock file open failed", GetLastError());
+    }
+    return file;
+#else
+    const NativeHandle file = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (file == kInvalidHandle) {
+      const int code = errno;
+      const auto error = Napi::Error::New(env, std::string("Lock file open failed: ") +
+                                                   std::strerror(code));
+      error.Value().Set("errno", Napi::Number::New(env, code));
+      throw error;
+    }
+    return file;
+#endif
+  }
+
   std::unique_ptr<PrivateHandle> handle_;
+  std::unique_ptr<PrivateHandle> pending_;
+  bool waiting_ = false;
 };
 
 #ifndef _WIN32

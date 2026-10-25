@@ -9,8 +9,7 @@ import {
   waitForAppReadyInTest,
   withTemporaryProcessEnv,
 } from './embedding-worker-renderer.shared';
-import { HomePage } from './page-objects/home-page';
-import { SettingsPage } from './page-objects/settings-page';
+import { factoryResetAndRelaunch } from './utils/factory-reset';
 
 const VECTOR_PREFERENCES_KEY = 'vector-preferences.v1';
 const WEBGPU_WORKER_FAILURE = 'WebGPU adapter is unavailable.';
@@ -34,14 +33,11 @@ async function isDevicePreferenceConfigured(page: Page): Promise<boolean> {
 // BST-1825: a factory reset once failed to stop the embedding host after its worker
 // failed on unavailable WebGPU, and aborted before purging. Since #3595 the host
 // chooses no device at startup, so a local embedding pinned to WebGPU is what
-// fails in the worker now.
+// fails in the worker now. Reset now quits, so that quit must stop the host cleanly
+// and the next start must come up without the chosen device.
 test('factory reset stops the embedding host after its WebGPU worker failed @destructive @desktop-ipc-reset', async ({
   electron,
 }) => {
-  test.skip(
-    process.platform === 'win32',
-    'Windows Factory Reset is disabled for M3 by owner decision.'
-  );
   test.setTimeout(180_000);
   // CI launches the app with the GPU disabled, so no host offers a WebGPU adapter.
   const restoreEnv = withTemporaryProcessEnv({ BRAINSTRIKE_E2E_ALLOW_GPU: undefined, CI: 'true' });
@@ -75,27 +71,12 @@ test('factory reset stops the embedding host after its WebGPU worker failed @des
     ).toEqual([]);
     expect(await isDevicePreferenceConfigured(page)).toBe(true);
 
-    await new HomePage(page).openSettings();
-    await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
-    const reloaded = page.waitForEvent('load');
-    await page.evaluate(() => {
-      const original = window.confirm;
-      window.confirm = () => {
-        window.confirm = original;
-        return true;
-      };
-    });
-    await page.getByTestId('factory-reset-button').click();
-    await reloaded;
-    await waitForAppReadyInTest(page);
-
-    const failedStops = output
-      .join('')
-      .split('\n')
-      .filter((line) => line.includes('Failed to stop desktop reset runtimes'));
-    expect(failedStops).toEqual([]);
-    expect(await isDevicePreferenceConfigured(page)).toBe(false);
-    expect((await getEmbeddingHostStatus(page)).state).toBe('stopped');
+    // Factory Reset quits through the normal quit, which must stop the failed host; the
+    // relaunch wipes the chosen device with the rest of the settings.
+    const { window: fresh } = await factoryResetAndRelaunch(electron, page);
+    await waitForAppReadyInTest(fresh);
+    expect(await isDevicePreferenceConfigured(fresh)).toBe(false);
+    expect((await getEmbeddingHostStatus(fresh)).state).toBe('stopped');
   } finally {
     restoreEnv();
     await electron.restart();

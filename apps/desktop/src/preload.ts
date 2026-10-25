@@ -17,7 +17,6 @@ import type { IpcResult } from './platform/ipc-contract';
 // graph, and build-main.mjs refuses a bundle that requires anything else.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
-import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
@@ -255,10 +254,7 @@ if (shouldExposeBridge('electronAPI')) {
   const storageBridge = createIpcBridge(ipcRenderer, storageContract);
   const electronAPI = {
     content: createIpcBridge(ipcRenderer, contentClearContract),
-    factoryReset: {
-      ...createIpcBridge(ipcRenderer, factoryResetContract),
-      unavailableReason: getFactoryResetUnavailableReason(process.platform),
-    },
+    factoryReset: createIpcBridge(ipcRenderer, factoryResetContract),
     fileSystem: {
       ...createIpcBridge(ipcRenderer, fileSystemContract),
       ...createIpcBridge(ipcRenderer, fileSystemWatchContract),

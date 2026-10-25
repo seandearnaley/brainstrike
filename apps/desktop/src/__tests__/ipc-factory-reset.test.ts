@@ -20,9 +20,7 @@ import {
   registerProfilePathIpcHandlers,
 } from '../ipc-factory-reset';
 
-const originalPlatform = process.platform;
 afterEach(() => {
-  Object.defineProperty(process, 'platform', { value: originalPlatform });
   handlers.clear();
   vi.clearAllMocks();
 });
@@ -39,8 +37,6 @@ function invoke(
 }
 describe('current profile reset and path IPC', () => {
   it('awaits the existing reset owner and retains its result without a database owner', async () => {
-    // Windows refuses reset before the owner (pinned below); admit it here on every OS.
-    Object.defineProperty(process, 'platform', { value: 'darwin' });
     const completion = Promise.withResolvers<{ success: boolean; message?: string }>();
     const reset = vi.fn(() => completion.promise);
     const close = registerFactoryResetIpcHandlers(reset);
@@ -50,14 +46,6 @@ describe('current profile reset and path IPC', () => {
     await expect(result).resolves.toEqual({ message: 'reset refused', success: false });
     close();
     expect(removeHandler).toHaveBeenCalledWith('db:resetLocal');
-  });
-  it('preserves Windows reset admission without invoking the owner', async () => {
-    Object.defineProperty(process, 'platform', { value: 'win32' });
-    const reset = vi.fn(async () => ({ success: true }));
-    const close = registerFactoryResetIpcHandlers(reset);
-    await expect(invoke('db:resetLocal')).resolves.toMatchObject({ success: false });
-    expect(reset).not.toHaveBeenCalled();
-    close();
   });
   it('refuses hidden callers and malformed reset arguments before mutation', async () => {
     const reset = vi.fn(async () => ({ success: true }));

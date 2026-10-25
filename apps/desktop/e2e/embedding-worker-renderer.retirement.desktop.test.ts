@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import {
   addWorkspaceFolder,
   createNativeImportRoot,
@@ -21,12 +21,13 @@ import {
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { factoryResetAndRelaunch } from './utils/factory-reset';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 // Large enough that the workspace is still embedding when reset or quit lands.
 const ACTIVE_ROOT_FILE_COUNT = 1002;
 const ACTIVE_ROOT_SENTENCES_PER_FILE = 24;
-// The shutdown receipt and both reset milestones are info lines; Main prints WARN by default.
+// The shutdown receipt is an info line; Main prints WARN by default.
 test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 
 async function search(page: Page): Promise<void> {
@@ -38,37 +39,6 @@ async function search(page: Page): Promise<void> {
 }
 
 test.describe('@destructive native retirement', () => {
-  async function requestReset(page: Page): Promise<void> {
-    await new HomePage(page).openSettings();
-    await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
-    await page.evaluate(() => {
-      const original = window.confirm;
-      window.confirm = () => {
-        window.confirm = original;
-        return true;
-      };
-    });
-    await page.getByTestId('factory-reset-button').click();
-  }
-
-  function observeReset(app: ElectronApplication, milestone: string) {
-    const reached = Promise.withResolvers<void>();
-    let output = '';
-    app.process().stdout?.on('data', (chunk: Buffer) => {
-      output += chunk.toString('utf8');
-      if (output.includes('Failed to reset desktop application data')) {
-        reached.reject(new Error('Factory reset failed before native retirement joined.'));
-        return;
-      }
-      if (output.includes(milestone)) {
-        reached.resolve();
-      }
-    });
-    // The click can still be awaiting its acknowledgement when Main reports failure.
-    reached.promise.catch(() => undefined);
-    return { output: () => output, reached: reached.promise };
-  }
-
   async function assertFreshDefaults(page: Page): Promise<void> {
     const { waitForAppReady } = await loadElectronHelpers();
     await waitForAppReady(page);
@@ -93,10 +63,6 @@ test.describe('@destructive native retirement', () => {
       electronApp,
       window: page,
     }) => {
-      test.skip(
-        process.platform === 'win32' && mode !== 'quit-and-relaunch',
-        'Windows Factory Reset is disabled for M3 by owner decision.'
-      );
       test.setTimeout(540_000);
       const root = await createNativeImportRoot(
         ACTIVE_ROOT_FILE_COUNT,
@@ -124,29 +90,28 @@ test.describe('@destructive native retirement', () => {
           const reopened = await electron.ensureWindow({ preserveState: true });
           await search(reopened);
           expect((await getEmbeddingHostStatus(reopened)).runtimeId).not.toBe(previous.runtimeId);
-        } else if (mode === 'reset-and-reuse') {
-          const reset = observeReset(current.app, 'Desktop factory reset completed');
-          await requestReset(page);
-          await reset.reached;
-          await assertFreshDefaults(page);
-          await prepareSearchableFolder(current.app, page, searchable);
-          await search(page);
-          expect((await getEmbeddingHostStatus(page)).runtimeId).not.toBe(previous.runtimeId);
         } else {
-          // This existing runtime event occurs after reset's parallel Stop joins and before purge.
-          const reset = observeReset(
-            current.app,
-            'Desktop browser sessions cleared (factory reset)'
-          );
-          await requestReset(page);
-          await reset.reached;
-          await electron.closeForStateSeeding();
+          // Factory Reset quits through the same retirement, and the next start wipes the data
+          // before it opens anything.
+          current = await factoryResetAndRelaunch(electron, page);
           assertCleanShutdown();
-          expect(reset.output()).toContain('Desktop factory reset completed');
-          expect(reset.output()).not.toContain('Failed to reset desktop application data');
-          current = await electron.ensureContext();
           assertCleanShutdown = captureNativeShutdown(current.app);
-          await assertFreshDefaults(await electron.ensureWindow({ preserveState: true }));
+          let fresh = current.window;
+          if (mode === 'quit-during-reset') {
+            // Quit again as soon as the wiped app is up: the reset is finished, not resumed.
+            const { waitForAppReady } = await loadElectronHelpers();
+            await waitForAppReady(fresh);
+            await electron.closeForStateSeeding();
+            assertCleanShutdown();
+            current = await electron.ensureContext();
+            assertCleanShutdown = captureNativeShutdown(current.app);
+            fresh = await electron.ensureWindow({ preserveState: true });
+          }
+          await assertFreshDefaults(fresh);
+          // The embedding worker is usable on the wiped profile.
+          await prepareSearchableFolder(current.app, fresh, searchable);
+          await search(fresh);
+          expect((await getEmbeddingHostStatus(fresh)).runtimeId).not.toBe(previous.runtimeId);
         }
       } finally {
         await electron.closeForStateSeeding();

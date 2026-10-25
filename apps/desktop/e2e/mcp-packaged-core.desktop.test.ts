@@ -14,7 +14,6 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/client/stdio';
 import type { TestInfo } from '@playwright/test';
 import { expect, test } from '@playwright/test';
@@ -50,7 +49,6 @@ interface PackagedFixtureModule {
   ): Promise<PackagedFixture>;
 }
 type PackagedContext = Awaited<ReturnType<typeof launchPackagedDesktop>>;
-type CloseReport = Record<string, number | readonly unknown[]>;
 const ASSISTANT_TOOL_PAYLOAD = 'packaged-assistant-payload';
 const ELICITATION_TOOL_PAYLOAD = 'packaged-elicitation-payload';
 const OAUTH_BROWSER_DESKTOP_FILE = 'brainstrike-mcp-oauth-browser.desktop';
@@ -351,30 +349,6 @@ async function readOwnedPid(pidFile: string, previous?: number): Promise<number>
 }
 async function expectOwnedProcessGone(pid: number): Promise<void> {
   await expect.poll(() => processIsGone(pid), { timeout: 30_000 }).toBe(true);
-}
-async function readLifecycleDiagnostics(
-  page: Page,
-  userDataDir: string
-): Promise<{ hostPid: number; reset: unknown }> {
-  const { pid: hostPid } = await readHostProcess(userDataDir);
-  const reset = await page.evaluate(async () => {
-    const bridge = (
-      window as unknown as {
-        desktopDiagnostics?: {
-          getSnapshot: () => Promise<BoundaryResult<{ reset: unknown }>>;
-        };
-      }
-    ).desktopDiagnostics;
-    if (!bridge) {
-      throw new Error('Packaged desktop diagnostics bridge is unavailable');
-    }
-    const response = await bridge.getSnapshot();
-    if (!response.ok) {
-      throw new Error(JSON.stringify(response.error));
-    }
-    return response.value.reset;
-  });
-  return { hostPid, reset };
 }
 /**
  * BST-1592 — user-initiated `resources/read` reaching the packaged renderer.
@@ -828,7 +802,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     await waitForServerState(restarted.window, 'modern', /Connected/i);
     await waitForServerState(restarted.window, 'stdio', /Connected/i);
     const restartedStdioPid = await readOwnedPid(stdioPidFile, firstStdioPid);
-    const beforeResetDiagnostics = await readLifecycleDiagnostics(restarted.window, userDataDir);
+    const { pid: hostPidBeforeReset } = await readHostProcess(userDataDir);
     // A persisted grant reconnects during startup discovery, without another
     // Connect action. Waiting for authentication-required encoded the old bug.
     await waitForServerState(restarted.window, 'oauth', /Connected/i);
@@ -856,63 +830,29 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     ).toEqual([]);
     await new HomePage(restarted.window).openSettings();
     await new SettingsPage(restarted.window).openCategory(/Factory Reset/i, 'factory-reset');
-    if (process.platform === 'win32') {
-      await expect(restarted.window.getByTestId('factory-reset-button')).toBeDisabled();
-      await expect(
-        restarted.window.getByText('Factory reset is unavailable on Windows in this version.')
-      ).toBeVisible();
-    } else {
-      await restarted.window.evaluate(() => {
-        window.confirm = () => true;
-      });
-      const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
-        timeout: 60_000,
-      });
-      await restarted.window.getByTestId('factory-reset-button').click();
-      await replacementLoaded;
-      await openToolsSettings(restarted.window);
-      await restarted.window.getByRole('tab', { name: 'Tools' }).click();
-      await expect(restarted.window.getByTestId('mcp-server-status-empty')).toHaveText(
-        'No MCP servers configured.'
-      );
-      await expectOwnedProcessGone(restartedStdioPid);
-      const resetEvidence = (
-        await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
-      ).at(-1);
-      // Counts include the oauth server this phase reconnected: one more client,
-      // its provider's extra callback, and the loopback port that provider owns.
-      expect(resetEvidence).toMatchObject({
-        hostCloseReport: {
-          callbacksClosed: 6,
-          childProcessesClosed: 2,
-          clientsClosed: 5,
-          failures: [],
-          loopbackPortsClosed: 1,
-          probesClosed: 0,
-          subscriptionsClosed: 0,
-        },
-        legacyClientsClosed: true,
-        snapshot: { servers: [] },
-      });
-      const resetCloseReport = Reflect.get(resetEvidence ?? {}, 'hostCloseReport') as CloseReport;
-      expect(resetCloseReport['requestsSettled']).toBeGreaterThanOrEqual(3);
-      const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window, userDataDir);
-      expect(afterResetDiagnostics.reset).toMatchObject({
-        lastCompletedAt: expect.any(String),
-        lastError: null,
-        status: 'completed',
-      });
-      expect(afterResetDiagnostics.hostPid).not.toBe(beforeResetDiagnostics.hostPid);
-      await expectOwnedProcessGone(beforeResetDiagnostics.hostPid);
-      await configureThroughUi(
-        restarted.window,
-        JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
-      );
-      await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
-      await expect(serverRow(restarted.window, 'oauth')).toContainText(
-        'OAuth credentials not stored'
-      );
-    }
+    await restarted.window.evaluate(() => {
+      window.confirm = () => true;
+    });
+    // Factory Reset records itself and quits; the next start wipes before it opens anything.
+    await restarted.window.getByTestId('factory-reset-button').click();
+    await restarted.exited;
+    await closePackagedDesktop(restarted);
+    restarted = await launchPackagedDesktop({ environment, userDataDir });
+    await expectOwnedProcessGone(restartedStdioPid);
+    await expectOwnedProcessGone(hostPidBeforeReset);
+    await openToolsSettings(restarted.window);
+    await restarted.window.getByRole('tab', { name: 'Tools' }).click();
+    await expect(restarted.window.getByTestId('mcp-server-status-empty')).toHaveText(
+      'No MCP servers configured.'
+    );
+    await configureThroughUi(
+      restarted.window,
+      JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
+    );
+    await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
+    await expect(serverRow(restarted.window, 'oauth')).toContainText(
+      'OAuth credentials not stored'
+    );
   } catch (error) {
     testFailed = true;
     failure = error;

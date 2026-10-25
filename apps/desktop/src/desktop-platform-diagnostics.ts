@@ -6,7 +6,6 @@ import { LogLevel } from '@brainstrike/logging';
 import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
 import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
-import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type { LoggingSettingsPayload } from './logging-shared';
@@ -33,7 +32,6 @@ export interface DesktopPlatformDiagnosticsSnapshot {
     readonly lastFailure: unknown;
     readonly lastSucceededAt: string | null;
   };
-  readonly reset: DesktopResetDiagnosticsSnapshot;
   readonly telemetry: {
     readonly backgroundRuntimeMetrics: readonly BackgroundRuntimeProcessMetric[];
     readonly embedding: EmbeddingTelemetrySnapshot;
@@ -65,9 +63,6 @@ export interface DesktopPlatformDiagnosticsProviders {
   readonly processCounters: {
     readonly getSnapshot: () => ProcessCounterSnapshot;
   };
-  readonly reset: {
-    readonly getSnapshot: () => DesktopResetDiagnosticsSnapshot;
-  };
   readonly telemetry: {
     readonly getRuntimeMetrics: () => readonly BackgroundRuntimeProcessMetric[];
   };
@@ -80,7 +75,6 @@ type DesktopPlatformDiagnosticsProviderName =
   | 'embeddingTelemetry'
   | 'logging'
   | 'processCounters'
-  | 'reset'
   | 'telemetry';
 
 async function readDiagnosticsProvider<T>(
@@ -128,21 +122,6 @@ export async function collectDesktopPlatformDiagnostics(
     'database',
     () => providers.database.getDiagnostics(),
     null
-  );
-  const reset = await readDiagnosticsProvider(
-    errors,
-    'reset',
-    () => providers.reset.getSnapshot(),
-    {
-      lastCompletedAt: null,
-      lastDeletedPathCount: 0,
-      lastError: 'reset diagnostics unavailable',
-      lastFailedAt: null,
-      lastPreservedPathCount: 0,
-      lastStartedAt: null,
-      status: 'failed',
-      userDataPath: '<unavailable>',
-    }
   );
 
   return {
@@ -213,7 +192,6 @@ export async function collectDesktopPlatformDiagnostics(
       lastFailure: getRecordValue(database, 'lastInitializationFailure') ?? null,
       lastSucceededAt: getStringOrNullValue(database, 'lastInitializationSucceededAt'),
     },
-    reset: { ...reset, userDataPath: '<redacted>' },
     telemetry: {
       backgroundRuntimeMetrics: await readDiagnosticsProvider(
         errors,

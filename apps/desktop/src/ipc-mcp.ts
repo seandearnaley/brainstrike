@@ -15,7 +15,7 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 const logger = createLogger('DesktopMcpIpc');
 
 type McpIpcRuntime = Pick<MainMcpHostControl, 'pickConfigPath'>;
-type McpSettingsLifecycleRuntime = Pick<MainMcpHostControl, 'resetSettings' | 'resumeSettings'>;
+type McpSettingsLifecycleRuntime = Pick<MainMcpHostControl, 'resumeSettings'>;
 
 /** Closed across a factory reset; the picker refuses while it is. */
 let mcpSurfacesOpen = true;
@@ -33,7 +33,7 @@ function clearPendingConfigPathSelection(selection: Promise<string | null>): voi
 /** One native picker per window at a time; the chosen file becomes the host's config. */
 function selectMcpConfigPath(runtime: McpIpcRuntime, senderId: number): Promise<string | null> {
   if (!mcpSurfacesOpen) {
-    return Promise.reject(new Error('MCP settings are closed for a factory reset'));
+    return Promise.reject(new Error('MCP settings are closed'));
   }
   if (pendingConfigPathSelection !== null) {
     if (pendingConfigPathSelection.senderId !== senderId) {
@@ -82,15 +82,6 @@ export function suspendMcpSurfacesForContentClear(): Promise<void> {
   mcpSurfacesOpen = false;
   pendingConfigPathSelection = null;
   return Promise.resolve();
-}
-
-/** Factory reset: close Main's surfaces, then the host retires its MCP settings. */
-export async function resetMcpRuntimeForFactoryReset(
-  runtime: McpSettingsLifecycleRuntime = getMainMcpHostControl()
-): Promise<void> {
-  mcpSurfacesOpen = false;
-  pendingConfigPathSelection = null;
-  await runtime.resetSettings();
 }
 
 /** After a factory reset: the host reopens its settings (restoring them on failure), then Main's surfaces. */

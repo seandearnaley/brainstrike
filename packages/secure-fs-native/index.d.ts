@@ -54,6 +54,15 @@ export interface ExclusiveLock {
 export function tryExclusiveLock(lockPath: string): ExclusiveLock | null;
 
 /**
+ * Takes the same exclusive lock as `tryExclusiveLock` once no other handle holds
+ * it. The wait is the OS's own blocking `flock(2)` or `LockFileEx` on a libuv
+ * worker thread, woken when the holder's handle closes, which its process's
+ * death does however it dies: no polling, no timer. It never settles while the
+ * holder lives. Rejects when the file cannot be opened or locked.
+ */
+export function waitForExclusiveLock(lockPath: string): Promise<ExclusiveLock>;
+
+/**
  * Marks every descriptor above stderr close-on-exec, so a process this one spawns
  * inherits only the stdio it is given (`close_range(CLOSE_RANGE_CLOEXEC)` where Linux
  * has it, otherwise each listed descriptor). Electron's Main calls it before it spawns

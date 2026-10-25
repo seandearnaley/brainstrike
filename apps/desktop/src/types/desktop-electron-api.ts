@@ -92,7 +92,6 @@ export interface DesktopFileSystemBridge {
 
 interface DesktopFactoryResetBridge {
   resetLocal: () => Promise<{ message?: string; success: boolean }>;
-  readonly unavailableReason: string | undefined;
 }
 
 export interface VisibleDesktopElectronApi {
@@ -202,10 +201,7 @@ const VISIBLE_ELECTRON_API_KEYS = defineExactKeys<VisibleDesktopElectronApi>()([
   'getUserDataPath',
   'storage',
 ]);
-const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
-  'resetLocal',
-  'unavailableReason',
-]);
+const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()(['resetLocal']);
 const EMBEDDING_ELECTRON_API_KEYS = defineExactKeys<EmbeddingHostElectronApi>()([
   'vectorPreferences',
 ]);

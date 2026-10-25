@@ -6,7 +6,7 @@ import {
 } from '../desktop-platform-diagnostics';
 
 describe('desktop platform diagnostics', () => {
-  it('collects one typed snapshot across database, hosts, logging, and reset state', async () => {
+  it('collects one typed snapshot across database, hosts and logging', async () => {
     const databaseDiagnostics = {
       hasDatabaseHandle: true,
       initializationAttemptCount: 2,
@@ -119,17 +119,6 @@ describe('desktop platform diagnostics', () => {
       },
       logging: { getState: vi.fn(() => loggingState) },
       processCounters: { getSnapshot: vi.fn(() => processCounters) },
-      reset: {
-        getSnapshot: vi.fn(() => ({
-          lastCompletedAt: null,
-          lastDeletedPathCount: 0,
-          lastError: null,
-          lastFailedAt: null,
-          lastPreservedPathCount: 0,
-          status: 'idle' as const,
-          userDataPath: '/tmp/brainstrike-user-data',
-        })),
-      },
       telemetry: { getRuntimeMetrics: vi.fn(() => runtimeMetrics) },
     } as unknown as DesktopPlatformDiagnosticsProviders;
     const snapshot = await collectDesktopPlatformDiagnostics(providers);
@@ -147,10 +136,6 @@ describe('desktop platform diagnostics', () => {
         initStop: databaseDiagnostics.initStop,
         lastFailure: null,
         lastSucceededAt: '2026-05-20T18:00:00.000Z',
-      },
-      reset: {
-        status: 'idle',
-        userDataPath: '<redacted>',
       },
       telemetry: {
         backgroundRuntimeMetrics: runtimeMetrics,
@@ -202,11 +187,6 @@ describe('desktop platform diagnostics', () => {
           throw new Error('process counters unavailable');
         }),
       },
-      reset: {
-        getSnapshot: vi.fn(() => {
-          throw new Error('reset unavailable');
-        }),
-      },
       telemetry: {
         getRuntimeMetrics: vi.fn(() => {
           throw new Error('telemetry unavailable');
@@ -220,12 +200,10 @@ describe('desktop platform diagnostics', () => {
       embeddingTelemetry: 'embedding telemetry unavailable',
       logging: 'logging unavailable',
       processCounters: 'process counters unavailable',
-      reset: 'reset unavailable',
       telemetry: 'telemetry unavailable',
     });
     expect(snapshot.telemetry.processCounters).toEqual({ installedAt: null, samples: [] });
     expect(snapshot.databaseIntegrity).toEqual({ revision: 0, state: { kind: 'healthy' } });
-    expect(snapshot.reset.userDataPath).toBe('<redacted>');
     // No stop is reported as none, never as absent.
     expect(snapshot.migration.initStop).toBeNull();
   });
