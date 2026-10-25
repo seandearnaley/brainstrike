@@ -51,7 +51,7 @@ const ROOT_ID = 'w1-workspace-bar-root-00000000-0000-4000-8000-000000000010';
 /**
  * Seed ONE connected root (optionally alongside recent-roots grants) and
  * reload. Background indexing is seeded OFF: the bar reads the `roots` table
- * and `window.git`, never the index, so driving the embedding pipeline here
+ * and the host Git bridge, never the index, so driving the embedding pipeline here
  * would only add minutes and flake surface.
  */
 async function seedRoot(
@@ -130,7 +130,7 @@ test.describe('Workspace bar (desktop)', () => {
     await expect(folderChip).toContainText(path.basename(plain), { timeout: 30_000 });
 
     // Deterministic wait (BST-1400): `data-checkout-state` flips to
-    // "resolved" once `useThreadCheckoutStatus`'s `window.git.status`
+    // "resolved" once `useThreadCheckoutStatus`'s Git bridge `status`
     // round-trip for THIS root has settled — pending vs. "confirmed no
     // branch chip" are otherwise indistinguishable from a chip that simply
     // had not mounted yet.

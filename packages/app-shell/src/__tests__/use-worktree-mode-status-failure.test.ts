@@ -5,22 +5,14 @@
  */
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
-vi.mock('../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({
-    adopt: vi.fn(),
-    archive: vi.fn(),
-    checkoutStatus: vi.fn(),
-    create: vi.fn(),
-    createBranchHere: vi.fn(),
-    createContext: vi.fn(),
-    getSettings: vi.fn(() => new Promise(() => undefined)),
-    list: vi.fn(() => new Promise(() => undefined)),
-    listManagedPaths: vi.fn(),
-    restore: vi.fn(),
-    setSettings: vi.fn(),
+const wrapper = workspaceGitWrapper({
+  worktrees: stubWorktreesBridge({
+    getSettings: vi.fn(() => new Promise<never>(() => undefined)),
+    list: vi.fn(() => new Promise<never>(() => undefined)),
   }),
-}));
+});
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({
@@ -57,8 +49,9 @@ const ARGS = {
 
 describe('useWorktreeMode without a readable repository (BST-2133)', () => {
   it('names a failed status read instead of calling the folder a non-repository', async () => {
-    const { result } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, statusFailure: 'git binary missing' })
+    const { result } = renderHook(
+      () => useWorktreeMode({ ...ARGS, statusFailure: 'git binary missing' }),
+      { wrapper }
     );
     const reason = 'Git status could not be read: git binary missing';
 
@@ -72,7 +65,9 @@ describe('useWorktreeMode without a readable repository (BST-2133)', () => {
 
   it('shows only a bounded first line of a long, multi-line git failure', async () => {
     const stderr = `fatal: index file corrupt\n${'detail line\n'.repeat(10_000)}`;
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, statusFailure: stderr }));
+    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, statusFailure: stderr }), {
+      wrapper,
+    });
 
     expect(result.current?.disabledReason).toBe(
       'Git status could not be read: fatal: index file corrupt'
@@ -81,7 +76,7 @@ describe('useWorktreeMode without a readable repository (BST-2133)', () => {
   });
 
   it('keeps "Not a git repository" for a read that succeeded', async () => {
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderHook(() => useWorktreeMode(ARGS), { wrapper });
 
     expect(result.current?.disabledReason).toBe('Not a git repository');
     expect(unavailableRepositoryReason(null)).toBe('Not a git repository');

@@ -155,6 +155,7 @@ export function buildHostNativeTools(
     ...(options.executors ??
       desktopHostToolExecutors(
         options.request ?? unexpectedMainRequest,
+        {},
         threadId,
         options.native ?? nativeRuntimeFor(runtimeData),
         options.appPaths

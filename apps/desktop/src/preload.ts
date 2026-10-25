@@ -19,22 +19,18 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
-import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
 import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
-import { forgeContract } from './ipc-domains/forge.contract';
-import { gitContract } from './ipc-domains/git.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
 import { terminalContract } from './ipc-domains/terminal.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
-import { worktreesContract } from './ipc-domains/worktrees.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
@@ -698,44 +694,6 @@ if (shouldExposeBridge('platform')) {
     showItemInFolder: (absolutePath: string) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.shell.showItemInFolder, absolutePath),
   });
-}
-
-// Git bridge (desktop-only): typed git operations on a workspace root. Every
-// call passes the durable `rootId` (DB roots.id) — main resolves + containment-
-// checks it to an absolute cwd and runs git via execFile (no shell). Web never
-// constructs this bridge (there is no preload), so `window.git` is simply
-// absent there; consumers must capability-check `window.git` rather than
-// `isElectron()`.
-if (shouldExposeBridge('git')) {
-  exposeBridge('git', gitContract);
-}
-
-// Changeset diff bridge (desktop-only, BST-1113): resolves any `Changeset`
-// (agent-run / run-range / git-scope) to an eager `ChangesetView` and loads
-// per-file `StructuredFileDiff`s lazily. Web never constructs this bridge
-// (there is no preload), so `window.changes` is simply absent there;
-// consumers must capability-check `window.changes` rather than
-// `isElectron()`. Backed by ChangesetDiffService via the `changes` IPC
-// domain (changes-ipc-handlers.ts).
-if (shouldExposeBridge('changes')) {
-  exposeBridge('changes', changesContract);
-}
-
-// Managed-worktree bridge (desktop-only, BST-1390): create / list / archive /
-// restore linked worktrees and read the managed-directory settings. Web never
-// constructs this bridge, so `window.worktrees` is simply absent there;
-// consumers capability-check it rather than `isElectron()`.
-if (shouldExposeBridge('worktrees')) {
-  exposeBridge('worktrees', worktreesContract);
-}
-
-// Forge (pull request) bridge (desktop-only, BST-1391): PR identity + status
-// for a workspace root, backed by the main-process ForgeService and the `gh`
-// CLI. Web never constructs this bridge (there is no preload), so
-// `window.forge` is simply absent there; consumers must capability-check
-// `window.forge` rather than `isElectron()`.
-if (shouldExposeBridge('forge')) {
-  exposeBridge('forge', forgeContract);
 }
 
 // Embedded browser pane bridge (BST-1174). Every invoke returns the main-side

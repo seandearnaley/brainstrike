@@ -12,13 +12,11 @@ import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
-import { serveHostRewindFiles } from './host-rewind-files';
 import {
   type HostToolServiceCapabilities,
   refusalOutcome,
   serveHostToolServices,
 } from './host-tool-services';
-import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
@@ -26,6 +24,7 @@ import {
   PlatformCatalogModelSchema,
   PlatformDiagnosticRecordSchema,
   PlatformEmbeddingQuerySchema,
+  PlatformIndexRefreshSchema,
   type PlatformLocalModel,
   PlatformLocalModelResultSchema,
   PlatformLocalModelSchema,
@@ -38,6 +37,7 @@ import {
   PlatformWorkspaceAcquireSchema,
   PlatformWorkspaceBindingRequestSchema,
   PlatformWorkspaceLeaseSchema,
+  PlatformWorktreeFolderSchema,
 } from './platform-wire';
 
 const logger = createLogger('DesktopMainPlatform');
@@ -69,13 +69,16 @@ export interface DesktopPlatformCapabilities {
   readonly mcp: DesktopMcpPlatformCapabilities;
   /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
   readonly nativeChildren?: NativeChildObserver;
+  /**
+   * ADR-0028 step 3: mounts a worktree an agent created as a workspace folder
+   * and asks the window to show it, as for any folder Main opens.
+   */
+  openWorktreeFolder?(path: string): Promise<{ displayName: string; path: string; rootId: string }>;
+  /** Main's native index rescans a root after a rewind restored it on disk. */
   refreshWorkspaceIndex?(rootId: string): Promise<void>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
-  /** Private Main-to-writer borrow on this same generation's platform connection. */
-  /** Legacy turns' shadow-git owner, which also snapshots each host run's turn. */
-  readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }
 type Execute = <T>(
   token: CancellationToken,
@@ -199,20 +202,6 @@ function serveAdmissionReads(
           onExcessProperty: 'error',
         })(input);
         return await reads.indexStatus(signal);
-      })
-  );
-  connection.onRequest(
-    'platform/admission/worktrees',
-    // The explicit result type keeps vscode-jsonrpc from narrowing it to a boolean literal.
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async (signal) => {
-        wireDecoder(Schema.Record(Schema.String, Schema.Never), {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input);
-        return wireDecoder(Schema.Boolean, { errors: 'all', onExcessProperty: 'error' })(
-          await reads.worktreesAvailable(signal)
-        );
       })
   );
   connection.onRequest(
@@ -414,9 +403,34 @@ export function serveDesktopPlatform(
       return await capabilities.resolveWorkspaceRoot(rootId);
     })
   );
+  connection.onRequest(
+    'platform/worktree/open-folder',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { path } = wireDecoder(PlatformWorktreeFolderSchema, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(input);
+        if (!capabilities.openWorktreeFolder) {
+          throw new Error('Desktop cannot open worktrees as folders');
+        }
+        return await capabilities.openWorktreeFolder(path);
+      })
+  );
+  connection.onRequest('platform/index/refresh', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { rootId } = wireDecoder(PlatformIndexRefreshSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
+      if (!capabilities.refreshWorkspaceIndex) {
+        throw new Error('Desktop has no native workspace index owner');
+      }
+      await capabilities.refreshWorkspaceIndex(rootId);
+      return null;
+    })
+  );
   serveHostToolServices(connection, execute, capabilities.hostTools);
-  serveHostTurnSnapshots(connection, execute, capabilities.workspaceSnapshots);
-  serveHostRewindFiles(connection, execute, capabilities);
   const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
       for (const controller of controllers) {

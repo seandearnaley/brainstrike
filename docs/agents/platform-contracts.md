@@ -91,9 +91,11 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
   completes under the lease, whose exit is joined without a rung.
 - Hidden renderer hosts are destroyed and their `closed` joined.
 
-Terminal quit prepares Main's workspace mutations and worktree operations before
-child-process or profile retirement. Accepted workflows finish while mounts, git,
-setup and the authenticated catalog remain available; new mutations are refused.
+Terminal quit prepares Main's workspace mutations before child-process or profile
+retirement; the agent host retires its worktree operations, Git inventory, forge and
+snapshot maintenance in its own close (ADR-0029). Accepted workflows finish while
+mounts, git, setup and the authenticated catalog remain available; new mutations are
+refused.
 The catalog borrower then fences new calls and joins admitted acquisitions and
 replies through ACK or error. A failed deletion retains its reservation and reports
 its cause. A borrower not authenticated before quit may receive the existing
@@ -112,10 +114,12 @@ on the libuv thread pool when Electron frees Main's Node environment completes
 into a dead JS context and aborts Main (BST-2244). An owner keeps a subscription
 whose unsubscribe failed until a retry succeeds; each terminal dispose retries it
 once and rejects visibly if it fails again (BST-2248).
-The Git inventory service retains its watcher generation through failed stop and
-refuses restart until retirement succeeds.
+The host's Git inventory service follows the same joined-producer rule; it retains
+its watcher generation through failed stop and refuses restart until retirement
+succeeds.
 
-Git runs as a plain Node child on every platform (ADR-0027), so there is no
+Git runs in the agent host as a plain Node child on every platform (ADR-0027),
+spawned through `spawnNativeChild` so it holds the Root (ADR-0017); there is no
 per-command native Job for quit to join. Windows agent commands keep their wrapper and
 Job. The git runner settles at the child's `close`; output past its capture ceiling
 closes the pipe instead of killing git, since a kill on Windows reaches only the

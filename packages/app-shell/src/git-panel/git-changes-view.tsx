@@ -2,14 +2,14 @@
  * DIFF-SOURCING DESIGN (BST-1116 W6 Task A): the Changes tab's file diff no
  * longer reconstructs a unified-diff string via `parseUnifiedDiff` — it
  * resolves through the shared changeset engine (`useChangeset` over the
- * `window.changes` bridge, spec §3/§7) and renders with the shared
+ * Changes bridge, spec §3/§7) and renders with the shared
  * `ChangesetFileDiffCard` (`../changes/ui/changeset-file-diff-card`).
  *
  * What stayed panel-owned, and why:
  *
  * - The LEFT file list (grouped Staged / Unstaged / Untracked, per-row
  *   stage/unstage buttons, the tri-state stage-all checkbox) is untouched,
- *   still driven straight off `window.git` `GitStatus.files`. The shared
+ *   still driven straight off the Git bridge's `GitStatus.files`. The shared
  *   `ChangedFilesTree` (`../changes/ui/changed-files-tree.tsx`) groups by
  *   root → repo → worktree → directory and its checkboxes mean "which
  *   files' diffs to render" — a DIFFERENT semantic from this panel's
@@ -59,7 +59,7 @@
  *   root resolved from `rootId` to CONTAIN `worktreePath`, and the worktree
  *   root is an ANCESTOR of the opened root in that configuration, so passing
  *   it fails every diff with `outside-roots-unsupported:`; (2) it becomes the
- *   git cwd, and this panel's own row paths come from `window.git`'s
+ *   git cwd, and this panel's own row paths come from the Git bridge's
  *   `GitStatus.files`, which `git-service.ts`'s `scopeStatusPaths` has
  *   already made relative to the OPENED root — a worktree-root cwd would
  *   diff a differently-prefixed path. `openedRoot` is exactly
@@ -546,7 +546,7 @@ export function GitChangesView({
   const changeset = useChangeset(panel.activeRootId, pinnedChangeset);
 
   // Live-refresh reload signal for the mounted diff card (BST-1161, PR #2288
-  // review): the pinned changeset's repositoryRoot comes from `window.git`'s
+  // review): the pinned changeset's repositoryRoot comes from the Git bridge's
   // GitRepository (never realpath'd), so the selector's unknown-key
   // conservative fallback covers a vocabulary divergence from the inventory's
   // canonical event key — see selectGitScopeRefreshNonce's doc comment.
