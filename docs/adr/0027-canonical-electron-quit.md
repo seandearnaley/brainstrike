@@ -1,6 +1,7 @@
 # ADR-0027: Canonical Electron quit
 
-- **Status:** Accepted (owner decisions, 2026-10-21)
+- **Status:** Accepted (owner decisions, 2026-10-21); decision 3's native-thread join
+  retires under [ADR-0029](0029-main-is-a-launcher.md) once no native work runs on Main
 - **Date:** 2026-10-21
 - **Amends:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md) R4. Git on
   Windows no longer runs in a per-command native Job, so quit has no git Job to join. A
