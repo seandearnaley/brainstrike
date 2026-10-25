@@ -13,6 +13,7 @@
  * "this branch has no pull request".
  */
 import { type ExecFileException, execFile } from 'node:child_process';
+import { trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { ForgePullRequest, ForgeUnavailable } from '@brainstrike/types';
 import { readForgeChecks, rollupForgeChecks } from '@brainstrike/types';
 
@@ -127,7 +128,9 @@ function classifyGhExecError(
 
 export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, timeoutMs }) =>
   new Promise<ForgeCommandRun>((resolve) => {
-    execFile(
+    // ADR-0017: the host's supervisor hears of gh, which execFile cannot hand the Root.
+    let exited: () => void = () => undefined;
+    const child = execFile(
       'gh',
       [...args],
       {
@@ -138,6 +141,7 @@ export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, 
         timeout: timeoutMs,
       },
       (error, stdout, stderr) => {
+        exited();
         if (error) {
           resolve({ ...classifyGhExecError(error), stderr, stdout });
           return;
@@ -145,6 +149,7 @@ export const execFileGhRunner: ForgeCommandRunner = ({ args, cwd, host, signal, 
         resolve({ exitCode: 0, stderr, stdout });
       }
     );
+    exited = trackNativeChild(child.pid, { group: false });
   });
 
 function describeGhFailure(run: ForgeCommandRun): string {

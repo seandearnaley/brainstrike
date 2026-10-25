@@ -4,15 +4,14 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * The ONE order desktop main tears down in. Each owner stops while everything
  * it depends on is still alive: a factory reset in flight finishes first (it
  * needs its replacement renderer and reopens the agent host), renderers before
- * the hosts they call, the startup snapshot maintenance stopped and joined
- * before anything it reads (agent host, database, git) retires (BST-1859),
- * Main's child processes (shell, terminals, command sessions, LSP) reaped early, the agent host's admission fenced before Main's
- * MCP control closes (a host
- * starting after it would be refused), each @parcel/watcher owner (Explorer
- * roots, git metadata) joining its native subscribes and
- * unsubscribes before Electron frees Main's Node environment (BST-2244), git
- * and forge before the database they read, and `database-drain` last: it stops everything that
- * issues database work. Two things deliberately sit OUTSIDE this sequence: the
+ * the hosts they call, Main's child processes (shell, terminals, command
+ * sessions, LSP) reaped early, the agent host's admission fenced before Main's
+ * MCP control closes (a host starting after it would be refused), each
+ * @parcel/watcher owner (Explorer roots) joining its native subscribes and
+ * unsubscribes before Electron frees Main's Node environment (BST-2244), and
+ * `database-drain` last: it stops everything that issues database work. The
+ * git cluster and its snapshot maintenance are the agent host's, which retires
+ * them with its own platform (ADR-0029). Two things deliberately sit OUTSIDE this sequence: the
  * database close itself (`DesktopShutdownRunPlan.closeDatabase`, which always
  * runs after it) and the durable error-log close (last of all, so the log can
  * record every earlier failure). See platform-contracts.md § "Graceful
@@ -20,7 +19,6 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  */
 export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'factory-reset',
-  'snapshot-maintenance',
   'renderers',
   'main-catalog',
   'child-processes',
@@ -28,8 +26,6 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'mcp-runtime',
   'file-system',
   'embedding-host',
-  'git-inventory',
-  'forge',
   'database-drain',
 ] as const;
 

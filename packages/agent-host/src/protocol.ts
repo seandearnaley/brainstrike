@@ -22,6 +22,10 @@ import { Schema } from 'effect';
 import type { JsonSchemaFactory } from './json-value.ts';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
+import {
+  GIT_WORKSPACE_METHOD_SCHEMAS,
+  GIT_WORKSPACE_RESULT_SCHEMAS,
+} from './protocol-git-workspace.ts';
 import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.ts';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -76,6 +80,7 @@ import {
 } from './workspace-wire.ts';
 
 export * from './mcp-authority-wire.ts';
+export * from './protocol-git-workspace.ts';
 export * from './protocol-mcp-content.ts';
 export * from './protocol-mcp-presentation.ts';
 export * from './protocol-mcp-settings.ts';
@@ -346,6 +351,7 @@ export const HostHookTrustSchema = Schema.Struct({
 });
 export type HostHookTrust = (typeof HostHookTrustSchema)['Type'];
 export const HOST_METHOD_SCHEMAS = {
+  ...GIT_WORKSPACE_METHOD_SCHEMAS,
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
@@ -938,6 +944,7 @@ export const HostLogRowSchema = Schema.Struct({
 });
 export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
+  ...GIT_WORKSPACE_RESULT_SCHEMAS,
   ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,

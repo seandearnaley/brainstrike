@@ -7,20 +7,24 @@ import {
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  stubWorktreesBridge,
+  workspaceGitWrapper,
+} from '../../__tests__/helpers/workspace-git-services-wrapper';
 
 const listMock = vi.fn();
 const checkoutStatusMock = vi.fn();
 const adoptMock = vi.fn();
 const archiveMock = vi.fn();
 
-vi.mock('../../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({
+const wrapper = workspaceGitWrapper({
+  worktrees: stubWorktreesBridge({
     adopt: adoptMock,
     archive: archiveMock,
     checkoutStatus: checkoutStatusMock,
     list: listMock,
   }),
-}));
+});
 
 const useForgePrCacheMock = vi.fn(() => ({ byRepoBranch: new Map(), error: null, loading: false }));
 vi.mock('../../hooks/use-forge-pr-cache', () => ({
@@ -133,10 +137,14 @@ describe('useWorktreeMap', () => {
     const status = { ...READY_STATUS, authorizedRootIds: [] };
     const { result } = renderHook(() => useWorktreeMap(INPUT), {
       wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(NativeWorkspaceSearchProvider, {
-          children,
-          dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
-        }),
+        createElement(
+          wrapper,
+          null,
+          createElement(NativeWorkspaceSearchProvider, {
+            children,
+            dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
+          })
+        ),
     });
     await waitFor(() => expect(result.current.loading).toBe(false));
     const indexing = () => result.current.repositories[0]?.cards.map((card) => card.indexing);
@@ -164,10 +172,14 @@ describe('useWorktreeMap', () => {
     };
     const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), {
       wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(NativeWorkspaceSearchProvider, {
-          children,
-          dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
-        }),
+        createElement(
+          wrapper,
+          null,
+          createElement(NativeWorkspaceSearchProvider, {
+            children,
+            dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
+          })
+        ),
     });
     await waitFor(() => expect(result.current.loading).toBe(false));
     const indexing = () => result.current.repositories[0]?.cards.map((card) => card.indexing);
@@ -188,10 +200,14 @@ describe('useWorktreeMap', () => {
     const status = READY_STATUS;
     const { result } = renderHook(() => useWorktreeMap(INPUT), {
       wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(NativeWorkspaceSearchProvider, {
-          children,
-          dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
-        }),
+        createElement(
+          wrapper,
+          null,
+          createElement(NativeWorkspaceSearchProvider, {
+            children,
+            dependencies: { capability: null, embedQuery: vi.fn(), profile: null, status },
+          })
+        ),
     });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.repositories[0]?.cards.map((card) => card.indexing)).toEqual([
@@ -201,7 +217,7 @@ describe('useWorktreeMap', () => {
   });
 
   it('loads the list once on mount and projects it into repository lanes', async () => {
-    const { result } = renderHook(() => useWorktreeMap(INPUT));
+    const { result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(listMock).toHaveBeenCalledTimes(1);
@@ -213,7 +229,7 @@ describe('useWorktreeMap', () => {
   });
 
   it('reads each visible checkout status exactly once per invalidation generation', async () => {
-    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT));
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.statusByPath.get('/repo')?.kind).toBe('ready'));
     expect(checkoutStatusMock).toHaveBeenCalledTimes(1);
     expect(checkoutStatusMock).toHaveBeenCalledWith({ path: '/repo' });
@@ -246,7 +262,7 @@ describe('useWorktreeMap', () => {
   // is the single list read; the nonce bump survives only to re-key the
   // per-card status reads.
   it('manual refresh issues exactly one additional list read and re-keys the statuses', async () => {
-    const { result } = renderHook(() => useWorktreeMap(INPUT));
+    const { result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.statusByPath.get('/repo')?.kind).toBe('ready'));
     expect(listMock).toHaveBeenCalledTimes(1);
     expect(checkoutStatusMock).toHaveBeenCalledTimes(1);
@@ -278,7 +294,7 @@ describe('useWorktreeMap', () => {
   // resolves AFTER a manual refresh would overwrite the fresher result — e.g.
   // an archived card reappearing until the next unrelated invalidation.
   it('a stale in-flight list read never clobbers a later manual refresh result', async () => {
-    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT));
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.repositories).toHaveLength(1);
 
@@ -321,7 +337,7 @@ describe('useWorktreeMap', () => {
   // row), so the hook re-reads exactly when the row provably exists.
   it('re-reads the list when a root registration publishes a new canonical identity', async () => {
     rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
-    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT));
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(listMock).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(checkoutStatusMock).toHaveBeenCalledTimes(1));
@@ -343,7 +359,7 @@ describe('useWorktreeMap', () => {
 
   it('does not re-read the list when the identity value is unchanged', async () => {
     rootIdentityValue = { resolveAdapterRootId: () => null, workspaceDbRootIds: [] };
-    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT));
+    const { rerender, result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(listMock).toHaveBeenCalledTimes(1);
 
@@ -359,7 +375,7 @@ describe('useWorktreeMap', () => {
   it('reports a list failure as an error and never as an empty map', async () => {
     listMock.mockResolvedValue({ error: 'The worktree service is not available.', ok: false });
 
-    const { result } = renderHook(() => useWorktreeMap(INPUT));
+    const { result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBe('The worktree service is not available.');
@@ -369,7 +385,7 @@ describe('useWorktreeMap', () => {
   it('reports a per-card status failure as a stated reason, not as a clean checkout', async () => {
     checkoutStatusMock.mockResolvedValue({ error: 'fatal: not a git repository', ok: false });
 
-    const { result } = renderHook(() => useWorktreeMap(INPUT));
+    const { result } = renderHook(() => useWorktreeMap(INPUT), { wrapper });
 
     await waitFor(() => expect(result.current.statusByPath.get('/repo')?.kind).toBe('error'));
     expect(result.current.statusByPath.get('/repo')).toEqual({

@@ -1,4 +1,11 @@
 // @vitest-environment jsdom
+import type { GitBridge } from '@brainstrike/app-shell/git-panel';
+import {
+  NO_WORKSPACE_GIT_SERVICES,
+  useWorktreesBridge,
+  type WorkspaceGitServices,
+} from '@brainstrike/app-shell/workspace-git-services';
+import type { WorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { act, render, screen, within } from '@testing-library/react';
@@ -106,14 +113,46 @@ vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [],
 }));
 
-// The Git surface is capability-gated. `gitBridgeAvailableMock` lets each test
-// drive the `isGitBridgeAvailable()` branch (default false = web-safe). Mocking
-// the availability subpath keeps the heavy @codemirror/merge graph out of this
-// test.
-const gitBridgeAvailableMock = vi.fn(() => false);
-vi.mock('@brainstrike/app-shell/git-panel/availability', () => ({
-  isGitBridgeAvailable: () => gitBridgeAvailableMock(),
+// The agent host serves the git cluster (ADR-0029), and the Git and Worktrees
+// surfaces are capability-gated on its bridges. `workspaceGitMock` lets each
+// test choose which bridges the host serves (default none = web-safe).
+const workspaceGitMock = vi.fn((): WorkspaceGitServices => NO_WORKSPACE_GIT_SERVICES);
+vi.mock('../../../renderer/host-git-workspace', () => ({
+  resolveDesktopWorkspaceGitServices: () => workspaceGitMock(),
 }));
+
+const GIT_BRIDGE: GitBridge = {
+  aheadBehind: vi.fn(),
+  commit: vi.fn(),
+  commitFiles: vi.fn(),
+  createBranch: vi.fn(),
+  diff: vi.fn(),
+  fetch: vi.fn(),
+  history: vi.fn(),
+  pull: vi.fn(),
+  push: vi.fn(),
+  repository: vi.fn(),
+  stage: vi.fn(),
+  status: vi.fn(),
+  structuredFileDiff: vi.fn(),
+  switchBranch: vi.fn(),
+  unstage: vi.fn(),
+};
+
+const WORKTREES_BRIDGE: WorktreesBridge = {
+  adopt: vi.fn(),
+  archive: vi.fn(),
+  checkoutStatus: vi.fn(),
+  create: vi.fn(),
+  createBranchHere: vi.fn(),
+  createContext: vi.fn(),
+  getSettings: vi.fn(),
+  inspectArchive: vi.fn(),
+  list: vi.fn(),
+  listManagedPaths: vi.fn(),
+  restore: vi.fn(),
+  setSettings: vi.fn(),
+};
 
 vi.mock('../../../renderer/components/git-page-content', () => ({
   default: () => <div data-testid="git-page-content" />,
@@ -128,13 +167,6 @@ vi.mock('@brainstrike/app-shell/terminal-panel/availability', () => ({
 
 vi.mock('../../../renderer/components/terminal-page-content', () => ({
   default: () => <div data-testid="terminal-page-content" />,
-}));
-
-// The Worktrees Map surface is capability-gated the same way (default false =
-// web-safe).
-const worktreesBridgeAvailableMock = vi.fn(() => false);
-vi.mock('@brainstrike/app-shell/worktrees/availability', () => ({
-  isWorktreesBridgeAvailable: () => worktreesBridgeAvailableMock(),
 }));
 
 vi.mock('../../../renderer/components/worktree-map-page-content', () => ({
@@ -181,10 +213,12 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   },
 }));
 
-// The app's page content, counting its mounts.
+// The app's page content, counting its mounts and reading the host's worktrees
+// bridge as Settings → Workspace does.
 let settingsMountCount = 0;
 function MockSettingsPage() {
   const [mountIndex, setMountIndex] = React.useState(0);
+  const worktrees = useWorktreesBridge();
 
   React.useEffect(() => {
     settingsMountCount += 1;
@@ -192,7 +226,11 @@ function MockSettingsPage() {
   }, []);
 
   return (
-    <div data-mount-index={mountIndex} data-testid="settings-page-content">
+    <div
+      data-mount-index={mountIndex}
+      data-testid="settings-page-content"
+      data-worktrees={worktrees ? 'served' : 'absent'}
+    >
       Settings Page Content
     </div>
   );
@@ -256,9 +294,8 @@ describe('RootLayoutContent', () => {
     sharedRootLayoutCapture.props = null;
     // Default: Git + Terminal + Worktrees bridges unavailable (web-safe).
     // clearAllMocks wiped the impls.
-    gitBridgeAvailableMock.mockReturnValue(false);
+    workspaceGitMock.mockReturnValue(NO_WORKSPACE_GIT_SERVICES);
     terminalBridgeAvailableMock.mockReturnValue(false);
-    worktreesBridgeAvailableMock.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -315,15 +352,14 @@ describe('RootLayoutContent', () => {
     expect(screen.queryByTestId('nav-item-/prompts')).not.toBeInTheDocument();
   });
 
-  it('does NOT surface the Git tab when window.git is absent (web-safe gate)', () => {
-    gitBridgeAvailableMock.mockReturnValue(false);
+  it('does NOT surface the Git tab when the host serves no Git bridge (web-safe gate)', () => {
     render(<RootLayoutContent />);
     expect(screen.queryByTestId('nav-item-/git')).not.toBeInTheDocument();
     expect(screen.queryByTestId('git-page-slot')).not.toBeInTheDocument();
   });
 
-  it('surfaces the Git nav item + mounts the git page when window.git is available', () => {
-    gitBridgeAvailableMock.mockReturnValue(true);
+  it('surfaces the Git nav item + mounts the git page when the host serves the Git bridge', () => {
+    workspaceGitMock.mockReturnValue({ ...NO_WORKSPACE_GIT_SERVICES, git: GIT_BRIDGE });
     render(<RootLayoutContent />);
     const gitNavItem = screen.getByTestId('nav-item-/git');
     expect(gitNavItem).toBeInTheDocument();
@@ -353,16 +389,18 @@ describe('RootLayoutContent', () => {
     expect(within(terminalSlot).getByTestId('terminal-page-content')).toBeInTheDocument();
   });
 
-  it('does NOT surface the Worktrees tab when window.worktrees is absent (web-safe gate)', () => {
-    worktreesBridgeAvailableMock.mockReturnValue(false);
+  it('does NOT surface the Worktrees tab when the host serves no worktrees bridge (web-safe gate)', () => {
     render(<RootLayoutContent />);
     expect(sharedRootLayoutCapture.props?.['worktreeMapPageContent']).toBeUndefined();
+    expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-worktrees', 'absent');
   });
 
-  it('passes the Worktrees Map surface WITHOUT a nav item when window.worktrees is available (BST-1392)', () => {
-    worktreesBridgeAvailableMock.mockReturnValue(true);
+  it('passes the Worktrees Map surface WITHOUT a nav item when the host serves the worktrees bridge (BST-1392)', () => {
+    workspaceGitMock.mockReturnValue({ ...NO_WORKSPACE_GIT_SERVICES, worktrees: WORKTREES_BRIDGE });
     render(<RootLayoutContent />);
     expect(sharedRootLayoutCapture.props?.['worktreeMapPageContent']).toBeDefined();
+    // Settings → Workspace reads the same bridge the Worktrees surface does.
+    expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-worktrees', 'served');
   });
 
   it('does not mount an app-specific embedding queue tracker', () => {

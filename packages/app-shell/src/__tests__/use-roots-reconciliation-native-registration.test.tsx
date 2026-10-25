@@ -1,6 +1,6 @@
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerMock = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -32,23 +32,6 @@ function makeAdapter(overrides: Partial<FileSystemAdapter>): FileSystemAdapter {
 beforeEach(() => {
   vi.clearAllMocks();
   resetRootRegistrationEventsForTests();
-  window.worktrees = {
-    adopt: vi.fn(),
-    archive: vi.fn(),
-    checkoutStatus: vi.fn(),
-    create: vi.fn(),
-    createBranchHere: vi.fn(),
-    createContext: vi.fn(),
-    getSettings: vi.fn(),
-    inspectArchive: vi.fn(),
-    list: vi.fn(),
-    listManagedPaths: vi.fn(async () => ({ ok: true as const, value: [] })),
-    restore: vi.fn(),
-    setSettings: vi.fn(),
-  };
-});
-afterEach(() => {
-  Reflect.deleteProperty(window, 'worktrees');
 });
 
 describe('native root registration notification', () => {

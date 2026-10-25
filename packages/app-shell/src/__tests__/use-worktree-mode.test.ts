@@ -3,6 +3,7 @@ import type { WorktreeListEntry } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseWorktreeModeArgs } from '../hooks/use-worktree-mode';
+import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 type FirstRequestState = UseWorktreeModeArgs['firstRequestState'];
 const {
@@ -34,22 +35,19 @@ const {
   restoreSpy: vi.fn(),
   toastSpy: vi.fn(),
 }));
-vi.mock('../worktrees/worktrees-bridge', () => ({
-  resolveWorktreesBridge: () => ({
+const wrapper = workspaceGitWrapper({
+  worktrees: stubWorktreesBridge({
     adopt: adoptSpy,
     archive: archiveSpy,
-    checkoutStatus: vi.fn(),
     create: createSpy,
     createBranchHere: createBranchHereSpy,
     createContext: createContextSpy,
     getSettings: getSettingsSpy,
     inspectArchive: inspectArchiveSpy,
     list: listSpy,
-    listManagedPaths: vi.fn(),
     restore: restoreSpy,
-    setSettings: vi.fn(),
   }),
-}));
+});
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({
@@ -71,6 +69,10 @@ vi.mock('@brainstrike/ui', () => ({ toast: toastSpy }));
 
 import { useWorktreeMode } from '../hooks/use-worktree-mode';
 
+/** Renders the hook under a host that serves the worktrees bridge. */
+function renderWorktreeMode(args: UseWorktreeModeArgs) {
+  return renderHook(() => useWorktreeMode(args), { wrapper });
+}
 const onHandOffToLocal = vi.fn(() => Promise.resolve());
 const onSelectWorktree = vi.fn(() => Promise.resolve());
 const ARGS = {
@@ -212,13 +214,13 @@ describe('useWorktreeMode', () => {
   });
 
   it('is undefined without a primary root', async () => {
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, primaryRootId: null }));
+    const { result } = renderWorktreeMode({ ...ARGS, primaryRootId: null });
     expect(result.current).toBeUndefined();
     await act(async () => {});
   });
 
   it('is disabled with the stated reason for a non-repository folder', async () => {
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, isRepository: false }));
+    const { result } = renderWorktreeMode({ ...ARGS, isRepository: false });
     expect(result.current?.disabledReason).toBe('Not a git repository');
     await act(async () => {});
   });
@@ -231,7 +233,7 @@ describe('useWorktreeMode', () => {
           checkout: WORKTREE_CHECKOUT,
           firstRequestState,
         }),
-      { initialProps: { firstRequestState: 'unsent' as FirstRequestState } }
+      { initialProps: { firstRequestState: 'unsent' as FirstRequestState }, wrapper }
     );
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
@@ -242,9 +244,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('disables and rejects worktree creation when no thread is selected', async () => {
-    const { result } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' })
-    );
+    const { result } = renderWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' });
     await waitFor(() => expect(result.current?.createDisabledReason).toBe('No thread selected.'));
 
     await act(async () => {
@@ -260,7 +260,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('mounts the created worktree as a root and then binds the thread to it', async () => {
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
     await act(async () => {
       await result.current?.onCreate(CREATE_REQUEST);
@@ -284,7 +284,7 @@ describe('useWorktreeMode', () => {
       error: 'local branch "bs/bright-fox" already exists',
       ok: false,
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
     await act(async () => {
@@ -304,7 +304,7 @@ describe('useWorktreeMode', () => {
 
   it('rejects and toasts exactly once when binding fails after creation', async () => {
     onSelectWorktree.mockRejectedValueOnce(new Error('bind boom'));
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
     await act(async () => {
@@ -323,7 +323,7 @@ describe('useWorktreeMode', () => {
 
   it('hands off before archiving, and archives nothing when the hand-off fails', async () => {
     onHandOffToLocal.mockRejectedValueOnce(new Error('handoff boom'));
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
 
     act(() => result.current?.onArchive?.());
@@ -350,7 +350,7 @@ describe('useWorktreeMode', () => {
       ok: true,
       value: SINGLE_IGNORED_PREVIEW,
     });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
 
     act(() => result.current?.onArchive?.());
     await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
@@ -373,7 +373,7 @@ describe('useWorktreeMode', () => {
       const initialSelection = { checkout: WORKTREE_CHECKOUT, threadId: 'thread-1' };
       const { rerender, result } = renderHook(
         ({ checkout, threadId }) => useWorktreeMode({ ...ARGS, checkout, threadId }),
-        { initialProps: initialSelection }
+        { initialProps: initialSelection, wrapper }
       );
       act(() => result.current?.onArchive?.());
       await waitFor(() => expect(result.current?.archiveConfirmation).not.toBeNull());
@@ -395,7 +395,7 @@ describe('useWorktreeMode', () => {
       callOrder.push('archive');
       return Promise.resolve({ ok: true, value: null });
     });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
 
     act(() => result.current?.onArchive?.());
@@ -409,7 +409,7 @@ describe('useWorktreeMode', () => {
 
   it('toasts an honest failure when archiving fails after a successful hand-off', async () => {
     archiveSpy.mockResolvedValueOnce({ error: 'worktree has uncommitted changes', ok: false });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
 
     act(() => result.current?.onArchive?.());
@@ -428,7 +428,7 @@ describe('useWorktreeMode', () => {
 
   it('rejects and toasts when the created worktree cannot be mounted', async () => {
     addRootByPathSpy.mockResolvedValue(undefined);
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
     await act(async () => {
@@ -446,7 +446,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('forwards the active runId so the operation lands in the timeline', async () => {
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, runId: 'run-9' }));
+    const { result } = renderWorktreeMode({ ...ARGS, runId: 'run-9' });
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
     await act(async () => {
       await result.current?.onCreate({
@@ -459,7 +459,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('refreshes server-resolved create context on every sheet open', async () => {
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
 
     await act(async () => {
@@ -495,7 +495,7 @@ describe('useWorktreeMode', () => {
   it('refuses to open the create sheet after the first request, with a toast (BST-1390)', async () => {
     const { result, rerender } = renderHook(
       ({ firstRequestState }) => useWorktreeMode({ ...ARGS, firstRequestState }),
-      { initialProps: { firstRequestState: 'unsent' as FirstRequestState } }
+      { initialProps: { firstRequestState: 'unsent' as FirstRequestState }, wrapper }
     );
     await waitFor(() => expect(result.current?.createDisabledReason).toBeNull());
     rerender({ firstRequestState: 'sent' });
@@ -512,9 +512,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('refuses to open the create sheet when no thread is selected', async () => {
-    const { result } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' })
-    );
+    const { result } = renderWorktreeMode({ ...ARGS, firstRequestState: 'no-thread' });
     await waitFor(() => expect(result.current?.createDisabledReason).toBe('No thread selected.'));
 
     await expect(result.current?.onOpenCreateSheet()).rejects.toThrow('No thread selected.');
@@ -527,7 +525,7 @@ describe('useWorktreeMode', () => {
   });
 
   it('rejects a create-context failure, toasts it, and keeps the last good context', async () => {
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await act(async () => {
       await result.current?.onOpenCreateSheet();
     });
@@ -579,7 +577,7 @@ describe('useWorktreeMode', () => {
         },
       ],
     });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     act(() => {
       result.current?.onOpenPicker();
     });
@@ -608,7 +606,7 @@ describe('useWorktreeMode', () => {
       ],
     });
 
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
 
     const [option] = result.current?.picker.options ?? [];
@@ -648,7 +646,7 @@ describe('useWorktreeMode', () => {
         },
       ],
     });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     act(() => {
       result.current?.onOpenPicker();
     });
@@ -693,7 +691,7 @@ describe('useWorktreeMode', () => {
         },
       ],
     });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     await waitFor(() =>
       expect(result.current?.worktree).toMatchObject({ name: 'bright-fox', worktreeId: 'w-1' })
     );
@@ -730,8 +728,9 @@ describe('useWorktreeMode', () => {
         },
       ],
     });
-    const { result, rerender } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT })
+    const { result, rerender } = renderHook(
+      () => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }),
+      { wrapper }
     );
 
     // The bound-checkout fallback renders `{ name, worktreeId }` from the
@@ -756,8 +755,9 @@ describe('useWorktreeMode', () => {
   });
 
   it('refreshes a missing bound id once and renders its persisted basename with a diagnostic', async () => {
-    const { result, rerender } = renderHook(() =>
-      useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT })
+    const { result, rerender } = renderHook(
+      () => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }),
+      { wrapper }
     );
 
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(2));
@@ -814,7 +814,7 @@ describe('useWorktreeMode', () => {
           checkout: WORKTREE_CHECKOUT,
         });
       },
-      { initialProps: { entry: detached } }
+      { initialProps: { entry: detached }, wrapper }
     );
     act(() => result.current?.onOpenPicker());
     await waitFor(() => expect(result.current?.onCreateBranchHere).toEqual(expect.any(Function)));
@@ -875,7 +875,7 @@ describe('useWorktreeMode', () => {
       ],
     });
     createBranchHereSpy.mockResolvedValue({ error: 'branch already exists', ok: false });
-    const { result } = renderHook(() => useWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT }));
+    const { result } = renderWorktreeMode({ ...ARGS, checkout: WORKTREE_CHECKOUT });
     act(() => result.current?.onOpenPicker());
     await waitFor(() => expect(result.current?.onCreateBranchHere).toEqual(expect.any(Function)));
 
@@ -931,7 +931,7 @@ describe('useWorktreeMode', () => {
           },
         ],
       });
-      const { result } = renderHook(() => useWorktreeMode(ARGS));
+      const { result } = renderWorktreeMode(ARGS);
       act(() => result.current?.onOpenPicker());
 
       await waitFor(() =>
@@ -945,7 +945,7 @@ describe('useWorktreeMode', () => {
   );
 
   it('routes Grant access through the OS picker, never a caller-supplied path', async () => {
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current).toBeDefined());
     await act(async () => {
       result.current?.picker.onGrantAccess?.();
@@ -972,7 +972,7 @@ describe('useWorktreeMode', () => {
       value: [entry({ id: null, managed: false, name: 'x', path: '/repo/.claude/worktrees/x' })],
     });
 
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     await waitFor(() => expect(result.current?.picker.options).toHaveLength(1));
     act(() => {
       result.current?.picker.onSelect(result.current.picker.options[0] as never);
@@ -990,7 +990,7 @@ describe('useWorktreeMode', () => {
 
   it('surfaces a list failure on the picker instead of an empty list', async () => {
     listSpy.mockResolvedValue({ error: 'inventory unavailable', ok: false });
-    const { result } = renderHook(() => useWorktreeMode(ARGS));
+    const { result } = renderWorktreeMode(ARGS);
     act(() => {
       result.current?.onOpenPicker();
     });

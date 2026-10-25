@@ -98,6 +98,7 @@ function hostTools(
   });
   return desktopHostSharedTools({
     freshRoots: () => request('admission/fresh-roots', {}),
+    gitWorkspace: {},
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,

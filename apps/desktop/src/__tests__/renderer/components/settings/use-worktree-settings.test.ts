@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
-import { resolveWorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
+import {
+  NO_WORKSPACE_GIT_SERVICES,
+  WorkspaceGitServicesProvider,
+} from '@brainstrike/app-shell/workspace-git-services';
+import type { WorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
 import type { WorktreeSettings } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useWorktreeSettings } from '../../../../renderer/components/settings/use-worktree-settings';
-
-vi.mock('@brainstrike/app-shell/worktrees/availability', () => ({
-  resolveWorktreesBridge: vi.fn(),
-}));
-
-type WorktreesBridge = NonNullable<ReturnType<typeof resolveWorktreesBridge>>;
 
 const SETTINGS: WorktreeSettings = {
   isDefaultDirectory: true,
@@ -21,7 +20,30 @@ function createBridge({
   getSettings,
   setSettings,
 }: Pick<WorktreesBridge, 'getSettings' | 'setSettings'>): WorktreesBridge {
-  return { getSettings, setSettings } as WorktreesBridge;
+  const unused = vi.fn();
+  return {
+    adopt: unused,
+    archive: unused,
+    checkoutStatus: unused,
+    create: unused,
+    createBranchHere: unused,
+    createContext: unused,
+    getSettings,
+    inspectArchive: unused,
+    list: unused,
+    listManagedPaths: unused,
+    restore: unused,
+    setSettings,
+  };
+}
+
+/** Renders the hook under a host serving `worktrees`, or none (web). */
+function renderWorktreeSettings(worktrees: WorktreesBridge | null) {
+  const services = { ...NO_WORKSPACE_GIT_SERVICES, worktrees };
+  return renderHook(() => useWorktreeSettings(), {
+    wrapper: ({ children }: { children: ReactNode }) =>
+      createElement(WorkspaceGitServicesProvider, { children, services }),
+  });
 }
 
 afterEach(() => {
@@ -30,17 +52,15 @@ afterEach(() => {
 
 describe('useWorktreeSettings', () => {
   it('reports a getSettings result error', async () => {
-    vi.mocked(resolveWorktreesBridge).mockReturnValue(
-      createBridge({
-        getSettings: vi.fn(async () => ({
-          error: 'settings could not be read',
-          ok: false as const,
-        })),
-        setSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
-      })
-    );
+    const bridge = createBridge({
+      getSettings: vi.fn(async () => ({
+        error: 'settings could not be read',
+        ok: false as const,
+      })),
+      setSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
+    });
 
-    const { result } = renderHook(() => useWorktreeSettings());
+    const { result } = renderWorktreeSettings(bridge);
 
     await waitFor(() => {
       expect(result.current.status).toEqual({
@@ -51,14 +71,12 @@ describe('useWorktreeSettings', () => {
   });
 
   it('reports a rejected getSettings promise', async () => {
-    vi.mocked(resolveWorktreesBridge).mockReturnValue(
-      createBridge({
-        getSettings: vi.fn(() => Promise.reject(new Error('settings bridge rejected'))),
-        setSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
-      })
-    );
+    const bridge = createBridge({
+      getSettings: vi.fn(() => Promise.reject(new Error('settings bridge rejected'))),
+      setSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
+    });
 
-    const { result } = renderHook(() => useWorktreeSettings());
+    const { result } = renderWorktreeSettings(bridge);
 
     await waitFor(() => {
       expect(result.current.status).toEqual({
@@ -69,16 +87,14 @@ describe('useWorktreeSettings', () => {
   });
 
   it('rejects save with the setSettings result error', async () => {
-    vi.mocked(resolveWorktreesBridge).mockReturnValue(
-      createBridge({
-        getSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
-        setSettings: vi.fn(async () => ({
-          error: 'settings could not be saved',
-          ok: false as const,
-        })),
-      })
-    );
-    const { result } = renderHook(() => useWorktreeSettings());
+    const bridge = createBridge({
+      getSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
+      setSettings: vi.fn(async () => ({
+        error: 'settings could not be saved',
+        ok: false as const,
+      })),
+    });
+    const { result } = renderWorktreeSettings(bridge);
     await waitFor(() => {
       expect(result.current.status).toEqual({ kind: 'ready' });
     });
@@ -95,13 +111,11 @@ describe('useWorktreeSettings', () => {
       setupCommand: ['pnpm', 'install'],
     };
     const setSettings = vi.fn(async () => ({ ok: true as const, value: updatedSettings }));
-    vi.mocked(resolveWorktreesBridge).mockReturnValue(
-      createBridge({
-        getSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
-        setSettings,
-      })
-    );
-    const { result } = renderHook(() => useWorktreeSettings());
+    const bridge = createBridge({
+      getSettings: vi.fn(async () => ({ ok: true as const, value: SETTINGS })),
+      setSettings,
+    });
+    const { result } = renderWorktreeSettings(bridge);
     await waitFor(() => {
       expect(result.current.status).toEqual({ kind: 'ready' });
     });
@@ -119,9 +133,7 @@ describe('useWorktreeSettings', () => {
   });
 
   it('reports an unavailable bridge on the first render', () => {
-    vi.mocked(resolveWorktreesBridge).mockReturnValue(null);
-
-    const { result } = renderHook(() => useWorktreeSettings());
+    const { result } = renderWorktreeSettings(null);
 
     expect(result.current.status).toEqual({ kind: 'unavailable' });
   });

@@ -313,7 +313,7 @@ function usePrimaryAdapterRootId(
  *   MAIN root — shown at ANY root count (orientation, not disambiguation).
  *   Its `rootId` is ALWAYS a durable `roots.id`: with no persisted binding the
  *   MAIN root's row is resolved by PATH, never borrowed from the file-system
- *   adapter's own id space (`window.git.status` and `secondaryRootIds` both
+ *   adapter's own id space (the Git bridge's `status` and `secondaryRootIds` both
  *   speak the DB space). Re-resolving that row on `anyInvalidationNonce` is
  *   OPPORTUNISTIC — a row registered after this hook's own bounded wait
  *   (`ROOT_ROW_WAIT_TIMEOUT_MS`, via `../roots/root-registration-events.ts`)

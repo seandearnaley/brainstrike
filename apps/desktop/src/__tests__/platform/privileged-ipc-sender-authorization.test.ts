@@ -1,21 +1,13 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserIpcHandlers } from '../../browser-ipc-handlers';
-import type { ChangesIpcHandlers } from '../../changes-ipc-handlers';
 import type { CommandSessionIpcHandlers } from '../../command-session-ipc-handlers';
-import type { ForgeIpcHandlers } from '../../forge-ipc-handlers';
-import type { GitIpcHandlers } from '../../git-ipc-handlers';
 import { registerBrowserIpcHandlers } from '../../ipc-browser';
-import { registerChangesIpcHandlers } from '../../ipc-changes';
-import { registerForgeIpcHandlers } from '../../ipc-forge';
-import { registerGitIpcHandlers } from '../../ipc-git';
 import { registerShellIpcHandlers } from '../../ipc-shell';
 import type { ShellIpcHandlers } from '../../ipc-shell-handlers';
 import { registerTerminalIpc } from '../../ipc-terminal';
-import { registerWorktreesIpcHandlers } from '../../ipc-worktrees';
 import { registerTerminalIpcHandlers, type TerminalIpcHandlers } from '../../terminal-ipc-handlers';
 import { clearWindowRoleByWebContentsId } from '../../window-role';
-import type { WorktreesIpcHandlers } from '../../worktrees-ipc-handlers';
 import {
   createAllowlistedSenderFrame,
   createTrustedInvokeEvent,
@@ -57,37 +49,6 @@ function createRecordingStub<T extends object>(): {
   return { calls, stub };
 }
 
-function gitInvokeArgs(channel: string): readonly unknown[] {
-  switch (channel) {
-    case 'git:aheadBehind':
-    case 'git:pull':
-    case 'git:repository':
-    case 'git:status':
-      return ['root-1'];
-    case 'git:commit':
-      return ['root-1', { summary: 'summary' }];
-    case 'git:commitFiles':
-      return ['root-1', { commit: 'abc123' }];
-    case 'git:createBranch':
-    case 'git:switchBranch':
-      return ['root-1', { branch: 'feature' }];
-    case 'git:diff':
-      return ['root-1', { mode: 'working' }];
-    case 'git:fetch':
-      return ['root-1', { remote: 'origin' }];
-    case 'git:history':
-      return ['root-1', { limit: 20, offset: 0 }];
-    case 'git:push':
-    case 'git:stage':
-    case 'git:unstage':
-      return ['root-1', {}];
-    case 'git:structuredFileDiff':
-      return ['root-1', { mode: 'working', path: 'src/index.ts' }];
-    default:
-      throw new Error(`Missing Git authorization fixture for ${channel}`);
-  }
-}
-
 function contractDomainInvokeArgs(channel: string): readonly unknown[] {
   switch (channel) {
     case 'terminal:create':
@@ -105,51 +66,6 @@ function contractDomainInvokeArgs(channel: string): readonly unknown[] {
       return [{ rootId: 'r1', sessionId: 'session-1' }];
     case 'command-sessions:write':
       return [{ data: 'continue', rootId: 'r1', sessionId: 'session-1' }];
-    case 'changes:resolveView':
-      return ['root-1', { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' }];
-    case 'changes:fileDiff':
-      return [
-        'root-1',
-        { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' },
-        'src/index.ts',
-      ];
-    case 'changes:inventory':
-      return [];
-    case 'forge:cacheSnapshot':
-      return [];
-    case 'forge:identity':
-    case 'forge:prStatus':
-      return ['root-1'];
-    case 'forge:refresh':
-      return ['root-1', { reason: 'user' }];
-    case 'worktrees:adopt':
-      return [{ createdBy: 'user', path: '/repo/worktree' }];
-    case 'worktrees:archive':
-    case 'worktrees:inspectArchive':
-    case 'worktrees:restore':
-      return [{ worktreeId: 'worktree-1' }];
-    case 'worktrees:checkoutStatus':
-      return [{ path: '/repo/worktree' }];
-    case 'worktrees:create':
-      return [
-        {
-          baseRef: 'HEAD',
-          branch: { name: 'feature' },
-          createdBy: 'user',
-          name: 'feature',
-          rootId: 'root-1',
-        },
-      ];
-    case 'worktrees:createBranchHere':
-      return [{ branch: 'feature', worktreeId: 'worktree-1' }];
-    case 'worktrees:createContext':
-      return [{ rootId: 'root-1' }];
-    case 'worktrees:getSettings':
-    case 'worktrees:list':
-    case 'worktrees:managedPaths':
-      return [];
-    case 'worktrees:setSettings':
-      return [{ managedDirectory: '/worktrees', setupCommand: null }];
     default:
       return [{ rootId: 'r1' }];
   }
@@ -182,59 +98,6 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
     channels: ['shell:show-item-in-folder', 'shell:open-path', 'shell:open-external'],
     domain: 'shell',
     register: (stub) => registerShellIpcHandlers(stub() as ShellIpcHandlers),
-  },
-  {
-    channels: [
-      'git:status',
-      'git:diff',
-      'git:structuredFileDiff',
-      'git:stage',
-      'git:unstage',
-      'git:commit',
-      'git:commitFiles',
-      'git:aheadBehind',
-      'git:fetch',
-      'git:history',
-      'git:push',
-      'git:pull',
-      'git:repository',
-      'git:createBranch',
-      'git:switchBranch',
-    ],
-    domain: 'git',
-    register: (stub) =>
-      registerGitIpcHandlers(
-        stub() as Parameters<typeof registerGitIpcHandlers>[0],
-        stub() as GitIpcHandlers
-      ),
-  },
-  {
-    channels: ['changes:resolveView', 'changes:fileDiff', 'changes:inventory'],
-    domain: 'changes',
-    register: (stub) => registerChangesIpcHandlers(stub() as ChangesIpcHandlers),
-  },
-  {
-    channels: ['forge:cacheSnapshot', 'forge:identity', 'forge:prStatus', 'forge:refresh'],
-    domain: 'forge',
-    register: (stub) => registerForgeIpcHandlers(stub() as ForgeIpcHandlers),
-  },
-  {
-    channels: [
-      'worktrees:adopt',
-      'worktrees:archive',
-      'worktrees:checkoutStatus',
-      'worktrees:create',
-      'worktrees:createBranchHere',
-      'worktrees:createContext',
-      'worktrees:getSettings',
-      'worktrees:inspectArchive',
-      'worktrees:list',
-      'worktrees:managedPaths',
-      'worktrees:restore',
-      'worktrees:setSettings',
-    ],
-    domain: 'worktrees',
-    register: (stub) => registerWorktreesIpcHandlers(stub() as WorktreesIpcHandlers),
   },
   {
     channels: [
@@ -292,10 +155,9 @@ describe('privileged desktop IPC domains are visible-UI-only (BST-1641)', () => 
       const dispose = register(() => stub);
       const event = createTrustedInvokeEvent('visible-ui', VISIBLE_SENDER_ID);
 
-      const args = channel.startsWith('git:')
-        ? gitInvokeArgs(channel)
-        : contractDomainInvokeArgs(channel);
-      await expect(registeredHandler(channel)(event, ...args)).resolves.toEqual({
+      await expect(
+        registeredHandler(channel)(event, ...contractDomainInvokeArgs(channel))
+      ).resolves.toEqual({
         ok: true,
       });
       expect(calls).toHaveBeenCalledTimes(1);

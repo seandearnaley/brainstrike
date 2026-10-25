@@ -66,7 +66,6 @@ export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): Deskt
     indexStatus: async () => ({ kind: 'unavailable', reason: 'This scenario has no index.' }),
     liveWorkspaceRoots: async () => [],
     memoryVectors: async () => undefined,
-    worktreesAvailable: async () => false,
     ...overrides,
   };
 }

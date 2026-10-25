@@ -6,13 +6,14 @@
  * Failure is visible and non-blocking: the worktree exists and is usable
  * either way, and the bounded outcome is persisted on its ledger row.
  */
-import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { promises as fsPromises } from 'node:fs';
 import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256OfBuffer } from '@brainstrike/host-capabilities/hooks';
 import { createLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import type { WorktreeSetupOutcome, WorktreeSetupSkippedCopy } from '@brainstrike/types';
 import { isPathWithin } from './worktree-paths';
 import type { WorktreeSetupInput } from './worktree-service';
@@ -441,7 +442,7 @@ const PROCESS_TREE_EXIT_POLL_MS = 10;
  * dedicated process group so a daemon inheriting stdout/stderr cannot outlive
  * the timeout and keep the service mutex pending forever.
  */
-function signalProcessTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
   if (isWindows || typeof child.pid !== 'number') {
     child.kill(signal);
     return;
@@ -455,7 +456,7 @@ function signalProcessTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signa
   }
 }
 
-function isProcessTreeAlive(child: ReturnType<typeof spawn>): boolean {
+function isProcessTreeAlive(child: ChildProcess): boolean {
   if (isWindows || typeof child.pid !== 'number') {
     return false;
   }
@@ -527,7 +528,7 @@ async function executeSetupCommand(
     let escalationTimer: ReturnType<typeof setTimeout> | undefined;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     let processTreeExitTimer: ReturnType<typeof setTimeout> | undefined;
-    const child = spawn(file, args, {
+    const child = spawnNativeChild(file, args, {
       cwd: input.worktree.path,
       detached: !isWindows,
       env,
