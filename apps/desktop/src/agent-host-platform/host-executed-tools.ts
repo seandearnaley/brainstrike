@@ -113,14 +113,13 @@ function hostShellCorrelation(
               if (!(signals.touchedWorktrees || signals.createdPullRequest)) {
                 return;
               }
+              const adopted = shellCorrelation
+                .onCommandCompleted(completed)
+                .then((rows) =>
+                  rows.map(({ branch, id, path }) => ({ branch, path, worktreeId: id }))
+                );
               // Core commits each adopted worktree under this call, joined by its run.
-              shellWorktrees?.(
-                shellCorrelation
-                  .onCommandCompleted(completed)
-                  .then((adopted) =>
-                    adopted.map(({ branch, id, path }) => ({ branch, path, worktreeId: id }))
-                  )
-              );
+              shellWorktrees?.(adopted);
             },
           },
         }
