@@ -210,6 +210,9 @@ function verboseError(...args: unknown[]): void {
   console.error(...args);
 }
 
+/** The test window's size, the app's default window size. */
+const E2E_WINDOW_SIZE = { height: 800, width: 1536 } as const;
+
 // Single launch attempt - extracted for reduced complexity
 async function attemptElectronLaunch(
   launchOptions: Parameters<typeof electron.launch>[0],
@@ -226,6 +229,12 @@ async function attemptElectronLaunch(
     );
     verboseLog('⏳ Waiting for first window...');
     const window = await app.firstWindow({ timeout: firstWindowTimeout });
+    // One window size on every machine: otherwise the clamp to the work area makes
+    // the geometry follow the display, or whichever remote session is attached.
+    await (await app.browserWindow(window)).evaluate(
+      (browserWindow, size) => browserWindow.setSize(size.width, size.height),
+      E2E_WINDOW_SIZE
+    );
     await window.waitForLoadState('domcontentloaded');
     await setupDialogMocking(app);
     return { app, window };
@@ -421,19 +430,6 @@ export async function getBufferedElectronOutput(
 // NOTE: killSpecificElectronProcess was removed - we no longer use explicit debug ports
 // Playwright manages CDP connections automatically, preventing debugger disconnect hangs.
 
-/**
- * BST-2040: Chromium renders a window X11 never mapped at one frame per second, so
- * Linux CI runs (an isolated Xvfb with no user to disturb) show the test-mode window
- * unfocused. A Linux workstation with a real display keeps it hidden, as do other
- * platforms. An explicit value wins either way: `1` to show it, `''` to keep it hidden.
- */
-function e2eShowInactive(baseEnv: NodeJS.ProcessEnv): string {
-  return (
-    baseEnv['BRAINSTRIKE_E2E_SHOW_INACTIVE'] ??
-    (process.platform === 'linux' && baseEnv['CI'] === 'true' ? '1' : '')
-  );
-}
-
 function createLaunchOptions(
   target: DesktopE2eTarget,
   mainPath: string,
@@ -484,9 +480,18 @@ function createLaunchOptions(
     '--disable-extensions',
     // Allow backgrounding in specific crash-reproduction tests to test the
     // production code path where Chromium throttles backgrounded renderers.
+    // The test window is shown inactive, so other windows, a locked screen or a
+    // disconnected remote session can cover it. Windows' native occlusion
+    // tracking would then mark it hidden and stop its frames, so these runs
+    // turn that tracking off (Main merges its own --disable-features into this one).
     ...(process.env['BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING'] === '1'
       ? []
-      : ['--disable-background-timer-throttling', '--disable-renderer-backgrounding']),
+      : [
+          '--disable-background-timer-throttling',
+          '--disable-renderer-backgrounding',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-features=CalculateNativeWinOcclusion',
+        ]),
   ];
 
   // #region Linux CI DISPLAY resolution diagnostics
@@ -525,7 +530,7 @@ function createLaunchOptions(
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // BST-1864: `windowFocus` reports the NATIVE window's focus, and this harness
-      // window is `focusable: false` and never shown, so it is never focused —
+      // window is `focusable: false` and shown inactive, so it is never focused —
       // while Playwright forces the renderer's `document.hasFocus()` true. Left on,
       // every spec would run with an unfocused app (indexer polling, the unseen
       // badge); off, each keeps the focused app it has always run with. An explicit
@@ -533,8 +538,6 @@ function createLaunchOptions(
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES:
         baseEnv['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] ?? 'windowFocus',
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      BRAINSTRIKE_E2E_SHOW_INACTIVE: e2eShowInactive(baseEnv),
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
