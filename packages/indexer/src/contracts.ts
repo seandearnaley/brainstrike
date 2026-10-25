@@ -73,13 +73,13 @@ const bindingFields = {
   rootId: Schema.NullOr(nonblank),
   sourcePath: Schema.NullOr(nonblank),
 };
-export const fileBindingSchema = Schema.Struct({
+const fileBindingSchema = Schema.Struct({
   ...bindingFields,
   profile: Schema.NullOr(vectorProfileSchema),
 });
 export const fileBindingsSchema = Schema.Array(fileBindingSchema);
 export type IndexFileBinding = typeof fileBindingSchema.Type;
-export const stateProjectionOptionsSchema = Schema.Struct({
+const stateProjectionOptionsSchema = Schema.Struct({
   mode: Schema.Literals(['dev', 'prod']),
   module: nonblank,
 });
@@ -262,7 +262,7 @@ export const providedChunkSchema = Schema.Struct({
   startLine: positive,
 });
 export type ProvidedChunk = typeof providedChunkSchema.Type;
-export const providedSnapshotSchema = Schema.Struct({
+const providedSnapshotSchema = Schema.Struct({
   ...snapshotFields,
   providedChunks: Schema.Array(providedChunkSchema),
 });
@@ -280,7 +280,7 @@ const chunkMetadata = {
   startOffset: Schema.NullOr(nonnegative),
   tokenCount: Schema.NullOr(positive),
 };
-export const chunkSchema = Schema.Struct({
+const chunkSchema = Schema.Struct({
   ...chunkMetadata,
   chunkId: hash,
   content: Schema.String,
@@ -322,7 +322,7 @@ export const refSchema = Schema.Struct({
   name: Schema.String,
   seq: nonnegative,
 });
-export const syntaxSchema = Schema.Struct({
+const syntaxSchema = Schema.Struct({
   refs: Schema.Array(refSchema),
   symbols: Schema.Array(symbolSchema),
 });
@@ -462,13 +462,13 @@ export const scopedCommitSchema = Schema.Struct({
   profile: vectorProfileSchema,
 });
 /** Root grants come only from acquisition; thread membership comes from State truth. */
-export const stateMessageScopeSchema = Schema.Struct({
+const stateMessageScopeSchema = Schema.Struct({
   resourceId: nonblank,
   rootId: nonblank,
   threadId: nonblank,
 });
 export type StateMessageScope = typeof stateMessageScopeSchema.Type;
-export const stateMessageIdentitySchema = Schema.Struct({ messageId: nonblank, seq: positive });
+const stateMessageIdentitySchema = Schema.Struct({ messageId: nonblank, seq: positive });
 export type StateMessageIdentity = typeof stateMessageIdentitySchema.Type;
 /**
  * A producer's canonical message with the committed rows its identity is read
@@ -546,7 +546,7 @@ const observationDate = Schema.String.check(
     return Number.isFinite(date.getTime()) && date.toISOString() === value;
   })
 );
-export const stateObservationSourceSchema = Schema.Struct({
+const stateObservationSourceSchema = Schema.Struct({
   ...stateObservationGroupSchema.fields,
   observedAt: Schema.optional(observationDate),
 });
@@ -739,7 +739,7 @@ export const scopedFilePageRequestSchema = Schema.Struct({
   scope: scopeSchema,
   snapshotHash: Schema.optionalKey(hash),
 });
-export const scopedFilePageChunkSchema = Schema.Struct({
+const scopedFilePageChunkSchema = Schema.Struct({
   ...scopedManifestChunkSchema.fields,
   content: Schema.String,
   vector: Schema.NullOr(

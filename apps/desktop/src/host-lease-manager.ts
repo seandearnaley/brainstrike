@@ -38,7 +38,7 @@ const logger = createLogger('DesktopHostLease');
  */
 const HOST_STARTUP_STALL_WARN_MS = 10_000;
 
-export interface HostLeaseUtilityProcess {
+interface HostLeaseUtilityProcess {
   /** Electron: SIGTERM, then SIGKILL if it is still running 2 s later (Windows: terminate). */
   kill(): boolean;
   off(event: 'message', listener: (message: unknown) => void): unknown;
@@ -57,7 +57,7 @@ export interface HostLeaseUtilityProcess {
     transfer?: readonly MessagePortMain[]
   ): void;
 }
-export type HostLeaseFork = (
+type HostLeaseFork = (
   entrypoint: string,
   args: readonly string[],
   /** Main's environment plus the entries this lease forwards explicitly (the E2E delay seam). */

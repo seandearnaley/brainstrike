@@ -13,7 +13,7 @@ import {
  * Why a generation closed for good, or (root-data deletion) until `resume`: only
  * profile retirement releases the agent-host profile (BST-2001).
  */
-export type NativeIndexCloseReason =
+type NativeIndexCloseReason =
   | 'profile-retired'
   | 'reset'
   | 'root-data-deletion'
@@ -51,7 +51,7 @@ export type NativeIndexCause =
   /** The index was closed for good: shutdown, reset, or profile retirement. */
   | { readonly kind: 'closed'; readonly reason: NativeIndexCloseReason };
 
-export type NativeIndexSettingsCause = Extract<
+type NativeIndexSettingsCause = Extract<
   NativeIndexCause,
   { readonly kind: 'setup-required' | 'settings-invalid' }
 >;

@@ -65,7 +65,7 @@ import { getNormalizedNode } from '../utils/normalized-file-tree';
 import type { FileTreeDirectorySnapshot, FileTreeRefreshResult } from './use-lazy-file-tree';
 
 const logger = createLogger('FileTreeRefreshEvents');
-export const MAX_CONCURRENT_SELECTION_REVALIDATION_READS = 5;
+const MAX_CONCURRENT_SELECTION_REVALIDATION_READS = 5;
 type RefreshLifecycleGuard = () => boolean;
 const isAlwaysActive: RefreshLifecycleGuard = () => true;
 interface RefreshQueueRef {
@@ -102,7 +102,7 @@ export interface UseFileTreeRefreshEventsParams {
   skipManualFullEvents: boolean;
 }
 
-export interface SelectionAwareRootRefreshParams {
+interface SelectionAwareRootRefreshParams {
   getNormalizedTree: () => NormalizedFileTreeState | null;
   getSelectionAncestorDirectories: () => readonly string[];
   getSelectionProjectionRevision: () => number;
@@ -406,7 +406,7 @@ async function refreshRootAndDirectories(
  * Provider-level manual refresh authority: shallow root replacement followed
  * by bounded selected-path ancestor revalidation.
  */
-export async function refreshTreeWithSelectionRevalidation(
+async function refreshTreeWithSelectionRevalidation(
   current: SelectionAwareRootRefreshParams,
   isActive: RefreshLifecycleGuard = isAlwaysActive
 ): Promise<FileTreeRefreshResult> {

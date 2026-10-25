@@ -1,5 +1,5 @@
 export const MAIN_WATCHDOG_CHECK_INTERVAL_MS = 5000;
-export const MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS = MAIN_WATCHDOG_CHECK_INTERVAL_MS * 2;
+const MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS = MAIN_WATCHDOG_CHECK_INTERVAL_MS * 2;
 export const MAIN_WATCHDOG_FROZEN_THRESHOLD_MS = 20_000;
 const MAIN_WATCHDOG_SUSPEND_RECOVERY_CHECKS = 2;
 
@@ -19,7 +19,7 @@ interface MemoryUsage {
   rss: number;
 }
 
-export interface MainWatchdogDiagnostic {
+interface MainWatchdogDiagnostic {
   cpuSystemDeltaMicros: number;
   cpuUserDeltaMicros: number;
   heapUsedKb: number;

@@ -17,7 +17,7 @@ export interface SeedThreadSpec {
 }
 
 /** Every reconciled root row, in id order. */
-export async function readWorkspaceRootRows(page: Page): Promise<readonly WorkspaceRootRow[]> {
+async function readWorkspaceRootRows(page: Page): Promise<readonly WorkspaceRootRow[]> {
   return await page.evaluate(async () => {
     const files = window.electronAPI?.fileSystem;
     if (!files) {

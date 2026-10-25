@@ -38,7 +38,7 @@ export function tokensEqual(expected: string, actual: string): boolean {
   );
 }
 
-export const RequestSchema = Schema.Union([
+const RequestSchema = Schema.Union([
   Schema.Struct({
     hostVersion: Nonempty,
     method: Schema.Literal('initialize'),
@@ -49,7 +49,7 @@ export const RequestSchema = Schema.Union([
 ]);
 export type HostRequest = typeof RequestSchema.Type;
 export const decodeRequest = makeThrowingDecoder(RequestSchema, { onExcessProperty: 'error' });
-export const ReplySchema = Schema.Union([
+const ReplySchema = Schema.Union([
   Schema.Struct({
     hostVersion: Nonempty,
     method: Schema.Literal('initialized'),

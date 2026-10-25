@@ -20,8 +20,8 @@ import {
 import { assertRuntimeObjectPayloadEnvelope } from '@brainstrike/worker-runtime/validation';
 import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
 
-export const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
-export const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;
+const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
+const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;
 const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   command: 'command',
   documentEmbeddings: 'document-embeddings',
@@ -66,7 +66,7 @@ export const EMBEDDING_HOST_REPORT_MODEL_CACHE_STATUS_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportModelCacheStatusResponse;
 export type EmbeddingHostCommandAction = 'reset' | 'resolve-device' | 'start-background' | 'stop';
 
-export type EmbeddingHostCommandPayload =
+type EmbeddingHostCommandPayload =
   | {
       readonly action: 'reset';
       readonly nextRuntimeId: string;
@@ -560,7 +560,7 @@ export const EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT =
   EMBEDDING_HOST_CHANNELS.documentEmbeddingsRequest;
 export const EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportDocumentEmbeddingsResponse;
-export const MAX_DOCUMENT_EMBEDDING_BATCH_SIZE = 64;
+const MAX_DOCUMENT_EMBEDDING_BATCH_SIZE = 64;
 /** The shared canonical inference's local transport payload (`@brainstrike/canonical-ingestion`). */
 export type EmbeddingHostDocumentEmbeddingsPayload = CanonicalDocumentEmbeddingsPayload;
 export type EmbeddingHostDocumentEmbeddingsRequest = RuntimeRequestEnvelope<

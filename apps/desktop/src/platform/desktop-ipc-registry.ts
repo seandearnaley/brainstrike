@@ -53,7 +53,7 @@ export type DesktopIpcDomain =
 // are diagnosable instead of silently bricking every authorized channel.
 const logger = createLogger('DesktopIpcRegistry');
 
-export type DesktopIpcChannelKind = 'event' | 'invoke';
+type DesktopIpcChannelKind = 'event' | 'invoke';
 
 export interface DesktopIpcChannelRegistration {
   readonly channel: string;
@@ -61,15 +61,12 @@ export interface DesktopIpcChannelRegistration {
   readonly kind: DesktopIpcChannelKind;
 }
 
-export type DesktopIpcInvokeHandler<
+type DesktopIpcInvokeHandler<
   Args extends readonly unknown[] = readonly unknown[],
   Result = unknown,
 > = (event: IpcMainInvokeEvent, ...args: Args) => Promise<Result> | Result;
 
-export type DesktopIpcEventHandler<Payload = unknown> = (
-  event: IpcMainEvent,
-  payload: Payload
-) => void;
+type DesktopIpcEventHandler<Payload = unknown> = (event: IpcMainEvent, payload: Payload) => void;
 
 interface DesktopIpcMainLike {
   readonly handle: typeof ElectronIpcMain.handle;
@@ -89,7 +86,7 @@ interface DesktopIpcRegistryOptions {
   readonly senderFrameAllowlist?: DesktopIpcSenderFrameAllowlist;
 }
 
-export interface DesktopIpcSenderPolicy {
+interface DesktopIpcSenderPolicy {
   readonly roles: readonly DesktopWindowRole[];
 }
 
@@ -99,7 +96,7 @@ export interface DesktopIpcSenderPolicy {
  * any renderer that holds the preload, since preload possession is not an
  * authorization boundary (`docs/agents/platform-contracts.md`).
  */
-export interface DesktopIpcUnauthenticatedPolicy {
+interface DesktopIpcUnauthenticatedPolicy {
   readonly reason: string;
 }
 

@@ -198,4 +198,4 @@ export function useColumnSizing<T>({
 
 export type { ColumnBounds };
 /** Exposed for tests and the resize-handle component. */
-export { clampWidth, computeColumnBounds, DEFAULT_MAX_WIDTH, DEFAULT_MIN_WIDTH };
+export { clampWidth, computeColumnBounds };

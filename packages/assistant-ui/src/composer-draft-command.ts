@@ -16,7 +16,7 @@ export interface ComposerDraftCommandBridgeProps {
   onComposerTextChange?: ((text: string) => void) | undefined;
 }
 
-export function useComposerDraftCommand({
+function useComposerDraftCommand({
   command,
   onApplied,
   onTextChange,

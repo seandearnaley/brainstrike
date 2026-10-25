@@ -13,7 +13,7 @@ import {
  * (BST-1993). The saved device preference plays no part, and a software adapter is not
  * available. Detection that fails or gives no reason throws instead of guessing.
  */
-export async function detectEmbeddingHostWebGpu(): Promise<WebGpuAdapterAvailability> {
+async function detectEmbeddingHostWebGpu(): Promise<WebGpuAdapterAvailability> {
   let detected: Awaited<ReturnType<typeof detectDeviceCapabilities>>;
   try {
     detected = await detectDeviceCapabilities();

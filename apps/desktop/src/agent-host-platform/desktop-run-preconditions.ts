@@ -249,7 +249,7 @@ export async function readDesktopIntent(
   );
 }
 /** The chat provider's own auto-observer candidates, in preference order (never another provider). */
-export function autoObserverCandidates(provider: string): readonly string[] {
+function autoObserverCandidates(provider: string): readonly string[] {
   return listAutoObservationalMemoryCandidates({
     chatProvider: provider,
     providersWithKeys: [provider],

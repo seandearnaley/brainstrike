@@ -70,7 +70,7 @@ export function memoryToolState(): HostToolState & { readonly values: Map<string
 }
 
 /** Core's edit tracker reduced to its observable contract: run the mutation, record the edit. */
-export function recordingEditTracker(): HostWorkspaceEditTracker & {
+function recordingEditTracker(): HostWorkspaceEditTracker & {
   readonly edits: HostWorkspaceEdit[];
 } {
   const edits: HostWorkspaceEdit[] = [];

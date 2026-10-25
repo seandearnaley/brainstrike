@@ -11,7 +11,7 @@ import { forgePrCacheKey } from '@brainstrike/types';
 
 export type ForgePrCacheLookup = ReadonlyMap<string, ForgePrCacheEntry>;
 
-export interface WorktreeMapThread {
+interface WorktreeMapThread {
   readonly running: boolean;
   readonly threadId: string;
   readonly title: string;

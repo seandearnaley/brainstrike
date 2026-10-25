@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Keep the production shell and source cwd; only the fixture program is portable. */
-export function writeHookCommand(root: string, program: string): string {
+function writeHookCommand(root: string, program: string): string {
   const script = join(root, `hook-${randomUUID()}.cjs`);
   writeFileSync(script, program, 'utf8');
   // Windows qualification uses a controlled, space-free TEMP path.

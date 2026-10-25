@@ -28,8 +28,8 @@ type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
  * Compact once the estimated prompt reaches 90% of the input-token limit, and
  * reclaim down toward 70% of it.
  */
-export const CONTEXT_COMPACTION_TRIGGER_RATIO = 0.9;
-export const CONTEXT_COMPACTION_TARGET_RATIO = 0.7;
+const CONTEXT_COMPACTION_TRIGGER_RATIO = 0.9;
+const CONTEXT_COMPACTION_TARGET_RATIO = 0.7;
 
 function chars4(value: unknown): number {
   const text = typeof value === 'string' ? value : (JSON.stringify(value) ?? '');
@@ -84,7 +84,7 @@ export function compactedRunIds(rows: readonly HostLogRow[]): Set<string> {
 }
 
 /** The overlay note for every committed compaction that covers one of `runIds`. */
-export function compactionNote(
+function compactionNote(
   compactions: readonly Compacted[],
   runIds: ReadonlySet<string>
 ): string | undefined {

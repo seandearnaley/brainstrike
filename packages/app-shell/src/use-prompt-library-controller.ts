@@ -12,7 +12,7 @@ import type { buildLocalEmbeddingModelConfigMap } from './embedding-models';
 import { resolvePromptEmbeddingModelInfo } from './prompt-embedding-model-info';
 import { embedPendingPromptItems, queryPromptSuggestions } from './prompt-library-embedding';
 
-export type PromptManagerReadiness =
+type PromptManagerReadiness =
   | { readonly status: 'loading' }
   | {
       readonly error: string;

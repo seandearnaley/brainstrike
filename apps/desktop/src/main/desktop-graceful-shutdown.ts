@@ -35,7 +35,7 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
 
 export type DesktopShutdownStepName = (typeof DESKTOP_SHUTDOWN_STEP_ORDER)[number];
 
-export type DesktopShutdownTrigger = 'before-quit' | 'signal';
+type DesktopShutdownTrigger = 'before-quit' | 'signal';
 
 export type DesktopShutdownStepRun = () => Promise<void> | void;
 
@@ -51,7 +51,7 @@ export interface DesktopShutdownRunPlan {
   readonly steps: Readonly<Record<DesktopShutdownStepName, DesktopShutdownStepRun>>;
 }
 
-export interface DesktopShutdownLogger {
+interface DesktopShutdownLogger {
   error(message: string, data: Record<string, unknown>): void;
   info(message: string, data: Record<string, unknown>): void;
   warn(message: string, data: Record<string, unknown>): void;

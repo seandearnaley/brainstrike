@@ -47,7 +47,7 @@ export type ResolvedDiffPresentation =
       readonly truncated: boolean;
     };
 
-export interface DiffViewStatSummary {
+interface DiffViewStatSummary {
   readonly additions: number;
   readonly deletions: number;
 }

@@ -48,7 +48,7 @@ import {
   type ThreadFoldersWriteTail,
 } from './use-workspace-bar-write-derive';
 
-export type FolderWriteIdentityRevisions = Readonly<Record<FolderWriteIdentityField, number>>;
+type FolderWriteIdentityRevisions = Readonly<Record<FolderWriteIdentityField, number>>;
 
 const ZERO_REVISIONS: FolderWriteIdentityRevisions = {
   checkoutLocalRootId: 0,

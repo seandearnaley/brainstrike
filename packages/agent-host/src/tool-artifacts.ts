@@ -34,7 +34,7 @@ export function hostArtifactId(runId: string, toolCallId: string): string {
 }
 
 /** The catalog id a host tool answers for; other tools keep their provider name. */
-export function hostToolCatalogId(name: string, tool: HostTool): string {
+function hostToolCatalogId(name: string, tool: HostTool): string {
   return tool.permissionToolId ?? name;
 }
 

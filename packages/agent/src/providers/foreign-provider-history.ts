@@ -85,7 +85,7 @@ export function collectProviderCallProvenance(
  * both request paths. Remove this extension when the vendor handles both roles.
  * Upstream: https://github.com/mastra-ai/mastra/blob/main/packages/core/src/processors/provider-history-compat.ts
  */
-export function stripForeignExecutedToolPairs(
+function stripForeignExecutedToolPairs(
   prompt: Prompt,
   provider: string,
   provenance: ProviderCallProvenance = new Map()

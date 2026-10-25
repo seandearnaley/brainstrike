@@ -9,7 +9,7 @@ import type { ComponentProps, ComponentType, ReactNode } from 'react';
  * package only re-exports the components, not that type. `NonNullable` strips
  * the `| undefined` from the optional prop.
  */
-export type TriggerAdapter = NonNullable<
+type TriggerAdapter = NonNullable<
   ComponentProps<typeof ComposerPrimitive.Unstable_TriggerPopover>['adapter']
 >;
 

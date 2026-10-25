@@ -34,7 +34,7 @@ import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
  * the install step was dropped — not a host to be tolerated. Unset everywhere
  * else, so laptops and the coverage lanes keep the loud-skip behaviour.
  */
-export const FENCE_DEPS_REQUIRED_ENV = 'BRAINSTRIKE_FENCE_DEPS_REQUIRED';
+const FENCE_DEPS_REQUIRED_ENV = 'BRAINSTRIKE_FENCE_DEPS_REQUIRED';
 
 /**
  * `undefined` when this host can run a real fence; otherwise the reason,

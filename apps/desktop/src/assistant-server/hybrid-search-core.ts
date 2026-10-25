@@ -29,7 +29,7 @@ const DEFAULT_VECTOR_THRESHOLD = 0.5;
 /** Per-result content cap so a 20-result payload stays inside the tool output budget. */
 const MAX_CONTENT_CHARS_PER_RESULT = 700;
 
-export const HYBRID_SEARCH_ERROR_MESSAGES = {
+const HYBRID_SEARCH_ERROR_MESSAGES = {
   invalidQuery: 'Search query must be at least 1 character.',
   missingEmbeddingSet:
     'Select an embedding space or enable the Workspace Index before hybrid search.',
@@ -54,7 +54,7 @@ function redactErrorForLog(error: unknown): {
   };
 }
 
-export interface HybridSearchToolResultItem {
+interface HybridSearchToolResultItem {
   chunkIndex: number;
   /** Chunk content, capped per result to respect the tool output budget. */
   content: string;

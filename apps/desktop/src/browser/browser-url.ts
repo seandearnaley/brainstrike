@@ -82,7 +82,7 @@ const LOOPBACK_SCHEME_PORTS: ReadonlyMap<string, string> = new Map([
  * absolute-form target; undefined for any other URL. WebSocket URLs count, so
  * a dev server's live-reload socket is the same server.
  */
-export function loopbackAuthorityOf(url: string | URL): string | undefined {
+function loopbackAuthorityOf(url: string | URL): string | undefined {
   const parsed = typeof url === 'string' ? (URL.canParse(url) ? new URL(url) : undefined) : url;
   const defaultPort = parsed === undefined ? undefined : LOOPBACK_SCHEME_PORTS.get(parsed.protocol);
   if (parsed === undefined || defaultPort === undefined || !LOOPBACK_HOSTS.has(parsed.hostname)) {

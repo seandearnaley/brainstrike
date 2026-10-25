@@ -22,7 +22,7 @@ export interface WorkspaceBarRootDescriptor {
  * same `rootDescriptors` `use-workspace-bar.ts`'s path→adapterId derivation
  * memoizes over.
  */
-export function groupAdapterRootIdsByPath(
+function groupAdapterRootIdsByPath(
   rootDescriptors: Readonly<Record<string, WorkspaceBarRootDescriptor>> | undefined
 ): Map<string, string[]> {
   const byPath = new Map<string, string[]>();

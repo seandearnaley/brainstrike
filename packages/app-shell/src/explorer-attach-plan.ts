@@ -12,7 +12,7 @@ import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
  */
 export const MAX_ATTACHED_FILES = 20;
 
-export interface AttachFolder {
+interface AttachFolder {
   readonly displayName: string;
   readonly files: number;
   /** The folder's path, as the workspace bar adds it to a thread. */

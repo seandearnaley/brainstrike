@@ -65,13 +65,13 @@ export type {
 
 export const GIT_DEFAULT_TIMEOUT_MS = 30_000;
 /** Push / pull can hang on auth or a slow network — give them a longer leash. */
-export const GIT_NETWORK_TIMEOUT_MS = 120_000;
+const GIT_NETWORK_TIMEOUT_MS = 120_000;
 /**
  * Soft ceiling on captured stdout/stderr that the SERVICE applies via
  * {@link boundOutput} — output past this is truncated to a `truncated: true`
  * success, NOT a failure.
  */
-export const GIT_MAX_OUTPUT_BYTES = 1_000_000;
+const GIT_MAX_OUTPUT_BYTES = 1_000_000;
 /**
  * Hard per-stream capture ceiling of the runner. Strictly LARGER than
  * {@link GIT_MAX_OUTPUT_BYTES} so a diff between the soft and hard ceiling is
@@ -89,7 +89,7 @@ export const GIT_MAX_BUFFER_BYTES = GIT_MAX_OUTPUT_BYTES * 4;
  * SUCCESS, an abort/timeout becomes the right message, and a missing binary is
  * reported clearly.
  */
-export type GitCommandFailureReason = 'maxBuffer' | 'timeout' | 'notFound';
+type GitCommandFailureReason = 'maxBuffer' | 'timeout' | 'notFound';
 
 /** Result of running a single `git` invocation through the injected runner. */
 export interface GitCommandRun {
@@ -352,40 +352,6 @@ function parseStatusLine(line: string): GitStatusFile | null {
     }
   }
   return null;
-}
-
-/**
- * Parse `git status --porcelain=v2 --branch` output into a {@link GitStatus}.
- * Pure and exported for direct unit testing.
- * @internal Git integration regressions exercise the newline status format directly.
- */
-export function parsePorcelainV2(stdout: string): Omit<GitStatus, 'isRepository'> {
-  const header: BranchHeader = { ahead: null, behind: null, branch: null, upstream: null };
-  const files: GitStatusFile[] = [];
-
-  for (const rawLine of stdout.split('\n')) {
-    const line = rawLine.replace(/\r$/, '');
-    if (line.length === 0) {
-      continue;
-    }
-    if (line.startsWith('# ')) {
-      applyBranchHeader(line, header);
-      continue;
-    }
-    const file = parseStatusLine(line);
-    if (file) {
-      files.push(file);
-    }
-  }
-
-  return {
-    ahead: header.ahead,
-    behind: header.behind,
-    branch: header.branch,
-    clean: files.length === 0,
-    files,
-    upstream: header.upstream,
-  };
 }
 
 /**

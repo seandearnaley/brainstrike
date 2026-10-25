@@ -13,7 +13,7 @@ export type McpServerFeatureEventDiagnosticSink = (
   error: unknown
 ) => Promise<void> | void;
 
-export const diagnoseMcpServerFeatureEventFailure: McpServerFeatureEventDiagnosticSink = (
+const diagnoseMcpServerFeatureEventFailure: McpServerFeatureEventDiagnosticSink = (
   event,
   error
 ) => {

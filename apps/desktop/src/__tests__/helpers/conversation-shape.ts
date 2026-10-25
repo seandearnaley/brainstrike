@@ -1,16 +1,3 @@
-/**
- * The derived "shape" of a settled conversation and the invariants it breaks:
- * the committed log's own invariants (e2e/utils/conversation-invariants.ts)
- * plus what the renderer projection makes of that log. The projection and the
- * activity-row model are the app's own (`CommittedAssistantLogProjection`,
- * `deriveActivitySteps`), fed the committed rows one at a time as a client's
- * log subscription delivers them.
- *
- * Snapshot the shape, never text: it names groups, row verbs and states,
- * paragraphs per step and title timing, so it stays stable across
- * re-recordings and changes only when the conversation's form does.
- */
-import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import {
   CommittedAssistantLogProjection,
   type CommittedAssistantLogView,
@@ -32,7 +19,7 @@ export interface StepShape {
   readonly reasoning: number;
 }
 
-export interface RunViewShape {
+interface RunViewShape {
   /** The UI's part groups in order: `text`, `activity×N` (calls and reasoning), `notice`. */
   readonly groups: readonly string[];
   readonly message: string;
@@ -287,4 +274,4 @@ export function conversationShape(input: {
   };
 }
 
-export type { CommittedThread, HostLogRow, InvariantViolation };
+export type { CommittedThread, InvariantViolation };

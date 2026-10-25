@@ -137,7 +137,7 @@ export function getToolDescription(toolId: string): string {
 }
 
 /** Why an 'auto' observer target could not resolve to a concrete model. */
-export type ObservationalMemoryAutoUnresolvedReason =
+type ObservationalMemoryAutoUnresolvedReason =
   | 'keys-unknown'
   | 'model-not-eligible'
   | 'no-backend'
@@ -594,7 +594,7 @@ export function buildEffectiveModelSettings(
 const openRouterLimitFormatter = new Intl.NumberFormat();
 
 /** The send's gate while an OpenRouter model's details load. */
-export const OPENROUTER_METADATA_LOADING_REASON = 'Loading OpenRouter model details…';
+const OPENROUTER_METADATA_LOADING_REASON = 'Loading OpenRouter model details…';
 
 /**
  * The gate an OpenRouter lookup sets by its state and the chosen effort: the

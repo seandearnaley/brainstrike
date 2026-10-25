@@ -526,7 +526,7 @@ async function executeMcpTool(
  * into a generic model-facing failure, so the typed reason is logged here, at the boundary that
  * still has it.
  */
-export class McpToolResultError extends Error {
+class McpToolResultError extends Error {
   readonly code = 'mcp-tool-error-result';
   readonly serverName: string;
   readonly toolName: string;

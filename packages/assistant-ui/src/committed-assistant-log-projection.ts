@@ -88,7 +88,7 @@ export interface CommittedAssistantLogProjectionOptions {
 }
 
 /** What a committed interaction asks of a person. */
-export type CommittedInteractionKind = 'approval' | 'question' | 'plan' | 'network';
+type CommittedInteractionKind = 'approval' | 'question' | 'plan' | 'network';
 
 export interface CommittedAssistantPendingInteraction {
   readonly interactionId: string;

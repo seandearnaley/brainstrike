@@ -34,7 +34,7 @@ interface StoredPreview {
   readonly threadId: string;
 }
 /** Main's owners a host rewind borrows: the one shadow-git service and the live root owner. */
-export interface HostRewindFilesOwners {
+interface HostRewindFilesOwners {
   /** Request one full scan from the existing native workspace owner after disk restoration. */
   readonly refreshWorkspaceIndex: (rootId: string) => Promise<void>;
   /** The live path of a mounted root; rejects an unmounted one. */
@@ -76,7 +76,7 @@ function sortedDrift(
  * refuses rather than restoring into a stale path. Roots go one at a time.
  * The host log is the record: no ledger row is written.
  */
-export function createHostRewindFiles(owners: HostRewindFilesOwners) {
+function createHostRewindFiles(owners: HostRewindFilesOwners) {
   const previews = new Map<string, StoredPreview>();
   async function rootHandle(
     service: SnapshotService,

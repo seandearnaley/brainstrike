@@ -38,7 +38,7 @@ const SLICE_CONTEXT_LINES = 6;
  * aligned — a per-side marker naming how many lines were skipped would
  * differ between the sides and render as a spurious change.
  */
-export const SLICE_GAP_MARKER = '⋯';
+const SLICE_GAP_MARKER = '⋯';
 
 /**
  * {@link SlicedTextDiff} line-map sentinel: this document line is a

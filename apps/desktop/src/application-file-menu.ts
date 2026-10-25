@@ -24,7 +24,7 @@ export const FILE_MENU_IDS = {
  * deliberately far above realistic mount counts so connected roots cannot
  * evict disconnected grants — which is a storage bound, not a menu bound.
  */
-export const FILE_MENU_RECENT_LIMIT = 10;
+const FILE_MENU_RECENT_LIMIT = 10;
 
 export interface FileMenuDeps {
   /**

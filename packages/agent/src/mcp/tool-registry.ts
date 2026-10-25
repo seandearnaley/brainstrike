@@ -11,7 +11,7 @@ const logger = createLogger('ToolRegistry');
  * by accident: through 1.59 the provider-defined member had an open index
  * signature; 1.64 requires an `id` there.)
  */
-export interface McpRegistrableTool {
+interface McpRegistrableTool {
   readonly description?: string | undefined;
   readonly inputSchema?: unknown;
 }
@@ -63,10 +63,7 @@ function matchToolPattern(toolId: string, pattern: string): boolean {
   return regex.test(toolId);
 }
 
-export function isToolEnabledByFilterConfig(
-  toolId: string,
-  filterConfig?: ToolFilterConfig
-): boolean {
+function isToolEnabledByFilterConfig(toolId: string, filterConfig?: ToolFilterConfig): boolean {
   if (!filterConfig?.enabledTools) {
     return true;
   }

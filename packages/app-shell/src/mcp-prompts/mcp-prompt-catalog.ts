@@ -15,9 +15,9 @@ import type {
 } from '@brainstrike/assistant-contract';
 
 /** Namespace prefix for every MCP prompt slash command id. */
-export const MCP_PROMPT_COMMAND_PREFIX = 'mcp';
+const MCP_PROMPT_COMMAND_PREFIX = 'mcp';
 
-export interface McpPromptArgumentDescriptor {
+interface McpPromptArgumentDescriptor {
   readonly description?: string | undefined;
   readonly name: string;
   readonly required: boolean;

@@ -29,7 +29,7 @@ import type { GitCommandRun, GitCommandRunner } from '../../assistant-server/git
 
 const createdRoots: string[] = [];
 
-export async function makeTempDir(prefix: string): Promise<string> {
+async function makeTempDir(prefix: string): Promise<string> {
   const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), prefix));
   const real = await fsPromises.realpath(root);
   createdRoots.push(real);
@@ -49,7 +49,7 @@ export async function cleanupTempDirs(): Promise<void> {
 /** Minimal in-memory `InventoryFs`, scoped to a single directory-`.git` repo
  * with no linked worktrees — a narrower copy of the fixture in
  * `git-inventory-service.test.ts`. */
-export class FakeFs implements InventoryFs {
+class FakeFs implements InventoryFs {
   private readonly nodes = new Map<string, { readonly children: readonly string[] }>();
   private readonly realpaths = new Map<string, string>();
 
@@ -103,7 +103,7 @@ function enoent(targetPath: string): NodeJS.ErrnoException {
   return error;
 }
 
-export const FAKE_HEAD = 'a'.repeat(40);
+const FAKE_HEAD = 'a'.repeat(40);
 
 /** One real (canonical, mkdtemp'd) root directory with a REAL `.git` child
  * directory — real because `createGitInventoryWatchers`' default `realpath`
@@ -142,7 +142,7 @@ export function makeWorktreeListRunner(): GitCommandRunner {
   return run;
 }
 
-export interface FakeWatchSubscription {
+interface FakeWatchSubscription {
   disposeCallCount: number;
   readonly fireErrorSignal: (message: string) => void;
   readonly fireInterestingChange: () => void;
