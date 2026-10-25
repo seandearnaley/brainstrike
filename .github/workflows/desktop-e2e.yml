@@ -242,8 +242,8 @@ jobs:
   # The whole desktop E2E suite on Windows (2026-10-25): every smoke and
   # regression spec, the embedding specs included, as sean-pc runs it. The queue
   # ran no Playwright spec on Windows before, so all 40 failures (25 files)
-  # sean-pc found that night had passed it. The tests run as a standard user, pinned to two
-  # cores under load (windows-desktop-test-host).
+  # sean-pc found that night had passed it. The tests run as a standard user
+  # (windows-desktop-test-host).
   # Playwright balances shards by test count; the embedding specs embed real
   # chunks for minutes each, so they get shards of their own. The @packaged
   # specs launch electron-builder's output, so their shard packages the app

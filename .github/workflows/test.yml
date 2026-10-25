@@ -677,8 +677,8 @@ jobs:
   # Windows unit and integration (owner decision 2026-10-24): the same shards
   # and selection as Unit, on hosted Windows runners, so a Windows-only failure
   # cannot land. Hosted runners run elevated, which hid failures a normal user
-  # meets, so the tests run as a standard local user, pinned to two cores under
-  # load, as sean-pc runs them (windows-desktop-test-host).
+  # meets, so the tests run as a standard local user, as sean-pc runs them
+  # (windows-desktop-test-host).
   windows-shard:
     name: Windows (${{ matrix.shard }})
     if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0'
@@ -719,7 +719,7 @@ jobs:
         uses: ./.github/actions/provision-electron
 
       # ripgrep, crash dumps and the standard test user every step below runs
-      # its tests as, pinned to two cores under load like sean-pc.
+      # its tests as.
       - name: Provision the Windows desktop test host
         uses: ./.github/actions/windows-desktop-test-host
 
