@@ -1,4 +1,5 @@
 import type { AnyContextAction } from '@brainstrike/context-actions';
+import { countSelectedInDirectory } from '@brainstrike/file-explorer/selection';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
@@ -273,9 +274,11 @@ function useSectionRecursiveSelect(folderId: string): {
       // The node carries its own root identity (stamped by every tree loader
       // since storage v5); the section folderId is only a legacy fallback.
       const targetFolderId = node.rootFolderId || folderId;
-      const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
-        selectionKey.startsWith(`${targetFolderId}|@|${node.path}/`)
-      ).length;
+      const selectedDescendantCount = countSelectedInDirectory(
+        selectedFilesList,
+        targetFolderId,
+        node.path
+      );
       return sectionSelectFolderRecursively(
         node,
         targetFolderId,
