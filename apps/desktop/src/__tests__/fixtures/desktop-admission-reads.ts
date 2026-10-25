@@ -70,17 +70,3 @@ export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): Deskt
     ...overrides,
   };
 }
-
-/** Main's reads for a scenario that admits no run: any admission read refuses. */
-export function noRunAdmission(): DesktopAdmissionReads {
-  const refuse = (): Promise<never> => Promise.reject(new Error('This scenario admits no run'));
-  return {
-    acquireWorkspace: refuse,
-    catalogModel: refuse,
-    enabledObservers: refuse,
-    indexStatus: refuse,
-    liveWorkspaceRoots: refuse,
-    memoryVectors: refuse,
-    worktreesAvailable: refuse,
-  };
-}

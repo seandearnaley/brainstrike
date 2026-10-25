@@ -271,7 +271,7 @@ export interface McpConfigTextDocument {
 }
 
 /** A config write or catalog install: the new revision, or why nothing changed. */
-export type McpConfigWriteResult =
+type McpConfigWriteResult =
   | { success: true; path: string; revision: string }
   | { success: false; path: string; error: string; conflict?: true };
 

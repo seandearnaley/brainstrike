@@ -225,7 +225,7 @@ async function readRows(host: HostReader, threadId: string): Promise<readonly Ho
 }
 
 /** The conversation's log and its delegated descendants', read from the host. */
-export async function readHostThreadDebugSnapshot(
+async function readHostThreadDebugSnapshot(
   host: HostReader,
   rootThreadId: string
 ): Promise<HostThreadDebugSnapshot> {

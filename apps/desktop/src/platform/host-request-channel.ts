@@ -25,7 +25,7 @@ import { createRequestTracker } from '@brainstrike/worker-runtime';
 
 const logger = createLogger('HostRequestChannel');
 
-export type HostRequestTimeoutPolicy = 'abandon' | 'terminate';
+type HostRequestTimeoutPolicy = 'abandon' | 'terminate';
 
 interface HostRequestTimeoutDecisionFor<TPolicy extends HostRequestTimeoutPolicy> {
   readonly error: Error;
@@ -55,12 +55,12 @@ export type HostRequestTimeoutDecision =
       readonly terminate: (error: Error) => void;
     });
 
-export interface HostRequestAbortContext {
+interface HostRequestAbortContext {
   readonly reason: unknown;
   readonly requestId: string;
 }
 
-export type HostRequestSettlement<TResponse> =
+type HostRequestSettlement<TResponse> =
   | { readonly type: 'response'; readonly response: TResponse }
   | { readonly type: 'retired'; readonly error: Error | null };
 
@@ -133,7 +133,7 @@ export interface HostRequestChannelOptions<TRequest, TResponse> {
   readonly timeoutMs: (request: TRequest) => number;
 }
 
-export interface HostRequestOptions<TResponse> {
+interface HostRequestOptions<TResponse> {
   readonly onProgress?: ((response: TResponse) => void) | undefined;
   /** Default abort uses an Error reason or a per-role error; onAbort may preserve arbitrary reasons. */
   readonly signal?: AbortSignal | undefined;

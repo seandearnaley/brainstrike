@@ -19,7 +19,7 @@ export interface DisposerHandle {
   readonly label: string;
 }
 
-export interface DisposerFailure {
+interface DisposerFailure {
   readonly error: unknown;
   readonly label: string;
 }

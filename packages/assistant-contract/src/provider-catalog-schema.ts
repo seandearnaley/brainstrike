@@ -25,6 +25,7 @@
  */
 import { OPENAI_REASONING_EFFORT_VALUES } from '@brainstrike/types';
 import { Schema, SchemaIssue } from 'effect';
+
 /**
  * The transformation from "what Effect Schema infers" to "what the registry publishes".
  * Two differences, both deliberate:
@@ -36,7 +37,7 @@ import { Schema, SchemaIssue } from 'effect';
  * - Effect Schema's optional fields include explicit undefined; CatalogShape
  *   compares them with the catalog interfaces under exactOptionalPropertyTypes.
  */
-export type CatalogShape<T> = T extends readonly (infer Element)[]
+type CatalogShape<T> = T extends readonly (infer Element)[]
   ? readonly CatalogShape<Element>[]
   : T extends object
     ? {

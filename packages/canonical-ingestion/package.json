@@ -25,7 +25,6 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@brainstrike/config": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",

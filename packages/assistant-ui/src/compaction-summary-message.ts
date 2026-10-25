@@ -8,16 +8,16 @@ import {
 export const HOST_CONTEXT_COMPACTED_DATA_NAME = 'brainstrike.context-compacted';
 
 /** Why the host compacted: before a request over its budget, or after a provider overflow. */
-export type HostContextCompactionReason = 'pre-request' | 'context-overflow';
+type HostContextCompactionReason = 'pre-request' | 'context-overflow';
 
 /** A summarizer side call's provider-reported tokens. */
-export interface HostContextCompactionUsage {
+interface HostContextCompactionUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
 }
 
 /** Why a deterministic fallback replaced the agentic summary (BST-2204). */
-export interface HostContextSummarizerFailure {
+interface HostContextSummarizerFailure {
   /** The summarizer's typed failure code. */
   readonly code: string;
   /** The reference its cause is logged under in the diagnostic log. */
@@ -64,7 +64,7 @@ function readSummarizerFailure(value: unknown): HostContextSummarizerFailure {
 }
 
 /** A summarizer's usage as committed (the SDK's totalUsage), or why it cannot be read. */
-export function readHostCompactionUsage(usage: unknown): HostContextCompactionUsage {
+function readHostCompactionUsage(usage: unknown): HostContextCompactionUsage {
   if (isRecord(usage) && isCount(usage['inputTokens']) && isCount(usage['outputTokens'])) {
     return { inputTokens: usage['inputTokens'], outputTokens: usage['outputTokens'] };
   }

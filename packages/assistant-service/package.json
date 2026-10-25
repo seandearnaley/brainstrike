@@ -23,7 +23,6 @@
     "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "concurrently": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

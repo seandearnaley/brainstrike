@@ -1,7 +1,7 @@
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { isBinaryFile } from '@brainstrike/utils/file-utils';
 
-export type TokenIndexingDispatchHandleKind = 'electron' | 'web';
+type TokenIndexingDispatchHandleKind = 'electron' | 'web';
 
 export interface TokenIndexingDispatchHandle {
   readonly fileName: string;
@@ -10,7 +10,7 @@ export interface TokenIndexingDispatchHandle {
   readonly synthetic: boolean;
 }
 
-export interface TokenIndexingFileCandidate {
+interface TokenIndexingFileCandidate {
   readonly compositeKey: string;
   readonly folderId: string;
   readonly handle: TokenIndexingDispatchHandle | null;
@@ -19,7 +19,7 @@ export interface TokenIndexingFileCandidate {
   readonly selectionPath: string;
 }
 
-export interface TokenIndexingInvalidPathCandidate {
+interface TokenIndexingInvalidPathCandidate {
   readonly compositeKey: string;
   readonly errorMessage: string;
   readonly folderId: string;
@@ -44,14 +44,14 @@ export interface PlannedTokenIndexingElectronFile {
   readonly folderId: string;
 }
 
-export interface TokenIndexingDispatchSkippedCounts {
+interface TokenIndexingDispatchSkippedCounts {
   readonly binary: number;
   readonly invalidPath: number;
   readonly noHandle: number;
   readonly tooLarge: number;
 }
 
-export interface TokenIndexingInvalidPathWarning {
+interface TokenIndexingInvalidPathWarning {
   readonly compositeKey: string;
   readonly errorMessage: string;
   readonly folderId: string;

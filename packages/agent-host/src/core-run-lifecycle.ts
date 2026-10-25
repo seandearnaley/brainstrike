@@ -119,10 +119,7 @@ export async function acceptHostRunStop(
 }
 
 /** Join every settled outcome, failing with all of the failures rather than the first. */
-export async function joinAllHostWork(
-  work: readonly Promise<unknown>[],
-  message: string
-): Promise<void> {
+async function joinAllHostWork(work: readonly Promise<unknown>[], message: string): Promise<void> {
   const failures = (await Promise.allSettled(work))
     .filter((result) => result.status === 'rejected')
     .map((result) => result.reason);

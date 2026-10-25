@@ -23,7 +23,7 @@ export const ANTHROPIC_THINKING_MIN = 1024;
 export const ANTHROPIC_THINKING_MAX = 20_000;
 export const ANTHROPIC_THINKING_STEP = 256;
 
-export const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
+const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
   high: 'High',
   low: 'Low',
   max: 'Max',
@@ -33,7 +33,7 @@ export const OPENAI_EFFORT_LABELS: Record<OpenAiReasoningEffort, string> = {
   xhigh: 'Extra',
 };
 
-export const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
+const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
   high: 'High',
   low: 'Low',
   max: 'Max',
@@ -46,7 +46,7 @@ export const ANTHROPIC_EFFORT_LABELS: Record<AnthropicEffort, string> = {
  * mirror independent upstream enums — an addition to either must not silently
  * relabel the other's menu.
  */
-export const BEDROCK_EFFORT_LABELS: Record<BedrockReasoningEffort, string> = {
+const BEDROCK_EFFORT_LABELS: Record<BedrockReasoningEffort, string> = {
   high: 'High',
   low: 'Low',
   max: 'Max',
@@ -54,14 +54,14 @@ export const BEDROCK_EFFORT_LABELS: Record<BedrockReasoningEffort, string> = {
   xhigh: 'Extra',
 };
 
-export const GOOGLE_THINKING_LEVEL_LABELS: Record<GoogleThinkingLevel, string> = {
+const GOOGLE_THINKING_LEVEL_LABELS: Record<GoogleThinkingLevel, string> = {
   high: 'High',
   low: 'Low',
   medium: 'Medium',
   minimal: 'Minimal',
 };
 
-export interface EffortOption {
+interface EffortOption {
   /** Marks the model's declared default effort ("Default" chip). */
   isModelDefault: boolean;
   label: string;
@@ -225,7 +225,7 @@ export function buildEffortControlModel(
   }
 }
 
-export interface EffortSliderStop {
+interface EffortSliderStop {
   /** The vendor's recommended effort for this model, if it declares one. */
   isModelDefault: boolean;
   label: string;

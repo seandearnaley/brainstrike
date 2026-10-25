@@ -8,7 +8,7 @@ import type {
 import type { SourceFileRecord } from '@brainstrike/types';
 import { vi } from 'vitest';
 
-export function sourceRecord(record: NativeCanonicalCatalogRecord): SourceFileRecord {
+function sourceRecord(record: NativeCanonicalCatalogRecord): SourceFileRecord {
   if (record.contentHash === null) {
     throw new Error('Current source records require their content hash.');
   }

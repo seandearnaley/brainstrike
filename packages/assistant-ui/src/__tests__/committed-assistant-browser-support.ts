@@ -25,14 +25,6 @@ import {
   yieldTask,
 } from './committed-publication-instrumentation';
 
-export {
-  drainMicrotasks,
-  nextFrame,
-  type PublicationTiming,
-  type TimedTask,
-  yieldTask,
-} from './committed-publication-instrumentation';
-
 import {
   RUN_REFUSED,
   recordedBaseline,
@@ -43,13 +35,11 @@ export {
   answerStepLength,
   CHILD_THREAD_ID,
   committedRows,
-  eventIndex,
   HOST_FAILURES,
   pendingApprovalLength,
   RecordedCommittedSource,
   RUN_REFUSED,
   recordedBaseline,
-  recordedChildPublications,
   recordedInteractionId,
   recordedPrompt,
   recordedPromptId,
@@ -65,14 +55,14 @@ export {
 
 // ---- React instrumentation (spike s-ui, aisdk-b4-ui report "How it was measured") ----
 
-const { instrumentation, measurePublication, waitForQuiescence, waitForSettled } =
+const { instrumentation, measurePublication, waitForQuiescence } =
   createPublicationInstrumentation('named-vendor');
 
-export { instrumentation, measurePublication, waitForQuiescence, waitForSettled };
+export { instrumentation, measurePublication, waitForQuiescence };
 
 // ---- Browser interaction and geometry helpers ----
 
-export function describeFocus(): string {
+function describeFocus(): string {
   const active = document.activeElement;
   if (!active || active === document.body) {
     return 'BODY';
@@ -140,7 +130,7 @@ export async function settleAnimations(root: Element): Promise<void> {
 }
 
 /** Nearest-rank percentile of a non-empty sample. */
-export function percentile(values: readonly number[], rank: number): number {
+function percentile(values: readonly number[], rank: number): number {
   const sorted = [...values].sort((left, right) => left - right);
   const value = sorted[Math.max(0, Math.ceil((rank / 100) * sorted.length) - 1)];
   if (value === undefined) {
@@ -262,13 +252,13 @@ export const TOOL_CARD_COMPONENTS = new Set([
 ]);
 export type TextKind = (typeof TEXT_KINDS)[number];
 
-export interface PublicationSample extends PublicationTiming {
+interface PublicationSample extends PublicationTiming {
   readonly selectorRenders: RenderCounts;
   readonly toolCardRenders: number;
   readonly unrelatedDom: readonly string[];
 }
 
-export interface ChildPhase {
+interface ChildPhase {
   readonly childCommits: number;
   readonly publications: number;
   readonly rootCommits: number;
@@ -283,7 +273,7 @@ export function setActEnvironment(enabled: boolean): boolean {
 }
 
 export const ZERO_COUNTS: RenderCounts = { approval: 0, prompt: 0, saved: 0, tool: 0 };
-export const countsSince = (now: RenderCounts, before: RenderCounts): RenderCounts => ({
+const countsSince = (now: RenderCounts, before: RenderCounts): RenderCounts => ({
   approval: now.approval - before.approval,
   prompt: now.prompt - before.prompt,
   saved: now.saved - before.saved,
@@ -380,7 +370,7 @@ export function report(measurement: Measurement, react: string): Record<string, 
   };
 }
 
-export interface TrialHandles {
+interface TrialHandles {
   readonly answer: HTMLElement;
   readonly composer: HTMLElement;
   readonly counts: RenderCounts;

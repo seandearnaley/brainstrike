@@ -8,6 +8,7 @@ import type { AppendItem, BlobContent } from '@brainstrike/state-store';
 import { largeText } from '@brainstrike/state-store/large-text';
 import { Schema } from 'effect';
 import { type HostEvent, HostEventSchema } from './protocol.ts';
+
 /**
  * ADR-0011 amendment: a committed run.started keeps its run snapshot (the run
  * configuration: system prompt, child system, captured intent, tool
@@ -16,7 +17,7 @@ import { type HostEvent, HostEventSchema } from './protocol.ts';
  * snapshot's hash; reading the row resolves it to the exact snapshot the run
  * committed.
  */
-export function storedRunSnapshot(event: HostEvent): {
+function storedRunSnapshot(event: HostEvent): {
   readonly blobs: readonly BlobContent[];
   readonly body: Readonly<Record<string, unknown>> & {
     readonly type: string;

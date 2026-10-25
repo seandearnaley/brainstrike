@@ -10,7 +10,7 @@
  * unit-testable and would serve any CDP transport unchanged.
  */
 
-export interface AxValueLike {
+interface AxValueLike {
   readonly value?: string | number | boolean;
 }
 

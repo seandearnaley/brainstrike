@@ -40,7 +40,7 @@ const ARCHIVE_GIT_IDENTITY_ENV = {
 // canonical object even when the repository has never materialized it before.
 const EMPTY_TREE_OID = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
 
-export function archiveSnapshotRef(worktreeId: string): string {
+function archiveSnapshotRef(worktreeId: string): string {
   return `refs/brainstrike/worktree-archive/${worktreeId}`;
 }
 

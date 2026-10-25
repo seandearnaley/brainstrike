@@ -5,14 +5,14 @@ import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 import type { McpLabSession } from '../../../../packages/mcp-test-lab/src/index.ts';
 
-export interface PendingInputWireRecord {
+interface PendingInputWireRecord {
   readonly method: string;
   readonly sequence: number;
   readonly taskId?: string;
   readonly toolName?: string;
 }
 
-export interface PendingInputFixtureSnapshot {
+interface PendingInputFixtureSnapshot {
   readonly activeRequests: number;
   readonly cancellationAcknowledged: boolean;
   readonly heldTerminalPolls: number;

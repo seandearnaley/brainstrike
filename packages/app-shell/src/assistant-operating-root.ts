@@ -22,7 +22,7 @@ export interface PersistedAssistantOperatingRootBinding {
  * the catalog read is a read failure that a future registration event will
  * never resolve.
  */
-export class AssistantOperatingRootRowNotFoundError extends Error {
+class AssistantOperatingRootRowNotFoundError extends Error {
   constructor(displayName: string) {
     super(
       `Cannot bind assistant thread to "${displayName}": the mounted folder has no unique live workspace identity.`

@@ -63,7 +63,7 @@ export interface WorkspaceHarnessOptions {
   readonly actionRegistry?: ActionRegistry;
 }
 
-export function WorkspaceHarness({
+function WorkspaceHarness({
   actionRegistry,
   apps,
 }: WorkspaceHarnessOptions & { readonly apps: readonly WorkspaceApp[] }): ReactNode {

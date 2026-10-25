@@ -366,7 +366,7 @@ function useNewStreamValues<T>(args: {
  * replay of the previous thread. {@link useNewStreamValues} owns that
  * discipline for all three observations so it cannot drift between them.
  */
-export function useRunLifecycleNotifications(
+function useRunLifecycleNotifications(
   callbacks: RunLifecycleNotificationCallbacks,
   threadKey?: string
 ): void {

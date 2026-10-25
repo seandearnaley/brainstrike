@@ -7,7 +7,7 @@ import type { HostLogRow, HostRunTelemetry } from './protocol.ts';
  * for the open step's text and reasoning (ADR-0011 amendment). Past it the
  * oldest chunks drop and a replay opens with an omission marker.
  */
-export const HOST_TELEMETRY_REPLAY_BYTES = 512 * 1024;
+const HOST_TELEMETRY_REPLAY_BYTES = 512 * 1024;
 
 interface Kept {
   readonly bytes: number;

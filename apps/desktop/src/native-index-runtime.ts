@@ -47,7 +47,7 @@ interface Dependencies<Attachment> {
   installQueryTarget(owner: IndexOwner): void;
   readonly profile: DesktopProfileRuntime<Attachment>;
 }
-export interface CapturedNativeIndexAuthority {
+interface CapturedNativeIndexAuthority {
   readonly port: NativePort;
   /** Read only after admitted sources settle; tied to this exact retained writer owner. */
   readAuthority(): NativeIndexAuthority;

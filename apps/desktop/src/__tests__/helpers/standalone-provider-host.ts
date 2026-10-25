@@ -21,7 +21,7 @@ const bin = join(
   dirname(require.resolve('@brainstrike/host-capabilities')),
   '../bin/brainstrike.mjs'
 );
-export interface CliResult {
+interface CliResult {
   readonly code: number;
   readonly stderr: string;
   readonly stdout: string;

@@ -14,9 +14,7 @@ import { getModelRuntimeServices } from './model-runtime-services';
 const logger = createLogger('DownloadedModelsRead');
 
 /** The catalog's on-device embedding rows, decoded; a malformed row is logged and skipped. */
-export function decodeLocalEmbeddingModels(
-  models: readonly DbModel[]
-): readonly CatalogEmbeddingModel[] {
+function decodeLocalEmbeddingModels(models: readonly DbModel[]): readonly CatalogEmbeddingModel[] {
   return models.flatMap((model) => {
     if (!isLocalModelProviderId(model.providerId) || model.capabilities?.type !== 'embedding') {
       return [];

@@ -29,7 +29,7 @@ const logger = createLogger('WorktreeTools');
 export const WORKTREE_TOOLS_UNAVAILABLE = 'Worktree management is not available in this session.';
 
 /** ADR-0028 decision 7: a child never moves its parent's workspace. */
-export const WORKTREE_CREATE_ROOT_ONLY =
+const WORKTREE_CREATE_ROOT_ONLY =
   'Only the conversation that delegated this task can create a worktree. Report that the task needs one instead.';
 
 /** Core's binding of the run's thread to a worktree it created; absent for a child. */
@@ -41,7 +41,7 @@ export type EnterWorktree = (worktree: {
 }) => Promise<void>;
 
 /** The fields of a git-inventory entry (`WorktreeListEntry`) the tools read. */
-export interface WorktreeToolListEntry {
+interface WorktreeToolListEntry {
   readonly branch: string | null;
   readonly detached: boolean;
   readonly disabledReason: string | null;
@@ -59,24 +59,24 @@ export interface WorktreeToolListEntry {
 }
 
 /** The fields of `WorktreeCreateResult` the tools read, plus the folder Main opened for it. */
-export interface WorktreeToolCreateResult {
+interface WorktreeToolCreateResult {
   readonly root: { readonly displayName: string; readonly path: string; readonly rootId: string };
   readonly setup: { readonly reason: string | null; readonly status: string };
   readonly worktree: { readonly branch: string | null; readonly id: string; readonly path: string };
 }
 
 /** The fields of `WorktreeArchiveResult` the tools read. */
-export interface WorktreeToolArchiveResult {
+interface WorktreeToolArchiveResult {
   readonly snapshotRef: string;
   readonly worktree: { readonly id: string };
 }
 
-export interface WorktreeArchiveParams {
+interface WorktreeArchiveParams {
   readonly force?: boolean;
   readonly worktreeId: string;
 }
 
-export interface WorktreeCreateParams {
+interface WorktreeCreateParams {
   readonly baseRef: string;
   readonly branch: string;
   readonly name: string;
@@ -92,7 +92,7 @@ export interface WorktreeToolCapability {
   readonly list: () => Promise<GitResult<readonly WorktreeToolListEntry[]>>;
 }
 
-export interface ListedWorktree {
+interface ListedWorktree {
   readonly branch: string | null;
   readonly detached: boolean;
   readonly disabledReason: string | null;

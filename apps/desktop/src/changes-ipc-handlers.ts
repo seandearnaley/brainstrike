@@ -273,9 +273,7 @@ function asRecord(value: unknown, subject: string): GitResult<Record<string, unk
  * service itself throws on a bad value, so accepting one here would only
  * convert a validation error into an "unexpected handler failure".
  */
-export function validateInventoryOptions(
-  value: unknown
-): GitResult<{ readonly maxAgeMs?: number }> {
+function validateInventoryOptions(value: unknown): GitResult<{ readonly maxAgeMs?: number }> {
   const subject = 'changes:inventory';
   if (value === undefined) {
     return { ok: true, value: {} };

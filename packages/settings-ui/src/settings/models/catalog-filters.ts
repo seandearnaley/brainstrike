@@ -27,7 +27,7 @@ export const DEFAULT_CATALOG_FILTERS: CatalogFilters = {
 };
 
 /** Inclusive lower bounds: a band means "at least this many tokens". */
-export const CONTEXT_BAND_MIN_TOKENS = {
+const CONTEXT_BAND_MIN_TOKENS = {
   '1m': 1_000_000,
   '128k': 128_000,
   '200k': 200_000,

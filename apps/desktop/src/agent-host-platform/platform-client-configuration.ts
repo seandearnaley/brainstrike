@@ -11,7 +11,7 @@ import { Schema } from 'effect';
 // Shared by renderer Send capture and Main admission; native platform owners stay in platform-wire.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Decision = Schema.Literals(PERMISSION_DECISIONS);
-export const PlatformPolicySchema = Schema.Struct({
+const PlatformPolicySchema = Schema.Struct({
   perToolOverrides: Schema.optional(Schema.Record(Schema.String, Decision)),
   policies: Schema.Struct({ edit: Decision, execute: Decision, mcp: Decision, read: Decision }),
   sessionGrants: Schema.optional(
@@ -73,7 +73,7 @@ export const PlatformMemorySettingsSchema = Schema.Struct({
   }),
 });
 /** BST-1932: the renderer's subagent preferences, captured with each run's input. */
-export const PlatformSubagentsIntentSchema = Schema.Struct({
+const PlatformSubagentsIntentSchema = Schema.Struct({
   delegationEnabled: Schema.Boolean,
   disabledPersonaIds: Schema.mutable(Schema.Array(Id)),
   settings: runtimeSubagentSettingsSchema,

@@ -38,7 +38,7 @@ const VERIFY_TIMEOUT_MS = 120_000;
 const OUTPUT_TAIL = 2000;
 
 /** Where the host's provider requests go: a boundary, the recorder, or (live) nowhere but the provider. */
-export type ProviderEgress = ProviderBoundary;
+type ProviderEgress = ProviderBoundary;
 
 export interface EvalRunOptions {
   readonly batch: string;
@@ -89,7 +89,7 @@ async function writeScriptedPlatform(root: string, loaded: LoadedEvalTask): Prom
 }
 
 /** The task's own cassette, decoded; a task without one cannot replay. */
-export async function readTaskCassette(loaded: LoadedEvalTask): Promise<ProviderCassette> {
+async function readTaskCassette(loaded: LoadedEvalTask): Promise<ProviderCassette> {
   if (!loaded.cassettePath) {
     throw new Error(
       `${loaded.task.id} has no cassette to replay; the owner records one with the record command`

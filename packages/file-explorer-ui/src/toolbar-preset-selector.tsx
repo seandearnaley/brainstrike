@@ -372,5 +372,4 @@ const ToolbarPresetSelector = React.memo(
 
 ToolbarPresetSelector.displayName = 'ToolbarPresetSelector';
 
-export type { ToolbarPresetSelectorProps };
 export { ToolbarPresetSelector };

@@ -106,7 +106,7 @@ export interface AssistantThreadTabsWorkspaceProps {
 }
 
 /** What one mounted thread's panel renderer is given. */
-export interface AssistantThreadPanelProps {
+interface AssistantThreadPanelProps {
   fixedProviderModels?: FixedProviderModels;
   isVisible?: boolean;
   memoryResourceId?: string;
@@ -116,7 +116,7 @@ export interface AssistantThreadPanelProps {
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
 }
 
-export interface ThreadTabStatusProjection {
+interface ThreadTabStatusProjection {
   readonly error: Error | null;
   readonly threadIds: ReadonlySet<string>;
 }

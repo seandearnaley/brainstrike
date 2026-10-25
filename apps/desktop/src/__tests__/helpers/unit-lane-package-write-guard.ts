@@ -21,7 +21,7 @@ export function repositoryDiscoveryEnvironment(): NodeJS.ProcessEnv {
 }
 
 /** Untracked, non-ignored files under `packageRoot`, relative to it. */
-export function readUntrackedFiles(packageRoot: string): string[] {
+function readUntrackedFiles(packageRoot: string): string[] {
   const output = execFileSync(
     'git',
     ['ls-files', '--others', '--exclude-standard', '-z', '--', '.'],
@@ -41,7 +41,7 @@ export function newUntrackedFiles(before: readonly string[], after: readonly str
   return after.filter((file) => !existing.has(file));
 }
 
-export function formatPackageWriteFailure(packageRoot: string, files: readonly string[]): string {
+function formatPackageWriteFailure(packageRoot: string, files: readonly string[]): string {
   return [
     `The desktop unit lane left ${files.length} new untracked file(s) in ${packageRoot} (BST-546):`,
     ...files.map((file) => `  ${file}`),

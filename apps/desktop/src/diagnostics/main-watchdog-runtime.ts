@@ -1,6 +1,6 @@
 import type { MainWatchdogMessage } from './main-watchdog-core';
 
-export interface MainWatchdogFileLoggingState {
+interface MainWatchdogFileLoggingState {
   destination: string | null;
   enabled: boolean;
 }

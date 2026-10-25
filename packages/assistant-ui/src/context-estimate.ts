@@ -15,7 +15,7 @@
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { getMessageParts } from './assistant-run-event-derivation';
 
-export interface ToolTokenAttribution {
+interface ToolTokenAttribution {
   readonly name: string;
   readonly tokens: number;
 }

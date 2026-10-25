@@ -17,7 +17,7 @@ export interface DesktopWorkspaceBindingDependencies {
   readWorktree(id: string): Promise<ManagedWorktreeRow | null>;
 }
 /** A thread folder the workspace no longer serves, named when the catalog still knows it. */
-export interface RemovedThreadRoot {
+interface RemovedThreadRoot {
   readonly displayName?: string;
   readonly rootId: string;
 }
@@ -42,7 +42,7 @@ function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
  * Every bound folder must be live, so the run or binding write is refused; the
  * message names each folder and both repairs, which the user reads verbatim.
  */
-export class ThreadRootsRemovedError extends BoundaryFailureError {
+class ThreadRootsRemovedError extends BoundaryFailureError {
   override readonly name = 'ThreadRootsRemovedError';
   readonly roots: readonly RemovedThreadRoot[];
 
