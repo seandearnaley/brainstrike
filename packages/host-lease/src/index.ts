@@ -1,4 +1,9 @@
-export { attachHost, attachStartedHost, type HostAttachment } from './client.ts';
+export {
+  attachHost,
+  attachStartedHost,
+  HOST_STARTUP_TIMEOUT_MS,
+  type HostAttachment,
+} from './client.ts';
 export {
   type HostLaunchOptions,
   type HostSpawner,
