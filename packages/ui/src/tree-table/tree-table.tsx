@@ -13,7 +13,12 @@
  */
 
 import { useEventCallback, usePagination } from '@brainstrike/hooks';
-import { measureElement, observeElementRect, useVirtualizer } from '@tanstack/react-virtual';
+import {
+  measureElement,
+  observeElementOffset,
+  observeElementRect,
+  useVirtualizer,
+} from '@tanstack/react-virtual';
 import * as React from 'react';
 
 import { warnCycleOnce } from '../lib/cycle-warning';
@@ -451,6 +456,42 @@ const measureVisibleRow: typeof measureElement = (element, entry, instance) => {
   const index = instance.indexFromElement(element);
   const key = instance.options.getItemKey(index);
   return instance.itemSizeCache.get(key) ?? instance.options.estimateSize(index);
+};
+
+/**
+ * The same keep-mounted display:none routes, for the scroll offset: a viewport
+ * without a layout box reads scrollTop 0, and the browser restores the real
+ * offset, without a scroll event, when the route shows again. TanStack's
+ * scroll-idle read (150 ms after the last scroll event) lands in that window
+ * when the user switches away right after scrolling, and a 0 kept from it
+ * renders the wrong rows (a blank viewport at the bottom of a long list) on
+ * return. Only a laid-out viewport reports its offset, and it reports the
+ * restored offset as soon as it has a layout box again.
+ */
+const observeVisibleElementOffset: typeof observeElementOffset = (instance, cb) => {
+  const element = instance.scrollElement;
+  if (!element) {
+    return;
+  }
+  const isHidden = () => element.getClientRects().length === 0;
+  const unsubscribe = observeElementOffset(instance, (offset, isScrolling) => {
+    if (!isHidden()) {
+      cb(offset, isScrolling);
+    }
+  });
+  let wasHidden = isHidden();
+  const revealObserver = new ResizeObserver(() => {
+    const hidden = isHidden();
+    if (wasHidden && !hidden) {
+      cb(element.scrollTop, false);
+    }
+    wasHidden = hidden;
+  });
+  revealObserver.observe(element);
+  return () => {
+    unsubscribe?.();
+    revealObserver.disconnect();
+  };
 };
 
 /**
@@ -1115,6 +1156,7 @@ export function TreeTable<T>({
     getScrollElement: () =>
       resolveVirtualScrollElement(isExternalScroll, scrollParentRef, parentRef),
     measureElement: measureVisibleRow,
+    observeElementOffset: observeVisibleElementOffset,
     observeElementRect: heightOnlyObserveRect,
     overscan,
     scrollMargin: externalScrollMargin,
