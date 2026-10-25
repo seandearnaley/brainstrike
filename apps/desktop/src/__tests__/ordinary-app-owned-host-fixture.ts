@@ -30,6 +30,7 @@ import {
   type ModelProviderScript,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { addWorkspaceFolder } from './helpers/add-workspace-folder';
 import { createAppOutput } from './helpers/app-output';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 import {
@@ -300,27 +301,7 @@ setInterval(() => {}, 1000);
       );
       await page.reload();
       await ensureAssistantShellVisible(page);
-      // Use the ordinary grant/mount flow. A detached SQL row is deliberately
-      // disconnected by workspace reconciliation and cannot authorize tools.
-      await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
-      await expect
-        .poll(async () => {
-          const roots = await page.evaluate(async (workspace) => {
-            const api = window.electronAPI;
-            if (!(api && 'fileSystem' in api)) {
-              throw new Error('The normal desktop filesystem bridge is missing');
-            }
-            const reply = await api.fileSystem.restoreRoots();
-            if (!reply.ok) {
-              throw new Error(reply.error.message);
-            }
-            return reply.value.filter((root) => root.handle.path === workspace);
-          }, workspace);
-          const parsed = z.array(z.object({ rootId: z.string() })).parse(roots);
-          workspaceRootId = parsed[0]?.rootId;
-          return workspaceRootId !== undefined;
-        })
-        .toBe(true);
+      workspaceRootId = await addWorkspaceFolder(page, workspace);
       checkpoint('ordinary-assistant-visible');
       // The startup thread is already open and visible; New Thread's own thread
       // is the one that was not there before the click.
