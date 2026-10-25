@@ -97,8 +97,8 @@ const deadlinesSchema = Schema.Struct({
   /** R5(b): how long the cooperative `close` request may take before the process is killed. */
   closeMs: duration,
   /**
-   * R5(b): how long the process may take to exit, after its close ACK or a kill, before the
-   * still-joined exit is reported slow. Never abandons the join.
+   * R5(b): how long the process may take to exit after its close ACK before it is killed; after
+   * a kill, how long before the still-joined exit is reported slow. Never abandons the join.
    */
   exitMs: duration,
 });
@@ -283,11 +283,10 @@ export function createIndexerConnection(
       return failAndJoin(error);
     }
   };
-  let acknowledged = false;
   /**
-   * The cooperative `close` request: `acknowledged` once the process answers it. Outliving
-   * `closeMs` is the R5(b) escalation, not a failure; any other failure is returned. Either way
-   * the client fails with it, which retires the process: a kill, then the joined exit.
+   * The cooperative `close` request. Outliving `closeMs` is the R5(b) escalation, not a failure;
+   * any other failure is returned. Either way the client fails with it, which retires the
+   * process: a kill, then the joined exit.
    */
   const requestClose = async (): Promise<unknown> => {
     try {
@@ -308,7 +307,6 @@ export function createIndexerConnection(
         },
         timeoutMs: deadlines.closeMs,
       });
-      acknowledged = true;
       return undefined;
     } catch (error) {
       client.fail(error);
@@ -335,23 +333,15 @@ export function createIndexerConnection(
       if (refused !== undefined) {
         failures.push(refused);
       }
-      if (acknowledged && !killRequested) {
-        // After its close ACK the process exits on its own and is never killed: Windows refuses
-        // to terminate a process that is already exiting, which left a closed indexer retained
-        // and the native index blocked. A late exit is reported and still joined.
-        if (!exited) {
-          await joinExit();
-        }
-      } else {
-        // A process already being killed goes straight to the joined exit.
-        if (!(exited || killRequested || (await exitsWithin(deadlines.exitMs)))) {
-          transport.onStall?.('exit', deadlines.exitMs);
-        }
-        try {
-          await retire();
-        } catch (failure) {
-          failures.push(failure);
-        }
+      // After its close ACK the process exits on its own; one that has not within `exitMs` is
+      // killed. A process already being killed goes straight to the joined exit.
+      if (!(exited || killRequested || (await exitsWithin(deadlines.exitMs)))) {
+        transport.onStall?.('exit', deadlines.exitMs);
+      }
+      try {
+        await retire();
+      } catch (failure) {
+        failures.push(failure);
       }
       if (failures.length > 0) {
         if (!exited) {
