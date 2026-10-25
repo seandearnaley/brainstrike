@@ -9,9 +9,15 @@ import { waitForAppHost } from './utils/agent-host-log';
  */
 test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 
+interface ShutdownStepRecord {
+  readonly failed: boolean;
+  readonly step: string;
+}
+
 interface LogRecord {
   readonly level?: number;
   readonly msg?: string;
+  readonly steps?: readonly ShutdownStepRecord[];
 }
 
 /** Main's structured stdout records; the last segment is a line still being written. */
@@ -52,6 +58,16 @@ test('a quit joins the renderer flush and the host exit, and exits 0', async ({
 
   expect({ code: main.exitCode, signal: main.signalCode }).toEqual({ code: 0, signal: null });
   const records = parse(output);
+  const reports = records.flatMap((record) =>
+    record.msg === 'Graceful shutdown completed' && record.steps ? [record.steps] : []
+  );
+  expect(reports).toHaveLength(1);
+  const steps = reports[0] ?? [];
+  expect(steps.filter((step) => step.failed)).toEqual([]);
+  // Every physical native join ran after the renderers instead of being skipped.
+  expect(steps.map((step) => step.step)).toEqual(
+    expect.arrayContaining(['renderers', 'native-index', 'file-system', 'embedding-host'])
+  );
   // A slow step is only waited for, never a failure or a forced exit.
   expect(records.map((record) => record.msg)).not.toContain(
     'Graceful shutdown completed with cleanup failures'

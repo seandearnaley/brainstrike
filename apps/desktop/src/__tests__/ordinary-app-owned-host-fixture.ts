@@ -754,7 +754,8 @@ setInterval(() => {}, 1000);
       await ensureAssistantShellVisible(page);
       await page.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
       client = await attachHostThroughWindow(page);
-      expect(client.host.pid).toBe(record.pid);
+      // The same host process answers, with the same initialize reply.
+      expect({ ...client.host, start: processStartTime(client.host.pid) }).toEqual(record);
       expect(
         (await client.request('thread/read', { fromSeq: 0, threadId })).rows.slice(
           0,

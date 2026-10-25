@@ -118,7 +118,15 @@ it.each([false, true])(
       // ADR-0031: the host asks Main for nothing as it closes; its channel's end is the close.
       f.crash();
       await entered.promise;
+      let closed = false;
+      const joined = Promise.allSettled([f.owner.close()]).then(() => {
+        closed = true;
+      });
+      await Promise.resolve();
+      // Main's close is held by the Root borrower it joins.
+      expect(closed).toBe(false);
       retired.resolve();
+      await joined;
       if (failed) {
         await expect(f.owner.close()).rejects.toMatchObject({ errors: [failure] });
       } else {
