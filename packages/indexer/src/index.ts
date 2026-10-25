@@ -124,7 +124,6 @@ export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from '.
 export { vectorProfileHash } from './scope-authority.ts';
 export type { StateMessageEvent, StateProducerDecoder } from './state-projection.ts';
 export type { IndexerDeadlines } from './transport.ts';
-export { IndexerLifecycleError } from './transport.ts';
 export interface IndexerPort {
   close(): Promise<void>;
   commitFile(commit: unknown): Promise<CommitResult>;

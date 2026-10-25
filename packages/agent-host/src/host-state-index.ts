@@ -15,7 +15,11 @@ import {
   validateIndexerOptions,
 } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
-import { canonicalRoot, type IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
+import {
+  CHILD_CLOSE_BUDGET_MS,
+  canonicalRoot,
+  type IndexerPort as StateStoreIndexerPort,
+} from '@brainstrike/state-store';
 import { createStateIndexOwner } from './host-state-index-owner.ts';
 import type { HostStartupContext } from './runtime.ts';
 
@@ -25,14 +29,11 @@ const logger = createLogger('AgentHostStateIndex');
 const HOST_STATE_INDEX_FILE = 'state-index.sqlite';
 
 /**
- * The worker's close ladder (lifecycle R5(b)): a cooperative close gets `closeMs` before the
- * worker is terminated, and its exit `exitMs` before ownership is reported retained. Requests
- * and startup have no deadline: a slow worker is load, never retired for it (R2).
+ * The worker's close window (lifecycle R5(b), ADR-0030): from the close request to the worker's
+ * exit, then it is terminated and its exit still joined. Requests and startup have no deadline:
+ * a slow worker is load, never retired for it (R2).
  */
-export const HOST_STATE_INDEX_DEADLINES = {
-  closeMs: 1000,
-  exitMs: 1000,
-} as const;
+export const HOST_STATE_INDEX_DEADLINES = { closeMs: CHILD_CLOSE_BUDGET_MS } as const;
 
 export interface HostStateIndex {
   close(): Promise<void>;

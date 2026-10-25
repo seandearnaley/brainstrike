@@ -4,7 +4,7 @@ import path from 'node:path';
 import { openIndexer } from '@brainstrike/indexer';
 import { expect, test } from 'vitest';
 
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 const axis = (n: number) => Array.from({ length: 384 }, (_, index) => (index === n ? 1 : 0));
 test('prompt vectors preserve own IDs and revision fences across reopen without creating thread rows', async () => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'prompt-native-')));

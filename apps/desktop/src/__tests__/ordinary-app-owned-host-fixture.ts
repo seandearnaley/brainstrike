@@ -14,7 +14,12 @@ import {
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock, RootLockedError } from '@brainstrike/state-store';
+import {
+  joinProcessExit,
+  processStartTime,
+  RootLock,
+  RootLockedError,
+} from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron } from 'playwright';
 import { expect, test } from 'vitest';
@@ -31,6 +36,7 @@ import {
   electronExecutablePath,
   FOREGROUND_RENDERER_SWITCHES,
 } from './helpers/electron-executable';
+import { writeCommittedThreadRows, writeFirstFailure } from './helpers/failure-evidence';
 import {
   committedShellSlices,
   liveStdoutSlices,
@@ -201,6 +207,7 @@ setInterval(() => {}, 1000);
     let application: Awaited<ReturnType<typeof _electron.launch>> | undefined;
     let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
     let failure: unknown;
+    let committedRows: Promise<void> | undefined;
     const errors: unknown[] = [];
     const owners: OwnedTestProcess[] = [];
     const captured = new WeakSet<NonNullable<typeof application>>();
@@ -897,6 +904,7 @@ setInterval(() => {}, 1000);
       );
     } catch (cause) {
       failure = cause;
+      committedRows = writeCommittedThreadRows(client, evidence);
       const page = application?.windows()[0];
       if (page && !page.isClosed()) {
         const captures = await Promise.allSettled([
@@ -921,14 +929,7 @@ setInterval(() => {}, 1000);
           JSON.stringify(captures.filter((value) => value.status === 'rejected').map(String))
         );
       }
-      await writeFile(
-        join(evidence, 'first-failure.json'),
-        JSON.stringify(
-          { message: String(cause), stack: cause instanceof Error ? cause.stack : undefined },
-          null,
-          2
-        )
-      );
+      await writeFirstFailure(evidence, cause);
     } finally {
       try {
         await client?.close();
@@ -936,6 +937,7 @@ setInterval(() => {}, 1000);
       } catch (cause) {
         errors.push(cause);
       }
+      await committedRows;
       try {
         if (application) {
           await capture(application);
@@ -962,9 +964,7 @@ setInterval(() => {}, 1000);
       }
       try {
         await retireOwnedTestProcesses(owners, {
-          join: async ({ pid, start }) => {
-            await expect.poll(() => processStartTime(pid), RUN_PROGRESS_POLL).not.toBe(start);
-          },
+          join: ({ pid, start }) => joinProcessExit(pid, start),
           signal: (pid, signal) => process.kill(pid, signal),
           startTime: processStartTime,
         });

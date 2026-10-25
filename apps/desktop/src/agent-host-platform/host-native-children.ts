@@ -8,8 +8,7 @@
  * the Root refused.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { KILL_GRACE_MS } from '@brainstrike/host-capabilities/native-tools';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { CHILD_SIGNAL_GRACE_MS, processStartTime, RootLock } from '@brainstrike/state-store';
 import type { NativeChild } from '@brainstrike/state-store/native-children';
 
 export interface HostNativeChildren {
@@ -114,7 +113,7 @@ export function createHostNativeChildren(root: string): HostNativeChildren {
       retiring ??= (async () => {
         const signalled = [...children.values()];
         signalAll('SIGTERM');
-        const graceEnds = Date.now() + KILL_GRACE_MS;
+        const graceEnds = Date.now() + CHILD_SIGNAL_GRACE_MS;
         while (Date.now() < graceEnds && anyRemains(signalled)) {
           await delay(JOIN_POLL_MS, undefined, { ref: false });
         }

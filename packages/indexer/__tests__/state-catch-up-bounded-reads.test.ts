@@ -91,7 +91,7 @@ function worker(steps: number, behind = 0) {
   };
   const port = createIndexerConnection(
     { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] },
-    { closeMs: 50, exitMs: 50 },
+    { closeMs: 50 },
     transport
   ).ready;
   return { port, sent };
