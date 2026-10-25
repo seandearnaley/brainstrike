@@ -17,6 +17,7 @@ import {
   createTempDirTracker,
   freshRepoWithExternalWorktree,
   git,
+  listWorktreePaths,
 } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
@@ -111,9 +112,10 @@ test.describe('Worktree mode (desktop)', () => {
       timeout: 30_000,
     });
     expect(existsSync(created.worktreePath)).toBe(true);
-    const inventory = git(repo, ['worktree', 'list', '--porcelain']);
-    expect(inventory).toContain(`worktree ${created.worktreePath}`);
-    expect(inventory).toContain(`branch refs/heads/${created.branch}`);
+    expect(listWorktreePaths(repo)).toContain(created.worktreePath);
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(
+      `branch refs/heads/${created.branch}`
+    );
   });
 
   test('lists an external-tool worktree as disabled with a reason and grant action', async ({
@@ -164,7 +166,7 @@ test.describe('Worktree mode (desktop)', () => {
     // of asserting the instant the chip text changes.
     await expect.poll(() => existsSync(created.worktreePath), { timeout: 90_000 }).toBe(false);
     await expect
-      .poll(() => git(repo, ['worktree', 'list', '--porcelain']), { timeout: 90_000 })
+      .poll(() => listWorktreePaths(repo), { timeout: 90_000 })
       .not.toContain(created.worktreePath);
     await expect
       .poll(() => git(repo, ['for-each-ref', '--format=%(refname)', 'refs/brainstrike']), {
