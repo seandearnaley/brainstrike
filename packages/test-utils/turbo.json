@@ -1,0 +1,14 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // The process-identity suite reads real process start times, which load
+      // windows-job-native on Windows. The add-on's uncached `node-gyp rebuild`
+      // first removes build/, so without this edge a run that schedules it
+      // beside this task fails with "Could not locate the bindings file"
+      // (BST-2243), the same edge as state-store's `test`. Package configs
+      // REPLACE array fields, so `topo` comes via $TURBO_EXTENDS$.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/windows-job-native#build"]
+    }
+  }
+}

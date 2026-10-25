@@ -1,10 +1,12 @@
 // D5: the data-root lock (ADR-0031 decision 4). One OS file lock per root, held by the process that opened the store:
 // a second opener is refused, in another process or this one; the OS frees it the moment its holder dies, however it
 // dies; no child process inherits it; N racing processes -> exactly one winner.
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, sep } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import { RootLock, RootLockedError } from '../src/lock.js';
+import { canonicalRoot } from '../src/root-identity.js';
 import { StateStore } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { fixture, killKids, runTs } from './helpers/proc.js';
@@ -23,6 +25,15 @@ const newRoot = (): string => {
   mkdirSync(d, { recursive: true });
   return d;
 };
+/** Whether the temp directory's file system ignores case: macOS and Windows by default, not Linux. */
+const tmpFoldsCase = ((): boolean => {
+  const probe = mkdtempSync(join(tmpdir(), 'bs-ss-case-'));
+  try {
+    return existsSync(join(dirname(probe), basename(probe).toUpperCase()));
+  } finally {
+    rmSync(probe, { recursive: true });
+  }
+})();
 const refusalOf = (open: () => unknown): unknown => {
   try {
     const lock = open();
@@ -99,4 +110,26 @@ describe('D5: data-root lock', () => {
     expect(await Promise.all(cs.map((c) => c.exit()))).toEqual(Array.from({ length: 8 }, () => 0));
     expect(refusalOf(() => RootLock.acquire(root))).toBeNull();
   }, 120_000);
+
+  // BST-2234: Node's JS realpathSync keeps a spelling's case (and a Windows 8.3 short name) as given, so a root had
+  // two identities. A trailing `.` is a second spelling on every file system; a case-folding one has another.
+  test('a lock taken through another spelling of its root records the canonical root, and that root is refused', () => {
+    const root = newRoot();
+    const spellings = [
+      `${root}${sep}.`,
+      ...(tmpFoldsCase ? [join(dirname(root), basename(root).toUpperCase())] : []),
+    ];
+    for (const respelled of spellings) {
+      const lock = RootLock.acquire(respelled);
+      try {
+        const refusal = refusalOf(() => RootLock.acquire(root));
+        expect(refusal).toBeInstanceOf(RootLockedError);
+        expect(refusal).toMatchObject({ root: canonicalRoot(root) });
+        expect(lock.root).toBe(canonicalRoot(root));
+        expect(lock.root).not.toBe(respelled);
+      } finally {
+        lock.release();
+      }
+    }
+  });
 });

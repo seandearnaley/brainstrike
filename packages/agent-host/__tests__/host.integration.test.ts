@@ -24,12 +24,14 @@ import {
   type HostEvent,
   type HostLogRow,
 } from '../src/protocol.js';
+import { type OpenedAgentHost, openAgentHost } from '../src/runtime.js';
+import { connectInProcessClient } from '../src/standalone-host.js';
 import { type InProcessHost, openInProcessHost } from '../src/test-fixtures/in-process-host.js';
 import { nodePortConnection, stdioConnection } from '../src/transports.js';
 import { parallelToolModel, scriptedModel } from './fixtures/scripted-model.js';
 
 const roots: string[] = [];
-const hosts: InProcessHost[] = [];
+const hosts: OpenedAgentHost[] = [];
 const clients: HostClient[] = [];
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
@@ -391,6 +393,101 @@ test('host close ends the owned native child and releases the Root', async () =>
   await host.close();
   expect(exited).toBe(true);
   expect(() => process.kill(pid, 0)).toThrow();
+  RootLock.acquire(root).release();
+});
+
+/**
+ * A host whose close leaves its client's transport open, as a host process's
+ * close does until it exits, so the client sees what the closing host answers.
+ */
+async function openClosingHost(platform: HostPlatform): Promise<{
+  client: HostClient;
+  host: OpenedAgentHost;
+  root: string;
+}> {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-host-close-'));
+  roots.push(root);
+  const host = await openAgentHost(root, platform);
+  hosts.push(host);
+  const client = await connectInProcessClient(host, 'public-socket');
+  clients.push(client);
+  return { client, host, root };
+}
+function closingPlatform(close: () => Promise<void>): HostPlatform {
+  return {
+    close,
+    maxSteps: 3,
+    readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+    resolveModel: async () => scriptedModel(),
+    tools: {},
+  };
+}
+
+test('client loss during host close retains Root until the held platform join settles', async () => {
+  const entered = Promise.withResolvers<void>();
+  const joined = Promise.withResolvers<void>();
+  const { client, host, root } = await openClosingHost(
+    closingPlatform(async () => {
+      entered.resolve();
+      await joined.promise;
+    })
+  );
+  const closing = host.close();
+  try {
+    await entered.promise;
+    expect(() => RootLock.acquire(root)).toThrow(RootLockedError);
+    await client.close();
+    expect(() => RootLock.acquire(root)).toThrow(RootLockedError);
+  } finally {
+    joined.resolve();
+  }
+  await closing;
+  RootLock.acquire(root).release();
+});
+
+test('host close fences later commands while the platform join is pending', async () => {
+  const entered = Promise.withResolvers<void>();
+  const joined = Promise.withResolvers<void>();
+  const { client, host, root } = await openClosingHost(
+    closingPlatform(async () => {
+      entered.resolve();
+      await joined.promise;
+    })
+  );
+  const closing = host.close();
+  try {
+    await entered.promise;
+    await expect(client.request('thread/start', { commandId: randomUUID() })).rejects.toThrow(
+      /closing/
+    );
+    expect(() => RootLock.acquire(root)).toThrow(RootLockedError);
+  } finally {
+    joined.resolve();
+  }
+  await closing;
+  RootLock.acquire(root).release();
+});
+
+test('host close reports cleanup failure and retains Root instead of releasing it', async () => {
+  const { host, root } = await openClosingHost(
+    closingPlatform(async () => {
+      throw new Error('Owned fixture cleanup failed');
+    })
+  );
+  const store = host.core.store;
+  if (!(store instanceof StateStore)) {
+    throw new Error('Close fixture did not acquire its real SQLite store');
+  }
+  try {
+    await expect(host.close()).rejects.toThrow(/cleanup failed/i);
+    expect(() => RootLock.acquire(root)).toThrow(RootLockedError);
+    expect(store.lock.isReleased).toBe(false);
+  } finally {
+    // This fixture platform acquired no external resources. Retain the failed
+    // production close result, then release only the test's owned SQLite root.
+    await store.close();
+    hosts.splice(hosts.indexOf(host), 1);
+  }
   RootLock.acquire(root).release();
 });
 
