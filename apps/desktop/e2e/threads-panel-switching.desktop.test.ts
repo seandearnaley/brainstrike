@@ -47,27 +47,66 @@ function delegation(request: ModelProviderRequest): ModelProviderScript {
   };
 }
 
-async function settle(page: Page): Promise<void> {
-  // Include ResizeObserver delivery and the virtualizer's 150ms scroll-idle notification.
-  await page.waitForTimeout(200);
+// Two animation frames: the ResizeObserver notifications for the previous
+// layout change are delivered in the first frame's rendering step, before the
+// second frame's callbacks run.
+async function nextFrames(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      })
+  );
 }
 
-async function geometry(viewport: Locator) {
+// What the user sees: the scroll position and the rows inside the viewport
+// (below a sticky header, if any). Overscan rows outside it are not visible.
+// A virtualizer spacer (a blank `tr` standing in for unrendered rows) inside
+// the viewport is a blank band the user would see: the rendered window does
+// not yet match the scroll position.
+async function readVisibleGeometry(viewport: Locator) {
   return await viewport.evaluate((element) => {
     const box = element.getBoundingClientRect();
-    return {
-      height: element.clientHeight,
-      rows: [...element.querySelectorAll('tr[data-node-id]')].map((row) => ({
+    const header = element.querySelector('thead');
+    const top = header ? Math.max(0, header.getBoundingClientRect().bottom - box.top) : 0;
+    const bottom = element.clientHeight;
+    const place = (row: Element) => {
+      const rect = row.getBoundingClientRect();
+      return { height: rect.height, offset: rect.top - box.top };
+    };
+    const inView = ({ height, offset }: { height: number; offset: number }) =>
+      height > 0 && offset + height > top && offset < bottom;
+    const rows = [...element.querySelectorAll('tbody tr[data-node-id]')]
+      .map((row) => ({
         depth: row.getAttribute('data-depth'),
         expanded: row.getAttribute('aria-expanded'),
-        height: row.getBoundingClientRect().height,
         id: row.getAttribute('data-node-id'),
-        offset: row.getBoundingClientRect().top - box.top,
-      })),
-      scrollHeight: element.scrollHeight,
-      scrollTop: element.scrollTop,
+        ...place(row),
+      }))
+      .filter(inView);
+    const blankSpacersInView = [...element.querySelectorAll('tbody tr:not([data-node-id])')]
+      .map(place)
+      .filter(inView);
+    return {
+      blankSpacersInView,
+      geometry: {
+        height: element.clientHeight,
+        rows,
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop,
+      },
     };
   });
+}
+
+async function visibleGeometry(page: Page, viewport: Locator) {
+  await nextFrames(page);
+  await expect
+    .poll(async () => (await readVisibleGeometry(viewport)).blankSpacersInView, {
+      message: 'Threads rows fill the viewport',
+    })
+    .toEqual([]);
+  return (await readVisibleGeometry(viewport)).geometry;
 }
 
 // Literal variants, so the static lane-coverage guard can read each title (BST-2026).
@@ -135,25 +174,24 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
           await viewport.evaluate((element, offset) => {
             element.scrollTop = offset;
           }, target);
-          await settle(page);
-          const before = await geometry(viewport);
+          const before = await visibleGeometry(page, viewport);
           expect(before.scrollTop).toBe(target);
           const library = destination === 'Prompts';
           await page
             .getByRole(library ? 'tab' : 'button', { exact: true, name: destination })
             .click();
           await expect(panel).toBeHidden();
-          await settle(page);
+          await nextFrames(page);
           if (via) {
             await page.getByRole('button', { exact: true, name: via }).click();
             await expect(page.getByTestId('agent-sidebar-panel')).toBeHidden();
-            await settle(page);
+            await nextFrames(page);
             await page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
             await expect(page.getByRole('tab', { exact: true, name: destination })).toHaveAttribute(
               'aria-selected',
               'true'
             );
-            await settle(page);
+            await nextFrames(page);
           }
           await page
             .getByRole(library ? 'tab' : 'button', {
@@ -162,8 +200,7 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
             })
             .click();
           await expect(panel).toBeVisible();
-          await settle(page);
-          const after = await geometry(viewport);
+          const after = await visibleGeometry(page, viewport);
           results.push({ after, before, destination, expanded, top, via });
           expect
             .soft(after, `${destination}: return preserves rows, expansion and scroll`)
