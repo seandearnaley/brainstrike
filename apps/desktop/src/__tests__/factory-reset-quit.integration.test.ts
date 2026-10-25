@@ -111,16 +111,22 @@ test.for(Object.keys(QUIT_POINTS) as (keyof typeof QUIT_POINTS)[])(
         }
       });
       window.on('pageerror', (cause) => rendererErrors.push(cause.message));
-      // The agent host is up once it publishes its record, and startup work that
-      // borrows the profile has settled once the snapshot GC reports.
+      // The agent host is up once it publishes its record. Root mutations run one
+      // at a time, so a restore answered here follows the renderer's boot restores
+      // and their catalog writes: the startup work that borrows the profile.
       await expect
         .poll(() => existsSync(join(profile, 'host.json')), { timeout: 60_000 })
         .toBe(true);
-      await expect
-        .poll(() => output.includes('Workspace snapshot startup GC completed'), {
-          timeout: 60_000,
-        })
-        .toBe(true);
+      await window.evaluate(async () => {
+        const api = globalThis.window.electronAPI;
+        if (!(api && 'fileSystem' in api)) {
+          throw new Error('Desktop filesystem capability unavailable');
+        }
+        const reply = await api.fileSystem.restoreRoots();
+        if (!reply.ok) {
+          throw new Error(reply.error.message);
+        }
+      });
       await window.evaluate(() => {
         const api = globalThis.window.electronAPI;
         if (!(api && 'factoryReset' in api)) {
