@@ -35,6 +35,10 @@ import {
   recordRestoredWorkspaceRoots,
   recordWorkspaceRoot,
 } from './workspace-root-catalog.ts';
+import {
+  cleanupWorkspaceRootResources,
+  type WorkspaceRootResourceOwners,
+} from './workspace-root-cleanup.ts';
 import { WorkspaceRootMountTable } from './workspace-root-mounts.ts';
 import { WorkspaceRootMutationLifetime } from './workspace-root-mutation-lifetime.ts';
 import { pathKey, pathsEqual } from './workspace-root-paths.ts';
@@ -92,8 +96,7 @@ export class WorkspaceRootRegistry {
   private readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   private disposed = false;
   private disposal: Promise<void> | undefined;
-  private readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
-  private readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
+  private readonly resources: WorkspaceRootResourceOwners;
   private readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   private readonly isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
@@ -108,6 +111,9 @@ export class WorkspaceRootRegistry {
     readonly mounted: MountedWorkspaceRoot;
   }>();
   private readonly onRootGranted: ((grantedPath: string) => void) | undefined;
+  private readonly onRestoredRootsChanged: (() => void) | undefined;
+  /** The persisted mounts the source borrower last restored; undefined until it first does. */
+  private borrowedRootIds: ReadonlySet<string> | undefined;
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
   private readonly resolveCanonicalRoot: (rootPath: string) => Promise<string>;
   private readonly resolveReadPath: (
@@ -118,11 +124,14 @@ export class WorkspaceRootRegistry {
 
   constructor(options: WorkspaceRootRegistryOptions) {
     this.createSecureRoot = options.createSecureRoot ?? createNativeSecureRoot;
-    this.disposeCommandSessionsForRoot = options.disposeCommandSessionsForRoot;
-    this.evictLspServersForRoot = options.evictLspServersForRoot;
+    this.resources = {
+      disposeCommandSessionsForRoot: options.disposeCommandSessionsForRoot,
+      evictLspServersForRoot: options.evictLspServersForRoot,
+    };
     this.getRootsCatalog = options.getRootsCatalog;
     this.isExpectedCatalogRefusal = options.isExpectedCatalogRefusal;
     this.onRootGranted = options.onRootGranted;
+    this.onRestoredRootsChanged = options.onRestoredRootsChanged;
     this.pathExists = options.pathExists;
     this.resolveCanonicalRoot = options.resolveCanonicalRoot ?? resolveCanonicalRootPath;
     this.resolveReadPath = options.resolveReadPath ?? resolveValidatedReadPath;
@@ -672,7 +681,19 @@ export class WorkspaceRootRegistry {
   }: {
     readonly persistPreferences?: boolean;
   } = {}): Promise<RootDescriptor[]> {
-    return this.serializeMutation(() => this.restoreRootsOwned(persistPreferences));
+    return this.serializeMutation(async () => {
+      const descriptors = await this.restoreRootsOwned(persistPreferences);
+      const borrowed = this.borrowedRootIds;
+      const mounted = this.mounts.persistedIds();
+      // Before the borrower's first restore, that restore will borrow these mounts itself.
+      if (
+        borrowed &&
+        (borrowed.size !== mounted.size || [...mounted].some((id) => !borrowed.has(id)))
+      ) {
+        this.onRestoredRootsChanged?.();
+      }
+      return descriptors;
+    });
   }
 
   /** Restores the stored roots, then runs `work` in that mutation: no removal falls inside. */
@@ -682,12 +703,14 @@ export class WorkspaceRootRegistry {
       borrow: WorkspaceRootRegistry['borrowSourceRoot']
     ) => Promise<T>
   ): Promise<T> {
-    return this.serializeMutation(async () =>
-      work(await this.restoreRootsOwned(true), async (rootId, subscribe) => {
+    return this.serializeMutation(async () => {
+      const descriptors = await this.restoreRootsOwned(true);
+      this.borrowedRootIds = this.mounts.persistedIds();
+      return work(descriptors, async (rootId, subscribe) => {
         this.assertSourceBorrow(rootId);
         return this.borrowMountedRoot(rootId, subscribe);
-      })
-    );
+      });
+    });
   }
 
   private async restoreRootsOwned(persistPreferences: boolean): Promise<RootDescriptor[]> {
@@ -756,34 +779,8 @@ export class WorkspaceRootRegistry {
     this.managedWorktreeAuthorizer = authorizer;
   }
 
-  private async cleanupRootResources(rootIds: readonly string[], strict = false): Promise<void> {
-    if (strict) {
-      const outcomes = await Promise.allSettled(
-        rootIds.flatMap((rootId) => [
-          this.evictLspServersForRoot(rootId),
-          this.disposeCommandSessionsForRoot(rootId),
-        ])
-      );
-      const errors = outcomes.flatMap((outcome) =>
-        outcome.status === 'rejected' ? [outcome.reason as unknown] : []
-      );
-      if (errors.length > 0) {
-        throw new AggregateError(errors, 'Root data deletion resource cleanup failed.');
-      }
-      return;
-    }
-    await Promise.all(
-      rootIds.map(async (rootId) => {
-        await Promise.all([
-          this.evictLspServersForRoot(rootId).catch((error: unknown) => {
-            logger.warn('Workspace root LSP cleanup failed', { error, rootId });
-          }),
-          this.disposeCommandSessionsForRoot(rootId).catch((error: unknown) => {
-            logger.warn('Workspace root command-session cleanup failed', { error, rootId });
-          }),
-        ]);
-      })
-    );
+  private cleanupRootResources(rootIds: readonly string[], strict = false): Promise<void> {
+    return cleanupWorkspaceRootResources(this.resources, rootIds, strict);
   }
 
   private async convergeDatabase(): Promise<void> {

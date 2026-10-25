@@ -70,6 +70,12 @@ export interface WorkspaceRootRegistryOptions {
    * while the catalog's profile is retired. Convergence logs it at info.
    */
   readonly isExpectedCatalogRefusal?: (error: unknown) => boolean;
+  /**
+   * A restore mounted a different set of persisted roots than the source borrower last
+   * restored and borrowed (`borrowRestoredRoots`), as after storage rewritten out of band or a
+   * folder that came back. The borrower re-reads them, as it does after a removal.
+   */
+  readonly onRestoredRootsChanged?: (() => void) | undefined;
   readonly onRootGranted?: (grantedPath: string) => void;
   readonly pathExists: (rootPath: string) => Promise<boolean>;
   readonly resolveCanonicalRoot?: (rootPath: string) => Promise<string>;
