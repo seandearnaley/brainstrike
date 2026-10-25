@@ -1,7 +1,8 @@
 import type { McpTaskBridge, McpTaskStatusChangedEvent } from '@brainstrike/assistant-contract';
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';

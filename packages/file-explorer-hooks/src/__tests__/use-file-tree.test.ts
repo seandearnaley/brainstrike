@@ -1,9 +1,10 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { createLogger } from '@brainstrike/logging';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileTree } from '../use-file-tree.js';

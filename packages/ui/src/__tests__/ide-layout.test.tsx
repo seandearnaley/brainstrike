@@ -1,4 +1,5 @@
-import { act, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
 import { type ReactElement, type ReactNode, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { IdeLayout, useIdeFileEditor } from '../layout/ide-layout';

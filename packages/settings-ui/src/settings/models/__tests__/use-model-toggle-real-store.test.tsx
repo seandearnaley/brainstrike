@@ -4,7 +4,8 @@ import {
   type BoundaryTransport,
   createBoundaryCapability,
 } from '@brainstrike/assistant-contract/boundary-result';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.fn();

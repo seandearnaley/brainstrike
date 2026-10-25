@@ -1,6 +1,7 @@
 import './dialog-nested-select-dismiss.browser.css';
 import './dropdown-menu-reopen.browser.css';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { expect, test } from 'vitest';
 import { userEvent } from 'vitest/browser';

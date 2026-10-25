@@ -4,7 +4,8 @@ import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM: it installs the React
 // DevTools hook and Scheduler MessageChannel timing used by the render-cost suite.
 import './committed-assistant-browser-support';
-import { act, cleanup, getConfig, render, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, getConfig, render, waitFor, within } from '@testing-library/react';
 import { Profiler, type ReactElement, version as reactVersion, useCallback } from 'react';
 import { afterAll, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';

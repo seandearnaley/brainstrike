@@ -8,7 +8,8 @@ import {
 } from '@assistant-ui/react';
 import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract/tool-approval';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';

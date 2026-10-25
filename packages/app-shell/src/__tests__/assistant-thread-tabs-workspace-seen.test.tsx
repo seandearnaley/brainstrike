@@ -1,7 +1,8 @@
 import './assistant-thread-tabs-workspace-test-support';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import {

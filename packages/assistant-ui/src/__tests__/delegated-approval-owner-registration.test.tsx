@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { TOOL_APPROVAL_DATA_NAME } from '@brainstrike/assistant-contract';
 import '@testing-library/jest-dom/vitest';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { screen, waitFor } from '@testing-library/react';
 import type { ComponentType } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';

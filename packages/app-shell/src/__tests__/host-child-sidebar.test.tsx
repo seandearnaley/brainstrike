@@ -5,7 +5,8 @@ import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { afterEach, expect, it } from 'vitest';

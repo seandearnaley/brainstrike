@@ -4,7 +4,8 @@
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider } from '../shell/file-explorer-provider';

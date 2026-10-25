@@ -29,8 +29,9 @@ import type { ToolResultRenderer } from '@brainstrike/assistant-ui/tool-result-r
 // local scripted model: two approved runs reuse a toolCallId, with real split
 // input, provider metadata, reasoning, tool-written child data and 48 tokens.
 import recording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { Schema } from 'effect';
 import { memo } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';

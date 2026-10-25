@@ -3,10 +3,11 @@ import { type ThreadMessageLike, useExternalStoreRuntime } from '@assistant-ui/r
 import type { McpAppBridge, McpAppOrigin } from '@brainstrike/assistant-contract';
 import { createMcpAppToolInvocationResult } from '@brainstrike/assistant-contract';
 import { AssistantConversationPanel, ToolResultRendererProvider } from '@brainstrike/assistant-ui';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
 import { InMemoryTransport, parseJSONRPCMessage } from '@modelcontextprotocol/client';
 import { App } from '@modelcontextprotocol/ext-apps';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createContext, type ReactElement, StrictMode, use } from 'react';
 import { describe, expect, it, vi } from 'vitest';

@@ -4,8 +4,9 @@
  * Covers the direct canonical-tree expand-all behavior, cancellation, and error handling.
  */
 
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 import { useExpandAll } from '../../hooks/use-expand-all';

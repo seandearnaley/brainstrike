@@ -1,7 +1,8 @@
 import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { ViewFilterPresetCapability } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { useViewFilterPresets } from '../use-view-filter-presets';
 

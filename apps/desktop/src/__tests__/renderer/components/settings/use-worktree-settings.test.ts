@@ -4,8 +4,9 @@ import {
   WorkspaceGitServicesProvider,
 } from '@brainstrike/app-shell/workspace-git-services';
 import type { WorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { WorktreeSettings } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useWorktreeSettings } from '../../../../renderer/components/settings/use-worktree-settings';

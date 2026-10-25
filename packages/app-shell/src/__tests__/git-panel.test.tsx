@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
+
+import { act } from '@brainstrike/test-utils/react-act';
 import type { Changeset, ChangesetView } from '@brainstrike/types';
 import type { DiffViewSource } from '@brainstrike/ui';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes/changes-bridge';

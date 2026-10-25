@@ -1,6 +1,7 @@
 import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileContentLoadAuthority } from '../file-content-load-authority-context';
 import { useFileContentLoadAuthority } from '../file-content-load-authority-context';

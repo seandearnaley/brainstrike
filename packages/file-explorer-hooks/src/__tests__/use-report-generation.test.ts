@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ReportGenerationRequest,

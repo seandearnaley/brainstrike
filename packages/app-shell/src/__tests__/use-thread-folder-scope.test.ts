@@ -4,7 +4,8 @@
  * through the bar's one add-secondary write.
  */
 import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { toastSpy } = vi.hoisted(() => ({ toastSpy: vi.fn() }));

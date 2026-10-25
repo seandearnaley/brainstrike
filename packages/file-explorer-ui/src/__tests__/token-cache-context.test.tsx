@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import type { TokenCacheEntry, TokenCountingMode } from '@brainstrike/token-cache/cache-runtime';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetTokenCacheWorkerInitErrorsForTests,

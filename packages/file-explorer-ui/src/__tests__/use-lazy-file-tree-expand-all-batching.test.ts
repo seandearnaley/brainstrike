@@ -10,8 +10,9 @@
  */
 
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

@@ -6,7 +6,8 @@ import {
 } from '@brainstrike/embeddings/runtime-config';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   assertEmbeddingHostQueryEmbeddingRequest,

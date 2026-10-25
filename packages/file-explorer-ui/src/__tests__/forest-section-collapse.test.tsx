@@ -14,7 +14,8 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import {

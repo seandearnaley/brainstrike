@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import { act } from '@brainstrike/test-utils/react-act';
 import type {
   FileExplorerState,
   FolderState,
@@ -6,7 +7,7 @@ import type {
   QuerySelectionManifest,
   SelectionModel,
 } from '@brainstrike/types';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileExplorerRefreshEvent } from '../shell/file-explorer-refresh-event';

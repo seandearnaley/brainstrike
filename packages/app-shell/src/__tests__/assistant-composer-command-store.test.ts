@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+
+import { act } from '@brainstrike/test-utils/react-act';
 import { useToast } from '@brainstrike/ui';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 

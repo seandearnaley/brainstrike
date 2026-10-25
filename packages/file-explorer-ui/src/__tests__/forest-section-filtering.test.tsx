@@ -9,8 +9,9 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Count applyFileFilters tree walks per (input-tree identity, filter values)

@@ -4,7 +4,8 @@
  * Part of BST-145: Performance budgets + instrumentation hooks
  */
 
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the perf-timing module

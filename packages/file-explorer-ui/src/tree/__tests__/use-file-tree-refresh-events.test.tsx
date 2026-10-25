@@ -6,8 +6,10 @@
  * the panel's direct refresh authority (skipManualFullEvents). See the hook's
  * JSDoc for the filtering contract.
  */
+
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileExplorerRefreshEvent } from '../../shell/file-explorer-refresh-event';
 import type { NormalizedFileTreeState } from '../../utils/normalized-file-tree';

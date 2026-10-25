@@ -1,5 +1,6 @@
 import type { AssistantToolMenuItem } from '@brainstrike/assistant-ui';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { McpToolMap } from '../assistant-ui-panel-wrapper-runtime';

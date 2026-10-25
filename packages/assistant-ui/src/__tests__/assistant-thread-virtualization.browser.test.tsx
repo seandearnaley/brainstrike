@@ -11,7 +11,8 @@ import {
   ThreadMessageNavigationContext,
 } from '../thread-message-navigation';
 import '@testing-library/jest-dom/vitest';
-import { act, fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, getConfig, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, onTestFinished, test, vi } from 'vitest';
 import {

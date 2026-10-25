@@ -1,4 +1,5 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics-count';

@@ -6,8 +6,10 @@
  * rows of EVERY forest section. This test pins the scoped behavior: an
  * expansion toggle inside root A rebuilds only root A's rows.
  */
+
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';

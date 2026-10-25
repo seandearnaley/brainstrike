@@ -22,7 +22,8 @@ import {
   type IndexConfig,
   type IndexConfigPatch,
 } from '@brainstrike/assistant-contract/index-config';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IndexingStatusItem } from '../status-items/indexing-status-item';

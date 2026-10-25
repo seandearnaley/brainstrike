@@ -9,9 +9,10 @@ import {
   useAssistantDataUI,
   useLocalRuntime,
 } from '@assistant-ui/react';
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act, createContext, use, useState } from 'react';
+import { createContext, use, useState } from 'react';
 import { describe, expect, it } from 'vitest';
 
 /**

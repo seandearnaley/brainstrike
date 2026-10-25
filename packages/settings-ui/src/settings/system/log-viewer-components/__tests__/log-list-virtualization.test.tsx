@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { Table as ReactTableInstance, Row } from '@tanstack/react-table';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LogList } from '../log-list';
 import type { LogTableFeatures } from '../log-table-features';

@@ -1,4 +1,5 @@
-import { act, render, screen, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { BranchChip } from '../workspace-bar/branch-chip';

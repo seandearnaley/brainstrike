@@ -1,4 +1,4 @@
-import { act } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
 import { type MockInstance, vi } from 'vitest';
 
 /**

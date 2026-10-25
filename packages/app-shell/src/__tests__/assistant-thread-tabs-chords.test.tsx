@@ -3,7 +3,8 @@ import './assistant-thread-tabs-workspace-test-support';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   getTabChordStrip,

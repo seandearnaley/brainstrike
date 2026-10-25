@@ -1,5 +1,6 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

@@ -1,6 +1,7 @@
 import './assistant-thread-tabs-workspace-test-support';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { act, cleanup, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import type {

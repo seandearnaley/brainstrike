@@ -10,7 +10,8 @@
  * and never through a row rebuild.
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { act, render } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render } from '@testing-library/react';
 import { memo, useCallback, useSyncExternalStore } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {

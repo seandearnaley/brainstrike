@@ -6,7 +6,8 @@ import {
   DEFAULT_INDEX_CONFIG,
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { makeDbModel, makeDbProvider } from '../settings/models/__tests__/catalog-test-harness';
 import { SearchIndexSettingsSection } from '../settings/system/search-index-settings-section';

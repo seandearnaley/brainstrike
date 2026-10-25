@@ -1,7 +1,8 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { PanelLayoutState } from '@brainstrike/ui';
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
 import { useState } from 'react';

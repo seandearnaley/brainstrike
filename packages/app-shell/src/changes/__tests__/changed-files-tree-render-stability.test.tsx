@@ -17,13 +17,14 @@
  * immediately without touching how `ChangedFilesTree` references it.
  */
 import { createTestActionRegistry } from '@brainstrike/context-actions';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { ChangedFileEntry } from '@brainstrike/types';
 import {
   ActionRegistryProvider,
   type TreeTableCellProps,
   type TreeTableColumn,
 } from '@brainstrike/ui';
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

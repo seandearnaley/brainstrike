@@ -7,8 +7,9 @@ import {
   UserCancelledError,
 } from '@brainstrike/file-system';
 import { createBrowserStorageAdapter } from '@brainstrike/storage';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { RootDescriptor } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdaptersProvider } from '../adapters-context.js';

@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 // Installs the shared browser instrumentation before React and assistant-ui load.
 import './committed-assistant-browser-support';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { expect, onTestFinished, test, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';

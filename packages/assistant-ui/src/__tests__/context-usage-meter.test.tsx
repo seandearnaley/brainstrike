@@ -1,5 +1,5 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ContextUsageMeter,

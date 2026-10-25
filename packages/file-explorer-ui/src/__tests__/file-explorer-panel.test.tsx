@@ -1,8 +1,9 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { type DirectoryHandle, MockFileSystemAdapter } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileExplorerState } from '@brainstrike/types';
-import { act, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';

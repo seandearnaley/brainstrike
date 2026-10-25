@@ -1,6 +1,7 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
-import { act, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../tree/file-tree';

@@ -1,4 +1,5 @@
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { CatalogProviderStat } from '../catalog-sections';
 import { useCatalogExpansion } from '../use-catalog-expansion';

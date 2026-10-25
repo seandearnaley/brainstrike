@@ -1,6 +1,7 @@
 import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type { EmbeddingModelConfig } from '@brainstrike/indexing-contract';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EmbeddingSetModelInfo } from '../use-search-embedder';
 import { useSearchEmbedder } from '../use-search-embedder';

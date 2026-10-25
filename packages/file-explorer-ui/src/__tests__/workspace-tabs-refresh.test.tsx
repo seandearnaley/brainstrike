@@ -1,5 +1,6 @@
 import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useCallback, useLayoutEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

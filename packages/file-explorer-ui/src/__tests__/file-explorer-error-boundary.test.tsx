@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
