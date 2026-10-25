@@ -47,7 +47,6 @@ import {
 import { createEmbeddingHostStallSeam } from './embedding-host-stall-seam';
 import { waitForHostStartup } from './embedding-host-startup';
 import { HostedEmbeddingRequests } from './hosted-embedding-requests';
-import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import {
   createRuntimeHostPlatformStatus,
@@ -68,11 +67,6 @@ const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 const STOPPED_WITH_INFERENCE = 'Embedding host stopped while inference requests were in flight.';
 
 export interface EmbeddingHostManagerOptions {
-  /**
-   * Main's E2E delay seam accessor (`lifecycleDelaySeam`), read at the boundary:
-   * `hidden-host-ready` delays the host's readiness report. Absent, nothing is delayed.
-   */
-  readonly lifecycleDelays?: () => LifecycleDelaySeam;
   readonly platform?: NodeJS.Platform;
   readonly storage?:
     | import('@brainstrike/storage/electron').ElectronStorageAdapter
@@ -81,7 +75,6 @@ export interface EmbeddingHostManagerOptions {
 
 export class EmbeddingHostManager {
   private readonly hostedRequests: HostedEmbeddingRequests;
-  private readonly lifecycleDelays: (() => LifecycleDelaySeam) | undefined;
   private readonly startup = new EmbeddingHostStartup();
   /** Settings' reads of the running host: WebGPU detection and its model cache. */
   readonly settingsReads = new EmbeddingHostSettingsReads({
@@ -132,7 +125,6 @@ export class EmbeddingHostManager {
 
   constructor(options: EmbeddingHostManagerOptions = {}) {
     this.hostedRequests = new HostedEmbeddingRequests(options.storage);
-    this.lifecycleDelays = options.lifecycleDelays;
     this.powerSaveBlockerEnabled = (options.platform ?? process.platform) === 'darwin';
     this.queryRequests = createHostRequestChannel<
       EmbeddingHostQueryEmbeddingRequest,
@@ -756,20 +748,6 @@ export class EmbeddingHostManager {
   }
 
   acceptStatusReport(senderId: number, report: EmbeddingHostStatusReport): void {
-    if (
-      this.lifecycleDelays &&
-      report.state === 'running' &&
-      this.lifecycle.getStatus().state === 'starting'
-    ) {
-      // E2E seam at the host's readiness boundary (`hidden-host-ready`); absent, it proceeds at once.
-      void this.lifecycleDelays()
-        .delay('hidden-host-ready')
-        .then(() => this.applyStatusReport(senderId, report))
-        .catch((error: unknown) => {
-          logger.error('Embedding host readiness report could not be applied', { error });
-        });
-      return;
-    }
     this.applyStatusReport(senderId, report);
   }
 

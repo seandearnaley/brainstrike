@@ -96,7 +96,6 @@ export const NODE_PROCESS_ENTRY_POINTS = {
   // Main imports it lazily; the packaged Python probe loads it by path.
   'fence-executor': path.join(packagesRoot, 'agent/src/fence-executor.ts'),
   'indexer-host-process': 'src/indexer-host-entry.ts',
-  'lifecycle-delay-seam': 'src/lifecycle-delay-seam.ts',
   'main-process': 'src/main-bootstrap.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
   ...PACKAGE_RUNTIME_ENTRY_POINTS,
@@ -109,14 +108,13 @@ const DEFAULT_OWNER = '@brainstrike/secure-fs-native/default-owner';
  * (https://esbuild.github.io/api/#splitting), so a process whose first module
  * must evaluate before anything else starts from a launcher: static imports, in
  * order. The default owner (BST-2246) evaluates before any module that can
- * create a file; Main's environment and delay seam modules precede its
- * bootstrap. No step moves behind a dynamic import, so Main's pre-`ready` work
+ * create a file; Main's environment module precedes its bootstrap. No step moves behind a dynamic import, so Main's pre-`ready` work
  * stays in its static graph. build-main.mjs writes each as dist/<name>.js.
  */
 export const PROCESS_LAUNCHERS = {
   'agent-host-entry': [DEFAULT_OWNER, './agent-host-process.js'],
   'indexer-host-entry': [DEFAULT_OWNER, './indexer-host-process.js'],
-  main: [DEFAULT_OWNER, './desktop-env.js', './lifecycle-delay-seam.js', './main-process.js'],
+  main: [DEFAULT_OWNER, './desktop-env.js', './main-process.js'],
 };
 
 /**

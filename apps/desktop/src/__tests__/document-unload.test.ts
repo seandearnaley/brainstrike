@@ -62,7 +62,6 @@ function ownerOf(
 ) {
   const quit = vi.fn<() => void>();
   return {
-    delays: { delay: async () => undefined },
     isQuitting: () => false,
     lastWindowQuits: false,
     visibleWindows: visible,
@@ -91,7 +90,7 @@ describe('user window close', () => {
     const event = userClose(window);
 
     expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(prepare.prepareDocumentUnload).toHaveBeenCalledWith(window, expect.anything());
+    expect(prepare.prepareDocumentUnload).toHaveBeenCalledWith(window);
     expect(window.close).not.toHaveBeenCalled();
     // A repeated close while the document flushes starts nothing new.
     expect(userClose(window).preventDefault).toHaveBeenCalledOnce();
@@ -208,7 +207,7 @@ describe('visible documents', () => {
 });
 
 describe('owned reload', () => {
-  const owner = { delays: { delay: async () => undefined }, isQuitting: () => false };
+  const owner = { isQuitting: () => false };
 
   it('flushes the document before replacing it', async () => {
     const window = windowFixture();

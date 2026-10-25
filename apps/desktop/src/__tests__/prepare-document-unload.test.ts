@@ -1,8 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { RendererExitedError } from '../desktop-shutdown-state';
-import { createLifecycleDelaySeam } from '../lifecycle-delay-seam';
-import { LIFECYCLE_DELAYS_ENV } from '../lifecycle-delays';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { prepareDocumentUnload, RENDERER_CLOSE_PREPARATION_MS } from '../prepare-document-unload';
 
@@ -25,8 +23,6 @@ vi.mock('electron', async () => {
     },
   };
 });
-
-const noDelays = createLifecycleDelaySeam({}, () => true);
 
 function windowFixture() {
   const window = new EventEmitter();
@@ -64,7 +60,7 @@ afterEach(() => {
 test('waits for its private producer ACK before releasing the close owner', async () => {
   const window = windowFixture();
   let prepared = false;
-  const preparing = prepareDocumentUnload(window, noDelays).then(() => {
+  const preparing = prepareDocumentUnload(window).then(() => {
     prepared = true;
   });
   expect(window.webContents.mainFrame.postMessage).toHaveBeenCalledWith(
@@ -90,7 +86,7 @@ test.each(['negative ACK', 'port loss', 'send failure'])(
         throw new Error('send failed');
       });
     }
-    const preparing = prepareDocumentUnload(window, noDelays);
+    const preparing = prepareDocumentUnload(window);
     const rejected = expect(preparing).rejects.toBeInstanceOf(Error);
     const channel = channels.created[0];
     if (!channel) {
@@ -112,7 +108,7 @@ test.each(['negative ACK', 'port loss', 'send failure'])(
 
 test("a negative ACK names each producer failure the renderer's preload reported", async () => {
   const window = windowFixture();
-  const preparing = prepareDocumentUnload(window, noDelays);
+  const preparing = prepareDocumentUnload(window);
   const rejected = expect(preparing).rejects.toThrow(
     'Renderer producers did not acknowledge close preparation: Durable writers failed to flush before unload (thread workspace write refused)'
   );
@@ -133,7 +129,7 @@ test.each([
   'a renderer that reports %s is destroyed and its closed joined',
   async (event, message) => {
     const window = windowFixture();
-    const preparing = prepareDocumentUnload(window, noDelays);
+    const preparing = prepareDocumentUnload(window);
     const rejected = expect(preparing).rejects.toThrow(message);
     let destroyedDuringDispatch: boolean | undefined;
     // The remaining listeners still read the window during this event's dispatch.
@@ -168,7 +164,7 @@ test.each([
       throw new Error('send failed');
     });
   }
-  const outcome = prepareDocumentUnload(window, noDelays).catch((error: unknown) => error);
+  const outcome = prepareDocumentUnload(window).catch((error: unknown) => error);
   const channel = channels.created[0];
   if (failure === 'port loss') {
     channel?.port1.emit('close');
@@ -191,7 +187,7 @@ test('escalates a renderer that never answers to destroy after its ladder, then 
   // destroy() guarantees `closed`, which may arrive after the call returns.
   window.destroy.mockImplementation(() => undefined);
   let outcome: unknown;
-  const preparing = prepareDocumentUnload(window, noDelays).catch((error: unknown) => {
+  const preparing = prepareDocumentUnload(window).catch((error: unknown) => {
     outcome = error;
   });
 
@@ -213,27 +209,4 @@ test('escalates a renderer that never answers to destroy after its ladder, then 
   );
   expectReleased(window);
   expect(vi.getTimerCount()).toBe(0);
-});
-
-test('a slow ACK (E2E renderer-flush point) still resolves inside the ladder', async () => {
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-  const window = windowFixture();
-  const delays = createLifecycleDelaySeam(
-    { [LIFECYCLE_DELAYS_ENV]: 'renderer-flush:12000' },
-    () => true
-  );
-  let prepared = false;
-  const preparing = prepareDocumentUnload(window, delays).then(() => {
-    prepared = true;
-  });
-  channels.created[0]?.port1.emit('message', { data: { prepared: true } });
-  // The renderer may close its end after it acknowledged.
-  channels.created[0]?.port1.emit('close');
-  await vi.advanceTimersByTimeAsync(11_999);
-  expect(prepared).toBe(false);
-  await vi.advanceTimersByTimeAsync(1);
-  await preparing;
-  expect(prepared).toBe(true);
-  expect(window.destroy).not.toHaveBeenCalled();
-  expectReleased(window);
 });

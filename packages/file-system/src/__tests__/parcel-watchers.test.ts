@@ -591,25 +591,6 @@ describe('startParcelWatch', () => {
     stop();
   });
 
-  it('awaits its beforeSubscribe seam before the native subscribe starts', async () => {
-    const fake = createFakeBinding();
-    const subscribe = vi.spyOn(fake.module, 'subscribe');
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const watching = startParcelWatch(makeHandle(root), collect, {
-      beforeSubscribe: () => gate,
-      loadModule: () => Promise.resolve(fake.module),
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(subscribe).not.toHaveBeenCalled();
-    release?.();
-    const stop = await watching;
-    expect(subscribe).toHaveBeenCalledOnce();
-    stop();
-  });
-
   it('returns an idempotent disposer that unsubscribes exactly once', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(makeHandle(root), collect, {
