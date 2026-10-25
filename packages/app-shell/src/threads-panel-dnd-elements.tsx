@@ -51,7 +51,7 @@ function toEdge(value: ReturnType<typeof extractClosestEdge>): 'bottom' | 'top' 
   return value === 'top' || value === 'bottom' ? value : null;
 }
 
-export function DropEdgeIndicator({ edge }: { readonly edge: 'bottom' | 'top' }): ReactElement {
+function DropEdgeIndicator({ edge }: { readonly edge: 'bottom' | 'top' }): ReactElement {
   return (
     <div
       className={`pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-primary ${

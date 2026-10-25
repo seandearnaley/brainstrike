@@ -12,7 +12,6 @@ import { join, resolve } from 'node:path';
 import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import {
   type ProviderCassette,
-  type ProviderCassetteKnob,
   parseProviderCassette,
 } from '@brainstrike/test-utils/provider-cassette';
 
@@ -305,14 +304,8 @@ export function recorderKey(scenario: ProviderCassetteScenario): string {
   return key;
 }
 
-export const KNOB_OF_PROVIDER: Readonly<Record<CassetteProvider, ProviderCassetteKnob>> = {
-  anthropic: 'ANTHROPIC_BASE_URL',
-  openai: 'OPENAI_BASE_URL',
-  openrouter: 'OPENROUTER_BASE_URL',
-};
-
 /** Where every cassette lives (packages/test-utils/fixtures/provider-cassettes/<id>.json). */
-export const PROVIDER_CASSETTE_DIRECTORY = resolve(
+const PROVIDER_CASSETTE_DIRECTORY = resolve(
   import.meta.dirname,
   '../../../../packages/test-utils/fixtures/provider-cassettes'
 );

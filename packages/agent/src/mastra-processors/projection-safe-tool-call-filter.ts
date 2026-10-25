@@ -69,7 +69,7 @@ const ARG_ELISION_MIN_SERIALIZED_CHARS = 2000;
 /** The identifying fields a collapsed mutation input keeps. */
 const ARG_ELISION_KEEP_FIELDS = ['path', 'root'] as const;
 
-export const TOOL_HISTORY_FILTER_RECENT_TOOL_STEPS = 1;
+const TOOL_HISTORY_FILTER_RECENT_TOOL_STEPS = 1;
 
 interface FilterLogger {
   info(metadata: Record<string, unknown>, message: string): void;

@@ -43,7 +43,7 @@ export interface ActivityGroupLayoutResult {
   readonly rootRef: RefObject<HTMLDivElement | null>;
 }
 
-export interface ActivityGroupLayout {
+interface ActivityGroupLayout {
   readonly allClustersOpen: boolean;
   readonly clusterCount: number;
   readonly expanded: boolean;

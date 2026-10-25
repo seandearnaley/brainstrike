@@ -70,7 +70,7 @@ export interface BrowserHostWindow {
   isDestroyed(): boolean;
 }
 
-export type BrowserPaneViewFactory = (partition: string) => BrowserPaneView;
+type BrowserPaneViewFactory = (partition: string) => BrowserPaneView;
 
 /**
  * Who drives a tab (BST-1238). The agent's navigation runs only in `agent`

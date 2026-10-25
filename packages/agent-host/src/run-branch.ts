@@ -72,7 +72,7 @@ export interface HostRunAdmissionCommand {
  * - A start follows its committed parent; a row committed before branch
  *   history follows the previous run, which was the only history then.
  */
-export function foldHostRunBranch(
+function foldHostRunBranch(
   /** The thread's runs folded before this one, in commit order. */
   prior: readonly HostRunState[],
   event: Started,
@@ -266,7 +266,7 @@ export function startedHostRun(
   return run;
 }
 /** Pure transcript fold into the run that committed it; HostCore owns the runs. */
-export function foldHostConversationMessages(
+function foldHostConversationMessages(
   runs: ReadonlyMap<string, HostRunState>,
   event: Extract<
     HostEvent,

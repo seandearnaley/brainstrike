@@ -12,7 +12,7 @@ import {
 
 const logger = createLogger('CommandSessionIpc');
 
-export type CommandSessionIpcResult<T = void> =
+type CommandSessionIpcResult<T = void> =
   | (T extends void ? { readonly ok: true } : { readonly ok: true; readonly value: T })
   | {
       readonly error: {
@@ -22,24 +22,24 @@ export type CommandSessionIpcResult<T = void> =
       readonly ok: false;
     };
 
-export interface CommandSessionIdentityParams {
+interface CommandSessionIdentityParams {
   readonly rootId: string;
   readonly sessionId: string;
 }
 
-export interface CommandSessionListParams {
+interface CommandSessionListParams {
   readonly rootId: string;
 }
 
-export interface CommandSessionReadParams extends CommandSessionIdentityParams {
+interface CommandSessionReadParams extends CommandSessionIdentityParams {
   readonly cursor?: number;
 }
 
-export interface CommandSessionWriteParams extends CommandSessionIdentityParams {
+interface CommandSessionWriteParams extends CommandSessionIdentityParams {
   readonly data: string;
 }
 
-export interface CommandSessionReadPage {
+interface CommandSessionReadPage {
   readonly bufferStartCursor: number;
   readonly hasMore: boolean;
   readonly nextCursor: number;

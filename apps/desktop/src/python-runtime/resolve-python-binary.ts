@@ -38,7 +38,7 @@ export class PythonRuntimeError extends Error {
   }
 }
 
-export class PythonUnsupportedPlatformError extends PythonRuntimeError {
+class PythonUnsupportedPlatformError extends PythonRuntimeError {
   declare readonly code: 'python_unsupported_platform';
 
   constructor(message: string) {
@@ -46,7 +46,7 @@ export class PythonUnsupportedPlatformError extends PythonRuntimeError {
   }
 }
 
-export class PythonManifestInvalidError extends PythonRuntimeError {
+class PythonManifestInvalidError extends PythonRuntimeError {
   declare readonly code: 'python_manifest_invalid';
 
   constructor(message: string) {
@@ -54,7 +54,7 @@ export class PythonManifestInvalidError extends PythonRuntimeError {
   }
 }
 
-export class PythonRuntimeMissingError extends PythonRuntimeError {
+class PythonRuntimeMissingError extends PythonRuntimeError {
   declare readonly code: 'python_runtime_missing';
 
   constructor(message: string) {
@@ -232,7 +232,7 @@ export function renderPythonRuntimeAssetFileName(
 }
 
 /** The archive a target's tree is unpacked from: Linux's derived payload, else upstream. */
-export function pythonRuntimeArchiveSha256(entry: PythonRuntimeManifestTarget): string {
+function pythonRuntimeArchiveSha256(entry: PythonRuntimeManifestTarget): string {
   return entry.derived?.sha256 ?? entry.sha256;
 }
 

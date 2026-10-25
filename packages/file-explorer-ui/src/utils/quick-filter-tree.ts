@@ -96,7 +96,7 @@ function filterNodeByPatterns(
     : null;
 }
 
-export function filterTreeByPatterns(
+function filterTreeByPatterns(
   nodes: IFileNode[],
   includesLower: string[],
   excludesLower: string[]

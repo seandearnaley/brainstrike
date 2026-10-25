@@ -2,7 +2,7 @@ import { Button, Checkbox } from '@brainstrike/ui';
 import { FileIcon, FileX2, Loader2 } from 'lucide-react';
 import { memo } from 'react';
 
-export interface FileRowItem {
+interface FileRowItem {
   compositeKey: string;
   folderId: string;
   path: string;

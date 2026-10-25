@@ -90,7 +90,7 @@ export interface DesktopFileSystemBridge {
   ) => Promise<{ health?: WatcherHealthTransition; watchId: string }>;
 }
 
-export interface DesktopFactoryResetBridge {
+interface DesktopFactoryResetBridge {
   resetLocal: () => Promise<{ message?: string; success: boolean }>;
   readonly unavailableReason: string | undefined;
 }
@@ -174,18 +174,18 @@ export type EmbeddingHostRuntimeBridge = Pick<
   | 'reportModelCacheStatusResponse'
 >;
 
-export interface VisibleDesktopCapabilities {
+interface VisibleDesktopCapabilities {
   electronAPI: VisibleDesktopElectronApi;
   embeddingHost: VisibleEmbeddingHostBridge;
 }
 
-export interface EmbeddingHostCapabilities {
+interface EmbeddingHostCapabilities {
   electronAPI: EmbeddingHostElectronApi;
   embeddingHost: EmbeddingHostRuntimeBridge;
 }
 
 /** Every role that actually exposes `electronAPI`; the hidden LLM host does not. */
-export type DesktopRendererCapabilities = EmbeddingHostCapabilities | VisibleDesktopCapabilities;
+type DesktopRendererCapabilities = EmbeddingHostCapabilities | VisibleDesktopCapabilities;
 export type DesktopElectronApi = DesktopRendererCapabilities['electronAPI'];
 
 type ExactKeyList<Shape, Keys extends readonly (keyof Shape)[]> =

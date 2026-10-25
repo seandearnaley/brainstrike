@@ -143,7 +143,7 @@ function hostOf(url: string): string | null {
  * not resolve is a failed load, not a blocked destination: the model may fix
  * the URL and try again.
  */
-export function describeEgressRefusal(host: string, refusal: string): string {
+function describeEgressRefusal(host: string, refusal: string): string {
   return refusal === 'unresolved'
     ? `agent browsing could not resolve ${host}`
     : `blocked_destination: agent browsing may not connect to ${host}, a ${refusal} address`;

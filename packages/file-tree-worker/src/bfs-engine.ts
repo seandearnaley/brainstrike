@@ -60,7 +60,7 @@ function timeBatchLoad<T>(
  * Prevents runaway expansion in deeply nested directory structures.
  * Typical project structures rarely exceed 15 levels deep.
  */
-export const MAX_EXPAND_DEPTH = 50;
+const MAX_EXPAND_DEPTH = 50;
 
 /**
  * Maximum total directories to expand.

@@ -78,7 +78,7 @@ async function isSameRootFolder(live: string, recorded: string): Promise<boolean
 }
 
 /** Root-relative POSIX path of `absolutePath`, refusing anything outside `rootPath`. */
-export function workspaceRelativePath(rootPath: string, absolutePath: string): string {
+function workspaceRelativePath(rootPath: string, absolutePath: string): string {
   if (!(path.isAbsolute(rootPath) && path.isAbsolute(absolutePath))) {
     throw new Error('Workspace edits require absolute root and file paths');
   }

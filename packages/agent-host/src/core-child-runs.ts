@@ -129,7 +129,7 @@ export function hostDeliveryPosition(
   };
 }
 /** A policy answer that did not commit leaves its approval for a person. */
-export function reportHostGrantFailure(run: HostRunState, cause: unknown): void {
+function reportHostGrantFailure(run: HostRunState, cause: unknown): void {
   logger.warn('Host policy answer was not committed', {
     code: 'host_policy_answer_failed',
     errorName: cause instanceof Error ? cause.name : typeof cause,
@@ -146,7 +146,7 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
   });
 }
 /** The root turn a run belongs to: children and wakes keep their turn's ID. */
-export function hostRunTurnId(run: HostRunState): string {
+function hostRunTurnId(run: HostRunState): string {
   return (
     run.turnId ??
     run.origin?.turnId ??

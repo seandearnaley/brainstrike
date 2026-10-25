@@ -32,10 +32,7 @@ function parseInstant(value: string, field: string): number {
   return timestamp;
 }
 
-export function parseMcpTaskDuration(
-  value: number | null | undefined,
-  field: string
-): number | null {
+function parseMcpTaskDuration(value: number | null | undefined, field: string): number | null {
   if (value === null || value === undefined) {
     return null;
   }

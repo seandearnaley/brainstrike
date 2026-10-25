@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 /** One test embedding, as the host reports it (BST-2227). */
-export interface MemoryEmbedderTestResult {
+interface MemoryEmbedderTestResult {
   readonly dimensions: number;
   readonly latencyMs: number;
   /** The embedder's catalog `provider::model`. */

@@ -1,11 +1,11 @@
 /** What the handlers register on: `process`, or a fake in a test. */
-export interface ShutdownSignalTarget {
+interface ShutdownSignalTarget {
   listeners(signal: NodeJS.Signals): readonly { readonly name: string }[];
   on(signal: NodeJS.Signals, listener: () => void): unknown;
   removeAllListeners(signal: NodeJS.Signals): unknown;
 }
 
-export interface ShutdownSignalLogger {
+interface ShutdownSignalLogger {
   info(message: string, data: Record<string, unknown>): void;
 }
 

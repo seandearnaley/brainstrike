@@ -42,7 +42,7 @@ export interface BrowserPaneHostLike {
   prepareAgentBrowsing(loopback?: LoopbackAdmission): Promise<void>;
 }
 
-export interface BrowserToolFailure {
+interface BrowserToolFailure {
   readonly error:
     | 'blocked_destination'
     | 'blocked_url'

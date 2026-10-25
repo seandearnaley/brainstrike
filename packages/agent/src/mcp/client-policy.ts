@@ -4,9 +4,9 @@ import {
   type ResponseCacheStore,
 } from '@modelcontextprotocol/client';
 
-export const DEFAULT_MCP_LIST_MAX_PAGES = 64;
-export const MAX_MCP_LIST_MAX_PAGES = 256;
-export const MCP_RESPONSE_CACHE_MAX_ENTRIES = 128;
+const DEFAULT_MCP_LIST_MAX_PAGES = 64;
+const MAX_MCP_LIST_MAX_PAGES = 256;
+const MCP_RESPONSE_CACHE_MAX_ENTRIES = 128;
 export const DEFAULT_MCP_MAX_TOTAL_TIMEOUT_MS = 600_000;
 // The default keeps ordinary requests bounded, while the one-hour ceiling lets
 // explicitly approved long-running tools outlive that default without creating

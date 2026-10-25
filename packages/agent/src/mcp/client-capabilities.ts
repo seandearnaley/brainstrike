@@ -18,11 +18,9 @@ import {
   McpClientCapabilityLeaseOwner,
 } from './client-capability-lease.ts';
 
-export type { McpClientCapabilityCloseReport } from './client-capability-lease.ts';
-
 export const DEFAULT_MCP_INPUT_REQUIRED_MAX_ROUNDS = 8;
-export const MCP_SDK_INPUT_REQUIRED_MAX_ROUNDS = 10;
-export const MCP_CLIENT_INPUT_MAX_BYTES = 32_768;
+const MCP_SDK_INPUT_REQUIRED_MAX_ROUNDS = 10;
+const MCP_CLIENT_INPUT_MAX_BYTES = 32_768;
 
 const REDACTED = '[REDACTED]';
 const SENSITIVE_LOG_KEY = /authorization|cookie|credential|password|secret|token|api[-_]?key/iu;

@@ -92,37 +92,6 @@ export interface TokenCountError {
  */
 export type TokenWorkerMessage = TokenCountProgress | TokenCountError;
 
-/**
- * Statistics about the token cache
- */
-export interface TokenCacheStats {
-  /** Number of entries using accurate counting */
-  accurateCount: number;
-  /** Total number of cached entries */
-  entryCount: number;
-  /** Number of entries using heuristic counting */
-  heuristicCount: number;
-  /** Total tokens across all cached files */
-  totalTokens: number;
-}
-
-/**
- * Options for the token cache store
- */
-export interface TokenCacheStoreOptions {
-  /** Whether to log debug information */
-  debug?: boolean;
-  /** Optional composition-layer telemetry sink for persistent cache lookups. */
-  telemetry?: TokenCacheStoreTelemetry;
-  /**
-   * Base delay for transient batch retries, in milliseconds. Construction throws
-   * RangeError if the largest configured exponential delay exceeds 2,147,483,647 ms.
-   */
-  transactionRetryBaseDelayMs?: number;
-  /** Maximum number of attempts for transient batch transaction failures. */
-  transactionRetryMaxAttempts?: number;
-}
-
 export interface TokenCacheLookupTelemetryRecord {
   readonly durationMs: number;
   readonly failed?: boolean;

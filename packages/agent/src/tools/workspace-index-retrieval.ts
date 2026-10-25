@@ -28,7 +28,7 @@ export function normalizeOptionalText(value: string | null | undefined): string 
 
 export const normalizeWorkspaceIndexText = normalizeOptionalText;
 
-export function isWorkspaceIndexRetrievalAvailable(runtime: RuntimeData | undefined): boolean {
+function isWorkspaceIndexRetrievalAvailable(runtime: RuntimeData | undefined): boolean {
   if (runtime?.workspaceIndexingEnabled !== true) {
     return false;
   }

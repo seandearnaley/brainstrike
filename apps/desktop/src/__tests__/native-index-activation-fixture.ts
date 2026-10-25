@@ -272,7 +272,7 @@ export async function emptyWorkspace(
 }
 
 /** Current source-catalog wire records, retaining the scenario's canonical identities. */
-export function sourceRecord(record: NativeCanonicalCatalogRecord): SourceFileRecord {
+function sourceRecord(record: NativeCanonicalCatalogRecord): SourceFileRecord {
   if (record.contentHash === null) {
     throw new Error('Current source records require their content hash.');
   }

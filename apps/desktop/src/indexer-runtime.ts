@@ -83,14 +83,6 @@ export function getReadyIndexerHost(): IndexerHostManager {
 export function fenceIndexerCanonicalSources(): void {
   owner?.manager?.fenceCanonicalSources();
 }
-/** @internal The spawned indexer proof verifies the accepted port after readiness. */
-export function getReadyIndexerPort(): IndexerPort {
-  getReadyIndexerHost();
-  if (!owner?.port) {
-    throw new Error('Native indexer port is unavailable.');
-  }
-  return owner.port;
-}
 
 export function getReadyScopedIndexerPort(): IndexerPort &
   ScopedIndexerPort &

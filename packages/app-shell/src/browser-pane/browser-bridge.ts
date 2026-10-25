@@ -15,7 +15,7 @@ import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('BrowserBridge');
 
-export interface BrowserPaneRect {
+interface BrowserPaneRect {
   readonly height: number;
   readonly width: number;
   readonly x: number;

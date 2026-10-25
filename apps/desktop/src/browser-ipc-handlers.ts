@@ -15,7 +15,7 @@ import type { BrowserTabState, PaneRect } from './browser/browser-view-manager';
 
 const logger = createLogger('BrowserIpc');
 
-export type BrowserResult<T = void> =
+type BrowserResult<T = void> =
   | { readonly ok: true; readonly value: T }
   | { readonly error: string; readonly ok: false };
 

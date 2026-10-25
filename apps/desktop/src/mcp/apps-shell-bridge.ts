@@ -8,7 +8,7 @@ import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import type { McpAppShellRegistry } from './apps-shell-protocol';
 
 /** The slice of a WebContents the shell bridge binds a registration to. */
-export interface McpAppShellSender {
+interface McpAppShellSender {
   readonly id: number;
   isDestroyed(): boolean;
   once(event: 'destroyed', listener: () => void): unknown;

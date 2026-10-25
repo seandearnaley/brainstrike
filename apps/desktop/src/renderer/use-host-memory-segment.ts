@@ -154,7 +154,7 @@ function memoryModelsDisplay({ embedder, observer }: HostMemoryModels): MemoryMo
 }
 
 /** The thread's last committed cycle of each kind (BST-2224), with when it committed. */
-export function lastMemoryCycles(rows: readonly HostLogRow[]): MemoryCyclesDisplay | undefined {
+function lastMemoryCycles(rows: readonly HostLogRow[]): MemoryCyclesDisplay | undefined {
   let observation: MemoryCycleDisplay | undefined;
   let reflection: MemoryCycleDisplay | undefined;
   for (const { event, ts } of rows) {

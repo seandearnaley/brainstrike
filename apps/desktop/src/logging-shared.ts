@@ -1,6 +1,6 @@
 import type { LoggingPreferences } from '@brainstrike/logging';
 
-export interface LoggingCapabilities {
+interface LoggingCapabilities {
   canSelectDestination: boolean;
   defaultDestination: string | null;
   fileLoggingSupported: boolean;

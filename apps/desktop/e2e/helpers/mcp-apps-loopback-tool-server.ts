@@ -6,7 +6,7 @@ import type {
   McpAppToolCall,
 } from '../../../../packages/mcp-app-host/src/index';
 
-export interface LoopbackServerSnapshot {
+interface LoopbackServerSnapshot {
   readonly abortedRequests: number;
   readonly activeRequests: number;
   readonly completedRequests: number;

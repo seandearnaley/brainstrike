@@ -343,7 +343,7 @@ function operatingRootBinding(root: ThreadCheckoutRoot & { readonly path: string
 export const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off returns to.';
 
 /** Why a removed primary keeps its Remove action disabled. */
-export const REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER = 'Choose another folder for this thread first.';
+const REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER = 'Choose another folder for this thread first.';
 
 /**
  * "Remove from this thread" (BST-1990). It drops the chosen folder and every

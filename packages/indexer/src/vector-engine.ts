@@ -3,7 +3,7 @@ import { Schema } from 'effect';
 import { decoder, IndexerError } from './contracts.ts';
 
 /** A coarse code table: `id INTEGER PRIMARY KEY`, a partition column, `bin` and an optional auxiliary blob. */
-export interface CoarseTableSpec {
+interface CoarseTableSpec {
   /** A float32 blob column stored beside each code (sqlite-vec's `+column`). */
   readonly auxiliary?: string;
   /** Bits per code: the vector's dimensions, rounded up to a whole byte. */
@@ -12,7 +12,7 @@ export interface CoarseTableSpec {
   readonly partition: string;
 }
 
-export interface CoarseQuery {
+interface CoarseQuery {
   /** A subquery yielding the ids the result is restricted to, with its parameters. */
   readonly among?: { readonly params: readonly unknown[]; readonly sql: string };
   readonly k: number;
@@ -54,13 +54,13 @@ export interface CoarseVectorEngine {
   tableDefinition(table: string, spec: CoarseTableSpec): string;
 }
 
-export interface CoarseCandidates {
+interface CoarseCandidates {
   readonly params: readonly unknown[];
   readonly sql: string;
 }
 
 /** The sqlite-vec release the desktop index is built and validated against. */
-export const SQLITE_VEC_VERSION = 'v0.1.9';
+const SQLITE_VEC_VERSION = 'v0.1.9';
 
 const integer = Schema.Int.check(
   Schema.isGreaterThan(0),

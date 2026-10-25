@@ -25,7 +25,7 @@ export type PersistApi<T> = T & {
   };
 };
 
-export interface PersistedStoreSnapshot {
+interface PersistedStoreSnapshot {
   state: Record<string, unknown>;
   version: number;
 }

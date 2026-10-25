@@ -30,7 +30,7 @@ import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrik
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import * as React from 'react';
 
-export interface ScanningStatusInfo {
+interface ScanningStatusInfo {
   cancellable: boolean;
   currentPath?: string;
   isCancelling: boolean;

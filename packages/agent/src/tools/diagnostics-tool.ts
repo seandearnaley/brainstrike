@@ -498,7 +498,7 @@ export function createSystemDiagnosticsTool(deps: DiagnosticsToolDependencies): 
 /**
  * Type for tools input (matching Mastra pattern).
  */
-export type ToolsInput = Record<string, MastraTool>;
+type ToolsInput = Record<string, MastraTool>;
 
 /**
  * Builds a tools object with the diagnostics tool added to a base set.

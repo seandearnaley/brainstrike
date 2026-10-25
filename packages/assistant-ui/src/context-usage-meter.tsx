@@ -33,7 +33,7 @@ import { fileWindowTokens, threadContextAt } from './thread-context-fold';
 import { useThreadContextStore } from './thread-context-store';
 
 /** One source's share of the thread total (BST-953). OM figures are local estimates. */
-export interface CumulativeSourceUsage {
+interface CumulativeSourceUsage {
   readonly estimated: boolean;
   readonly inputTokens: number;
   readonly kind: AssistantRunUsageKind;

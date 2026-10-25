@@ -9,15 +9,15 @@ import { type ActivityVerb, VERB_FAMILIES, type VerbFamily } from './activity-ve
  */
 
 /** Fewest consecutive same-verb steps that fold into one cluster row. */
-export const CLUSTER_MIN_STEPS = 3;
+const CLUSTER_MIN_STEPS = 3;
 /** Fewest tool steps before the group body offers family filters. */
-export const FILTER_MIN_STEPS = 20;
+const FILTER_MIN_STEPS = 20;
 /** Fewest steps before the header carries a run strip. */
-export const RUN_STRIP_MIN_STEPS = 8;
+const RUN_STRIP_MIN_STEPS = 8;
 /** Most marks on the strip; a longer run is bucketed so the strip keeps its width. */
 export const RUN_STRIP_MAX_MARKS = 80;
 /** Settled steps the live tail keeps under a running header. */
-export const LIVE_TAIL_SIZE = 3;
+const LIVE_TAIL_SIZE = 3;
 
 /**
  * Families never folded: a question, plan, canvas, task list or delegation is
@@ -234,7 +234,7 @@ export function deriveLiveTail(steps: readonly ActivityStep[]): readonly Activit
 }
 
 /** What one strip mark shows: a family, a readable thought, or a state that outranks both. */
-export type RunStripMarkKind = VerbFamily | 'failed' | 'running' | 'thought' | 'waiting';
+type RunStripMarkKind = VerbFamily | 'failed' | 'running' | 'thought' | 'waiting';
 
 export interface RunStripMark {
   readonly kind: RunStripMarkKind;

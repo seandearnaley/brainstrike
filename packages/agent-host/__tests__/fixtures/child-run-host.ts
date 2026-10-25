@@ -38,9 +38,9 @@ const usage = {
   inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
   outputTokens: { reasoning: 0, text: 1, total: 1 },
 };
-export const EXPLORER_INSTRUCTIONS = 'You are the Explorer persona. Cite path:line.';
-export const NOTES = 'notes-file-content-7f3a';
-export const explorer: AssistantPersonaDefinition = {
+const EXPLORER_INSTRUCTIONS = 'You are the Explorer persona. Cite path:line.';
+const NOTES = 'notes-file-content-7f3a';
+const explorer: AssistantPersonaDefinition = {
   allowedToolIds: ['read_file', 'write_file'],
   description: 'Explores the workspace.',
   id: 'explore',
@@ -57,11 +57,6 @@ export function userTexts(call: Pick<CallOptions, 'prompt'>): string[] {
       : []
   );
 }
-export function systemText(call: CallOptions): string {
-  return call.prompt
-    .flatMap((message) => (message.role === 'system' ? [message.content] : []))
-    .join('\n');
-}
 export function toolNames(call: Pick<CallOptions, 'tools'>): string[] {
   return (call.tools ?? []).map((tool) => tool.name).sort();
 }
@@ -77,7 +72,7 @@ export function stream(chunks: Chunk[]) {
     stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
   };
 }
-export function toolCalls(calls: readonly [string, unknown, string][]): Chunk[] {
+function toolCalls(calls: readonly [string, unknown, string][]): Chunk[] {
   return [
     { type: 'stream-start', warnings: [] },
     ...calls.map(
@@ -149,7 +144,7 @@ export interface ChildRunFixture {
 }
 
 /** A canonical question tool: answered by `interaction/resume`, then it returns the answer. */
-export const askUserTool: HostTool = {
+const askUserTool: HostTool = {
   description: 'Ask the user a question',
   execute: async (_input, context) => context.resumeData,
   identity: 'native-ask-user-generation-1',
@@ -158,7 +153,7 @@ export const askUserTool: HostTool = {
   risk: 'read',
 };
 
-export function fixturePlatform(
+function fixturePlatform(
   model: MockLanguageModelV4,
   writes: string[] = [],
   fixture: ChildRunFixture = {}

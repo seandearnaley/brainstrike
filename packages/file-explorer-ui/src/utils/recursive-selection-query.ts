@@ -10,8 +10,6 @@ import {
   type RecursiveSelectionBufferProfile,
 } from './recursive-selection-buffer-profile';
 
-export type { RecursiveSelectionBufferProfile } from './recursive-selection-buffer-profile';
-
 const logger = createLogger('RecursiveSelectionQuery');
 
 const DEFAULT_SCAN_CONCURRENCY = 6;
@@ -34,7 +32,7 @@ function isDirectoryLoaded(node: IFileNode): node is IFileNode & { children: IFi
   return node.type === 'directory' && node.loadState === 'loaded' && Array.isArray(node.children);
 }
 
-export interface RecursiveSelectionQueryProgress {
+interface RecursiveSelectionQueryProgress {
   currentPath: string | null;
   directoriesCompleted: number;
   directoriesDiscovered: number;
@@ -43,7 +41,7 @@ export interface RecursiveSelectionQueryProgress {
   filesVisited: number;
 }
 
-export interface RecursiveSelectionQueryMetrics extends RecursiveSelectionQueryProgress {
+interface RecursiveSelectionQueryMetrics extends RecursiveSelectionQueryProgress {
   durationMs: number;
   limitReached: boolean;
   mode: 'early-stop' | 'throughput';
