@@ -742,6 +742,22 @@ jobs:
           & (Join-Path $bin 'rg.exe') --version
           Add-Content -Path $env:GITHUB_PATH -Value $bin
 
+      # Windows Error Reporting keeps a minidump of any process that crashes in the
+      # desktop lanes (Electron Main, a renderer, a utility, node), so a crash is
+      # read from its stack instead of only its exit code. The runner is ephemeral.
+      # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
+      - name: Keep crash dumps
+        if: matrix.partition == 'desktop'
+        shell: pwsh
+        run: |
+          $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
+          New-Item -ItemType Directory -Force -Path $dumps | Out-Null
+          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
+          New-Item -Path $key -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumps -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
+          New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 10 -Force | Out-Null
+
       - name: Affected unit tests
         if: inputs.merge-queue && github.event_name == 'push'
         env:
@@ -765,8 +781,8 @@ jobs:
         run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
       # A failed real-app proof keeps its evidence (the app's output, first failure,
-      # cleanup verdict) in the runner's temp directory; uploaded, a Windows failure
-      # names its cause instead of only a test timeout.
+      # cleanup verdict, any crash dump) in the runner's temp directory; uploaded, a
+      # Windows failure names its cause instead of only a test timeout.
       - name: Collect app proof evidence
         if: failure() && matrix.partition == 'desktop'
         shell: pwsh
@@ -775,6 +791,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Get-ChildItem -Path ([System.IO.Path]::GetTempPath()) -Directory -Filter 'brainstrike-*-evidence' |
             Copy-Item -Destination $out -Recurse
+          $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
+          if (Get-ChildItem -Path $dumps -Filter '*.dmp') {
+            Copy-Item -Path $dumps -Destination $out -Recurse
+          }
 
       - name: Upload app proof evidence
         if: failure() && matrix.partition == 'desktop'
