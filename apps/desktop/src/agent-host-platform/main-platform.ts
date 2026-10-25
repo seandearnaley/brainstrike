@@ -4,7 +4,6 @@ import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-work
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { createLogger, error as logError, fatal as logFatal } from '@brainstrike/logging';
-import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
@@ -30,7 +29,6 @@ import {
   PlatformLocalModelSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformMemoryVectorsSchema,
-  PlatformNativeChildSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformObserverCandidatesSchema,
   PlatformWorkspaceAcquireResultSchema,
@@ -67,8 +65,6 @@ export interface DesktopPlatformCapabilities {
   readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
-  /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
-  readonly nativeChildren?: NativeChildObserver;
   /**
    * ADR-0028 step 3: mounts a worktree an agent created as a workspace folder
    * and asks the window to show it, as for any folder Main opens.
@@ -272,25 +268,6 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
-  const nativeChildren = capabilities.nativeChildren;
-  if (nativeChildren) {
-    connection.onNotification('platform/native-child/started', (input: unknown) =>
-      nativeChildren.started(
-        Schema.decodeUnknownSync(PlatformNativeChildSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input)
-      )
-    );
-    connection.onNotification('platform/native-child/exited', (input: unknown) =>
-      nativeChildren.exited(
-        Schema.decodeUnknownSync(PlatformNativeChildSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input)
-      )
-    );
-  }
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,

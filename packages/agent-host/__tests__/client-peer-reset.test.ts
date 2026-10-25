@@ -1,6 +1,5 @@
 import { PassThrough, Writable } from 'node:stream';
 import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
-import type { HostRecord } from '@brainstrike/host-lease';
 import { expect, test } from 'vitest';
 import {
   createMessageConnection,
@@ -8,17 +7,17 @@ import {
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
 import { isConnectionLoss } from '../src/boundary-wire.js';
-import { authenticateHostClient, type HostClient } from '../src/client-connection.js';
+import {
+  authenticateHostClient,
+  type HostClient,
+  type HostClientExpectation,
+} from '../src/client-connection.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from '../src/protocol.js';
 import { stdioConnection } from '../src/transports.js';
 
-const record: HostRecord = {
-  endpoint: '/tmp/unused-peer-reset-fixture',
+const record: HostClientExpectation = {
   hostVersion: '0.1.0',
-  pid: 1,
   protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-  start: 'fixture',
-  token: 'a'.repeat(64),
 };
 
 /**
@@ -34,9 +33,8 @@ async function connect(): Promise<{
   const server = stdioConnection(input, output);
   server.onRequest('initialize', () => ({
     hostVersion: record.hostVersion,
-    pid: record.pid,
+    pid: 1,
     protocolVersion: record.protocolVersion,
-    start: record.start,
   }));
   server.listen();
   let ended: Error | undefined;

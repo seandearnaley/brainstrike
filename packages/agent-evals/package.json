@@ -12,7 +12,6 @@
     "@brainstrike/agent-host": "workspace:*",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/host-capabilities": "workspace:*",
-    "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/state-store": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "effect": "catalog:"

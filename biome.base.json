@@ -23,7 +23,6 @@
       "packages/web-writer/src/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/canonical-ingestion/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/assistant-service/src/__tests__/node-workspace-services*/**/*.{ts,tsx,mts,cts,mjs}",
-      "packages/host-lease/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/src/mcp/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/host-capabilities/{src/provider-auth,__tests__/credentials}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/indexer/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",

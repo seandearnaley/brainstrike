@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { RootLock } from '@brainstrike/state-store';
+import { isRootHeld } from './helpers/root-held';
 
 const { StateStore } = await import(
   /* @vite-ignore */ pathToFileURL(
@@ -37,8 +37,7 @@ test('reset joins the existing SQLite writer before clearing, keeps its lock, an
     await reset.clear(lease);
     await expect(readFile(sentinel)).rejects.toThrow();
     await expect(readFile(path.join(root, 'pgdata', 'PG_VERSION'))).rejects.toThrow();
-    expect(RootLock.inspect(root)?.owner).toBeDefined();
-    expect(RootLock.inspect(root)?.owner.released).not.toBe(true);
+    expect(isRootHeld(root)).toBe(true);
     expect(lease.isReleased).toBe(false);
     await expect(reset.clear()).rejects.toThrow('active owned lease');
   } finally {

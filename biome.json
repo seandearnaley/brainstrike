@@ -290,8 +290,6 @@
     },
     {
       "includes": [
-        "packages/host-lease/src/**",
-        "packages/host-lease/__tests__/**",
         "packages/assistant-service/src/node-workspace-services.ts",
         "packages/assistant-service/src/__tests__/node-workspace-services*.ts",
         "packages/assistant-service/src/__tests__/node-workspace-services*/**"

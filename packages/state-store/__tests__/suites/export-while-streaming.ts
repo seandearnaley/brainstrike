@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import Database from 'better-sqlite3';
 import { expect } from 'vitest';
-import { type LockOwner, RootLock } from '../../src/lock.js';
 import { readAll, SqliteReader } from '../../src/sqlite-reader.js';
 import { type Manifest, StateStore, sha256Hex } from '../../src/state-store.js';
 import { cleanupDirs, freshDir, sleep } from '../helpers/fs.js';
@@ -75,7 +74,7 @@ export function bundleEvents(
 
 export async function exportWhileStreaming(mb: number): Promise<Record<string, unknown>> {
   const root = freshDir('i5');
-  const store = await StateStore.open(root, { host: 'hostA' });
+  const store = await StateStore.open(root);
   const res: Record<string, unknown> = { mb };
   try {
     await seed(store, mb);
@@ -140,20 +139,12 @@ export async function exportWhileStreaming(mb: number): Promise<Record<string, u
       }
     }
 
-    // ---- import into a fresh root (same host): the copied lock names another root, so the opener is asked ---------
+    // ---- import into a fresh root ------------------------------------------------------------------------------------
     const root2 = join(freshDir('i5r2'), 'root');
     StateStore.importBundle(bundle, root2);
     expect(dataFiles(root2)).toEqual(dataFiles(bundle));
-    const asked: LockOwner[] = [];
-    const store2 = await StateStore.open(root2, {
-      host: 'hostA',
-      onForeignLock: (o) => {
-        asked.push(o);
-        return true;
-      },
-    });
+    const store2 = await StateStore.open(root2);
     try {
-      expect(asked.map((o) => o.root)).toEqual([RootLock.inspect(root)?.owner.root]);
       expect((await store2.read(T)).map((e) => sha256Hex(e.raw))).toEqual(
         src.map((e) => sha256Hex(e.raw))
       );

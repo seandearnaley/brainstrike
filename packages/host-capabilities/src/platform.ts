@@ -15,6 +15,7 @@ import {
   createProductionHostPlatform,
   type HostPlatform,
   type HostPlatformLaunchOptions,
+  type HostPlatformRoot,
   type HostStartupContext,
   hostToolDiscoveryEnabled,
   type ProductionHostPlatformOptions,
@@ -39,7 +40,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
-import type { HostStartOptions } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
 import { createHostCapabilities } from './capabilities.ts';
 import { resolveHostDelegation } from './delegation.ts';
@@ -261,13 +261,13 @@ function runSelection(
 }
 
 /**
- * Root and its canonical writer have already been acquired by startAgentHost.
+ * Root and its canonical writer have already been acquired by openAgentHost.
  * `trusted` is reachable only from a module composing this function: the CLI's
  * process entry passes three arguments, and no flag, env var or run input
  * names a trusted model. With trusted models, the host runs only those.
  */
 export async function createHostPlatform(
-  options: HostStartOptions,
+  options: HostPlatformRoot,
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions,
   trusted?: { readonly models: readonly StandaloneTrustedModel[] }

@@ -7,13 +7,13 @@ import {
   HostEventSchema,
   parseHostParams,
 } from '../src/protocol.js';
-import wireV13 from './fixtures/host-v13-methods.json' with { type: 'json' };
+import wireV14 from './fixtures/host-v14-methods.json' with { type: 'json' };
 
 test('every first-party host request/result/event grammar has one Effect owner', () => {
   const requests = Object.entries(HOST_METHOD_SCHEMAS);
   const results = Object.entries(HOST_RESULT_SCHEMAS);
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV13.version);
-  expect(requests.map(([name]) => name).sort()).toEqual(wireV13.methods);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(wireV14.version);
+  expect(requests.map(([name]) => name).sort()).toEqual(wireV14.methods);
   expect(results.map(([name]) => name).sort()).toEqual(requests.map(([name]) => name).sort());
   expect(
     [...requests, ...results, ['event', HostEventSchema]]
@@ -23,7 +23,7 @@ test('every first-party host request/result/event grammar has one Effect owner',
 });
 
 test('protocol version and secret-bearing request refusal stay fixed', () => {
-  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(13);
+  expect(AGENT_HOST_PROTOCOL_VERSION).toBe(14);
   expect(() => parseHostParams('auth/clear', [])).toThrow('Invalid MCP host request');
   expect(() => parseHostParams('auth/clear', 1)).toThrow('Invalid MCP host request');
   const badAccess = { access: 'x', catalogId: 'github', token: 'never-print-me' };

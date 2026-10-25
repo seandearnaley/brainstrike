@@ -168,7 +168,7 @@ describe('desktop host child', () => {
       const { RootLock, RootLockedError } = await import('@brainstrike/state-store');
       const { createDesktopHostLease } = await import('../../host-lease-manager');
       const held = await mkdtemp(join(tmpdir(), 'host-lease-held-'));
-      const owner = await RootLock.acquire(held);
+      const owner = RootLock.acquire(held);
       try {
         const child = new Child();
         const lease = createDesktopHostLease({

@@ -38,18 +38,29 @@ export class SecureRoot {
   writePrivateFileAsync(relativePath: string, content: Buffer): Promise<void>;
 }
 
-/**
- * flock(2) `LOCK_EX | LOCK_NB` on a descriptor the caller owns. Returns true
- * when its open file description now holds the exclusive lock and false when
- * another description holds it; any other failure throws. Every process that
- * inherited the descriptor shares the lock until the last copy closes or its
- * process exits, so never unlock a shared descriptor: close it instead.
- * POSIX only; throws `ENOTSUP` on Windows.
- */
-export function tryExclusiveFlock(fd: number): boolean;
+/** An exclusive lock this process holds through one native handle. */
+export interface ExclusiveLock {
+  /** Closes the handle, which releases the lock. Idempotent. */
+  release(): void;
+}
 
-/** Windows atomic same-directory replacement; existing readers retain old bytes. No retries or ACL bypass. */
-export function replaceFileSync(source: string, target: string): void;
+/**
+ * Takes the exclusive lock on the file at `lockPath`, creating it, or returns
+ * null while another handle holds it, in this process or any other. POSIX uses
+ * flock(2) on an `O_CLOEXEC` descriptor and Windows `LockFileEx` on a
+ * non-inheritable handle, so no child process ever holds the lock, and the OS
+ * releases it when its process dies, however it dies. Any other failure throws.
+ */
+export function tryExclusiveLock(lockPath: string): ExclusiveLock | null;
+
+/**
+ * Marks every descriptor above stderr close-on-exec, so a process this one spawns
+ * inherits only the stdio it is given (`close_range(CLOSE_RANGE_CLOEXEC)` where Linux
+ * has it, otherwise each listed descriptor). Electron's Main calls it before it spawns
+ * the agent host: Chromium's descriptors lack the flag. A no-op on Windows, where Node
+ * and Chromium create handles non-inheritable.
+ */
+export function markDescriptorsCloseOnExec(): void;
 
 /**
  * A Windows directory's owner and DACL against the private grant. `private`:

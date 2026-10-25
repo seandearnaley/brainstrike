@@ -1852,7 +1852,7 @@ app.on('will-quit', () => {
   removeLogBufferListener();
 });
 
-desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
+desktopBootstrap.bindPlatform((platformPort) => {
   const ledger = createWorktreeLedger(
     async () => workspaceRootCatalog,
     (id) =>
@@ -1912,8 +1912,6 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     lifecycleDelays: lifecycleDelaySeam(),
     // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
-    // ADR-0017: the host reports its native processes; Main ends them if it dies.
-    nativeChildren,
     // The ledger authorizes a managed worktree's mount; no picker grant is needed.
     // The window is then asked to show it, as for any folder Main opens.
     openWorktreeFolder: async (path) => {

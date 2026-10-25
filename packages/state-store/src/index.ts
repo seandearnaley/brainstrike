@@ -40,16 +40,7 @@ export {
   UnknownEventError,
   type Unreadable,
 } from './event-schema.ts';
-export {
-  ForeignLockError,
-  joinProcessExit,
-  type LockOptions,
-  type LockOwner,
-  processStartTime,
-  type RootHolder,
-  RootLock,
-  RootLockedError,
-} from './lock.ts';
+export { RootLock, RootLockedError } from './lock.ts';
 export type {
   McpTaskDomainReply,
   McpTaskDomainRequest,
@@ -85,11 +76,6 @@ export type {
 export {
   CHILD_CLOSE_BUDGET_MS,
   CHILD_SIGNAL_GRACE_MS,
-  type NativeChild,
-  type NativeChildObserver,
-  observeNativeChildren,
-  spawnNativeChild,
-  trackNativeChild,
 } from './native-children.ts';
 export type {
   PromptCatalogPort,

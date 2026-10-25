@@ -1,3 +1,6 @@
+import { createLogger } from '@brainstrike/logging';
+import { app } from 'electron';
+import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import {
   formatLifecycleDelays,
   LIFECYCLE_DELAYS_ENV,
@@ -5,10 +8,7 @@ import {
   type LifecycleDelays,
   lifecycleDelay,
   parseLifecycleDelays,
-} from '@brainstrike/host-lease/lifecycle-delays';
-import { createLogger } from '@brainstrike/logging';
-import { app } from 'electron';
-import { isElectronE2ETestMode } from './electron-e2e-test-mode';
+} from './lifecycle-delays';
 
 const logger = createLogger('LifecycleDelaySeam');
 

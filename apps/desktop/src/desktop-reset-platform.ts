@@ -1,11 +1,11 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
-import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
 import { indexConfigCause, isQuitTerminalRefusal } from './native-index-boundary-failure';
+import type { ProfileResetLease } from './profile-reset-lease';
 
 interface DesktopResetRuntime {
   readonly name: string;

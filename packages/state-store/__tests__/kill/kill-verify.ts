@@ -12,15 +12,10 @@ const shown = readFileSync(recFile, 'utf8')
   .split('\n')
   .filter(Boolean)
   .map((l) => JSON.parse(l) as ShownChunk);
-let brokeStale = 0;
 const t0 = performance.now();
 let store: StateStore;
 try {
-  store = await StateStore.open(root, {
-    onStaleBroken: () => {
-      brokeStale++;
-    },
-  });
+  store = await StateStore.open(root);
 } catch (e) {
   process.stdout.write(
     `M0VERIFY ${JSON.stringify({ openError: String((e as Error)?.stack ?? e), trial })}\n`
@@ -50,5 +45,5 @@ const check = checkShownInLog(
 );
 await store.close();
 process.stdout.write(
-  `M0VERIFY ${JSON.stringify({ brokeStale, check, loggedChunks: logged.length, openMs: Number(openMs.toFixed(1)), rows, shownLines: shown.length, threads: threads.length, trial, validity })}\n`
+  `M0VERIFY ${JSON.stringify({ check, loggedChunks: logged.length, openMs: Number(openMs.toFixed(1)), rows, shownLines: shown.length, threads: threads.length, trial, validity })}\n`
 );

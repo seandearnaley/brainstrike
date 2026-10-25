@@ -2,14 +2,14 @@ import {
   createProductionHostPlatform,
   type HostPlatform,
   type HostPlatformLaunchOptions,
+  type HostPlatformRoot,
   type HostStartupContext,
 } from '@brainstrike/agent-host';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
-import type { HostStartOptions } from '@brainstrike/host-lease';
 
 /** Writer authority already exists; the same production owner joins both acquisitions. */
 export async function createHostPlatform(
-  _options: HostStartOptions,
+  _options: HostPlatformRoot,
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions
 ): Promise<HostPlatform> {

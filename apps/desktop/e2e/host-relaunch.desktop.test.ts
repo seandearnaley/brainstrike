@@ -47,7 +47,7 @@ test('a launch while another process holds the profile is refused visibly; the n
   const root = path.join(electron.getUserDataDir(), 'profiles', 'test');
   expect(existsSync(path.join(root, 'lock'))).toBe(true);
   // Another live owner of the Root: this test's own process.
-  const holder = await RootLock.acquire(root);
+  const holder = RootLock.acquire(root);
   try {
     page = (await electron.restart()).window;
     // The lock's refusal names the process that holds the Root.

@@ -55,7 +55,7 @@ in the BST-2070 PR. Lifecycle groups are owned by `memory-public-lifecycle`,
 `memory-adapter` and `memory-native-ownership`. The Core JSON-array group
 identities are owned by `observation-memory.integration.test.ts`. The resource
 owner overlay and committed resource groups are owned by
-`observation-host-lifecycle`, `observation-memory` and `observation-projection`. See
+`observation-memory` and `observation-projection`. See
 [the M3 memory contract](../../packages/agent-host/src/adapters/memory-m3-contract.md).
 
 The rebase retired five 1.32 lifecycle hunks that no longer have a production

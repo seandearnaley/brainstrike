@@ -70,7 +70,7 @@ test.each([
   expect(readFileSync(fixture.victim, 'utf8')).toBe('owned sibling bytes');
 });
 
-test('preserves a valid checksummed nested bundle and its lock files', () => {
+test('imports a valid checksummed nested bundle and never a lock it carries', () => {
   const fixture = bundleFixture();
   mkdirSync(join(fixture.bundle, 'lock'));
   writeFileSync(join(fixture.bundle, 'lock', 'g000000000001'), 'original lock bytes');
@@ -80,14 +80,13 @@ test('preserves a valid checksummed nested bundle and its lock files', () => {
       readFileSync(join(fixture.bundle, file.path))
     );
   }
-  expect(readFileSync(join(fixture.target, 'lock', 'g000000000001'), 'utf8')).toBe(
-    'original lock bytes'
-  );
+  // A lock belongs to the process that holds it; a copied one would mean nothing.
+  expect(existsSync(join(fixture.target, 'lock'))).toBe(false);
   expect(readFileSync(fixture.victim, 'utf8')).toBe('owned sibling bytes');
 });
 
 // Directory links are junctions on Windows, which need no symlink privilege; `symlink` ignores the type elsewhere.
-test.each(['file', 'directory', 'lock', 'manifest'] as const)(
+test.each(['file', 'directory', 'manifest'] as const)(
   'rejects a source %s symlink outside the bundle before copying',
   (kind) => {
     const fixture = bundleFixture();
@@ -106,9 +105,6 @@ test.each(['file', 'directory', 'lock', 'manifest'] as const)(
       );
       rmSync(source, { recursive: true });
       symlinkSync(outside, source, 'junction');
-    } else if (kind === 'lock') {
-      writeFileSync(join(outside, 'g000000000001'), 'outside lock bytes');
-      symlinkSync(outside, join(fixture.bundle, 'lock'), 'junction');
     } else {
       const source = join(fixture.bundle, 'manifest.json');
       const external = join(outside, 'manifest.json');

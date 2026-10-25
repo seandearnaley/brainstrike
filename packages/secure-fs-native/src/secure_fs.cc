@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -59,6 +60,7 @@
 #include <fcntl.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #endif
 
@@ -702,6 +704,7 @@ class PrivateHandle {
   PrivateHandle& operator=(const PrivateHandle&) = delete;
   ~PrivateHandle() { CloseNativeHandle(value_); }
   NativeHandle Get() const { return value_; }
+  NativeHandle Release() { return std::exchange(value_, kInvalidHandle); }
   bool Close() {
     const NativeHandle value = std::exchange(value_, kInvalidHandle);
     if (value == kInvalidHandle) return true;
@@ -1425,42 +1428,6 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
   std::string canonical_path_;
 };
 
-// flock(2) LOCK_EX | LOCK_NB on a caller-owned descriptor: true when this open
-// file description now holds the exclusive lock, false when another holds it.
-// The lock belongs to the open file description, so every process that
-// inherited the descriptor keeps it until the last one closes or exits.
-// POSIX only: Windows byte-range locks die with the locking process.
-Napi::Value TryExclusiveFlock(const Napi::CallbackInfo& info) {
-  const Napi::Env env = info.Env();
-  if (info.Length() != 1 || !info[0].IsNumber() ||
-      !IsWholeNumberInRange(info[0].As<Napi::Number>().DoubleValue(), 0, INT_MAX)) {
-    throw Napi::TypeError::New(env, "tryExclusiveFlock expects one file descriptor");
-  }
-#ifdef _WIN32
-  const auto error = Napi::Error::New(env, "flock is not available on Windows");
-  error.Value().Set("code", "ENOTSUP");
-  throw error;
-#else
-  const int fd = static_cast<int>(info[0].As<Napi::Number>().DoubleValue());
-  for (;;) {
-    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
-      return Napi::Boolean::New(env, true);
-    }
-    const int code = errno;
-    if (code == EINTR) {
-      continue;
-    }
-    if (code == EWOULDBLOCK) {
-      return Napi::Boolean::New(env, false);
-    }
-    const auto error = Napi::Error::New(env, std::string("flock failed: ") + std::strerror(code));
-    error.Value().Set("errno", Napi::Number::New(env, code));
-    throw error;
-  }
-#endif
-}
-
-
 [[noreturn]] void ThrowCoded(Napi::Env env, const std::string& message, const char* code) {
   const auto error = Napi::Error::New(env, message);
   error.Value().Set("code", code);
@@ -1645,55 +1612,187 @@ Napi::Value ApplyPrivateDirectorySync(const Napi::CallbackInfo& info) {
   return PrivateDirectory(info, true);
 }
 
-// Caller owns both paths and performs its authority checks before each call.
-// This primitive performs one atomic replacement, with no deletion or retry.
-Napi::Value ReplaceFileSync(const Napi::CallbackInfo& info) {
-  const Napi::Env env = info.Env();
-  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsString()) {
-    throw Napi::TypeError::New(env, "replaceFileSync expects source and target paths");
+// One exclusive lock on a file, held by one native handle this object owns.
+// POSIX: flock(2) on a descriptor opened O_CLOEXEC. Windows: LockFileEx on a
+// handle CreateFileW opens non-inheritable. Either way no child process ever
+// holds it, a second open in any process (this one included) is refused, and
+// the OS drops it when the handle closes or its process dies, however it dies.
+class ExclusiveLock : public Napi::ObjectWrap<ExclusiveLock> {
+ public:
+  static Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    exports.Set("ExclusiveLock",
+                DefineClass(env, "ExclusiveLock",
+                            {InstanceMethod("held", &ExclusiveLock::Held),
+                             InstanceMethod("release", &ExclusiveLock::Release)}));
+    return exports;
   }
+
+  explicit ExclusiveLock(const Napi::CallbackInfo& info) : Napi::ObjectWrap<ExclusiveLock>(info) {
+    const Napi::Env env = info.Env();
+    if (info.Length() != 1 || !info[0].IsString()) {
+      throw Napi::TypeError::New(env, "ExclusiveLock requires one absolute lock file path");
+    }
+    const auto path = info[0].As<Napi::String>().Utf8Value();
+    if (path.empty() || path.find('\0') != std::string::npos) {
+      throw Napi::TypeError::New(env, "ExclusiveLock requires one absolute lock file path");
+    }
 #ifdef _WIN32
-  const auto source = info[0].As<Napi::String>().Utf8Value();
-  const auto target = info[1].As<Napi::String>().Utf8Value();
-  const auto source_split = source.find_last_of("/\\");
-  const auto target_split = target.find_last_of("/\\");
-  if (source.find('\0') != std::string::npos || target.find('\0') != std::string::npos ||
-      source_split == std::string::npos || target_split == std::string::npos ||
-      source.substr(0, source_split) != target.substr(0, target_split) ||
-      source == target || target_split + 1 == target.size()) {
-    throw Napi::TypeError::New(env, "replaceFileSync requires distinct files in one directory");
-  }
-  const auto fail = [&](DWORD code) {
-    ThrowWindowsError(env, "Atomic file replacement failed", code);
-  };
-  const auto wide_source = Utf8ToWide(source);
-  PrivateHandle file(CreateFileW(wide_source.c_str(), DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-      FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
-  if (file.Get() == kInvalidHandle) fail(GetLastError());
-  const auto wide_parent = Utf8ToWide(target.substr(0, target_split));
-  PrivateHandle parent(CreateFileW(wide_parent.c_str(), FILE_LIST_DIRECTORY | SYNCHRONIZE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
-  if (parent.Get() == kInvalidHandle) fail(GetLastError());
-  if (!ReplacePrivateTemporary(file.Get(), parent.Get(), "", target.substr(target_split + 1), true)) {
-    fail(GetLastError());
-  }
-  return env.Undefined();
+    const auto wide = Utf8ToWide(path);
+    // Other opens are shared so a contender is refused by the lock, not by the open.
+    PrivateHandle file(CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE,
+                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                   OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (file.Get() == kInvalidHandle) {
+      ThrowWindowsError(env, "Lock file open failed", GetLastError());
+    }
+    OVERLAPPED whole = {};
+    if (LockFileEx(file.Get(), LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, MAXDWORD,
+                   MAXDWORD, &whole) == 0) {
+      const DWORD code = GetLastError();
+      if (code != ERROR_LOCK_VIOLATION) {
+        ThrowWindowsError(env, "Lock failed", code);
+      }
+      return;
+    }
 #else
-  const auto error = Napi::Error::New(env, "Windows replacement is unavailable on this platform");
-  error.Value().Set("code", "ENOTSUP");
-  throw error;
+    PrivateHandle file(open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600));
+    if (file.Get() == kInvalidHandle) {
+      const int code = errno;
+      const auto error = Napi::Error::New(env, std::string("Lock file open failed: ") +
+                                                   std::strerror(code));
+      error.Value().Set("errno", Napi::Number::New(env, code));
+      throw error;
+    }
+    for (;;) {
+      if (flock(file.Get(), LOCK_EX | LOCK_NB) == 0) {
+        break;
+      }
+      const int code = errno;
+      if (code == EINTR) {
+        continue;
+      }
+      if (code == EWOULDBLOCK) {
+        return;
+      }
+      const auto error = Napi::Error::New(env, std::string("flock failed: ") + std::strerror(code));
+      error.Value().Set("errno", Napi::Number::New(env, code));
+      throw error;
+    }
 #endif
+    handle_ = std::make_unique<PrivateHandle>(file.Release());
+  }
+
+  ~ExclusiveLock() override = default;
+
+ private:
+  Napi::Value Held(const Napi::CallbackInfo& info) {
+    return Napi::Boolean::New(info.Env(), handle_ != nullptr);
+  }
+
+  // Closing the handle releases the lock; a failed close is reported, never retried.
+  Napi::Value Release(const Napi::CallbackInfo& info) {
+    const Napi::Env env = info.Env();
+    const std::unique_ptr<PrivateHandle> handle = std::move(handle_);
+    if (handle == nullptr) {
+      return env.Undefined();
+    }
+#ifdef _WIN32
+    OVERLAPPED whole = {};
+    if (UnlockFileEx(handle->Get(), 0, MAXDWORD, MAXDWORD, &whole) == 0) {
+      ThrowWindowsError(env, "Unlock failed", GetLastError());
+    }
+    if (!handle->Close()) {
+      ThrowWindowsError(env, "Lock file close failed", GetLastError());
+    }
+#else
+    if (!handle->Close()) {
+      const int code = errno;
+      const auto error = Napi::Error::New(env, std::string("Lock file close failed: ") +
+                                                   std::strerror(code));
+      error.Value().Set("errno", Napi::Number::New(env, code));
+      throw error;
+    }
+#endif
+    return env.Undefined();
+  }
+
+  std::unique_ptr<PrivateHandle> handle_;
+};
+
+#ifndef _WIN32
+[[noreturn]] void ThrowErrno(Napi::Env env, const std::string& message, int code) {
+  const auto error = Napi::Error::New(env, message + ": " + std::strerror(code));
+  error.Value().Set("errno", Napi::Number::New(env, code));
+  throw error;
+}
+
+// The fallback for kernels without close_range(CLOSE_RANGE_CLOEXEC) (Linux < 5.11, macOS).
+void MarkListedDescriptorsCloseOnExec(Napi::Env env) {
+#ifdef __APPLE__
+  const char* listing = "/dev/fd";
+#else
+  const char* listing = "/proc/self/fd";
+#endif
+  DIR* directory = opendir(listing);
+  if (directory == nullptr) {
+    ThrowErrno(env, "Descriptor listing failed", errno);
+  }
+  const int own = dirfd(directory);
+  std::vector<int> descriptors;
+  for (struct dirent* entry = readdir(directory); entry != nullptr; entry = readdir(directory)) {
+    char* end = nullptr;
+    const long value = std::strtol(entry->d_name, &end, 10);
+    if (end != entry->d_name && *end == '\0' && value > 2 && value <= INT_MAX && value != own) {
+      descriptors.push_back(static_cast<int>(value));
+    }
+  }
+  closedir(directory);
+  for (const int fd : descriptors) {
+    const int flags = fcntl(fd, F_GETFD);
+    // Closed since the listing by another thread: nothing to mark.
+    if (flags == -1 || (flags & FD_CLOEXEC) != 0) {
+      continue;
+    }
+    if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == -1 && errno != EBADF) {
+      ThrowErrno(env, "Close-on-exec failed", errno);
+    }
+  }
+}
+#endif
+
+// Marks every descriptor this process holds above stderr close-on-exec, so a child it
+// spawns inherits only the stdio it is given. Electron's Main holds Chromium descriptors
+// (shared memory, GPU caches, IPC sockets) without the flag, and libuv's spawn passes
+// every such descriptor on. Chromium starts its own children with explicit descriptor
+// maps, so the flag changes nothing for them.
+// Windows: Node and Chromium create handles non-inheritable, so there is nothing to mark.
+Napi::Value MarkDescriptorsCloseOnExec(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  if (info.Length() != 0) {
+    throw Napi::TypeError::New(env, "markDescriptorsCloseOnExec takes no arguments");
+  }
+#ifndef _WIN32
+#if defined(__linux__) && defined(SYS_close_range)
+  constexpr unsigned int kCloseRangeCloexec = 1U << 2;  // CLOSE_RANGE_CLOEXEC, Linux 5.11
+  if (syscall(SYS_close_range, 3U, ~0U, kCloseRangeCloexec) == 0) {
+    return env.Undefined();
+  }
+  if (errno != ENOSYS && errno != EINVAL) {
+    ThrowErrno(env, "close_range failed", errno);
+  }
+#endif
+  MarkListedDescriptorsCloseOnExec(env);
+#endif
+  return env.Undefined();
 }
 
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
-  exports.Set("tryExclusiveFlock", Napi::Function::New(env, TryExclusiveFlock));
-  exports.Set("replaceFileSync", Napi::Function::New(env, ReplaceFileSync));
   exports.Set("applyPrivateDirectorySync", Napi::Function::New(env, ApplyPrivateDirectorySync));
   exports.Set("verifyPrivateDirectorySync", Napi::Function::New(env, VerifyPrivateDirectorySync));
   exports.Set("setDefaultOwnerToCurrentUserSync",
               Napi::Function::New(env, SetDefaultOwnerToCurrentUserSync));
+  exports.Set("markDescriptorsCloseOnExec", Napi::Function::New(env, MarkDescriptorsCloseOnExec));
+  ExclusiveLock::Init(env, exports);
   return SecureRoot::Init(env, exports);
 }
 

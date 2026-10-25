@@ -1,14 +1,13 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { HostPlatform, HostStartupContext } from '@brainstrike/agent-host';
+import type { HostPlatform, HostPlatformRoot, HostStartupContext } from '@brainstrike/agent-host';
 import { scriptedToolSequence } from '@brainstrike/agent-host/test-fixtures/scripted-model';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 
 /** Only the model is scripted; the utility kernel, permission, filesystem and writer are real. */
 export function createHostPlatform(
-  options: HostStartOptions,
+  options: HostPlatformRoot,
   context: HostStartupContext
 ): HostPlatform {
   const model = scriptedToolSequence([

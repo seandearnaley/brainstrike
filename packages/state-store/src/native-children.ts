@@ -1,16 +1,6 @@
-// Native processes a Root's host starts (ADR-0017). Each one inherits the Root's flock as an extra stdio slot, so a
-// command that outlives a crashed host keeps the Root refused until it exits; an observer (desktop Main, the host's
-// supervisor) learns each process's identity so it can end the process group after the host dies.
-import {
-  type ChildProcess,
-  type ChildProcessWithoutNullStreams,
-  type SpawnOptions,
-  type SpawnOptionsWithoutStdio,
-  type StdioOptions,
-  spawn,
-} from 'node:child_process';
+// Ending the native processes a host starts. None of them holds the Root (ADR-0031): its lock is the host's alone.
+import type { ChildProcess } from 'node:child_process';
 import treeKill from 'tree-kill';
-import { processStartTime, sharedRootLeases } from './lock.ts';
 
 /**
  * ADR-0030: the only two lifecycle clocks for a child process. A child we own that speaks our close
@@ -20,6 +10,16 @@ import { processStartTime, sharedRootLeases } from './lock.ts';
  */
 export const CHILD_CLOSE_BUDGET_MS = 30_000;
 export const CHILD_SIGNAL_GRACE_MS = 2000;
+
+/** kill(pid, 0): ESRCH = gone; EPERM = exists (another user's process). */
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
 
 /**
  * Ends `pid` and every process under it, then settles. On Windows a kill stops only the program
@@ -31,7 +31,7 @@ export function terminateTree(pid: number): Promise<void> {
   return new Promise((resolve, reject) => {
     treeKill(pid, 'SIGKILL', (error) => {
       // A tree that ended on its own first is the outcome asked for, not a failure.
-      if (error && processStartTime(pid) !== null) {
+      if (error && isRunning(pid)) {
         reject(error);
         return;
       }
@@ -97,112 +97,4 @@ export function endTreeOnDeadline(
       return timedOut;
     },
   };
-}
-
-/** One supervised native process. `group`: it leads its own process group, which is signalled as a whole. */
-export interface NativeChild {
-  readonly group: boolean;
-  readonly pid: number;
-  readonly start: string;
-}
-export interface NativeChildObserver {
-  exited(child: NativeChild): void;
-  started(child: NativeChild): void;
-}
-
-let observer: NativeChildObserver | undefined;
-
-/** The host's supervisor hears about every native process this process starts; returns the unsubscribe. */
-export function observeNativeChildren(next: NativeChildObserver): () => void {
-  if (observer) {
-    throw new Error('Native children already have an observer');
-  }
-  observer = next;
-  return () => {
-    if (observer === next) {
-      observer = undefined;
-    }
-  };
-}
-
-/** Reports `pid` when an observer is listening; the returned function reports its exit, once. */
-function supervise(pid: number | undefined, group: boolean): () => void {
-  const current = observer;
-  if (!current || pid === undefined) {
-    return () => undefined;
-  }
-  const start = processStartTime(pid);
-  if (start === null) {
-    return () => undefined; // it already exited: nothing is left to supervise
-  }
-  const child: NativeChild = { group, pid, start };
-  current.started(child);
-  let exited = false;
-  return () => {
-    if (!exited) {
-      exited = true;
-      current.exited(child);
-    }
-  };
-}
-
-function stdioSlots(stdio: StdioOptions | undefined): Exclude<StdioOptions, string> {
-  if (stdio === undefined || typeof stdio === 'string') {
-    return [stdio, stdio, stdio];
-  }
-  // Undefined slots 0-2 keep Node's default pipe, so the Root's descriptor never lands on stdin/stdout/stderr.
-  return [...stdio, ...Array.from({ length: Math.max(0, 3 - stdio.length) }, () => undefined)];
-}
-
-/**
- * `child_process.spawn` for every native process a host starts. While this process shares a held Root lease, the
- * child inherits the Root's flock (POSIX) in the first stdio slot after the ones given. Once every shared lease was
- * released the spawn is refused, and so is a spawn that would have to choose between several held leases. A process
- * that never shared a lease (desktop Main, which owns its own children) spawns plainly. Like `spawn`, piped stdio
- * keeps its streams: the Root's descriptor only ever takes a slot after them.
- */
-export function spawnNativeChild(
-  command: string,
-  args: readonly string[],
-  options: SpawnOptionsWithoutStdio
-): ChildProcessWithoutNullStreams;
-export function spawnNativeChild(
-  command: string,
-  args: readonly string[],
-  options: SpawnOptions
-): ChildProcess;
-export function spawnNativeChild(
-  command: string,
-  args: readonly string[],
-  options: SpawnOptions
-): ChildProcess {
-  const shared = sharedRootLeases();
-  const held = shared.filter((lease) => !lease.isReleased);
-  if (held.length > 1) {
-    throw new Error(
-      'This process holds several shared Root leases; a native process belongs to one'
-    );
-  }
-  if (shared.length > 0 && held.length === 0) {
-    throw new Error('The Root lease is released; no native process may start under it');
-  }
-  const fd = held[0]?.inheritableFd;
-  const child = spawn(command, args, {
-    ...options,
-    ...(fd === undefined ? {} : { stdio: [...stdioSlots(options.stdio), fd] }),
-  });
-  child.once('exit', supervise(child.pid, options.detached === true));
-  return child;
-}
-
-/**
- * A native process a vendor API started (node-pty, the MCP SDK's stdio transport, `execFile`). Those APIs cannot pass
- * an extra descriptor, so the process does not hold the Root (an ADR-0017 limit); the observer still supervises it.
- * Call the returned function when it exits.
- */
-export function trackNativeChild(
-  pid: number | undefined,
-  options: { readonly group: boolean }
-): () => void {
-  return supervise(pid, options.group);
 }

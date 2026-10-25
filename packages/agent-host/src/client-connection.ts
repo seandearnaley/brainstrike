@@ -5,15 +5,13 @@ import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
 import { watchPeerReset } from './boundary-wire.ts';
 import { createHostCatalogClient, type HostCatalog } from './catalog/transport.ts';
-import { markHostClosing, markHostDrained, sendHostRequest } from './client-request.ts';
+import { sendHostRequest } from './client-request.ts';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   GIT_WORKSPACE_EVENT,
   type GitWorkspaceEvent,
   GitWorkspaceEventSchema,
   HOST_CHILDREN_CHANGED,
-  HOST_CLOSING_EVENT,
-  HOST_DRAINED_EVENT,
   HOST_RESULT_SCHEMAS,
   HOST_RUN_TELEMETRY,
   HostChildrenChangedSchema,
@@ -35,17 +33,10 @@ import {
   type TerminalEvent,
   TerminalEventSchema,
 } from './protocol.ts';
-/**
- * What a client expects the host's initialize to answer. A socket client knows the
- * host's record and presents its token; a client on a transport its launcher handed
- * over knows only the versions it speaks.
- */
+/** What a client expects the host's initialize to answer: the versions it speaks. */
 export interface HostClientExpectation {
   readonly hostVersion: string;
-  readonly pid?: number;
   readonly protocolVersion: number;
-  readonly start?: string;
-  readonly token?: string;
 }
 export interface HostClient {
   readonly catalog: HostCatalog;
@@ -142,8 +133,6 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
   };
   // Before any request: a host that closes its end can fail the next write.
   watchPeerReset(connection);
-  connection.onNotification(HOST_CLOSING_EVENT, () => markHostClosing(connection));
-  connection.onNotification(HOST_DRAINED_EVENT, () => markHostDrained(connection));
   // A transport that closes, the host killed included, rejects every request still pending.
   // The JSON-RPC connection rejects them only when disposed, never when its reader ends.
   transportClosed.then(
@@ -223,12 +212,9 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
       await connection.sendRequest('initialize', {
         hostVersion: record.hostVersion,
         protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
-        ...(record.token === undefined ? {} : { token: record.token }),
       })
     );
     if (
-      (record.pid !== undefined && reply.pid !== record.pid) ||
-      (record.start !== undefined && reply.start !== record.start) ||
       reply.hostVersion !== record.hostVersion ||
       reply.protocolVersion !== record.protocolVersion
     ) {

@@ -11,16 +11,14 @@ import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
-import { attachAgentHost, type HostClient } from '../src/client.js';
+import type { HostClient } from '../src/client.js';
 import { readHostHookApproval, trustHostHooks } from '../src/hook-trust.js';
 import type { HostPlatform } from '../src/ports.js';
-import { type AgentHost, startAgentHost } from '../src/runtime.js';
+import { type InProcessHost, openInProcessHost } from '../src/test-fixtures/in-process-host.js';
 
 const dirs: string[] = [];
-const hosts: AgentHost[] = [];
-const clients: HostClient[] = [];
+const hosts: InProcessHost[] = [];
 async function closeHosts(): Promise<void> {
-  await Promise.all(clients.splice(0).map((client) => client.close()));
   await Promise.all(hosts.splice(0).map((host) => host.close()));
 }
 afterEach(async () => {
@@ -45,11 +43,9 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 async function open(root: string): Promise<HostClient> {
-  const host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+  const host = await openInProcessHost(root, platform);
   hosts.push(host);
-  const client = await attachAgentHost(host.record);
-  clients.push(client);
-  return client;
+  return await host.connect();
 }
 
 /** A workspace root with `.brainstrike/hooks.json` holding `content`. */

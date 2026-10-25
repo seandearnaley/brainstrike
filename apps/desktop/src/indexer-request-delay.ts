@@ -1,4 +1,4 @@
-import { type LifecycleDelays, lifecycleDelay } from '@brainstrike/host-lease/lifecycle-delays';
+import { type LifecycleDelays, lifecycleDelay } from './lifecycle-delays';
 
 function isIndexerRequest(message: unknown): boolean {
   return (

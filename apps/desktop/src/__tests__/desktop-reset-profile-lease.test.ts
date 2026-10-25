@@ -1,7 +1,7 @@
 import path from 'node:path';
-import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResetDesktopApplicationDataOptions } from '../desktop-factory-reset';
+import type { ProfileResetLease } from '../profile-reset-lease';
 
 const PROFILE = path.resolve('/profile');
 const PROFILE_LOCK = path.join(PROFILE, 'lock');

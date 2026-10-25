@@ -6,7 +6,6 @@ import { createLogger } from '@brainstrike/logging';
 import { app } from 'electron';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import type { PlatformMessagePort } from './agent-host-platform/connection';
-import type { HostNativeChildren } from './agent-host-platform/host-native-children';
 import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { resolveDevelopmentUserDataPath } from './database-location';
@@ -34,10 +33,7 @@ import {
 
 const logger = createLogger('DesktopBootstrap');
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
-type BindPlatform = (
-  port: PlatformMessagePort,
-  children: HostNativeChildren
-) => { close(): Promise<void> };
+type BindPlatform = (port: PlatformMessagePort) => { close(): Promise<void> };
 interface PendingPlatform {
   bind(binding: BindPlatform): void;
 }
@@ -198,7 +194,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
         }
         lost();
       },
-      platform: (children, port) => {
+      platform: (port) => {
         let owner: ReturnType<BindPlatform> | undefined;
         const closeUnbound = (): void => {
           pending.delete(platform);
@@ -207,7 +203,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
         };
         const platform: PendingPlatform = {
           bind: (bind) => {
-            owner = bind(port, children);
+            owner = bind(port);
             unbound.delete(closeUnbound);
           },
         };

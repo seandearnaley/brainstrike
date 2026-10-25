@@ -5,7 +5,7 @@ import {
   lifecycleDelay,
   parseLifecycleDelays,
   takeLifecycleDelays,
-} from '../src/lifecycle-delays.js';
+} from '../lifecycle-delays';
 
 afterEach(() => {
   vi.useRealTimers();

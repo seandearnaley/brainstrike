@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
 import type { HostChildStatus, HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { foldHostRuns, type HostRunView } from '@brainstrike/agent-host/thread-view';
+import { processStartTime } from '@brainstrike/test-utils/process-identity';
 import type { Frame, Page } from '@playwright/test';
 import {
   AbstractMessageReader,
@@ -274,14 +275,19 @@ export async function attachHostThroughWindow(page: Page): Promise<HostClient> {
   );
 }
 
-/** The running app's agent host process, as its initialize reply names it. */
+/** The running app's agent host process: the pid its initialize reply names, and its OS start time. */
 export async function readHostProcess(
   userDataDir: string
 ): Promise<{ readonly pid: number; readonly start: string }> {
   // A fresh client: its initialize reply names the host running now, even after a restart.
   const client = await attachAppHost(userDataDir);
   try {
-    return { pid: client.host.pid, start: client.host.start };
+    const { pid } = client.host;
+    const start = processStartTime(pid);
+    if (start === null) {
+      throw new Error(`The agent host ${pid} is not running`);
+    }
+    return { pid, start };
   } finally {
     await client.close();
   }

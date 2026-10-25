@@ -3,10 +3,10 @@
 const bindings = require('bindings');
 
 const {
+  ExclusiveLock: NativeExclusiveLock,
   SecureRoot: NativeSecureRoot,
   applyPrivateDirectorySync,
-  tryExclusiveFlock,
-  replaceFileSync,
+  markDescriptorsCloseOnExec,
   setDefaultOwnerToCurrentUserSync,
   verifyPrivateDirectorySync,
 } = bindings({
@@ -59,10 +59,27 @@ class SecureRoot {
   }
 }
 
-exports.SecureRoot = SecureRoot;
-exports.tryExclusiveFlock = tryExclusiveFlock;
+class ExclusiveLock {
+  #native;
 
-exports.replaceFileSync = replaceFileSync;
+  constructor(native) {
+    this.#native = native;
+  }
+
+  release() {
+    this.#native.release();
+  }
+}
+
+/** The exclusive lock on `lockPath`, or null while another handle holds it. */
+function tryExclusiveLock(lockPath) {
+  const native = new NativeExclusiveLock(lockPath);
+  return native.held() ? new ExclusiveLock(native) : null;
+}
+
+exports.SecureRoot = SecureRoot;
+exports.tryExclusiveLock = tryExclusiveLock;
+exports.markDescriptorsCloseOnExec = markDescriptorsCloseOnExec;
 
 exports.applyPrivateDirectorySync = applyPrivateDirectorySync;
 exports.verifyPrivateDirectorySync = verifyPrivateDirectorySync;

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { expect, test } from 'vitest';
-import { RootLock, RootLockedError } from '../src/lock.js';
+import { RootLockedError } from '../src/lock.js';
 import { StateStore } from '../src/state-store.js';
 
 async function writerFixture() {
@@ -38,13 +38,13 @@ test('every close caller waits the same physical writer join before Root release
     await Promise.resolve();
     expect(repeatedSettled).toBe(false);
     expect(f.writer.threadId).toBeGreaterThan(0);
-    expect(RootLock.inspect(f.root)?.owner.released).not.toBe(true);
+    expect(f.store.lock.isReleased).toBe(false);
     await expect(StateStore.open(f.root)).rejects.toBeInstanceOf(RootLockedError);
     released.resolve();
     await Promise.all([closing, repeated]);
     expect(terminations).toBe(1);
     expect(f.writer.threadId).toBe(-1);
-    expect(RootLock.inspect(f.root)?.owner.released).toBe(true);
+    expect(f.store.lock.isReleased).toBe(true);
   } finally {
     released.resolve();
     await closing;
@@ -63,7 +63,7 @@ test('a rejected termination retains the live writer and Root and repeats the or
   try {
     await expect(f.store.close()).rejects.toBe(failure);
     expect(f.writer.threadId).toBeGreaterThan(0);
-    expect(RootLock.inspect(f.root)?.owner.released).not.toBe(true);
+    expect(f.store.lock.isReleased).toBe(false);
     await expect(StateStore.open(f.root)).rejects.toBeInstanceOf(RootLockedError);
     await expect(f.store.close()).rejects.toBe(failure);
     expect(terminations).toBe(1);
@@ -98,7 +98,7 @@ test('independent database and termination failures both survive the joined clos
       true
     );
     expect(f.writer.threadId).toBeGreaterThan(0);
-    expect(RootLock.inspect(f.root)?.owner.released).not.toBe(true);
+    expect(f.store.lock.isReleased).toBe(false);
     await expect(f.store.close()).rejects.toBe(failure);
   } finally {
     await f.terminate();

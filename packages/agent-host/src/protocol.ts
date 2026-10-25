@@ -141,7 +141,12 @@ export * from './workspace-wire.ts';
 // `auth/disconnect`, `auth/status`, `auth/verify` and the host-to-client `client/open-external`
 // are gone, and a login credential is an API key or an AWS credential. Additions since:
 // `workspace/skills` and `workspace/commands` (ADR-0029 stage 2), new methods.
-export const AGENT_HOST_PROTOCOL_VERSION = 13;
+// v14 (2026-10-25, ADR-0031): a client reaches its host only over a transport its launcher handed
+// over. `host/stop`, `host/closing`, `host/drained` and the initialize `token` are gone, and the
+// initialize reply no longer carries the host's `start` time.
+export const AGENT_HOST_PROTOCOL_VERSION = 14;
+/** The host program's version, which a client's initialize must match. */
+export const HOST_VERSION = '0.1.0';
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
@@ -260,20 +265,6 @@ export type HostChildOrigin = (typeof HostChildOriginSchema)['Type'];
  */
 export const HostChildStatusSchema = Schema.Literals(['working', 'needs-input', 'idle']);
 export type HostChildStatus = (typeof HostChildStatusSchema)['Type'];
-/**
- * The host's announcement, on each connection, that it is retiring (as HTTP/2's
- * GOAWAY). The host sends it first, then refuses new requests as `host.closing`
- * and answers every request it read. Its client refuses later sends unsent.
- */
-export const HOST_CLOSING_EVENT = 'host/closing';
-/**
- * The retiring host's last frame before it closes the transport (as TLS's
- * close_notify): every request it read on this connection is answered above it.
- * So a request still unanswered at the close was never read, and its client
- * refuses it as `host.closing`. Without this frame, as when the host crashes
- * mid-retirement, an unanswered request may have run: it stays a lost connection.
- */
-export const HOST_DRAINED_EVENT = 'host/drained';
 /**
  * BST-1932: the host's notice that a thread's children changed status (a child
  * run started, paused for a person, was answered or ended). A client re-reads
@@ -400,13 +391,10 @@ export const HOST_METHOD_SCHEMAS = {
   'hooks/untrust': Schema.Struct(HookRoot),
   /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
   'host/status': Schema.Record(Schema.String, Schema.Never),
-  'host/stop': Schema.Record(Schema.String, Schema.Never),
+  // A client is authorized by holding the transport its launcher handed over.
   initialize: Schema.Struct({
     hostVersion: Id,
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
-    // Only a socket client authenticates with a token; a client bound to a
-    // transport its launcher handed over is authorized by holding it.
-    token: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/))),
   }),
   'interaction/respond': Schema.Struct({
     ...Command,
@@ -982,15 +970,10 @@ export const HOST_RESULT_SCHEMAS = {
   'hooks/untrust': Schema.Struct({ untrusted: Schema.Boolean }),
   // The renderer validates the availability payload strictly (use-assistant-availability).
   'host/status': Schema.Record(Schema.String, Schema.MutableJson),
-  'host/stop': Schema.Struct({
-    outcome: Schema.Literal('stopped'),
-    rootReleased: Schema.Literal(true),
-  }),
   initialize: Schema.Struct({
     hostVersion: Id,
     pid: Schema.Int.check(Schema.isGreaterThan(0)),
     protocolVersion: Schema.Int.check(Schema.isGreaterThan(0)),
-    start: Id,
   }),
   'interaction/respond': Schema.Struct({ accepted: Schema.Literal(true) }),
   'interaction/resume': Schema.Struct({ accepted: Schema.Literal(true) }),

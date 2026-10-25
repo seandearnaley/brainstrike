@@ -1,7 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/client';
-import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from '@brainstrike/agent-host/protocol';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
-import { HOST_VERSION } from '@brainstrike/host-lease';
 import { Schema } from 'effect';
 import { ipcMain } from 'electron';
 import type { PlatformMessagePort } from './agent-host-platform/connection';

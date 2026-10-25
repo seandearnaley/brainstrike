@@ -40,12 +40,6 @@ export const PlatformDiagnosticRecordSchema = Schema.Struct({
     timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
   }),
 });
-/** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
-export const PlatformNativeChildSchema = Schema.Struct({
-  group: Schema.Boolean,
-  pid: Schema.Int.check(Schema.isGreaterThan(0)),
-  start: Schema.String.check(Schema.isMinCodePoints(1)),
-});
 export const PlatformWorkspaceBindingRequestSchema = Schema.Struct({
   binding: ThreadWorkspaceBindingSchema,
   threadId: Id,

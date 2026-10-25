@@ -8,12 +8,11 @@
  * `decision` is ignored but the authoritative exit code still applies.
  */
 
-import type { ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type { ScopedLogger } from '@brainstrike/logging';
-import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import { resolveShellInvocation } from '../native-tools/execute-command-tool.ts';
 import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.ts';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.ts';
@@ -182,7 +181,7 @@ async function executeWindowsHook(
         error: message,
       }),
     spawnWrapper: () =>
-      spawnNativeChild(process.execPath, [wrapperPath], {
+      spawn(process.execPath, [wrapperPath], {
         cwd: hook.source.cwd,
         detached: false,
         env: wrapperEnvironment,
@@ -264,8 +263,7 @@ function executeHook(
   }
 
   return new Promise<HookResult>((resolve) => {
-    // In the agent host the hook inherits the Root's flock (ADR-0017).
-    const child = spawnNativeChild('/bin/sh', ['-c', hook.definition.command], {
+    const child = spawn('/bin/sh', ['-c', hook.definition.command], {
       cwd: hook.source.cwd,
       // POSIX: own process group so the timeout can group-kill the whole tree
       // (see killHookTree). Windows has no process groups here.

@@ -4,12 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel } from 'node:worker_threads';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { HOST_VERSION } from '@brainstrike/host-lease';
 import { RootLockedError } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { authenticateHostClient, type HostClient } from '../src/client-connection.js';
 import type { HostPlatform } from '../src/ports.js';
-import { AGENT_HOST_PROTOCOL_VERSION } from '../src/protocol.js';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from '../src/protocol.js';
 import { type OpenedAgentHost, openAgentHost } from '../src/runtime.js';
 import { nodePortConnection } from '../src/transports.js';
 

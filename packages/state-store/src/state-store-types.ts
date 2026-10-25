@@ -2,7 +2,6 @@ import type { PromptVectorPort } from '@brainstrike/types/prompt-item';
 // The store's public shapes: its options, the indexer port it drives, and what its reads, purges and exports report.
 // Split from state-store.ts so the facade stays one module of behaviour.
 import type { ThreadDamagedError } from './errors.ts';
-import type { LockOptions } from './lock.ts';
 import type { LogRow } from './run-log-types.ts';
 import type { StateStoreStartupOwner } from './state-store.ts';
 
@@ -50,7 +49,7 @@ export interface SyncSpan extends WriteSpan {
   readonly thread: string;
 }
 
-export interface StateStoreOptions extends LockOptions {
+export interface StateStoreOptions {
   /** busy_timeout of the writer, which bounds how long a purge waits on a reader pinning the WAL. Default 5000. */
   readonly busyTimeoutMs?: number;
   /** WAL frames at which a step boundary checkpoints (PASSIVE) first. Default 1000, SQLite's autocheckpoint size. */

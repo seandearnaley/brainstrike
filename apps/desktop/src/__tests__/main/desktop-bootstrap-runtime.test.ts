@@ -148,8 +148,6 @@ it('joins the existing host exit when Main fails while its platform channel is u
   const runtime = getDesktopBootstrapRuntime();
   const outcome = runtime.profile.acquire().catch((error: unknown) => error);
   await vi.waitFor(() => expect(fixture.options).toBeDefined());
-  const nativeChildren = { close: vi.fn(), exited: vi.fn(), retire: vi.fn(), started: vi.fn() };
-  // The lease's supervisor shape is only passed through, never accessed by bootstrap.
   const port = {
     close: () => fixture.events.push('platform-close'),
     off: vi.fn(),
@@ -157,7 +155,7 @@ it('joins the existing host exit when Main fails while its platform channel is u
     postMessage: vi.fn(),
     start: vi.fn(),
   };
-  const platform = fixture.options?.platform?.(nativeChildren, port);
+  const platform = fixture.options?.platform?.(port);
   expect(platform).toBeDefined();
   let retired = false;
   const closing = runtime.profile.retire().then(() => {

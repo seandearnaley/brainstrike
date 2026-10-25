@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { processStartTime } from '@brainstrike/state-store';
+import { processStartTime } from '@brainstrike/test-utils/process-identity';
 import type { ManagedWorktreeRow } from '@brainstrike/types';
 import { expect, it } from 'vitest';
 import { runWorktreeSetup } from '../../assistant-server/worktree-setup';

@@ -5,11 +5,10 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { openAgentHost } from '@brainstrike/agent-host';
 import { authenticateHostClient } from '@brainstrike/agent-host/client';
-import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from '@brainstrike/agent-host/protocol';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import { HOST_VERSION } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { joinProcessExit, processStartTime } from '@brainstrike/test-utils/process-identity';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
@@ -19,6 +18,7 @@ import { encodeHostChildArgs } from '../../host-child-messages';
 import { HOST_CLOSE_GRACE_MS } from '../../host-lease-manager';
 import { openHostStdio } from '../../host-stdio';
 import { electronExecutablePath } from '../helpers/electron-executable';
+import { isRootHeld } from '../helpers/root-held';
 
 /** Electron's launch plus the one close grace; the test waits on real events only. */
 const TEST_BUDGET_MS = getAdjustedTimeout('uiComponent') + HOST_CLOSE_GRACE_MS;
@@ -241,13 +241,9 @@ describe(
       app.process.kill('SIGKILL');
       await app.exited;
       activeApps.delete(app);
-      // The host's stdin ends with the app, so it closes; a native process it started holds
-      // the Root's flock until it exits (Windows: the host's Job Object ends them with it).
-      // Nothing in the app is left to report either.
-      const rootHeld = (): boolean => process.platform !== 'win32' && RootLock.isFlockHeld(root);
-      while (processStartTime(host.pid) === host.start || rootHeld()) {
-        await new Promise<void>((done) => setTimeout(done, 50));
-      }
+      // The host's stdin ends with the app, so it closes; its exit releases the Root's lock.
+      await joinProcessExit(host.pid, host.start);
+      expect(isRootHeld(root)).toBe(false);
       expect(await committedRows(root, threadId)).toEqual(['command.accepted', 'thread.started']);
     });
 

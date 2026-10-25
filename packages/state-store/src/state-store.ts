@@ -190,7 +190,7 @@ export class StateStore implements MemoryDomainPort {
     // Refused before anything is created (M0-A2 item 6).
     assertNotSyncedRoot(dataRoot, options.home === undefined ? {} : { home: options.home });
     mkdirSync(dataRoot, { recursive: true });
-    const lock = await RootLock.acquire(dataRoot, options);
+    const lock = RootLock.acquire(dataRoot);
     let worker: Worker | null = null;
     let store: StateStore | undefined;
     try {
@@ -729,7 +729,7 @@ export class StateStore implements MemoryDomainPort {
 
   /**
    * A consistent bundle of the root while it keeps streaming: the state DB through `VACUUM INTO` on a worker, every
-   * blob the snapshot references, the root's lock files, and a manifest of sizes and sha256s. Blob GC is deferred
+   * blob the snapshot references, and a manifest of sizes and sha256s. Blob GC is deferred
    * until the export ends, so a purge racing it cannot remove a blob the bundle still needs.
    */
   async exportTo(bundleDir: string): Promise<Manifest> {
@@ -745,7 +745,6 @@ export class StateStore implements MemoryDomainPort {
         beforeBlobs: () => this.options.hooks?.exportBeforeBlobs?.(),
         blobsPath: this.blobsPath,
         bundleDir,
-        lock: this.lock,
         statePath: this.statePath,
       });
     } finally {

@@ -667,9 +667,6 @@ importers:
       '@brainstrike/host-conversation':
         specifier: workspace:*
         version: link:../../packages/host-conversation
-      '@brainstrike/host-lease':
-        specifier: workspace:*
-        version: link:../../packages/host-lease
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../../packages/indexer
@@ -1176,9 +1173,6 @@ importers:
       '@brainstrike/host-capabilities':
         specifier: workspace:*
         version: link:../host-capabilities
-      '@brainstrike/host-lease':
-        specifier: workspace:*
-        version: link:../host-lease
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
@@ -1222,9 +1216,6 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
-      '@brainstrike/host-lease':
-        specifier: workspace:*
-        version: link:../host-lease
       '@brainstrike/indexer':
         specifier: workspace:*
         version: link:../indexer
@@ -2499,9 +2490,6 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
-      '@brainstrike/host-lease':
-        specifier: workspace:*
-        version: link:../host-lease
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
@@ -2621,46 +2609,6 @@ importers:
       react-dom:
         specifier: ^19.3.1
         version: 19.3.1(react@19.3.1)
-      typescript:
-        specifier: 'catalog:'
-        version: '@typescript/typescript6@6.0.2'
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.5(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@24.19.2)(@vitest/browser-playwright@5.0.5)(@vitest/coverage-v8@5.0.5)(@vitest/ui@5.0.5)(happy-dom@21.0.3)(jsdom@30.1.3(@noble/hashes@1.8.0))(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-
-  packages/host-lease:
-    dependencies:
-      '@brainstrike/effect-kit':
-        specifier: workspace:*
-        version: link:../effect-kit
-      '@brainstrike/secure-fs-native':
-        specifier: workspace:*
-        version: link:../secure-fs-native
-      '@brainstrike/state-store':
-        specifier: workspace:*
-        version: link:../state-store
-      effect:
-        specifier: 'catalog:'
-        version: 4.0.5
-    devDependencies:
-      '@brainstrike/test-utils':
-        specifier: workspace:*
-        version: link:../test-utils
-      '@brainstrike/windows-job-native':
-        specifier: workspace:*
-        version: link:../windows-job-native
-      '@effect/tsgo':
-        specifier: 'catalog:'
-        version: 0.53.3
-      '@types/node':
-        specifier: 'catalog:'
-        version: 24.19.2
-      '@vitest/coverage-v8':
-        specifier: 'catalog:'
-        version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
-      tsx:
-        specifier: ^4.23.15
-        version: 4.23.15
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3249,6 +3197,9 @@ importers:
 
   packages/test-utils:
     devDependencies:
+      '@brainstrike/windows-job-native':
+        specifier: workspace:*
+        version: link:../windows-job-native
       '@mastra/core':
         specifier: 1.78.0
         version: 1.78.0(patch_hash=bfa6b37adb26db77fdd9090b3595816f2c492d5fbf69284e576aeb839dfa7f53)(ai@7.0.142(zod@4.6.7))(effect@4.0.5)(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.7))(zod@4.6.7)

@@ -1,7 +1,7 @@
 // @vitest-environment node
 
-import { LIFECYCLE_DELAYS_ENV } from '@brainstrike/host-lease/lifecycle-delays';
 import { afterEach, expect, it, vi } from 'vitest';
+import { LIFECYCLE_DELAYS_ENV } from '../lifecycle-delays';
 
 const electron = vi.hoisted(() => ({ app: { isPackaged: false } }));
 vi.mock('electron', () => electron);

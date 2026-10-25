@@ -37,7 +37,7 @@ export {
   runHostCli,
   runHostCliProcess,
 } from './cli.ts';
-export { attachAgentHost, authenticateHostClient, type HostClient } from './client.ts';
+export { authenticateHostClient, type HostClient } from './client.ts';
 export {
   type CommittedRunIdentity,
   committedRowAddress,
@@ -73,10 +73,9 @@ export {
 export * from './ports.ts';
 export {
   type HostPlatformFactory,
-  type HostProcessParent,
+  type HostPlatformRoot,
   loadHostPlatform,
   openHostProcess,
-  runAgentHostProcess,
 } from './process-entry.ts';
 export {
   createProductionHostPlatform,
@@ -87,13 +86,11 @@ export {
 } from './production-platform.ts';
 export * from './protocol.ts';
 export {
-  type AgentHost,
   AgentHostStartupError,
   type HostPlatformInitializer,
   type HostStartupContext,
   type OpenedAgentHost,
   openAgentHost,
-  startAgentHost,
 } from './runtime.ts';
 export { pendingRewindSnapshotTargets } from './thread-rewind.ts';
 export { nodePortConnection, stdioConnection } from './transports.ts';

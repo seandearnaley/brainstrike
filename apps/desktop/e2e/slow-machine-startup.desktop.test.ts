@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { RootLock } from '@brainstrike/state-store';
+import { isRootHeld } from '../src/__tests__/helpers/root-held';
 import { getMainBufferedLogs } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostProcess, waitForAppHost } from './utils/agent-host-log';
@@ -34,14 +34,11 @@ test('a slow machine starts one agent host without errors and quits cleanly', as
   // Main answers the window's host connection only once its profile host is attached.
   await waitForAppHost(page);
 
-  // One host started for this fresh profile: its Root was acquired exactly once
-  // (generation 0), by the host that published the record.
+  // The host Main reports is alive and holds the profile's Root.
   const userData = electron.getUserDataDir();
   const host = await readHostProcess(userData);
-  expect(RootLock.inspect(path.join(userData, 'profiles', 'test'))).toMatchObject({
-    gen: 0,
-    owner: { pid: host.pid, start: host.start },
-  });
+  expect(process.kill(host.pid, 0)).toBe(true);
+  expect(isRootHeld(path.join(userData, 'profiles', 'test'))).toBe(true);
 
   const records = (await getMainBufferedLogs(page)) as readonly BufferedLogRecord[];
   const errors = records.filter((record) => record.level === 'error' || record.level === 'fatal');

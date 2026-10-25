@@ -4,7 +4,6 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { RootLock } from '../src/lock.js';
 import { StateStore, sha256Hex } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 import { fixture, killKids, runTs } from './helpers/proc.js';
@@ -79,7 +78,6 @@ describe('item 2 · thread delete and factory reset', () => {
       expect(lsofUnder([process.pid], root)).toEqual([]);
     }
     expect(store.lock.isReleased).toBe(true);
-    expect(RootLock.inspect(root)).toBeNull();
     // Released for real: another process takes the root at once.
     const p = runTs(fixture('store-proc.ts'), ['hold', root]);
     await p.line('holding');

@@ -2,8 +2,8 @@
 // creates is owned by the user even when an elevated token defaults to
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
-import { takeLifecycleDelays } from '@brainstrike/host-lease/lifecycle-delays';
 import { indexerMessageDelivery } from './indexer-request-delay';
+import { takeLifecycleDelays } from './lifecycle-delays';
 
 // The E2E delay points Main handed this utility, read once and removed from its env.
 const lifecycleDelays = takeLifecycleDelays();

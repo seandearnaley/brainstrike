@@ -31,7 +31,7 @@ async function prepare() {
   const workspace = path.join(directory, 'workspace');
   await mkdir(profileDirectory, { recursive: true });
   await mkdir(workspace);
-  const lock = await RootLock.acquire(profileDirectory);
+  const lock = RootLock.acquire(profileDirectory);
   const root = { displayName: 'Existing root', path: workspace, rootId: ROOT_ID };
   let roots: readonly RuntimeWorkspaceRoot[] = [root];
   const controller = new AbortController();
@@ -41,7 +41,7 @@ async function prepare() {
       joins.push(join);
     },
     signal: new AbortController().signal,
-    store: { lock, root: lock.owner.root },
+    store: { lock, root: lock.root },
   };
   // A recording port tests borrower ownership, not native/catalog qualification.
   const retire = vi.fn(async () => {
@@ -243,8 +243,8 @@ test('accepts a presentation alias of the captured Root identity', async () => {
   await symlink(f.owner.profileDirectory, alias, 'dir');
   const startup = { ...f.startup, store: { lock: f.lock, root: alias } };
   const service = await openNodeWorkspaceServices(startup, async () => f.owner);
-  expect(await realpath(service.profileDirectory)).toBe(f.lock.owner.root);
-  expect(startup.store.root).not.toBe(f.lock.owner.root);
+  expect(await realpath(service.profileDirectory)).toBe(f.lock.root);
+  expect(startup.store.root).not.toBe(f.lock.root);
   expect(await service.withCatalog(async (database) => database)).toBe(f.database);
   await service.close();
   expect(f.lock.isReleased).toBe(false);
@@ -265,7 +265,7 @@ test('rejects a retargeted presentation alias and joins the mismatched acquired 
     profileDirectory: otherProfile,
   };
   expect(await realpath(alias)).toBe(await realpath(otherProfile));
-  expect(f.lock.owner.root).toBe(await realpath(f.owner.profileDirectory));
+  expect(f.lock.root).toBe(await realpath(f.owner.profileDirectory));
   await expect(openNodeWorkspaceServices(startup, async () => owner)).rejects.toThrow(
     'acquired canonical Root'
   );

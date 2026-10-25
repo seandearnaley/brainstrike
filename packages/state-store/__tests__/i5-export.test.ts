@@ -1,11 +1,11 @@
-// M0-A2 item 5 (spike test/i5-export.test.ts): export while streaming, byte-identical import round trip, import on
-// another host (foreign lock takeover), and purge/GC racing an export. The streaming export runs here at 8 MB (the
+// M0-A2 item 5 (spike test/i5-export.test.ts): export while streaming, byte-identical import round trip, a live owner
+// refusing a second opener, and purge/GC racing an export. The streaming export runs here at 8 MB (the
 // spike's mutation size); the 100 MB run is i5-export-100mb.integration.test.ts.
 import { existsSync } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { join, relative, sep } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { ForeignLockError, RootLock, RootLockedError } from '../src/lock.js';
+import { RootLockedError } from '../src/lock.js';
 import type { AppendItem } from '../src/run-log-types.js';
 import { StateStore } from '../src/state-store.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
@@ -84,7 +84,6 @@ describe('item 5 · backup, export, import', () => {
       ...manifest.files
         .filter((file) => file.path !== 'manifest.json')
         .map((file) => join(target, file.path)),
-      ...fs.readdirSync(join(bundle, 'lock')).map((name) => join(target, 'lock', name)),
     ];
     expect(flushed).toEqual(expected);
     expect(closed).toEqual(expected);
@@ -156,55 +155,18 @@ describe('item 5 · backup, export, import', () => {
     process.stdout.write(`[i5 8MB] ${JSON.stringify(res)}\n`);
   }, 300_000);
 
-  test('import on a different host: foreign lock refuses every takeover, including confirmation', async () => {
-    const root = freshDir('i5f');
-    const store = await StateStore.open(root, { host: 'hostA' });
-    await appendInputs(store, T, seedInputs(20, 0, 83));
-    const bundle = join(freshDir('i5fb'), 'bundle');
-    await store.exportTo(bundle);
-    await store.close();
-    const root3 = join(freshDir('i5f3'), 'root');
-    StateStore.importBundle(bundle, root3);
-    expect(RootLock.inspect(root3)?.owner.host).toBe('hostA');
-
-    let asked = false;
-    await expect(
-      StateStore.open(root3, {
-        host: 'hostB',
-        onForeignLock: () => {
-          asked = true;
-          return true;
-        },
-      })
-    ).rejects.toThrow(ForeignLockError);
-    expect(asked).toBe(false);
-    expect(RootLock.inspect(root3)?.owner.host).toBe('hostA');
-    await expect(StateStore.open(root3, { host: 'hostB' })).rejects.toThrow(ForeignLockError);
-  });
-
-  test('the same-host rule is unchanged: a live owner of this root is refused without asking; a dead one is broken', async () => {
+  test('a live owner of the root is refused; once it is killed the root opens at once', async () => {
     const root = freshDir('i5live');
     const p = runTs(fixture('store-proc.ts'), ['hold', root]);
     await p.line('holding');
-    let asked = 0;
-    const ask = (): boolean => {
-      asked++;
-      return true;
-    };
     try {
-      await expect(StateStore.open(root, { onForeignLock: ask })).rejects.toThrow(RootLockedError);
-      expect(asked).toBe(0);
+      await expect(StateStore.open(root)).rejects.toThrow(RootLockedError);
     } finally {
       p.p.kill('SIGKILL');
       await p.exit();
     }
-    const s = await StateStore.open(root, { onForeignLock: ask });
-    try {
-      expect(asked).toBe(0);
-      expect(RootLock.inspect(root)?.owner.pid).toBe(process.pid);
-    } finally {
-      await s.close();
-    }
+    const s = await StateStore.open(root);
+    await s.close();
   });
 
   test('a purge or blob GC racing the export never yields an inconsistent bundle', async () => {

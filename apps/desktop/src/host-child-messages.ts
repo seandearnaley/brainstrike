@@ -7,7 +7,7 @@ const ChildMessageSchema = Schema.Union([
   Schema.Struct({ event: Schema.Literal('ready') }),
   Schema.Struct({
     event: Schema.Literal('failed'),
-    kind: Schema.Literals(['root-locked', 'foreign-lock', 'error']),
+    kind: Schema.Literals(['root-locked', 'error']),
     message: Schema.String,
   }),
   Schema.Struct({

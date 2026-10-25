@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
-import { endTreeOnDeadline, trackNativeChild } from '@brainstrike/state-store/native-children';
+import { endTreeOnDeadline } from '@brainstrike/state-store/native-children';
 import {
   createBackgroundIndexingEntryPolicy,
   createWorkspaceIgnoreMatcher,
@@ -156,9 +156,6 @@ async function readGitConfigValue(
       onError: (cause) => logger.warn('Could not end the git config query', { cause }),
       timeoutMs: 2000,
     });
-    // execFile cannot pass the Root's flock (an ADR-0017 limit); the host's supervisor still
-    // learns this bounded git process.
-    child.once('exit', trackNativeChild(child.pid, { group: false }));
   });
   const value = stdout?.trim();
   return value === '' ? undefined : value;

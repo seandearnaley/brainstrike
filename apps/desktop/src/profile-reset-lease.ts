@@ -10,23 +10,18 @@ export interface ProfileResetLease {
 }
 
 /**
- * Own the existing profile lock throughout the entire destructive reset phase.
- * The caller first joins every profile writer, then retains this guard through
- * profile clearing and all later userData/storage purge. Never remove its lock
- * path or ancestors. Errors retain this accessible guard for retry or policy.
+ * Hold the profile's Root lock throughout the destructive reset phase. The caller
+ * first joins every profile writer, then holds this through profile clearing and
+ * all later userData/storage purge. The lock directory itself is left in place.
  */
 export async function acquireProfileResetLease(root: string): Promise<ProfileResetLease> {
-  const lock = await RootLock.acquire(root);
-  const canonicalRoot = lock.owner.root;
-  const lockEntry = basename(RootLock.dirOf(canonicalRoot));
+  const lock = RootLock.acquire(root);
+  const canonicalRoot = lock.root;
+  const lockEntry = basename(lock.dir);
   let clearing: Promise<void> | undefined;
   const assertOwned = (): void => {
     if (lock.isReleased) {
       throw new Error('Profile reset lease is released');
-    }
-    const current = RootLock.inspect(canonicalRoot)?.owner;
-    if (!current || current.token !== lock.owner.token || current.released) {
-      throw new Error('Profile reset lock namespace is no longer owned');
     }
   };
   const clear = async (): Promise<void> => {
@@ -60,8 +55,6 @@ export async function acquireProfileResetLease(root: string): Promise<ProfileRes
       if (lock.isReleased) {
         return;
       }
-      assertOwned();
-      // Retain the namespace: deleting it would let a contender bypass ownership.
       lock.release();
     },
     root: canonicalRoot,
