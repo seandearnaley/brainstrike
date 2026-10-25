@@ -12,7 +12,6 @@ export type CommandSessionErrorCode =
   | 'session-id-collision'
   | 'session-not-found'
   | 'start-failed'
-  | 'stop-failed'
   | 'workspace-busy';
 
 export class CommandSessionError extends Error {

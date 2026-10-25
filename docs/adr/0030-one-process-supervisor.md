@@ -65,8 +65,11 @@ its own (decision 2).
      POSIX they get SIGTERM, then SIGKILL after the grace. A terminated child whose exit has
      not arrived after the grace is logged, and still joined.
 
-   Startup keeps one user-facing deadline (`HOST_STARTUP_TIMEOUT_MS`), which refuses that
-   start alone. No other lifecycle constant exists.
+   Startup keeps one user-facing deadline (`HOST_STARTUP_TIMEOUT_MS`, and the CLI starter's
+   `HOST_STARTER_READY_TIMEOUT_MS`), which refuses that start alone. A bound on one request a
+   user waits on (ADR-0026 R5(a): an index read, a git query, a ripgrep search) refuses that
+   request alone, ends its process through the supervisor and still joins the exit. No other
+   lifecycle constant exists.
 5. **Quit is the supervisor closing its children in dependency order**: factory reset,
    renderers, host stop, utilities, database (ADR-0029's end state).
 
@@ -83,8 +86,8 @@ one met every done criterion below.
    worktree setup, command sessions, terminals), and `endTreeOnDeadline` for every bounded
    child; on Windows the exit joined on the process handle (`waitForProcessExit`) instead of a
    start-time poll.
-3. **Every remaining lifecycle timer onto the two constants**: egress, embedding host, index
-   reads, fence, command sessions.
+3. **Every remaining lifecycle timer onto the two constants**: egress, embedding host, SQLite
+   query, CLI starter, worktree setup, fence, command sessions.
 4. **POSIX lifelines and test fixtures** spawn through the same supervisor; the launcher
    watchdog's shell loop goes.
 5. **Quit shrinks** as ADR-0029 moves services into the host, which uses the same supervisor.
@@ -98,7 +101,7 @@ for each name below finds nothing.
 | --- | --- |
 | 1 | The indexer's post-ACK exit window (`exitMs`, 1 s, then 30 s in #4308), `indexer-kill-failed`, `IndexerLifecycleError` and the retained-owner path, the host state index's 1 s close and 1 s exit, `KILL_GRACE_MS`, `HOST_COOPERATIVE_CLOSE_MS` |
 | 2 | Hand-written tree kills (`killTree` and its `TreeKill` seam, the terminal's own `tree-kill` call, worktree setup's launcher-only kill on Windows), `timeout` and `signal` options on `spawn`/`execFile` that kill only a launcher (ripgrep, git, gh, the workspace walk's git query), the LSP server's 500 ms shutdown race and its refused-kill error (`killChild`, `rejectNextKillForTest`, `forceKillForTest`), the 25 ms start-time poll on Windows (`PROCESS_EXIT_JOIN_POLL_MS`), ADR-0027's "git's launcher ends on its own" caveat, the open shim-`rg` follow-up |
-| 3 | `LOOPBACK_ANSWER_MS` and the egress startup kill, `EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS`, `EMBEDDING_HOST_STOP_TIMEOUT_MS`, the index read 1 s and 5 s deadlines, the fence's 500 ms grace and confirmation, `PROCESS_EXIT_TIMEOUT_MS`, `WORKTREE_SETUP_TERMINATION_GRACE_MS`, `SQLITE_QUERY_EXIT_REPORT_MS`, `HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`. The removed 1.5 s attach bound (#4308) stays removed: `HOST_STARTUP_TIMEOUT_MS` is the one startup deadline |
+| 3 | `LOOPBACK_ANSWER_MS` and the egress startup kill, `EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS`, `EMBEDDING_HOST_STOP_TIMEOUT_MS`, `EMBEDDING_HOST_RESET_TIMEOUT_MS`, the fence's 500 ms grace and confirmation, worktree setup's abandon-after-grace timer, `PROCESS_EXIT_TIMEOUT_MS`, `WORKTREE_SETUP_TERMINATION_GRACE_MS`, `SQLITE_QUERY_EXIT_REPORT_MS`, `HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`, the `stop-failed` command-session answer. The index read bounds stay: they are R5(a) request bounds, not lifecycle timers (decision 4). The removed 1.5 s attach bound (#4308) stays removed: `HOST_STARTUP_TIMEOUT_MS` is the one startup deadline |
 | 4 | The launcher watchdog's shell loop, per-fixture lifelines (folded into `spawnNativeChild`), per-owner "group SIGTERM is a retirement" labelling |
 | 5 | Quit steps for each service ADR-0029 moves, ADR-0027's native-thread join on Main |
 
