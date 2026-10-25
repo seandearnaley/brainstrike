@@ -78,11 +78,14 @@ export function ModelPicker({
         Popper still uses position:fixed so the content escapes ancestor overflow.
         Stacking is handled by PopoverContent's shared popup layer (see
         packages/ui/src/layers.ts) — no local z-index override belongs here.
+        The content never grows past the room Radix measured on its side of the
+        trigger; the model list shrinks and scrolls inside it instead, so the
+        last model stays reachable in a short window.
       */}
       <PopoverContent
         align="start"
         aria-describedby="model-picker-description"
-        className="pointer-events-auto w-[min(420px,calc(100vw-2rem))] overflow-hidden rounded-xl border-border/70 bg-popover/98 p-0 shadow-black/10 shadow-xl"
+        className="pointer-events-auto flex max-h-(--radix-popover-content-available-height) w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border-border/70 bg-popover/98 p-0 shadow-black/10 shadow-xl"
         portal={false}
         sideOffset={6}
       >
