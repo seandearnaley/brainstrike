@@ -1,19 +1,13 @@
-import path from 'node:path';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
-
-const aliases = [...workspaceSrcAliases(path.resolve(import.meta.dirname, '..'))];
 
 /** One project, `unit`, which runs in Node. */
 export default defineConfig({
-  resolve: { alias: aliases },
   test: {
     // One module cache per package, so parallel lanes never clear a shared one.
     fsModuleCachePath: 'node_modules/.vitest-cache',
     projects: [
       {
-        resolve: { alias: aliases },
         test: {
           environment: 'node',
           // The integration lane runs the native-process fixtures (vitest.integration.config.mts).
