@@ -1,16 +1,10 @@
-export {
-  type CommandSessionBridge,
-  isCommandSessionBridgeAvailable,
-  resolveCommandSessionBridge,
-} from './command-session-bridge';
-export {
-  isTerminalBridgeAvailable,
-  resolveTerminalBridge,
-  type TerminalBridge,
-  type TerminalCreateResult,
-  type TerminalDataEvent,
-  type TerminalExitEvent,
-  type TerminalResult,
+export type { CommandSessionBridge } from './command-session-bridge';
+export type {
+  TerminalBridge,
+  TerminalCreateResult,
+  TerminalDataEvent,
+  TerminalExitEvent,
+  TerminalResult,
 } from './terminal-bridge';
 export { TerminalPanel } from './terminal-panel';
 export { useActiveRootId } from './use-active-root-id';

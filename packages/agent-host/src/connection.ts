@@ -30,6 +30,7 @@ import type {
   HostMcpSettingsService,
   HostPlatform,
   HostProviderService,
+  HostTerminals,
   HostWorkspaceDiscovery,
 } from './ports.ts';
 import {
@@ -43,6 +44,7 @@ import {
 } from './protocol.ts';
 import { bindHostProviderMethods } from './provider-connection.ts';
 import { storeRefusal } from './store-refusals.ts';
+import { bindHostTerminalMethods } from './terminal-connection.ts';
 import {
   coverageHostSearchVectors,
   pendingHostSearchVectors,
@@ -85,6 +87,8 @@ export interface HostConnectionOptions {
   /** The semantic arm's index operations, where the host owns a state index. */
   readonly searchStateVectors?: HostPlatform['searchStateVectors'];
   readonly searchWorkspace?: HostPlatform['searchWorkspace'];
+  /** ADR-0029 stage 3: the desktop's Terminal panel, where the host opens terminals. */
+  readonly terminals?: HostTerminals;
   /** ADR-0029 stage 2: skills and user slash commands, where the host scans roots. */
   readonly workspaceDiscovery?: HostWorkspaceDiscovery;
 }
@@ -124,6 +128,7 @@ export function bindHostConnection(
     searchState,
     searchStateVectors,
     searchWorkspace,
+    terminals,
     workspaceDiscovery,
   } = options;
   let initialized = false;
@@ -290,6 +295,7 @@ export function bindHostConnection(
   disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
   bindHostMcpContentMethods(handle, mcpContent, origin);
   disposables.push(bindHostGitWorkspaceMethods(handle, connection, gitWorkspace, origin));
+  disposables.push(bindHostTerminalMethods(handle, connection, terminals, origin));
   bindHostHookTrustMethods(handle, core.store);
   bindHostPermissionPolicyMethods(handle, core.store, origin);
   bindHostBrowserOriginMethods(handle, core.store, origin);

@@ -26,8 +26,8 @@ import {
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
-import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { useWorktreesBridge } from '../workspace-git-services';
+import { useTerminalBridge } from '../workspace-terminal-services';
 import { useWorktreeMap } from './use-worktree-map';
 import { useWorktreeMapCardActions } from './use-worktree-map-card-actions';
 import { WorktreeMapCard } from './worktree-map-card';
@@ -74,9 +74,9 @@ export function WorktreeMapSurface(): ReactElement {
     [host]
   );
   const platform = useMemo(() => resolvePlatformBridge(), []);
-  // The capability IS the gate — resolved once, not per render, exactly like
-  // the platform bridge above. Web has no `window.terminal`, so no item exists.
-  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  // The capability IS the gate: a tree without a provided terminal bridge
+  // (web) has no item at all.
+  const terminalAvailable = useTerminalBridge() !== null;
   const openTerminalAt = useTerminalTargetStore((state) => state.openTerminalAt);
   const worktrees = useWorktreesBridge();
   // Desktop-only, `undefined` on web (`use-workspace-bar.ts:918` is the precedent).

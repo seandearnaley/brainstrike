@@ -33,13 +33,6 @@ export const DESKTOP_IPC_CHANNELS = {
     // this on the FOCUSED window so the renderer opens the ⌘K palette.
     open: 'command-palette:open',
   },
-  commandSessions: {
-    list: 'command-sessions:list',
-    read: 'command-sessions:read',
-    remove: 'command-sessions:remove',
-    stop: 'command-sessions:stop',
-    write: 'command-sessions:write',
-  },
   contextFiles: {
     scan: 'context-files:scan',
   },
@@ -194,16 +187,6 @@ export const DESKTOP_IPC_CHANNELS = {
     removeItem: 'storage:removeItem',
     seedMainOwnedForE2e: 'storage:seedMainOwnedForE2e',
     setItem: 'storage:setItem',
-  },
-  terminal: {
-    create: 'terminal:create',
-    // One-way main→renderer pushes (pty output / exit). Not ipcMain.handle
-    // channels — see terminal-ipc-handlers.ts.
-    data: 'terminal:data',
-    destroy: 'terminal:destroy',
-    exit: 'terminal:exit',
-    resize: 'terminal:resize',
-    write: 'terminal:write',
   },
   threadGroups: { readRoots: 'thread-groups:read-roots', request: 'thread-groups:request' },
   userPersonas: {

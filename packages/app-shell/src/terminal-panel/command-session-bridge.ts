@@ -1,6 +1,11 @@
-import { createLogger } from '@brainstrike/logging';
-
-const logger = createLogger('CommandSessionInventory');
+/**
+ * Structural typing for the command-session bridge (the inventory of
+ * long-running command sessions an assistant started in a workspace root).
+ *
+ * The desktop builds it from its agent-host connection and provides it through
+ * `WorkspaceTerminalServicesProvider` (ADR-0029); a tree without a provider has
+ * none, and the inventory is omitted, never stubbed.
+ */
 
 type CommandSessionErrorCode =
   | 'aborted'
@@ -71,54 +76,4 @@ export interface CommandSessionBridge {
   readonly write: (
     params: CommandSessionIdentityParams & { readonly data: string }
   ) => Promise<CommandSessionResult>;
-}
-
-// Compile-time exact-set proof: `satisfies Record<keyof CommandSessionBridge,
-// true>` fails the build if any interface method is missing here, and excess
-// keys are rejected — so the pin can never silently become a subset (or
-// superset) of the interface. The runtime pin only checks preload ↔ constant;
-// this closes interface ↔ constant.
-const COMMAND_SESSION_BRIDGE_REQUIRED_METHOD_SET = {
-  list: true,
-  read: true,
-  remove: true,
-  stop: true,
-  write: true,
-} as const satisfies Record<keyof CommandSessionBridge, true>;
-
-/**
- * Every method name the bridge must expose to be considered fully formed.
- * Exported so the desktop contract test can pin the derived preload bridge to
- * this exact package-owned surface.
- *
- * NOTE: the pin is EXACT set equality, not a subset check — every method the
- * preload exposes must be listed here. There is no such thing as an optional
- * bridge method: a preload method missing from this list (or vice versa)
- * disables the entire surface via the resolver below.
- */
-export const COMMAND_SESSION_BRIDGE_REQUIRED_METHODS = Object.keys(
-  COMMAND_SESSION_BRIDGE_REQUIRED_METHOD_SET
-) as readonly (keyof CommandSessionBridge)[];
-
-export function resolveCommandSessionBridge(): CommandSessionBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = (window as Window & { commandSessions?: Partial<CommandSessionBridge> })
-    .commandSessions;
-  if (!bridge) {
-    return null;
-  }
-  const missing = COMMAND_SESSION_BRIDGE_REQUIRED_METHODS.filter(
-    (method) => typeof bridge[method] !== 'function'
-  );
-  if (missing.length > 0) {
-    logger.error('window.commandSessions bridge is malformed; inventory disabled', { missing });
-    return null;
-  }
-  return bridge as CommandSessionBridge;
-}
-
-export function isCommandSessionBridgeAvailable(): boolean {
-  return resolveCommandSessionBridge() !== null;
 }

@@ -59,6 +59,7 @@ import {
   selectionEventSchemas,
 } from './protocol-selection.ts';
 import { HostStateHealthSchema } from './protocol-state-health.ts';
+import { TERMINAL_METHOD_SCHEMAS, TERMINAL_RESULT_SCHEMAS } from './protocol-terminals.ts';
 import {
   WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
   WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
@@ -90,6 +91,7 @@ export * from './protocol-rewind.ts';
 export * from './protocol-search.ts';
 export * from './protocol-selection.ts';
 export * from './protocol-state-health.ts';
+export * from './protocol-terminals.ts';
 export * from './protocol-workspace-discovery.ts';
 export * from './run-wire.ts';
 export * from './workspace-wire.ts';
@@ -370,6 +372,7 @@ export const HOST_METHOD_SCHEMAS = {
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
   ...PERMISSION_POLICY_METHOD_SCHEMAS,
+  ...TERMINAL_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
   'auth/clear': Schema.Record(Schema.String, Schema.Never),
@@ -963,6 +966,7 @@ export const HOST_RESULT_SCHEMAS = {
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   ...PERMISSION_POLICY_RESULT_SCHEMAS,
+  ...TERMINAL_RESULT_SCHEMAS,
   'auth/clear': Schema.Struct({ cleared: Schema.Boolean }),
   'auth/credential/delete': Schema.Struct({ deleted: Schema.Boolean }),
   'auth/credential/set': Schema.Struct({ stored: Schema.Literal(true) }),
