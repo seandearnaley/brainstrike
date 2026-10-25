@@ -38,6 +38,10 @@ async function connectAgentHost(record: HostRecord, signal: AbortSignal): Promis
   let reader: StreamMessageReader | undefined;
   let connection: MessageConnection | undefined;
   const receivedFailures = new Set<unknown>();
+  // The socket's own errors (EPIPE, ECONNRESET, a write after destroy) are the host ending the
+  // connection under this side's writes. Each failed request already carries that loss, so only
+  // a received frame this side could not decode or dispatch fails the close.
+  const transportFailures = new WeakSet<object>();
   const completion = Promise.withResolvers<void>();
   completion.promise.catch(() => undefined);
   socket.once('close', () => {
@@ -47,7 +51,8 @@ async function connectAgentHost(record: HostRecord, signal: AbortSignal): Promis
       completion.reject
     );
   });
-  socket.on('error', (error: Error) => receivedFailures.add(error));
+  // Registered before the reader's own listener, so the reader sees each one already marked.
+  socket.on('error', (error: Error) => transportFailures.add(error));
   const close = async (): Promise<void> => {
     socket.destroy();
     await completion.promise;
@@ -71,8 +76,12 @@ async function connectAgentHost(record: HostRecord, signal: AbortSignal): Promis
       socket.connect(record.endpoint);
     });
     reader = new StreamMessageReader(socket);
+    reader.onError((cause) => {
+      if (!transportFailures.has(cause)) {
+        receivedFailures.add(cause);
+      }
+    });
     connection = createMessageConnection(reader, new StreamMessageWriter(socket));
-    connection.onError(([cause]) => receivedFailures.add(cause));
     return await authenticateHostClient(connection, record, close, completion.promise);
   } catch (cause) {
     socket.destroy();
