@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { WorkspaceFileNode } from '@brainstrike/agent-host/protocol';
 import { buildQuerySelectionFingerprint } from '@brainstrike/file-explorer';
 import {
   FILE_EXPLORER_STORAGE_KEY,
@@ -9,11 +10,16 @@ import {
 import type { FileExplorerState } from '@brainstrike/types';
 import { createEmptySelectionModel, DEFAULT_STATE } from '@brainstrike/types';
 import type { ElectronApplication, Locator, Page } from 'playwright';
+import {
+  E2E_FILE_SYSTEM_FIXTURE_FILE,
+  type E2eFileSystemFixture,
+} from '../src/e2e-file-system-fixture';
 import { expect, test } from './fixtures/electron-fixture';
 
 export { expect, test };
 
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
+import { seedWorkspaceLedgers } from './utils/seed-root';
 // NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
 // that a harness-owned app must only be closed via `closeForStateSeeding()`, so
 // it should not also hand callers `closeElectronApp`. Specs that genuinely need
@@ -35,27 +41,22 @@ export interface SeedableElectronHarness {
   }>;
 }
 
-interface ElectronE2eFileSystemFixture {
-  directoriesByPath: Record<string, unknown[]>;
-  /**
-   * Opt-in per-read delay (ms) honored by the main-process `fs:readDirectory`
-   * handler (apps/desktop/src/ipc-domains/file-system-ipc.ts). Omit it — as
-   * every fixture below this one does — to keep reads instant.
-   */
-  directoryReadDelayMs?: number;
-  fileContentsByPath: Record<string, string>;
-  readDirectoryCalls: string[];
-  readFileByPathCalls: string[];
-  readFileCalls: string[];
-  requestDirectoryAccessCount: number;
-  rootHandle: {
-    id: string;
-    kind: 'directory';
-    name: string;
-    path: string;
-    platform: 'electron';
-    type: 'directory';
-  };
+/**
+ * Install the E2E mock file system for this profile. The agent host serves the
+ * fixture root's reads from it (honoring `directoryReadDelayMs`, an opt-in per-read
+ * delay every fixture but the wide expand-all one omits), and Main's test-mode
+ * folder picker returns its root.
+ */
+export async function installE2eFileSystemFixture(
+  electronApp: ElectronApplication,
+  fixture: E2eFileSystemFixture
+): Promise<void> {
+  const userDataDir = await electronApp.evaluate(({ app }) => app.getPath('userData'));
+  await writeFile(
+    path.join(userDataDir, E2E_FILE_SYSTEM_FIXTURE_FILE),
+    JSON.stringify(fixture),
+    'utf8'
+  );
 }
 
 interface FileExplorerTestSnapshot {
@@ -561,15 +562,12 @@ export function mockRootPath(name: string): string {
  * Fixed RootId used by every seeded selection fixture (storage v5).
  *
  * The app now keys `currentFolderId` / `folderStates` by a durable RootId UUID,
- * not by the root path. The desktop main process resolves a path to its RootId
- * via the `rootsList` storage entry (see file-system-ipc.ts `restoreRoots`), so
- * the seed functions below write a matching `rootsList` entry — the restored
- * root then carries this exact id and the seeded folder state hydrates.
+ * not by the root path. The agent host resolves a path to its RootId through its
+ * root ledger, so the seed functions below seed a matching root through the host
+ * — the restored root then carries this exact id and the seeded folder state
+ * hydrates.
  */
 const E2E_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000001';
-
-/** Fixed addedAt for the seeded rootsList entry — deterministic fixture data. */
-const E2E_ROOT_ADDED_AT = 1_700_000_000_000;
 
 function createBaseExplorerState(rootPath: string): FileExplorerState {
   return {
@@ -767,6 +765,13 @@ export async function seedRestoredExplicitSelectionState(args: {
   });
   const currentContext = await electronHarness.ensureContext();
   const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
+  // The host keeps the folder ledgers: the restored root carries the same RootId the snapshot
+  // is keyed by on the next launch.
+  await seedWorkspaceLedgers(currentContext.window, {
+    lastFolderPath: rootPath,
+    recentPaths: [],
+    roots: [{ path: rootPath, rootId: E2E_ROOT_ID }],
+  });
 
   await electronHarness.closeForStateSeeding();
 
@@ -780,12 +785,6 @@ export async function seedRestoredExplicitSelectionState(args: {
 
   const nextStorage = {
     ...existingStorage,
-    lastFolderPath: rootPath,
-    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
-    // entry, so the restored root carries the same RootId the snapshot is keyed by.
-    rootsList: JSON.stringify([
-      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
-    ]),
     [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 
@@ -810,6 +809,13 @@ export async function seedRestoredQuerySelectionState(args: {
   const persistedState = createRestoredQuerySelectionSnapshot(snapshot);
   const currentContext = await electronHarness.ensureContext();
   const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
+  // The host keeps the folder ledgers: the restored root carries the same RootId the snapshot
+  // is keyed by on the next launch.
+  await seedWorkspaceLedgers(currentContext.window, {
+    lastFolderPath: rootPath,
+    recentPaths: [],
+    roots: [{ path: rootPath, rootId: E2E_ROOT_ID }],
+  });
 
   await electronHarness.closeForStateSeeding();
 
@@ -823,12 +829,6 @@ export async function seedRestoredQuerySelectionState(args: {
 
   const nextStorage = {
     ...existingStorage,
-    lastFolderPath: rootPath,
-    // Storage v5: main's restoreRoots resolves rootPath → E2E_ROOT_ID via this
-    // entry, so the restored root carries the same RootId the snapshot is keyed by.
-    rootsList: JSON.stringify([
-      { addedAt: E2E_ROOT_ADDED_AT, path: rootPath, rootId: E2E_ROOT_ID },
-    ]),
     [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 
@@ -916,7 +916,7 @@ export async function installNestedFolderFixture(
   electronApp: ElectronApplication,
   rootPath: string
 ): Promise<void> {
-  const fixture: ElectronE2eFileSystemFixture = {
+  const fixture: E2eFileSystemFixture = {
     directoriesByPath: {
       [rootPath]: [
         {
@@ -992,28 +992,15 @@ export async function installNestedFolderFixture(
       [path.join(rootPath, 'src/index.ts')]: 'export const value = 1;',
       [path.join(rootPath, 'src/extra.ts')]: 'export const extra = 2;',
     },
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
     rootHandle: {
-      id: 'mock-directory-handle',
       kind: 'directory',
       name: 'mock-desktop-selection-root',
       path: rootPath,
       platform: 'electron',
-      type: 'directory',
     },
   };
 
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        // biome-ignore lint/style/useNamingConvention: Desktop E2E fixture global intentionally uses the app-owned key.
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+  await installE2eFileSystemFixture(electronApp, fixture);
 }
 
 const WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT = 30;
@@ -1045,7 +1032,7 @@ export async function installWideExpandAllFixture(
   electronApp: ElectronApplication,
   rootPath: string
 ): Promise<void> {
-  const directoriesByPath: Record<string, unknown[]> = {};
+  const directoriesByPath: Record<string, WorkspaceFileNode[]> = {};
   const fileContentsByPath: Record<string, string> = {};
 
   const createDirectoryEntry = (args: {
@@ -1133,39 +1120,26 @@ export async function installWideExpandAllFixture(
     }
   }
 
-  const fixture: ElectronE2eFileSystemFixture = {
+  const fixture: E2eFileSystemFixture = {
     directoriesByPath,
     directoryReadDelayMs: WIDE_EXPAND_ALL_DIRECTORY_READ_DELAY_MS,
     fileContentsByPath,
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
     rootHandle: {
-      id: 'mock-wide-expand-all-handle',
       kind: 'directory',
       name: 'mock-wide-expand-all-root',
       path: rootPath,
       platform: 'electron',
-      type: 'directory',
     },
   };
 
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        // biome-ignore lint/style/useNamingConvention: Desktop E2E fixture global intentionally uses the app-owned key.
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+  await installE2eFileSystemFixture(electronApp, fixture);
 }
 
 export async function installNestedPackagesFixture(
   electronApp: ElectronApplication,
   rootPath: string
 ): Promise<void> {
-  const fixture: ElectronE2eFileSystemFixture = {
+  const fixture: E2eFileSystemFixture = {
     directoriesByPath: {
       [rootPath]: [
         {
@@ -1299,35 +1273,22 @@ export async function installNestedPackagesFixture(
       [path.join(rootPath, 'packages/agent/index.ts')]: 'export const agent = 1;',
       [path.join(rootPath, 'packages/app-shell/main.ts')]: 'export const appShell = 1;',
     },
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
     rootHandle: {
-      id: 'mock-directory-handle-packages',
       kind: 'directory',
       name: 'mock-desktop-selection-packages-root',
       path: rootPath,
       platform: 'electron',
-      type: 'directory',
     },
   };
 
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        // biome-ignore lint/style/useNamingConvention: Desktop E2E fixture global intentionally uses the app-owned key.
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+  await installE2eFileSystemFixture(electronApp, fixture);
 }
 
 export async function installIncrementalFolderSelectionFixture(
   electronApp: ElectronApplication,
   rootPath: string
 ): Promise<void> {
-  const fixture: ElectronE2eFileSystemFixture = {
+  const fixture: E2eFileSystemFixture = {
     directoriesByPath: {
       [rootPath]: [
         {
@@ -1497,35 +1458,22 @@ export async function installIncrementalFolderSelectionFixture(
       [path.join(rootPath, 'e2e/utils/performance-helpers.ts')]:
         'export const performanceHelpers = 1;',
     },
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
     rootHandle: {
-      id: 'mock-directory-handle-e2e',
       kind: 'directory',
       name: 'mock-desktop-selection-e2e-root',
       path: rootPath,
       platform: 'electron',
-      type: 'directory',
     },
   };
 
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        // biome-ignore lint/style/useNamingConvention: Desktop E2E fixture global intentionally uses the app-owned key.
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+  await installE2eFileSystemFixture(electronApp, fixture);
 }
 
 export async function installMixedHookSelectionFixture(
   electronApp: ElectronApplication,
   rootPath: string
 ): Promise<void> {
-  const fixture: ElectronE2eFileSystemFixture = {
+  const fixture: E2eFileSystemFixture = {
     directoriesByPath: {
       [rootPath]: [
         {
@@ -1676,28 +1624,15 @@ export async function installMixedHookSelectionFixture(
       [path.join(rootPath, 'hooks/src/__tests__/use-file-filters.test.ts')]:
         'export const useFileFiltersTest = 1;',
     },
-    readDirectoryCalls: [],
-    readFileByPathCalls: [],
-    readFileCalls: [],
-    requestDirectoryAccessCount: 0,
     rootHandle: {
-      id: 'mock-directory-handle-hooks',
       kind: 'directory',
       name: 'mock-desktop-selection-hooks-root',
       path: rootPath,
       platform: 'electron',
-      type: 'directory',
     },
   };
 
-  await electronApp.evaluate((_electron, nextFixture) => {
-    (
-      globalThis as typeof globalThis & {
-        // biome-ignore lint/style/useNamingConvention: Desktop E2E fixture global intentionally uses the app-owned key.
-        __brainstrike_e2e_file_system_fixture__?: ElectronE2eFileSystemFixture | undefined;
-      }
-    ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
-  }, fixture);
+  await installE2eFileSystemFixture(electronApp, fixture);
 }
 
 /** Explorer tree-expansion actions, by their stable testids. */

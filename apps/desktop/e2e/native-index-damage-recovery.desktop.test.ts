@@ -15,6 +15,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { withAppHost } from './utils/agent-host-log';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { restoredWorkspaceRoots } from './utils/seed-root';
 import { seedHostThreads } from './utils/seed-threads';
 import { nativeStatus, textReadiness } from './utils/text-search-mode';
 
@@ -74,19 +75,12 @@ function corruptIndexLeaf(file: string): { index: string; offset: number } {
   return { index, offset };
 }
 
-/** The registered folders, as Main restores them. */
+/** The registered folders, as the host restores them. */
 async function restoredRoots(page: Page): Promise<unknown> {
-  return await page.evaluate(async () => {
-    const files = window.electronAPI?.fileSystem;
-    if (!files) {
-      throw new Error('The desktop file system bridge is unavailable');
-    }
-    const reply = await files.restoreRoots();
-    if (!reply.ok) {
-      throw new Error(reply.error.message);
-    }
-    return reply.value.map((root) => ({ id: root.rootId, path: root.handle.path }));
-  });
+  return (await restoredWorkspaceRoots(page)).map((root) => ({
+    id: root.rootId,
+    path: root.handle.path,
+  }));
 }
 
 async function searchFor(page: Page, text: string) {

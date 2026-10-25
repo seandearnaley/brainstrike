@@ -16,6 +16,7 @@
  * for the user to read, edit, and send.
  */
 import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
@@ -118,7 +119,11 @@ export function useMcpPromptSlashCommands(threadId: string | undefined): readonl
       .getServerStatusSnapshot()
       .then((initial) => applySnapshot(initial, generation))
       .catch((error: unknown) => {
-        logger.error('Failed to read MCP host status for the slash menu', { error });
+        if (isOwnerUnavailable(error)) {
+          logger.warn('MCP host status for the slash menu is unavailable', { error });
+        } else {
+          logger.error('Failed to read MCP host status for the slash menu', { error });
+        }
       });
     return () => {
       generationRef.current += 1;

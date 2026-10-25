@@ -18,15 +18,12 @@ export async function addWorkspaceFolder(page: Page, workspace: string): Promise
     .poll(
       async () => {
         const roots = await page.evaluate(async (folder) => {
-          const api = window.electronAPI;
-          if (!(api && 'fileSystem' in api)) {
-            throw new Error('The normal desktop filesystem bridge is missing');
+          const hooks = window.__brainstrikeTestHooks__;
+          if (!hooks) {
+            return [];
           }
-          const reply = await api.fileSystem.restoreRoots();
-          if (!reply.ok) {
-            throw new Error(reply.error.message);
-          }
-          return reply.value.filter((root) => root.handle.path === folder);
+          const restored = await hooks.restoreWorkspaceRoots();
+          return restored.filter((root) => root.handle.path === folder);
         }, workspace);
         rootId = z.array(z.object({ rootId: z.string() })).parse(roots)[0]?.rootId;
         return rootId !== undefined;

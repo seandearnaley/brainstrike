@@ -1,7 +1,9 @@
+import { ASSISTANT_PREFERENCES_STORE_NAME } from '@brainstrike/app-state/stores/assistant-preferences-store-name';
 import type { HostedProviderType } from '@brainstrike/embeddings/provider-core';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { EmbeddingHostQueryEmbeddingPayload } from './embedding-host-shared';
-import { generateHostedEmbeddings } from './hosted-embeddings';
+import { generateHostedEmbeddings, type HostedEmbeddingCredentials } from './hosted-embeddings';
+import { getSecretsService } from './secrets';
 
 /** Own provider operations until physical settlement, including stop/reset/dispose. */
 export class HostedEmbeddingRequests {
@@ -10,10 +12,15 @@ export class HostedEmbeddingRequests {
     readonly controller: AbortController;
     readonly settled: Promise<void>;
   }>();
-  private readonly storage: Pick<ElectronStorageAdapter, 'getItem'> | undefined;
+  private readonly credentials: HostedEmbeddingCredentials;
 
   constructor(storage?: Pick<ElectronStorageAdapter, 'getItem'>) {
-    this.storage = storage;
+    // Main's own reads: the shared credential store and its runtime preferences.
+    this.credentials = {
+      readRuntimePreferences: async () =>
+        storage ? await storage.getItem(ASSISTANT_PREFERENCES_STORE_NAME) : null,
+      readSecret: (provider) => getSecretsService().getKey(provider),
+    };
   }
   get hasPending(): boolean {
     return this.requests.size > 0 || this.retirement !== null;
@@ -31,13 +38,13 @@ export class HostedEmbeddingRequests {
     }
     const operation = Promise.resolve().then(() =>
       generateHostedEmbeddings({
+        credentials: this.credentials,
         dimensions: payload.dimensions,
         modelId: payload.modelId,
         provider,
         purpose: 'query',
         signal: controller.signal,
         texts: [payload.query],
-        ...(this.storage ? { storage: this.storage } : {}),
       })
     );
     const settled = operation.then(

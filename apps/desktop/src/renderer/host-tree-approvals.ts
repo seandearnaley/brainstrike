@@ -289,10 +289,14 @@ export class HostTreeApprovals implements SubagentChildRunSource {
     if (!watched || this.closed) {
       return;
     }
-    const { error, isLoading, rows } = watched.session.getSnapshot();
+    const { error, isLoading, ownerUnavailable, rows } = watched.session.getSnapshot();
     if (error !== undefined && !watched.reported) {
       watched.reported = true;
-      logger.error('A delegated thread’s approvals could not be read', { error, threadId });
+      if (ownerUnavailable) {
+        logger.warn('A delegated thread’s approvals are unavailable', { error, threadId });
+      } else {
+        logger.error('A delegated thread’s approvals could not be read', { error, threadId });
+      }
     }
     const effects = effectCount(rows);
     if (!isLoading && effects !== watched.effects) {

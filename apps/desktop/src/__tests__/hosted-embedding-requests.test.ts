@@ -26,6 +26,11 @@ describe('owned hosted native queries', () => {
         })
       ).toEqual(vector);
       expect(hostedEmbeddingMock).toHaveBeenCalledWith({
+        // Main's own store and preferences supply the key and a local runtime's URL.
+        credentials: {
+          readRuntimePreferences: expect.any(Function),
+          readSecret: expect.any(Function),
+        },
         dimensions: 768,
         modelId: 'saved-model',
         provider,

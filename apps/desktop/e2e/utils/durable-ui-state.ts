@@ -11,6 +11,7 @@ import { getContextExplorerFileExplorerPanel } from './context-explorer-locators
 import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
+import { seedWorkspaceLedgers } from './seed-root';
 
 /**
  * The three renderer writers with a write-behind tail (ADR-0026 R1), driven through the real UI
@@ -48,24 +49,11 @@ export async function openDurableUiFixture(
   );
   await mkdir(path.join(rootPath, FOLDER));
   await writeFile(path.join(rootPath, FOLDER, 'index.ts'), 'export const durable = true;\n');
-  await seedPage.evaluate(
-    async ({ root, rootId }) => {
-      const storage = (
-        globalThis as typeof globalThis & {
-          electronAPI?: { storage?: { setItem?: (k: string, v: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem unavailable');
-      }
-      await storage.setItem('lastFolderPath', root);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId }])
-      );
-    },
-    { root: rootPath, rootId: ROOT_ID }
-  );
+  await seedWorkspaceLedgers(seedPage, {
+    lastFolderPath: rootPath,
+    recentPaths: [],
+    roots: [{ path: rootPath, rootId: ROOT_ID }],
+  });
   await updateIndexConfig(seedPage, { paused: true });
   const { window: page } = await electron.restart();
   const { waitForAppReady } = await loadElectronHelpers();

@@ -1,3 +1,4 @@
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   SubagentConversationNavigationContext,
   SubagentConversationPresentationContext,
@@ -64,7 +65,11 @@ export function HostChildConversations({
       },
       (error: unknown) => {
         // Cards still open through the resolver, which reports its own failure.
-        logger.error('Host child threads could not be listed', { error, threadId });
+        if (isOwnerUnavailable(error)) {
+          logger.warn('Host child threads are unavailable', { error, threadId });
+        } else {
+          logger.error('Host child threads could not be listed', { error, threadId });
+        }
       }
     );
     return () => {

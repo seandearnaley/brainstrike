@@ -9,6 +9,7 @@ import path from 'node:path';
 import { expect, type Page, test } from '@playwright/test';
 import { createServer } from 'vite';
 import { HomePage } from './page-objects/home-page';
+import { readHostRootRecords } from './utils/agent-host-log';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import {
   launchOrdinaryDevApp,
@@ -67,24 +68,12 @@ async function chooseModel(page: Page): Promise<void> {
   await page.getByRole('option').filter({ hasText: 'GPT-5.6 Terra (OpenRouter)' }).first().click();
 }
 
-async function addRoot(page: Page): Promise<string> {
+/** Add the folder through the actual picker; the profile host records it as its one live root. */
+async function addRoot({ hostRoot, page }: OrdinaryDevApp): Promise<string> {
   await page.getByRole('button', { exact: true, name: 'Add Folder to Workspace' }).click();
   await expect(page.getByTestId('single-root-header-row')).toContainText('brainstrike');
-  const roots = await page.evaluate(async () => {
-    if (!window.electronAPI) {
-      throw new Error('Desktop bridge unavailable');
-    }
-    const reply = await window.electronAPI.fileSystem.restoreRoots();
-    if (!reply.ok) {
-      throw new Error(reply.error.message);
-    }
-    return reply.value.map((root) => ({
-      id: root.rootId,
-      permissionState: root.permissionState,
-    }));
-  });
+  const roots = (await readHostRootRecords(hostRoot)).filter((root) => root.status === 'live');
   expect(roots).toHaveLength(1);
-  expect(roots[0]?.permissionState).toBe('granted');
   const id = roots[0]?.id;
   if (!id) {
     throw new Error('Actual picker did not register a root');
@@ -139,7 +128,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A and full 
     await configureProvider(a.page, true);
     await chooseModel(a.page);
     await send(a.page, 'A_NO_FOLDER');
-    const rootA = await addRoot(a.page);
+    const rootA = await addRoot(a);
     await newThread(a.page);
     await send(a.page, 'A_WITH_FOLDER');
 
@@ -217,7 +206,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A and full 
     await configureProvider(b.page, false);
     await chooseModel(b.page);
     await send(b.page, 'B_NO_FOLDER');
-    const rootB = await addRoot(b.page);
+    const rootB = await addRoot(b);
     expect(rootB).not.toBe(rootA);
     await newThread(b.page);
     await send(b.page, 'B_WITH_FOLDER');
@@ -231,7 +220,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A and full 
         .getByTestId('assistant-ui-viewport')
         .getByText('B_WITH_FOLDER', { exact: true })
     ).toHaveCount(0);
-    const restoredA = await addRoot(returnedA.page);
+    const restoredA = await addRoot(returnedA);
     expect(restoredA).toBe(rootA);
     await newThread(returnedA.page);
     await send(returnedA.page, 'A_RETURN_FIRST_SEND');

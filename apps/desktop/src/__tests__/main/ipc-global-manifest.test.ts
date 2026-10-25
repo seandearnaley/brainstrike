@@ -35,18 +35,16 @@ const profileStartup = vi.hoisted(() => ({
   events: [] as string[],
 }));
 
-vi.mock('../../native-index-activation', async () => {
-  const actual = await vi.importActual<typeof import('../../native-index-activation')>(
-    '../../native-index-activation'
+// The profile's agent host: its start-up is recorded and never settles.
+vi.mock('../../desktop-profile-runtime', async () => {
+  const actual = await vi.importActual<typeof import('../../desktop-profile-runtime')>(
+    '../../desktop-profile-runtime'
   );
   return {
     ...actual,
-    createNativeIndexActivation: (
-      ...args: Parameters<typeof actual.createNativeIndexActivation>
-    ) => ({
-      ...actual.createNativeIndexActivation(...args),
-      acquireProfile: profileStartup.acquire,
-    }),
+    createDesktopProfileRuntime: (
+      ...args: Parameters<typeof actual.createDesktopProfileRuntime>
+    ) => ({ ...actual.createDesktopProfileRuntime(...args), acquire: profileStartup.acquire }),
   };
 });
 
@@ -318,7 +316,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   });
 
   it('boots the full per-domain registry set (module scope + app.whenReady())', () => {
-    expect(registryCapture.instances.length).toBeGreaterThanOrEqual(30);
+    expect(registryCapture.instances.length).toBeGreaterThanOrEqual(28);
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.clipboard.writeText,
@@ -379,15 +377,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       }))
     );
     expect(expected.length).toBeGreaterThan(50);
-    // Preload and Main both gate these on E2E test mode, which this boot is not.
-    const e2eOnly = new Set<string>([
-      DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
-      DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
-    ]);
-    const registered = new Set([
-      ...union.map(({ channel, kind }) => `${kind} ${channel}`),
-      ...[...e2eOnly].map((channel) => `invoke ${channel}`),
-    ]);
+    const registered = new Set(union.map(({ channel, kind }) => `${kind} ${channel}`));
     expect(expected.filter(({ channel, kind }) => !registered.has(`${kind} ${channel}`))).toEqual(
       []
     );
@@ -402,8 +392,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'context-files.contract.ts',
       'database.contract.ts',
       'factory-reset.contract.ts',
-      'file-system.contract.ts',
-      'index-search.contract.ts',
+      'folder-picker.contract.ts',
       'mcp.contract.ts',
       'model-catalog.contract.ts',
       'prompt-library.contract.ts',
@@ -414,7 +403,6 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
       'window-focus.contract.ts',
     ]);
     expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(1);
-    expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);
     expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(2);
     expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(
       3

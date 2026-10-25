@@ -32,7 +32,9 @@ function host() {
       if (method === 'permissions/policy/write') {
         saved = (parsed as HostParams<'permissions/policy/write'>).policy;
       }
-      return Schema.decodeSync(HOST_RESULT_SCHEMAS[method], {
+      // Widened once: indexing the result map by a generic method is too deep for tsc.
+      const result: Schema.ConstraintDecoder<unknown> = HOST_RESULT_SCHEMAS[method];
+      return Schema.decodeSync(result, {
         errors: 'all',
         onExcessProperty: 'error',
       })({ policy: saved }) as HostResults[M];

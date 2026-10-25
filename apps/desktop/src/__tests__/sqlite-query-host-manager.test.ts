@@ -1,64 +1,51 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { ForkLentUtility } from '../lent-utility';
 
-const mocks = vi.hoisted(() => ({
+const mocks = {
   children: [] as Array<{
     receive(value: unknown): void;
     exit(): void;
     messages: unknown[];
-    kill: ReturnType<typeof vi.fn>;
+    kill: ReturnType<typeof vi.fn<() => boolean>>;
   }>,
   heldStartup: false,
   refuse: false,
-}));
-vi.mock('electron', () => ({
-  app: { isReady: () => true },
-  utilityProcess: {
-    fork: () => {
-      const listeners = new Map<string, Set<(value: unknown) => void>>();
-      const emit = (event: string, value?: unknown): void => {
-        for (const listener of listeners.get(event) ?? []) {
-          listener(value);
-        }
-      };
-      const messages: unknown[] = [];
-      const kill = vi.fn(() => {
-        if (mocks.refuse) {
-          return false;
-        }
-        queueMicrotask(() => emit('exit'));
-        return true;
-      });
-      mocks.children.push({
-        exit: () => emit('exit'),
-        kill,
-        messages,
-        receive: (value) => emit('message', value),
-      });
-      return {
-        kill,
-        off: (event: string, listener: (value: unknown) => void) => {
-          listeners.get(event)?.delete(listener);
-        },
-        on: (event: string, listener: (value: unknown) => void) => {
-          const set = listeners.get(event) ?? new Set();
-          set.add(listener);
-          listeners.set(event, set);
-        },
-        pid: 1234,
-        postMessage: (request: { id: number; kind: string }) => {
-          messages.push(request);
-          if (!mocks.heldStartup && request.kind === 'open-native-coverage') {
-            queueMicrotask(() => emit('message', { id: request.id, kind: 'ready' }));
-          }
-        },
-      };
+};
+/** Main's lent reader utility, whose exit Main reports once joined (`forkLentUtility`). */
+const fork: ForkLentUtility = () => {
+  const messages: unknown[] = [];
+  const child = Object.assign(new EventEmitter(), {
+    kill: vi.fn(() => {
+      if (mocks.refuse) {
+        return false;
+      }
+      queueMicrotask(() => child.emit('exit', 0));
+      return true;
+    }),
+    pid: 1234,
+    postMessage: (request: unknown) => {
+      messages.push(request);
+      if (
+        !mocks.heldStartup &&
+        typeof request === 'object' &&
+        request !== null &&
+        Reflect.get(request, 'kind') === 'open-native-coverage'
+      ) {
+        const id: unknown = Reflect.get(request, 'id');
+        queueMicrotask(() => child.emit('message', { id, kind: 'ready' }));
+      }
     },
-  },
-}));
-vi.mock('../bundled-sibling-path', () => ({
-  resolveBundledSiblingPath: () => '/actual-query-entry.js',
-}));
+  });
+  mocks.children.push({
+    exit: () => child.emit('exit', 0),
+    kill: child.kill,
+    messages,
+    receive: (value) => child.emit('message', value),
+  });
+  return child;
+};
 
 const authority = {
   authorityEpoch: 'b'.repeat(64),
@@ -80,19 +67,23 @@ afterEach(() => {
 it('retains a failed reader exit through reset and joins it on retry', async () => {
   const manager = await import('../sqlite-query-host-manager');
   const index = { databasePath: authority.dbPath };
-  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 }, fork);
   const reader = await manager.openIndexCoverage(authority);
   mocks.refuse = true;
   await expect(manager.closeAllIndexQueries()).rejects.toThrow(
     'Index query owners did not all exit'
   );
   expect(() =>
-    manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 })
+    manager.installIndexQueryTarget(
+      () => index,
+      { deadlineMs: 1000, startupDeadlineMs: 5000 },
+      fork
+    )
   ).toThrow('previous index query target');
   mocks.refuse = false;
   await manager.closeAllIndexQueries();
   await reader.close();
-  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 }, fork);
   await manager.closeAllIndexQueries();
 });
 
@@ -100,21 +91,21 @@ it('stops and joins a held startup before reset allows a replacement owner', asy
   mocks.heldStartup = true;
   const manager = await import('../sqlite-query-host-manager');
   const index = { databasePath: authority.dbPath };
-  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 }, fork);
   const acquisition = manager.openIndexCoverage(authority).catch((error: unknown) => error);
   await vi.waitFor(() => expect(mocks.children).toHaveLength(1));
   // Coverage startup has no deadline: reset is what ends it, by stopping its process.
   await manager.closeAllIndexQueries();
   expect(await acquisition).toMatchObject({ name: 'SqliteQueryProcessExitedError' });
   expect(mocks.children[0]?.kill).toHaveBeenCalledOnce();
-  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 }, fork);
   await manager.closeAllIndexQueries();
 });
 
 it('keeps coverage read admission owned until a held read physically exits on reset', async () => {
   const manager = await import('../sqlite-query-host-manager');
   const index = { databasePath: authority.dbPath };
-  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 }, fork);
   const reader = await manager.openIndexCoverage(authority);
   const pending = reader
     .nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }])
@@ -131,7 +122,7 @@ it('reads coverage from a reader slower to start and to answer than any former d
   mocks.heldStartup = true;
   const manager = await import('../sqlite-query-host-manager');
   const index = { databasePath: authority.dbPath };
-  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 }, fork);
   const acquisition = manager.openIndexCoverage(authority);
   acquisition.catch(() => undefined);
   await vi.advanceTimersByTimeAsync(6000);

@@ -71,6 +71,8 @@ export async function prepareOrdinaryDevApp(application: string): Promise<string
 export interface OrdinaryDevApp {
   readonly app: ElectronApplication;
   readonly close: () => Promise<void>;
+  /** The profile's database directory, the agent host's data root (beside, not inside, userData). */
+  readonly hostRoot: string;
   readonly page: Page;
   readonly userData: string;
 }
@@ -183,7 +185,13 @@ export async function launchOrdinaryDevApp(
     if (!(await (await app.browserWindow(page)).evaluate((win) => win.isVisible()))) {
       throw new Error('Ordinary dev regression opened the hidden test-mode window');
     }
-    return { app, close, page, userData };
+    return {
+      app,
+      close,
+      hostRoot: path.join(options.directory, 'database', 'profiles', options.profile),
+      page,
+      userData,
+    };
   } catch (error) {
     await close();
     throw error;

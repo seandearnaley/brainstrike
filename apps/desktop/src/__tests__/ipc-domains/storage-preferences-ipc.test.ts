@@ -55,7 +55,6 @@ interface FakeStore {
 function createStorage(): ElectronStorageAdapter {
   return {
     clear: vi.fn(async () => undefined),
-    clearExcept: vi.fn(async () => undefined),
     getAllKeys: vi.fn(async () => ['alpha']),
     getItem: vi.fn(async (key: string) => `value:${key}`),
     removeItem: vi.fn(async () => undefined),
@@ -109,35 +108,8 @@ describe('storage preferences IPC domain', () => {
     expect(storage.getItem).toHaveBeenCalledWith('alpha');
     expect(storage.setItem).toHaveBeenCalledWith('alpha', 'beta');
     expect(storage.removeItem).toHaveBeenCalledWith('alpha');
-    expect(storage.clear).not.toHaveBeenCalled();
+    expect(storage.clear).toHaveBeenCalledOnce();
     expect(storage.getAllKeys).toHaveBeenCalled();
-    expect(storage.clearExcept).toHaveBeenCalledWith([
-      'lastFolderPath',
-      'recentRootsList',
-      'recentRootsList.corrupt',
-      'rootsList',
-      'rootsList.corrupt',
-    ]);
-  });
-
-  it.each([
-    'rootsList',
-    'rootsList.corrupt',
-    'recentRootsList',
-    'recentRootsList.corrupt',
-    'lastFolderPath',
-  ])('refuses renderer writes and removals for main-owned key %s', async (key) => {
-    const setItem = handlers.get('storage:setItem');
-    const removeItem = handlers.get('storage:removeItem');
-
-    await expect(setItem?.(senderEvent(VISIBLE_UI_SENDER_ID), key, 'value')).rejects.toThrow(
-      `Storage key "${key}" is main-owned`
-    );
-    await expect(removeItem?.(senderEvent(VISIBLE_UI_SENDER_ID), key)).rejects.toThrow(
-      `Storage key "${key}" is main-owned`
-    );
-    expect(storage.setItem).not.toHaveBeenCalled();
-    expect(storage.removeItem).not.toHaveBeenCalled();
   });
 
   it('rejects non-string renderer values at the IPC boundary', async () => {
@@ -147,26 +119,6 @@ describe('storage preferences IPC domain', () => {
       setItem?.(senderEvent(VISIBLE_UI_SENDER_ID), 'assistant-preferences.v1', { invalid: true })
     ).rejects.toThrow('storage setItem requires two string arguments.');
     expect(storage.setItem).not.toHaveBeenCalled();
-  });
-
-  it('clears renderer-owned keys without deleting main-owned ledgers', async () => {
-    const clear = handlers.get('storage:clear');
-
-    await clear?.(senderEvent(VISIBLE_UI_SENDER_ID));
-
-    expect(storage.clear).not.toHaveBeenCalled();
-    expect(storage.clearExcept).toHaveBeenCalledWith([
-      'lastFolderPath',
-      'recentRootsList',
-      'recentRootsList.corrupt',
-      'rootsList',
-      'rootsList.corrupt',
-    ]);
-  });
-
-  it('does not register storage test helpers outside Electron E2E mode', () => {
-    expect(handlers.has('storage:seedMainOwnedForE2e')).toBe(false);
-    expect(handlers.has('storage:clearAllForE2e')).toBe(false);
   });
 
   it('enforces the full sender matrix for every visible-UI contract channel', async () => {
@@ -195,34 +147,6 @@ describe('storage preferences IPC domain', () => {
           { malformed: true }
         )
       ).rejects.toThrow(`Desktop IPC ${channel} rejected an unrecognized sender frame URL.`);
-    }
-  });
-
-  it('registers bounded storage helpers only in Electron E2E mode', async () => {
-    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
-    try {
-      registerStoragePreferencesIpcHandlers({
-        getStore: () => store as never,
-        storage,
-      });
-      const seedMainOwned = handlers.get('storage:seedMainOwnedForE2e');
-      const clearAll = handlers.get('storage:clearAllForE2e');
-
-      await seedMainOwned?.(senderEvent(VISIBLE_UI_SENDER_ID), 'rootsList', '[{"path":"/test"}]');
-      expect(storage.setItem).toHaveBeenCalledWith('rootsList', '[{"path":"/test"}]');
-
-      await expect(
-        seedMainOwned?.(senderEvent(EMBEDDING_HOST_SENDER_ID), 'rootsList', '[]')
-      ).rejects.toThrow('Desktop IPC storage:seedMainOwnedForE2e requires sender role visible-ui.');
-
-      await expect(
-        seedMainOwned?.(senderEvent(VISIBLE_UI_SENDER_ID), 'assistant-preferences.v1', '{}')
-      ).rejects.toThrow('E2E main-owned storage seed requires a main-owned key');
-
-      await clearAll?.(senderEvent(VISIBLE_UI_SENDER_ID));
-      expect(storage.clear).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.unstubAllEnvs();
     }
   });
 

@@ -10,9 +10,8 @@ import {
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import { isConnectionLoss } from '../src/boundary-wire.js';
+import { HOST_CLOSING_EVENT, isConnectionLoss } from '../src/boundary-wire.js';
 import { authenticateHostClient } from '../src/client-connection.js';
-import { HOST_CLOSING_EVENT } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { stdioConnection } from '../src/transports.js';
 

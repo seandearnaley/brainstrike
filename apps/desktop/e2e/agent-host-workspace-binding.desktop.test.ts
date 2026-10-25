@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
-import { seedRoot } from './utils/seed-root';
+import { restoredWorkspaceRoots, seedRoot } from './utils/seed-root';
 
 test('ordinary app Main validates a committed host root through its actual catalog and pinned registry', async ({
   window: page,
@@ -24,21 +24,9 @@ test('ordinary app Main validates a committed host root through its actual catal
         const bridge = (
           window as Window & { agentHost?: { connect(requestId: string): Promise<void> } }
         ).agentHost;
-        const files = window.electronAPI?.fileSystem;
-        if (!(bridge && files)) {
+        if (!bridge) {
           throw new Error('Ordinary app owner capabilities are unavailable');
         }
-        const reply = await files.restoreRoots();
-        if (!reply.ok) {
-          throw new Error(reply.error.message);
-        }
-        const rows = reply.value
-          .filter((root) => root.rootId === expectedRootId)
-          .map((root) => ({
-            id: root.rootId,
-            path: root.handle.path,
-            permissionState: root.permissionState,
-          }));
         const requestId = crypto.randomUUID();
         const transferred = Promise.withResolvers<{
           port: MessagePort;
@@ -149,7 +137,6 @@ test('ordinary app Main validates a committed host root through its actual catal
             binding,
             current,
             rejected,
-            rootRows: rows,
             updates: committed.rows.filter(
               ({ event }) => event.type === 'workspace.binding.updated'
             ).length,
@@ -164,7 +151,14 @@ test('ordinary app Main validates a committed host root through its actual catal
       },
       { expectedPath: root, expectedRootId: rootId }
     );
-    expect(result.rootRows).toEqual([{ id: rootId, path: root, permissionState: 'granted' }]);
+    const rootRows = (await restoredWorkspaceRoots(page))
+      .filter((restored) => restored.rootId === rootId)
+      .map((restored) => ({
+        id: restored.rootId,
+        path: restored.handle.path,
+        permissionState: restored.permissionState,
+      }));
+    expect(rootRows).toEqual([{ id: rootId, path: root, permissionState: 'granted' }]);
     expect(result.accepted).toEqual({ accepted: true });
     expect(result.rejected).toBe(true);
     expect(result.current).toEqual({ binding: result.binding });

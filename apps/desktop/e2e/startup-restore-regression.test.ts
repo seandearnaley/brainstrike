@@ -3,6 +3,7 @@ import { FILE_EXPLORER_STORAGE_VERSION } from '@brainstrike/file-explorer/testin
 import { DEFAULT_STATE, type SerializedState } from '@brainstrike/types';
 import type { Page } from 'playwright';
 import { expect, test } from './fixtures/electron-fixture';
+import { seedWorkspaceLedgers } from './utils/seed-root';
 
 interface BufferedLogRecord {
   readonly args: readonly unknown[];
@@ -25,11 +26,10 @@ const RESTORED_FOLDER_NAME = 'directory';
 /**
  * Fixed RootId for the seeded state (storage v5): currentFolderId, folderStates
  * keys, and selection composite keys all carry this UUID, never the path. The
- * seed also writes a matching `rootsList` entry so main's restoreRoots resolves
+ * seed also writes a matching root through the host so its restore resolves
  * RESTORED_FOLDER_PATH to this exact id after restart.
  */
 const RESTORED_ROOT_ID = 'e2e-root-00000000-0000-4000-8000-000000000002';
-const RESTORED_ROOT_ADDED_AT = 1_700_000_000_000;
 const RESTORED_FILE_NAME = 'mock-file1.txt';
 const RESTORED_FILE_PATH = path.join(RESTORED_FOLDER_PATH, RESTORED_FILE_NAME);
 const RESTORED_COMPOSITE_KEY = `${RESTORED_ROOT_ID}|@|${RESTORED_FILE_PATH}`;
@@ -112,13 +112,18 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
   const fileExplorerState = createPersistedFileExplorerState();
   const tabState = createPersistedTabState();
 
+  // The fixed RootId resolves RESTORED_FOLDER_PATH on the next boot's restore.
+  await seedWorkspaceLedgers(page, {
+    lastFolderPath: RESTORED_FOLDER_PATH,
+    recentPaths: [],
+    roots: [{ path: RESTORED_FOLDER_PATH, rootId: RESTORED_ROOT_ID }],
+  });
   await page.evaluate(
     async ({
       nextFileExplorerState,
       nextTabState,
       restoredFolderName,
       restoredFolderPath,
-      restoredRootAddedAt,
       restoredRootId,
     }) => {
       localStorage.setItem('tab-manager.v1', JSON.stringify(nextTabState));
@@ -193,27 +198,12 @@ async function seedRestoredStartupState(page: Page): Promise<void> {
       });
 
       await api.storage.setItem('file-explorer-storage-v5', JSON.stringify(nextFileExplorerState));
-      // Storage v5: write the rootsList entry with the fixed RootId so main's
-      // restoreRoots() resolves restoredFolderPath to this exact id on boot.
-      await api.storage.setItem(
-        'rootsList',
-        JSON.stringify([
-          { addedAt: restoredRootAddedAt, path: restoredFolderPath, rootId: restoredRootId },
-        ])
-      );
-      // Seed the lastFolderPath preference directly: this block seeds
-      // persisted startup state for a restore regression test, it does not
-      // exercise the setLastFolder IPC — and setLastFolder now throws unless
-      // its path already references a persisted, mounted root, which is not
-      // yet true at this pre-boot seeding step.
-      await api.storage.setItem('lastFolderPath', restoredFolderPath);
     },
     {
       nextFileExplorerState: fileExplorerState,
       nextTabState: tabState,
       restoredFolderName: RESTORED_FOLDER_NAME,
       restoredFolderPath: RESTORED_FOLDER_PATH,
-      restoredRootAddedAt: RESTORED_ROOT_ADDED_AT,
       restoredRootId: RESTORED_ROOT_ID,
     }
   );

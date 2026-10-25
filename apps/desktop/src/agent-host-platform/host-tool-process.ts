@@ -1,17 +1,14 @@
-import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
 import { disposeLiveChildProcesses } from '@brainstrike/host-capabilities/native-tools';
 /**
  * The desktop agent host's process-lifetime tool state: the command sessions
- * its runs start, the release of a root Main disconnected, and the disposal of
- * every process-owned tool resource when the host closes. Runs in the host only.
+ * its runs start, and the disposal of every process-owned tool resource when the
+ * host closes. Runs in the host only.
  */
-import type { MessageConnection } from 'vscode-jsonrpc';
 import {
   type CommandSessionManager,
   createCommandSessionManager,
 } from '../assistant-server/command-session-manager';
-import { disposeLspServers, evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
-import { HostRootCleanupRequestSchema } from './root-cleanup-wire';
+import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 
 let sessions: CommandSessionManager | undefined;
 
@@ -19,25 +16,6 @@ let sessions: CommandSessionManager | undefined;
 export function hostCommandSessionManager(): CommandSessionManager {
   sessions ??= createCommandSessionManager({});
   return sessions;
-}
-
-const decodeRoot = wireDecoder(HostRootCleanupRequestSchema, {
-  errors: 'all',
-  onExcessProperty: 'error',
-});
-
-/** A root disconnected in Main stops this host's sessions and language servers there. */
-export function serveHostRootCleanup(connection: MessageConnection): void {
-  connection.onRequest(
-    'host/command-sessions/dispose-root',
-    async (input: unknown): Promise<unknown> => ({
-      disposed: await hostCommandSessionManager().disposeRoot(decodeRoot(input).rootId),
-    })
-  );
-  connection.onRequest('host/lsp/evict-root', async (input: unknown): Promise<unknown> => {
-    await evictLspServersForRoot(decodeRoot(input).rootId);
-    return null;
-  });
 }
 
 /** The language servers, command trees and command sessions this host spawned. */

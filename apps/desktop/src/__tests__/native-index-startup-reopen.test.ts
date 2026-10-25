@@ -9,7 +9,7 @@ import type { ScopedIndexerPort } from '@brainstrike/indexer';
 import type { NativeIndexLifecycleObservation } from '@brainstrike/indexing-contract/indexer-client';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import { textSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
 import {
@@ -23,6 +23,9 @@ import {
   unused,
   writer,
 } from './native-index-activation-fixture';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 beforeEach(resetActivationFixture);
 
@@ -61,7 +64,7 @@ function startup(syncs: readonly Sync[]) {
       restoreRoots: async () => [{ permissionState: 'granted', rootId: 'root' }],
     }),
     watches: { subscribe: unused },
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   setCatalogRoot();
   setCatalogRecords(() => []);
   mocks.readyPort.mockReturnValue({
@@ -110,11 +113,12 @@ function startup(syncs: readonly Sync[]) {
   const observed: NativeIndexLifecycleObservation[] = [];
   const activation = createActivation({
     application,
+    databasePath: '/owned/profile/index.sqlite',
     embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
+    hostedEmbeddings: unused,
     onError: vi.fn(),
     reopenDelaysMs: [0, 0, 0],
     settings: async () => textSettings(),
-    storage: { getItem: unused },
   });
   const observer = new AbortController();
   void activation

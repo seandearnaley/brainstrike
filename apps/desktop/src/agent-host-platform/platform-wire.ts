@@ -1,19 +1,22 @@
-import { HOST_OBSERVER_AWAITING_REASONS } from '@brainstrike/agent-host/protocol';
+import {
+  HOST_OBSERVER_AWAITING_REASONS,
+  InferencePlanSchema,
+} from '@brainstrike/agent-host/protocol';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
   ReferencedFileFailureSchema,
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
+import { NATIVE_INDEX_WORKFLOW_SCOPE } from '../native-index-effect-diagnostics';
 import {
   PlatformMemoryOptionsSchema,
   PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
 } from './platform-client-configuration';
-import { InferencePlanSchema, QueryEmbeddingPayloadSchema } from './retrieval-wire';
+import { QueryEmbeddingPayloadSchema } from './retrieval-wire';
 
 export {
   PlatformClientConfigurationSchema,
@@ -24,31 +27,40 @@ export {
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
- * BST-2202: the agent host's error and fatal log records reach Main's
- * diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
+ * BST-2202: the agent host's error and fatal log records, and its search index's
+ * workflow timeline at every level, reach Main's diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
  * correlation id names is in the desktop log and debug bundle.
  */
 export const PLATFORM_DIAGNOSTICS_RECORD_METHOD = 'platform/diagnostics/record';
-/** One record as its producer's logger redacted it, bounded to JSON. */
+const DiagnosticRecordFields = {
+  args: Schema.mutable(Schema.Array(Schema.MutableJson)),
+  bindings: Schema.Record(Schema.String, Schema.MutableJson),
+  message: Schema.optional(Schema.String),
+  timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+};
+/**
+ * One record as its producer's logger redacted it, bounded to JSON: an error or fatal record of
+ * any scope, or the search index's workflow timeline at any level.
+ */
 export const PlatformDiagnosticRecordSchema = Schema.Struct({
-  record: Schema.Struct({
-    args: Schema.mutable(Schema.Array(Schema.MutableJson)),
-    bindings: Schema.Record(Schema.String, Schema.MutableJson),
-    level: Schema.Literals(['error', 'fatal']),
-    message: Schema.optional(Schema.String),
-    scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
-    timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  }),
+  record: Schema.Union([
+    Schema.Struct({
+      ...DiagnosticRecordFields,
+      level: Schema.Literals(['error', 'fatal']),
+      scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
+    }),
+    Schema.Struct({
+      ...DiagnosticRecordFields,
+      level: Schema.Literals(['trace', 'debug', 'info', 'warn']),
+      scope: Schema.Literal(NATIVE_INDEX_WORKFLOW_SCOPE),
+    }),
+  ]),
 });
 /** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
 export const PlatformNativeChildSchema = Schema.Struct({
   group: Schema.Boolean,
   pid: Schema.Int.check(Schema.isGreaterThan(0)),
   start: Schema.String.check(Schema.isMinCodePoints(1)),
-});
-export const PlatformWorkspaceBindingRequestSchema = Schema.Struct({
-  binding: ThreadWorkspaceBindingSchema,
-  threadId: Id,
 });
 /** The indexer's one vector profile rule validates a recall embedding profile. */
 const PlatformVectorProfileSchema = Schema.declare(
@@ -157,15 +169,12 @@ export const PlatformSelectionSchema = Schema.Struct({
  * (`RefusableOutcomeSchema`, BST-1996).
  */
 export const PlatformEmbeddingQuerySchema = Schema.Struct({ request: QueryEmbeddingPayloadSchema });
-/** A worktree an agent created, mounted by Main as a workspace folder (ADR-0028 step 3). */
-export const PlatformWorktreeFolderSchema = Schema.Struct({ path: Id });
-export const PlatformWorktreeFolderResultSchema = Schema.Struct({
-  displayName: Schema.String,
-  path: Id,
-  rootId: Id,
-});
-/** A root a rewind restored, for Main's native index to rescan. */
-export const PlatformIndexRefreshSchema = Schema.Struct({ rootId: Id });
+/** The workspace index's document embeddings, from Main's embedding renderer. */
+export const PLATFORM_EMBEDDING_DOCUMENTS = 'platform/embedding/documents';
+/** The index's remedy for an unresponsive embedding renderer. */
+export const PLATFORM_EMBEDDING_RESTART = 'platform/embedding/restart';
+export const PlatformEmbeddingDocumentsSchema = Schema.Struct({ request: Schema.Unknown });
+export const PlatformEmbeddingDocumentsResultSchema = Schema.Array(Schema.Array(Schema.Number));
 export type PlatformSelection = (typeof PlatformSelectionSchema)['Type'];
 /**
  * thread/memory/read: the admission's pure preconditions, with nothing
@@ -236,13 +245,3 @@ export const PlatformMemoryVectorsResultSchema = Schema.NullOr(
     profile: PlatformVectorProfileSchema,
   })
 );
-export const PlatformWorkspaceLeaseSchema = Schema.Struct({
-  leaseId: Schema.String.check(Schema.isUUID()),
-});
-export const PlatformWorkspaceAcquireSchema = Schema.Struct({
-  ...PlatformWorkspaceLeaseSchema.fields,
-  ...{ binding: ThreadWorkspaceBindingSchema, threadId: Id },
-});
-export const PlatformWorkspaceAcquireResultSchema = Schema.Struct({
-  roots: CliWorkspaceRootsSchema,
-});

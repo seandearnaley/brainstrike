@@ -1,3 +1,4 @@
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
@@ -60,7 +61,13 @@ function refreshNativeIndexAfterRootRegistration(
   // Main retains and joins reconfiguration. Folder selection waits only for its
   // canonical write, while the index status owns ingestion progress and failure.
   void registration.rootsRegistered().catch((error: unknown) => {
-    logger.error('Native index refresh after root registration failed', { error });
+    // A closed or preparing index (a reset, a quit, a replacement host) re-reads the roots when
+    // it opens; the index status shows that state.
+    if (isOwnerUnavailable(error)) {
+      logger.warn('Native index refresh after root registration refused', { error });
+    } else {
+      logger.error('Native index refresh after root registration failed', { error });
+    }
   });
 }
 
@@ -433,7 +440,11 @@ export function useRootsReconciliation({
         publishReconciliationSettled(true);
       })
       .catch((err: unknown) => {
-        logger.error('Root reconciliation failed', { error: err });
+        if (isOwnerUnavailable(err)) {
+          logger.warn('Root reconciliation refused', { error: err });
+        } else {
+          logger.error('Root reconciliation failed', { error: err });
+        }
         // Resolve with an empty map so waiters never hang.
         resolve(new Map());
         publishReconciliationSettled(true);

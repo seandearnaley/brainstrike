@@ -37,7 +37,8 @@ export function captureNativeShutdown(app: ElectronApplication): () => void {
     expect(reports).toHaveLength(1);
     expect(reports[0]).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ failed: false, step: 'native-index' }),
+        // The agent host's exit joins its search index (ADR-0029 stage 4).
+        expect.objectContaining({ failed: false, step: 'agent-host' }),
         expect.objectContaining({ failed: false, step: 'embedding-host' }),
       ])
     );

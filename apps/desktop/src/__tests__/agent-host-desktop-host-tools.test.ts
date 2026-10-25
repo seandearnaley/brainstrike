@@ -17,6 +17,7 @@ import {
 } from '../agent-host-platform/platform-wire';
 import { prepareAdmittedSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
+import { unusedHostRetrieval } from './fixtures/host-retrieval';
 
 // run_python reports a host without an OS fence (Windows) before it resolves the
 // interpreter. Fence support is held on so every OS reaches the interpreter half
@@ -173,6 +174,7 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
     request,
     // These cases build no web search; the host's Tavily owner is never read.
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -207,6 +209,7 @@ test('the desktop host reads named workspace context files in its own process', 
     request,
     // These cases build no web search; the host's Tavily owner is never read.
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected: selection(root, { selectionFolderId: 'root-a', workspaceRootPath: root }),
     threadId: 'host-thread',
   });
@@ -255,6 +258,7 @@ test('the desktop host runs executeCommand in its own process and correlates wor
     request,
     // These cases build no web search; the host's Tavily owner is never read.
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -308,6 +312,7 @@ test('the desktop host greps the disk in its own process and never asks Main\u20
     request,
     // These cases build no web search; the host's Tavily owner is never read.
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -404,6 +409,7 @@ test('the desktop host runs the worktree tools on its own worktree service, unde
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -490,6 +496,7 @@ test('the desktop host runs the browser tools, asking Main to drive the window-b
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -561,6 +568,7 @@ test('the desktop host runs queryDiagnostics, reading only Main’s diagnostics 
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -602,6 +610,7 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected,
     threadId: 'host-thread',
   });
@@ -691,6 +700,7 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
+    retrieval: unusedHostRetrieval(),
     selected,
     threadId: 'host-thread',
   });
@@ -743,6 +753,7 @@ test('a run with Skills off is admitted without workspace skills', async () => {
       readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
       request: vi.fn(),
       resolveTavilyApiKey: async () => undefined,
+      retrieval: unusedHostRetrieval(),
       selected,
       threadId: 'host-thread',
     })
@@ -772,6 +783,7 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey,
+    retrieval: unusedHostRetrieval(),
     selected,
     threadId: 'host-thread',
   })['brainstrike_webExtract'];

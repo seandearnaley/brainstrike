@@ -2,24 +2,22 @@ import type { IndexerOptions, IndexerPort, ScopedIndexerPort } from '@brainstrik
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type { IndexerConnection, IndexerDeadlines } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
-import { app } from 'electron';
-import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import {
   type CanonicalRemoteWorkspaceDependencies,
   CanonicalUtilityParent,
   type CanonicalWorkspaceAttachment,
 } from './canonical-utility-parent';
 import { assertCanonicalMessageBound, isCanonicalFrame } from './canonical-utility-protocol';
-import { forkUtility } from './fork-utility';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
+import type { ForkLentUtility } from './lent-utility';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
-import { endExitedProcess, liveProcessIdentity, type ProcessIdentity } from './process-exit-join';
 
 const logger = createLogger('IndexerHostManager');
 
 /**
- * Main owns lifecycle only. SQLite and its writer worker belong to the utility process.
+ * Owns the indexer utility's lifecycle only; SQLite and its writer worker belong to the utility.
+ * The utility is forked through `fork` (Main's, ADR-0030), which reports its exit once joined.
  *
  * Liveness is the utility's exit (lifecycle R2): no request, attach or scan has a deadline, and
  * admission closes only on `close()`, `destroy()`, the exit, or a transport/protocol fault that
@@ -33,7 +31,7 @@ export class IndexerHostManager {
   readonly rootIds: readonly string[];
   readonly #options: IndexerOptions;
   readonly #deadlines: IndexerDeadlines;
-  readonly #entryPath: string;
+  readonly #fork: ForkLentUtility;
   readonly #lifecycleDelays: (() => LifecycleDelaySeam) | undefined;
   #connection: IndexerConnection | undefined;
   #start: Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> | undefined;
@@ -51,7 +49,7 @@ export class IndexerHostManager {
   private constructor(
     options: IndexerOptions,
     deadlines: IndexerDeadlines,
-    entryPath: string,
+    fork: ForkLentUtility,
     lifecycleDelays: (() => LifecycleDelaySeam) | undefined
   ) {
     const embedding =
@@ -63,7 +61,7 @@ export class IndexerHostManager {
         : Object.freeze({ ...options.embedding });
     this.#options = { ...options, embedding, rootIds: Object.freeze([...options.rootIds]) };
     this.#deadlines = deadlines;
-    this.#entryPath = entryPath;
+    this.#fork = fork;
     this.#lifecycleDelays = lifecycleDelays;
     this.databasePath = options.dbPath;
     this.acquisitionEmbedding = embedding;
@@ -77,7 +75,7 @@ export class IndexerHostManager {
   static async create(
     input: unknown,
     deadlineInput: unknown,
-    entryPath = resolveBundledSiblingPath('Indexer host', 'indexer-host-entry.js'),
+    fork: ForkLentUtility,
     lifecycleDelays?: () => LifecycleDelaySeam
   ): Promise<IndexerHostManager> {
     const { validateIndexerOptions, validateIndexerDeadlines } = await import(
@@ -86,7 +84,7 @@ export class IndexerHostManager {
     return new IndexerHostManager(
       validateIndexerOptions(input),
       validateIndexerDeadlines(deadlineInput),
-      entryPath,
+      fork,
       lifecycleDelays
     );
   }
@@ -94,9 +92,6 @@ export class IndexerHostManager {
   start(): Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> {
     if (this.#closed) {
       return Promise.reject(new Error('Indexer host is closed; create a fresh owner to restart.'));
-    }
-    if (!app.isReady()) {
-      return Promise.reject(new Error('Indexer utility process requires Electron app readiness.'));
     }
     this.#start ??= this.#launch();
     return this.#start;
@@ -108,15 +103,10 @@ export class IndexerHostManager {
     if (this.#closed) {
       throw new Error('Indexer host closed before launch.');
     }
-    const child = forkUtility(this.#entryPath, [], {
-      env: { ...process.env, ...this.#lifecycleDelays?.().childEnv(['indexer-request']) },
-      serviceName: 'brainstrike-indexer',
+    const child = this.#fork('indexer', {
+      env: { ...this.#lifecycleDelays?.().childEnv(['indexer-request']) },
     });
     this.#kill = () => child.kill();
-    let identity: ProcessIdentity | undefined;
-    child.once('spawn', () => {
-      identity = liveProcessIdentity(child.pid);
-    });
     const protocolErrors = new Set<(error: unknown) => void>();
     const canonical = new CanonicalUtilityParent(
       (message) => {
@@ -147,23 +137,14 @@ export class IndexerHostManager {
         };
       },
       onExit: (listener) => {
-        const exited = (code: number): void => {
+        // Reported once the utility's OS exit is joined (`lendUtility`).
+        const exit = (code: number): void => {
+          this.#closed = true;
           this.#exitCleanup ??= canonical.exited(new IndexerUtilityExitedError());
           void this.#exitCleanup.catch(() => {
             this.#exitCleanupFailed = true;
           });
           listener(code);
-        };
-        // Electron's `exit` precedes the OS exit; the utility has exited once that is joined.
-        const exit = (code: number): void => {
-          this.#closed = true;
-          void endExitedProcess(identity).then(
-            () => exited(code),
-            (cause: unknown) => {
-              logger.error('Could not end the indexer utility after its exit', { cause });
-              exited(code);
-            }
-          );
         };
         child.on('exit', exit);
         return () => child.off('exit', exit);

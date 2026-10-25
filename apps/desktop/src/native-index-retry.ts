@@ -1,5 +1,4 @@
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
-import type { EmbeddingHostManager } from './embedding-host-manager';
 import { nativeIndexFailureRefusal } from './native-index-lifecycle';
 import type { NativeIndexLifecycle } from './native-index-lifecycle-owner';
 
@@ -10,7 +9,7 @@ import type { NativeIndexLifecycle } from './native-index-lifecycle-owner';
  * that hangs again fails the next generation with the same cause and remedy.
  */
 export function createNativeIndexRetry(dependencies: {
-  readonly embedding: Pick<EmbeddingHostManager, 'destroyAndRestart'>;
+  readonly embedding: { destroyAndRestart(): Promise<unknown> };
   readonly lifecycle: Promise<Pick<NativeIndexLifecycle, 'dispatch' | 'state'>>;
 }): () => Promise<void> {
   return async () => {

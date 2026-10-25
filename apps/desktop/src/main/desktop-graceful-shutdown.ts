@@ -21,9 +21,8 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'factory-reset',
   'renderers',
   'main-catalog',
-  'native-index',
+  'agent-host',
   'mcp-runtime',
-  'file-system',
   'embedding-host',
   'database-drain',
 ] as const;

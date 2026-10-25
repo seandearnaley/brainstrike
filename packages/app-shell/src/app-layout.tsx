@@ -30,7 +30,7 @@ export function AppLayout({
   nativeIndexSearch,
   stateHealth,
 }: AppLayoutProps) {
-  useDatabaseStatusSync();
+  useDatabaseStatusSync(nativeIndexSearch ?? null);
   // Session-wide, mounted once: retired-model remap toasts (BST-565).
   useModelMigrationNotices();
   const { fileSystemAdapter, storageAdapter } = useAdapters();

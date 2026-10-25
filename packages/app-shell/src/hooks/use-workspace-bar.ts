@@ -1,3 +1,4 @@
+import { isOwnerUnavailable } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
@@ -531,7 +532,11 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       })
       .catch((error: unknown) => {
         if (recentRequestGenerationRef.current === generation) {
-          logger.error('failed to list the recent roots', { error });
+          if (isOwnerUnavailable(error)) {
+            logger.warn('the recent roots are unavailable', { error });
+          } else {
+            logger.error('failed to list the recent roots', { error });
+          }
           setLoadedRecents({ entries: NO_RECENT_ENTRIES, source: listRecentRoots });
         }
       });

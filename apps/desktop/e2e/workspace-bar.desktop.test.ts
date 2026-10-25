@@ -9,7 +9,7 @@
  *
  * Isolation: each test gets its OWN freshly-created temp folder(s) (a real
  * `git init`'d repo where the checkout matters), and the Electron fixture
- * derives a per-test `userDataDir`, so main's `rootsList`/`recentRootsList`
+ * derives a per-test `userDataDir`, so the host's root and recent-root
  * ledgers can never leak between tests. Every temp dir is tracked and removed
  * in `afterAll`.
  *
@@ -175,11 +175,11 @@ test.describe('Workspace bar (desktop)', () => {
     test.setTimeout(150_000);
     const primary = freshRepo('primary');
     const recent = freshNonGitDir('recent');
-    // The recents grant is seeded in the SAME write as `rootsList`, before the
-    // only reload: the boot that reload triggers runs `restoreRoots` →
-    // `recordRecentRootIfNew`, a read-modify-write on `recentRootsList`, and a
-    // seed landing after it would race that write. Being present in the ledger
-    // is the ONLY thing that authorizes the picker-less `fs:addRootByPath`.
+    // The recents grant is seeded in the SAME seed as the roots, before the
+    // only reload: the boot that reload triggers restores the roots and records
+    // each as a recent grant, a read-modify-write on the recents, and a seed
+    // landing after it would race that write. Being present in the ledger is
+    // the ONLY thing that authorizes the picker-less `files/add-root-by-path`.
     await seedRoot(page, primary, { recentPaths: [recent] });
     await openComposer(page);
 

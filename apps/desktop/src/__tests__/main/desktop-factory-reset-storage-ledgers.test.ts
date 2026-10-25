@@ -31,7 +31,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
  * mechanism. That makes the coverage invisible in the code and easy to lose:
  * add `electron-storage.json` to `PRESERVED_USER_DATA_ENTRY_NAMES`, or move
  * the store outside userData, and a "fresh start" silently keeps handing the
- * composer workspace bar's Recents list picker-less `fs:addRootByPath` grants
+ * composer workspace bar's Recents list picker-less the host's `files/add-root-by-path` grants
  * for folders the user never granted this install.
  *
  * Unlike the sibling suite this runs against REAL fs in a REAL temp dir: a

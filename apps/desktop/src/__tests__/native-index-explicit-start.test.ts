@@ -5,11 +5,14 @@
 // admission's index-status read never waits on an open (BST-2277).
 import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { ApplicationIpcDomain } from '../ipc-handlers';
+import type { NativeIndexActivationDependencies } from '../native-index-graph';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { unreadableSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
 import { fixture, mocks, resetActivationFixture, unused } from './native-index-activation-fixture';
+
+/** The host's mounted folders and their watchers, which the index borrows. */
+type HostFolders = NativeIndexActivationDependencies['application'];
 
 beforeEach(resetActivationFixture);
 
@@ -27,7 +30,7 @@ function heldOpens() {
       },
     }),
     watches: {},
-  } as unknown as ApplicationIpcDomain;
+  } as unknown as HostFolders;
   const f = fixture(application);
   const status = createNativeScopedSearchCapability({
     openQuery: unused,
@@ -158,7 +161,6 @@ it('quit after a content clear settles without waiting for the held reopen', asy
         await f.activation.resume(signal);
       }
     },
-    runTransition: (work) => work(),
     runtimes: [],
     sessionDataPath: '/owned/session-data',
     userDataPath: '/owned/user-data',

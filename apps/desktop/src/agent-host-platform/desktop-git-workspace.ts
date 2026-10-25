@@ -24,6 +24,7 @@ import type {
 import type { GitWorkspaceEvent } from '@brainstrike/agent-host/protocol';
 import type { createLogger } from '@brainstrike/logging';
 import type { StateStore } from '@brainstrike/state-store';
+import type { ManagedWorktreeRow } from '@brainstrike/types';
 import { createHostThreadTurns } from '../assistant-server/changeset-host-turns';
 import { execFileGhRunner } from '../assistant-server/forge-gh-client';
 import { createForgeService } from '../assistant-server/forge-service';
@@ -35,6 +36,7 @@ import { createSnapshotService } from '../assistant-server/snapshot-service';
 import { captureRootSnapshot } from '../assistant-server/snapshot-turn-boundaries';
 import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
 import { hasHostRunInWorktree } from '../assistant-server/worktree-host-activity';
+import { createWorktreeLedger } from '../assistant-server/worktree-ledger';
 import { isPathWithin } from '../assistant-server/worktree-paths';
 import { createWorktreeService } from '../assistant-server/worktree-service';
 import { readWorktreeSettings, writeWorktreeSettings } from '../assistant-server/worktree-settings';
@@ -78,6 +80,8 @@ export interface DesktopGitWorkspace {
   }): Promise<readonly HostTurnSnapshot[]>;
   /** Retires every service while the state store and git remain available. */
   close(): Promise<void>;
+  /** A managed worktree's ledger row, which authorizes a run's binding to it. */
+  readWorktree(id: string): Promise<ManagedWorktreeRow | null>;
   readonly rewindFiles: HostRewindFiles;
   readonly service: HostGitWorkspace;
   /** The worktree and forge services the host's own tools borrow per run. */
@@ -109,6 +113,7 @@ export function createDesktopGitWorkspace(
       },
       worktreeId
     );
+  const ledger = createWorktreeLedger(async () => store, hasRunningThread);
   const loadRoots = async (): Promise<{ id: string; path: string }[]> =>
     (await loadWorkspaceRootsFromCatalog(store)).map((root) => ({
       id: root.rootId,
@@ -338,6 +343,7 @@ export function createDesktopGitWorkspace(
           throw new AggregateError(failures, 'The workspace git services failed to close');
         }
       })()),
+    readWorktree: (id) => ledger.get(id),
     rewindFiles: createHostRewindFiles({
       refreshWorkspaceIndex: options.refreshWorkspaceIndex,
       resolveWorkspaceRoot: async (rootId) => {

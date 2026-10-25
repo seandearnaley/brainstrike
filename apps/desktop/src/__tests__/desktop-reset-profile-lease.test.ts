@@ -53,7 +53,6 @@ describe('desktop reset profile ownership', () => {
       prepareDatabaseProfileReset: state.prepare,
       resetLocalDatabase: state.reset,
       resetPersistentStorageAfterDataDeletion: state.storage,
-      runTransition: (work) => work(),
       runtimes: [],
       sessionDataPath: SESSION_DATA,
       userDataPath: USER_DATA,

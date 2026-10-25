@@ -4,7 +4,7 @@ import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
 import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
-import { RESET_REOPEN_CANCELLED } from './desktop-shutdown-state';
+import { RESET_REOPEN_CANCELLED, whileResetRetiresProfile } from './desktop-shutdown-state';
 import { indexConfigCause, isQuitTerminalRefusal } from './native-index-boundary-failure';
 
 interface DesktopResetRuntime {
@@ -47,11 +47,6 @@ export interface CreateDesktopFactoryResetHandlerOptions {
     outcome: 'failed' | 'succeeded',
     signal: AbortSignal
   ) => Promise<void>;
-  /** The same Main transition queue owns retirement, purge and reopen; the
-   * reset owner retains its accepted request while waiting for this admission. */
-  readonly runTransition: (
-    work: () => Promise<DesktopFactoryResetResult>
-  ) => Promise<DesktopFactoryResetResult>;
   readonly runtimes: readonly DesktopResetRuntime[];
   /** Electron owns this dedicated container; clear its sessions before purge. */
   readonly sessionDataPath: string;
@@ -171,7 +166,6 @@ export function createDesktopFactoryResetHandler({
   resetPersistentStorageAfterDataDeletion,
   resumeAfterReset,
   runtimes,
-  runTransition,
   sessionDataPath,
   userDataPath,
 }: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
@@ -267,23 +261,16 @@ export function createDesktopFactoryResetHandler({
         ? resetInFlight.result
         : resetInFlight.result.then(() => startReset(mode));
     }
-    let admitted = false;
-    const completion = runTransition(() => {
-      admitted = true;
-      return runReset(mode);
-    });
+    const completion = whileResetRetiresProfile(() => runReset(mode));
     // Only the renderer boundary converts an accepted reset's rejection to a
     // result envelope. Terminal close must join its original completion.
     const result = completion
-      .catch((error: unknown): DesktopFactoryResetResult => {
-        if (!admitted) {
-          throw error;
-        }
-        return {
+      .catch(
+        (error: unknown): DesktopFactoryResetResult => ({
           message: error instanceof Error ? error.message : String(error),
           success: false,
-        };
-      })
+        })
+      )
       .finally(() => {
         resetInFlight = null;
       });

@@ -14,7 +14,7 @@ type ConfigHooks = typeof globalThis & {
   readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexConfigCapability };
 };
 
-/** Changes the profile's search index config through Main, as the Settings page does. */
+/** Changes the profile's search index config through the agent host, as the Settings page does. */
 export async function updateIndexConfig(page: Page, patch: IndexConfigPatch): Promise<IndexConfig> {
   return await page.evaluate(async (change) => {
     const capability = (globalThis as ConfigHooks).__brainstrikeTestHooks__?.indexSearch;
@@ -25,7 +25,7 @@ export async function updateIndexConfig(page: Page, patch: IndexConfigPatch): Pr
   }, patch);
 }
 
-/** The profile's search index config as Main owns it. */
+/** The profile's search index config as its owner saved it. */
 export async function readIndexConfig(page: Page): Promise<IndexConfig> {
   return await page.evaluate(async () => {
     const capability = (globalThis as ConfigHooks).__brainstrikeTestHooks__?.indexSearch;

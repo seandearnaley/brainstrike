@@ -3,7 +3,7 @@ import { wireDecoder, wireResultDecoder } from '@brainstrike/assistant-contract/
 import { createLogger } from '@brainstrike/logging';
 import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
-import { watchPeerReset } from './boundary-wire.ts';
+import { HOST_CLOSING_EVENT, HOST_DRAINED_EVENT, watchPeerReset } from './boundary-wire.ts';
 import { createHostCatalogClient, type HostCatalog } from './catalog/transport.ts';
 import { markHostClosing, markHostDrained, sendHostRequest } from './client-request.ts';
 import {
@@ -12,8 +12,6 @@ import {
   type GitWorkspaceEvent,
   GitWorkspaceEventSchema,
   HOST_CHILDREN_CHANGED,
-  HOST_CLOSING_EVENT,
-  HOST_DRAINED_EVENT,
   HOST_RESULT_SCHEMAS,
   HOST_RUN_TELEMETRY,
   HostChildrenChangedSchema,
@@ -34,6 +32,12 @@ import {
   TERMINAL_EVENT,
   type TerminalEvent,
   TerminalEventSchema,
+  WORKSPACE_FILES_EVENT,
+  WORKSPACE_INDEX_EVENT,
+  type WorkspaceFilesEvent,
+  WorkspaceFilesEventSchema,
+  type WorkspaceIndexEvent,
+  WorkspaceIndexEventSchema,
 } from './protocol.ts';
 /**
  * What a client expects the host's initialize to answer. A socket client knows the
@@ -64,6 +68,10 @@ export interface HostClient {
   onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void;
   /** Output and exits of the terminals this client created. */
   onTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /** Batches and health changes of the folder watchers this client started. */
+  onWorkspaceFiles(listener: (event: WorkspaceFilesEvent) => void): () => void;
+  /** The search index's lifecycle and settings changes, after this client's `index/subscribe`. */
+  onWorkspaceIndex(listener: (event: WorkspaceIndexEvent) => void): () => void;
   /** An abort sends the request's JSON-RPC cancellation; the host settles it. */
   request<M extends HostMethod>(
     method: M,
@@ -110,6 +118,8 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
   const gitWorkspaceListeners = new Set<(event: GitWorkspaceEvent) => void>();
   const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
   const terminalListeners = new Set<(event: TerminalEvent) => void>();
+  const workspaceFilesListeners = new Set<(event: WorkspaceFilesEvent) => void>();
+  const workspaceIndexListeners = new Set<(event: WorkspaceIndexEvent) => void>();
   const childListeners = new Set<(threadId: string) => void>();
   const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   const closeConnection = async (): Promise<void> => {
@@ -124,6 +134,7 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     gitWorkspaceListeners.clear();
     presentationListeners.clear();
     terminalListeners.clear();
+    workspaceIndexListeners.clear();
     childListeners.clear();
     telemetryListeners.clear();
     try {
@@ -184,6 +195,24 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
       onExcessProperty: 'error',
     })(input);
     for (const listener of terminalListeners) {
+      listener(event);
+    }
+  });
+  connection.onNotification(WORKSPACE_FILES_EVENT, (input: unknown) => {
+    const event = wireDecoder(WorkspaceFilesEventSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
+    for (const listener of workspaceFilesListeners) {
+      listener(event);
+    }
+  });
+  connection.onNotification(WORKSPACE_INDEX_EVENT, (input: unknown) => {
+    const event = wireDecoder(WorkspaceIndexEventSchema, {
+      errors: 'all',
+      onExcessProperty: 'error',
+    })(input);
+    for (const listener of workspaceIndexListeners) {
       listener(event);
     }
   });
@@ -264,6 +293,14 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
     onTerminal: (listener) => {
       terminalListeners.add(listener);
       return () => terminalListeners.delete(listener);
+    },
+    onWorkspaceFiles: (listener) => {
+      workspaceFilesListeners.add(listener);
+      return () => workspaceFilesListeners.delete(listener);
+    },
+    onWorkspaceIndex: (listener) => {
+      workspaceIndexListeners.add(listener);
+      return () => workspaceIndexListeners.delete(listener);
     },
     record,
     request: async <M extends HostMethod>(

@@ -7,9 +7,7 @@ import {
   SqliteQueryStartupCleanupError,
   spawnUtilityQueryProcess,
 } from '@brainstrike/sqlite-query';
-import { app } from 'electron';
-import { resolveBundledSiblingPath } from './bundled-sibling-path';
-import { forkUtility } from './fork-utility';
+import type { ForkLentUtility } from './lent-utility';
 import type { NativeCoverageReader } from './native-coverage-reader';
 
 interface IndexQueryTarget {
@@ -36,13 +34,21 @@ const owners = new Set<SqliteQueryClient>();
 /** Each acquisition still starting, with the stop of the process it spawned, for close. */
 const acquisitions = new Map<Promise<SqliteQueryClient>, () => void>();
 let target:
-  | { readonly acquire: () => IndexQueryTarget; readonly deadlines: IndexQueryDeadlines }
+  | {
+      readonly acquire: () => IndexQueryTarget;
+      readonly deadlines: IndexQueryDeadlines;
+      readonly fork: ForkLentUtility;
+    }
   | undefined;
 
-/** Main registers its one authoritative, ready index owner; no database path is derived here. */
+/**
+ * Main registers its one authoritative, ready index owner; no database path is derived here.
+ * `fork` is Main's utility fork (ADR-0030), which reports each reader's exit once joined.
+ */
 export function installIndexQueryTarget(
   acquire: () => IndexQueryTarget,
-  deadlines: IndexQueryDeadlines
+  deadlines: IndexQueryDeadlines,
+  fork: ForkLentUtility
 ): void {
   if (target || owners.size > 0 || acquisitions.size > 0) {
     throw new Error(
@@ -54,7 +60,7 @@ export function installIndexQueryTarget(
       throw new RangeError('Index query deadlines must be positive finite milliseconds.');
     }
   }
-  target = { acquire, deadlines: { ...deadlines } };
+  target = { acquire, deadlines: { ...deadlines }, fork };
 }
 
 export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' | 'close'>> {
@@ -65,9 +71,6 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
     );
   }
   const index = registered.acquire();
-  if (!app.isReady()) {
-    throw new Error('Index query utility process requires Electron app readiness.');
-  }
   let spawned: QueryProcess | undefined;
   const acquisition = SqliteQueryClient.open({
     databasePath: index.databasePath,
@@ -77,10 +80,7 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('The authoritative index owner changed before query acquisition.');
       }
-      spawned = spawnUtilityQueryProcess(
-        (entryPath) => forkUtility(entryPath, [], { serviceName: 'brainstrike-index-query' }),
-        resolveBundledSiblingPath('SQLite index query', 'sqlite-query-host-entry.js')
-      );
+      spawned = spawnUtilityQueryProcess(registered.fork('index-query', {}));
       return spawned;
     },
   });
@@ -99,9 +99,6 @@ export async function openIndexCoverage(
   if (index.databasePath !== authority.dbPath) {
     throw new Error('Native coverage requested a different database owner.');
   }
-  if (!app.isReady()) {
-    throw new Error('Native coverage utility requires Electron app readiness.');
-  }
   let spawned: QueryProcess | undefined;
   const acquisition = SqliteQueryClient.openNativeCoverage({
     authority,
@@ -110,10 +107,7 @@ export async function openIndexCoverage(
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('Native coverage owner changed before acquisition.');
       }
-      spawned = spawnUtilityQueryProcess(
-        (entryPath) => forkUtility(entryPath, [], { serviceName: 'brainstrike-index-coverage' }),
-        resolveBundledSiblingPath('SQLite index coverage', 'sqlite-query-host-entry.js')
-      );
+      spawned = spawnUtilityQueryProcess(registered.fork('index-coverage', {}));
       return spawned;
     },
   });

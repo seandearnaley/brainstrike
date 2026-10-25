@@ -11,6 +11,7 @@ import {
   type HostAppPaths,
   isHostExecutedNativeToolId,
 } from '../../agent-host-platform/host-executed-tools';
+import { unusedHostRetrieval } from '../fixtures/host-retrieval';
 import {
   buildHostNativeTools,
   nativeRuntimeFor,
@@ -48,6 +49,7 @@ describe('host-executed native tools', () => {
         {},
         'host-thread',
         NATIVE_WITH_SKILLS,
+        unusedHostRetrieval(),
         APP_PATHS
       ),
     };
