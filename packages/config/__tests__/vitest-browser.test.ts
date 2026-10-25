@@ -164,27 +164,13 @@ describe('createBrowserProject', () => {
     expect(project.test.browser.provider).toBeDefined();
   });
 
-  it('defaults trace mode to retain-on-failure when CI is true', () => {
+  it('records no traces in CI unless asked', () => {
     const project = createBrowserProject({
       asyncUtilTimeout: 1000,
       isCI: true,
       setupFiles: SETUP_FILES,
     });
-    expect(project.test.browser.trace).toEqual({
-      mode: 'retain-on-failure',
-      tracesDir: 'test-results',
-    });
-  });
-
-  it('uses CI defaults when inferred from environment', () => {
-    Reflect.deleteProperty(process.env, 'CI');
-    process.env['GITHUB_ACTIONS'] = 'true';
-
-    const project = createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: SETUP_FILES });
-    expect(project.test.browser.trace).toEqual({
-      mode: 'retain-on-failure',
-      tracesDir: 'test-results',
-    });
+    expect(project.test.browser.trace).toBe('off');
   });
 
   it('re-exports playwright provider', () => {
@@ -461,61 +447,59 @@ describe('createBrowserProject async-utility timeout wiring (BST-1299)', () => {
 });
 
 describe('browser command frames during worker reuse', () => {
-  function fixture() {
-    const currentFrame = { name: () => 'vitest-iframe' };
-    const contentFrame = vi.fn<() => Promise<typeof currentFrame | null>>(async () => currentFrame);
-    const dispose = vi.fn(async () => undefined);
-    const handle = { contentFrame, dispose };
-    const elementHandle = vi.fn<() => Promise<typeof handle | null>>(async () => handle);
-    const locator = vi.fn(() => ({ elementHandle }));
-    const staleFrame = vi.fn(async () => ({ name: () => 'previous-file' }));
-    const page = { locator };
+  const PREVIOUS_FILE = '/repo/src/previous.browser.test.tsx';
+  const CURRENT_FILE = '/repo/src/current.browser.test.tsx';
+
+  function testFrame(file: string, detached = false) {
+    const url = `http://localhost:63315/?sessionId=reused-worker&iframeId=${encodeURIComponent(file)}`;
+    return { isDetached: () => detached, url: () => url };
+  }
+
+  function commandContext(frames: readonly ReturnType<typeof testFrame>[], testPath?: string) {
+    type FrameLike = ReturnType<typeof testFrame>;
+    const navigated: FrameLike[] = [];
+    const waitForEvent = vi.fn(
+      async (_event: string, options: { predicate: (frame: FrameLike) => boolean }) => {
+        const frame = navigated.find(options.predicate);
+        if (!frame) {
+          throw new Error('No frame navigated for this file.');
+        }
+        return frame;
+      }
+    );
+    const page = { frames: () => frames, waitForEvent };
+    const staleFrame = vi.fn(async () => frames[0]);
     const provider = {
       getCommandsContext: vi.fn((_sessionId: string) => ({ frame: staleFrame, page })),
     };
     bindCurrentTestFrame(provider);
-    const context = provider.getCommandsContext('reused-worker');
-    return { contentFrame, context, currentFrame, dispose, elementHandle, locator, staleFrame };
+    // Vitest merges the provider's context into each command's, beside `testPath`.
+    const context = { testPath, ...provider.getCommandsContext('reused-worker') };
+    return { context, navigated, staleFrame };
   }
 
-  it('uses the live iframe when the named frame still belongs to the previous file', async () => {
-    const f = fixture();
-    expect(await f.context.frame()).toBe(f.currentFrame);
-    expect(f.locator).toHaveBeenCalledWith('iframe[data-vitest="true"]');
-    expect(f.staleFrame).not.toHaveBeenCalled();
-    expect(f.dispose).toHaveBeenCalledOnce();
+  it('uses the frame loaded for the file that sent the command, not the previous file', async () => {
+    const current = testFrame(CURRENT_FILE);
+    const { context } = commandContext([testFrame(PREVIOUS_FILE), current], CURRENT_FILE);
+    expect(await context.frame()).toBe(current);
   });
 
-  it('resolves a fresh element for every command instead of caching a previous file', async () => {
-    const f = fixture();
-    await f.context.frame();
-    const nextFrame = { name: () => 'next-file' };
-    f.contentFrame.mockResolvedValueOnce(nextFrame);
-    expect(await f.context.frame()).toBe(nextFrame);
-    expect(f.elementHandle).toHaveBeenCalledTimes(2);
-    expect(f.dispose).toHaveBeenCalledTimes(2);
+  it('skips a detached frame left by an earlier run of the same file', async () => {
+    const current = testFrame(CURRENT_FILE);
+    const { context } = commandContext([testFrame(CURRENT_FILE, true), current], CURRENT_FILE);
+    expect(await context.frame()).toBe(current);
   });
 
-  it('surfaces a missing iframe element without selecting a stale frame', async () => {
-    const f = fixture();
-    f.elementHandle.mockResolvedValueOnce(null);
-    await expect(f.context.frame()).rejects.toThrow('current test iframe element');
-    expect(f.staleFrame).not.toHaveBeenCalled();
+  it('waits for the file frame Playwright has not seen yet', async () => {
+    const { context, navigated } = commandContext([testFrame(PREVIOUS_FILE)], CURRENT_FILE);
+    const current = testFrame(CURRENT_FILE);
+    navigated.push(testFrame(PREVIOUS_FILE), current);
+    expect(await context.frame()).toBe(current);
   });
 
-  it('surfaces a missing content frame and releases its element', async () => {
-    const f = fixture();
-    f.contentFrame.mockResolvedValueOnce(null);
-    await expect(f.context.frame()).rejects.toThrow('current test iframe');
-    expect(f.dispose).toHaveBeenCalledOnce();
-    expect(f.staleFrame).not.toHaveBeenCalled();
-  });
-
-  it('preserves a frame lookup failure and still releases its element', async () => {
-    const f = fixture();
-    const failure = new Error('Frame lookup failed');
-    f.contentFrame.mockRejectedValueOnce(failure);
-    await expect(f.context.frame()).rejects.toBe(failure);
-    expect(f.dispose).toHaveBeenCalledOnce();
+  it('refuses a command that does not say which file sent it', async () => {
+    const { context, staleFrame } = commandContext([testFrame(PREVIOUS_FILE)]);
+    await expect(context.frame()).rejects.toThrow('without the test file');
+    expect(staleFrame).not.toHaveBeenCalled();
   });
 });

@@ -206,8 +206,7 @@ test('Regenerate and Edit on a selected branch dispatch its committed user messa
   }
   expect(editor).toHaveValue('Add a rollback step.');
   await act(async () => {
-    await userEvent.clear(editor);
-    await userEvent.type(editor, 'Add a rollback step and a dry run.');
+    await userEvent.fill(editor, 'Add a rollback step and a dry run.');
   });
   await press(within(form).getByRole('button', { name: 'Send' }));
   expect(actions.onEdit).toHaveBeenCalledOnce();

@@ -73,6 +73,8 @@ export default defineConfig({
           execArgv: ['--expose-gc'],
           globals: true,
           include: ['test/**/*.spec.ts'],
+          // Runs beside the browser project, and one groupOrder takes one maxWorkers.
+          maxWorkers: browserProject.test.maxWorkers,
           name: 'unit',
           restoreMocks: true,
           setupFiles: ['@brainstrike/test-utils/vitest.dom-aware.setup'],

@@ -81,10 +81,11 @@ export default defineConfig({
                 },
               })
             ),
-            // Capture screenshots on failure for quick visual debugging
+            // Capture screenshots on failure for quick visual debugging. No
+            // traces: recording every test to keep the failures' traces cost
+            // the shared Vitest process more than the tests (see
+            // createBrowserProject in @brainstrike/config).
             screenshotFailures: true,
-            // Playwright trace: capture only for failing tests in CI
-            trace: process.env['CI'] ? 'retain-on-failure' : 'off',
           },
           globals: true,
           include: ['src/__tests__/**/*.browser.test.{ts,tsx}'],
