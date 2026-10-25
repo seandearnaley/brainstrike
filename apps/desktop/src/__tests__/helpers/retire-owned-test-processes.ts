@@ -52,7 +52,8 @@ export async function retireOwnedTestProcesses(
   if (remaining.length === 0) {
     return;
   }
-  const failures: unknown[] = [new Error('Owned app or Root process outlived its owner')];
+  const named = remaining.map((owner) => `${owner.kind} ${owner.pid}`).join(', ');
+  const failures: unknown[] = [new Error(`Owned app or Root process outlived its owner: ${named}`)];
   const results = await Promise.allSettled(
     remaining.map(async (owner) => {
       if (ports.startTime(owner.pid) !== owner.start) {
@@ -73,5 +74,9 @@ export async function retireOwnedTestProcesses(
       failures.push(result.reason);
     }
   }
-  throw new AggregateError(failures, 'Owned test process cleanup failed');
+  // The reporter prints only an AggregateError's own message, so it carries every cause.
+  const causes = failures.map((failure) =>
+    failure instanceof Error ? failure.message : String(failure)
+  );
+  throw new AggregateError(failures, `Owned test process cleanup failed: ${causes.join('; ')}`);
 }
