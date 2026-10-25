@@ -24,8 +24,10 @@ import {
  */
 export interface ModelProviderCassetteScript {
   readonly cassette: ProviderCassette;
-  /** Recorded-time pacing (`ProviderCassetteReplayOptions.pace`); 0 by default. */
+  /** Recorded chunk pacing (`ProviderCassetteReplayOptions.pace`); 0 by default. */
   readonly pace?: number;
+  /** When a lane's conversation has committed its end (`ProviderCassetteReplayOptions.settled`). */
+  readonly settled?: (lane: string) => Promise<void>;
   readonly substitutions?: readonly ProviderCassetteSubstitution[];
 }
 
@@ -53,6 +55,7 @@ export function cassetteReplayFor(script: unknown): ProviderCassetteReplay | und
   }
   return createProviderCassetteReplay(script.cassette, {
     ...(script.pace === undefined ? {} : { pace: script.pace }),
+    ...(script.settled ? { settled: script.settled } : {}),
     ...(script.substitutions ? { substitutions: script.substitutions } : {}),
   });
 }

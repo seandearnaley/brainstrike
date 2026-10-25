@@ -36,7 +36,7 @@ export interface ProviderCassetteScenario {
   readonly id: string;
   /** `provider::model` from the canonical catalog. */
   readonly model: string;
-  /** Replay pacing (`ProviderCassetteReplayOptions.pace`): concurrent children keep their recorded order. */
+  /** Replay pacing (`ProviderCassetteReplayOptions.pace`): each response keeps its recorded chunk times. */
   readonly pace?: number;
   readonly prompt: string;
   /**
@@ -254,7 +254,6 @@ export const PROVIDER_CASSETTE_SCENARIOS: readonly ProviderCassetteScenario[] = 
     guards: '#3719',
     id: 'openai-background-delegation',
     model: 'openai::gpt-6-luna',
-    pace: 1,
     prompt: `In one step, start two Explorer agents and let them run in the background: one that reads notes.md, and one that reads plan.md. Leave the _background argument unset and do not wait for them inline. When their results are delivered to you, report each in one sentence. ${NO_ROOT}`,
   },
   {
