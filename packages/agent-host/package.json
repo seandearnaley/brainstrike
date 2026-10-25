@@ -20,6 +20,7 @@
     "./committed-identities": "./src/committed-identities.ts",
     "./client": "./src/client.ts",
     "./cli": "./src/cli.ts",
+    "./standalone-host": "./src/standalone-host.ts",
     "./credential-contract": "./src/adapters/credential-contract.ts",
     "./keyring-credentials": "./src/adapters/keyring-credentials.ts",
     "./keyring-native": "./src/adapters/keyring-native-worker.ts",

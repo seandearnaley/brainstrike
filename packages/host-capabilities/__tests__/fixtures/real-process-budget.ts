@@ -1,7 +1,7 @@
 /**
- * The real-process test budgets, in one dependency-free module that both
- * `vitest.config.mts` and the real-bin fixture import, so every budget scales
- * with `TEST_TIMEOUT_MULTIPLIER` (and `DEBUG`) together.
+ * The real-process test budgets, in one dependency-free module that
+ * `vitest.config.mts` imports, so every budget scales with
+ * `TEST_TIMEOUT_MULTIPLIER` (and `DEBUG`) together.
  */
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 
@@ -20,8 +20,7 @@ export const REAL_PROCESS_TIMEOUT_MS = getAdjustedTimeout('integration');
 
 /**
  * The most budgeted steps an `afterEach` runs in sequence for the one Root a
- * test leaves: `retireRootOwner`'s CLI stop and then its exit wait, or a
- * Root-release wait and then an exit wait.
+ * test leaves: a Root-release wait and then an exit wait.
  */
 export const CLEANUP_STEPS = 2;
 

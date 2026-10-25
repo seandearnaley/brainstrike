@@ -17,7 +17,7 @@ const executable = path.join(
 );
 const execute = promisify(execFile);
 test.use({ electronEnv: { BRAINSTRIKE_OPENAI_API_KEY: 'offline-cli-first-fixture' } });
-test('CLI-created children appear in the GUI and retain their identity through CLI follow-up', async ({
+test('CLI-created children and their CLI follow-up appear in the GUI', async ({
   electron,
   modelProvider,
 }) => {
@@ -68,72 +68,66 @@ test('CLI-created children appear in the GUI and retain their identity through C
       toolCall: { arguments: { prompt: 'CLI_CHILD_TASK' }, name: 'agent-explore' },
     };
   });
-  let started = false;
+  const launch = [
+    '--workspace',
+    workspace,
+    '--credential-store',
+    'file',
+    '--credential-file',
+    path.join(root, 'synthetic-empty-credentials.json'),
+  ];
   try {
-    const identity: unknown = JSON.parse(
+    // The CLI runs its host in its own process, before the app opens this profile.
+    const [identity] = (
       await command([
-        'host',
-        'start',
-        '--workspace',
-        workspace,
-        '--credential-store',
-        'file',
-        '--credential-file',
-        path.join(root, 'synthetic-empty-credentials.json'),
+        'run',
+        'Delegate one Explorer child.',
+        '--model',
+        'openai::gpt-6-sol',
+        '--json',
+        '--non-interactive',
+        ...launch,
       ])
-    );
-    started = true;
-    const thread = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/start'], {
+    ).split('\n');
+    const thread = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
       errors: 'all',
-      onExcessProperty: 'error',
-    })(JSON.parse(await command(['thread', 'start'])));
-    const run = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['run/start'], {
+      onExcessProperty: 'ignore',
+    })(JSON.parse(identity ?? 'null'));
+    const threadIdentity = Schema.decodeUnknownSync(Schema.Struct({ threadId: Schema.String }), {
       errors: 'all',
-      onExcessProperty: 'error',
-    })(
-      JSON.parse(
-        await command([
-          'run',
-          'start',
-          '--thread',
-          thread.threadId,
-          '--model',
-          'openai::gpt-6-sol',
-          '--prompt',
-          'Delegate one Explorer child.',
-        ])
-      )
-    );
-    await command([
-      'attach',
-      '--thread',
-      thread.threadId,
-      '--run',
-      run.runId,
-      '--json',
-      '--non-interactive',
-    ]);
+      onExcessProperty: 'ignore',
+    })(JSON.parse(identity ?? 'null'));
     const children = async () =>
       Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/children'], {
         errors: 'all',
         onExcessProperty: 'error',
-      })(JSON.parse(await command(['children', 'list', '--thread', thread.threadId]))).children;
-    await expect.poll(async () => (await children()).length).toBe(1);
-    const child = (await children())[0];
-    if (!child) {
+      })(JSON.parse(await command(['children', 'list', '--thread', threadIdentity.threadId])))
+        .children;
+    const [child, ...others] = await children();
+    expect(others).toEqual([]);
+    if (!(child && thread.runId)) {
       throw new Error('The CLI did not create its child');
     }
-    await expect
-      .poll(async () =>
-        JSON.parse(await command(['thread', 'read', '--thread', child.threadId, '--from-seq', '0']))
-      )
-      .toMatchObject({
-        rows: expect.arrayContaining([
-          expect.objectContaining({
-            event: expect.objectContaining({ outcome: 'completed', type: 'run.finished' }),
-          }),
-        ]),
-      });
+    expect(
+      JSON.parse(await command(['thread', 'read', '--thread', child.threadId, '--from-seq', '0']))
+    ).toMatchObject({
+      rows: expect.arrayContaining([
+        expect.objectContaining({
+          event: expect.objectContaining({ outcome: 'completed', type: 'run.finished' }),
+        }),
+      ]),
+    });
+    await command([
+      'run',
+      'CLI_CHILD_FOLLOWUP',
+      '--thread',
+      child.threadId,
+      '--model',
+      'openai::gpt-6-sol',
+      '--json',
+      '--non-interactive',
+      ...launch,
+    ]);
     const window = await electron.ensureWindow();
     await ensureAssistantShellVisible(window);
     const sidebar = window.getByTestId('show-threads-panel');
@@ -152,16 +146,6 @@ test('CLI-created children appear in the GUI and retain their identity through C
       .click();
     const childPanel = window.getByRole('region', { exact: true, name: child.callSign });
     await expect(childPanel.getByText('CLI CHILD RESPONSE', { exact: true })).toBeVisible();
-    await command([
-      'child',
-      'send',
-      '--thread',
-      child.threadId,
-      '--model',
-      'openai::gpt-6-sol',
-      '--prompt',
-      'CLI_CHILD_FOLLOWUP',
-    ]);
     await expect(
       childPanel.getByText('CLI CHILD FOLLOWUP RESPONSE', { exact: true })
     ).toBeVisible();
@@ -171,14 +155,9 @@ test('CLI-created children appear in the GUI and retain their identity through C
         .getByRole('region', { exact: true, name: child.callSign })
         .getByText('CLI CHILD FOLLOWUP RESPONSE', { exact: true })
     ).toBeVisible();
-    expect(JSON.parse(await command(['host', 'status']))).toEqual(identity);
-    expect((await children()).map(({ threadId }) => threadId)).toEqual([child.threadId]);
     expect(modelProvider.refusals()).toEqual([]);
   } finally {
     await electron.dispose();
-    if (started) {
-      await command(['host', 'stop']);
-    }
     await rm(workspace, { recursive: true });
   }
 });

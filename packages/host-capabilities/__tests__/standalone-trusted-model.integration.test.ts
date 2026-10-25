@@ -6,7 +6,7 @@
  * `model.step` name, and no catalog model runs beside it.
  */
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -14,8 +14,6 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
-import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -52,14 +50,20 @@ async function refusingProvider() {
   return { baseUrl: `http://127.0.0.1:${address.port}/v1`, requests };
 }
 
+/** The production bin over one data root and workspace; each command runs its own host. */
 async function standaloneHost(env: Readonly<Record<string, string>>, platformModule?: string) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-trusted-model-data-'));
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-trusted-model-ws-')));
+  const launch = [
+    '--workspace',
+    workspace,
+    ...(platformModule ? ['--platform', platformModule] : []),
+  ];
   const command = (args: readonly string[]) =>
     new Promise<{ code: number; stderr: string; stdout: string }>((resolve, reject) => {
       execFile(
         process.execPath,
-        [bin, '--data-root', dataRoot, ...args],
+        [bin, '--data-root', dataRoot, ...args, ...launch],
         {
           cwd: tmpdir(),
           env: { ...env, LC_ALL: 'C', PATH: process.env['PATH'], TZ: 'UTC' },
@@ -77,24 +81,9 @@ async function standaloneHost(env: Readonly<Record<string, string>>, platformMod
       );
     });
   cleanup.push(async () => {
-    const owner = RootLock.inspect(dataRoot)?.owner;
-    if (owner && !owner.released) {
-      const { pid } = decodeHostRecord(
-        JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))
-      );
-      expect(await command(['host', 'stop'])).toMatchObject({ code: 0 });
-      await expect.poll(() => processStartTime(pid), { timeout: 30_000 }).toBeNull();
-    }
     await rm(workspace, { force: true, recursive: true });
     await removeFixtureRoot(dataRoot);
   });
-  const started = await command([
-    'host',
-    'start',
-    '--workspace',
-    workspace,
-    ...(platformModule ? ['--platform', platformModule] : []),
-  ]);
   const run = async (model: string) => {
     const result = await command([
       'run',
@@ -117,7 +106,7 @@ async function standaloneHost(env: Readonly<Record<string, string>>, platformMod
     })(JSON.parse(shown.stdout));
     return { result, rows };
   };
-  return { run, started };
+  return { command, run };
 }
 
 /** A trusted `--platform` module: the standalone platform with the scripted fixture as `provider::probe`. */
@@ -156,7 +145,6 @@ test('without the seam, --model resolves through the catalog and cannot name a t
     BRAINSTRIKE_OPENAI_API_KEY: 'trusted-model-fixture-key',
     OPENAI_BASE_URL: provider.baseUrl,
   });
-  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
   const catalog = await host.run('openai::gpt-6-luna');
   // The real OpenAI SDK sent the catalog model's request; the stand-in refused it.
   expect(catalog.result.code).toBe(1);
@@ -179,7 +167,6 @@ test('with the seam, the injected model runs under its own identity and no catal
   const module = await trustedPlatformModule('trusted-fixture');
   // No provider credential: the trusted model reads none.
   const host = await standaloneHost({ OPENAI_BASE_URL: provider.baseUrl }, module);
-  expect(host.started, host.started.stderr).toMatchObject({ code: 0 });
   const trusted = await host.run('trusted-fixture::probe');
   expect(trusted.result, trusted.result.stderr).toMatchObject({ code: 0 });
   const events = (trusted.rows ?? []).map((row) => row.event);
@@ -205,10 +192,11 @@ test('with the seam, the injected model runs under its own identity and no catal
   expect(provider.requests).toEqual([]);
 });
 
-test('a trusted model that claims a catalog provider identity fails host start', {
+test('a trusted model that claims a catalog provider identity fails the host it opens', {
   timeout: 120_000,
 }, async () => {
   const host = await standaloneHost({}, await trustedPlatformModule('openai'));
-  expect(host.started.code).toBe(1);
-  expect(host.started.stderr).toMatch(/must not claim a catalog provider's identity/u);
+  const listed = await host.command(['threads', 'list']);
+  expect(listed.code).toBe(1);
+  expect(listed.stderr).toMatch(/must not claim a catalog provider's identity/u);
 });

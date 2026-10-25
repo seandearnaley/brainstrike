@@ -69,29 +69,18 @@ R2 exception: not ours to wait on):
   bounds the start or attach of the launch's own host.
 - The caller's `signal` (quit) ends either wait at once with its own reason
   (BST-2279): quit has no deadline of its own to bound them (ADR-0026).
-- **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
-  external CLI path this redesign did not convert: readiness 30 s
-  (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the
-  group of a detached host) if the host has not exited within the one close
-  budget (`CHILD_CLOSE_BUDGET_MS`, ADR-0030). A forced kill is an error, never a
-  clean retirement. It attaches the host it started over its socket under a
-  startup bound measured from its ready report, and starts again if another owner
-  replaced that host.
-
 An app-owned host closes when its parent process identity disappears; it has no
-startup grace, because Main's lifetime channel alone ties it to Main. An ordinary
-CLI host closes after its last client and active run lease leave; explicit persistent
-start has a different lifetime. A CLI host no client ever attached closes once its
-startup grace has elapsed and no run lease is held, including a run it recovered on
-start that releases after the grace. A client its launcher connects privately (a
-port, not the socket) counts as attached like a socket client. Cooperative close fences admission, joins
+startup grace, because Main's lifetime channel alone ties it to Main. The CLI
+runs its host in its own process (ADR-0031): the host lives as long as the
+command, and no other process attaches to it. Cooperative close fences admission, joins
 Core/platform/native tails and SQLite, then removes discovery and releases Root.
 The requesting transport remains through its actual response write and final socket
 join.
 
 POSIX children that inherit Root's descriptor retain its flock; PTY sessions,
 SDK stdio MCP servers and short `execFile` calls do not inherit it. Desktop's
-registry supervises those processes; a CLI host has no desktop supervisor.
+registry supervises those processes; the CLI's in-process host has no desktop
+supervisor.
 Closing inherited descriptors loses flock protection; a daemon that also leaves
 its process group escapes group retirement. Windows uses kill-on-close Job
 ownership. See
@@ -101,12 +90,13 @@ retirement. Failed cleanup retains ownership and remains an error on repeat clos
 
 ## Destructive reset
 
-Join every profile writer before acquiring its reset lease. A live external CLI
-owner refuses reset; client detach does not release it. Hold the accessible guard
+Join every profile writer before acquiring its reset lease. A running CLI command
+holds the root and refuses reset until it ends. Hold the accessible guard
 through profile, userData and storage purge. Preserve the lock namespace and its
 ancestors. Release only after the destructive phase succeeds; failure keeps the
 same owner for retry. Coordination residue is ownership metadata, not application
 data or a new persistent namespace.
 
-Decision: [ADR-0017](../adr/0017-cli-first-agent-host.md).
+Decision: [ADR-0017](../adr/0017-cli-first-agent-host.md), amended by
+[ADR-0031](../adr/0031-canonical-process-model.md).
 Implementation: `packages/host-lease` and desktop acquisition/reset adapters.

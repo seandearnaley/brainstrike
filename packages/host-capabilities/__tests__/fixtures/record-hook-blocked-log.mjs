@@ -45,7 +45,6 @@ try {
       ],
     })
   );
-  await brainstrike(['host', 'start']);
   const started = await brainstrike([
     'run',
     'Use the recorded canonical human interaction.',
@@ -60,7 +59,6 @@ try {
   await writeFile(output, `${JSON.stringify(rows, null, 2)}\n`);
   process.stdout.write(`Recorded ${rows.length} committed rows\n`);
 } finally {
-  await brainstrike(['host', 'stop']);
   await rm(dataRoot, { force: true, recursive: true });
   await rm(home, { force: true, recursive: true });
 }

@@ -1,12 +1,8 @@
 // @vitest-environment node
-import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
-import { dirname, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
+import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
-import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
@@ -16,7 +12,6 @@ import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { joinProcessExit, processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
-import { Schema } from 'effect';
 import { _electron, type ElectronApplication } from 'playwright';
 import { expect, onTestFinished } from 'vitest';
 import { z } from 'zod';
@@ -84,7 +79,7 @@ async function providerPortRefused(baseUrl: string): Promise<boolean> {
   });
 }
 export async function qualifyOrdinaryAppIndexedText(
-  options: { readonly cliGrep?: boolean; readonly stopHost?: boolean } = {}
+  options: { readonly stopHost?: boolean } = {}
 ): Promise<void> {
   const { evidence, root: disposable } = await createDisposableAppProfile(
     options.stopHost ? 'brainstrike-m3-app-owned-stop-' : 'brainstrike-m3-app-owned-indexed-text-'
@@ -428,44 +423,11 @@ export async function qualifyOrdinaryAppIndexedText(
     }
     activeThreadId = threadId;
     checkpoint('ordinary-indexed-text-new-thread-rendered');
-    if (options.cliGrep) {
-      const require = createRequire(import.meta.url);
-      const bin = join(
-        dirname(require.resolve('@brainstrike/host-capabilities')),
-        '../bin/brainstrike.mjs'
-      );
-      const result = await promisify(execFile)(
-        process.execPath,
-        [
-          bin,
-          '--data-root',
-          profile,
-          'run',
-          'start',
-          '--thread',
-          threadId,
-          '--model',
-          'openrouter::anthropic/claude-sonnet-4.6',
-          '--prompt',
-          'Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.',
-        ],
-        {
-          env: {
-            PATH: process.env['PATH'],
-            SystemRoot: process.env['SystemRoot'],
-            TMPDIR: process.env['TMPDIR'],
-          },
-          timeout: 30_000,
-        }
-      );
-      await writeFile(join(evidence, 'cli-send.json'), JSON.stringify(result, null, 2));
-    } else {
-      const input = page
-        .getByTestId(`assistant-thread-panel-${threadId}`)
-        .getByRole('textbox', { name: 'Message input' });
-      await input.fill('Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.');
-      await input.press('Enter');
-    }
+    const input = page
+      .getByTestId(`assistant-thread-panel-${threadId}`)
+      .getByRole('textbox', { name: 'Message input' });
+    await input.fill('Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.');
+    await input.press('Enter');
     await expect
       .poll(
         async () =>
@@ -530,63 +492,6 @@ export async function qualifyOrdinaryAppIndexedText(
           )
       ).toBe(true);
       checkpoint('ordinary-indexed-and-live-grep-completed');
-    }
-    if (options.cliGrep) {
-      // Same production CLI, host, profile and canonical native index; no model
-      // hop is involved in ranked text reads.
-      const require = createRequire(import.meta.url);
-      const bin = join(
-        dirname(require.resolve('@brainstrike/host-capabilities')),
-        '../bin/brainstrike.mjs'
-      );
-      const search = (mode: string, rootId: string) =>
-        promisify(execFile)(
-          process.execPath,
-          [
-            bin,
-            '--data-root',
-            profile,
-            'workspace',
-            'search',
-            '--thread',
-            threadId,
-            '--scope-root',
-            rootId,
-            '--mode',
-            mode,
-            '--query',
-            'INDEXEDTEXTSENTINEL4802',
-            '--limit',
-            '5',
-          ],
-          {
-            env: {
-              PATH: process.env['PATH'],
-              SystemRoot: process.env['SystemRoot'],
-              TMPDIR: process.env['TMPDIR'],
-            },
-            timeout: 30_000,
-          }
-        );
-      for (const mode of ['bm25', 'trigram']) {
-        const response = await search(mode, mountedRootId);
-        await writeFile(join(evidence, `cli-${mode}.json`), response.stdout);
-        const textResult = Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['workspace/search'], {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(JSON.parse(response.stdout));
-        expect(textResult.hits.length).toBeGreaterThan(0);
-        expect(textResult.hits.every((hit) => hit.rootId === mountedRootId)).toBe(true);
-        expect(textResult.hits.find((hit) => hit.path === 'indexed-proof.md')).toMatchObject({
-          content: expect.stringContaining(searchLine),
-          endLine: expect.any(Number),
-          startLine: expect.any(Number),
-        });
-        expect(textResult.truncated).toBe(false);
-      }
-      await expect(search('bm25', 'unmounted-root')).rejects.toThrow();
-      await expect(search('vector', mountedRootId)).rejects.toThrow();
-      checkpoint('ordinary-cli-bm25-trigram-completed');
     }
     if (options.stopHost) {
       const beforeStop = await application.evaluate(({ app }) => app.getAppMetrics());

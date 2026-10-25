@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
@@ -8,20 +9,20 @@ import {
   describeBoundaryFailure,
   type ProviderCredential,
 } from '@brainstrike/assistant-contract';
-import { launchHost } from '@brainstrike/host-lease';
+import { configureLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { trustCliProjectHooks } from './cli-hooks-trust.ts';
-import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.ts';
 import { HostCliExitError, runHostCliSession } from './cli-session.ts';
-import { attachAgentHost, type HostClient } from './client.ts';
-import { createAgentHostSpawner } from './launcher.ts';
+import type { HostClient } from './client-connection.ts';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
 import { isProcessEntrypoint } from './process-entrypoint.ts';
 import { HOST_METHOD_SCHEMAS, type HostParams } from './protocol.ts';
+import { openStandaloneHost } from './standalone-host.ts';
 import {
   type CliWorkspaceRunInput,
   CliWorkspaceRunInputSchema,
 } from './standalone-workspace-input.ts';
+import { foldHostRuns } from './thread-view.ts';
 export interface HostCliOutput {
   write(value: string): void;
 }
@@ -141,13 +142,8 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
   const command = cliCommand(positionals, values.help);
   if (
     ![
-      'host start',
-      'host status',
-      'host stop',
       'help',
       'children list',
-      'child send',
-      'child input',
       'child stop',
       'thread start',
       'thread read',
@@ -157,13 +153,9 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'workspace search',
       'run',
       'attach',
-      'run start',
       'run stop',
       'interaction respond',
       'interaction resume',
-      'log follow',
-      'mcp input read',
-      'mcp input settle',
       'auth login',
       'hooks trust',
     ].includes(command)
@@ -205,7 +197,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     ...(workspaceInput ? { workspaceInput } : {}),
   };
 }
-/** A newly started standalone host's trusted launch selection. */
+/** This command's host's trusted launch selection. */
 function launchSelection(values: HostCliArguments['values']): HostPlatformLaunchOptions {
   const mcpConfig = values['mcp-config'];
   return {
@@ -232,26 +224,6 @@ function credentialSelection(
   throw new Error(
     'Select --credential-store keyring --credential-service <existing service>, or --credential-store file --credential-file <absolute path>'
   );
-}
-function assertCredentialAuthority(spawned: boolean, values: HostCliArguments['values']): void {
-  if (
-    !spawned &&
-    (values['credential-store'] || values['credential-file'] || values['credential-service'])
-  ) {
-    throw new Error(
-      'An attached host retains its existing credential authority; credential backend selection requires a new host'
-    );
-  }
-  if (!spawned && values['mcp-config']) {
-    throw new Error(
-      'An attached host retains its existing MCP configuration; --mcp-config requires a new host'
-    );
-  }
-  if (!spawned && values.workspace) {
-    throw new Error(
-      'An attached host retains its workspace roots; --workspace applies only to a newly started standalone host'
-    );
-  }
 }
 async function readCliSecret(input: NodeJS.ReadableStream): Promise<string> {
   let text = '';
@@ -403,7 +375,62 @@ async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['
     process.off('SIGTERM', abort);
   }
 }
-/** CLI is a client of the root owner; it never runs a second model/tool loop. */
+/**
+ * After an answer, the run continues in this command's host: follow it until it
+ * ends or asks again, so closing the host never interrupts what the answer resumed.
+ */
+async function followAnsweredRun(client: HostClient, threadId: string, runId: string) {
+  await runHostCliSession({
+    client,
+    interactive: false,
+    json: true,
+    output: { write: () => undefined },
+    runId,
+    threadId,
+  });
+}
+/**
+ * A run's background children, and the parent runs their results wake, run in
+ * this command's host: keep it open until the thread has no running run and no
+ * working child. A child waiting on a person stays for attach.
+ */
+async function awaitBackgroundWork(client: HostClient, threadId: string): Promise<void> {
+  let changed = Promise.withResolvers<void>();
+  const poke = (): void => changed.resolve();
+  const releaseChildren = client.onChildrenChanged((changedThread) => {
+    if (changedThread === threadId) {
+      poke();
+    }
+  });
+  const releaseRows = client.onEvent((row) => {
+    if (row.threadId === threadId) {
+      poke();
+    }
+  });
+  try {
+    await client.request('log/subscribe', { fromSeq: 0, threadId });
+    for (;;) {
+      const [{ rows }, { children }] = await Promise.all([
+        client.request('thread/read', { fromSeq: 0, threadId }),
+        client.request('thread/children', { threadId }),
+      ]);
+      if (
+        !(
+          foldHostRuns(rows).some(({ status }) => status === 'running') ||
+          children.some(({ status }) => status === 'working')
+        )
+      ) {
+        return;
+      }
+      await changed.promise;
+      changed = Promise.withResolvers<void>();
+    }
+  } finally {
+    releaseChildren();
+    releaseRows();
+    await client.request('log/unsubscribe', { threadId });
+  }
+}
 export async function runHostCli(
   args: string[],
   output: HostCliOutput = process.stdout,
@@ -420,21 +447,18 @@ workspace search --thread <id> --scope-root <id> --mode bm25|trigram --query <te
 threads list
 threads show --thread <id> [--from-seq <n>]
 threads search --query <text> [--scope-root <id>] [--since <iso>] [--until <iso>] [--limit <n>]
-host start | host status | host stop
 thread start | thread read --thread <id>
-run start --thread <id> --model <id> --prompt <text>
 run stop --thread <id> --run <id>
 children list --thread <parent-id>
-child send --thread <child-id> --model <id> --prompt <text>
-child input --thread <child-id> --run <id> --model <id> --prompt <text>
 child stop --thread <child-id> --run <id>
 interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
 interaction resume --thread <id> --run <id> --interaction <id> --resume-data <json>
-log follow --thread <id> [--from-seq <n>]
-mcp input read --thread <id> --run <id> --interaction <id>
-mcp input settle --thread <id> --run <id> --interaction <id> --action accept|decline|cancel [--content <json>]
 auth login --provider <id> [--region <aws region> [--aws-profile <name>]]
 hooks trust [<root dir>] [--sha256 <hash>]
+
+Each command runs the agent host in its own process and ends it when the command ends.
+A data root that another Brainstrike process has open (the desktop, another command) is refused.
+run --thread <id> continues any thread, a child thread included.
 
 auth login reads the API key or AWS bearer key from stdin, never from arguments.
 --aws-profile stores a named AWS profile chain and reads no secret.
@@ -447,62 +471,45 @@ ranked list; with no thread holding every word, it matches any word and says so.
 keeps threads bound to that workspace root; --since/--until bound message times.
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
-Standalone hosts use an explicit --model provider::model from the canonical catalog.
+Runs use an explicit --model provider::model from the canonical catalog.
 This selection does not change desktop model enablement or saved settings.
-A newly started standalone host's workspace is its launch roots: repeat
---workspace <dir> (default: the current directory). File, task-list and canvas
-tools run there; an attached host keeps its own roots.
+A command's workspace is its launch roots: repeat --workspace <dir> (default:
+the current directory). File, task-list and canvas tools run there.
 Per-run workspace input for a profile-backed host: repeat --workspace-root <existing canonical id>,
 --workspace-instructions inherit|off, and --skills inherit|off (default off).
 Selectors narrow live owner grants; they never add paths.
 An empty selection grants no workspace; Skills also require the owner's home-tier capability.
 Search/shell tools, Skills/workspace instructions, vector Memory,
 local inference and browser OAuth require platform capabilities.
-An existing host keeps its own platform and admission policy.
-A new host composes configured MCP servers and their Tasks from --mcp-config <file> (the desktop's MCP config JSON).
-The interaction id is the committed mcp.input.requested event's interactionId; a non-interactive run exits 2 at one.
+The host composes configured MCP servers and their Tasks from --mcp-config <file> (the desktop's MCP config JSON).
+MCP server input is answered in an interactive terminal; a non-interactive run exits 2 at one.
 Credential backends require an explicit existing keyring service or absolute private file:
 --credential-store keyring --credential-service <service>
 --credential-store file --credential-file <path>
-Selections apply only to a newly started host. Missing keyring support never selects file automatically.
-Unanswered noninteractive decisions exit 2 and remain available for attach.
-An interactive terminal prompts for approvals, question answers, and plan decisions. EOF detaches.
-Run signals stop and join its execution; attach signals detach.
+Missing keyring support never selects file automatically.
+Unanswered noninteractive decisions exit 2 and remain available for attach and interaction respond/resume,
+which follow the resumed run until it ends or asks again.
+An interactive terminal prompts for approvals, question answers, plan decisions and MCP input.
+EOF or a signal ends the command: a running run is interrupted, an unanswered decision stays for attach.
 `);
     return;
   }
-  // The secret is read before any host starts, so empty input never spawns one.
+  // The secret is read before any host starts, so empty input never opens one.
   const login = await readCliLogin(command, values, process.stdin);
-  // Likewise, invalid search input is refused before a host starts or attaches.
+  // Likewise, invalid search input is refused before a host starts.
   const threadSearch = cliThreadSearch(command, values);
-  let spawned = false;
-  const attachment = await launchHost(
+  const platformModule = values.platform ?? defaults.platformModule;
+  if (!platformModule) {
+    throw new Error(
+      'Opening a host requires --platform <module>; this entry composes no default platform'
+    );
+  }
+  const host = await openStandaloneHost(
     resolve(required(values['data-root'] ?? values.root, 'data-root')),
-    {
-      attach: attachAgentHost,
-      lifetime: command === 'host start' ? 'persistent' : 'cli',
-      spawn: async (options, signal) => {
-        if (command === 'host status' || command === 'host stop') {
-          throw new Error('No host is running for this root');
-        }
-        const platformModule = values.platform ?? defaults.platformModule;
-        if (!platformModule) {
-          throw new Error(
-            'Starting a host requires --platform <module>; this entry composes no default platform'
-          );
-        }
-        const started = await createAgentHostSpawner(platformModule, launchSelection(values))(
-          options,
-          signal
-        );
-        spawned = true;
-        // BST-2167: the launch settles the host it started (release or retire).
-        return started;
-      },
-    }
+    platformModule,
+    launchSelection(values)
   );
-  // This launcher has exactly one supplied attachment implementation.
-  const client = attachment as HostClient;
+  const client = host.client;
   const commandId = values['command-id'] ?? randomUUID();
   const print = (value: unknown): void => {
     output.write(`${JSON.stringify(value)}\n`);
@@ -510,7 +517,6 @@ Run signals stop and join its execution; attach signals detach.
   const threadId = (): string => required(values.thread, 'thread');
   const runId = (): string => required(values.run, 'run');
   try {
-    assertCredentialAuthority(spawned, values);
     await assertChildCommand(client, command, values.thread);
     switch (command) {
       case 'hooks trust':
@@ -524,20 +530,6 @@ Run signals stop and join its execution; attach signals detach.
         break;
       case 'auth login': {
         print(await client.request('auth/login', required(login, 'provider')));
-        break;
-      }
-      case 'host start':
-      case 'host status': {
-        const { hostVersion, pid, protocolVersion, start } = client.record;
-        print({ hostVersion, pid, protocolVersion, start });
-        break;
-      }
-      case 'host stop': {
-        const result = await client.request('host/stop', {});
-        // Protocol 6 acknowledges joined Core/platform/Root cleanup, then joins
-        // the requesting transport. Both must complete before CLI success.
-        await client.closed;
-        print(result);
         break;
       }
       case 'thread start':
@@ -585,6 +577,7 @@ Run signals stop and join its execution; attach signals detach.
             }),
           threadId: selected,
         });
+        await awaitBackgroundWork(client, selected);
         break;
       }
       case 'attach':
@@ -596,29 +589,6 @@ Run signals stop and join its execution; attach signals detach.
           ...(values.run ? { runId: values.run } : {}),
           threadId: threadId(),
         });
-        break;
-      case 'child send':
-      case 'run start':
-        print(
-          await client.request('run/start', {
-            commandId,
-            ...workspaceConfiguration,
-            modelId: required(values.model, 'model'),
-            prompt: required(values.prompt, 'prompt'),
-            threadId: threadId(),
-          })
-        );
-        break;
-      case 'child input':
-        print(
-          await client.request('run/input', {
-            commandId,
-            modelId: required(values.model, 'model'),
-            prompt: required(values.prompt, 'prompt'),
-            runId: runId(),
-            threadId: threadId(),
-          })
-        );
         break;
       case 'child stop':
       case 'run stop':
@@ -640,6 +610,7 @@ Run signals stop and join its execution; attach signals detach.
             threadId: threadId(),
           })
         );
+        await followAnsweredRun(client, threadId(), runId());
         break;
       }
       case 'interaction resume': {
@@ -655,72 +626,14 @@ Run signals stop and join its execution; attach signals detach.
           threadId: threadId(),
         });
         print(await client.request('interaction/resume', params));
-        break;
-      }
-      case 'mcp input read':
-        print(
-          await readCliMcpInput(client, {
-            interactionId: required(values.interaction, 'interaction'),
-            runId: runId(),
-            threadId: threadId(),
-          })
-        );
-        break;
-      case 'mcp input settle':
-        print(
-          await settleCliMcpInput(
-            client,
-            {
-              interactionId: required(values.interaction, 'interaction'),
-              runId: runId(),
-              threadId: threadId(),
-            },
-            { action: values.action, commandId, content: values.content }
-          )
-        );
-        break;
-      case 'log follow': {
-        const selected = threadId();
-        const rows = new Map<number, unknown>();
-        let cursor = Number(values['from-seq'] ?? 0);
-        const accept = (row: { threadId: string; seq: number }): void => {
-          if (row.threadId !== selected || row.seq <= cursor) {
-            return;
-          }
-          rows.set(row.seq, row);
-          while (rows.has(cursor + 1)) {
-            cursor += 1;
-            print(rows.get(cursor));
-            rows.delete(cursor);
-          }
-        };
-        const release = client.onEvent(accept);
-        const detach = (): void => {
-          void client.close();
-        };
-        process.once('SIGINT', detach);
-        process.once('SIGTERM', detach);
-        try {
-          for (const row of (
-            await client.request('log/subscribe', { fromSeq: cursor, threadId: selected })
-          ).rows) {
-            accept(row);
-          }
-          await client.closed;
-        } finally {
-          release();
-          process.off('SIGINT', detach);
-          process.off('SIGTERM', detach);
-        }
+        await followAnsweredRun(client, threadId(), runId());
         break;
       }
       default:
-        throw new Error(
-          'Expected host start/status/stop, thread start/read, run start/stop, interaction respond/resume, mcp input read/settle, or log follow'
-        );
+        throw new Error('Expected thread start/read, run stop, or interaction respond/resume');
     }
   } finally {
-    await client.close();
+    await host.close();
   }
 }
 /** Both installed executable names and the direct Node entry share exit semantics. */
@@ -728,6 +641,17 @@ export async function runHostCliProcess(
   args: string[],
   defaults: HostCliDefaults = {}
 ): Promise<void> {
+  // Stdout carries the command's output; the in-process host logs to stderr.
+  configureLogger({ console: { destination: 2 }, level: 'warn' });
+  if (process.platform === 'win32') {
+    // ADR-0017: before the host starts any native process this process joins a
+    // kill-on-close Job, so everything the host starts ends with the command.
+    (
+      createRequire(import.meta.url)(
+        '@brainstrike/windows-job-native'
+      ) as typeof import('@brainstrike/windows-job-native')
+    ).initialize();
+  }
   try {
     await runHostCli(args, process.stdout, defaults);
   } catch (cause: unknown) {
