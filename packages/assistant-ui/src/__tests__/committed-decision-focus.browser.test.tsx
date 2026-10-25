@@ -278,8 +278,8 @@ test('dismissing a command error by keyboard returns focus to the composer', asy
   await settleAnimations(region);
   const input = ui.getByRole('textbox', { name: 'Message input' });
   await act(async () => {
-    input.focus();
-    await userEvent.keyboard('Report the result again{Enter}');
+    await userEvent.fill(input, 'Report the result again');
+    await userEvent.keyboard('{Enter}');
   });
   const host = region.parentElement;
   if (!host) {

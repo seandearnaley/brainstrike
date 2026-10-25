@@ -1,7 +1,9 @@
 import { once } from 'node:events';
+import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { setupAssistantMock } from './utils/assistant-mock';
+import { resolveDesktopE2eTarget } from './utils/desktop-e2e-target';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Electron App Launch', () => {
@@ -49,10 +51,14 @@ test.describe('Electron App Launch', () => {
     expect(version).toBeTruthy();
     expect(version).toMatch(/^\d+\.\d+\.\d+/); // Semantic version format
 
-    // Check app path
+    // The app path is the bundle Electron loaded: the dev entry's folder, or
+    // the packaged app.asar. It names no checkout folder.
     const appPath = await getAppPath(electronApp.app);
-    expect(appPath).toBeTruthy();
-    expect(appPath).toContain('brainstrike');
+    if (resolveDesktopE2eTarget().kind === 'packaged') {
+      expect(path.basename(appPath)).toBe('app.asar');
+    } else {
+      expect(appPath).toBe(path.resolve(import.meta.dirname, '..', 'dist'));
+    }
   });
 
   test('should handle window resize', { tag: '@smoke' }, async ({ electronApp, window }) => {

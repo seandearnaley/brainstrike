@@ -272,7 +272,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check . --write",
     "pack": "pnpm build:cached && electron-builder --dir",
-    "postinstall": "node scripts/chmod-pty-spawn-helper.mjs && node scripts/sign-dev-electron.mjs",
+    "postinstall": "node scripts/provision-dev-electron.mjs && node scripts/chmod-pty-spawn-helper.mjs && node scripts/sign-dev-electron.mjs",
     "provision:test-model-cache": "node scripts/provision-test-model-cache.mjs",
     "start": "node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
