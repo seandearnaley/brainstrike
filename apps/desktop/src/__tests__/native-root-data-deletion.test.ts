@@ -198,29 +198,48 @@ it('joins source/read/inference work and held native ACK before PG cascade, then
   });
 });
 
-it('preserves PG on native cleanup failure and retries the same captured owner without re-resolving grants', async () => {
+it('keeps PG on a native cleanup failure, reopens admission and indexing, and deletes on retry', async () => {
   const f = fixture();
   f.removeScopedFile.mockRejectedValueOnce(new Error('Native cleanup failed'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Native cleanup failed');
   expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
-  await expect(f.service.transition(async () => undefined)).rejects.toThrow(/deletion/);
+  expect(f.events.slice(-3)).toEqual(['release', 'resume', 'acquire']);
+  await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
   f.ack.resolve(false);
   await f.service.deleteRootData('root');
-  expect(f.dependencies.captureOwner).toHaveBeenCalledTimes(1);
-  expect(f.dependencies.reserveRoot).toHaveBeenCalledTimes(1);
+  expect(f.dependencies.deleteCanonicalRoot).toHaveBeenCalledOnce();
+  expect(f.reservation.disconnect).toHaveBeenCalledOnce();
 });
 
-it('preserves PG when physical source or writer retirement fails', async () => {
+it('keeps PG and resumes indexing when physical source or writer retirement fails', async () => {
   const f = fixture();
   f.dependencies.stopSources.mockRejectedValueOnce(new Error('Reader still owns process'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Reader still owns process');
   expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
+  expect(f.dependencies.resume).toHaveBeenCalledOnce();
   f.ack.resolve(true);
   f.dependencies.closeOwner.mockRejectedValueOnce(new Error('Writer still owns process'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Writer still owns process');
   expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
+  expect(f.dependencies.resume).toHaveBeenCalledTimes(2);
   await f.service.deleteRootData('root');
-  expect(f.removeScopedFile).toHaveBeenCalledTimes(1);
+  expect(f.dependencies.deleteCanonicalRoot).toHaveBeenCalledOnce();
+  expect(f.reservation.release).toHaveBeenCalledTimes(3);
+});
+
+it('reports both failures when indexing cannot resume after a failed deletion', async () => {
+  const f = fixture();
+  f.dependencies.stopSources.mockRejectedValueOnce(new Error('Reader still owns process'));
+  f.dependencies.resume.mockRejectedValueOnce(new Error('Resume failed'));
+  const failure = await f.service.deleteRootData('root').catch((error: unknown) => error);
+  if (!(failure instanceof AggregateError)) {
+    throw new Error('A failed resume must report both failures.');
+  }
+  expect(failure.errors).toEqual([
+    new Error('Reader still owns process'),
+    new Error('Resume failed'),
+  ]);
+  expect(f.reservation.release).toHaveBeenCalledOnce();
 });
 
 it('refuses a replaced original grant while native ACK is held', async () => {
@@ -233,13 +252,14 @@ it('refuses a replaced original grant while native ACK is held', async () => {
   expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
 });
 
-it('refuses unowned roots and a different root during failed cleanup', async () => {
+it('refuses unmounted roots and a second deletion while one runs', async () => {
   const f = fixture();
   await expect(f.service.deleteRootData('foreign')).rejects.toThrow('Root is not mounted');
-  f.dependencies.stopSources.mockRejectedValueOnce(new Error('Cleanup failed'));
-  await expect(f.service.deleteRootData('root')).rejects.toThrow('Cleanup failed');
-  await expect(f.service.deleteRootData('other')).rejects.toThrow(/original root/);
-  expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
+  const deletion = f.service.deleteRootData('root');
+  await expect(f.service.deleteRootData('root')).rejects.toThrow('already running');
+  f.ack.resolve(true);
+  await deletion;
+  expect(f.dependencies.reserveRoot).toHaveBeenCalledTimes(2);
 });
 
 it('deletes and disconnects a folder the index does not own, then reopens admission', async () => {
@@ -299,15 +319,14 @@ it('refuses a replaced native owner after a held native ACK without cascading PG
   await expect(deletion).rejects.toThrow('Original writer replaced');
   expect(f.dependencies.deleteCanonicalRoot).not.toHaveBeenCalled();
 });
-it('retries failed reacquisition without repeating a completed cascade or resume', async () => {
+it('reports a failed reacquisition after the disconnect and reopens admission', async () => {
   const f = fixture();
   f.ack.resolve(true);
   f.dependencies.acquire.mockRejectedValueOnce(new Error('Reopen failed'));
   await expect(f.service.deleteRootData('root')).rejects.toThrow('Reopen failed');
-  await f.service.deleteRootData('root');
-  expect(f.dependencies.resume).toHaveBeenCalledOnce();
   expect(f.dependencies.deleteCanonicalRoot).toHaveBeenCalledOnce();
   expect(f.reservation.release).toHaveBeenCalledOnce();
+  await expect(f.service.transition(async () => undefined)).resolves.toBeUndefined();
 });
 
 it('refuses deletion during an already-admitted native transition without reserving its roots', async () => {

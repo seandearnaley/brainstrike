@@ -19,29 +19,10 @@ interface Dependencies {
   stopSources(): Promise<void>;
 }
 
-type Phase =
-  | 'capture'
-  | 'stop'
-  | 'remove'
-  | 'close'
-  | 'cascade'
-  | 'disconnect'
-  | 'resume'
-  | 'acquire'
-  | 'done';
-interface Deletion {
-  owner?: NativeCleanupOwner;
-  phase: Phase;
-  readonly reservation: RootDataDeletionReservation;
-  running?: Promise<void> | undefined;
-}
-
-async function removeCapturedRoot(deletion: Deletion): Promise<void> {
-  const owner = deletion.owner;
-  if (!owner) {
-    throw new Error('Root deletion has no captured native owner.');
-  }
-  const reservation = deletion.reservation;
+async function removeCapturedRoot(
+  owner: NativeCleanupOwner,
+  reservation: RootDataDeletionReservation
+): Promise<void> {
   // Read only AFTER joining admitted work: a pre-stop snapshot can miss a late ACK.
   const authority = owner.readAuthority();
   const rootId = reservation.mounted.rootId;
@@ -73,93 +54,64 @@ export interface NativeRootDataDeletion {
 
 /** Main owns the entire destructive transition; callers supply only a mounted root ID. */
 export function createNativeRootDataDeletion(dependencies: Dependencies): NativeRootDataDeletion {
-  let pending: Deletion | undefined;
+  let running: Promise<void> | undefined;
   let transitions: Promise<void> = Promise.resolve();
   let transitionCount = 0;
 
-  const advance = async (deletion: Deletion): Promise<void> => {
-    const reservation = deletion.reservation;
-    reservation.assertCurrent();
-    switch (deletion.phase) {
-      case 'capture':
-        deletion.owner = await dependencies.captureOwner();
+  const execute = async (reservation: RootDataDeletionReservation): Promise<void> => {
+    await transitions;
+    let sourcesStopped = false;
+    try {
+      await reservation.run(async () => {
+        const owner = await dependencies.captureOwner();
         reservation.assertCurrent();
-        deletion.phase = 'stop';
-        return;
-      case 'stop':
+        sourcesStopped = true;
         await dependencies.stopSources();
         await reservation.retireSources();
         reservation.assertCurrent();
-        deletion.phase = 'remove';
-        return;
-      case 'remove':
-        await removeCapturedRoot(deletion);
-        deletion.phase = 'close';
-        return;
-      case 'close':
+        await removeCapturedRoot(owner, reservation);
         await dependencies.closeOwner();
         reservation.assertCurrent();
-        deletion.phase = 'cascade';
-        return;
-      case 'cascade':
         await dependencies.deleteCanonicalRoot(reservation.mounted);
-        deletion.phase = 'disconnect';
-        return;
-      case 'disconnect':
         await reservation.disconnect();
-        deletion.phase = 'resume';
-        return;
-      default:
-        throw new Error('Root deletion entered an invalid reserved phase.');
-    }
-  };
-  const execute = async (deletion: Deletion): Promise<void> => {
-    await transitions;
-    if (deletion.phase !== 'resume' && deletion.phase !== 'acquire') {
-      await deletion.reservation.run(async () => {
-        while (deletion.phase !== 'resume') {
-          await advance(deletion);
-        }
       });
-      deletion.reservation.release();
+    } catch (error) {
+      // A failed deletion never keeps admission: the folder stays connected, its
+      // indexing resumes, and the user can retry.
+      reservation.release();
+      if (sourcesStopped) {
+        try {
+          await dependencies.resume();
+          await dependencies.acquire();
+        } catch (recovery) {
+          throw new AggregateError(
+            [error, recovery],
+            'Root data deletion failed and native indexing did not resume.'
+          );
+        }
+      }
+      throw error;
     }
-    if (deletion.phase === 'resume') {
-      await dependencies.resume();
-      deletion.phase = 'acquire';
-    }
+    reservation.release();
+    await dependencies.resume();
     await dependencies.acquire();
-    deletion.phase = 'done';
-    if (pending === deletion) {
-      pending = undefined;
-    }
   };
   const deleteRootData = (rootId: string): Promise<void> => {
     try {
-      if (!pending && transitionCount > 0) {
+      if (running) {
+        throw new Error('A root data deletion is already running; retry after it settles.');
+      }
+      if (transitionCount > 0) {
         throw new Error(
           'A native transition already owns admission; retry root deletion after it settles.'
         );
       }
-      if (pending && pending.reservation.mounted.rootId !== rootId) {
-        throw new Error('Root deletion cleanup must be retried for its original root.');
-      }
       // Reserve synchronously: filesystem and native transitions see closed admission immediately.
-      pending ??= { phase: 'capture', reservation: dependencies.reserveRoot(rootId) };
-      const deletion = pending;
-      deletion.running ??= execute(deletion)
-        .catch((error: unknown) => {
-          if (deletion.phase === 'capture') {
-            deletion.reservation.release();
-            if (pending === deletion) {
-              pending = undefined;
-            }
-          }
-          throw error;
-        })
-        .finally(() => {
-          deletion.running = undefined;
-        });
-      return deletion.running;
+      const deletion = execute(dependencies.reserveRoot(rootId)).finally(() => {
+        running = undefined;
+      });
+      running = deletion;
+      return deletion;
     } catch (error) {
       return Promise.reject(error);
     }
@@ -168,9 +120,9 @@ export function createNativeRootDataDeletion(dependencies: Dependencies): Native
     prepare: () => Promise<P>,
     complete: (prepared: P) => Promise<T>
   ): Promise<T> => {
-    if (pending) {
+    if (running) {
       return Promise.reject(
-        new Error('Native root deletion owns admission; retry its cleanup first.')
+        new Error('Native root deletion owns admission; retry after it settles.')
       );
     }
     transitionCount += 1;
