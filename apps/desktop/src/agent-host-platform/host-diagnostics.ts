@@ -8,6 +8,7 @@ import {
   redactSensitiveLogValue,
 } from '@brainstrike/logging';
 import { Schema } from 'effect';
+import { NATIVE_INDEX_WORKFLOW_SCOPE } from '../native-index-effect-diagnostics';
 import { PlatformDiagnosticRecordSchema } from './platform-wire';
 
 /**
@@ -19,6 +20,11 @@ const DELIVERY_SCOPE = 'DesktopHostDiagnosticDelivery';
 const MCP_DELIVERY_SCOPE = 'DesktopMcpDiagnosticDelivery';
 
 function forwarded(record: LogRecord): boolean {
+  // The search index runs in the host (ADR-0029 stage 4); its workflow timeline stays in the
+  // desktop's Logs at every level, as Main logged it there.
+  if (record.scope === NATIVE_INDEX_WORKFLOW_SCOPE) {
+    return true;
+  }
   return (
     (record.level === LogLevel.ERROR || record.level === LogLevel.FATAL) &&
     record.scope !== DELIVERY_SCOPE &&
@@ -29,7 +35,7 @@ function forwarded(record: LogRecord): boolean {
 
 /**
  * BST-2202: the agent host's error and fatal log records, with the correlation
- * ids they carry, delivered to Main's diagnostics the way MCP records are
+ * ids they carry, and the search index's workflow timeline, delivered to Main's diagnostics the way MCP records are
  * (`createDesktopMcpDiagnostics`). The host's stderr keeps every record.
  * `send` is the raw platform request: a sender that logs its own failures
  * through a forwarded scope would feed them back to this tap.

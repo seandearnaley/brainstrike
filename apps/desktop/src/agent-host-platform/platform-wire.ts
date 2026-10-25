@@ -10,6 +10,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { Schema } from 'effect';
+import { NATIVE_INDEX_WORKFLOW_SCOPE } from '../native-index-effect-diagnostics';
 import {
   PlatformMemoryOptionsSchema,
   PlatformMemorySettingsSchema,
@@ -26,21 +27,34 @@ export {
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
- * BST-2202: the agent host's error and fatal log records reach Main's
- * diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
+ * BST-2202: the agent host's error and fatal log records, and its search index's
+ * workflow timeline at every level, reach Main's diagnostics, as MCP's records do (`platform/mcp/diagnostics`), so the cause a
  * correlation id names is in the desktop log and debug bundle.
  */
 export const PLATFORM_DIAGNOSTICS_RECORD_METHOD = 'platform/diagnostics/record';
-/** One record as its producer's logger redacted it, bounded to JSON. */
+const DiagnosticRecordFields = {
+  args: Schema.mutable(Schema.Array(Schema.MutableJson)),
+  bindings: Schema.Record(Schema.String, Schema.MutableJson),
+  message: Schema.optional(Schema.String),
+  timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+};
+/**
+ * One record as its producer's logger redacted it, bounded to JSON: an error or fatal record of
+ * any scope, or the search index's workflow timeline at any level.
+ */
 export const PlatformDiagnosticRecordSchema = Schema.Struct({
-  record: Schema.Struct({
-    args: Schema.mutable(Schema.Array(Schema.MutableJson)),
-    bindings: Schema.Record(Schema.String, Schema.MutableJson),
-    level: Schema.Literals(['error', 'fatal']),
-    message: Schema.optional(Schema.String),
-    scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
-    timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  }),
+  record: Schema.Union([
+    Schema.Struct({
+      ...DiagnosticRecordFields,
+      level: Schema.Literals(['error', 'fatal']),
+      scope: Schema.optional(Id.check(Schema.isMaxCodePoints(128))),
+    }),
+    Schema.Struct({
+      ...DiagnosticRecordFields,
+      level: Schema.Literals(['trace', 'debug', 'info', 'warn']),
+      scope: Schema.Literal(NATIVE_INDEX_WORKFLOW_SCOPE),
+    }),
+  ]),
 });
 /** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
 export const PlatformNativeChildSchema = Schema.Struct({

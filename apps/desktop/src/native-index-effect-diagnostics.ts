@@ -2,7 +2,9 @@ import { createDiagnosticTracer, type DiagnosticSpanEvent } from '@brainstrike/e
 import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Cause, Effect, Logger, type Tracer } from 'effect';
 
-const logger = createLogger('NativeIndexWorkflow');
+/** The index workflow's Effect timeline, which the desktop's Logs shows at every level. */
+export const NATIVE_INDEX_WORKFLOW_SCOPE = 'NativeIndexWorkflow';
+const logger = createLogger(NATIVE_INDEX_WORKFLOW_SCOPE);
 const OPERATIONS = [
   'native-index.configure',
   'native-index.dispatch',

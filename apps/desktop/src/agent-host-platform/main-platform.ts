@@ -251,8 +251,11 @@ export function serveDesktopPlatform(
         })(input);
         // BST-2202: Main's existing logger owns the file and durable diagnostic
         // sinks, as for MCP's records. The host's logger redacted it already.
-        const relog = record.scope === undefined ? ROOT_LOG : createLogger(record.scope);
-        relog[record.level](...record.args);
+        if (record.scope === undefined) {
+          ROOT_LOG[record.level](...record.args);
+        } else {
+          createLogger(record.scope)[record.level](...record.args);
+        }
         return null;
       })
   );
