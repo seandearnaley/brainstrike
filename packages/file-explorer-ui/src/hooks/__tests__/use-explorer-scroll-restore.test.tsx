@@ -6,7 +6,8 @@
  * (explorer-scroll-restore.desktop.test.ts).
  */
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { act, render } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render } from '@testing-library/react';
 import type { ReactNode, RefObject } from 'react';
 import { useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';

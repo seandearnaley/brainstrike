@@ -10,8 +10,9 @@ import {
 // Actual canonical tools, HostCore, authenticated socket, SQLite and public SDK captures.
 import recordedPlan from '@brainstrike/test-utils/fixtures/committed-host-plan.json';
 import recordedQuestion from '@brainstrike/test-utils/fixtures/committed-host-question.json';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { Schema } from 'effect';
 import { afterEach, expect, test, vi } from 'vitest';
 // HostCore with the canonical run_python binding (network-consent.integration.test.ts).

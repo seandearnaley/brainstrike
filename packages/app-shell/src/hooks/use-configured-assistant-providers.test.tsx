@@ -8,7 +8,8 @@ import {
   useSecretsStore,
 } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { FunctionComponent, PropsWithChildren } from 'react';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {

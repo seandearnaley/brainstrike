@@ -52,7 +52,8 @@
     "./electron": "./src/index.ts",
     "./worker": "./src/index.ts",
     "./playwright": "./src/playwright/failure-artifacts.ts",
-    "./provider-cassette": "./src/provider-cassette.ts"
+    "./provider-cassette": "./src/provider-cassette.ts",
+    "./react-act": "./src/react-act.ts"
   },
   "license": "MIT",
   "peerDependencies": {

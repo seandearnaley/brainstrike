@@ -5,7 +5,8 @@
  */
 
 import type { FileTreeWorkerPort, FlattenedNode } from '@brainstrike/file-tree-worker';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import * as fileTreeTelemetry from '../../utils/file-tree-telemetry';
 import { shouldUseWorkerFlattening, useWorkerFlattenedTree } from '../use-worker-flattened-tree';

@@ -7,7 +7,9 @@
  * focused handle and re-renders, the way the real explorer does, so a switch
  * drives the panel through its real status lifecycle.
  */
-import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

@@ -12,7 +12,8 @@ import {
   useFileExplorerStoreContext,
 } from '@brainstrike/file-explorer-ui/shell';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { act, cleanup, render } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, render } from '@testing-library/react';
 import type { ComponentProps, ReactElement } from 'react';
 import { afterEach, expect, test, vi } from 'vitest';
 import { CommittedWorkspaceControls } from '../renderer/committed-workspace-controls';

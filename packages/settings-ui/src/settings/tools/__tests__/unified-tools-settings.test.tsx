@@ -8,7 +8,8 @@ import {
   type McpHostSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   McpConfigInfo,

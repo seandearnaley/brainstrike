@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, renderHook } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCommittedAssistantRuntime } from '../use-committed-assistant-runtime';
 import { PublishedConversation, viewMessage } from './committed-assistant-test-support';

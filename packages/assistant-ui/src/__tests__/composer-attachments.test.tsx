@@ -18,7 +18,8 @@ import {
   useAui,
   useLocalRuntime,
 } from '@assistant-ui/react';
-import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { type ReactNode, StrictMode, useEffect, useMemo } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAssistantImageAttachmentAdapter } from '../attachment-adapter';

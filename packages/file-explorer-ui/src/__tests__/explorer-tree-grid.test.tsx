@@ -14,8 +14,9 @@
 
 import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import { createLogger } from '@brainstrike/logging';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {

@@ -1,5 +1,6 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { act, render } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { useDocumentTitle } from '../use-document-title';
 

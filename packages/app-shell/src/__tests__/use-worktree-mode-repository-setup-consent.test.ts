@@ -9,7 +9,8 @@ import {
   __resetWorktreeSetupConsentStoreForTests,
   useWorktreeSetupConsentStore,
 } from '@brainstrike/app-state/stores/worktree-setup-consent-store';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 

@@ -3,7 +3,9 @@
  * serves and offers its repairs: Re-add folder, Remove from this thread, and
  * "Use another folder…" once no thread folder is live.
  */
-import { act, render, screen, within } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceBar, type WorkspaceBarProps } from '../workspace-bar/workspace-bar';

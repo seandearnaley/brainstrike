@@ -11,7 +11,8 @@
  * whole chain from the worker's cleanup to the integration's logs is exercised.
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import type { FileTreeIndexContextValue } from '../tree/file-tree-provider';

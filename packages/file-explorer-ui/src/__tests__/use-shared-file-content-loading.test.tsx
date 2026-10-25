@@ -11,13 +11,14 @@ import {
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { act } from '@brainstrike/test-utils/react-act';
 import { BINARY_CONTENT_MESSAGE, type IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
 import type {
   FileContentReadResult,
   FileReadRequest,
 } from '@brainstrike/workers/file-content-worker';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import {

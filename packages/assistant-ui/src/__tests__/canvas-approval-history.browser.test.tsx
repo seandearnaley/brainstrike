@@ -1,9 +1,9 @@
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import { type ChatModelAdapter, type ThreadMessageLike, useAuiState } from '@assistant-ui/react';
+import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { act } from 'react';
 import { expect, test, vi } from 'vitest';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { AssistantDataRendererRegistration } from '../assistant-data-renderer-registration';

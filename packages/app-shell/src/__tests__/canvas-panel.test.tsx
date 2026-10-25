@@ -3,8 +3,9 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
+import { act } from '@brainstrike/test-utils/react-act';
 import { ThemeProvider } from '@brainstrike/ui';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type AssistantThreadHostCanvasVersion,

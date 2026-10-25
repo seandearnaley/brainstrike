@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
-import { act, render } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render } from '@testing-library/react';
 import { Profiler, type ProfilerOnRenderCallback, type ReactElement } from 'react';
 import { Streamdown } from 'streamdown';
 import { expect, test } from 'vitest';

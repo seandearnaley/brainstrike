@@ -1,7 +1,8 @@
 // BST-568 slice 3: Explorer per-root watcher health chip.
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemAdapter, WatcherRootHealthEvent } from '@brainstrike/types';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { WatcherHealthChip } from '../watcher-health-chip';
 

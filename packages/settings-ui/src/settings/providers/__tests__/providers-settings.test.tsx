@@ -8,7 +8,8 @@ import type {
   ProviderVerificationSnapshot,
   ProviderVerificationStatus,
 } from '@brainstrike/assistant-contract';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProvidersSettings } from '../providers-settings';

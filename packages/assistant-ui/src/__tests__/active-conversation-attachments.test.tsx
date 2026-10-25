@@ -7,8 +7,9 @@ import {
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
 import type { AssistantChildInput } from '@brainstrike/assistant-contract';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect, useMemo } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';

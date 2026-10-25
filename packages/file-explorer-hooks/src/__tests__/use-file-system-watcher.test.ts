@@ -4,8 +4,9 @@ import type {
   FileSystemWatchBatchMetadata,
   FileSystemWatchSignal,
 } from '@brainstrike/file-system';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemChange } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import type { JSX, ReactNode } from 'react';
 import { useLayoutEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

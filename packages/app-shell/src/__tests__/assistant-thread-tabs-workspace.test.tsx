@@ -6,8 +6,9 @@ import {
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TAB_STRIP_ICON_BUTTON_CLASS_NAME } from '@brainstrike/ui';
-import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AssistantThreadHostCapability } from '../assistant-thread-host-context';

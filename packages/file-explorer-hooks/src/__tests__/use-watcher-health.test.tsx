@@ -1,7 +1,8 @@
 // BST-568 slice 3: per-root watcher health state for Explorer UI.
 
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemAdapter, WatcherRootHealthEvent } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { AdaptersProvider } from '../adapters-context.js';

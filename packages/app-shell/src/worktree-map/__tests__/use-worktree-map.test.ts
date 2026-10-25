@@ -1,10 +1,11 @@
 import { useIndexConfigStore } from '@brainstrike/app-state/stores/index-config-store';
 import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
+import { act } from '@brainstrike/test-utils/react-act';
 import {
   type NativeWorkspaceSearchDependencies,
   NativeWorkspaceSearchProvider,
 } from '@brainstrike/workspace-search/core';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {

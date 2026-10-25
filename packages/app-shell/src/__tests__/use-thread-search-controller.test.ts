@@ -1,5 +1,5 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
-import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantThreadSearchSemantic } from '../assistant-thread-host-context';
 import type { HostThreadSearchVectors } from '../host-thread-search-vectors';

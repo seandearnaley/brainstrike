@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
 import type { EmbeddingRequestProgress, EmbeddingResult } from '@brainstrike/embeddings';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import {
   createEmbeddingHostCommand,

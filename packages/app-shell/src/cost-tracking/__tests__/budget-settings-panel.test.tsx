@@ -3,7 +3,8 @@ import {
   __resetAssistantBudgetPreferencesStoreForTests,
   useAssistantBudgetPreferencesStore,
 } from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
-import { act, render, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BudgetGuardrailSettingsPanel, parseCapInput } from '../budget-settings-panel';

@@ -6,8 +6,9 @@ import {
 } from '@brainstrike/context-actions';
 import { createTabCommands } from '@brainstrike/context-actions/commands';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
+import { act } from '@brainstrike/test-utils/react-act';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';

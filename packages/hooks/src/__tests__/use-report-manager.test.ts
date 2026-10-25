@@ -1,6 +1,7 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { downloadBlobFile } from '@brainstrike/utils/browser-download';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useReportManager } from '../use-report-manager.js';
 

@@ -10,8 +10,9 @@ import {
   type ThreadMessageLike,
   useLocalRuntime,
 } from '@assistant-ui/react';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, fireEvent, render, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, waitFor, within } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, expect, onTestFinished, test, vi } from 'vitest';
 import { ChatThreadUI } from '../assistant-ui-panel';

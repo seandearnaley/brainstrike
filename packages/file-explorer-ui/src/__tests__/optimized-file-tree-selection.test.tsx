@@ -1,6 +1,7 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import * as fileTreeProviderModule from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';

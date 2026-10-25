@@ -1,8 +1,9 @@
 import { type ThreadMessageLike, useExternalStoreRuntime } from '@assistant-ui/react';
 import '@testing-library/jest-dom/vitest';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
 import type { FileExportsBridge } from '@brainstrike/utils/browser-download';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { expect, onTestFinished, test, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';

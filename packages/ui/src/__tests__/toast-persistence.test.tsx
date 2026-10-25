@@ -10,7 +10,9 @@
  * anyway. `persistent: true` must survive past the Radix default window;
  * a plain toast must still auto-dismiss on it.
  */
-import { act, render, screen } from '@testing-library/react';
+
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Toaster } from '../../src/toaster';
 import { resetToastStore, toast } from '../../src/use-toast';

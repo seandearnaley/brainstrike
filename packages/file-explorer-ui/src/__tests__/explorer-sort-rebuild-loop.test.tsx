@@ -20,8 +20,9 @@
  */
 
 import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useExplorerRowMetadata } from '../indexing/file-row-metadata-context';
 import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';

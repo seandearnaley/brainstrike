@@ -1,9 +1,10 @@
 import { fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DirectFileContentProcessor } from '../file-content-processor.js';
 import { useFileContentLoading } from '../use-file-content-loading.js';

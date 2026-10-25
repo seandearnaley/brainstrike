@@ -13,7 +13,8 @@ import {
   type BoundaryTransport,
   createBoundaryCapability,
 } from '@brainstrike/assistant-contract/boundary-result';
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { useEnabledCatalogModels } from '../../renderer/use-enabled-catalog-models';
 

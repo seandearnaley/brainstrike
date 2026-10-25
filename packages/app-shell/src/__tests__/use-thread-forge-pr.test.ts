@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import type { ForgePrStatus, ForgePrUpdatedEvent } from '@brainstrike/types';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeBridge } from '../forge/forge-bridge';
 import { useThreadForgePr } from '../hooks/use-thread-forge-pr';

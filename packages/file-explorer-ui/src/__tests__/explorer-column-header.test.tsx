@@ -20,8 +20,9 @@ import {
 } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
 import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import { createLogger } from '@brainstrike/logging';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, fireEvent, render, renderHook } from '@testing-library/react';
+import { fireEvent, render, renderHook } from '@testing-library/react';
 import type { ReactNode, RefObject } from 'react';
 import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

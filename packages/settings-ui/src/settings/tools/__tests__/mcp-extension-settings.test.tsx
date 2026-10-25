@@ -4,7 +4,8 @@
 
 import '@testing-library/jest-dom/vitest';
 import type { McpExtensionEnablement } from '@brainstrike/assistant-contract';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { McpExtensionSettings } from '../mcp-extension-settings';
 

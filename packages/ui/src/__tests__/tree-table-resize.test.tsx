@@ -7,7 +7,8 @@
  * props, pointer/keyboard mechanics, and sort isolation are implemented.
  */
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
 import type { TreeNode, TreeTableColumn } from '../tree-table/types';

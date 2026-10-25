@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { PromptItem } from '@brainstrike/types/prompt-item';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ComponentProps, useMemo } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

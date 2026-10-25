@@ -1,5 +1,6 @@
+import { act } from '@brainstrike/test-utils/react-act';
 import * as TabsPrimitive from '@radix-ui/react-tabs';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactElement, Suspense, startTransition, use, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';

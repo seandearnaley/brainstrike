@@ -1,6 +1,7 @@
 import { type ActionServices, createTestActionRegistry } from '@brainstrike/context-actions';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { IFileNode } from '@brainstrike/types';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerTestWrapper } from '../../__tests__/test-helpers';

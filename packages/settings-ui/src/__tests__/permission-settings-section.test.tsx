@@ -2,7 +2,8 @@ import {
   __resetPermissionPolicyStoreForTests,
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const { PermissionSettingsSection } = await import(

@@ -2,7 +2,8 @@ import type {
   IndexerCoverageBatch,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NativeWorkspaceSearchContext } from '../../core/native-workspace-search-context';
 import { SearchCoverageBanner } from '../search-coverage-banner';

@@ -4,7 +4,8 @@ import {
   recordEmbeddingBatchTelemetry,
   recordEmbeddingTelemetryFailure,
 } from '@brainstrike/embedding-worker';
-import { act, render, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createEmbeddingHostCommand } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';

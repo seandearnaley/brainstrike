@@ -2,12 +2,13 @@
 import './embedding-host-runtime-fixture';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
+import { act } from '@brainstrike/test-utils/react-act';
 import { EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS } from '@brainstrike/vector-management';
 import {
   createBackgroundRuntimeStatus,
   createRuntimeStatusStore,
 } from '@brainstrike/worker-runtime';
-import { act, render, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { readEmbeddingHostDevice } from '../../../agent-host-platform/memory-vector-selection';
 import { configureDesktopRendererTarget } from '../../../desktop-renderer-target';

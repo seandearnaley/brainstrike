@@ -4,7 +4,8 @@ import {
   type BoundaryTransport,
   createBoundaryCapability,
 } from '@brainstrike/assistant-contract/boundary-result';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnsureModelRegistry } from '../hooks/use-model-registry.ts';
 import {

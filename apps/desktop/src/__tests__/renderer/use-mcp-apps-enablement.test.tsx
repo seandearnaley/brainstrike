@@ -8,7 +8,8 @@
 
 import type { McpStatusCapability } from '@brainstrike/app-shell/mcp-status-capability';
 import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act } from '@brainstrike/test-utils/react-act';
+import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useMcpAppsEnablement } from '../../renderer/use-mcp-apps-enablement';
 

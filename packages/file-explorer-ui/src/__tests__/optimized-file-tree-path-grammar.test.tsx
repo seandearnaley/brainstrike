@@ -1,7 +1,8 @@
 import { buildQuerySelectionManifest } from '@brainstrike/file-explorer';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { act } from '@brainstrike/test-utils/react-act';
 import { createEmptySelectionModel, type IFileNode } from '@brainstrike/types';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { type FileExplorerStore, StoreHandleBridge } from './optimized-file-tree-test-support';

@@ -1,9 +1,10 @@
 import type { DirectoryHandle, FileSystemWatchBatchMetadata } from '@brainstrike/file-system';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemChange } from '@brainstrike/types';
 import { useToast } from '@brainstrike/ui';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useOptionalTokenCacheContext } from '../indexing/token-cache-context';
