@@ -22,7 +22,7 @@ import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-stor
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
 import { useForgePrCache } from '../hooks/use-forge-pr-cache';
 import { useOptionalRootIdentity } from '../roots/root-identity-context';
-import { resolveWorktreesBridge } from '../worktrees/worktrees-bridge';
+import { useWorktreesBridge } from '../workspace-git-services';
 import {
   useWorktreeCheckoutStatuses,
   type WorktreeCheckoutStatusState,
@@ -58,7 +58,7 @@ function errorMessage(error: unknown): string {
 }
 
 export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
-  const bridge = useMemo(() => resolveWorktreesBridge(), []);
+  const bridge = useWorktreesBridge();
   const [entries, setEntries] = useState<readonly WorktreeListEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

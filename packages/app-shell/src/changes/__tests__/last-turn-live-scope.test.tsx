@@ -10,18 +10,24 @@
 import type { Changeset, ChangesetView, GitResult } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  stubChangesBridge,
+  workspaceGitWrapper,
+} from '../../__tests__/helpers/workspace-git-services-wrapper';
 import type { ChangesBridge } from '../changes-bridge';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useRewindStore } from '../rewind-store';
 import { useChangeset } from '../use-changeset';
 
+let installedChanges: ChangesBridge | null = null;
+
 function stubBridge(resolveView: ChangesBridge['resolveView']): void {
-  (window as unknown as { changes?: ChangesBridge }).changes = {
-    fileDiff: vi.fn(),
-    inventory: vi.fn(),
-    onInvalidated: vi.fn(() => () => {}),
-    resolveView,
-  };
+  installedChanges = stubChangesBridge({ resolveView });
+}
+
+/** Wraps a render in the host as it stands: serving `installedChanges`, or none (web). */
+function changesHost() {
+  return workspaceGitWrapper({ changes: installedChanges });
 }
 
 function viewForRun(runId: string): ChangesetView {
@@ -51,7 +57,7 @@ function useSurfaceUnderTest() {
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  installedChanges = null;
   useChangesNavigationStore.getState().reset();
   useRewindStore.getState().reset();
 });
@@ -75,7 +81,7 @@ describe('Last Turn live retargeting', () => {
       useChangesNavigationStore.getState().selectLastTurn();
     });
 
-    const { result } = renderHook(() => useSurfaceUnderTest());
+    const { result } = renderHook(() => useSurfaceUnderTest(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.view?.files[0]?.path).toBe('run-1.ts');
@@ -122,7 +128,7 @@ describe('Last Turn live retargeting', () => {
       useChangesNavigationStore.getState().requestChangeset(gitScope);
     });
 
-    renderHook(() => useSurfaceUnderTest());
+    renderHook(() => useSurfaceUnderTest(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(resolveView).toHaveBeenCalledWith('root-1', gitScope);
@@ -162,7 +168,7 @@ describe('Last Turn live retargeting', () => {
       useChangesNavigationStore.getState().requestChangeset(pinnedRun);
     });
 
-    const { result } = renderHook(() => useSurfaceUnderTest());
+    const { result } = renderHook(() => useSurfaceUnderTest(), { wrapper: changesHost() });
 
     await waitFor(() => {
       expect(result.current.view?.files[0]?.path).toBe('run-1.ts');

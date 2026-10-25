@@ -2,7 +2,8 @@ import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-cont
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
-import { type ChangesBridge, resolveChangesBridge } from '../changes/changes-bridge';
+import type { ChangesBridge } from '../changes/changes-bridge';
+import { useChangesBridge } from '../workspace-git-services';
 import { notifyRootRegistered } from './root-registration-events';
 import { mapHostRecordedRoots, type ReconcileRootsResult } from './root-registry';
 
@@ -27,9 +28,8 @@ const logger = createLogger('useRootsReconciliation');
  * error. Both failure shapes are reported — a rejected call AND an `ok: false`
  * `GitResult` — so a refused refresh is never silently dropped.
  *
- * `bridge === null` is web (or a malformed bridge, already logged by the
- * resolver): there is no desktop inventory to arm, so this is a real no-op and
- * never a stub.
+ * `bridge === null` is a host without the Changes bridge (web): there is no
+ * desktop inventory to arm, so this is a real no-op and never a stub.
  */
 function refreshGitInventoryAfterRootRegistration(bridge: ChangesBridge | null): void {
   if (bridge === null) {
@@ -143,6 +143,8 @@ export interface UseRootsReconciliationResult {
 
 interface PerformRootRegistrationArgs {
   adapter: FileSystemAdapter;
+  /** Told to rebuild the git inventory once the root's row is committed. */
+  changes: ChangesBridge | null;
   dbRootIdMap: DbRootIdMap;
   descriptor: RootDescriptor;
   publishCanonicalKind: (adapterRootId: string, kind: string) => void;
@@ -204,6 +206,7 @@ function applyBootReconciliationResult({
  */
 async function performRootRegistration({
   adapter,
+  changes,
   descriptor,
   dbRootIdMap,
   publishCanonicalMapping,
@@ -254,7 +257,7 @@ async function performRootRegistration({
       // Folder / Recent path `useWorkspaceBar` used to poll the database for.
       notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
       // The root is now in the `roots` table the inventory's loadRoots() reads.
-      refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
+      refreshGitInventoryAfterRootRegistration(changes);
       refreshNativeIndexAfterRootRegistration(registration);
     }
   } catch (err) {
@@ -323,12 +326,15 @@ export function useRootsReconciliation({
   // was enqueued before it was called.
   const pendingRegistrationsRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Latest adapter for mid-session registration, read at call time so
-  // registerRoot stays identity-stable without stale captures.
+  // Latest adapter, index registration and Changes bridge, read at call time
+  // so registerRoot stays identity-stable without stale captures.
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
   const registrationRef = useRef(registration);
   registrationRef.current = registration;
+  const changes = useChangesBridge();
+  const changesRef = useRef(changes);
+  changesRef.current = changes;
 
   // Merges a canonical adapter→db pair into the reactive snapshot. No-ops when
   // the pair is already present so a re-resolved boot map never churns the Map
@@ -421,7 +427,7 @@ export function useRootsReconciliation({
         // and those roots still need discovery (BST-1990: missing branch
         // badges in the folders panel).
         if (dbRootIdMap.size > 0) {
-          refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
+          refreshGitInventoryAfterRootRegistration(changesRef.current);
         }
         resolve(dbRootIdMap);
         publishReconciliationSettled(true);
@@ -454,6 +460,7 @@ export function useRootsReconciliation({
         await awaitBootSettle();
         await performRootRegistration({
           adapter: adapterRef.current,
+          changes: changesRef.current,
           dbRootIdMap: dbRootIdMapRef.current,
           descriptor,
           publishCanonicalKind,

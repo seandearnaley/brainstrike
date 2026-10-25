@@ -8,15 +8,15 @@ import {
   TRANSIENT_ROOT_RETRY_DELAY_MS,
   TRANSIENT_ROOT_RETRY_LIMIT,
 } from '../roots/transient-root-error';
-import {
-  type GitBridge,
-  type GitCommitFile,
-  type GitHistoryPage,
-  type GitRepository,
-  type GitResult,
-  type GitStatus,
-  resolveGitBridge,
-  type StructuredFileDiff,
+import { useGitBridge } from '../workspace-git-services';
+import type {
+  GitBridge,
+  GitCommitFile,
+  GitHistoryPage,
+  GitRepository,
+  GitResult,
+  GitStatus,
+  StructuredFileDiff,
 } from './git-bridge';
 
 const logger = createLogger('GitPanel');
@@ -99,26 +99,22 @@ interface LoadHistoryOptions {
 }
 
 /**
- * Owns all `window.git` interaction for the Git panel: it resolves the focused
+ * Owns all Git bridge interaction for the Git panel: it resolves the focused
  * workspace root's durable `rootId` (re-fetching status whenever the focused
  * root changes), exposes status + ahead/behind, and wraps every mutation so a
  * `{ ok: false }` GitResult or a thrown/rejected call becomes a toast + log
  * (no silent failures), then refreshes status after a successful action.
  *
- * The `bridge` is resolved once (the preload bridge exists for the window's
- * lifetime); when it is absent the hook is inert and `activeRootId` gating in
- * the panel renders the desktop-only empty state.
+ * The `bridge` comes from `useGitBridge()`; when it is absent the hook is
+ * inert and `activeRootId` gating in the panel renders the desktop-only empty
+ * state.
  */
 export function useGitPanel(): UseGitPanelResult {
   const { rootDirectoryHandle, rootDirectoryHandles, rootIdByPath, setFocusedRoot } =
     useFileSystem();
   const mainRootId = useFileExplorerStoreSelector((state) => state.activeRootIds[0] ?? null);
   const { toast } = useToast();
-  const bridgeRef = useRef<GitBridge | null>(null);
-  if (bridgeRef.current === null) {
-    bridgeRef.current = resolveGitBridge();
-  }
-  const bridge = bridgeRef.current;
+  const bridge = useGitBridge();
 
   const activeRootId = useMemo<string | null>(() => {
     if (!rootDirectoryHandle) {
@@ -633,7 +629,7 @@ export function useGitPanel(): UseGitPanelResult {
 
   // No toast/log-on-`!ok` here by design — see this method's doc comment on
   // `UseGitPanelResult`. Only a thrown/rejected call (never expected from
-  // the bridge's own contract, but not impossible from a broken preload) is
+  // the bridge's own contract, but not impossible from a broken host) is
   // logged, mirroring `use-changeset.ts`'s `fileDiff`.
   const loadCommitFileDiff = useCallback(
     async (commitId: string, path: string): Promise<GitResult<StructuredFileDiff>> => {

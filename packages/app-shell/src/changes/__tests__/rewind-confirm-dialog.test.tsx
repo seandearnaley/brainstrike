@@ -269,7 +269,6 @@ beforeEach(() => {
 
 afterEach(() => {
   window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, captureRefreshEvent);
-  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
   vi.restoreAllMocks();
 });
 

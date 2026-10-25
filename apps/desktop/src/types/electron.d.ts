@@ -14,12 +14,9 @@ import type { DesktopPlatformDiagnosticsSnapshot } from '../desktop-platform-dia
 import type { MainLogWindowRequest, MainLogWindowResult } from '../diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from '../diagnostics/process-counter-ring';
 import type { agentHostRecoveryContract } from '../ipc-domains/agent-host-recovery.contract';
-import type { changesContract } from '../ipc-domains/changes.contract';
 import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { commandSessionsContract } from '../ipc-domains/command-sessions.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
-import type { forgeContract } from '../ipc-domains/forge.contract';
-import type { gitContract } from '../ipc-domains/git.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
 import type { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
@@ -29,7 +26,6 @@ import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
-import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { TransportBridge } from '../platform/ipc-contract';
 import type {
@@ -75,8 +71,6 @@ declare global {
       /** One-way main→renderer tab-state pushes. Returns unsubscribe. */
       onTabsChanged: (listener: (tabs: readonly BrowserTabState[]) => void) => () => void;
     };
-    /** Desktop-only Changes bridge, derived from its pure IPC contract. */
-    changes?: TransportBridge<typeof changesContract>;
     /** Desktop-only clipboard write bridge, derived from its contract (BST-1648). */
     clipboard?: TransportBridge<typeof clipboardContract>;
     commandPalette?: {
@@ -131,19 +125,6 @@ declare global {
         path?: string;
       }>;
     };
-    /** Desktop-only forge bridge, derived from its pure IPC contract. */
-    forge?: TransportBridge<typeof forgeContract>;
-    /**
-     * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
-     * capability-check `window.git` rather than `isElectron()`. Every call takes
-     * the durable workspace `rootId`; main resolves + containment-checks it to an
-     * absolute cwd and runs git via execFile (no shell). Valid calls resolve to
-     * a structured `GitResult`; structurally malformed direct IPC input rejects.
-     *
-     * The surface is derived from the pure desktop contract, whose compile-time
-     * proof keeps it equal to app-shell's `GitBridge`.
-     */
-    git?: TransportBridge<typeof gitContract>;
     indexSearch?: TransportBridge<
       typeof import('../ipc-domains/index-search.contract').indexSearchContract
     >;
@@ -223,7 +204,5 @@ declare global {
      * preload-runtime contract test.
      */
     workspace?: import('@brainstrike/app-shell/workspace-connect/workspace-connect-bridge').WorkspaceConnectBridge;
-    /** Desktop-only managed-worktree bridge, derived from its pure IPC contract. */
-    worktrees?: TransportBridge<typeof worktreesContract>;
   }
 }

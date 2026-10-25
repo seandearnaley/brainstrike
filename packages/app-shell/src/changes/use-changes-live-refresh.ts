@@ -24,7 +24,8 @@ import {
 } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect } from 'react';
-import { resolveChangesBridge } from './changes-bridge';
+import { useChangesBridge } from '../workspace-git-services';
+import type { ChangesBridge } from './changes-bridge';
 import { useChangesLiveRefreshStore } from './changes-live-refresh-store';
 
 const logger = createLogger('ChangesLiveRefresh');
@@ -248,6 +249,7 @@ const handleFileExplorerRefresh = (event: Event): void => {
  * use {@link useChangesLiveRefreshSubscription}.
  */
 export function acquireChangesLiveRefreshSubscription(
+  bridge: ChangesBridge | null,
   registration: GitScopeRefreshRegistration | null = null
 ): () => void {
   const registrationId = registration ? nextRegistrationId++ : null;
@@ -261,7 +263,6 @@ export function acquireChangesLiveRefreshSubscription(
   subscriberCount += 1;
   if (subscriberCount === 1) {
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleFileExplorerRefresh);
-    const bridge = resolveChangesBridge();
     if (bridge) {
       // Guarded (PR #2288 review): this runs inside a useEffect body, so a
       // throw here would skip React's cleanup and strand the count above
@@ -307,14 +308,16 @@ export function acquireChangesLiveRefreshSubscription(
 export function useChangesLiveRefreshSubscription(
   registration: GitScopeRefreshRegistration | null = null
 ): void {
+  const bridge = useChangesBridge();
   const repositoryRoot = registration?.repositoryRoot ?? null;
   const rootId = registration?.rootId ?? null;
   const worktreePath = registration?.worktreePath ?? null;
   useEffect(
     () =>
       acquireChangesLiveRefreshSubscription(
+        bridge,
         repositoryRoot && rootId && worktreePath ? { repositoryRoot, rootId, worktreePath } : null
       ),
-    [repositoryRoot, rootId, worktreePath]
+    [bridge, repositoryRoot, rootId, worktreePath]
   );
 }

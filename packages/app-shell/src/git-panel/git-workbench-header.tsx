@@ -38,17 +38,17 @@ interface GitWorkbenchHeaderProps {
 
 /**
  * PATH VOCABULARY (BST-1116 W6 review finding 2) — the reason this file never
- * compares a `window.git` path against a `window.changes` path.
+ * compares a Git bridge path against a Changes bridge path.
  *
  * The two bridges canonicalise differently:
  *
- * - `window.git`'s `GitRepository.repositoryRoot`, `currentWorktree.path` and
+ * - the Git bridge's `GitRepository.repositoryRoot`, `currentWorktree.path` and
  *   `worktrees[].path` are RAW `git` output. `git worktree list` prints the
  *   `.git/worktrees/<name>/gitdir` contents verbatim and never realpaths them
  *   (`git-inventory-service.ts` documents this at length as the reason it
  *   realpaths every one itself), and `repositoryRoot` is likewise the raw
  *   worktree root git reported.
- * - the `window.changes` inventory is canonical THROUGHOUT:
+ * - the Changes bridge's inventory is canonical THROUGHOUT:
  *   `identity.repositoryRoot` is `realpath(mainWorktree.path)` and
  *   `WorktreeDescriptor.path` deliberately OVERWRITES the raw
  *   `GitWorktreeSummary.path` with its realpath — whose own doc comment warns
@@ -141,12 +141,12 @@ function resolveInventory(
   inventoryLoading: boolean,
   openedRoot: string
 ): InventoryResolution {
-  // Checked FIRST: without a `window.changes` bridge `useGitInventory`
+  // Checked FIRST: without a Changes bridge `useGitInventory`
   // reports `inventory: null` with `error: null` forever, which the
   // not-yet-loaded branch below would render as a permanent "Loading…" —
   // a stated reason that is simply false. (`git` and `changes` are
-  // independently gated in `preload.ts`'s `shouldExposeBridge`, so one can
-  // be present without the other.) No refresh can fix this one, so this is
+  // independent `WorkspaceGitServices` entries, so one can be present without
+  // the other.) No refresh can fix this one, so this is
   // the one reason that does not offer a remedy.
   if (!inventoryAvailable) {
     return { kind: 'unavailable', reason: 'Repository inventory is unavailable in this build.' };
@@ -238,7 +238,7 @@ interface WorktreeEntry {
  * `descriptor.current`, because the latter is computed against the INVENTORY
  * scan's cwd, not against the root this panel actually has open.
  *
- * UNAVAILABLE: the `window.git` worktree list is still rendered, every row
+ * UNAVAILABLE: the Git bridge's worktree list is still rendered, every row
  * disabled and carrying the resolution's stated reason. Hiding the rows would
  * be a silent disable; enabling them would mean navigating on a raw path we
  * have not been able to canonicalise. Showing them, disabled, with the reason
@@ -377,7 +377,7 @@ export function GitWorkbenchHeader({
   // `addWorktreeAsRoot` action, which reaches the same store the same way.
   //
   // Both published paths are the INVENTORY's canonical ones (see this file's
-  // PATH VOCABULARY comment), never `window.git`'s raw report: the Changes
+  // PATH VOCABULARY comment), never the Git bridge's raw report: the Changes
   // surface matches `changeset.repositoryRoot` against
   // `identity.repositoryRoot` with `!==`, so a raw root would leave its
   // header and source picker unable to find the repository they were just

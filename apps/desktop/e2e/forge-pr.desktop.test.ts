@@ -3,10 +3,10 @@
  *
  * Drives the BUILT Electron app against a REAL on-disk git repository with a
  * real remote URL, and a FAKE `gh` on PATH. Everything between the chip and
- * the process boundary is production code: `window.forge`, the forge IPC
- * domain, `resolveRootCwd`, `createGitService().forgeRepositoryContext()`,
+ * the process boundary is production code: the agent host's forge methods,
+ * `resolveRootCwd`, `createGitService().forgeRepositoryContext()`,
  * `createPinnedGhEnvironment`, `execFileGhRunner`, the SQLite cache, and the
- * `forge:prUpdated` push.
+ * `forge-pr-updated` host event.
  *
  * Isolation: each test gets its own temp repository, the Electron fixture
  * derives a per-test `userDataDir`, and the shim's PATH prepend is installed
@@ -14,9 +14,9 @@
  */
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import type { ForgePrCacheEntry, ForgeResult } from '@brainstrike/types';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { readHostForgePrs } from './utils/agent-host-log';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { type GhShim, installGhShim } from './utils/gh-shim';
 import { freshRepo as createFreshRepo, createTempDirTracker } from './utils/git-fixtures';
@@ -112,25 +112,12 @@ test.describe('forge PR awareness', () => {
   // need a heavier fixture: a second root/thread plus switching the panel's
   // sort to 'folder'. That belongs in threads-panel-folders.desktop.test.ts,
   // not this file.)
-  test('persists the observed PR as a brainstrike_forge_prs row', async ({ window }) => {
+  test('persists the observed PR as a brainstrike_forge_prs row', async ({ electron, window }) => {
     await openComposer(window, repoWithGitHubRemote('pill'));
     await expect(window.getByTestId('workspace-bar-pr-chip')).toBeVisible({ timeout: 30_000 });
-    const cached = await window.evaluate(async () => {
-      const bridge = (
-        globalThis.window as Window & {
-          forge?: { cacheSnapshot: () => Promise<ForgeResult<readonly ForgePrCacheEntry[]>> };
-        }
-      ).forge;
-      if (!bridge) {
-        throw new Error('Missing production Forge bridge');
-      }
-      const result = await bridge.cacheSnapshot();
-      if (!result.ok) {
-        throw new Error(result.error);
-      }
-      return result.value.map(({ number, state }) => ({ number, state }));
-    });
-    expect(cached).toEqual([{ number: 2574, state: 'open' }]);
+    expect(await readHostForgePrs(electron.getUserDataDir())).toEqual([
+      { number: 2574, state: 'open' },
+    ]);
   });
 
   test('renders no chip and explains why when the remote is not a forge URL', async ({

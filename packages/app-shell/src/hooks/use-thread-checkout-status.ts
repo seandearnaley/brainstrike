@@ -1,19 +1,19 @@
 import type { WorkspaceBarCheckout } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   selectGitScopeRefreshNonce,
   useChangesLiveRefreshStore,
 } from '../changes/changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
-import { resolveGitBridge } from '../git-panel/git-bridge';
+import { useGitBridge } from '../workspace-git-services';
 
 const logger = createLogger('ThreadCheckoutStatus');
 
 /**
  * The primary root the chip describes, in BOTH id spaces plus its path.
  *
- * They are not interchangeable. `window.git.status` is a DB-space consumer
+ * They are not interchangeable. The Git bridge's `status` is a DB-space consumer
  * (`roots.id`), while the FILE_EXPLORER_REFRESH_EVENT mapping in
  * `use-changes-live-refresh.ts` matches registrations against the file
  * explorer's ADAPTER rootId. The two coincide for reconciled-insert roots and
@@ -29,7 +29,7 @@ export interface ThreadCheckoutRoot {
    * as coverage. Metadata pushes still refresh the chip.
    */
   readonly adapterRootId: string | null;
-  /** The durable `roots.id` — the only id `window.git` understands. */
+  /** The durable `roots.id` — the only id the Git bridge understands. */
   readonly dbRootId: string;
   readonly path: string;
 }
@@ -44,7 +44,7 @@ export interface ThreadCheckoutStatusResult {
    */
   readonly failure: string | null;
   /**
-   * True once the async `window.git.status` round-trip for the CURRENT root
+   * True once the async Git bridge `status` round-trip for the CURRENT root
    * has settled at least once (resolved, failed, or was never needed — no
    * bridge, no root). False only while that FIRST round-trip for this root is
    * still in flight. A later refetch of the SAME root (triggered by either
@@ -59,7 +59,7 @@ export interface ThreadCheckoutStatusResult {
 
 /**
  * Read-only git state for the workspace bar's Branch chip. Desktop only
- * (`window.git`); `undefined` = no chip (web, no root, not a repository, or a
+ * (the Git bridge); `undefined` = no chip (web, no root, not a repository, or a
  * failed status — a failure is logged and never rendered as "clean").
  *
  * The resolved value carries the root it was read for, so a checkout is never
@@ -84,7 +84,7 @@ export function useThreadCheckoutStatus(
 ): ThreadCheckoutStatusResult {
   // Resolved ONCE per hook instance, not per render (same discipline as
   // useGitInventory): the bridge identity is an effect input.
-  const bridge = useMemo(() => resolveGitBridge(), []);
+  const bridge = useGitBridge();
   const adapterRootId = root?.adapterRootId ?? null;
   const dbRootId = root?.dbRootId ?? null;
   const rootPath = root?.path ?? null;
