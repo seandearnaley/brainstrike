@@ -12,6 +12,7 @@ import {
 } from 'vscode-jsonrpc/node';
 import { isConnectionLoss } from '../src/boundary-wire.js';
 import { authenticateHostClient } from '../src/client-connection.js';
+import { HOST_CLOSING_EVENT } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { stdioConnection } from '../src/transports.js';
 
@@ -41,12 +42,21 @@ async function startHeldHost(root: string) {
 /**
  * A visible-UI client on the host's private transport. `dropping` loses the
  * client's later frames in transit, as frames the host never reads before it
- * exits; `exit` ends the transport as the host process's exit does.
+ * exits; `exit` ends the transport as the host process's exit does; `cut` ends
+ * only the client's side, as a host crash ends it before the host's last frame;
+ * `announced` settles once the client has handled the host's retirement announcement.
  */
 async function attachPrivateClient(host: AgentHost) {
   const toHost = new PassThrough();
   const toClient = new PassThrough();
   host.bindClientConnection(stdioConnection(toHost, toClient), 'desktop-ui');
+  const announced = new Promise<void>((resolve) => {
+    toClient.on('data', (chunk: Buffer) => {
+      if (chunk.toString().includes(HOST_CLOSING_EVENT)) {
+        resolve();
+      }
+    });
+  });
   let dropping = false;
   const writes = new Writable({
     write(chunk: Buffer, _encoding, done) {
@@ -57,10 +67,8 @@ async function attachPrivateClient(host: AgentHost) {
       toHost.write(chunk, done);
     },
   });
-  const connection = createMessageConnection(
-    new StreamMessageReader(toClient),
-    new StreamMessageWriter(writes)
-  );
+  const reader = new StreamMessageReader(toClient);
+  const connection = createMessageConnection(reader, new StreamMessageWriter(writes));
   const closed = Promise.withResolvers<void>();
   const exit = (): void => {
     toHost.destroy();
@@ -75,7 +83,16 @@ async function attachPrivateClient(host: AgentHost) {
     closed.promise
   );
   return {
+    // The tap sees the frame before the reader decodes it; the drains join its dispatch.
+    announced: announced.then(async () => {
+      await reader.drain();
+      await connection.drain();
+    }),
     client,
+    cut: (): void => {
+      connection.dispose();
+      closed.resolve();
+    },
     drop: () => {
       dropping = true;
     },
@@ -104,6 +121,40 @@ test('a retiring host answers what it read, and its client refuses what the host
     expect(refusal).toMatchObject({ code: 'host.closing', failure: { kind: 'refusal' } });
     // A later command is refused without being written into the closed transport.
     await expect(client.request('thread/list', {})).rejects.toBe(refusal);
+  } finally {
+    release.resolve();
+    exit();
+    await host.close();
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('a host that ends the transport before it drained leaves what it may have read lost', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-interrupted-retirement-'));
+  const { entered, host, release } = await startHeldHost(root);
+  const { announced, client, cut, drop, exit } = await attachPrivateClient(host);
+  try {
+    const registering = client.catalog
+      .workspaceRoots({
+        operation: 'register',
+        root: { displayName: 'workspace', path: root, preferredId: randomUUID() },
+      })
+      .catch((cause: unknown) => cause);
+    await entered.promise;
+    drop();
+    const unread = client.request('thread/list', {}).catch((cause: unknown) => cause);
+    const closing = host.close();
+    await announced;
+    // As a host crash mid-retirement: the admitted write may have committed.
+    cut();
+    for (const failure of [await registering, await unread]) {
+      expect(isConnectionLoss(failure)).toBe(true);
+    }
+    await expect(client.request('thread/list', {})).rejects.toMatchObject({
+      code: 'host.closing',
+    });
+    release.resolve();
+    await closing;
   } finally {
     release.resolve();
     exit();

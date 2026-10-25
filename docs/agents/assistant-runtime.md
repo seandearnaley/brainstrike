@@ -145,9 +145,11 @@ A retiring host first announces `host/closing` on every connection, socket and
 private alike (as HTTP/2's GOAWAY). That announcement, or an explicit
 `host.closing` refusal, retires admission on that client connection for both
 host RPC and catalog commands. Earlier replies still join; later commands return
-the refusal without sending into the retiring transport. A request the transport's
-close leaves unanswered after the announcement was never read, so it is refused
-as `host.closing`, not lost. Without the announcement (a crash), it stays
+the refusal without sending into the retiring transport. Once every request it
+read is answered, the host sends `host/drained` as its last frame (as TLS's
+close_notify). A request the transport's close leaves unanswered after that frame
+was never read, so it is refused as `host.closing`, not lost. Without it (a crash,
+even mid-retirement), an unanswered request may have run and stays
 `host.connection-lost`. Other failures do not imply this terminal state.
 
 Retirement keeps reads open while dispatched work joins, so new requests can

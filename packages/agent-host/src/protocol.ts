@@ -261,11 +261,17 @@ export type HostChildStatus = (typeof HostChildStatusSchema)['Type'];
 /**
  * The host's announcement, on each connection, that it is retiring (as HTTP/2's
  * GOAWAY). The host sends it first, then refuses new requests as `host.closing`
- * and answers every request it read before it closes the transport. So a request
- * still unanswered at that close was never read: its client refuses it as
- * `host.closing`, never as a lost connection, and refuses later sends unsent.
+ * and answers every request it read. Its client refuses later sends unsent.
  */
 export const HOST_CLOSING_EVENT = 'host/closing';
+/**
+ * The retiring host's last frame before it closes the transport (as TLS's
+ * close_notify): every request it read on this connection is answered above it.
+ * So a request still unanswered at the close was never read, and its client
+ * refuses it as `host.closing`. Without this frame, as when the host crashes
+ * mid-retirement, an unanswered request may have run: it stays a lost connection.
+ */
+export const HOST_DRAINED_EVENT = 'host/drained';
 /**
  * BST-1932: the host's notice that a thread's children changed status (a child
  * run started, paused for a person, was answered or ended). A client re-reads

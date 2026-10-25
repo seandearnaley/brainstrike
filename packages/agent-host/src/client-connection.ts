@@ -6,7 +6,7 @@ import { Schema, SchemaIssue } from 'effect';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
 import { watchPeerReset } from './boundary-wire.ts';
 import { createHostCatalogClient, type HostCatalog } from './catalog/transport.ts';
-import { markHostClosing, sendHostRequest } from './client-request.ts';
+import { markHostClosing, markHostDrained, sendHostRequest } from './client-request.ts';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   GIT_WORKSPACE_EVENT,
@@ -14,6 +14,7 @@ import {
   GitWorkspaceEventSchema,
   HOST_CHILDREN_CHANGED,
   HOST_CLOSING_EVENT,
+  HOST_DRAINED_EVENT,
   HOST_RESULT_SCHEMAS,
   HOST_RUN_TELEMETRY,
   HostChildrenChangedSchema,
@@ -120,6 +121,7 @@ export async function authenticateHostClient(
   // Before any request: a host that closes its end can fail the next write.
   watchPeerReset(connection);
   connection.onNotification(HOST_CLOSING_EVENT, () => markHostClosing(connection));
+  connection.onNotification(HOST_DRAINED_EVENT, () => markHostDrained(connection));
   connection.onNotification('log/event', (input: unknown) => {
     const row = Schema.decodeUnknownSync(HostLogRowSchema, {
       errors: 'all',

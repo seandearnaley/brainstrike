@@ -23,7 +23,7 @@ import { bindHostConnection, type HostConnectionOptions } from './connection.ts'
 import { HostCore } from './core.ts';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
 import type { HostClientOrigin, HostPlatform } from './ports.ts';
-import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT } from './protocol.ts';
+import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } from './protocol.ts';
 
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
@@ -90,6 +90,10 @@ function platformClientServices(
  */
 function announceClosing(connection: MessageConnection): void {
   connection.sendNotification(HOST_CLOSING_EVENT).catch(() => undefined);
+}
+/** `HOST_DRAINED_EVENT`, once every request the connection read is answered. */
+async function announceDrained(connection: MessageConnection): Promise<void> {
+  await connection.sendNotification(HOST_DRAINED_EVENT).catch(() => undefined);
 }
 /** The owned facade forwards each optional capability the acquired platform supplies. */
 function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
@@ -303,6 +307,7 @@ export async function startAgentHost(
             socket.pause();
             await reader.drain();
             await connection.drain();
+            await announceDrained(connection);
           };
         },
         acquireRoot: async (retainRun) => {
@@ -442,6 +447,8 @@ export async function startAgentHost(
         announceClosing(connection);
         retiring.abort();
         await connection.drain();
+        // A frame read after this is refused, so nothing admitted is left unanswered.
+        await announceDrained(connection);
       };
       privateClients.add(retire);
       const closed = connection.onClose(() => {
