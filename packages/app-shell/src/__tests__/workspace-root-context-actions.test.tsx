@@ -2,22 +2,15 @@ import type { ContextTarget } from '@brainstrike/context-actions';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceRootActions } from '../workspace-root-context-actions';
+import { TerminalHost as wrapper } from './helpers/workspace-terminal-services-wrapper';
 
-const {
-  createThreadInFolderMock,
-  isTerminalBridgeAvailableMock,
-  openTerminalAtMock,
-  useCreateThreadInFolderMock,
-} = vi.hoisted(() => ({
-  createThreadInFolderMock: vi.fn(),
-  isTerminalBridgeAvailableMock: vi.fn(() => true),
-  openTerminalAtMock: vi.fn(),
-  useCreateThreadInFolderMock: vi.fn(),
-}));
-
-vi.mock('../terminal-panel/terminal-bridge', () => ({
-  isTerminalBridgeAvailable: isTerminalBridgeAvailableMock,
-}));
+const { createThreadInFolderMock, openTerminalAtMock, useCreateThreadInFolderMock } = vi.hoisted(
+  () => ({
+    createThreadInFolderMock: vi.fn(),
+    openTerminalAtMock: vi.fn(),
+    useCreateThreadInFolderMock: vi.fn(),
+  })
+);
 
 vi.mock('../stores/terminal-target-store', () => ({
   useTerminalTargetStore: { getState: () => ({ openTerminalAt: openTerminalAtMock }) },
@@ -46,12 +39,11 @@ const webRoot: ContextTarget = {
 describe('useWorkspaceRootActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isTerminalBridgeAvailableMock.mockReturnValue(true);
     useCreateThreadInFolderMock.mockReturnValue(createThreadInFolderMock);
   });
 
   it('opens the terminal at the root itself — cwd IS the root path', async () => {
-    const [openTerminal] = renderHook(() => useWorkspaceRootActions()).result.current;
+    const [openTerminal] = renderHook(() => useWorkspaceRootActions(), { wrapper }).result.current;
 
     await openTerminal?.run(desktopRoot, {});
 
@@ -63,22 +55,21 @@ describe('useWorkspaceRootActions', () => {
   });
 
   it('omits Open in Terminal entirely when the terminal bridge is absent', () => {
-    isTerminalBridgeAvailableMock.mockReturnValue(false);
-
+    // No provider: the tree has no terminal bridge, as on web.
     expect(
       renderHook(() => useWorkspaceRootActions()).result.current.map((action) => action.id)
     ).toEqual(['workspace-root.new-thread-here']);
   });
 
   it('hides Open in Terminal for a pathless root', () => {
-    const [openTerminal] = renderHook(() => useWorkspaceRootActions()).result.current;
+    const [openTerminal] = renderHook(() => useWorkspaceRootActions(), { wrapper }).result.current;
 
     expect(openTerminal?.isVisible?.(webRoot)).toBe(false);
     expect(openTerminal?.isVisible?.(desktopRoot)).toBe(true);
   });
 
   it('starts a thread bound to the root and opens no terminal', async () => {
-    const newThread = renderHook(() => useWorkspaceRootActions()).result.current[1];
+    const newThread = renderHook(() => useWorkspaceRootActions(), { wrapper }).result.current[1];
 
     await newThread?.run(desktopRoot, {});
 
@@ -91,7 +82,7 @@ describe('useWorkspaceRootActions', () => {
   });
 
   it('starts a thread for a pathless root, passing path: null explicitly', async () => {
-    const newThread = renderHook(() => useWorkspaceRootActions()).result.current[1];
+    const newThread = renderHook(() => useWorkspaceRootActions(), { wrapper }).result.current[1];
 
     await newThread?.run(webRoot, {});
 
@@ -106,7 +97,9 @@ describe('useWorkspaceRootActions', () => {
     useCreateThreadInFolderMock.mockReturnValueOnce(null);
 
     expect(
-      renderHook(() => useWorkspaceRootActions()).result.current.map((action) => action.id)
+      renderHook(() => useWorkspaceRootActions(), { wrapper }).result.current.map(
+        (action) => action.id
+      )
     ).toEqual(['workspace-root.open-in-terminal']);
   });
 });

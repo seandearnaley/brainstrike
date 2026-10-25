@@ -33,8 +33,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { summarizeGitFailure } from '../git-failure-summary';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
-import { isTerminalBridgeAvailable } from '../terminal-panel/terminal-bridge';
 import { useWorktreesBridge } from '../workspace-git-services';
+import { useTerminalBridge } from '../workspace-terminal-services';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 import {
   errorMessage,
@@ -390,7 +390,7 @@ export function unavailableRepositoryReason(statusFailure: string | null): strin
 export function useWorktreeMode(args: UseWorktreeModeArgs): WorkspaceBarMode | undefined {
   const bridge = useWorktreesBridge();
   const platform = useMemo(() => resolvePlatformBridge(), []);
-  const terminalAvailable = useMemo(() => isTerminalBridgeAvailable(), []);
+  const terminalAvailable = useTerminalBridge() !== null;
   const fileSystem = useFileSystem();
   const addRootDirectory = fileSystem.addRootDirectory;
   const addRootDirectoryByPath = fileSystem.addRootDirectoryByPath;

@@ -9,8 +9,8 @@ import {
   TRANSIENT_ROOT_RETRY_DELAY_MS,
   TRANSIENT_ROOT_RETRY_LIMIT,
 } from '../roots/transient-root-error';
+import { useTerminalBridge } from '../workspace-terminal-services';
 import { SurrogateBuffer } from './surrogate-buffer';
-import { resolveTerminalBridge, type TerminalBridge } from './terminal-bridge';
 import { XTERM_THEME } from './xterm-theme';
 
 const logger = createLogger('TerminalPanel');
@@ -118,7 +118,7 @@ function disposeTerminalSessionHandles(handles: TerminalSessionHandles): void {
 }
 
 /**
- * Owns the imperative xterm Terminal + `window.terminal` pty session for ONE
+ * Owns the imperative xterm Terminal + pty session for ONE
  * checkout — the focused workspace root, or a pinned target inside it
  * (`terminal-target-store`).
  *
@@ -133,20 +133,16 @@ function disposeTerminalSessionHandles(handles: TerminalSessionHandles): void {
  *   7. cleanup: unsubscribe all, `bridge.destroy({ terminalId })`, dispose the
  *      Terminal + observer.
  *
- * The `bridge` is resolved once (the preload bridge lives for the window's
- * lifetime). When absent the hook is inert (`idle`) and the panel renders its
- * desktop-only empty state.
+ * The `bridge` comes from `WorkspaceTerminalServicesProvider`; a new bridge
+ * re-keys the session. When absent the hook is inert (`idle`) and the panel
+ * renders its desktop-only empty state.
  */
 export function useTerminalSession(
   rootId: string | null,
   cwd: string | null
 ): UseTerminalSessionResult {
   const { toast } = useToast();
-  const bridgeRef = useRef<TerminalBridge | null>(null);
-  if (bridgeRef.current === null) {
-    bridgeRef.current = resolveTerminalBridge();
-  }
-  const bridge = bridgeRef.current;
+  const bridge = useTerminalBridge();
   // Derived during render, never stored: the identity of the session the panel
   // WANTS. NUL-joined because neither a rootId (uuid) nor an absolute path can
   // contain it, so no two distinct pairs can collide into one key.

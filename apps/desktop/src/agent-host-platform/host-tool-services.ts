@@ -15,7 +15,7 @@ import type { BrowserToolRunner } from '../assistant-server/native-tool-executor
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { isActionableHostedEmbeddingError } from '../hosted-embedding-error';
-import { attachHostCommandSessions } from './host-command-session-client';
+import { attachHostRootCleanup } from './host-root-cleanup-client';
 import {
   DiagnosticsReadRequestSchema,
   parseBrowserNavigateRequest,
@@ -86,8 +86,8 @@ export function serveHostToolServices(
   execute: Execute,
   services: HostToolServiceCapabilities | undefined
 ): void {
-  // The Terminal panel reaches this host's command sessions over the same connection.
-  attachHostCommandSessions(connection);
+  // Main's root registry releases a disconnected root's host processes over the same connection.
+  attachHostRootCleanup(connection);
   serveIndexReads(connection, execute, services);
   serveBrowserCalls(connection, execute, services);
   serveSelfInspectionReads(connection, execute, services);

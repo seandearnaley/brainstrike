@@ -203,7 +203,7 @@ describe('spawnFenced teardown', () => {
   it('polls THROUGH a transient EPERM and settles on ESRCH', async () => {
     // EPERM from the group probe is the post-reap race, not a denial: the
     // leader is a just-SIGKILLed zombie the kernel will not route a group
-    // signal through. terminal-ipc-handlers.ts records the same reasoning for
+    // signal through. desktop-terminals.ts records the same reasoning for
     // its own group kill — every member is our own descendant running as us,
     // so a genuine permission failure is impossible.
     //
