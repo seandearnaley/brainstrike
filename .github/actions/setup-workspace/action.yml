@@ -122,5 +122,7 @@ runs:
           npm_config_nodedir="$(dirname "$(dirname "$(command -v node)")")"
         fi
         export npm_config_nodedir
+        # Later steps' native builds (turbo build) use the same headers.
+        echo "npm_config_nodedir=$npm_config_nodedir" >> "$GITHUB_ENV"
         pnpm install --frozen-lockfile
       shell: bash
