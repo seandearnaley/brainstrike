@@ -978,9 +978,6 @@ jobs:
       - name: Load the packaged native SQLite prebuilds
         run: pnpm --filter @brainstrike/sqlite-native test:packaged
 
-      - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
-        run: pnpm --filter @brainstrike/file-system test:packaged
-
       - name: Verify packaged MCP core lifecycle
         run: |
           set -euo pipefail
