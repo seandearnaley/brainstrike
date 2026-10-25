@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM: it installs the React
 // DevTools hook and Scheduler MessageChannel timing used by the render-cost suite.
 import './committed-assistant-browser-support';
-import { act, cleanup, getConfig, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, getConfig, render, waitFor, within } from '@testing-library/react';
 import { Profiler, type ReactElement, version as reactVersion, useCallback } from 'react';
 import { afterAll, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
@@ -82,7 +82,6 @@ import './assistant-conversation-panel.browser.css';
 const APPROVE = `Approve ${recordedToolName}`;
 const DECLINE = `Decline ${recordedToolName}`;
 const COMPLETED_TEXT = 'Host run completed.';
-const LAZY_RENDERER_TIMEOUT_MS = 10_000;
 const UNAVAILABLE = 'The agent host is unavailable.';
 const DISCONNECTED = 'Agent host disconnected. Reconnect to continue.';
 
@@ -904,22 +903,6 @@ const mountMeasuredTrial: MountTrial = async ({ baseline, firstChild, saved }) =
   };
 };
 
-async function warmUp(): Promise<void> {
-  // Unmeasured: resolve the lazily loaded markdown renderer once, so samples
-  // measure publication rendering rather than module loading.
-  const { baseline } = await recordedBaseline();
-  const source = new RecordedCommittedSource();
-  source.publishPrefix(committedRows.length);
-  const store = await recordedStore(source, baseline);
-  const warm = render(<Surface actions={{ onNew: rejectingNew() }} store={store} />);
-  // The first load of the lazy renderer chunk can outlast the 1 s default on a
-  // loaded machine (4 of 20 runs at load 40-56 skipped the whole describe).
-  await screen.findByText(COMPLETED_TEXT, undefined, { timeout: LAZY_RENDERER_TIMEOUT_MS });
-  cleanup();
-  store.dispose();
-  expect(warm.container, 'warm-up releases its Testing Library container').not.toBeInTheDocument();
-}
-
 describe('recorded text publication cost (BST-1929 spike s-ui budget)', () => {
   let measurement: Measurement | undefined;
   let previousViewport: { readonly height: number; readonly width: number } | undefined;
@@ -927,7 +910,6 @@ describe('recorded text publication cost (BST-1929 spike s-ui budget)', () => {
   beforeAll(async () => {
     previousViewport = { height: window.innerHeight, width: window.innerWidth };
     await page.viewport(900, 800);
-    await warmUp();
     measurement = await measureRecordedTextPublications(mountMeasuredTrial, COMPLETED_TEXT);
     const reactBuild = '_store' in <div /> ? 'development' : 'production';
     console.info(

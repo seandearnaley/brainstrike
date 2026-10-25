@@ -267,8 +267,8 @@ describe('shared code-block chrome (real browser)', () => {
   });
 
   test('fallback <pre> and resolved Shiki share metrics (zero-shift swap), no stray language label', async () => {
-    // The Shiki singleton may already be cached from an earlier test, so the
-    // pre-highlight state cannot be observed on the same block. Instead mount
+    // The browser setup preloads the Shiki singleton, so the pre-highlight
+    // state cannot be observed on the same block. Instead mount
     // a deterministic fallback (empty code never renders Shiki) next to a
     // real highlighted block and require identical computed metrics — this is
     // exactly the streamed-swap geometry.
@@ -298,16 +298,13 @@ describe('shared code-block chrome (real browser)', () => {
     expect(Number.parseFloat(fallbackStyle.marginBottom)).toBe(0);
 
     // Real Shiki (wasm) resolves in-browser and renders <pre class="shiki">.
-    const shikiPre = await waitFor(
-      () => {
-        const pre = container.querySelector('[data-testid="highlighted-block"] pre.shiki');
-        if (!pre) {
-          throw new Error('shiki not resolved yet');
-        }
-        return pre;
-      },
-      { timeout: 15_000 }
-    );
+    const shikiPre = await waitFor(() => {
+      const pre = container.querySelector('[data-testid="highlighted-block"] pre.shiki');
+      if (!pre) {
+        throw new Error('shiki not resolved yet');
+      }
+      return pre;
+    });
 
     const shikiStyle = getComputedStyle(shikiPre);
     expect(Number.parseFloat(shikiStyle.paddingTop)).toBe(fallbackPadding);
@@ -318,22 +315,19 @@ describe('shared code-block chrome (real browser)', () => {
 
     // react-shiki's own label is disabled — the header owns the language text.
     expect(container.querySelector('[data-slot="language-label"]')).toBeNull();
-  }, 20_000);
+  });
 
   test('dark mode: shiki tokens actually take the dark palette', async () => {
     document.documentElement.classList.add('dark');
     const { container } = renderChatBlock('const answer = 42;\n', 'typescript');
 
-    const shikiPre = await waitFor(
-      () => {
-        const pre = container.querySelector('pre.shiki');
-        if (!pre) {
-          throw new Error('shiki not resolved yet');
-        }
-        return pre;
-      },
-      { timeout: 15_000 }
-    );
+    const shikiPre = await waitFor(() => {
+      const pre = container.querySelector('pre.shiki');
+      if (!pre) {
+        throw new Error('shiki not resolved yet');
+      }
+      return pre;
+    });
 
     const tokenSpan = shikiPre.querySelector<HTMLElement>('span[style*="--shiki-dark"]');
     if (!tokenSpan) {
@@ -347,7 +341,7 @@ describe('shared code-block chrome (real browser)', () => {
     probe.remove();
 
     expect(getComputedStyle(tokenSpan).color).toBe(expectedColor);
-  }, 20_000);
+  });
 });
 
 describe('ActivityTrace (real browser)', () => {
