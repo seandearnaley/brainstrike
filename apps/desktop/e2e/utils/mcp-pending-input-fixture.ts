@@ -3,7 +3,7 @@ import type { Socket } from 'node:net';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
-import type { McpLabSession } from '../../../../packages/mcp-test-lab/dist/index.js';
+import type { McpLabSession } from '../../../../packages/mcp-test-lab/src/index.ts';
 
 export interface PendingInputWireRecord {
   readonly method: string;

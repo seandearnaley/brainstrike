@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
-import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 
 const coverageEnabled =
@@ -10,12 +9,6 @@ const coverageEnabled =
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
-  resolve: {
-    // Resolve workspace deps from SOURCE, not built dist — including TRANSITIVE
-    // ones (e.g. @brainstrike/types via utils src, which the old hand map
-    // missed). See @brainstrike/test-utils/workspace-src-aliases (#1066/#1207).
-    alias: [...workspaceSrcAliases(path.resolve(__dirname, '..'))],
-  },
   test: {
     coverage: {
       enabled: coverageEnabled,
