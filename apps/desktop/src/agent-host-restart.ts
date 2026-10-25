@@ -5,7 +5,7 @@ import type { HostAttachment } from '@brainstrike/host-lease';
  * Restarts the agent host this app launched (BST-1880). The lease asks its own
  * child to close over the child's control port and joins the exit under its one
  * close ladder (ADR-0026 R5(b)): cooperative close, then `kill()` after
- * `HOST_COOPERATIVE_CLOSE_MS`, then the exit. No clock refuses a restart
+ * `CHILD_CLOSE_BUDGET_MS`, then the exit. No clock refuses a restart
  * because the machine is slow. That exit is the recovery a lost host already
  * takes (BST-2004): the profile acquisition joins the release, resumes native
  * indexing and admits the new host. A host started from the CLI is never

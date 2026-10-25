@@ -13,6 +13,7 @@ import { glob } from 'node:fs/promises';
 import path from 'node:path';
 import { sha256OfBuffer } from '@brainstrike/host-capabilities/hooks';
 import { createLogger } from '@brainstrike/logging';
+import { terminateTree } from '@brainstrike/state-store/native-children';
 import type { WorktreeSetupOutcome, WorktreeSetupSkippedCopy } from '@brainstrike/types';
 import { isPathWithin } from './worktree-paths';
 import type { WorktreeSetupInput } from './worktree-service';
@@ -439,11 +440,18 @@ const PROCESS_TREE_EXIT_POLL_MS = 10;
 /**
  * Signal the setup shell and every descendant. POSIX setup commands run in a
  * dedicated process group so a daemon inheriting stdout/stderr cannot outlive
- * the timeout and keep the service mutex pending forever.
+ * the timeout and keep the service mutex pending forever. Windows has no
+ * process groups, so the whole tree ends at once (ADR-0030).
  */
 function signalProcessTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
-  if (isWindows || typeof child.pid !== 'number') {
+  if (typeof child.pid !== 'number') {
     child.kill(signal);
+    return;
+  }
+  if (isWindows) {
+    terminateTree(child.pid).catch((error: unknown) => {
+      logger.warn('Could not end the worktree setup process tree', { error, pid: child.pid });
+    });
     return;
   }
   try {

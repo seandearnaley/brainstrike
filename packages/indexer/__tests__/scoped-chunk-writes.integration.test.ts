@@ -50,7 +50,7 @@ const snapshot = {
   content: captured.content,
   providedChunks: captured.result.chunks,
 };
-const deadlines = { closeMs: 5000, exitMs: 5000 };
+const deadlines = { closeMs: 5000 };
 
 async function withStore(
   run: (

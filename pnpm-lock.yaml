@@ -3181,6 +3181,9 @@ importers:
       better-sqlite3:
         specifier: 'catalog:'
         version: 13.0.3
+      tree-kill:
+        specifier: 1.2.2
+        version: 1.2.2
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*

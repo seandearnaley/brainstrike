@@ -7,8 +7,9 @@ import {
   SqliteQueryStartupCleanupError,
   spawnUtilityQueryProcess,
 } from '@brainstrike/sqlite-query';
-import { app, utilityProcess } from 'electron';
+import { app } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
+import { forkUtility } from './fork-utility';
 import type { NativeCoverageReader } from './native-coverage-reader';
 
 interface IndexQueryTarget {
@@ -77,8 +78,7 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
         throw new Error('The authoritative index owner changed before query acquisition.');
       }
       spawned = spawnUtilityQueryProcess(
-        (entryPath) =>
-          utilityProcess.fork(entryPath, [], { serviceName: 'brainstrike-index-query' }),
+        (entryPath) => forkUtility(entryPath, [], { serviceName: 'brainstrike-index-query' }),
         resolveBundledSiblingPath('SQLite index query', 'sqlite-query-host-entry.js')
       );
       return spawned;
@@ -111,8 +111,7 @@ export async function openIndexCoverage(
         throw new Error('Native coverage owner changed before acquisition.');
       }
       spawned = spawnUtilityQueryProcess(
-        (entryPath) =>
-          utilityProcess.fork(entryPath, [], { serviceName: 'brainstrike-index-coverage' }),
+        (entryPath) => forkUtility(entryPath, [], { serviceName: 'brainstrike-index-coverage' }),
         resolveBundledSiblingPath('SQLite index coverage', 'sqlite-query-host-entry.js')
       );
       return spawned;
