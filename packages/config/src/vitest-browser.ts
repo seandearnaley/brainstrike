@@ -212,34 +212,49 @@ export function bindTraceChunkNameBounding(browser: TraceChunkCommandRegistry): 
   }
 }
 
+/** The iframe Vitest runs every file in when isolation is off. */
+const NON_ISOLATED_IFRAME_ID = '__vitest_all__';
+
+/** The test file a Vitest test iframe was loaded for (its `iframeId`). */
+function testIframeId(frame: Frame): string | null {
+  return URL.parse(frame.url())?.searchParams.get('iframeId') ?? null;
+}
+
 /**
- * Vitest reuses a page across isolated files. Commands arrive over its WebSocket
- * before Playwright has necessarily processed the previous iframe's detach event,
- * so the provider's name-only frame lookup can return that dying frame. Resolve
- * the current DOM element through Playwright instead; no frame, action or test
- * is retried, and the caller's existing timeout still owns the command.
+ * Vitest reuses a page across isolated files, and its provider finds the test
+ * iframe by name alone. Commands arrive over its WebSocket before Playwright
+ * has necessarily processed the previous iframe's detach event, so that lookup
+ * can return the dying frame. Vitest loads each file's iframe with the file's
+ * path as `iframeId`, and every command carries the path of the file that sent
+ * it, so the current frame is picked from Playwright's own frame list without
+ * another round trip to the browser (an element lookup here cost two per
+ * command, about a third of a loaded keyboard command). A frame Playwright has
+ * not seen yet is awaited; no frame, action or test is retried, and the
+ * caller's existing timeout still owns the command.
  */
 export function bindCurrentTestFrame(provider: Pick<BrowserProvider, 'getCommandsContext'>): void {
   const getContext = provider.getCommandsContext.bind(provider);
   provider.getCommandsContext = (sessionId) => {
     const context = getContext(sessionId);
+    const page = context['page'] as Page;
     return {
       ...context,
-      async frame(): Promise<Frame> {
-        const page = context['page'] as Page;
-        const element = await page.locator('iframe[data-vitest="true"]').elementHandle();
-        if (!element) {
-          throw new Error('Cannot resolve the current test iframe element.');
+      // Vitest merges this context into each command's, which holds `testPath`.
+      async frame(this: { readonly testPath?: string | undefined }): Promise<Frame> {
+        const { testPath } = this;
+        if (!testPath) {
+          throw new Error('A browser command arrived without the test file that sent it.');
         }
-        try {
-          const frame = await element.contentFrame();
-          if (!frame) {
-            throw new Error('Cannot resolve the current test iframe content frame.');
-          }
-          return frame;
-        } finally {
-          await element.dispose();
-        }
+        const isCurrent = (frame: Frame): boolean => {
+          const iframeId = testIframeId(frame);
+          return (
+            !frame.isDetached() && (iframeId === testPath || iframeId === NON_ISOLATED_IFRAME_ID)
+          );
+        };
+        return (
+          page.frames().find(isCurrent) ??
+          page.waitForEvent('framenavigated', { predicate: isCurrent, timeout: 0 })
+        );
       },
     };
   };
