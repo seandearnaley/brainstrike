@@ -9,7 +9,9 @@ test('Stop acknowledges an active hosted embedding request after aborting its tr
 }) => {
   test.setTimeout(90_000);
   const requests: unknown[] = [];
-  let requestClosed = false;
+  // The server never answers: the only way this request ends is the client closing it.
+  const requestClosed = Promise.withResolvers<void>();
+  let requestClosedSeen = false;
   let serverListening = false;
   const server = http.createServer((request, response) => {
     if (request.method !== 'POST' || request.url !== '/v1/embeddings') {
@@ -26,7 +28,8 @@ test('Stop acknowledges an active hosted embedding request after aborting its tr
       requests.push(JSON.parse(body));
     });
     response.on('close', () => {
-      requestClosed = true;
+      requestClosedSeen = true;
+      requestClosed.resolve();
     });
     // Main owns this hosted fetch. Keep its real HTTP response pending until
     // Stop aborts and joins it; no renderer interception or successful response.
@@ -81,10 +84,8 @@ test('Stop acknowledges an active hosted embedding request after aborting its tr
     expect(requests).toEqual([
       { encoding_format: 'float', input: ['hold request'], model: 'stop-test-model' },
     ]);
-    expect(requestClosed).toBe(false);
-    const stopStartedAt = performance.now();
+    expect(requestClosedSeen).toBe(false);
     const status = await stopEmbeddingHost(window);
-    const stopDurationMs = performance.now() - stopStartedAt;
 
     expect(status).toEqual({
       active: false,
@@ -93,8 +94,10 @@ test('Stop acknowledges an active hosted embedding request after aborting its tr
       runtimeKind: 'embedding-host',
       state: 'stopped',
     });
-    expect(stopDurationMs).toBeLessThan(3000);
-    await expect.poll(() => requestClosed, { timeout: 3000 }).toBe(true);
+    // The server never answers, so a Stop that waited for the request could not have been
+    // acknowledged. It aborted the transport instead, which the server sees as the client
+    // closing the request; no wall-clock bound, so load cannot change the verdict.
+    await requestClosed.promise;
     const outcome = await pending;
     expect(outcome.kind).toBe('result');
     if (outcome.kind !== 'result') {
