@@ -111,6 +111,8 @@ describe('optimized file tree selection counts', () => {
     { candidatePath: 'src/', expected: true, path: 'src/index.ts' },
     { candidatePath: 'src', expected: false, path: 'source/index.ts' },
     { candidatePath: 'C:\\repo\\src', expected: true, path: 'C:/repo/src/index.ts' },
+    { candidatePath: 'C:\\repo\\src', expected: true, path: 'C:\\repo\\src\\index.ts' },
+    { candidatePath: 'C:\\repo\\src', expected: false, path: 'C:\\repo\\srcs\\index.ts' },
   ])(
     'checks descendant selection paths for $candidatePath',
     ({ candidatePath, expected, path }) => {
