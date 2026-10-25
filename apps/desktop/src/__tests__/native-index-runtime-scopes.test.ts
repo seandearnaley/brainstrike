@@ -678,23 +678,16 @@ it('starts a writer read after a source removal settles and its readers are rein
   expect(f.events).toEqual(['readers-exited']);
   removed.resolve();
   await Promise.all([removal, reading]);
-  // The removal leaves its readers retired; the proof acquires before it reads.
-  expect(f.events).toEqual([
-    'readers-exited',
-    'removed',
-    'readers-exited',
-    'bindings-ack',
-    'reader-installed',
-    'coverage-read',
-  ]);
+  // The removal reinstalls the readers it retired; the proof needs no acquisition.
+  expect(f.events).toEqual(['readers-exited', 'removed', 'reader-installed', 'coverage-read']);
   await f.runtime.closeIndex();
 });
 
-it('reinstalls retired readers before a writer read that follows a settled source removal', async () => {
+it('reinstalls retired readers when a source removal settles', async () => {
   const f = fixture({ fileBindings: [], rootIds: ['root'], scopes });
   await f.runtime.acquire();
   await f.runtime.mutateAuthority(f.port, async () => undefined);
-  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
   await f.runtime.withWriterRead(f.port, async () => {
     expect(f.installQueryTarget).toHaveBeenCalledTimes(2);
   });

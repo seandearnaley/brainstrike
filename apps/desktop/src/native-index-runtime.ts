@@ -510,11 +510,20 @@ export function createNativeIndexRuntime<Attachment>(
           if (closed || port !== expected) {
             throw new Error('Native mutation writer was retired or replaced.');
           }
+          const retained = bindings;
           await closeQueries();
           if (closed || port !== expected) {
             throw new Error('Native mutation writer was retired or replaced.');
           }
-          return await work();
+          const result = await work();
+          // Reads that skip acquisition (`acknowledged`, or one whose acquisition
+          // settled before this began) need the readers this removal retired. A
+          // failed removal, or readers already retired, leave it to the next acquisition.
+          if (retained && indexOwner && !(closed || readsClosed) && port === expected) {
+            dependencies.installQueryTarget(indexOwner);
+            bindings = retained;
+          }
+          return result;
         } finally {
           endChange();
         }
@@ -596,8 +605,8 @@ export function createNativeIndexRuntime<Attachment>(
         if (bindings) {
           break;
         }
-        // A file removal retires readers and leaves reinstalling them to the next
-        // acquisition, as `withRead` acquires before it reads.
+        // Retired readers that nothing reinstalled (a failed query retirement) are
+        // the next acquisition's, as `withRead` acquires before it reads.
         await acquireCurrent();
       }
       if (port !== expected) {
