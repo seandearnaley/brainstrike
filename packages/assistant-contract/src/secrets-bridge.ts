@@ -4,8 +4,8 @@
  * The SINGLE source of the bridge shape: the desktop preload implements it,
  * `apps/desktop/src/types/electron.d.ts` and the e2e globals declare it, and
  * settings-ui consumes the derived {@link SecretsCapability} view. Mirrors the
- * SkillsBridge pattern (./skills-bridge.ts), including the required-method pin
- * consumed by the desktop preload-runtime contract test.
+ * personas bridge pattern (./personas-bridge.ts), including the required-method
+ * pin consumed by the desktop preload-runtime contract test.
  *
  * IPC channels behind these methods NEVER throw domain errors across invoke —
  * Electron's `ipcRenderer.invoke` rejection path drops custom own-properties
