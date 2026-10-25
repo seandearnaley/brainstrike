@@ -103,6 +103,11 @@ test('CLI-created children and their CLI follow-up appear in the GUI', async ({
         onExcessProperty: 'error',
       })(JSON.parse(await command(['children', 'list', '--thread', threadIdentity.threadId])))
         .children;
+    // The command ends only after its host has nothing left to do: the
+    // parent's answer to its child's result is already committed.
+    expect(
+      await command(['thread', 'read', '--thread', threadIdentity.threadId, '--from-seq', '0'])
+    ).toContain('CLI parent received child');
     const [child, ...others] = await children();
     expect(others).toEqual([]);
     if (!(child && thread.runId)) {

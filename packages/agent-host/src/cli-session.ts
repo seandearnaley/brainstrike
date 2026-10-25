@@ -35,6 +35,8 @@ export class HostCliExitError extends Error {
   }
 }
 export interface HostCliSessionOptions {
+  /** Rows at or before this seq were already printed by an earlier session. */
+  readonly afterSeq?: number;
   readonly client: HostClient;
   readonly interactive: boolean;
   readonly json: boolean;
@@ -58,7 +60,7 @@ export function hostRunExitError(run: HostRunView): HostCliExitError | undefined
   );
 }
 /** The run's oldest MCP input with neither a committed answer intent nor a settlement. */
-function pendingMcpInput(
+export function pendingMcpInput(
   rows: readonly HostLogRow[],
   runId: string | undefined
 ): string | undefined {
@@ -149,8 +151,11 @@ function displayRow(
     output.write('\n');
   }
 }
-/** The terminal observes committed rows and sends decisions to the same host owner. */
-export async function runHostCliSession(options: HostCliSessionOptions): Promise<void> {
+/**
+ * The terminal observes committed rows and sends decisions to the same host
+ * owner. Settles with the last seq it printed.
+ */
+export async function runHostCliSession(options: HostCliSessionOptions): Promise<number> {
   const { client, threadId, output } = options;
   const view = new CommittedThreadView(threadId);
   const notices = new HostRunNotices();
@@ -160,7 +165,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   completion.promise.catch(() => undefined);
   let runId = options.runId;
   let initialized = false;
-  let printedSeq = 0;
+  let printedSeq = options.afterSeq ?? 0;
   let finished = false;
   let responding: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
@@ -418,7 +423,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     if (finished || stopRequested) {
       finish();
       await completion.promise;
-      return;
+      return printedSeq;
     }
     if (options.startRun) {
       ({ runId } = await options.startRun());
@@ -434,6 +439,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     initialized = true;
     update();
     await completion.promise;
+    return printedSeq;
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);

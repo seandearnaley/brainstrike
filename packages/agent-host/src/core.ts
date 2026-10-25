@@ -4,6 +4,7 @@ import type { LanguageModel, ModelMessage } from 'ai';
 import { acceptHostChildInput } from './child-input.ts';
 import { HostContextCompactions } from './context-compaction.ts';
 import { type HostChildRunPort, HostChildRuns, hostDeliveryPosition } from './core-child-runs.ts';
+import { countHostHolds, type HostHolds } from './core-holds.ts';
 import { hostMcpTaskOwner } from './core-mcp-owner.ts';
 import { readHostThreadMemory } from './core-memory-read.ts';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.ts';
@@ -175,6 +176,7 @@ export class HostCore {
     foldRows: (rows) => this.foldRows(rows),
     presentations: this.presentations,
     read: (threadId) => this.read(threadId, 0),
+    retainRun: () => this.holds.retain(),
     runs: () => this.runs,
     startNextRun: (params, origin, refused) => this.startNextRun(params, origin, refused),
     wake: (threadId) =>
@@ -200,12 +202,13 @@ export class HostCore {
 
   readonly store: HostEventStore;
   private readonly platform: HostPlatform;
-  private readonly retainRun: () => () => void;
+
+  readonly holds: HostHolds;
 
   private constructor(store: HostEventStore, platform: HostPlatform, retainRun: () => () => void) {
     this.store = store;
     this.platform = platform;
-    this.retainRun = retainRun;
+    this.holds = countHostHolds(retainRun);
   }
 
   static async open(
@@ -237,7 +240,7 @@ export class HostCore {
         // Q-2: a restart wakes no parent; results reach the next user turn.
         await core.ends.finish(run, recovery.outcome, recovery.detail, false);
       } else if (recovery) {
-        run.release = retainRun();
+        run.release = core.holds.retain();
         if (recovery.kind === 'continue') {
           run.task = core.continueRun(run);
           run.task.catch(() => undefined);
@@ -607,7 +610,7 @@ export class HostCore {
       );
       admission = child.admission;
       controller.signal.throwIfAborted();
-      release = this.retainRun();
+      release = this.holds.retain();
       const { run, started } = admittedHostRun(
         this.runs.ofThread(params.threadId),
         {
@@ -719,7 +722,7 @@ export class HostCore {
       commitEffect: () => this.append(run.threadId, [action]).then(() => undefined),
       loop: (child, model) => this.loop(child, model),
       policy: async (threadId) => await this.platform.readPermissionPolicy(threadId),
-      retainRun: this.retainRun,
+      retainRun: this.holds.retain,
       stop: (child, reason) => {
         if (!this.closing) {
           retainHostRunWork(run, this.stopRun(child, reason));

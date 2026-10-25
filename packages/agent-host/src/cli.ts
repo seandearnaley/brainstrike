@@ -12,16 +12,22 @@ import {
 import { configureLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
 import { trustCliProjectHooks } from './cli-hooks-trust.ts';
-import { HostCliExitError, runHostCliSession } from './cli-session.ts';
+import {
+  HostCliExitError,
+  type HostCliSessionOptions,
+  pendingMcpInput,
+  runHostCliSession,
+} from './cli-session.ts';
 import type { HostClient } from './client-connection.ts';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
 import { isProcessEntrypoint } from './process-entrypoint.ts';
 import { HOST_METHOD_SCHEMAS, type HostParams } from './protocol.ts';
-import { openStandaloneHost } from './standalone-host.ts';
+import { openStandaloneHost, type StandaloneHost } from './standalone-host.ts';
 import {
   type CliWorkspaceRunInput,
   CliWorkspaceRunInputSchema,
 } from './standalone-workspace-input.ts';
+import { startHostTracing } from './telemetry/otel.ts';
 import { foldHostRuns } from './thread-view.ts';
 export interface HostCliOutput {
   write(value: string): void;
@@ -375,55 +381,82 @@ async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['
     process.off('SIGTERM', abort);
   }
 }
+type CliSessionOutput = Pick<HostCliSessionOptions, 'interactive' | 'json' | 'output'>;
 /**
- * After an answer, the run continues in this command's host: follow it until it
- * ends or asks again, so closing the host never interrupts what the answer resumed.
+ * After an answer, the resumed run continues in this command's host: it is
+ * followed silently, so the command's output stays the answer's one result and
+ * its exit code says whether the run ended (0 or 1) or asks again (2).
  */
-async function followAnsweredRun(client: HostClient, threadId: string, runId: string) {
-  await runHostCliSession({
-    client,
-    interactive: false,
-    json: true,
-    output: { write: () => undefined },
-    runId,
-    threadId,
-  });
+const ANSWER_FOLLOW: CliSessionOutput = {
+  interactive: false,
+  json: true,
+  output: { write: () => undefined },
+};
+/** The run this command follows next: the thread's own running run, or any run in its tree awaiting a person. */
+async function nextFollowedRun(
+  client: HostClient,
+  threadId: string,
+  root = true
+): Promise<{ readonly runId: string; readonly threadId: string } | undefined> {
+  const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+  const run = foldHostRuns(rows).find(
+    ({ approvals, runId, status }) =>
+      status === 'running' &&
+      (root || approvals.length > 0 || pendingMcpInput(rows, runId) !== undefined)
+  );
+  if (run) {
+    return { runId: run.runId, threadId };
+  }
+  const { children } = await client.request('thread/children', { threadId });
+  for (const child of children) {
+    const followed = await nextFollowedRun(client, child.threadId, false);
+    if (followed) {
+      return followed;
+    }
+  }
+  return undefined;
 }
 /**
- * A run's background children, and the parent runs their results wake, run in
- * this command's host: keep it open until the thread has no running run and no
- * working child. A child waiting on a person stays for attach.
+ * Everything this command's host does after its run (background children, the
+ * parent runs their results wake, a child's follow-up) runs in this process:
+ * keep the host open until no work holds it. Each later run on the thread is
+ * followed like the first, and each decision any of that work asks for is put
+ * to the person as `attach` puts it; a non-interactive command exits 2 there.
  */
-async function awaitBackgroundWork(client: HostClient, threadId: string): Promise<void> {
+async function settleHostWork(
+  host: StandaloneHost,
+  threadId: string,
+  session: CliSessionOutput,
+  printedSeq = 0
+): Promise<void> {
+  const { client } = host;
+  const printed = new Map([[threadId, printedSeq]]);
   let changed = Promise.withResolvers<void>();
-  const poke = (): void => changed.resolve();
-  const releaseChildren = client.onChildrenChanged((changedThread) => {
-    if (changedThread === threadId) {
-      poke();
-    }
-  });
+  const releaseChildren = client.onChildrenChanged(() => changed.resolve());
   const releaseRows = client.onEvent((row) => {
     if (row.threadId === threadId) {
-      poke();
+      changed.resolve();
     }
   });
   try {
     await client.request('log/subscribe', { fromSeq: 0, threadId });
     for (;;) {
-      const [{ rows }, { children }] = await Promise.all([
-        client.request('thread/read', { fromSeq: 0, threadId }),
-        client.request('thread/children', { threadId }),
-      ]);
-      if (
-        !(
-          foldHostRuns(rows).some(({ status }) => status === 'running') ||
-          children.some(({ status }) => status === 'working')
-        )
-      ) {
+      changed = Promise.withResolvers<void>();
+      const idle = host.idle().then(() => true);
+      const followed = await nextFollowedRun(client, threadId);
+      if (followed) {
+        printed.set(
+          followed.threadId,
+          await runHostCliSession({
+            ...session,
+            afterSeq: printed.get(followed.threadId) ?? 0,
+            client,
+            ...followed,
+          })
+        );
+      } else if (await Promise.race([idle, changed.promise.then(() => false)])) {
         return;
       }
-      await changed.promise;
-      changed = Promise.withResolvers<void>();
     }
   } finally {
     releaseChildren();
@@ -562,11 +595,10 @@ EOF or a signal ends the command: a running run is interrupted, an unanswered de
         const selected =
           values.thread ??
           (await client.request('thread/start', { commandId: randomUUID() })).threadId;
-        await runHostCliSession({
+        const session = { interactive, json: values.json ?? false, output };
+        const printed = await runHostCliSession({
+          ...session,
           client,
-          interactive,
-          json: values.json ?? false,
-          output,
           startRun: () =>
             client.request('run/start', {
               commandId,
@@ -577,19 +609,20 @@ EOF or a signal ends the command: a running run is interrupted, an unanswered de
             }),
           threadId: selected,
         });
-        await awaitBackgroundWork(client, selected);
+        await settleHostWork(host, selected, session, printed);
         break;
       }
-      case 'attach':
-        await runHostCliSession({
+      case 'attach': {
+        const session = { interactive, json: values.json ?? false, output };
+        const printed = await runHostCliSession({
+          ...session,
           client,
-          interactive,
-          json: values.json ?? false,
-          output,
           ...(values.run ? { runId: values.run } : {}),
           threadId: threadId(),
         });
+        await settleHostWork(host, threadId(), session, printed);
         break;
+      }
       case 'child stop':
       case 'run stop':
         print(
@@ -610,7 +643,7 @@ EOF or a signal ends the command: a running run is interrupted, an unanswered de
             threadId: threadId(),
           })
         );
-        await followAnsweredRun(client, threadId(), runId());
+        await settleHostWork(host, threadId(), ANSWER_FOLLOW);
         break;
       }
       case 'interaction resume': {
@@ -626,7 +659,7 @@ EOF or a signal ends the command: a running run is interrupted, an unanswered de
           threadId: threadId(),
         });
         print(await client.request('interaction/resume', params));
-        await followAnsweredRun(client, threadId(), runId());
+        await settleHostWork(host, threadId(), ANSWER_FOLLOW);
         break;
       }
       default:
@@ -653,7 +686,14 @@ export async function runHostCliProcess(
     ).initialize();
   }
   try {
-    await runHostCli(args, process.stdout, defaults);
+    // Before the host starts: a misconfigured exporter fails the command visibly.
+    const tracing = await startHostTracing(process.env);
+    try {
+      await runHostCli(args, process.stdout, defaults);
+    } finally {
+      // After the host closed and joined its runs, so their spans are flushed too.
+      await tracing?.shutdown();
+    }
   } catch (cause: unknown) {
     const message =
       cause instanceof BoundaryFailureError

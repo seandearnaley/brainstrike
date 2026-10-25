@@ -9,6 +9,8 @@ import { stdioConnection } from './transports.ts';
 export interface StandaloneHost {
   readonly client: HostClient;
   close(): Promise<void>;
+  /** Settles once no run, child or pending wake holds the host. */
+  idle(): Promise<void>;
 }
 /**
  * Runs an agent host in this process, as Claude Code and Codex run their agent:
@@ -58,5 +60,6 @@ export async function openStandaloneHost(
         await host.close();
       }
     },
+    idle: () => host.core.holds.idle(),
   };
 }
