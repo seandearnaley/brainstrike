@@ -8,7 +8,7 @@ description: >-
 # Hosted Windows runners run elevated with UAC off
 # (https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
 # so an admin token hid every failure a normal user meets: sean-pc runs as a
-# standard user and caught 13 desktop E2E failures the queue had passed
+# standard user and caught 40 desktop E2E failures the queue had passed
 # (2026-10-25). The tests run as a fresh member of Users instead, the way the
 # app runs on a user's machine.
 runs:
