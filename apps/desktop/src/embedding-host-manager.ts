@@ -304,7 +304,6 @@ export class EmbeddingHostManager {
       options,
       send: (command) =>
         this.requireHostWindow().webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command),
-      stopping: () => this.stopping,
     });
   }
 

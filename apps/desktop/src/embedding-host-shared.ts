@@ -64,16 +64,9 @@ export const EMBEDDING_HOST_MODEL_CACHE_STATUS_REQUEST_EVENT =
   EMBEDDING_HOST_CHANNELS.modelCacheStatusRequest;
 export const EMBEDDING_HOST_REPORT_MODEL_CACHE_STATUS_RESPONSE_CHANNEL =
   EMBEDDING_HOST_CHANNELS.reportModelCacheStatusResponse;
-export type EmbeddingHostCommandAction = 'reset' | 'resolve-device' | 'start-background' | 'stop';
+export type EmbeddingHostCommandAction = 'resolve-device' | 'start-background';
 
 type EmbeddingHostCommandPayload =
-  | {
-      readonly action: 'reset';
-      readonly nextRuntimeId: string;
-    }
-  | {
-      readonly action: 'stop';
-    }
   | {
       readonly action: 'start-background';
     }
@@ -179,38 +172,12 @@ export function assertEmbeddingHostQueryEmbeddingCancel(
 export const EMBEDDING_HOST_STOPPED_RUNTIME_ID = EMBEDDING_HOST_RUNTIME.stoppedRuntimeId;
 
 export function createEmbeddingHostCommand(
-  action: 'resolve-device' | 'start-background' | 'stop',
-  runtimeId: string
-): EmbeddingHostCommand;
-export function createEmbeddingHostCommand(
-  action: 'reset',
-  runtimeId: string,
-  nextRuntimeId: string
-): EmbeddingHostCommand;
-export function createEmbeddingHostCommand(
   action: EmbeddingHostCommandAction,
-  runtimeId: string,
-  nextRuntimeId?: string
+  runtimeId: string
 ): EmbeddingHostCommand {
   const normalizedRuntimeId = runtimeId.trim();
   if (normalizedRuntimeId.length === 0) {
     throw new Error('Embedding host command runtimeId must be a non-empty string.');
-  }
-  if (action === 'reset') {
-    if (!(typeof nextRuntimeId === 'string' && nextRuntimeId.trim().length > 0)) {
-      throw new Error('Embedding host reset commands require a non-empty nextRuntimeId.');
-    }
-    const normalizedNextRuntimeId = nextRuntimeId.trim();
-    return {
-      channel: 'control',
-      payload: { action, nextRuntimeId: normalizedNextRuntimeId },
-      requestId: createRequestId('embedding-host-command'),
-      runtimeId: normalizedRuntimeId,
-      type: 'request',
-    };
-  }
-  if (nextRuntimeId !== undefined) {
-    throw new Error(`Embedding host ${action} commands must not include nextRuntimeId.`);
   }
   return {
     channel: 'control',
@@ -233,31 +200,10 @@ export function assertEmbeddingHostCommand(value: unknown): EmbeddingHostCommand
     throw new Error('Embedding host command must have channel="control".');
   }
   const action = payload['action'];
-  if (
-    action !== 'reset' &&
-    action !== 'resolve-device' &&
-    action !== 'start-background' &&
-    action !== 'stop'
-  ) {
+  if (action !== 'resolve-device' && action !== 'start-background') {
     throw new Error(
-      'Embedding host command payload.action must be "reset", "resolve-device", "start-background" or "stop".'
+      'Embedding host command payload.action must be "resolve-device" or "start-background".'
     );
-  }
-  if (action === 'reset') {
-    const nextRuntimeId = payload['nextRuntimeId'];
-    if (!(typeof nextRuntimeId === 'string' && nextRuntimeId.trim().length > 0)) {
-      throw new Error('Embedding host reset commands require a non-empty payload.nextRuntimeId.');
-    }
-    return {
-      channel: 'control',
-      payload: { action, nextRuntimeId: nextRuntimeId.trim() },
-      requestId: envelopeBase.requestId,
-      runtimeId: envelopeBase.runtimeId,
-      type: 'request',
-    };
-  }
-  if ('nextRuntimeId' in payload) {
-    throw new Error(`Embedding host ${action} commands must not include payload.nextRuntimeId.`);
   }
   return {
     channel: 'control',

@@ -216,10 +216,6 @@ describe('query transport physical settlement', () => {
     controller.abort(reason);
     await vi.advanceTimersByTimeAsync(12_000);
     expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
-    expect(window.webContents.send).not.toHaveBeenCalledWith(
-      'embedding-host:command',
-      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
-    );
     expect(settled).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
     manager.acceptQueryEmbeddingResponseReport(
@@ -241,10 +237,6 @@ describe('query transport physical settlement', () => {
     expect(window.webContents.send).toHaveBeenCalledWith(
       'embedding-host:query-embedding-cancel',
       expect.objectContaining({ requestId: request.requestId })
-    );
-    expect(window.webContents.send).not.toHaveBeenCalledWith(
-      'embedding-host:command',
-      expect.objectContaining({ payload: expect.objectContaining({ action: 'stop' }) })
     );
     expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
     expect(window.destroy).not.toHaveBeenCalled();

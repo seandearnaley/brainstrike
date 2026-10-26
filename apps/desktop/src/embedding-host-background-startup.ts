@@ -7,7 +7,6 @@ interface StartupOwner {
   readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
   readonly options: { waitForRunning?: boolean } | undefined;
   send(command: EmbeddingHostCommand): void;
-  stopping(): Promise<EmbeddingHostStatus> | null;
 }
 
 /** Admission state for one hidden renderer; native plans never configure its legacy worker. */

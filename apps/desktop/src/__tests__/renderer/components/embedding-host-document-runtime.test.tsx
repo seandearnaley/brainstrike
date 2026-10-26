@@ -3,15 +3,13 @@ import './embedding-host-runtime-fixture';
 import type { EmbeddingRequestProgress, EmbeddingResult } from '@brainstrike/embeddings';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, waitFor } from '@testing-library/react';
-import { describe, expect, it, onTestFinished } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  createEmbeddingHostCommand,
   createEmbeddingHostDocumentEmbeddingsCancel,
   createEmbeddingHostDocumentEmbeddingsRequest,
 } from '../../../embedding-host-shared';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 import {
-  commandListenerRef,
   documentEmbeddingsCancelListenerRef,
   documentEmbeddingsListenerRef,
   generateDocumentEmbeddingsMock,
@@ -20,8 +18,6 @@ import {
   initializeWithModelMock,
   installEmbeddingHostRuntimeFixture,
   reportDocumentEmbeddingsResponseMock,
-  reportStatusMock,
-  retireEmbeddingQueueMock,
   storeState,
 } from './embedding-host-runtime-fixture';
 
@@ -200,42 +196,6 @@ describe('hidden pinned document batch', () => {
       expect.objectContaining({ type: 'result' })
     );
   });
-  it('retains the document response until physical pool retirement after execution rejects', async () => {
-    const execution = Promise.withResolvers<EmbeddingResult[]>();
-    const physical = Promise.withResolvers<void>();
-    onTestFinished(() => {
-      physical.resolve();
-      execution.resolve(results());
-    });
-    generateDocumentEmbeddingsMock.mockReturnValueOnce(execution.promise);
-    retireEmbeddingQueueMock.mockImplementationOnce(() => {
-      execution.reject(new Error('Worker terminated'));
-      return physical.promise;
-    });
-    await mount();
-    await act(async () => documentEmbeddingsListenerRef.current?.(request()));
-    await waitFor(() => expect(generateDocumentEmbeddingsMock).toHaveBeenCalledOnce());
-    await act(async () =>
-      commandListenerRef.current?.(createEmbeddingHostCommand('stop', 'test-runtime'))
-    );
-    expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
-    expect(reportDocumentEmbeddingsResponseMock).not.toHaveBeenCalled();
-    expect(reportStatusMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'stopped' })
-    );
-    physical.resolve();
-    await waitFor(() => expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledOnce());
-    expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: expect.objectContaining({ message: 'Worker terminated' }),
-        type: 'error',
-      })
-    );
-    await waitFor(() =>
-      expect(reportStatusMock).toHaveBeenCalledWith(expect.objectContaining({ state: 'stopped' }))
-    );
-  });
-
   it.each([
     'revision',
     'device',
@@ -336,7 +296,7 @@ describe('hidden pinned document batch', () => {
       })
     );
   });
-  it('cancels queued documents before preparation and retains active ownership until settlement and Stop', async () => {
+  it('cancels queued documents before preparation', async () => {
     const pending = Promise.withResolvers<EmbeddingResult[]>();
     generateDocumentEmbeddingsMock.mockReturnValueOnce(pending.promise);
     await mount();
@@ -353,21 +313,15 @@ describe('hidden pinned document batch', () => {
       )
     );
     expect(generateDocumentEmbeddingsMock).toHaveBeenCalledOnce();
-    const signal = generateDocumentEmbeddingsMock.mock.calls[0]?.[1] as { signal: AbortSignal };
-    await act(async () =>
-      commandListenerRef.current?.(createEmbeddingHostCommand('stop', 'test-runtime'))
-    );
-    expect(signal.signal.aborted).toBe(true);
-    expect(reportStatusMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'stopped' })
-    );
     pending.resolve(results());
     await waitFor(() =>
-      expect(reportStatusMock).toHaveBeenCalledWith(expect.objectContaining({ state: 'stopped' }))
+      expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: first.requestId, type: 'result' })
+      )
     );
     expect(generateDocumentEmbeddingsMock).toHaveBeenCalledOnce();
     expect(reportDocumentEmbeddingsResponseMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'result' })
+      expect.objectContaining({ requestId: queued.requestId, type: 'result' })
     );
   });
 });

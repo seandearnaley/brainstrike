@@ -1,9 +1,6 @@
 // @vitest-environment jsdom
 import './embedding-host-runtime-fixture';
-import {
-  recordEmbeddingBatchTelemetry,
-  recordEmbeddingTelemetryFailure,
-} from '@brainstrike/embedding-worker';
+import { recordEmbeddingBatchTelemetry } from '@brainstrike/embedding-worker';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -214,144 +211,6 @@ describe('EmbeddingHostRuntime', () => {
     });
   });
 
-  it('does not let a pending telemetry report revive a stopped host', async () => {
-    storeState.hasHydrated = true;
-
-    await warmNativeRuntime();
-
-    await waitFor(() => {
-      expect(reportStatusMock).toHaveBeenCalledWith(expect.objectContaining({ state: 'running' }));
-    });
-    reportStatusMock.mockClear();
-
-    act(() => {
-      recordEmbeddingTelemetryFailure('workerpool telemetry diagnostic missing');
-      recordEmbeddingBatchTelemetry('test-worker', {
-        batchIndex: 0,
-        endIndex: 1,
-        id: 'embed-test',
-        peakVectorsInFlight: 1,
-        startIndex: 0,
-        transferBytes: 8,
-        type: 'batch',
-        vectors: [new Float32Array(2)],
-        vectorsInFlight: 1,
-      });
-      commandListenerRef.current?.(createEmbeddingHostCommand('stop', 'test-runtime'));
-    });
-
-    await waitFor(() => {
-      expect(reportStatusMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          embeddingRuntime: expect.objectContaining({
-            telemetry: expect.objectContaining({
-              health: {
-                failureCount: 1,
-                lastFailure: 'workerpool telemetry diagnostic missing',
-              },
-            }),
-          }),
-          state: 'stopped',
-        })
-      );
-    });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(reportStatusMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ state: 'stopped' })
-    );
-  });
-
-  it('resets the worker when it receives a strict reset command envelope', async () => {
-    storeState.hasHydrated = true;
-
-    render(<EmbeddingHostRuntime />);
-
-    await waitFor(() => {
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalled();
-    });
-    const initialStartCount = reopenEmbeddingQueueMock.mock.calls.length;
-
-    const commandListener = commandListenerRef.current;
-    if (!commandListener) {
-      throw new Error('Expected embedding host command listener to be registered.');
-    }
-
-    commandListener(
-      createEmbeddingHostCommand('reset', 'test-runtime', 'embedding-host:next-runtime')
-    );
-
-    await waitFor(() => {
-      expect(retireEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(initialStartCount + 1);
-    });
-    expect(reportStatusMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runtimeId: 'embedding-host:next-runtime',
-        state: 'running',
-      })
-    );
-  });
-
-  it('drops a device resolution whose runtime a reset replaced (BST-2193)', async () => {
-    storeState.hasHydrated = true;
-    await mountReady();
-    const commandListener = commandListenerRef.current;
-    if (!commandListener) {
-      throw new Error('Expected embedding host command listener to be registered.');
-    }
-    const hydration = Promise.withResolvers<typeof storeState>();
-    ensureVectorPreferencesHydratedMock.mockImplementationOnce(() => hydration.promise);
-    commandListener(createEmbeddingHostCommand('resolve-device', 'test-runtime'));
-    await waitFor(() => expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledOnce());
-    // The replacement runtime is still opening its queue when the old resolution settles.
-    const reopened = Promise.withResolvers<void>();
-    reopenEmbeddingQueueMock.mockImplementationOnce(() => reopened.promise);
-    commandListener(
-      createEmbeddingHostCommand('reset', 'test-runtime', 'embedding-host:next-runtime')
-    );
-    await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2));
-    const reportsAtReset = reportStatusMock.mock.calls.length;
-    await act(async () => hydration.resolve({ ...storeState, devicePref: 'wasm' }));
-    expect(reportStatusMock.mock.calls.slice(reportsAtReset)).toEqual([]);
-
-    await act(async () => reopened.resolve());
-    await waitFor(() =>
-      expect(reportStatusMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ runtimeId: 'embedding-host:next-runtime', state: 'running' })
-      )
-    );
-    // Nor did its device reach the replacement's metadata, which Stop reports.
-    commandListener(createEmbeddingHostCommand('stop', 'embedding-host:next-runtime'));
-    await waitFor(() =>
-      expect(reportStatusMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ state: 'stopped' })
-      )
-    );
-    expect(reportStatusMock.mock.lastCall?.[0]).not.toHaveProperty('embeddingRuntime.hostDevice');
-  });
-
-  it('drops a device resolution that settles after Stop (BST-2193)', async () => {
-    storeState.hasHydrated = true;
-    await mountReady();
-    const commandListener = commandListenerRef.current;
-    if (!commandListener) {
-      throw new Error('Expected embedding host command listener to be registered.');
-    }
-    const hydration = Promise.withResolvers<typeof storeState>();
-    ensureVectorPreferencesHydratedMock.mockImplementationOnce(() => hydration.promise);
-    commandListener(createEmbeddingHostCommand('resolve-device', 'test-runtime'));
-    await waitFor(() => expect(ensureVectorPreferencesHydratedMock).toHaveBeenCalledOnce());
-    commandListener(createEmbeddingHostCommand('stop', 'test-runtime'));
-    await waitFor(() =>
-      expect(reportStatusMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({ state: 'stopped' })
-      )
-    );
-    const reportsAtStop = reportStatusMock.mock.calls.length;
-    await act(async () => hydration.resolve({ ...storeState, devicePref: 'wasm' }));
-    expect(reportStatusMock.mock.calls.slice(reportsAtStop)).toEqual([]);
-  });
-
   it('re-resolves only the host device on resolve-device; the worker keeps its device', async () => {
     storeState.hasHydrated = true;
     await warmNativeRuntime();
@@ -487,78 +346,6 @@ describe('EmbeddingHostRuntime', () => {
     );
   });
 
-  it.each(['started', 'failed'] as const)(
-    'joins in-flight startup before acknowledging Stop (%s)',
-    async (outcome) => {
-      storeState.hasHydrated = true;
-      const starting = Promise.withResolvers<void>();
-      reopenEmbeddingQueueMock.mockReturnValueOnce(starting.promise);
-      const view = render(<EmbeddingHostRuntime />);
-      await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce());
-      reportStatusMock.mockClear();
-      const command = createEmbeddingHostCommand('stop', 'test-runtime');
-      await act(async () => {
-        commandListenerRef.current?.(command);
-      });
-      expect(reportStatusMock).not.toHaveBeenCalledWith(
-        expect.objectContaining({ state: 'stopped' })
-      );
-      await act(async () => {
-        if (outcome === 'started') {
-          starting.resolve();
-        } else {
-          starting.reject(new Error('Startup device is unavailable'));
-        }
-      });
-      await waitFor(() =>
-        expect(reportStatusMock).toHaveBeenLastCalledWith(
-          expect.objectContaining({
-            commandId: command.requestId,
-            state: outcome === 'started' ? 'stopped' : 'error',
-            ...(outcome === 'failed' ? { lastError: 'Startup device is unavailable' } : {}),
-          })
-        )
-      );
-      expect(reportStatusMock).not.toHaveBeenCalledWith(
-        expect.objectContaining({ state: 'running' })
-      );
-      if (outcome === 'started') {
-        expect(reportStatusMock).not.toHaveBeenCalledWith(
-          expect.objectContaining({ state: 'error' })
-        );
-      }
-      expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
-      view.unmount();
-    }
-  );
-
-  it.each(['stop', 'reset'] as const)(
-    'reports a failed %s without starting a replacement worker',
-    async (action) => {
-      storeState.hasHydrated = true;
-      const view = render(<EmbeddingHostRuntime />);
-      await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce());
-      retireEmbeddingQueueMock.mockRejectedValueOnce(new Error('Worker drain failed'));
-      const command =
-        action === 'stop'
-          ? createEmbeddingHostCommand('stop', 'test-runtime')
-          : createEmbeddingHostCommand('reset', 'test-runtime', 'replacement-runtime');
-      await act(async () => commandListenerRef.current?.(command));
-      await waitFor(() =>
-        expect(reportStatusMock).toHaveBeenLastCalledWith(
-          expect.objectContaining({
-            commandId: command.requestId,
-            lastError: 'Worker drain failed',
-            runtimeId: 'test-runtime',
-            state: 'error',
-          })
-        )
-      );
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-      view.unmount();
-    }
-  );
-
   it('does not report stopped status again after unmount cleanup finishes', async () => {
     storeState.hasHydrated = true;
     let resolveStop: (() => void) | null = null;
@@ -589,40 +376,6 @@ describe('EmbeddingHostRuntime', () => {
     );
     expect(stoppedReports).toHaveLength(0);
   });
-
-  it.each(['stopped', 'failed'] as const)(
-    'joins physical queue retirement before explicit replacement (%s)',
-    async (outcome) => {
-      storeState.hasHydrated = true;
-      const stopping = Promise.withResolvers<void>();
-      retireEmbeddingQueueMock.mockReturnValueOnce(stopping.promise);
-      const view = render(<EmbeddingHostRuntime />);
-      await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce());
-      reportStatusMock.mockClear();
-      commandListenerRef.current?.(
-        createEmbeddingHostCommand('reset', 'test-runtime', 'replacement-runtime')
-      );
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-      await act(async () => {
-        if (outcome === 'stopped') {
-          stopping.resolve();
-        } else {
-          stopping.reject(new Error('Old database worker drain failed'));
-        }
-      });
-      await waitFor(() =>
-        expect(reportStatusMock).toHaveBeenLastCalledWith(
-          expect.objectContaining(
-            outcome === 'stopped'
-              ? { state: 'running' }
-              : { lastError: 'Old database worker drain failed', state: 'error' }
-          )
-        )
-      );
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(outcome === 'stopped' ? 2 : 1);
-      view.unmount();
-    }
-  );
 
   it('continues cleanup if bridge teardown callbacks throw', async () => {
     storeState.hasHydrated = true;

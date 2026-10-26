@@ -90,8 +90,6 @@ export function createEmbeddingHostCommandHandler(owner: {
   isDisposed(): boolean;
   isFailed(): boolean;
   isStopping(): boolean;
-  stop(): Promise<void>;
-  reset(nextRuntimeId: string): Promise<void>;
   startBackground(): Promise<void>;
   /**
    * Settles after reporting the outcome itself, for the runtime the command named;
@@ -100,7 +98,7 @@ export function createEmbeddingHostCommandHandler(owner: {
   resolveDevice(runtimeId: string): Promise<void>;
   report(
     runtimeId: string,
-    state: 'running' | 'stopped' | 'error',
+    state: 'running' | 'error',
     commandId: string,
     lastError?: string
   ): void;
@@ -115,33 +113,14 @@ export function createEmbeddingHostCommandHandler(owner: {
       });
       return;
     }
-    if (next.payload.action === 'reset' && next.payload.nextRuntimeId === owner.getRuntimeId()) {
-      throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
-    }
     if (next.payload.action === 'resolve-device') {
       void owner.resolveDevice(next.runtimeId);
       return;
     }
-    const pending =
-      next.payload.action === 'stop'
-        ? owner.stop()
-        : next.payload.action === 'start-background'
-          ? owner.startBackground()
-          : owner.reset(next.payload.nextRuntimeId);
-    void pending.then(
+    void owner.startBackground().then(
       () => {
-        if (
-          !(
-            owner.isDisposed() ||
-            (next.payload.action === 'start-background' && owner.isStopping())
-          ) &&
-          (next.payload.action === 'stop' || next.payload.action === 'start-background')
-        ) {
-          owner.report(
-            next.runtimeId,
-            next.payload.action === 'stop' ? 'stopped' : 'running',
-            next.requestId
-          );
+        if (!(owner.isDisposed() || owner.isStopping())) {
+          owner.report(next.runtimeId, 'running', next.requestId);
         }
       },
       (error: unknown) => {
@@ -149,12 +128,7 @@ export function createEmbeddingHostCommandHandler(owner: {
           error,
           requestId: next.requestId,
         });
-        if (
-          !(
-            owner.isDisposed() ||
-            (next.payload.action === 'start-background' && owner.isStopping())
-          )
-        ) {
+        if (!(owner.isDisposed() || owner.isStopping())) {
           owner.report(
             owner.getRuntimeId(),
             error instanceof EmbeddingBackgroundAdmissionError && !owner.isFailed()

@@ -1,6 +1,5 @@
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import { createBoundaryCapability } from '@brainstrike/assistant-contract/boundary-result';
-import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
@@ -369,10 +368,7 @@ export function EmbeddingHostRuntime(): null {
   const activeRef = useRef(false);
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
   const stopPromiseRef = useRef<Promise<void> | null>(null);
-  const stoppedByCommandRef = useRef(false);
   const controlsRef = useRef<{
-    stop(): Promise<void>;
-    reset(nextRuntimeId: string): Promise<void>;
     startBackground(): Promise<void>;
   } | null>(null);
   const queryEmbeddingOwnerRef = useRef<QueryEmbeddingRuntimeOwner | null>(null);
@@ -416,15 +412,9 @@ export function EmbeddingHostRuntime(): null {
     );
 
     const startWorker = async (): Promise<void> => {
-      if (stoppedByCommandRef.current) {
-        return;
-      }
       // Join Stop before registering a new start, so Stop never waits on itself.
       if (stopPromiseRef.current) {
         await stopPromiseRef.current;
-      }
-      if (stoppedByCommandRef.current) {
-        return;
       }
       if (queryOwner.closed) {
         queryOwner = createQueryEmbeddingRuntimeOwner(catalog, queryEmbeddingActiveCountRef);
@@ -434,7 +424,7 @@ export function EmbeddingHostRuntime(): null {
         return startPromiseRef.current;
       }
       const started = startEmbeddingHostWorkerRuntime({
-        isCurrent: () => !(disposed || stoppedByCommandRef.current || stopPromiseRef.current),
+        isCurrent: () => !(disposed || stopPromiseRef.current),
         runtimeIdRef,
       });
       startPromiseRef.current = started;
@@ -447,15 +437,7 @@ export function EmbeddingHostRuntime(): null {
       }
     };
 
-    const stopWorker = (
-      reason:
-        | 'command-reset'
-        | 'command-stop'
-        | 'dispose'
-        | 'fatal-worker-restart'
-        | 'post-start-dispose',
-      reportRuntimeId: string = runtimeIdRef.current
-    ): Promise<void> => {
+    const stopWorker = (): Promise<void> => {
       if (stopPromiseRef.current) {
         return stopPromiseRef.current;
       }
@@ -467,11 +449,7 @@ export function EmbeddingHostRuntime(): null {
         runtimeIdRef
       );
       const stopPromise = (async () => {
-        logger.info('Stopping embedding host worker', {
-          reason,
-          reportRuntimeId,
-          runtimeId: runtimeIdRef.current,
-        });
+        logger.info('Stopping embedding host worker', { runtimeId: runtimeIdRef.current });
         const stopped = await Promise.allSettled([
           closeQueries,
           (async () => {
@@ -492,19 +470,6 @@ export function EmbeddingHostRuntime(): null {
         if (failures.length > 1) {
           throw new AggregateError(failures, 'Embedding host Stop failed');
         }
-        if (disposed) {
-          return;
-        }
-        const embeddingRuntime = embeddingRuntimeRef.current;
-        if (embeddingRuntime) {
-          embeddingRuntimeRef.current = {
-            ...embeddingRuntime,
-            telemetry: getEmbeddingTelemetrySnapshot(),
-          };
-        }
-        reportEmbeddingHostRuntimeStatusForRuntimeId(reportRuntimeId, 'stopped', {
-          embeddingRuntime: embeddingRuntimeRef.current,
-        });
       })();
 
       const trackedStopPromise = stopPromise.finally(() => {
@@ -516,29 +481,12 @@ export function EmbeddingHostRuntime(): null {
       return trackedStopPromise;
     };
 
-    const resetWorker = async (nextRuntimeId: string): Promise<void> => {
-      const previousRuntimeId = runtimeIdRef.current;
-      logger.info('Resetting embedding host worker runtime', {
-        nextRuntimeId,
-        previousRuntimeId,
-      });
-      await stopWorker('command-reset', previousRuntimeId);
-      if (disposed) {
-        throw new Error('Embedding host runtime is unavailable for reset.');
-      }
-      stoppedByCommandRef.current = false;
-      runtimeIdRef.current = nextRuntimeId;
-      await startWorker();
-    };
-
     controlsRef.current = {
-      reset: resetWorker,
       startBackground: async () => {
         throw new Error(
           'Desktop background indexing is owned by the native indexer, not a database job queue.'
         );
       },
-      stop: () => stopWorker('command-stop'),
     };
 
     let channel: BroadcastChannel | null = null;
@@ -576,7 +524,7 @@ export function EmbeddingHostRuntime(): null {
           runtimeId: runtimeIdRef.current,
         });
       }
-      void stopWorker('dispose').catch((error: unknown) => {
+      void stopWorker().catch((error: unknown) => {
         reportLifecycleFailure('Embedding host disposal failed', error);
       });
     };
@@ -599,7 +547,7 @@ export function EmbeddingHostRuntime(): null {
             runtimeIdRef,
             signal,
           }),
-        isStopping: () => stoppedByCommandRef.current || stopPromiseRef.current !== null,
+        isStopping: () => stopPromiseRef.current !== null,
         ownerRef: queryEmbeddingOwnerRef,
         runtimeIdRef,
       }),
@@ -622,7 +570,7 @@ export function EmbeddingHostRuntime(): null {
             runtimeIdRef,
             signal,
           }),
-        isStopping: () => stoppedByCommandRef.current || stopPromiseRef.current !== null,
+        isStopping: () => stopPromiseRef.current !== null,
         ownerRef: queryEmbeddingOwnerRef,
         runtimeIdRef,
       }),
@@ -671,33 +619,23 @@ export function EmbeddingHostRuntime(): null {
         getRuntimeId: () => runtimeIdRef.current,
         isDisposed: () => disposed,
         isFailed: () => fatalErrorRef.current !== null,
-        isStopping: () => stoppedByCommandRef.current || stopPromiseRef.current !== null,
+        isStopping: () => stopPromiseRef.current !== null,
         report: (runtimeId, state, commandId, lastError) =>
           reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeId, state, {
             active:
-              state !== 'stopped' &&
-              (activeRef.current ||
-                (queryEmbeddingOwnerRef.current?.activeCountRef.current ?? 0) > 0),
+              activeRef.current ||
+              (queryEmbeddingOwnerRef.current?.activeCountRef.current ?? 0) > 0,
             commandId,
             embeddingRuntime: embeddingRuntimeRef.current,
             ...(lastError === undefined ? {} : { lastError }),
           }),
-        reset: async (nextRuntimeId) => {
-          stoppedByCommandRef.current = true;
-          const controls = controlsRef.current;
-          if (!controls) {
-            throw new Error('Embedding host runtime is unavailable for reset.');
-          }
-          await controls.reset(nextRuntimeId);
-        },
         // Only the device an unpinned load (memory recall) uses; a pinned plan carries
         // its own, and the worker keeps its device until restart. The host chooses none
-        // at start, so this also resolves the first one (BST-2193). A Stop or reset
-        // since the command retired its runtime, so that runtime's device is dropped.
+        // at start, so this also resolves the first one (BST-2193).
         resolveDevice: (runtimeId) =>
           (deviceResolution = deviceResolution.then(async () => {
             const device = await resolveEmbeddingHostDevice(resolveHydratedVectorDevicePreference);
-            if (disposed || stoppedByCommandRef.current || runtimeIdRef.current !== runtimeId) {
+            if (disposed) {
               return;
             }
             embeddingRuntimeRef.current = withEmbeddingHostDevice(
@@ -718,10 +656,6 @@ export function EmbeddingHostRuntime(): null {
             throw new Error('Embedding host runtime is unavailable for background startup.');
           }
           await controls.startBackground();
-        },
-        stop: async () => {
-          stoppedByCommandRef.current = true;
-          await controlsRef.current?.stop();
         },
       })
     );

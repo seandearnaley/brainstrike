@@ -133,15 +133,11 @@ describe('embedding host shared command helpers', () => {
       .spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValue('1234-5678-9012' as unknown as ReturnType<Crypto['randomUUID']>);
 
-    const command = createEmbeddingHostCommand(
-      'reset',
-      'embedding-host:runtime-1',
-      'embedding-host:runtime-2'
-    );
+    const command = createEmbeddingHostCommand('resolve-device', 'embedding-host:runtime-1');
 
     expect(command).toEqual({
       channel: 'control',
-      payload: { action: 'reset', nextRuntimeId: 'embedding-host:runtime-2' },
+      payload: { action: 'resolve-device' },
       requestId: 'embedding-host-command:1234-5678-9012',
       runtimeId: 'embedding-host:runtime-1',
       type: 'request',
@@ -159,43 +155,19 @@ describe('embedding host shared command helpers', () => {
         type: 'request',
       })
     ).toThrow(
-      'Embedding host command payload.action must be "reset", "resolve-device", "start-background" or "stop".'
+      'Embedding host command payload.action must be "resolve-device" or "start-background".'
     );
   });
 
-  it('fails fast when reset commands omit nextRuntimeId', () => {
-    expect(() =>
-      assertEmbeddingHostCommand({
-        channel: 'control',
-        payload: { action: 'reset' },
-        requestId: 'request-1',
-        runtimeId: 'embedding-host:runtime-1',
-        type: 'request',
-      })
-    ).toThrow('Embedding host reset commands require a non-empty payload.nextRuntimeId.');
-  });
-
   it('fails fast when command creation receives a blank runtime id', () => {
-    expect(() => createEmbeddingHostCommand('stop', '   ')).toThrow(
+    expect(() => createEmbeddingHostCommand('resolve-device', '   ')).toThrow(
       'Embedding host command runtimeId must be a non-empty string.'
     );
   });
 
-  it('round-trips a resolve-device command, which carries no next runtime', () => {
+  it('round-trips a resolve-device command', () => {
     const command = createEmbeddingHostCommand('resolve-device', 'embedding-host:runtime-1');
     expect(assertEmbeddingHostCommand(command)).toEqual(command);
-    expect(() =>
-      assertEmbeddingHostCommand({
-        ...command,
-        payload: { action: 'resolve-device', nextRuntimeId: 'x' },
-      })
-    ).toThrow('must not include payload.nextRuntimeId');
-  });
-
-  it('fails fast when reset command creation receives a blank next runtime id', () => {
-    expect(() => createEmbeddingHostCommand('reset', 'embedding-host:runtime-1', '   ')).toThrow(
-      'Embedding host reset commands require a non-empty nextRuntimeId.'
-    );
   });
 
   it('validates embedding telemetry crossing the host status boundary', () => {
