@@ -774,18 +774,23 @@ setInterval(() => {}, 1000);
         runId: commandRun.runId,
         threadId,
       });
+      // The Stop answers on commit; its run's end commits once the command's tree is gone.
+      await expect
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+              ({ event }) =>
+                event.type === 'run.finished' &&
+                event.runId === commandRun.runId &&
+                event.outcome === 'stopped'
+            ),
+          RUN_PROGRESS_POLL
+        )
+        .toBe(true);
       for (const { pid, start } of commandIdentities) {
         expect(processStartTime(pid)).not.toBe(start);
       }
       const stopped = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
-      expect(
-        stopped.some(
-          ({ event }) =>
-            event.type === 'run.finished' &&
-            event.runId === commandRun.runId &&
-            event.outcome === 'stopped'
-        )
-      ).toBe(true);
       // A command stopped mid-run commits no tool result, so nothing committed
       // keeps its live slice (legacy likewise dropped a call that never completed).
       expect(

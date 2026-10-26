@@ -78,8 +78,7 @@ export class HostCommandLedger {
       commandId: string;
       threadId?: string;
     },
-    perform: () => Promise<T>,
-    repeat?: (result: T) => Promise<T>
+    perform: () => Promise<T>
   ): Promise<T> {
     const payload = canonical(jsonValue(params));
     const attempt = this.attempts.get(params.commandId);
@@ -93,12 +92,12 @@ export class HostCommandLedger {
       );
     }
     if (attempt) {
-      // Includes physical joining and preserves rejection after a genuine commit.
+      // Preserves rejection after a genuine commit.
       return (await attempt.settlement) as T;
     }
     const committed = this.accepted.get(params.commandId);
     if (committed) {
-      return repeat ? repeat(committed.result as T) : (committed.result as T);
+      return committed.result as T;
     }
     const settlement = Promise.withResolvers<Json>();
     settlement.promise.catch(() => undefined);

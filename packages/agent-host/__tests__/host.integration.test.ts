@@ -349,9 +349,10 @@ test('Stop acknowledges only after the dispatched native child has physically ex
   expect(await client.request('run/stop', { commandId: randomUUID(), runId, threadId })).toEqual({
     outcome: 'stopped',
   });
+  // The Stop answers on commit; the run's end commits after the tool's process exited.
+  expect((await event(client, threadId, 'run.finished')).outcome).toBe('stopped');
   expect(exited).toBe(true);
   expect(() => process.kill(pid, 0)).toThrow();
-  expect((await event(client, threadId, 'run.finished')).outcome).toBe('stopped');
 });
 
 test('host close ends the owned native child and releases the Root', async () => {

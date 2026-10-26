@@ -402,12 +402,9 @@ export class HostCore {
   private command<T extends Json>(
     method: string,
     params: { commandId: string; threadId?: string },
-    perform: () => Promise<T>,
-    repeat?: (result: T) => Promise<T>
+    perform: () => Promise<T>
   ): Promise<T> {
-    return this.admit(params.threadId, () =>
-      this.commands.perform(method, params, perform, repeat)
-    );
+    return this.admit(params.threadId, () => this.commands.perform(method, params, perform));
   }
 
   /**
@@ -922,29 +919,20 @@ export class HostCore {
     );
   }
 
+  /** A repeated Stop answers its committed result: the command records intent, not cleanup. */
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
-    const join = (): Promise<void> => {
+    return this.command('run/stop', params, () => {
       const run = this.runs.requireForThread(params.threadId, params.runId);
-      // BST-1932: a root Stop ends its turn's children, foreground and background.
-      const stopped = [run, ...this.children.turnChildren(run, this.runs)];
-      return stopHostRunTree(stopped, (owned, reason) => this.stopRun(owned, reason));
-    };
-    return this.command(
-      'run/stop',
-      params,
-      () =>
-        acceptHostRunStop(
-          this.runs.requireForThread(params.threadId, params.runId),
-          (result) => this.accept(params.threadId, 'run/stop', params, result, []),
-          join
-        ),
-      async (result) => {
-        // The committed command records intent, not proof of physical cleanup.
-        // Repeated Stop must observe the same joined completion, including failure.
-        await join();
-        return result;
-      }
-    );
+      return acceptHostRunStop(
+        run,
+        (result) => this.accept(params.threadId, 'run/stop', params, result, []),
+        // BST-1932: a root Stop ends its turn's children, foreground and background.
+        () =>
+          stopHostRunTree([run, ...this.children.turnChildren(run, this.runs)], (owned, reason) =>
+            this.stopRun(owned, reason)
+          )
+      );
+    });
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {

@@ -318,7 +318,7 @@ test("a run/start held behind a memory settlement is answered host.closing, join
   expect(state).toEqual({ closed: true, coreClosed: true });
 });
 
-test("a run/stop joining a held owner close answers stopped, joined only as long as Core's own close", async () => {
+test("a run/stop answers stopped while its run's owner still closes, and Core's close joins that owner", async () => {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let signal: AbortSignal | undefined;
@@ -350,13 +350,14 @@ test("a run/stop joining a held owner close answers stopped, joined only as long
   });
   await entered.promise;
   const stop = tracked(client.request('run/stop', { commandId: randomUUID(), runId, threadId }));
-  // The Stop is admitted: it aborted the run and now joins its held owner.
-  await expect.poll(() => signal?.aborted).toBe(true);
+  // ADR-0031: the answer is the committed Stop, not the held owner's close.
+  await expect.poll(() => stop.state.settled).toBe(true);
+  expect(await stop.result).toEqual({ outcome: 'stopped' });
+  expect(signal?.aborted).toBe(true);
   const { closing, state } = retire(host);
-  expect(stop.state.settled).toBe(false);
+  await new Promise((resolve) => setImmediate(resolve));
   expect(state.coreClosed).toBe(false);
   release.resolve();
-  expect(await stop.result).toEqual({ outcome: 'stopped' });
   await closing;
   expect(state).toEqual({ closed: true, coreClosed: true });
 });

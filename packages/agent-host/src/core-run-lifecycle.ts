@@ -76,19 +76,30 @@ export async function steerHostRun(
 }
 
 /**
- * run/stop: commit the intent, then join the physical stop. A repeated Stop
- * observes the same joined completion, including its failure.
+ * run/stop answers once its intent is committed (ADR-0031: never wait on a
+ * release). The physical stop goes on, and its owners join it themselves: the
+ * run's end commits `run.finished` after its effects and owner, and host close
+ * and thread deletion join each run's task, owner and end. A failed stop is
+ * logged here and fails that close or deletion too.
  */
 export async function acceptHostRunStop(
   run: HostRunState,
   accept: (result: { outcome: 'stopped' | 'already-terminal' }) => Promise<void>,
-  join: () => Promise<void>
+  stop: () => Promise<void>
 ): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
   const result = {
     outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
   };
+  const stopping = (): void => {
+    stop().catch((cause: unknown) => {
+      logger.error('Host run stop cleanup failed', {
+        errorName: cause instanceof Error ? cause.name : typeof cause,
+        runId: run.id,
+        threadId: run.threadId,
+      });
+    });
+  };
   if (run.stopAcceptance !== undefined) {
-    await join();
     await run.stopAcceptance;
     return result;
   }
@@ -107,14 +118,10 @@ export async function acceptHostRunStop(
     run.stopAcceptance = undefined;
   } catch (cause) {
     acceptance.reject(cause);
-    const cleanup = await Promise.allSettled([join()]);
-    const failure = cleanup[0];
-    if (failure?.status === 'rejected' && failure.reason !== cause) {
-      throw new AggregateError([cause, failure.reason], 'Stop persistence and cleanup failed');
-    }
+    stopping();
     throw cause;
   }
-  await join();
+  stopping();
   return result;
 }
 
