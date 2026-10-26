@@ -14,8 +14,8 @@
     <true/>
     <!--
       The bundle loads code not signed by our Team ID: the Electron framework
-      itself, node-pty prebuilds, and the @brainstrike/secure-fs-native and
-      @parcel *.node addons under app.asar.unpacked. The python-build-standalone
+      itself, node-pty prebuilds, and the @brainstrike/secure-fs-native *.node
+      addon under app.asar.unpacked. The python-build-standalone
       CPython under <Resources>/python-runtime is re-signed by osx-sign with our
       identity at build time (PR #2958), but its dylibs still link and load
       each other without Team-ID validation, so it depends on this key too.
