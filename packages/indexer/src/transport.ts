@@ -151,6 +151,13 @@ export interface IndexerConnection {
   close(): Promise<void>;
   destroy(): Promise<void>;
   readonly exited: boolean;
+  /**
+   * Ends the process now, with no close request (ADR-0031: every write has committed, so a kill
+   * loses nothing): admission closes, every request fails, and one kill is requested. It resolves
+   * at the exit, which only a caller that needs the process gone joins, such as a replacement
+   * start or a file deletion. Quit does not join it.
+   */
+  kill(): Promise<void>;
   readonly ready: Promise<
     IndexerPort &
       PurgeIndexerPort &
@@ -585,6 +592,11 @@ export function createIndexerConnection(
     destroy: port.destroy,
     get exited() {
       return exited;
+    },
+    kill: () => {
+      closing = true;
+      client.fail(new IndexerError('indexer-closed', 'Indexer was killed.'));
+      return retire();
     },
     ready,
   };

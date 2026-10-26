@@ -312,3 +312,35 @@ it('retires a faulted process whose kill is refused at its own exit, with the fa
   expect(connection.exited).toBe(true);
   await expect(connection.close()).resolves.toBeUndefined();
 });
+
+// ADR-0031: a kill asks nothing and waits on nothing; only a caller that needs the process gone
+// joins its exit.
+it('kills at once, refuses new requests, and resolves at the exit', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({
+    exitAfterKillMs: 60_000,
+    ignoresClose: true,
+    readyMs: 0,
+    replyMs: 60_000,
+  });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  const port = await connection.ready;
+  const answer = port.info().catch((error: unknown) => error);
+
+  const exit = connection.kill();
+  let exited = false;
+  void exit.then(() => {
+    exited = true;
+  });
+
+  expect(process.kills()).toBe(1);
+  await expect(port.info()).rejects.toMatchObject({ code: 'indexer-closed' });
+  expect(exited).toBe(false);
+  await vi.advanceTimersByTimeAsync(60_000);
+  await expect(exit).resolves.toBeUndefined();
+  // A request in flight at the kill ends with the process.
+  expect(await answer).toMatchObject({ code: 'indexer-closed' });
+  expect(connection.exited).toBe(true);
+  expect(process.kills()).toBe(1);
+});

@@ -10,7 +10,6 @@ import {
   isCanonicalFrame,
 } from '../canonical-utility-protocol';
 import { IndexerHostManager } from '../indexer-host-manager';
-import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 
 const SLOW_MS = 7000;
 const dbPath = '/explicit/derived.sqlite';
@@ -191,10 +190,10 @@ it('answers an indexer request slower than any former deadline from the one util
   expect(utility.kills).toBe(0);
   expect(host.exited).toBe(false);
   expect(forks.count).toBe(1);
-  // The close itself is cooperative and prompt here; it runs on real timers.
   vi.useRealTimers();
+  // The close is the kill (ADR-0031), the first of the utility's life.
   await host.close();
-  expect(utility.kills).toBe(0);
+  expect(utility.kills).toBe(1);
 });
 
 it('attaches a canonical source slower than any former deadline and keeps admission open', async () => {
@@ -218,34 +217,30 @@ it('attaches a canonical source slower than any former deadline and keeps admiss
   await expect(second).resolves.toBeDefined();
   expect(utility.kills).toBe(0);
   expect(forks.count).toBe(1);
-  // The close itself is cooperative and prompt here; it runs on real timers.
   vi.useRealTimers();
+  // The close is the kill (ADR-0031), the first of the utility's life.
   await host.close();
-  expect(utility.kills).toBe(0);
+  expect(utility.kills).toBe(1);
 });
 
-// R5(b): the one clock is the close ladder's. A wedged utility is killed and its exit joined.
-it('escalates a close the utility never answers to one kill after closeMs, then joins its exit', async () => {
-  vi.useFakeTimers();
+// ADR-0031: quit waits on no process. Every write has committed (WAL), so the close is a kill.
+it('closes at once by killing a utility that never answers its close or exits', async () => {
   const utility = slowUtility({ attach: false, request: false, wedgedClose: true });
   const host = await manager(utility);
-  const starting = host.start();
-  await vi.advanceTimersByTimeAsync(0);
-  await starting;
-  const attaching = host.attachCanonicalWorkspace(workspace('first'));
-  await vi.waitFor(() => expect(utility.canonicalOps).toEqual(['attach']));
-  await vi.advanceTimersByTimeAsync(0);
-  await attaching;
+  await host.start();
+  await host.attachCanonicalWorkspace(workspace('first'));
+  // Alive and wedged: it answers no close and does not exit when it is killed.
+  utility.kill = () => {
+    utility.kills += 1;
+    return true;
+  };
 
-  const closing = host.close().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(utility.canonicalOps).toContain('close'));
-  await vi.advanceTimersByTimeAsync(29_000);
-  expect(utility.kills).toBe(0);
-  await vi.advanceTimersByTimeAsync(1000);
+  const closed = vi.fn();
+  void host.close().then(closed);
+
+  await vi.waitFor(() => expect(closed).toHaveBeenCalled());
   expect(utility.kills).toBe(1);
-  // The attachment ended with the exit it joined: the typed exit, never a retained live owner.
-  expect(await closing).toBeInstanceOf(IndexerUtilityExitedError);
-  expect(host.exited).toBe(true);
+  expect(host.exited).toBe(false);
 });
 
 /** A utility that is alive but never reports ready, and exits only when it is killed. */

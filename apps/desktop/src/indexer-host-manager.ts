@@ -21,9 +21,9 @@ const logger = createLogger('IndexerHostManager');
  *
  * Liveness is the utility's exit (lifecycle R2): no request, attach or scan has a deadline, and
  * admission closes only on `close()`, `destroy()`, the exit, or a transport/protocol fault that
- * retires the utility. The one clock is the close ladder's (R5(b)): a cooperative retirement of
- * the canonical attachments that has not finished `closeMs` after it began kills the utility, and
- * the attachments then settle on that exit.
+ * retires the utility. `close()` is the utility's kill and joins nothing (ADR-0031). A pause's
+ * cooperative retirement of the canonical attachments that has not finished `closeMs` after it
+ * began kills the utility, and the attachments then settle on that exit.
  */
 export class IndexerHostManager {
   readonly databasePath: string;
@@ -37,7 +37,6 @@ export class IndexerHostManager {
   #canonical: CanonicalUtilityParent | undefined;
   #kill: (() => boolean) | undefined;
   #exitCleanup: Promise<void> | undefined;
-  #exitCleanupFailed = false;
   #transportFailure: unknown;
   #closed = false;
   #sourceRetirement: Promise<void> | undefined;
@@ -129,8 +128,9 @@ export class IndexerHostManager {
       onExit: (listener) => {
         const exited = (code: number): void => {
           this.#exitCleanup ??= canonical.exited(new IndexerUtilityExitedError());
-          void this.#exitCleanup.catch(() => {
-            this.#exitCleanupFailed = true;
+          // Joined only by `joinExit`; a quit that joins nothing still sees the failure logged.
+          void this.#exitCleanup.catch((error: unknown) => {
+            logger.error('Indexer utility exited with Main attachment cleanup retained', { error });
           });
           listener(code);
         };
@@ -264,24 +264,30 @@ export class IndexerHostManager {
     return this.#connection?.exited ?? false;
   }
 
-  async close(): Promise<void> {
+  /**
+   * ADR-0031: the close is the utility's kill, joined by nothing. Every write committed when it
+   * was made (WAL), so the kill loses nothing, and the canonical attachments settle on the exit.
+   * A caller that needs the utility gone (a replacement start) joins `joinExit`.
+   */
+  close(): Promise<void> {
     this.#closed = true;
-    if (this.#connection?.exited) {
-      if (this.#exitCleanupFailed) {
-        this.#exitCleanup = this.#canonical?.close();
-        await this.#exitCleanup;
-        this.#exitCleanupFailed = false;
-      }
-      await this.#exitCleanup;
+    this.#canonical?.fenceAttachments();
+    void this.#connection?.kill();
+    try {
       this.#reportTransportFailure();
-      return;
+    } catch (error) {
+      return Promise.reject(error);
     }
-    await this.#escalated(() => this.#canonical?.close() ?? Promise.resolve());
-    await this.#connection?.close();
-    await this.#exitCleanup;
-    this.#reportTransportFailure();
+    return Promise.resolve();
   }
 
+  /** The killed utility's exit and Main's cleanup of its attachments, for a replacement start. */
+  async joinExit(): Promise<void> {
+    await this.#connection?.kill();
+    await this.#exitCleanup;
+  }
+
+  /** Deletes the index files, so it joins the killed utility's exit before it removes them. */
   async destroy(): Promise<void> {
     this.#closed = true;
     if (!this.#connection) {
@@ -289,9 +295,9 @@ export class IndexerHostManager {
         'Indexer has not acquired a process; destroy requires its validated connection.'
       );
     }
-    await this.#escalated(() => this.#canonical?.close() ?? Promise.resolve());
+    this.#canonical?.fenceAttachments();
+    await this.joinExit();
     await this.#connection.destroy();
-    await this.#exitCleanup;
     this.#reportTransportFailure();
   }
   #reportTransportFailure(): void {

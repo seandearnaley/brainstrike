@@ -15,6 +15,8 @@ interface IndexerOwner {
   stopKind?: 'close' | 'destroy' | undefined;
 }
 let owner: IndexerOwner | undefined;
+/** The closed owner's utility exit, which a replacement joins before it opens the same files. */
+let retiredExit: Promise<void> | undefined;
 
 /**
  * All inputs come from the canonical desktop profile/root owner; this module derives no
@@ -27,6 +29,8 @@ export async function acquireIndexerHost(
   const { validateIndexerOptions, validateIndexerDeadlines } = await import(
     '@brainstrike/indexer/transport'
   );
+  // A replacement starts only after its predecessor's exit; a close joins nothing (ADR-0031).
+  await retiredExit;
   const options = validateIndexerOptions(input);
   const deadlines = validateIndexerDeadlines(deadlineInput);
   const identity = JSON.stringify([
@@ -114,10 +118,14 @@ async function stopIndexerRuntime(
       await manager.destroy();
     } else {
       await manager.close();
-    }
-    const [startup] = await Promise.allSettled(current.start ? [current.start] : []);
-    if (startup?.status === 'rejected') {
-      current.startupFailure = startup.reason;
+      const exit = manager.joinExit();
+      retiredExit = exit;
+      const settled = (): void => {
+        if (retiredExit === exit) {
+          retiredExit = undefined;
+        }
+      };
+      exit.then(settled, settled);
     }
     if (owner === current) {
       owner = undefined;

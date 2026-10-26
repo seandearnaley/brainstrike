@@ -19,6 +19,7 @@ const engine = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
   destroy: vi.fn(async () => {}),
   exited: false,
+  kill: vi.fn(async () => {}),
 }));
 let child: EventEmitter & { postMessage: (message: unknown) => void; kill: () => boolean };
 /** The answer to the one canonical call `answering` holds. */
@@ -53,6 +54,7 @@ vi.mock('@brainstrike/indexer/transport', async (importOriginal) => {
         get exited() {
           return engine.exited;
         },
+        kill: engine.kill,
         ready: heldReady ?? Promise.resolve(engine),
       };
     },
@@ -213,7 +215,7 @@ it('refuses an attachment the fence overtook in start, with the typed retirement
   await manager.close();
 });
 
-it('joins a slow cancellation control without closing admission, and joins admitted main IO before engine close', async () => {
+it('joins a slow cancellation control without closing admission, and kills the utility on close without joining admitted main IO', async () => {
   vi.useFakeTimers();
   answering('cancel');
   const manager = await host();
@@ -233,12 +235,11 @@ it('joins a slow cancellation control without closing admission, and joins admit
   await expect(manager.start()).resolves.toBeDefined();
   held?.();
   await cancel;
-  const close = manager.close();
-  await flush();
+  // ADR-0031: the close is the kill; the admitted read settles on the exit, not before it.
+  await manager.close();
+  expect(engine.kill).toHaveBeenCalledOnce();
   expect(engine.close).not.toHaveBeenCalled();
   read.resolve();
-  await close;
-  expect(engine.close).toHaveBeenCalledOnce();
 });
 
 it('fences an attachment at physical utility exit and rejects its pending control only after admitted main IO joins', async () => {
@@ -282,7 +283,7 @@ it('retires canonical sources without closing the engine and permits a fresh sou
   expect(engine.destroy).not.toHaveBeenCalled();
   await manager.attachCanonicalWorkspace(workspace());
   await manager.close();
-  expect(engine.close).toHaveBeenCalledOnce();
+  expect(engine.kill).toHaveBeenCalledOnce();
 });
 
 /**
