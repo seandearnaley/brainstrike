@@ -87,6 +87,7 @@ function mainConfig(read: () => Promise<IndexConfig>) {
     },
     publish: (config: IndexConfig) => act(() => listener?.(config)),
     readConfig: vi.fn(read),
+    resetConfig: vi.fn(),
     updateConfig: vi.fn(),
   };
 }
