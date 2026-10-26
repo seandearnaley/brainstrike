@@ -48,6 +48,7 @@ import type {
   IndexerPort,
   Manifest,
   PurgeReport,
+  StartupSpan,
   StateStoreOptions,
   StoreSettings,
   SyncSpan,
@@ -83,12 +84,30 @@ export type {
   IndexerPort,
   Manifest,
   PurgeReport,
+  StartupSpan,
   StateStoreHooks,
   StateStoreOptions,
   StoreSettings,
   SyncSpan,
   WriteSpan,
 } from './state-store-types.ts';
+
+/** Runs one step of `open`, reporting its duration and outcome to `onStartupSpan`. */
+async function timeStartup<T>(
+  options: StateStoreOptions,
+  phase: StartupSpan['phase'],
+  step: () => Promise<T>
+): Promise<T> {
+  const started = performance.now();
+  let outcome: StartupSpan['outcome'] = 'failed';
+  try {
+    const value = await step();
+    outcome = 'ok';
+    return value;
+  } finally {
+    options.onStartupSpan?.({ durationMs: performance.now() - started, outcome, phase });
+  }
+}
 
 /** Trusted host composition after writer readiness, before interrupted purge replay. */
 export interface StateStoreStartupOwner {
@@ -190,7 +209,7 @@ export class StateStore implements MemoryDomainPort {
     // Refused before anything is created (M0-A2 item 6).
     assertNotSyncedRoot(dataRoot, options.home === undefined ? {} : { home: options.home });
     mkdirSync(dataRoot, { recursive: true });
-    const lock = await RootLock.acquire(dataRoot, options);
+    const lock = await timeStartup(options, 'root-lock', () => RootLock.acquire(dataRoot, options));
     let worker: Worker | null = null;
     let store: StateStore | undefined;
     try {
@@ -207,16 +226,19 @@ export class StateStore implements MemoryDomainPort {
           walCheckpoint: options.walCheckpoint ?? 'boundary',
         },
       });
-      const ready = await waitReady(worker);
+      const spawned = worker;
+      const ready = await timeStartup(options, 'writer', () => waitReady(spawned));
       store = new StateStore(dataRoot, lock, worker, ready, options);
       if (options.startup) {
         await store.acquireStartupIndexer();
       }
       if (ready.damage === null) {
         const acquired = store;
-        await acquired.run(async () => {
-          await acquired.deletion.recover();
-        });
+        await timeStartup(options, 'deletion-recovery', () =>
+          acquired.run(async () => {
+            await acquired.deletion.recover();
+          })
+        );
       }
       return store;
     } catch (e) {

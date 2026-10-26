@@ -50,6 +50,7 @@ import type {
 import type { HostMemoryModels, HostObserverAwaitingReason, HostRunSnapshot } from './protocol.ts';
 import { prepareHostProviderTools } from './provider-schema-selection.ts';
 import type { HostStartupContext } from './runtime.ts';
+import { timeStartupPhase } from './startup-phases.ts';
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
   /** The platform's workspace snapshot owner, for each run's turn boundaries. */
@@ -429,24 +430,29 @@ export async function createProductionHostPlatform<Configuration extends Product
   // Register ownership before the first provider, Memory, MCP or index side effect.
   await input.startup.register(close);
   // The same owner starts the worker before evaluating desktop configuration.
-  stateIndex = openHostStateIndex(input.startup.store.root, input.memoryResourceIds, input.startup);
+  // Its worker loads the index engine and the state projection before it reports ready.
+  stateIndex = timeStartupPhase(input.startup.phases, 'state-index', () =>
+    openHostStateIndex(input.startup.store.root, input.memoryResourceIds, input.startup)
+  );
   const configuring =
     'configure' in input
       ? Promise.resolve().then(() =>
-          input.configure({
-            ...input.startup,
-            register: (release) =>
-              input.startup.register(async () => {
-                // Effect may release inline when registration races a closed Scope.
-                // Never await incomplete configuration from its own registration.
-                if (configuration?.status === 'fulfilled') {
-                  // The earliest production finalizer reports this same close failure.
-                  // This barrier only preserves transport lifetime; release still runs.
-                  await Promise.allSettled([close()]);
-                }
-                await release();
-              }),
-          })
+          timeStartupPhase(input.startup.phases, 'platform-configure', async () =>
+            input.configure({
+              ...input.startup,
+              register: (release) =>
+                input.startup.register(async () => {
+                  // Effect may release inline when registration races a closed Scope.
+                  // Never await incomplete configuration from its own registration.
+                  if (configuration?.status === 'fulfilled') {
+                    // The earliest production finalizer reports this same close failure.
+                    // This barrier only preserves transport lifetime; release still runs.
+                    await Promise.allSettled([close()]);
+                  }
+                  await release();
+                }),
+            })
+          )
         )
       : Promise.resolve(input);
   const [indexed, configured] = await Promise.allSettled([
