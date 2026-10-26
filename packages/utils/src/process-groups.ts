@@ -11,7 +11,7 @@ export interface ProcessGroupEvent {
 
 const listeners = new Set<(event: ProcessGroupEvent) => void>();
 
-/** Reports a group this process just started; the returned call reports that its leader exited. */
+/** Reports a group this process just started; the returned call reports that the group is gone. */
 export function trackProcessGroup(pgid: number): () => void {
   for (const listener of listeners) {
     listener({ pgid, state: 'started' });
@@ -36,12 +36,30 @@ export function onProcessGroup(listener: (event: ProcessGroupEvent) => void): ()
   };
 }
 
-/** Tracks a child spawned as the leader of its own group, until that leader exits. */
+/**
+ * Tracks a child spawned as the leader of its own group. A finite command's group ends with its
+ * leader: at the leader's exit every member left is SIGKILLed, and only then is the group reported
+ * ended, so a member that ignores SIGTERM or holds the leader's pipes never outlives it unlisted.
+ * A member this process may not signal (EPERM: a setuid program) keeps the group listed, for Main
+ * to kill once the host has exited.
+ */
 export function trackChildProcessGroup(child: {
   once(event: 'exit', listener: () => void): unknown;
   readonly pid?: number | undefined;
 }): void {
-  if (child.pid !== undefined) {
-    child.once('exit', trackProcessGroup(child.pid));
+  const pgid = child.pid;
+  if (pgid === undefined) {
+    return;
   }
+  const ended = trackProcessGroup(pgid);
+  child.once('exit', () => {
+    try {
+      process.kill(-pgid, 'SIGKILL');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+        return;
+      }
+    }
+    ended();
+  });
 }
