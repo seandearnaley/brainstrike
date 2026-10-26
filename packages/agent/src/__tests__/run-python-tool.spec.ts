@@ -182,17 +182,27 @@ describe('createRunPythonTool', () => {
     // Not two independent budgets: resolving can be slow on a cold first run
     // (hashing + unpacking the bundled CPython), and giving execute a fresh
     // full timeout afterwards would let a call the model capped at 30s run
-    // far longer. execute() therefore receives the REMAINING time.
-    const stub = stubFence(async () => execResult());
-    await runTool(hostWith(stub), { code: 'pass', timeoutMs: 1234 });
-    const spent = stub.inputs[0]?.timeoutMs ?? 0;
-    expect(spent).toBeLessThanOrEqual(1234);
-    expect(spent).toBeGreaterThan(1000);
+    // far longer. execute() therefore receives the REMAINING time. Resolution takes exactly
+    // 300 ms of a faked clock, so the remainder is exact on a loaded machine too.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const resolvingFor = (stub: StubExecutor) =>
+        createRunPythonTool({
+          resolveHost: async () => {
+            vi.setSystemTime(Date.now() + 300);
+            return hostWith(stub);
+          },
+        });
+      const stub = stubFence(async () => execResult());
+      await resolvingFor(stub).execute({ code: 'pass', timeoutMs: 1234 });
+      expect(stub.inputs[0]?.timeoutMs).toBe(934);
 
-    const defaulted = stubFence(async () => execResult());
-    await runTool(hostWith(defaulted), { code: 'pass' });
-    expect(defaulted.inputs[0]?.timeoutMs).toBeLessThanOrEqual(30_000);
-    expect(defaulted.inputs[0]?.timeoutMs).toBeGreaterThan(29_000);
+      const defaulted = stubFence(async () => execResult());
+      await resolvingFor(defaulted).execute({ code: 'pass' });
+      expect(defaulted.inputs[0]?.timeoutMs).toBe(29_700);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refuses to run when resolving the host consumed the whole budget', async () => {
