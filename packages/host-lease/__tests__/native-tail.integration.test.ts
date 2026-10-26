@@ -21,6 +21,22 @@ const Identity = Schema.Struct({ pid: Schema.Int, start: Schema.String });
 type Identity = typeof Identity.Type;
 const decodeStarted = makeThrowingDecoder(Schema.Struct({ command: Identity, host: Identity }));
 const running = (identity: Identity): boolean => processStartTime(identity.pid) === identity.start;
+/**
+ * The process was reaped: its pid is gone or names another process. A killed multithreaded process shows as a zombie
+ * while its other threads still exit holding its descriptors, the Root's flock among them; only the reap follows them.
+ */
+const reaped = (identity: Identity): boolean => {
+  try {
+    process.kill(identity.pid, 0);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ESRCH') {
+      return true;
+    }
+    throw cause;
+  }
+  const start = processStartTime(identity.pid);
+  return start !== null && start !== identity.start;
+};
 /** Ends a process only while its identity is still its own, so a reused pid is never signalled. */
 const end = (identity: Identity): void => {
   if (running(identity)) {
@@ -104,7 +120,7 @@ test('after its host dies, a Root is refused until every native process the host
   }
 
   end(command);
-  await expect.poll(() => running(command), { timeout: 5000 }).toBe(false);
+  await expect.poll(() => reaped(command), { timeout: 5000 }).toBe(true);
   const next = await RootLock.acquire(root);
   next.release();
 });
