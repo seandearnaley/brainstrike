@@ -6,6 +6,7 @@ import {
   isPathSeparatorAt,
   isWindowsPath,
   lastPathSeparatorIndex,
+  slashSeparatedPath,
 } from '@brainstrike/utils/path-ancestors';
 import { useEffect, useMemo, useRef } from 'react';
 
@@ -81,11 +82,12 @@ function trimDirectoryCountPath(filePath: string): string {
   return endIndex === filePath.length ? filePath : filePath.slice(0, endIndex);
 }
 
-/** The slash-separated comparison form, for matching agent-relative selections. */
+/**
+ * The slash-separated comparison form, for matching agent-relative selections,
+ * by the path's grammar: a backslash in a POSIX name is part of that name.
+ */
 function normalizeDirectoryCountPath(filePath: string): string {
-  return trimDirectoryCountPath(
-    filePath.includes('\\') ? filePath.replaceAll('\\', '/') : filePath
-  );
+  return trimDirectoryCountPath(slashSeparatedPath(filePath));
 }
 
 function isAbsolutePathLike(filePath: string): boolean {

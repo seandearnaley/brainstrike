@@ -113,12 +113,22 @@ describe('optimized file tree selection counts', () => {
     { candidatePath: 'C:\\repo\\src', expected: true, path: 'C:/repo/src/index.ts' },
     { candidatePath: 'C:\\repo\\src', expected: true, path: 'C:\\repo\\src\\index.ts' },
     { candidatePath: 'C:\\repo\\src', expected: false, path: 'C:\\repo\\srcs\\index.ts' },
+    { candidatePath: '/repo/a', expected: false, path: '/repo/a\\b/file.ts' },
+    { candidatePath: '/repo/a\\b', expected: true, path: '/repo/a\\b/file.ts' },
   ])(
     'checks descendant selection paths for $candidatePath',
     ({ candidatePath, expected, path }) => {
       expect(isSameOrDescendantSelectionPath(path, candidatePath)).toBe(expected);
     }
   );
+
+  it('keeps a backslash in a POSIX name as part of the name', () => {
+    expect(getWorkspaceSelectionPathCandidates('/repo', '/repo/a\\b/file.ts')).toEqual([
+      '/repo/a\\b/file.ts',
+      '/a\\b/file.ts',
+      'a\\b/file.ts',
+    ]);
+  });
 
   it('matches workspace selections through absolute and relative candidates', () => {
     const selectedFilePaths = new Set([
