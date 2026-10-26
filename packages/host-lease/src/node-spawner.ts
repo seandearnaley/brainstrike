@@ -29,7 +29,7 @@ export interface NodeSpawnerOptions {
  * desktop never uses this starter. A known R2 exception the lifecycle
  * redesign kept for the external CLI path: the cancelled host's exit is joined.
  */
-export const HOST_STARTER_READY_TIMEOUT_MS = 30_000;
+export const HOST_STARTER_READY_TIMEOUT_MS = 90_000;
 async function closeChannel(child: ChildProcess): Promise<void> {
   if (child.connected) {
     await new Promise<void>((resolve) => {
