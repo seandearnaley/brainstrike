@@ -13,6 +13,7 @@ module.exports = {
   getCurrentProcessIdentity: native.getCurrentProcessIdentity,
   getProcessCreationTime: native.getProcessCreationTime,
   initialize: native.initialize,
+  suspendProcess: native.suspendProcess,
   terminateOtherProcesses: native.terminateOtherProcesses,
   waitForProcessExit: native.waitForProcessExit,
 };

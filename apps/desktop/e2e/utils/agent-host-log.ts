@@ -286,6 +286,22 @@ export async function readHostProcess(
     await client.close();
   }
 }
+/**
+ * Stops every thread of a live process without ending it: SIGSTOP on POSIX, NtSuspendProcess
+ * on Windows, which has no stop signal. The add-on is built only on Windows.
+ */
+export async function suspendProcess(pid: number): Promise<void> {
+  if (process.platform !== 'win32') {
+    process.kill(pid, 'SIGSTOP');
+    return;
+  }
+  const job = await import('@brainstrike/windows-job-native');
+  const creationTime = job.getProcessCreationTime(pid);
+  if (creationTime === null) {
+    throw new Error(`Process ${pid} has exited; it cannot be suspended`);
+  }
+  job.suspendProcess(pid, creationTime);
+}
 /** The host Root: the directory of the app's state store under its user data. */
 async function hostRootPath(userDataDir: string): Promise<string> {
   const entries = await readdir(userDataDir, { recursive: true });

@@ -5,7 +5,12 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const { createInterface } = require('node:readline');
 const { test } = require('node:test');
-const { getCurrentProcessIdentity, getProcessCreationTime, waitForProcessExit } = require('..');
+const {
+  getCurrentProcessIdentity,
+  getProcessCreationTime,
+  suspendProcess,
+  waitForProcessExit,
+} = require('..');
 const { commandFixture } = require('./command-job-fixture.cjs');
 const windows = { skip: process.platform !== 'win32' };
 
@@ -136,3 +141,38 @@ test('joins an exit on its handle; an exited or reused PID settles at once', win
     await exited;
   }
 });
+
+test(
+  'suspends a live process, which answers nothing more and still ends on kill',
+  windows,
+  async () => {
+    const child = spawn(
+      process.execPath,
+      ['-e', 'process.send("ready"); process.on("message",(m)=>process.send(m));'],
+      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true }
+    );
+    const exited = once(child, 'exit');
+    try {
+      await once(child, 'message');
+      const creation = getProcessCreationTime(child.pid);
+      child.send('before');
+      assert.deepEqual(await once(child, 'message'), ['before']);
+      // The PID with another creation time names another process: it is never suspended.
+      assert.throws(() => suspendProcess(child.pid, '1'), /another process/);
+      assert.throws(() => suspendProcess(0, creation), TypeError);
+      suspendProcess(child.pid, creation);
+      const answers = [];
+      child.on('message', (message) => answers.push(message));
+      await new Promise((resolve) => child.send('after', resolve));
+      child.kill();
+      await exited;
+      assert.deepEqual(answers, []);
+      assert.throws(() => suspendProcess(child.pid, creation), /Windows error|another process/);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill();
+      }
+      await exited;
+    }
+  }
+);

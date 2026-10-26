@@ -13,7 +13,7 @@
  */
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { readHostProcess, readHostThreadTree } from './utils/agent-host-log';
+import { readHostProcess, readHostThreadTree, suspendProcess } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -101,7 +101,7 @@ test('the thread pane reconnects to a replaced agent host and never resends', as
 
     // 2. A second loss before the user reconnects, with a send the host never read.
     const stopped = await readHostProcess(userDataDir);
-    process.kill(stopped.pid, 'SIGSTOP');
+    await suspendProcess(stopped.pid);
     await input.fill(UNREAD_PROMPT);
     await input.press('Enter');
     // The composer took the draft: the send is dispatched to a host that cannot read it.

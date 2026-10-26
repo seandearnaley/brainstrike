@@ -13,6 +13,13 @@ export function getProcessCreationTime(pid: number): string | null;
  */
 export function waitForProcessExit(pid: number, creationTime: string): Promise<void>;
 
+/**
+ * Suspends every thread of the process `pid`, started at `creationTime` (from
+ * getProcessCreationTime), as SIGSTOP does on POSIX. Throws when the PID has exited or names
+ * another process. Windows only.
+ */
+export function suspendProcess(pid: number, creationTime: string): void;
+
 export interface CommandJob {
   /** Verify the wrapper's private READY identity on an opened handle before assignment. */
   assign(identity: WindowsProcessIdentity): void;

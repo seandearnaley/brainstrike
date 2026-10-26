@@ -318,6 +318,57 @@ Napi::Value WaitForProcessExit(const Napi::CallbackInfo& info) {
   return deferred.Promise();
 }
 
+// Suspends every thread of one process, as SIGSTOP does on POSIX. Windows has no documented
+// whole-process suspend; ntdll's NtSuspendProcess is the one the OS's own tools use.
+using NtSuspendProcessFn = LONG(NTAPI*)(HANDLE);
+
+Napi::Value SuspendProcess(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  const double value = info.Length() == 2 && info[0].IsNumber()
+                           ? info[0].As<Napi::Number>().DoubleValue()
+                           : 0;
+  if (!std::isfinite(value) || value <= 0 || value > UINT32_MAX || std::floor(value) != value ||
+      !info[1].IsString()) {
+    Napi::TypeError::New(env, "Expected a positive integer PID and its creation time.")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const std::string expected = info[1].As<Napi::String>().Utf8Value();
+  const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  const auto suspend = ntdll == nullptr
+                           ? nullptr
+                           : reinterpret_cast<NtSuspendProcessFn>(
+                                 reinterpret_cast<void*>(GetProcAddress(ntdll, "NtSuspendProcess")));
+  if (suspend == nullptr) {
+    ThrowWindowsError(env, "GetProcAddress(NtSuspendProcess)", GetLastError());
+    return env.Undefined();
+  }
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SUSPEND_RESUME, FALSE,
+                               static_cast<DWORD>(value));
+  if (process == nullptr) {
+    ThrowWindowsError(env, "OpenProcess", GetLastError());
+    return env.Undefined();
+  }
+  std::string creation, error;
+  if (!ReadCreationTime(process, &creation, &error)) {
+    // error is set
+  } else if (creation != expected) {
+    error = "The PID names another process than the one asked for.";
+  } else {
+    const LONG status = suspend(process);
+    if (status < 0) {
+      error = "NtSuspendProcess failed with NTSTATUS " + std::to_string(status) + ".";
+    }
+  }
+  if (!CloseHandle(process) && error.empty()) {
+    error = WindowsError("CloseHandle", GetLastError());
+  }
+  if (!error.empty()) {
+    Napi::Error::New(env, error).ThrowAsJavaScriptException();
+  }
+  return env.Undefined();
+}
+
 bool ReadCommandMembers(HANDLE job, std::vector<ULONG_PTR>* members, std::string* error) {
   JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
   if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting,
@@ -670,6 +721,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("initialize", Napi::Function::New(env, Initialize));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, TerminateOtherProcesses));
   exports.Set("waitForProcessExit", Napi::Function::New(env, WaitForProcessExit));
+  exports.Set("suspendProcess", Napi::Function::New(env, SuspendProcess));
 #else
   exports.Set("createCommandJob", Napi::Function::New(env, Unsupported));
   exports.Set("getCurrentProcessIdentity", Napi::Function::New(env, Unsupported));
@@ -678,6 +730,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("initialize", Napi::Function::New(env, Unsupported));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, Unsupported));
   exports.Set("waitForProcessExit", Napi::Function::New(env, Unsupported));
+  exports.Set("suspendProcess", Napi::Function::New(env, Unsupported));
 #endif
   return exports;
 }
