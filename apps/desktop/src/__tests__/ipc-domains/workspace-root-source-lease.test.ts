@@ -5,7 +5,7 @@ import type {
 } from '@brainstrike/assistant-service/node-workspace-services';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
-import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { describe, expect, it, vi } from 'vitest';
 import { reportNativeIndexActivationError } from '../../native-index-activation-error';
@@ -69,7 +69,7 @@ describe('WorkspaceRootRegistry canonical source borrows', () => {
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error('native watcher retirement is uncertain'))
       .mockReturnValueOnce(exit.promise);
-    const failure = new ParcelWatchRetirementError([new Error('late watch acquisition')], retire);
+    const failure = new RootWatchRetirementError([new Error('late watch acquisition')], retire);
     const subscribe = vi.fn<SubscribeMountedWorkspaceRoot>().mockRejectedValueOnce(failure);
     const root = secureRoot(WORKSPACE);
     const f = await mounted(root);

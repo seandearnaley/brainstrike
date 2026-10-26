@@ -1,8 +1,8 @@
 /**
  * File-system watch IPC domain (fs:watch / fs:unwatch / fs:watch-event).
  *
- * Watching runs in the MAIN process (@parcel/watcher via
- * `@brainstrike/file-system/electron`, injected by ipc-handlers.ts) and pushes
+ * Watching runs in the MAIN process (`fs.watch` root watchers in
+ * `root-watchers.ts`, injected by `ipc-handlers.ts`) and pushes
  * batched `FileSystemChange[]` payloads plus optional bounded filtered-boundary
  * evidence to the OWNING renderer only. The renderer never receives Node watcher
  * objects; it holds an opaque `watchId` and a one-way push subscription (see
@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
-import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
 import type {
   FileSystemChange,
@@ -476,7 +476,7 @@ async function startNewFileSystemWatcher(
     try {
       subscription = await starting;
     } catch (error) {
-      if (error instanceof ParcelWatchRetirementError) {
+      if (error instanceof RootWatchRetirementError) {
         await error.retire();
       }
       // Unowned startup errors are reported by the primary setup awaiter.
@@ -490,11 +490,11 @@ async function startNewFileSystemWatcher(
     entry.retry = () => subscription.retry();
   } catch (error) {
     forgetWatcherRegistrations(entry);
-    if (acquired || entry.retiring || error instanceof ParcelWatchRetirementError) {
+    if (acquired || entry.retiring || error instanceof RootWatchRetirementError) {
       try {
         await stopWatcher(entry);
       } catch (retirementError) {
-        throw new ParcelWatchRetirementError([error, retirementError], () => stopWatcher(entry));
+        throw new RootWatchRetirementError([error, retirementError], () => stopWatcher(entry));
       }
     }
     throw error;
