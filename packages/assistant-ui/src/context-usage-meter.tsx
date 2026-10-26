@@ -2,23 +2,23 @@
  * ContextUsageMeter — compact context gauge shown above the composer.
  *
  * One row: an SVG donut ring (context-ring.tsx) + a "used / budget" fraction.
- * The row is a popover trigger (hover, focus, and click for touch) that opens
- * the "Context Usage" detail panel (context-usage-popover.tsx) holding the
- * breakdown list, OM stats, and cumulative tokens + cost. Sources usage from
- * the zustand store (exact, post-turn) and falls back to a heuristic estimate
- * when no exact value has been recorded yet.
+ * The row is a popover trigger that opens, on explicit activation only (click,
+ * Enter or Space), the "Context Usage" detail panel (context-usage-popover.tsx)
+ * holding the breakdown list, OM stats, and cumulative tokens + cost. Sources
+ * usage from the zustand store (exact, post-turn) and falls back to a heuristic
+ * estimate when no exact value has been recorded yet.
  *
  * Threshold states (fraction of effectiveInputBudget):
  *   ok      < 75%
  *   warning ≥ 75%
  *   critical ≥ 90% → shows the trimming-risk notice INLINE (a warning must not
- *   hide inside a hover surface)
+ *   hide inside the popover)
  */
 import { useAuiState } from '@assistant-ui/react';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { cn, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import {
   type ConversationTokenEstimate,
   estimateConversationTokens,
@@ -242,9 +242,6 @@ function resolveUsageState(used: number, effectiveInputBudget: number): ContextR
   return 'ok';
 }
 
-/** Delay before a hover-out closes the popover (lets the pointer cross the gap to the content). */
-const HOVER_CLOSE_DELAY_MS = 120;
-
 interface TriggerDisplay {
   ariaLabel: string;
   /** 'est.' for the context-fraction fallback; 'live' while the total includes in-flight steps. */
@@ -323,19 +320,6 @@ export const ContextUsageMeter = ({
   // path clears it (see context-usage-store.ts).
   const recordedLiveRunUsage = useContextUsageStore((s) => s.liveRunUsageByThread[key]);
   const isSettlingRunUsage = useContextUsageStore((s) => s.settlingRunUsageByThread[key] === true);
-  const [open, setOpen] = useState(false);
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear a pending hover-close timer on unmount.
-  // biome-ignore lint/plugin: unmount-only timer cleanup — not a state-as-event-handler effect
-  useEffect(
-    () => () => {
-      if (closeTimerRef.current) {
-        clearTimeout(closeTimerRef.current);
-      }
-    },
-    []
-  );
 
   // Server breakdown baseline (system instructions + task list + tool
   // definitions) — the categories the conversation walk cannot see. Only a
@@ -367,21 +351,6 @@ export const ContextUsageMeter = ({
   if (!(contextWindow && effectiveInputBudget)) {
     return null;
   }
-
-  const cancelScheduledClose = () => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  };
-  const openNow = () => {
-    cancelScheduledClose();
-    setOpen(true);
-  };
-  const scheduleClose = () => {
-    cancelScheduledClose();
-    closeTimerRef.current = setTimeout(() => setOpen(false), HOVER_CLOSE_DELAY_MS);
-  };
 
   const state = resolveUsageState(usedTokens, effectiveInputBudget);
   const percentage = Math.min(100, (usedTokens / effectiveInputBudget) * 100);
@@ -426,7 +395,10 @@ export const ContextUsageMeter = ({
       data-state={state}
       data-testid="context-usage-meter"
     >
-      <Popover onOpenChange={setOpen} open={open}>
+      {/* Opens on activation, never on hover or focus: a pointer left resting
+          where a layout shift moves the trigger would otherwise hold the panel
+          open over the composer and the controls beneath it. */}
+      <Popover>
         <PopoverTrigger asChild>
           {/* The gauge row is a ONE-TURN-LAG estimate of the next prompt's
               size (prev input + prev output). The denominator is
@@ -436,10 +408,6 @@ export const ContextUsageMeter = ({
             aria-label={trigger.ariaLabel}
             className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             data-testid="context-usage-trigger"
-            onBlur={scheduleClose}
-            onFocus={openNow}
-            onMouseEnter={openNow}
-            onMouseLeave={scheduleClose}
             title={`context ${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)} · model window ${formatTokenCount(contextWindow)}`}
             type="button"
           >
@@ -471,14 +439,7 @@ export const ContextUsageMeter = ({
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="w-80 p-3"
-          data-testid="context-usage-popover"
-          onMouseEnter={cancelScheduledClose}
-          onMouseLeave={scheduleClose}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-        >
+        <PopoverContent align="start" className="w-80 p-3" data-testid="context-usage-popover">
           <ContextUsagePopoverContent
             breakdownState={breakdownState}
             contextWindow={contextWindow}
@@ -499,7 +460,7 @@ export const ContextUsageMeter = ({
       </Popover>
 
       {/* Critical trimming-risk notice — INLINE next to the ring, never hidden
-          inside the hover popover (visibility rule). */}
+          inside the popover (visibility rule). */}
       {state === 'critical' && (
         <p className="text-[11px] text-destructive/80" data-testid="context-usage-critical-notice">
           Approaching input budget; older messages may be trimmed.
