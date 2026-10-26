@@ -463,10 +463,13 @@ export function foldHostStartedRun(
 /** One root run at a time per thread, once the thread's previous run has settled. */
 export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
   const threadRuns = [...runs].filter((run) => run.threadId === threadId);
+  assertHostThreadInactive(threadRuns);
+  assertHostThreadSettled(threadRuns);
+}
+function assertHostThreadInactive(threadRuns: readonly HostRunState[]): void {
   if (threadRuns.some((run) => !run.terminal)) {
     throw refusalError('conflict', 'run.already-active', 'Thread already has an active root run');
   }
-  assertHostThreadSettled(threadRuns);
 }
 /**
  * A finished run's memory still settling: Core joins it before admitting the
@@ -493,10 +496,27 @@ export function assertHostRunAdmissible(
     readonly threadId: string;
   }
 ): void {
+  const threadRuns = [...runs].filter((run) => run.threadId === params.threadId);
+  assertHostRunOpen(threads, threadRuns, conversationIds, params);
+  assertHostThreadSettled(threadRuns);
+}
+/**
+ * Every refusal of a new run that does not depend on the thread's settling
+ * memory, so Core refuses on it before it joins that memory.
+ */
+export function assertHostRunOpen(
+  threads: ReadonlySet<string>,
+  runs: Iterable<HostRunState>,
+  conversationIds: ReadonlySet<string>,
+  params: {
+    readonly commandId: string;
+    readonly threadId: string;
+  }
+): void {
   if (!threads.has(params.threadId)) {
     throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
-  assertHostRunStartAvailable(runs, params.threadId);
+  assertHostThreadInactive([...runs].filter((run) => run.threadId === params.threadId));
   if (conversationIds.has(params.commandId)) {
     throw refusalError(
       'conflict',

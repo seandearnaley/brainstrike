@@ -219,7 +219,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-test("a run/start held behind a memory settlement is answered host.closing, joined only as long as Core's own close", async () => {
+/** A host whose thread's first run finished while its memory still settles, until `release`. */
+async function openSettlingHost() {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   let observations = 0;
@@ -293,6 +294,11 @@ test("a run/start held behind a memory settlement is answered host.closing, join
       )
     )
     .toBe(true);
+  return { client, host, release, threadId };
+}
+
+test("a run/start held behind a memory settlement is answered host.closing, joined only as long as Core's own close", async () => {
+  const { client, host, release, threadId } = await openSettlingHost();
   const dispatched = Promise.withResolvers<void>();
   const startRun = host.core.startRun.bind(host.core);
   vi.spyOn(host.core, 'startRun').mockImplementation((params, origin) => {
@@ -316,6 +322,25 @@ test("a run/start held behind a memory settlement is answered host.closing, join
   await expect(next.result).rejects.toMatchObject({ code: 'host.closing' });
   await closing;
   expect(state).toEqual({ closed: true, coreClosed: true });
+});
+
+test("a run/start on a thread being deleted is refused while its previous run's memory still settles", async () => {
+  const { client, release, threadId } = await openSettlingHost();
+  const deletion = tracked(client.request('thread/delete', { threadId }));
+  const next = tracked(
+    client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: `openai::${modelId}`,
+      prompt: 'Which city did I mention?',
+      threadId,
+    })
+  );
+  // ADR-0031: the refusal does not wait for the settlement the deletion joins.
+  await expect.poll(() => next.state.settled).toBe(true);
+  await expect(next.result).rejects.toMatchObject({ code: 'thread.deleting' });
+  expect(deletion.state.settled).toBe(false);
+  release.resolve();
+  expect(await deletion.result).toEqual({ deleted: true, threadIds: [threadId] });
 });
 
 test("a run/stop answers stopped while its run's owner still closes, and Core's close joins that owner", async () => {

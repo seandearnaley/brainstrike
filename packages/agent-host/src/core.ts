@@ -65,6 +65,7 @@ import {
 import {
   admittedHostRun,
   assertHostRunAdmissible,
+  assertHostRunOpen,
   foldHostRunAdmission,
   foldHostRunEvent,
   foldHostStartedRun,
@@ -102,14 +103,7 @@ export class HostCore {
   private readonly mcpInputs = new HostMcpInputState();
   /** An MCP App's own tool calls, decided under the thread's live policy and grants. */
   readonly mcpApps = new HostMcpAppCalls({
-    assertAdmissible: (threadId) =>
-      assertHostCommandAdmissible(
-        threadId,
-        this.closing,
-        this.threads,
-        this.deletions,
-        this.failedAdmissions
-      ),
+    assertAdmissible: (threadId) => this.refuseCommand({ threadId }),
     grants: (threadId) => this.children.grants(threadId),
     platform: () => this.platform,
     read: (threadId) => this.read(threadId, 0),
@@ -195,7 +189,8 @@ export class HostCore {
     accept: (threadId, method, params, result, events) =>
       this.accept(threadId, method, params, result, events, this.foldRows, 'full'),
     append: (threadId, events) => this.append(threadId, events, 'full', this.foldRows),
-    command: (method, params, perform) => this.settledCommand(method, params, perform),
+    command: (method, params, perform) =>
+      this.settledCommand(method, params, this.refuseCommand, perform),
     owner: () => ({ pending: this.pendingAdmissions, platform: this.platform, runs: this.runs }),
   });
   private closing = false;
@@ -410,18 +405,34 @@ export class HostCore {
   /**
    * A command that opens the thread's next run or rewrites its history first
    * joins the memory its finished runs are still settling, outside the shared
-   * admission queue so other threads never wait on it. A replay opens nothing.
+   * admission queue so other threads never wait on it. A replay opens nothing,
+   * and a refusal comes at once (ADR-0031): `refuse` runs before that join.
    */
   private async settledCommand<T extends Json>(
     method: string,
     params: { commandId: string; threadId: string },
+    refuse: (params: { commandId: string; threadId: string }) => void,
     perform: () => Promise<T>
   ): Promise<T> {
     if (!this.commands.known(params.commandId)) {
+      refuse(params);
       await this.ends.settled(params.threadId);
     }
     return this.command(method, params, perform);
   }
+
+  /** The admission's own refusal, which a thread's settling memory cannot change. */
+  private readonly refuseCommand = ({ threadId }: { threadId: string }): void => {
+    const { closing, deletions, failedAdmissions, threads } = this;
+    assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);
+  };
+
+  /** And a new run's: a damaged thread, an active run, a reused identity. */
+  private readonly refuseRun = (params: { commandId: string; threadId: string }): void => {
+    this.refuseCommand(params);
+    this.catalog.assertRunnable(params.threadId);
+    assertHostRunOpen(this.threads, this.runs.values(), this.conversationIds, params);
+  };
 
   private admit<T>(
     threadId: string | undefined,
@@ -535,7 +546,7 @@ export class HostCore {
 
   startRun(params: HostParams<'run/start'>, origin?: HostClientOrigin): Promise<{ runId: string }> {
     const record = hostStartCommandRecord(params);
-    return this.settledCommand('run/start', record, () =>
+    return this.settledCommand('run/start', record, this.refuseRun, () =>
       this.admitRun(
         'run/start',
         params,
@@ -551,7 +562,7 @@ export class HostCore {
     params: HostParams<'run/regenerate'>,
     origin?: HostClientOrigin
   ): Promise<{ runId: string }> {
-    return this.settledCommand('run/regenerate', params, () =>
+    return this.settledCommand('run/regenerate', params, this.refuseRun, () =>
       this.admitRun('run/regenerate', params, origin, () =>
         hostRegeneratePosition(this.runs.values(), params)
       )
