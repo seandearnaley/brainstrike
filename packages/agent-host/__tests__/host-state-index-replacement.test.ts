@@ -428,3 +428,21 @@ it('a close while the first worker is still starting ends its open without a fai
   await expect(index.port.stateHealth()).rejects.toThrow('Host resource owner is closing');
   expect(starts()).toBe(1);
 });
+
+// ADR-0031: a request never waits on a retired worker's exit.
+it('a request after a faulted worker that has not exited is refused at once, and nothing starts beside it', async () => {
+  const stuck = fake(['garble'], { killable: false });
+  const { index, starts } = owner([stuck, fake(['serve'])]);
+  await index.open();
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+
+  await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+  expect(stuck.kills).toBe(1);
+  expect(starts()).toBe(1);
+
+  stuck.crash();
+  await settle();
+  await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+  expect(starts()).toBe(2);
+  await index.close();
+});

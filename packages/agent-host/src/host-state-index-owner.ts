@@ -177,10 +177,14 @@ export function createStateIndexOwner(options: {
       );
     }
     if (previous.kind === 'retired') {
+      if (!previous.connection.exited) {
+        // ADR-0031: refused at once. Its connection is already killing it and joining its exit;
+        // nothing starts beside it, and the first request after that exit starts the replacement.
+        throw retiredFailure(previous.cause);
+      }
       try {
         await join(previous.connection);
       } catch (error) {
-        // Still owned, and possibly alive: nothing starts beside it.
         throw retiredFailure(error);
       }
     }
