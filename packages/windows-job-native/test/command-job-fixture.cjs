@@ -183,8 +183,17 @@ async function commandFixture(t) {
             '})().catch(error=>process.send({event:"failed",message:error.stack}));',
         ],
         {
-          cwd: root,
-          env: { ...process.env, ...extraEnvironment },
+          // Outside root: a guard's helpers (its control process, a detached host) can still be
+          // ending when cleanup removes root, and Windows refuses to remove a directory that is
+          // some process's current directory (EBUSY). Commands that run in root get it from the
+          // environment and are joined by their Job.
+          cwd: os.tmpdir(),
+          env: {
+            ...process.env,
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            BRAINSTRIKE_FIXTURE_ROOT: root,
+            ...extraEnvironment,
+          },
           stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
           windowsHide: true,
         }
@@ -195,7 +204,7 @@ async function commandFixture(t) {
     },
     async observe(pids) {
       const child = spawn(observerPath, [pids.join(',')], {
-        cwd: root,
+        cwd: os.tmpdir(),
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });

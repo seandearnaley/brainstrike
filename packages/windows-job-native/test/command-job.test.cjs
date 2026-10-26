@@ -178,7 +178,7 @@ test(
       path.join(fixture.root, 'producer.cjs'),
       `process.stdout.write('attached-output'); process.stderr.write('attached-error'); process.exit(7);`
     );
-    const wrapper = `process.once('message',()=>{const child=spawn('cmd',['/c','node producer.cjs'],{cwd:process.cwd(),detached:false,stdio:['ignore','pipe','pipe'],windowsHide:true});let stdout='',stderr='';child.stdout.on('data',data=>stdout+=data);child.stderr.on('data',data=>stderr+=data);child.once('close',(code,signal)=>process.send({event:'COMPLETED',tuple:{code,signal},stdout,stderr},()=>process.exit(code)));});`;
+    const wrapper = `process.once('message',()=>{const child=spawn('cmd',['/c','node producer.cjs'],{cwd:process.env.BRAINSTRIKE_FIXTURE_ROOT,detached:false,stdio:['ignore','pipe','pipe'],windowsHide:true});let stdout='',stderr='';child.stdout.on('data',data=>stdout+=data);child.stderr.on('data',data=>stderr+=data);child.once('close',(code,signal)=>process.send({event:'COMPLETED',tuple:{code,signal},stdout,stderr},()=>process.exit(code)));});`;
     const guard = fixture.guard(setup(wrapper) + joinCommands);
     const ready = await guard.wait('ready');
     const observer = await fixture.observe([ready.wrapper.pid]);
