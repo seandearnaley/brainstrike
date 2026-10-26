@@ -188,18 +188,17 @@ export async function startStandaloneProviderHost(options: {
     workspace,
   };
 }
-/** Polls `read` until `found` holds, failing after `timeoutMs` with the last value. */
+/**
+ * Polls `read` until `found` holds. The test's own timeout is the one deadline: a second, shorter
+ * one here failed slow but progressing runs (hosted Windows replays a background delegation in
+ * about 60 s).
+ */
 export async function pollUntil<T>(
   read: () => Promise<T>,
-  found: (value: T) => boolean,
-  timeoutMs = 60_000
+  found: (value: T) => boolean
 ): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
   let latest = await read();
   while (!found(latest)) {
-    if (Date.now() > deadline) {
-      throw new Error(`Timed out after ${timeoutMs} ms; last value: ${JSON.stringify(latest)}`);
-    }
     await new Promise((resolve) => setTimeout(resolve, 200));
     latest = await read();
   }
