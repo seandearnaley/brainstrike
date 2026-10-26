@@ -2,6 +2,7 @@ import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import { expect, test } from './fixtures/electron-fixture';
 import { type HostThreadLog, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -197,7 +198,7 @@ test('a host thread delegates to a background persona child, wakes with its resu
   // A reload restores the child tab from its address, authorized by the host,
   // and shows its committed conversation without a model call.
   const settledRequests = modelProvider.requests().length;
-  await window.reload();
+  await reloadRenderer(window, 'host-thread-delegation: reload');
   await ensureAssistantShellVisible(window);
   await expect(
     window.getByRole('tablist', { name: 'Workspace tabs' }).getByRole('tab', { name: callSign })
