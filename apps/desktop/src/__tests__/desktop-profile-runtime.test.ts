@@ -69,6 +69,23 @@ describe('desktop profile runtime: a ready host lost without Main asking (BST-20
   });
 });
 
+describe('desktop profile runtime: a retirement while a failed owner releases', () => {
+  it('starts the next owner only after the retirement, not during it', async () => {
+    const { createOwner, created } = owners();
+    const profile = createDesktopProfileRuntime(createOwner);
+    await profile.acquire();
+    const release = Promise.withResolvers<undefined>();
+    created[0]?.close.mockImplementation(() => release.promise);
+    created[0]?.lose();
+    const events: string[] = [];
+    const next = profile.acquire().then((attachment) => events.push(`acquired ${attachment}`));
+    const retired = profile.retire().then(() => events.push('retired'));
+    release.resolve(undefined);
+    await Promise.all([next, retired]);
+    expect(events).toEqual(['retired', 'acquired host-2']);
+  });
+});
+
 describe('desktop profile runtime: retiring during host startup', () => {
   it('ends with its owner close while that startup never answers, so reset starts the next host', async () => {
     const closeReasons: unknown[] = [];

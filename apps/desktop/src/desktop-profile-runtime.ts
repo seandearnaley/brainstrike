@@ -67,6 +67,8 @@ export function createDesktopProfileRuntime<Attachment>(
         // A failed start answers at once while its release goes on; the next owner starts
         // against the Root only once that release has ended.
         await failedOwner.close();
+        // A retirement that began during that release ends before any next owner starts.
+        await retirement;
         signal?.throwIfAborted();
       }
       owner ??= create();
