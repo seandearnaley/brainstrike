@@ -3,7 +3,9 @@
 //
 // Generation files `g<12 digits>` are created with link(fsynced temp), which fails with EEXIST, so exactly one of N
 // contenders wins a generation; a winner re-lists and drops its own file if a newer generation exists. Nobody ever
-// renames or unlinks someone else's live lock.
+// renames or unlinks someone else's live lock. A release claims the next generation with its record marked released
+// and leaves the held record in place: on Windows a reader that withholds delete sharing (an antivirus scan, held by
+// the System process) refuses any rename over a file it has open.
 //
 // The lock lives INSIDE the root (`<root>/lock/`), so any file-level copy of a root (Time Machine, Migration Assistant,
 // `cp -R`, the export bundle) carries it, and the owner records the root's canonical path (`canonicalRoot`, BST-2234). A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
@@ -39,7 +41,6 @@ import {
 import { createRequire } from 'node:module';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import { replaceLockFileSync } from './lock-file-replacement.ts';
 import { canonicalRoot } from './root-identity.ts';
 
 export interface LockOwner {
@@ -318,18 +319,6 @@ function readOwner(path: string): LockOwner | null {
   return o;
 }
 
-function writeTemp(dir: string, o: LockOwner): string {
-  const tmp = join(dir, `.${o.token}.${randomBytes(4).toString('hex')}.tmp`);
-  const fd = openSync(tmp, 'wx');
-  try {
-    writeSync(fd, JSON.stringify(o));
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  return tmp;
-}
-
 const unlinkIfExists = (p: string): void => {
   try {
     unlinkSync(p);
@@ -382,9 +371,16 @@ async function judgeHeld(
 }
 
 /** Create generation `next` as a link of a complete, fsynced temp file: false when another process holds it (EEXIST). */
-function linkGeneration(dir: string, me: LockOwner, next: number): boolean {
-  const tmp = writeTemp(dir, me);
+function linkGeneration(dir: string, record: LockOwner, next: number): boolean {
+  const tmp = join(dir, `.${record.token}.${randomBytes(4).toString('hex')}.tmp`);
+  const fd = openSync(tmp, 'wx');
   try {
+    try {
+      writeSync(fd, JSON.stringify(record));
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     linkSync(tmp, join(dir, genName(next)));
     return true;
   } catch (e) {
@@ -413,10 +409,22 @@ function claimGeneration(dir: string, me: LockOwner, next: number): boolean {
   return true;
 }
 
+/**
+ * Remove the generations below `next`. Only the newest is ever read, so an older one that a reader still holds without
+ * delete sharing (EBUSY on Windows, as an antivirus scan does) stays inert until a later acquisition removes it.
+ */
 function dropOlderGenerations(dir: string, next: number, gens: readonly number[]): void {
   for (const g of gens) {
-    if (g < next) {
-      unlinkIfExists(join(dir, genName(g)));
+    if (g >= next) {
+      continue;
+    }
+    try {
+      unlinkSync(join(dir, genName(g)));
+    } catch (e) {
+      const { code } = e as NodeJS.ErrnoException;
+      if (code !== 'ENOENT' && code !== 'EBUSY') {
+        throw e;
+      }
     }
   }
 }
@@ -616,53 +624,18 @@ export class RootLock {
     }
   }
 
-  /** Atomic release: one replacement of the record, checked again just before it, while full authority remains ours. */
+  /** Release: a new generation holding this owner's record marked released, claimed while our authority holds. */
   release(): void {
     if (this.released) {
       return;
     }
     const path = join(this.dir, genName(this.gen));
     this.assertReleaseOwner(path);
-    let tmp: string | undefined;
-    let fd: number | undefined;
-    try {
-      const candidate = join(
-        this.dir,
-        `.${this.owner.token}.${randomBytes(4).toString('hex')}.tmp`
-      );
-      fd = openSync(candidate, 'wx');
-      tmp = candidate; // Only a successful exclusive open gives us cleanup authority.
-      writeSync(fd, JSON.stringify({ ...this.owner, released: true }));
-      fsyncSync(fd);
-      closeSync(fd);
-      fd = undefined;
-      this.assertReleaseOwner(path);
-      replaceLockFileSync(candidate, path);
-      this.released = true;
-      this.#closeFlock();
-    } catch (primary) {
-      const failures: unknown[] = [primary];
-      if (fd !== undefined) {
-        try {
-          closeSync(fd);
-        } catch (cause) {
-          failures.push(cause);
-        }
-      }
-      if (tmp !== undefined) {
-        try {
-          unlinkIfExists(tmp);
-        } catch (cause) {
-          failures.push(cause);
-        }
-      }
-      if (failures.length > 1) {
-        throw new AggregateError(failures, `lock: release failed; owned temp ${tmp}`, {
-          cause: primary,
-        });
-      }
-      throw primary;
+    if (!linkGeneration(this.dir, { ...this.owner, released: true }, this.gen + 1)) {
+      throw new Error(`lock: ${path} was superseded at release`);
     }
+    this.released = true;
+    this.#closeFlock();
   }
 
   /** Factory reset: release, then remove the lock directory itself. */

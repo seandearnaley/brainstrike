@@ -6,7 +6,6 @@ const {
   SecureRoot: NativeSecureRoot,
   applyPrivateDirectorySync,
   tryExclusiveFlock,
-  replaceFileSync,
   setDefaultOwnerToCurrentUserSync,
   verifyPrivateDirectorySync,
 } = bindings({
@@ -61,8 +60,6 @@ class SecureRoot {
 
 exports.SecureRoot = SecureRoot;
 exports.tryExclusiveFlock = tryExclusiveFlock;
-
-exports.replaceFileSync = replaceFileSync;
 
 exports.applyPrivateDirectorySync = applyPrivateDirectorySync;
 exports.verifyPrivateDirectorySync = verifyPrivateDirectorySync;
