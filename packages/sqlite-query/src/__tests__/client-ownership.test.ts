@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SqliteQueryClient, SqliteQueryStartupCleanupError } from '../client.js';
 import type { QueryProcess } from '../process.js';
 
@@ -48,5 +48,41 @@ describe('startup acquisition ownership', () => {
     expect(failure.errors).toHaveLength(2);
     canKill = true;
     await failure.owner.close();
+  });
+
+  // ADR-0031: a failed start waits on no process; its kill is requested and the error thrown.
+  it('throws a startup failure at once, with the process killed and its exit not joined', async () => {
+    let messageListener: (message: unknown) => void = () => undefined;
+    let kills = 0;
+    const process: QueryProcess = {
+      // Accepted, but the process lingers: its exit never arrives.
+      kill: () => {
+        kills += 1;
+      },
+      onError: () => () => undefined,
+      onExit: () => () => undefined,
+      onMessage: (listener) => {
+        messageListener = listener;
+        return () => undefined;
+      },
+      postMessage: (request) =>
+        queueMicrotask(() =>
+          messageListener({
+            id: request.id,
+            kind: 'error',
+            message: 'Index could not open.',
+            name: 'Error',
+          })
+        ),
+    };
+    let failure: unknown;
+    void SqliteQueryClient.open({
+      databasePath: '/recorded/index.sqlite',
+      spawn: () => process,
+    }).catch((error: unknown) => {
+      failure = error;
+    });
+    await vi.waitFor(() => expect(failure).toMatchObject({ message: 'Index could not open.' }));
+    expect(kills).toBe(1);
   });
 });

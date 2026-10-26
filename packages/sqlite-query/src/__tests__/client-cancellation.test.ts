@@ -129,7 +129,8 @@ describe('owned grep reader stop paths', () => {
     expect(owner.process.kill).not.toHaveBeenCalled();
   });
 
-  it('a startup deadline kills the reader and joins its exit while rejecting late ready', async () => {
+  // ADR-0031: the refusal is at once; the killed reader's exit is not joined.
+  it('a startup deadline kills the reader and rejects at once, before its exit and a late ready', async () => {
     const owner = reader(false);
     const outcome = SqliteQueryClient.open({
       databasePath: '/recorded/index.sqlite',
@@ -138,15 +139,9 @@ describe('owned grep reader stop paths', () => {
       startupDeadlineMs: 20,
     }).catch((error: unknown) => error);
     await vi.waitFor(() => expect(owner.process.kill).toHaveBeenCalledOnce());
-    owner.message({ id: 1, kind: 'ready' });
-    let settled = false;
-    void outcome.then(() => {
-      settled = true;
-    });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    owner.exit();
     expect(await outcome).toBeInstanceOf(SqliteQueryDeadlineError);
+    owner.message({ id: 1, kind: 'ready' });
+    owner.exit();
     expect(owner.process.kill).toHaveBeenCalledOnce();
   });
 

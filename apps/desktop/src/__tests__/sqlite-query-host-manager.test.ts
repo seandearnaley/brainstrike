@@ -171,3 +171,27 @@ it('closes every query process by its kill and returns without its exit', async 
   await vi.waitFor(() => expect(closed).toHaveBeenCalled());
   expect(mocks.children[0]?.kill).toHaveBeenCalledOnce();
 });
+
+// ADR-0031: a start the close overtook is refused at once; only a file deletion joins its exit.
+it('refuses a start the close overtook at once, with its process killed and its exit not joined', async () => {
+  mocks.heldStartup = true;
+  const manager = await import('../sqlite-query-host-manager');
+  const index = { databasePath: authority.dbPath };
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  let failure: unknown;
+  void manager.openIndexCoverage(authority).catch((error: unknown) => {
+    failure = error;
+  });
+  await vi.waitFor(() => expect(mocks.children).toHaveLength(1));
+  mocks.lingers = true;
+  await manager.closeAllIndexQueries();
+  const child = mocks.children[0];
+  const open = child?.messages[0] as { readonly id: number } | undefined;
+  child?.receive({ id: open?.id, kind: 'ready' });
+
+  await vi.waitFor(() =>
+    expect(failure).toMatchObject({
+      message: 'The index query target closed during process startup.',
+    })
+  );
+});

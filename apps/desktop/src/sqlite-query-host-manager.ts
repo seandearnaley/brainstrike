@@ -134,12 +134,19 @@ async function ownIndexReader(
   acquisitions.set(acquisition, stop);
   try {
     const client = await acquisition;
-    owners.add(client);
     if (target !== registered) {
-      await client.close();
-      owners.delete(client);
+      // Thrown at once, the process killed (ADR-0031): only a file deletion joins its exit, and
+      // a refused kill keeps the client owned for the close's retry.
+      try {
+        client.kill();
+      } catch (cleanup) {
+        owners.add(client);
+        throw cleanup;
+      }
+      joinable(client.close());
       throw new Error('The index query target closed during process startup.');
     }
+    owners.add(client);
     return {
       close: async (): Promise<void> => {
         await client.close();

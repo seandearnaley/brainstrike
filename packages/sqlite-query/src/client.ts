@@ -156,8 +156,10 @@ export class SqliteQueryClient {
       }
       return client;
     } catch (error) {
+      // Thrown at once, its process killed and its exit not joined (ADR-0031). Only a refused
+      // kill hands the client to its owner, for the retry.
       try {
-        await client.close();
+        client.kill();
       } catch (cleanup) {
         throw new SqliteQueryStartupCleanupError(client, error, cleanup);
       }
