@@ -1,19 +1,15 @@
-import { type MouseEvent, use, useState } from 'react';
+import { type MouseEvent, use } from 'react';
 import {
   type SubagentConversationAddress,
   SubagentConversationNavigationContext,
-  SubagentInvocationResolverContext,
   type SubagentInvocationRun,
 } from './subagent-conversation-navigation';
 
 export function useSubagentNavigation(
   address: SubagentConversationAddress,
-  invocation: SubagentInvocationRun,
-  toolCallId: string
+  invocation: SubagentInvocationRun
 ) {
   const open = use(SubagentConversationNavigationContext);
-  const resolve = use(SubagentInvocationResolverContext);
-  const [navigationError, setNavigationError] = useState<string>();
   if (address.kind === 'invalid') {
     return { navigationError: address.error };
   }
@@ -29,22 +25,5 @@ export function useSubagentNavigation(
         open(address.threadId, event.currentTarget),
     };
   }
-  if (!(resolve && invocation.kind === 'available')) {
-    return {};
-  }
-  return {
-    ...(navigationError ? { navigationError } : {}),
-    onOpenConversation: (event: MouseEvent<HTMLButtonElement>) => {
-      const origin = event.currentTarget;
-      setNavigationError(undefined);
-      resolve({
-        parentRuntimeRunId: invocation.parentRuntimeRunId,
-        parentToolCallId: toolCallId,
-      }).then(
-        (threadId) => open(threadId, origin),
-        (error: unknown) =>
-          setNavigationError(error instanceof Error ? error.message : String(error))
-      );
-    },
-  };
+  return {};
 }

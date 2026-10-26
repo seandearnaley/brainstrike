@@ -90,7 +90,7 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
   const { entry: presentation, reload } = useSubagentPresentation(
     address.kind === 'available' ? address.threadId : undefined
   );
-  const navigation = useSubagentNavigation(address, invocation, props.toolCallId);
+  const navigation = useSubagentNavigation(address, invocation);
   // BST-1932 (AT-07): the child's answered approvals, from its own committed log.
   const approvalHistory = use(SubagentApprovalHistoryContext);
   const childRun = useSubagentChildRun(address.kind === 'available' ? address.threadId : undefined);
