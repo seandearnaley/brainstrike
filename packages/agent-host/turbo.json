@@ -9,7 +9,13 @@
       // requires it for any static import.
       // The add-on's uncached `node-gyp rebuild` first removes build/, so a unit
       // suite that comes to load it would otherwise race that rebuild (BST-2243).
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build"]
+      // On Windows the unit suites open stores, and RootLock reads process start
+      // times through @brainstrike/windows-job-native, so that build comes first too.
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "@brainstrike/secure-fs-native#build",
+        "@brainstrike/windows-job-native#build"
+      ]
     },
     "test:integration": {
       // Spawned CLI and restart proofs run source under Node, which loads the

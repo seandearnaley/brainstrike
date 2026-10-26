@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { test } = require('node:test');
 const job = require('..');
-const { commandFixture, eventDeadlineMs, waitForChildExit } = require('./command-job-fixture.cjs');
+const { commandFixture, waitForChildExit } = require('./command-job-fixture.cjs');
 
 const windows = { skip: process.platform !== 'win32' };
 const addon = JSON.stringify(path.resolve(__dirname, '..'));
@@ -54,18 +54,9 @@ const {child}=await message(host);
 process.send({event:'ready',host:first.host,child});
 `;
 
+/** Joins the exit on the process handle; a process that outlives Main fails at the test's timeout. */
 function exited(identity) {
-  let timer;
-  const deadline = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`pid ${identity.pid} outlived Main by ${eventDeadlineMs} ms`)),
-      eventDeadlineMs
-    );
-  });
-  return Promise.race([
-    job.waitForProcessExit(identity.pid, identity.creationTime),
-    deadline,
-  ]).finally(() => clearTimeout(timer));
+  return job.waitForProcessExit(identity.pid, identity.creationTime);
 }
 
 async function killMain(t, order, assign) {
