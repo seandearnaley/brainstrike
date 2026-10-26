@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { IndexerError } from '@brainstrike/indexer';
 import { expect, test, vi } from 'vitest';
 import { nativeRuntimeFixture } from './native-index-runtime-fixture';
 
@@ -126,6 +127,28 @@ test('destroying inactive native content opens only the owned writer and keeps t
   await clearing;
   await f.runtime.acquireProfile({ indexIndependent: true });
   expect(f.closeProfile).not.toHaveBeenCalled();
+  await f.runtime.retireProfile();
+});
+
+test('destroying an inactive index whose store refuses its file removes it through that writer', async () => {
+  const f = nativeRuntimeFixture();
+  const original = f.createIndexOwner.getMockImplementation();
+  if (!original) {
+    throw new Error('Missing owner factory');
+  }
+  const destroy = vi.fn(async () => undefined);
+  f.createIndexOwner.mockImplementation(async (authority) => ({
+    ...(await original(authority)),
+    destroy,
+    start: () =>
+      Promise.reject(
+        new IndexerError('rebuild-required', 'Existing index metadata is invalid: Expected 16')
+      ),
+  }));
+  await f.runtime.closeIndex();
+  f.getAuthority.mockRejectedValue(new Error('The search index settings could not be read.'));
+  await f.runtime.destroyIndex();
+  expect(destroy).toHaveBeenCalledOnce();
   await f.runtime.retireProfile();
 });
 
