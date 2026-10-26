@@ -135,6 +135,9 @@ not patched around.
    and every join still completed.
 3. **Hosted Windows.** The Windows merge-queue lanes pass three runs in a row, uncached, and
    every job ends cleanly: no step hangs after the tests, and the runner's orphan cleanup
-   terminates none of our processes (node, electron, git, rg).
+   terminates none of our processes (node, electron, git, rg). Superseded by the owner
+   decision of 2026-10-26: no merge-queue batch runs on Windows; hosted Windows runs only
+   the unit tests, nightly and on manual dispatch, and Windows integration and E2E run on
+   demand on a real Windows machine.
 4. **No regressions elsewhere.** `pnpm check` passes, and the same lifecycle suites pass on
    sean-ubuntu.
