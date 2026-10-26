@@ -6,6 +6,7 @@ const {
   ExclusiveLock: NativeExclusiveLock,
   SecureRoot: NativeSecureRoot,
   applyPrivateDirectorySync,
+  killWithParent,
   markDescriptorsCloseOnExec,
   setDefaultOwnerToCurrentUserSync,
   verifyPrivateDirectorySync,
@@ -88,6 +89,7 @@ exports.SecureRoot = SecureRoot;
 exports.tryExclusiveLock = tryExclusiveLock;
 exports.waitForExclusiveLock = waitForExclusiveLock;
 exports.markDescriptorsCloseOnExec = markDescriptorsCloseOnExec;
+exports.killWithParent = killWithParent;
 
 exports.applyPrivateDirectorySync = applyPrivateDirectorySync;
 exports.verifyPrivateDirectorySync = verifyPrivateDirectorySync;

@@ -236,7 +236,10 @@ describe(
       Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
       const host = spawn(
         process.execPath,
-        [agentEntrypoint, ...encodeHostChildArgs({ modulePath: agentPlatform, root })],
+        [
+          agentEntrypoint,
+          ...encodeHostChildArgs({ modulePath: agentPlatform, parentPid: process.pid, root }),
+        ],
         { env, stdio: ['pipe', 'pipe', 'pipe'] }
       );
       let stderr = '';
@@ -280,7 +283,10 @@ describe(
       Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
       const host = spawn(
         process.execPath,
-        [agentEntrypoint, ...encodeHostChildArgs({ modulePath: stuckClosePlatform, root })],
+        [
+          agentEntrypoint,
+          ...encodeHostChildArgs({ modulePath: stuckClosePlatform, parentPid: process.pid, root }),
+        ],
         { env, stdio: ['pipe', 'pipe', 'pipe'] }
       );
       host.stderr.resume();
@@ -330,7 +336,14 @@ describe(
           trials.push(trial);
           const host = spawn(
             process.execPath,
-            [agentEntrypoint, ...encodeHostChildArgs({ modulePath: streamingPlatform, root })],
+            [
+              agentEntrypoint,
+              ...encodeHostChildArgs({
+                modulePath: streamingPlatform,
+                parentPid: process.pid,
+                root,
+              }),
+            ],
             { env, stdio: ['pipe', 'pipe', 'pipe'] }
           );
           const pid = host.pid;
@@ -430,6 +443,25 @@ describe(
       await joinProcessExit(host.pid, host.start);
       expect(isRootHeld(root)).toBe(false);
       expect(await committedRows(root, threadId)).toEqual(['command.accepted', 'thread.started']);
+    });
+
+    // A stopped host never reads its stdin's end, and POSIX keeps it stopped past the app's
+    // death. Linux's parent-death signal is a SIGKILL, which ends a stopped process too.
+    it.runIf(process.platform === 'linux')('a stopped host dies with the app', async () => {
+      const root = join(directory, 'stopped');
+      const app = startApp(root);
+      const { host } = await app.attached;
+      onTestFailed(() => {
+        if (processStartTime(host.pid) === host.start) {
+          process.kill(host.pid, 'SIGKILL');
+        }
+      });
+      process.kill(host.pid, 'SIGSTOP');
+      app.process.kill('SIGKILL');
+      await app.exited;
+      activeApps.delete(app);
+      await joinProcessExit(host.pid, host.start);
+      expect(isRootHeld(root)).toBe(false);
     });
 
     it('refuses a second app on the same root while the first has it open', async () => {

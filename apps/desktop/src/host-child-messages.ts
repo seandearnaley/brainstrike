@@ -35,12 +35,14 @@ export const decodeHostChildControl = makeThrowingDecoder(ControlSchema, {
 });
 const ArgsSchema = Schema.Struct({
   modulePath: Schema.String.check(Schema.isMinLength(1)),
+  // The process that started the host, which it exits with even while stopped (Linux).
+  parentPid: Schema.Int.check(Schema.isGreaterThan(0)),
   platformOptions: Schema.optional(HostPlatformLaunchOptionsSchema),
   root: Schema.String.check(Schema.isPattern(/^[^\r\n\0]{1,4096}$/)),
 });
 export type HostChildArgs = typeof ArgsSchema.Type;
 const decodeArgs = makeThrowingDecoder(ArgsSchema, { onExcessProperty: 'error' });
-/** The child's one argument: its root, platform module and launch options, as JSON. */
+/** The child's one argument: its root, parent, platform module and launch options, as JSON. */
 export function encodeHostChildArgs(args: HostChildArgs): string[] {
   return [JSON.stringify(args)];
 }

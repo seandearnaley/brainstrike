@@ -58,10 +58,14 @@
 #else
 #include <dirent.h>
 #include <fcntl.h>
+#include <csignal>
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 #endif
 
 namespace {
@@ -1888,12 +1892,34 @@ Napi::Value MarkDescriptorsCloseOnExec(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+// Has the kernel SIGKILL this process when the thread that started it exits. A SIGKILL ends a
+// stopped process too, which can read neither its stdin's end nor a watch on its parent. Linux
+// only: elsewhere nothing kills a stopped child at its parent's death. The parent's pid is
+// checked after arming, since a parent that died before the call sends no signal.
+Napi::Value KillWithParent(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsNumber() ||
+      !IsWholeNumberInRange(info[0].As<Napi::Number>().DoubleValue(), 1, INT_MAX)) {
+    throw Napi::TypeError::New(env, "killWithParent takes the parent's pid");
+  }
+#ifdef __linux__
+  const pid_t parent = static_cast<pid_t>(info[0].As<Napi::Number>().Int32Value());
+  if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0) {
+    ThrowErrno(env, "prctl(PR_SET_PDEATHSIG) failed", errno);
+  }
+  return Napi::String::New(env, getppid() == parent ? "armed" : "parent-exited");
+#else
+  return Napi::String::New(env, "unsupported");
+#endif
+}
+
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
   exports.Set("applyPrivateDirectorySync", Napi::Function::New(env, ApplyPrivateDirectorySync));
   exports.Set("verifyPrivateDirectorySync", Napi::Function::New(env, VerifyPrivateDirectorySync));
   exports.Set("setDefaultOwnerToCurrentUserSync",
               Napi::Function::New(env, SetDefaultOwnerToCurrentUserSync));
   exports.Set("markDescriptorsCloseOnExec", Napi::Function::New(env, MarkDescriptorsCloseOnExec));
+  exports.Set("killWithParent", Napi::Function::New(env, KillWithParent));
   ExclusiveLock::Init(env, exports);
   return SecureRoot::Init(env, exports);
 }

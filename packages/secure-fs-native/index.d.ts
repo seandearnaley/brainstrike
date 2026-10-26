@@ -72,6 +72,14 @@ export function waitForExclusiveLock(lockPath: string): Promise<ExclusiveLock>;
 export function markDescriptorsCloseOnExec(): void;
 
 /**
+ * Has the OS kill this process with SIGKILL when the parent that started it exits, which ends
+ * it even while it is stopped (Linux `PR_SET_PDEATHSIG`). `parent-exited`: the parent was gone
+ * before the call, so no signal will come. `unsupported`: this OS has no such signal, and a
+ * stopped child outlives its parent (macOS); Windows ends a child with its parent's Job.
+ */
+export function killWithParent(parentPid: number): 'armed' | 'parent-exited' | 'unsupported';
+
+/**
  * A Windows directory's owner and DACL against the private grant. `private`:
  * the current user owns it, and its DACL is protected and holds exactly one ACE,
  * an explicit Allow of FILE_ALL_ACCESS to that user, inherited by containers and

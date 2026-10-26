@@ -343,6 +343,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           entrypoint,
           encodeHostChildArgs({
             modulePath,
+            parentPid: process.pid,
             root: options.root,
             ...(platformOptions === undefined ? {} : { platformOptions }),
           }),

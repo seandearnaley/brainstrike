@@ -5,6 +5,7 @@ import '@brainstrike/secure-fs-native/default-owner';
 import { enableCompileCache } from 'node:module';
 import type { OpenedAgentHost } from '@brainstrike/agent-host';
 import { configureLogger } from '@brainstrike/logging';
+import { killWithParent } from '@brainstrike/secure-fs-native';
 import { onProcessGroup } from '@brainstrike/utils/process-groups';
 import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
 import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
@@ -92,7 +93,16 @@ async function main(): Promise<void> {
   process.once('SIGTERM', close);
   process.once('SIGINT', close);
   try {
-    const { modulePath, platformOptions, root } = decodeHostChildArgs(process.argv.slice(2));
+    const { modulePath, parentPid, platformOptions, root } = decodeHostChildArgs(
+      process.argv.slice(2)
+    );
+    // A stopped host reads no stdin end, and POSIX keeps it past its client's death: on Linux
+    // the kernel kills it with its client. macOS has no such signal, and a resumed host reads
+    // its stdin's end; on Windows the client's kill-on-close Job ends it.
+    if (killWithParent(parentPid) === 'parent-exited') {
+      close();
+      return;
+    }
     const { openHostProcess } = await import('@brainstrike/agent-host');
     // Nothing cancels the opening: the client's end exits this process instead.
     host = await openHostProcess(root, modulePath, platformOptions, new AbortController().signal);

@@ -99,6 +99,7 @@ describe('desktop host child', () => {
       expect(spawn.mock.calls[0]?.[0]).toBe('/entry.js');
       expect(JSON.parse(spawn.mock.calls[0]?.[1][0] ?? 'null')).toEqual({
         modulePath: '/platform.js',
+        parentPid: process.pid,
         root,
       });
       await vi.waitFor(() => expect(child.channels).toEqual(['platform']));
