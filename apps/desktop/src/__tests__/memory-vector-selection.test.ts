@@ -73,3 +73,22 @@ test('recall without a target refuses visibly', async () => {
     remedy: 'Choose an embedding model in Settings → Assistant Memory.',
   });
 });
+
+test('recall with a target of a removed provider refuses visibly', async () => {
+  // A profile saved before local embedding models were removed (#4420) can still name one.
+  const read = sources();
+  const removed = await resolveDesktopMemoryVectors(
+    settings('local/onnx-community/granite-embedding-small-english-r2-ONNX'),
+    read
+  ).catch((error: unknown) => error);
+  expect(removed).toBeInstanceOf(BoundaryFailureError);
+  expect((removed as BoundaryFailureError).failure).toEqual({
+    category: 'configuration',
+    code: 'memory.configuration-invalid',
+    kind: 'refusal',
+    message:
+      'Unsupported semantic recall embedding provider "local" in model target "local/onnx-community/granite-embedding-small-english-r2-ONNX".',
+    remedy: 'Choose an embedding model in Settings → Assistant Memory.',
+  });
+  expect(read.readDimensions).not.toHaveBeenCalled();
+});
