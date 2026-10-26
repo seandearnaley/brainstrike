@@ -12,6 +12,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostRoot, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import {
   ensureActivityExpanded,
@@ -305,7 +306,7 @@ async function assertAssembledChildControl(
         .toEqual({ rootRunning: false, states: ['cancelled', 'returned', 'returned'] });
 
       const beforeReload = modelCalls();
-      await window.reload();
+      await reloadRenderer(window, 'delegated-child-interactive: reload 1');
       await configureAssistantProvider(window, {
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
@@ -436,7 +437,7 @@ async function assertAssembledChildControl(
       expect(finalParentInput).not.toContain('ASSEMBLED_EVIDENCE_1770');
 
       const completedCalls = modelCalls();
-      await window.reload();
+      await reloadRenderer(window, 'delegated-child-interactive: reload 2');
       await ensureAssistantShellVisible(window);
       await expect(root.getByText(assembledMarkers.parentResult, { exact: true })).toBeVisible();
       expect(await tree()).toEqual(persisted);
@@ -707,7 +708,7 @@ async function assertChildDecision(
       const modelCalls = (): number =>
         provider.requests().filter(({ toolNames }) => toolNames.length > 0).length;
       const pausedRequests = modelCalls();
-      await window.reload();
+      await reloadRenderer(window, 'delegated-child-interactive: reload 3');
       await configureAssistantProvider(window, {
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
