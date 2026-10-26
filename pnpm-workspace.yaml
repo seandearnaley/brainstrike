@@ -330,7 +330,11 @@ patchedDependencies:
   # @assistant-ui/react-streamdown (and its override) to match.
   streamdown@2.7.0: patches/streamdown@2.7.0.patch
   # Playwright 1.64 launches Electron through cmd.exe on every Windows path, so it holds the
-  # shell, not Main, and force-closes with `taskkill /T` from the shell's pid. The patch keeps
-  # the shell for .bat/.cmd only; Electron itself is an .exe. Paired test: the launched process
-  # is the app itself, in apps/desktop/e2e/app-launch.test.ts.
+  # shell, not Main, and force-closes with `taskkill /T` from the shell's pid. /T walks parent
+  # pids, which Windows never checks against creation time, so a reused pid takes in processes
+  # that are not the app's. The patch keeps the shell for .bat/.cmd only (Electron is an .exe)
+  # and, without a shell, force-closes through the launched process's own handle
+  # (TerminateProcess), never by pid; the kill-on-close Job Main holds for its host ends the host
+  # (apps/desktop/src/host-process-job.ts). Paired tests: apps/desktop/e2e/app-launch.test.ts
+  # (the launched process is the app itself) and main-process-loss.desktop.test.ts.
   playwright-core@1.64.1: patches/playwright-core@1.64.1.patch
