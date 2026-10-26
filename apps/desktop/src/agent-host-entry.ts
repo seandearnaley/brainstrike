@@ -31,7 +31,6 @@ async function main(): Promise<void> {
   configureLogger({ console: { destination: 2 }, includeTimestamp: true });
   // Electron's Node runs this entry as Node; nothing this host starts inherits that.
   Reflect.deleteProperty(process.env, 'ELECTRON_RUN_AS_NODE');
-  const controller = new AbortController();
   let host: OpenedAgentHost | undefined;
   let exiting = false;
   const exit = (code: number): void => {
@@ -41,22 +40,13 @@ async function main(): Promise<void> {
   const failed = (cause: unknown): void => {
     process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
   };
+  // ADR-0031: the client gone is the whole ask. Every write is committed when it is made, so
+  // the host exits at once and joins nothing: the OS releases the Root, and the client ends
+  // what the host started (its kill-on-close Job, the command groups it was told of).
   const close = (): void => {
-    if (exiting) {
-      return;
+    if (!exiting) {
+      exit(0);
     }
-    exiting = true;
-    controller.abort(new Error('Host process closed'));
-    if (!host) {
-      process.exit(0);
-    }
-    host.close().then(
-      () => process.exit(0),
-      (cause: unknown) => {
-        failed(cause);
-        process.exit(1);
-      }
-    );
   };
   const stdio = openHostStdio(process.stdin, process.stdout, {
     invalid: (cause) => {
@@ -104,15 +94,10 @@ async function main(): Promise<void> {
   try {
     const { modulePath, platformOptions, root } = decodeHostChildArgs(process.argv.slice(2));
     const { openHostProcess } = await import('@brainstrike/agent-host');
-    host = await openHostProcess(root, modulePath, platformOptions, controller.signal);
-    if (controller.signal.aborted) {
-      return;
-    }
+    // Nothing cancels the opening: the client's end exits this process instead.
+    host = await openHostProcess(root, modulePath, platformOptions, new AbortController().signal);
     await report({ event: 'ready' });
   } catch (cause) {
-    if (controller.signal.aborted) {
-      return;
-    }
     const { RootLockedError } = await import('@brainstrike/state-store');
     failed(cause);
     await report({

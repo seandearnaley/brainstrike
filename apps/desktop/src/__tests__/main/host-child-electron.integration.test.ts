@@ -64,6 +64,7 @@ let driver: string;
 let agentEntrypoint: string;
 let agentPlatform: string;
 let streamingPlatform: string;
+let stuckClosePlatform: string;
 const activeApps = new Set<AppChild>();
 
 beforeAll(async () => {
@@ -73,6 +74,7 @@ beforeAll(async () => {
   agentEntrypoint = join(directory, 'agent-host-entry.cjs');
   agentPlatform = join(directory, 'agent-host-utility-platform.cjs');
   streamingPlatform = join(directory, 'agent-host-streaming-platform.cjs');
+  stuckClosePlatform = join(directory, 'agent-host-stuck-close-platform.cjs');
   // Real production bundle format, external package graph and Electron runtime.
   await build({
     absWorkingDir: resolve('.'),
@@ -80,6 +82,8 @@ beforeAll(async () => {
     entryPoints: {
       'agent-host-entry': 'src/agent-host-entry.ts',
       'agent-host-streaming-platform': 'src/__tests__/fixtures/agent-host-streaming-platform.ts',
+      'agent-host-stuck-close-platform':
+        'src/__tests__/fixtures/agent-host-stuck-close-platform.ts',
       'agent-host-utility-platform': 'src/__tests__/fixtures/agent-host-utility-platform.ts',
       driver: 'src/__tests__/fixtures/host-child-electron.ts',
     },
@@ -265,6 +269,40 @@ describe(
       stdio.end();
       expect(await exited).toBe(0);
       await closed;
+      expect(await committedRows(root, threadId)).toEqual(['command.accepted', 'thread.started']);
+    });
+
+    it('ends at stdin EOF without joining a close that never settles, and releases the Root', async () => {
+      // ADR-0031: every write is committed when made, so the host's exit needs nothing from its
+      // children; the OS releases the Root and ends what the host started.
+      const root = join(directory, 'stuck-close');
+      const env = { ...process.env, NODE_PATH: resolve('node_modules') };
+      Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
+      const host = spawn(
+        process.execPath,
+        [agentEntrypoint, ...encodeHostChildArgs({ modulePath: stuckClosePlatform, root })],
+        { env, stdio: ['pipe', 'pipe', 'pipe'] }
+      );
+      host.stderr.resume();
+      const exited = new Promise<number | null>((done) => host.once('exit', done));
+      const ready = Promise.withResolvers<void>();
+      const stdio = openHostStdio(host.stdout, host.stdin, {
+        invalid: ready.reject,
+        message: () => ready.resolve(),
+      });
+      await ready.promise;
+      const port = stdio.open('main');
+      const closed = new Promise<void>((done) => port.on('close', () => done()));
+      const client = await authenticateHostClient(
+        mainPlatformConnection(port),
+        { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
+        async () => port.close(),
+        closed
+      );
+      const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+      stdio.end();
+      expect(await exited).toBe(0);
+      expect(isRootHeld(root)).toBe(false);
       expect(await committedRows(root, threadId)).toEqual(['command.accepted', 'thread.started']);
     });
 
