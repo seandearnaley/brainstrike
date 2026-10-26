@@ -57,7 +57,7 @@ it.each(['cancelled', 'startup-failed', 'cleanup-failed'] as const)(
       expect(failure).toBe(outcome === 'startup-failed' ? unrelated : quit.signal.reason);
     }
     expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
-    await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+    await expect(activation.acquireProfile()).rejects.toThrow('The agent host is closing.');
   }
 );
 
@@ -88,21 +88,23 @@ it('retains the assistant profile through index settings replacement and rebuild
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
-it('retries a failed host start once that host has released Root; Main retirement stays terminal', async () => {
+it('answers a failed host start at once, and starts the next host only after its Root release; Main retirement stays terminal', async () => {
   const { activation } = fixture();
   try {
     // The failed start's rollback closes its platform, which releases Root capabilities.
     mocks.acquireProfile.mockImplementationOnce(async () => {
       await activation.closeRootCapabilities();
-      throw new Error('Host startup timed out');
+      throw new Error('Host startup failed');
     });
+    await expect(activation.acquireProfile()).rejects.toThrow('Host startup failed');
+    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
     await expect(activation.acquireProfile()).resolves.toBeUndefined();
     expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
     expect(mocks.closeProfile).toHaveBeenCalledOnce();
   } finally {
     await activation.close();
   }
-  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+  await expect(activation.acquireProfile()).rejects.toThrow('The agent host is closing.');
 });
 
 it('relaunches a ready host that was lost once its Root release has run (BST-2004)', async () => {
@@ -118,7 +120,21 @@ it('relaunches a ready host that was lost once its Root release has run (BST-200
   } finally {
     await activation.close();
   }
-  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+  await expect(activation.acquireProfile()).rejects.toThrow('The agent host is closing.');
+});
+
+it('admits host clients while the index is closed, and never refuses them with the index state', async () => {
+  const { activation } = fixture();
+  try {
+    await activation.acquireProfile();
+    // The host's platform closed (on Windows, before Main records the host's exit): the index
+    // is closed, but the host is the profile's, and a window and Main still reach it.
+    await activation.closeRootCapabilities();
+    await expect(activation.acquireProfile()).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+  } finally {
+    await activation.close();
+  }
 });
 
 it('joins the lost host Root release before relaunching when a client asks first (BST-2004)', async () => {
@@ -162,13 +178,14 @@ it('keeps Main retirement terminal when a starting host fails and releases Root 
   expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
 });
 
-it('shows a failure that persists after the retry, and a later admission starts again', async () => {
+it('shows each failed host start to its borrow, never retrying it, and a later admission starts again', async () => {
   const { activation } = fixture();
   try {
     mocks.acquireProfile
       .mockRejectedValueOnce(new Error('first start failed'))
-      .mockRejectedValueOnce(new Error('retry failed'));
-    await expect(activation.acquireProfile()).rejects.toThrow('retry failed');
+      .mockRejectedValueOnce(new Error('second start failed'));
+    await expect(activation.acquireProfile()).rejects.toThrow('first start failed');
+    await expect(activation.acquireProfile()).rejects.toThrow('second start failed');
     await expect(activation.acquireProfile()).resolves.toBeUndefined();
     expect(mocks.createProfileOwner).toHaveBeenCalledTimes(3);
   } finally {

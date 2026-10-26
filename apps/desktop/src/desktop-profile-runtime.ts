@@ -4,15 +4,11 @@ interface ProfileOwner<Attachment> {
   acquire(): Promise<Attachment>;
   clearAndRetireContent?(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
-  /** The exit of this owner's ready host, once it has one. */
-  hostExited?(): Promise<unknown> | undefined;
 }
 
 export interface DesktopProfileRuntime<Attachment> {
   acquire(signal?: AbortSignal): Promise<Attachment>;
   clearAndRetireContent(): Promise<ClearContentResult>;
-  /** The exit of the current owner's ready host, once it has one. */
-  hostExited(): Promise<unknown> | undefined;
   isRetiring(): boolean;
   /** Why the profile's last host start failed, until a start succeeds. */
   lastFailure(): { readonly cause: unknown } | undefined;
@@ -66,7 +62,7 @@ export function createDesktopProfileRuntime<Attachment>(
       if (!owner && failedOwner) {
         // A failed start answers at once while its release goes on; the next owner starts
         // against the Root only once that release has ended.
-        await failedOwner.close();
+        await retireFailed();
         // A retirement that began during that release ends before any next owner starts.
         await retirement;
         signal?.throwIfAborted();
@@ -122,7 +118,6 @@ export function createDesktopProfileRuntime<Attachment>(
         }
       );
     },
-    hostExited: () => owner?.hostExited?.(),
     isRetiring: () => retirement !== undefined,
     lastFailure: () => lastFailure,
     retire: (beforeClose = Promise.resolve(), reason?: unknown) => {

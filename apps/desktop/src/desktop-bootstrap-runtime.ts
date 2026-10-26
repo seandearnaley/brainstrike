@@ -188,14 +188,17 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
       lifecycleDelays: lifecycleDelaySeam(),
       onChildReady: privateClients.attach,
       onChildStarted: () => launched.resolve(),
-      onLost: (code, { requested }) => {
-        if (requested) {
-          logger.info('The agent host stopped for the restart the user asked for', { code });
-        } else {
-          logger.warn('The agent host exited without Main asking; the next client relaunches it', {
-            code,
-          });
-        }
+      onLost: ({ exited, requested }) => {
+        void exited.then((code) => {
+          if (requested) {
+            logger.info('The agent host stopped for the restart the user asked for', { code });
+          } else {
+            logger.warn(
+              'The agent host exited without Main asking; the next client relaunches it',
+              { code }
+            );
+          }
+        });
         lost();
       },
       platform: (children, port) => {
@@ -257,7 +260,6 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
         }
         return lease.close(reason);
       },
-      hostExited: lease.hostExited,
     };
   });
   return {

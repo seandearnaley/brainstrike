@@ -1,5 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/client';
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
+import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { heldRoot } from './native-index-boundary-failure';
 import type { NativeIndexState } from './native-index-lifecycle';
 import {
@@ -14,19 +15,20 @@ interface ProfileAdmissionRuntime {
     signal?: AbortSignal
   ): Promise<HostClient>;
   lastProfileFailure(): { readonly cause: unknown } | undefined;
-  profileHostExited(): Promise<unknown> | undefined;
+  profileRetired(): boolean;
   retireFailedProfile(): Promise<boolean>;
 }
 
 export interface NativeIndexProfileAdmission {
-  /** A borrow of the profile's host (a client's, or index work's): started, joined, or refused. */
+  /** Index work's borrow of the profile's host: started, joined, or refused. */
   acquire(signal?: AbortSignal): Promise<HostClient>;
   /**
-   * A window's client borrow, which never runs inside index work. When it finds the host
-   * released while that host is still exiting or other borrows start its replacement, it
-   * admits again once they settle instead of being refused.
+   * A host client's borrow: a window, Main's own client, the catalogs. The host is the
+   * profile's, not the index's, so the index's state never refuses it; readers see that state
+   * as the index's status. Only a held Root, quit, a retired profile (until its resume) or the
+   * host's own start failure refuses it.
    */
-  acquireClient(signal?: AbortSignal): Promise<HostClient>;
+  acquireHost(signal?: AbortSignal): Promise<HostClient>;
   /** Quit begins: every borrow still waiting for the host's start-up is refused now. */
   fenceTerminal(): void;
 }
@@ -38,15 +40,6 @@ export interface NativeIndexProfileAdmission {
 function heldRootRefusal(runtime: ProfileAdmissionRuntime): unknown {
   const failure = runtime.lastProfileFailure();
   return failure && heldRoot(failure.cause) ? failure.cause : undefined;
-}
-
-/** The refusal a borrow gets when it finds the host released and nothing left to retire. */
-function isReleasedHostRefusal(cause: unknown): boolean {
-  return (
-    cause instanceof NativeIndexRefusalError &&
-    cause.refusal.kind === 'closed' &&
-    cause.refusal.reason === 'host-released'
-  );
 }
 
 /**
@@ -76,38 +69,54 @@ function closedRefusal(
 export function createNativeIndexProfileAdmission(
   lifecycle: Promise<NativeIndexLifecycle>,
   runtime: ProfileAdmissionRuntime,
-  /** Opens the idle index from its saved settings; never waited on. */
-  openResumed: () => void
+  resumed: {
+    /** Opens the idle index from its saved settings; never waited on. */
+    readonly open: () => void;
+    /** A host-loss resume that failed after a host client was admitted. */
+    readonly failed: (error: unknown) => void;
+  }
 ): NativeIndexProfileAdmission {
   const fenced = Promise.withResolvers<never>();
   fenced.promise.catch(() => undefined);
   let terminal = false;
   // The idle generation this admission last resumed from a host release; it opens once a
   // host is admitted. A later resume is a new generation, so this never matches it.
-  let resumed: number | undefined;
-  const admitProfile = async (signal?: AbortSignal): Promise<HostClient> => {
-    const owner = await lifecycle;
-    const recover = async (): Promise<boolean> => {
-      if (heldRootRefusal(runtime) !== undefined || !(await runtime.retireFailedProfile())) {
+  let resumedGeneration: number | undefined;
+  /** BST-2004: resumes an index its lost or failed host's release closed. */
+  const resumeReleased = async (owner: NativeIndexLifecycle): Promise<boolean> => {
+    const state = await owner.state();
+    if (state.kind === 'closed') {
+      if (state.reason !== 'host-released') {
         return false;
       }
-      const state = await owner.state();
-      if (state.kind === 'closed') {
-        if (state.reason !== 'host-released') {
-          return false;
-        }
-        const resuming = await owner.dispatch({ kind: 'profile-resume' });
-        await owner.dispatch({ generation: resuming.generation, kind: 'profile-resumed' });
-        resumed = resuming.generation;
-      }
-      return true;
-    };
+      const resuming = await owner.dispatch({ kind: 'profile-resume' });
+      await owner.dispatch({ generation: resuming.generation, kind: 'profile-resumed' });
+      resumedGeneration = resuming.generation;
+    }
+    return true;
+  };
+  /** BST-2004: joins a failed or lost host's Root release and resumes the index it closed. */
+  const recover = async (owner: NativeIndexLifecycle): Promise<boolean> => {
+    if (heldRootRefusal(runtime) !== undefined || !(await runtime.retireFailedProfile())) {
+      return false;
+    }
+    return await resumeReleased(owner);
+  };
+  /** The index the lost host closed opens again once a replacement is admitted. */
+  const openIfResumed = async (owner: NativeIndexLifecycle): Promise<void> => {
+    const state = await owner.state();
+    if (state.kind === 'idle' && state.generation === resumedGeneration) {
+      resumed.open();
+    }
+  };
+  const admitProfile = async (signal?: AbortSignal): Promise<HostClient> => {
+    const owner = await lifecycle;
     const refused = heldRootRefusal(runtime);
     if (refused !== undefined) {
       throw refused;
     }
     // BST-2004: a lost ready host fails like a failed start; join its Root release first.
-    const recovered = await recover();
+    const recovered = await recover(owner);
     let state = await owner.state();
     if (state.kind === 'closed' && !recovered) {
       throw closedRefusal(state, runtime);
@@ -118,11 +127,8 @@ export function createNativeIndexProfileAdmission(
       if (state.kind === 'closed') {
         throw stateError(state);
       }
-      if (state.kind === 'idle' && state.generation === resumed) {
-        // BST-2004: the index the lost host closed opens again once a replacement is
-        // admitted. The borrow does not wait for it: host admission is index-independent.
-        openResumed();
-      }
+      // The borrow does not wait for the open: host admission is index-independent.
+      await openIfResumed(owner);
       return attachment;
     };
     try {
@@ -130,7 +136,7 @@ export function createNativeIndexProfileAdmission(
     } catch (cause) {
       let recovered: boolean;
       try {
-        recovered = await recover();
+        recovered = await recover(owner);
       } catch (release) {
         throw cause instanceof AggregateError && cause.errors.includes(release)
           ? cause
@@ -142,37 +148,38 @@ export function createNativeIndexProfileAdmission(
       return admit();
     }
   };
-  const admitting = new Set<Promise<HostClient>>();
-  const acquire = (signal?: AbortSignal): Promise<HostClient> => {
-    if (terminal) {
-      return fenced.promise;
-    }
-    const admission = admitProfile(signal);
-    admitting.add(admission);
-    const settled = (): void => {
-      admitting.delete(admission);
-    };
-    admission.then(settled, settled);
-    return Promise.race([admission, fenced.promise]);
-  };
   return {
-    acquire,
-    acquireClient: async (signal) => {
-      try {
-        return await acquire(signal);
-      } catch (cause) {
-        // BST-2004: the host is going away, or another borrow is retiring it and starting the
-        // next one. A window waits for both, then admits once more. Index work never waits on
-        // them (it may hold the index queue that recovery needs).
-        const releasing = [runtime.profileHostExited(), ...admitting].filter(
-          (pending) => pending !== undefined
-        );
-        if (!(isReleasedHostRefusal(cause) && releasing.length > 0)) {
-          throw cause;
-        }
-        await Promise.race([Promise.allSettled(releasing), fenced.promise]);
-        return acquire(signal);
+    acquire: (signal) => {
+      if (terminal) {
+        return fenced.promise;
       }
+      return Promise.race([admitProfile(signal), fenced.promise]);
+    },
+    acquireHost: async (signal) => {
+      if (terminal) {
+        return fenced.promise;
+      }
+      const refused = heldRootRefusal(runtime);
+      if (refused !== undefined) {
+        throw refused;
+      }
+      // A reset holds the Root through its deletion: no host starts against it until it resumes.
+      if (runtime.profileRetired()) {
+        throw new BoundaryFailureError(HOST_LEASE_CLOSED);
+      }
+      // The profile runtime joins a failed or lost host's release before it starts the next.
+      const attachment = await Promise.race([
+        runtime.acquireProfile({ indexIndependent: true }, signal),
+        fenced.promise,
+      ]);
+      // Not waited on: the index's own state, not this borrow, shows how its resume goes.
+      void (async () => {
+        const owner = await lifecycle;
+        if (await resumeReleased(owner)) {
+          await openIfResumed(owner);
+        }
+      })().catch(resumed.failed);
+      return attachment;
     },
     fenceTerminal: () => {
       if (!terminal) {

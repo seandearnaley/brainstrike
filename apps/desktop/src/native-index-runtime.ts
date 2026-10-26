@@ -72,8 +72,8 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   /** Why the profile's last host start failed, until a start succeeds. */
   lastProfileFailure(): { readonly cause: unknown } | undefined;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
-  /** The exit of the profile's current ready host, once it has one. */
-  profileHostExited(): Promise<unknown> | undefined;
+  /** Main retired the profile (quit, reset), and no resume has reopened it since. */
+  profileRetired(): boolean;
   resume(signal?: AbortSignal): Promise<void>;
   /** Joins a failed acquisition's release (its host exited, port closed); false when none failed. */
   retireFailedProfile(): Promise<boolean>;
@@ -170,6 +170,7 @@ export function createNativeIndexRuntime<Attachment>(
   let acknowledgedPort: NativePort | undefined;
   let bindingRemovalPending = false;
   let closed = false;
+  let profileRetired = false;
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
   let cleanup: Promise<void> | undefined;
@@ -544,7 +545,7 @@ export function createNativeIndexRuntime<Attachment>(
       );
       return operation;
     },
-    profileHostExited: dependencies.profile.hostExited,
+    profileRetired: () => profileRetired,
     resume: async (signal?: AbortSignal): Promise<void> => {
       signal?.throwIfAborted();
       if (indexOwner || dependencies.profile.isRetiring() || closing || acquisition) {
@@ -552,10 +553,14 @@ export function createNativeIndexRuntime<Attachment>(
       }
       closed = false;
       readsClosed = false;
+      profileRetired = false;
       await acquireProfile(undefined, signal);
     },
     retireFailedProfile: dependencies.profile.retireFailed,
-    retireProfile: (reason) => dependencies.profile.retire(closeIndex(), reason),
+    retireProfile: (reason) => {
+      profileRetired = true;
+      return dependencies.profile.retire(closeIndex(), reason);
+    },
     retireReads: async (): Promise<void> => {
       readsClosed = true;
       await joinReads();

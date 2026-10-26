@@ -83,11 +83,16 @@ export interface DesktopHostLeaseOptions {
   /** The host is spawned and its platform channel is open. */
   readonly onChildStarted?: () => void;
   /**
-   * BST-2004: the ready child exited while this owner was not closing it: a crash, a kill,
-   * a clean exit of its own, or a stop for a relaunch the user asked for (`requested`).
-   * Never called for a close of the lease itself.
+   * BST-2004: the ready child's output ended while this owner was not closing it: a crash, a
+   * kill, an exit of its own, or a stop for a relaunch the user asked for (`requested`). It is
+   * called when the host's protocol stream ends, which is when its platform channel closes,
+   * not at its OS exit, which can come later; `exited` settles with that exit's code. Never
+   * called for a close of the lease itself.
    */
-  readonly onLost?: (code: number, exit: { readonly requested: boolean }) => void;
+  readonly onLost?: (loss: {
+    readonly exited: Promise<number>;
+    readonly requested: boolean;
+  }) => void;
   /** Main's platform, served on the host's platform channel, and its supervisor of the host's native processes. */
   readonly platform?: (
     nativeChildren: HostNativeChildren,
@@ -113,8 +118,6 @@ export interface DesktopHostLease {
   acquire(): Promise<HostClient>;
   clearAndRetireContent(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
-  /** The exit of this lease's ready host, once it has one. */
-  hostExited(): Promise<number> | undefined;
 }
 
 interface OwnedChild {
@@ -132,7 +135,7 @@ interface OwnedChild {
   /** This child's one ask-wait-kill, shared by every close of it. */
   stopping?: Promise<number>;
 }
-function ownChild(handle: HostChildProcess, lost: (code: number) => void): OwnedChild {
+function ownChild(handle: HostChildProcess, lost: () => void): OwnedChild {
   const completion = Promise.withResolvers<number>();
   const messages = new Set<(message: HostChildMessage) => void>();
   const failures = new Set<(cause: unknown) => void>();
@@ -177,10 +180,15 @@ function ownChild(handle: HostChildProcess, lost: (code: number) => void): Owned
     }
     child.exitCode = code;
     completion.resolve(code);
-    if (!child.closing || child.relaunchRequested) {
-      lost(code);
-    }
   };
+  // The host is lost once its protocol stream ends: it reports nothing and serves no channel
+  // after that, and Main's platform channel closes with it. Its OS exit can come later (on
+  // Windows it did), so Main never waits for that exit to learn the host is gone.
+  void stdio.ended.then(() => {
+    if (!child.closing || child.relaunchRequested) {
+      lost();
+    }
+  });
   // The host is gone at its OS exit once its stdout has ended, so every report it wrote has
   // been read. Only the host holds its stdout. Its stderr is diagnostics, and a process it
   // started may still hold that pipe (on Windows too), so nothing waits for stderr to end.
@@ -321,12 +329,12 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           }),
           { ...process.env, ...options.lifecycleDelays?.childEnv(['host-ready']) }
         ),
-        (code) => {
-          // A lost host leaves its native processes to Main (ADR-0017).
-          lostTail = nativeChildren?.retire();
+        () => {
+          // A lost host leaves its native processes to Main once it has exited (ADR-0017).
+          lostTail = child.exited.then(() => nativeChildren?.retire());
           // A child lost before ready fails its acquisition instead.
           if (child.ready) {
-            options.onLost?.(code, { requested: child.relaunchRequested });
+            options.onLost?.({ exited: child.exited, requested: child.relaunchRequested });
           }
         }
       );
@@ -430,6 +438,5 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
         .then(() => lostTail)
         .then(closeScope);
     },
-    hostExited: () => (ownedChild?.ready ? ownedChild.exited : undefined),
   };
 }

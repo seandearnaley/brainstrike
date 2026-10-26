@@ -284,7 +284,10 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     const owner = createDesktopHostLease({ onLost, root, spawn: readySpawn(crashed) });
     await owner.acquire();
     crashed.exit(9);
-    await vi.waitFor(() => expect(onLost).toHaveBeenCalledWith(9, { requested: false }));
+    await vi.waitFor(() =>
+      expect(onLost).toHaveBeenCalledWith({ exited: expect.any(Promise), requested: false })
+    );
+    await expect(onLost.mock.calls[0]?.[0].exited).resolves.toBe(9);
     await owner.close();
     expect(closes(crashed)).toBe(0);
 
@@ -294,6 +297,20 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     await closing.acquire();
     await closing.close();
     expect(quiet).not.toHaveBeenCalled();
+  });
+
+  it('reports a ready host as lost when its output ends, before Main records its exit', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const crashed = new Child();
+    const onLost = vi.fn();
+    const owner = createDesktopHostLease({ onLost, root, spawn: readySpawn(crashed) });
+    await owner.acquire();
+    crashed.stdout.end();
+    await vi.waitFor(() => expect(onLost).toHaveBeenCalledOnce());
+    crashed.exit(9);
+    await expect(onLost.mock.calls[0]?.[0].exited).resolves.toBe(9);
+    await owner.close();
+    expect(onLost).toHaveBeenCalledOnce();
   });
 
   it('ends a startup its own close cancels with the typed closing refusal', async () => {
@@ -337,7 +354,7 @@ describe('stop for relaunch', () => {
     const child = new Child();
     const { onLost, owner, ready } = await readyOwner(child);
     expect(await ready.stopForRelaunch()).toBe(0);
-    expect(onLost).toHaveBeenCalledWith(0, { requested: true });
+    expect(onLost).toHaveBeenCalledWith({ exited: expect.any(Promise), requested: true });
     await owner.close();
     expect(closes(child)).toBe(1);
   });

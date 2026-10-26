@@ -710,8 +710,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       dependencies.onError('open after resume', error);
     }
   };
-  const admission = createNativeIndexProfileAdmission(lifecycle, runtime, () => {
-    void openResumed();
+  const admission = createNativeIndexProfileAdmission(lifecycle, runtime, {
+    failed: (error) => dependencies.onError('resume after host loss', error),
+    open: () => {
+      void openResumed();
+    },
   });
   const fenceTerminal = (): void => {
     admission.fenceTerminal();
@@ -856,8 +859,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       stopSources,
     }),
     acquire,
-    acquireClientProfile: admission.acquireClient,
-    acquireProfile: admission.acquire,
+    acquireProfile: admission.acquireHost,
     acquireRead,
     captureAcknowledgedAuthority: () => {
       const current = graph;

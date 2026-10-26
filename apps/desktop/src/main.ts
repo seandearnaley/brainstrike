@@ -775,7 +775,7 @@ const agentHostClientIpc = registerAgentHostClientIpc(async () => {
   // A factory reset retires the profile until it reopens it, after its replacement
   // renderer is ready: that renderer's clients connect once it has, not into the fence.
   await handleResetLocal.idle();
-  return await nativeIndexActivation.acquireClientProfile();
+  return await nativeIndexActivation.acquireProfile();
 }, agentHostPrivateClients.open);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 // BST-1880: the damaged-store notice's actions. A restart stops the host this
