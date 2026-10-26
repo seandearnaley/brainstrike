@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { configureLogger } from '@brainstrike/logging';
+import { startupRelease, withStartupRelease } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
 import type { HostPlatform } from './ports.ts';
@@ -92,8 +93,12 @@ export async function openHostProcess(
       signal
     );
   } catch (cause) {
-    await tracing?.shutdown().catch(() => undefined);
-    throw cause;
+    // ADR-0031: reported first. Spans flush once the startup's own cleanup has ended.
+    if (!tracing) {
+      throw cause;
+    }
+    const flushed = startupRelease(cause).finally(() => tracing.shutdown().catch(() => undefined));
+    throw withStartupRelease(cause, flushed);
   }
   let closing: Promise<void> | undefined;
   return {
