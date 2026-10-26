@@ -8,7 +8,6 @@ const CONTENT_TABLES = [
   'brainstrike_memory_scopes',
   'brainstrike_mind_ops',
   'brainstrike_worktrees',
-  'brainstrike_forge_prs',
   'thread_placements',
   'thread_groups',
   'prompt_item_revisions',

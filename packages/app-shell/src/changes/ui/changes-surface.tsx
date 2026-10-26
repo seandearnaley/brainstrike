@@ -1,12 +1,11 @@
 /**
  * `ChangesSurface` (BST-1114, W4 Task A): composition root for the Changes
- * surface. Desktop lazy-mounts this from `apps/desktop/.../changes-page-content.tsx`,
- * mirroring `git-page-content.tsx` -> `GitPanel`.
+ * surface. Desktop lazy-mounts this from `apps/desktop/.../changes-page-content.tsx`.
  *
- * Resolves the active workspace root the SAME way the Git panel does
- * (`use-git-panel.ts`'s `activeRootId` derivation) rather than inventing a
- * second source of truth: `rootDirectoryHandle.rootId`, falling back to the
- * path->id map for legacy single-root handles.
+ * Resolves the active workspace root the SAME way every workspace surface
+ * does rather than inventing a second source of truth:
+ * `rootDirectoryHandle.rootId`, falling back to the path->id map for legacy
+ * single-root handles.
  *
  * THREAD/RUN IDENTITY: the assistant panel's thread store is resourceId-keyed
  * and this surface is a SIBLING top-level page, so it cannot read the "active

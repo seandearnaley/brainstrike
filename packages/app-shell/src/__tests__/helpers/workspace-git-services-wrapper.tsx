@@ -1,8 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { vi } from 'vitest';
 import type { ChangesBridge } from '../../changes/changes-bridge';
-import type { ForgeBridge } from '../../forge/forge-bridge';
-import type { GitBridge } from '../../git-panel/git-bridge';
+import type { GitBridge } from '../../git-bridge';
 import {
   NO_WORKSPACE_GIT_SERVICES,
   type WorkspaceGitServices,
@@ -34,36 +33,16 @@ export function stubChangesBridge(overrides: Partial<ChangesBridge> = {}): Chang
   };
 }
 
-/** A forge bridge whose methods are spies, with `overrides` replacing any. */
-export function stubForgeBridge(overrides: Partial<ForgeBridge> = {}): ForgeBridge {
-  return {
-    cacheSnapshot: vi.fn(),
-    identity: vi.fn(),
-    onPrUpdated: vi.fn(() => () => undefined),
-    prStatus: vi.fn(),
-    refresh: vi.fn(),
-    ...overrides,
-  };
-}
-
 /** A Git bridge whose methods are spies, with `overrides` replacing any. */
 export function stubGitBridge(overrides: Partial<GitBridge> = {}): GitBridge {
   return {
-    aheadBehind: vi.fn(),
     commit: vi.fn(),
-    commitFiles: vi.fn(),
     createBranch: vi.fn(),
-    diff: vi.fn(),
     fetch: vi.fn(),
-    history: vi.fn(),
-    pull: vi.fn(),
     push: vi.fn(),
     repository: vi.fn(),
-    stage: vi.fn(),
     status: vi.fn(),
-    structuredFileDiff: vi.fn(),
     switchBranch: vi.fn(),
-    unstage: vi.fn(),
     ...overrides,
   };
 }

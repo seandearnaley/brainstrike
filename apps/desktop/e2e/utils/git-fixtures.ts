@@ -1,13 +1,11 @@
 /**
  * Real on-disk temp-folder fixtures for desktop E2E.
  *
- * Lifted out of `git-panel.desktop.test.ts` when
- * `workspace-bar.desktop.test.ts` needed the same shapes — two copies of a
+ * Shared so specs that need a repository use one shape — two copies of a
  * `git init` fixture drift silently (one grows a `git config`, the other does
  * not, and the "same" repo stops being the same). Everything a caller could
  * legitimately want to differ (temp-dir name prefixes, the seed file in a
- * non-git folder) is a PARAMETER rather than a shared default, so lifting
- * changed no existing test's behavior.
+ * non-git folder) is a PARAMETER rather than a shared default.
  *
  * Tracking is per-tracker, never module-global: Playwright can run several
  * spec files in ONE worker process, and a shared array would let one file's

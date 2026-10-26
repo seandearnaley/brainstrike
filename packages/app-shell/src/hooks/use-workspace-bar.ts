@@ -6,7 +6,6 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarCheckout,
-  WorkspaceBarForge,
   WorkspaceBarMode,
   WorkspaceBarProps,
   WorkspaceBarRecentRoot,
@@ -35,7 +34,6 @@ import {
   useDuplicatePathNotice,
   type WorkspaceBarRootDescriptor,
 } from './use-workspace-bar-duplicate-path-notice';
-import { useWorkspaceBarForge } from './use-workspace-bar-forge';
 import { useWorkspaceBarMode } from './use-workspace-bar-mode';
 import { resolveRootIdAfterReconciliation } from './use-workspace-bar-root-row-lookup';
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
@@ -53,7 +51,7 @@ import {
   writeStartingPoint,
 } from './use-workspace-bar-write-derive';
 import { NO_TOUCHED_FIELDS, useWriteTailQueue } from './use-workspace-bar-write-tail-queue';
-import { copyWorkspaceBarValue } from './workspace-bar-clipboard';
+import { copyWorkspaceBarPath } from './workspace-bar-clipboard';
 
 // Re-exported (not just imported) so existing test imports of
 // `deriveMakePrimary` from this module keep working unchanged — the pure
@@ -174,8 +172,8 @@ function addFolderDisabledReasonFor(selectedThreadMetadataPending: boolean): str
 }
 
 /**
- * Ready-to-spread partial, same shape as `checkoutEntry`/`forgeEntry`/
- * `modeEntry` above — pulled the conditional out of `useWorkspaceBar`'s
+ * Ready-to-spread partial, same shape as `checkoutEntry`/`modeEntry`
+ * above — pulled the conditional out of `useWorkspaceBar`'s
  * return statement entirely rather than an inline ternary spread, which
  * tipped that function's cognitive complexity over Biome's cap.
  */
@@ -199,10 +197,6 @@ function branchMenuEntry(
   branchMenu: WorkspaceBarBranchMenu | undefined
 ): { readonly branchMenu?: WorkspaceBarBranchMenu } {
   return primaryRoot && checkout && branchMenu ? { branchMenu } : {};
-}
-
-function forgeEntry(forge: WorkspaceBarForge | undefined): { readonly forge?: WorkspaceBarForge } {
-  return forge ? { forge } : {};
 }
 
 function modeEntry(mode: WorkspaceBarMode | undefined): { readonly mode?: WorkspaceBarMode } {
@@ -356,9 +350,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const checkoutMode = selectedThread?.metadata?.checkoutMode ?? 'local';
   const checkoutLocalRootId = checkoutLocalRootIdFor(checkoutMode, selectedThread?.metadata);
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;
-  // Watching is opt-out. This matches useForgeRunEvents, so a thread created
-  // before the metadata field existed still receives forge observations.
-  const forgePrWatched = selectedThread?.metadata?.forgePrWatch !== false;
   const secondaryRootIdsKey = (threadMetadataSecondaryRootIds ?? EMPTY_SECONDARY_ROOT_IDS).join(
     SECONDARY_ID_SEPARATOR
   );
@@ -1009,7 +1000,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     };
   }, [platform]);
   const onCopyPath = useCallback((path: string) => {
-    copyWorkspaceBarValue(path, 'path');
+    copyWorkspaceBarPath(path);
   }, []);
   const workspaceBarTerminal = useWorkspaceBarTerminal();
 
@@ -1051,16 +1042,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedThread,
     worktreeCheckout,
   });
-  const forge = useWorkspaceBarForge({
-    assistantThreadRepository,
-    checkout,
-    forgePrWatched,
-    memoryResourceId,
-    platform,
-    primaryRootId: primaryRootId ?? null,
-    selectedMemoryThreadId,
-    updateThreadMetadata,
-  });
   const addFolderDisabledReason = addFolderDisabledReasonFor(selectedThreadMetadataPending);
 
   return {
@@ -1069,7 +1050,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     // exposes, replacing a bounded-sampling loop over "no branch chip yet".
     checkoutState: checkoutStateOf(checkoutSettled),
     ...checkoutEntry(primaryRoot, checkout),
-    ...forgeEntry(forge),
     ...modeEntry(mode),
     ...workspaceBarTerminal,
     ...addFolderDisabledReasonEntry(addFolderDisabledReason),

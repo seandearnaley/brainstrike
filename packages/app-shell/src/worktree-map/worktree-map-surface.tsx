@@ -247,9 +247,6 @@ export function WorktreeMapSurface(): ReactElement {
                         : undefined
                     }
                     onNewThread={onNewThread}
-                    onOpenPullRequest={(url) => {
-                      void platform?.openExternal(url);
-                    }}
                     onOpenTerminal={terminalAvailable ? onOpenTerminal : undefined}
                     onOpenThread={(threadId) => selectThread(resourceId, threadId)}
                     onReveal={(path) => {

@@ -1,6 +1,6 @@
 import type { GitBranchSummary, GitStatusFile } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';
+import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../hooks/branch-switch-model';
 
 function statusFile(overrides: Partial<GitStatusFile> & { path: string }): GitStatusFile {
   return {

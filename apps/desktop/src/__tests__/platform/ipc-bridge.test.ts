@@ -83,9 +83,9 @@ describe('createDesktopIpcTransport', () => {
   });
 });
 
-// Live smoke 2026-10-16: the renderer warned "MaxListenersExceededWarning: 11
-// forge:prUpdated listeners". Every push subscription added its own
-// listener, so a dozen mounted PR-cache consumers crossed Node's limit of 10.
+// Live smoke 2026-10-16: the renderer warned "MaxListenersExceededWarning".
+// Every push subscription added its own listener, so a dozen mounted
+// consumers of one push channel crossed Node's limit of 10.
 // One Electron listener serves every push; each subscription is its own entry.
 describe('createIpcBridge push fan-out', () => {
   it('holds one Electron listener however many subscribe, and fans each push out', () => {

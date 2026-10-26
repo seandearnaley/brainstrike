@@ -1,5 +1,3 @@
-import type { ForgeService } from './forge-service';
-import { desktopAssistantServerLogger as logger } from './logger';
 import {
   createShellCorrelation,
   type ShellWorktreeCorrelation,
@@ -7,13 +5,12 @@ import {
 import type { WorktreeService } from './worktree-service';
 import type { WorktreeToolCapability } from './worktree-tools';
 
-/** Main's lazily constructed worktree and forge services for host threads. */
+/** Main's lazily constructed worktree services for host threads. */
 export interface DesktopWorktreeServices {
   /** Opens a worktree an agent created as a workspace folder (ADR-0028 step 3). */
   readonly openWorktreeFolder?:
     | ((path: string) => Promise<{ displayName: string; path: string; rootId: string }>)
     | undefined;
-  readonly resolveForgeService?: (() => ForgeService | null) | undefined;
   readonly resolveWorktreeService?: (() => WorktreeService | null) | undefined;
 }
 
@@ -26,7 +23,6 @@ export function desktopWorktreeToolDependencies(
   run: { readonly runId: string | undefined; readonly threadId: string | undefined }
 ): { shellCorrelation?: ShellWorktreeCorrelation; worktreeTools?: WorktreeToolCapability } {
   const service = services.resolveWorktreeService?.() ?? null;
-  const forge = services.resolveForgeService?.() ?? null;
   const { runId, threadId } = run;
   const worktreeTools: WorktreeToolCapability | undefined = service
     ? {
@@ -54,34 +50,22 @@ export function desktopWorktreeToolDependencies(
         list: () => service.list(),
       }
     : undefined;
-  const shellCorrelation: ShellWorktreeCorrelation | undefined =
-    service || forge
-      ? createShellCorrelation({
-          forgeRefresh: (rootId) => {
-            // `refresh` returns a Promise; `void`-ing the call alone let its
-            // rejection go unhandled. `.catch` per the same shape
-            // `onRepositoryInvalidated` already uses (forge-service.ts:626).
-            forge?.refresh(rootId, 'shell').catch((error: unknown) => {
-              logger.error('shell forge refresh threw', { error, rootId });
-            });
-          },
-          reconcile: async (rootId, precedingWorktreePaths) => {
-            if (!service) {
-              return { error: 'Worktrees are unavailable in this session.', ok: false };
-            }
-            const context = await service.repositoryContextForRoot(rootId);
-            if (!context.ok) {
-              return context;
-            }
-            return await service.reconcileFromShell({
-              precedingWorktreePaths,
-              repoCommonDir: context.value.commonDir,
-              ...(runId ? { runId } : {}),
-              ...(threadId ? { threadId } : {}),
-            });
-          },
-        })
-      : undefined;
+  const shellCorrelation: ShellWorktreeCorrelation | undefined = service
+    ? createShellCorrelation({
+        reconcile: async (rootId, precedingWorktreePaths) => {
+          const context = await service.repositoryContextForRoot(rootId);
+          if (!context.ok) {
+            return context;
+          }
+          return await service.reconcileFromShell({
+            precedingWorktreePaths,
+            repoCommonDir: context.value.commonDir,
+            ...(runId ? { runId } : {}),
+            ...(threadId ? { threadId } : {}),
+          });
+        },
+      })
+    : undefined;
   return {
     ...(shellCorrelation ? { shellCorrelation } : {}),
     ...(worktreeTools ? { worktreeTools } : {}),

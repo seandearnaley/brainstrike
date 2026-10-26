@@ -14,7 +14,6 @@ export * from './file-explorer-selection-types.ts';
 export * from './file-explorer-state-types.ts';
 export * from './file-explorer-strings.ts';
 export * from './file-system.ts'; // Added export for file system types
-export * from './forge.ts';
 export * from './git.ts';
 export * from './view-filter-preset-types.ts';
 export * from './workspace-path-utils.ts';

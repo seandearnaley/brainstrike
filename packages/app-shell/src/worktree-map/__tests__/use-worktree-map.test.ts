@@ -27,11 +27,6 @@ const wrapper = workspaceGitWrapper({
   }),
 });
 
-const useForgePrCacheMock = vi.fn(() => ({ byRepoBranch: new Map(), error: null, loading: false }));
-vi.mock('../../hooks/use-forge-pr-cache', () => ({
-  useForgePrCache: () => useForgePrCacheMock(),
-}));
-
 // The two stores the hook reads. Both are mocked as SELECTOR-CALLING functions
 // (that is how zustand hooks are consumed), so the hook's real selectors run
 // against a controlled state object rather than being stubbed out wholesale.

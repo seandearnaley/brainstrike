@@ -3,10 +3,6 @@
  * source picker, honest stats, scope provenance stated in words, and
  * capability-gated actions.
  *
- * Visual language mirrors `git-panel/git-panel.tsx` and
- * `git-panel/git-workbench-header.tsx`: same border/muted tokens, same error
- * card shape, same small ghost/outline buttons.
- *
  * PROPS: the base shape is a fixed contract (other Changes-surface pieces
  * assume it). `latestRunId`, `threadId`, `onSelectLastTurn`, and `onRetry`
  * are ADDITIVE extensions — `onRetry` is explicitly sanctioned by the task
@@ -214,17 +210,9 @@ function isViewingActiveWorktree(
 }
 
 /**
- * Commit + Push, wired directly to the EXISTING Git bridge
- * (`git-panel/git-bridge.ts`) rather than through `useGitPanel` or a link to
- * the Git panel: both calls here are genuinely thin (one bridge call each,
- * no staging workflow, no branch/remote selection UI), so reusing
- * `useGitPanel`'s fuller mutation runner (toasts, transient-root retry, ahead
- * /behind bookkeeping) would be more machinery than the action needs. A
- * "just link to the Git panel" alternative was considered, but this surface
- * has no reachable navigation primitive to another page — the desktop root
- * layout owns page routing via internal state, not a router, and wiring a
- * `navigateToGit` callback through means editing `root-layout-content.tsx`,
- * which is outside this task's file list.
+ * Commit + Push through the Git bridge (`git-bridge.ts`): one bridge call
+ * each, with no staging workflow and no branch or remote selection UI. Commit
+ * records what is already staged.
  */
 function GitScopeActions({ rootId }: { readonly rootId: string }): ReactElement | null {
   const bridge = useGitBridge();

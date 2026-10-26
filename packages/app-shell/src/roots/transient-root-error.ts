@@ -1,7 +1,7 @@
 /**
  * Classifier for main-process errors that mean "the workspace root has not
  * landed in the DB yet", not "the operation is broken": right after boot (or a
- * renderer reload) a root-scoped surface (git panel, terminal) can issue its
+ * renderer reload) a root-scoped surface (such as the terminal) can issue its
  * first request BEFORE roots reconciliation has written the workspace row, and
  * the main process answers with one of these. Such failures are retried
  * silently for a bounded window instead of surfacing a dead error state.

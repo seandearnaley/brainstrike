@@ -16,7 +16,6 @@ import {
   Circle,
   Database,
   GitBranch,
-  GitPullRequest,
   MessageSquare,
   MoreHorizontal,
   TerminalSquare,
@@ -34,7 +33,6 @@ export interface WorktreeMapCardProps {
   /** Present only for the card holding the SELECTED thread's checkout [A11]. */
   readonly onHandOffToLocal?: (() => void) | undefined;
   readonly onNewThread: (card: WorktreeMapCardModel) => void;
-  readonly onOpenPullRequest: (url: string) => void;
   /**
    * Present only when the platform HAS a terminal bridge (desktop). Absent on
    * web, where the item must not exist in any form.
@@ -184,7 +182,6 @@ export function WorktreeMapCard({
   onArchive,
   onHandOffToLocal,
   onNewThread,
-  onOpenPullRequest,
   onOpenTerminal,
   onOpenThread,
   onReveal,
@@ -240,17 +237,6 @@ export function WorktreeMapCard({
         ) : (
           <StatusGlyphs status={status} />
         )}
-        {card.pullRequest ? (
-          <Button
-            className="h-7 max-w-full justify-start gap-1.5 px-1.5 text-xs"
-            onClick={() => onOpenPullRequest(card.pullRequest?.url ?? '')}
-            type="button"
-            variant="ghost"
-          >
-            <GitPullRequest aria-hidden="true" className="size-3.5" />#{card.pullRequest.number}{' '}
-            {card.pullRequest.checksRollup}
-          </Button>
-        ) : null}
       </div>
       <WorktreeThreadDetails
         card={card}

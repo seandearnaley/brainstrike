@@ -91,7 +91,7 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
   completes under the lease, whose exit is joined without a rung.
 
 Terminal quit prepares Main's workspace mutations before profile retirement; the
-agent host retires its worktree operations, Git inventory, forge, snapshot
+agent host retires its worktree operations, Git inventory, snapshot
 maintenance, terminals, command sessions, language servers and shell commands in its
 own close (ADR-0029). Accepted workflows finish while
 mounts, git, setup and the authenticated catalog remain available; new mutations are

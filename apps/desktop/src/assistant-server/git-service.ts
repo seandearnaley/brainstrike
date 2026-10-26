@@ -3,8 +3,8 @@
  *
  * This module has NO Electron imports so it is hermetically testable against a
  * real temp git repository (see `git-service.integration.test.ts`). It exposes
- * typed working-tree, repository, branch, history, commit, and network
- * operations, each of which:
+ * typed working-tree, repository, branch, commit, and network operations, each
+ * of which:
  *
  * - runs `git` via an injected `execFile`-style runner (NEVER a shell, NEVER
  *   `execSync`). Every argument (branch name, commit message, path) is passed as
@@ -19,21 +19,15 @@
  * checking the `cwd` against a known workspace root before calling in here.
  *
  * The `StructuredFileDiff` engine (both-sides content + hunk ranges for one
- * path) lives in `git-structured-diff.ts`, and the `history`/
- * `commitFiles` ops live in `git-history.ts` (BST-1111, BST-1118) — this
- * module re-exports the former's public constant and wires both factories
- * into `createGitService`'s returned op set.
+ * path) lives in `git-structured-diff.ts`; this module wires its factory into
+ * `createGitService`'s returned op set.
  */
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type {
-  GitAheadBehind,
   GitBranchSummary,
   GitCommitResult,
   GitCreateBranchResult,
-  GitDiff,
-  GitDiffParams,
-  GitForgeRepositoryContext,
   GitPushPullResult,
   GitRepository,
   GitResult,
@@ -42,19 +36,13 @@ import type {
   GitSwitchBranchResult,
   GitWorktreeSummary,
 } from '@brainstrike/types';
-import { resolveForgeRemoteName } from '@brainstrike/types';
-import { createHistoryOps } from './git-history';
 import { parseBranchSummaries, parseWorktreeSummaries } from './git-repository-parsers';
 import { createStructuredDiffOps } from './git-structured-diff';
 
 export type {
-  GitAheadBehind,
   GitBranchSummary,
   GitCommitResult,
   GitCreateBranchResult,
-  GitDiff,
-  GitDiffParams,
-  GitForgeRepositoryContext,
   GitPushPullResult,
   GitRepository,
   GitResult,
@@ -479,37 +467,6 @@ export function resolveContainedPathArg(
   return { ok: true, value: rawPath };
 }
 
-function validateDiffParams(params: GitDiffParams): GitResult<GitDiffParams> {
-  if (!(params && typeof params === 'object') || Array.isArray(params)) {
-    return { error: 'diff params must be an object with an explicit diff mode', ok: false };
-  }
-  const record = params as unknown as Record<string, unknown>;
-  const unsupportedKeys = Object.keys(record).filter((key) => key !== 'mode' && key !== 'path');
-  if (unsupportedKeys.length > 0) {
-    return {
-      error: `diff mode only accepts "mode" and "path"; received ${unsupportedKeys.join(', ')}`,
-      ok: false,
-    };
-  }
-  if (
-    record['mode'] !== 'working' &&
-    record['mode'] !== 'staged' &&
-    record['mode'] !== 'untracked'
-  ) {
-    return {
-      error: 'diff mode must be "working", "staged", or "untracked"',
-      ok: false,
-    };
-  }
-  if (record['path'] !== undefined && typeof record['path'] !== 'string') {
-    return { error: 'diff path must be a string', ok: false };
-  }
-  if (record['mode'] === 'untracked' && typeof record['path'] !== 'string') {
-    return { error: 'untracked diff requires a path', ok: false };
-  }
-  return { ok: true, value: params };
-}
-
 /**
  * SECURITY: the untracked diff path is handed to `git diff --no-index`, which
  * reads the filesystem directly. `resolveContainedPathArg` only validates
@@ -927,95 +884,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return { ok: true, value: configured };
   }
 
-  /**
-   * The three facts a forge lookup needs, in one pass: the realpath'd common
-   * dir (repository identity), the checked-out branch (null when detached),
-   * and the default remote's URL.
-   *
-   * `remoteReason` is non-null exactly when `remoteUrl` is null, so the caller
-   * can SAY why there is no PR chip instead of showing nothing.
-   */
-  async function forgeRepositoryContext(): Promise<GitResult<GitForgeRepositoryContext>> {
-    const commonDirRun = await invoke(['rev-parse', '--path-format=absolute', '--git-common-dir']);
-    if (commonDirRun.exitCode !== 0) {
-      return { error: describeFailure(commonDirRun), ok: false };
-    }
-    const rawCommonDir = stripLineEnding(commonDirRun.stdout);
-    if (rawCommonDir.length === 0) {
-      return { error: 'git returned an empty git common dir', ok: false };
-    }
-    // Neither await depends on the other's result — realpath resolves the
-    // already-known rawCommonDir, and the symbolic-ref spawn reads HEAD —
-    // so they run concurrently instead of back-to-back.
-    const [commonDir, headRun] = await Promise.all([
-      realpath(rawCommonDir),
-      invoke(['symbolic-ref', '--quiet', '--short', 'HEAD']),
-    ]);
-    if (headRun.exitCode !== 0 && headRun.exitCode !== 1) {
-      return { error: describeFailure(headRun), ok: false };
-    }
-    const branch = headRun.exitCode === 0 ? stripLineEnding(headRun.stdout) || null : null;
-    const remotes = await listRemoteNames();
-    if (!remotes.ok) {
-      return remotes;
-    }
-    const configured = await resolveDefaultRemote(branch, remotes.value);
-    if (!configured.ok) {
-      return {
-        ok: true,
-        value: { branch, commonDir, remoteReason: configured.error, remoteUrl: null },
-      };
-    }
-    const remoteName = resolveForgeRemoteName({
-      configuredRemote: configured.value,
-      remotes: remotes.value,
-    });
-    if (!remoteName.ok) {
-      return {
-        ok: true,
-        value: { branch, commonDir, remoteReason: remoteName.reason, remoteUrl: null },
-      };
-    }
-    const urlRun = await invoke(['remote', 'get-url', remoteName.value]);
-    if (urlRun.exitCode !== 0) {
-      return {
-        ok: true,
-        value: {
-          branch,
-          commonDir,
-          remoteReason: `git could not read the URL of remote "${remoteName.value}": ${describeFailure(urlRun)}`,
-          remoteUrl: null,
-        },
-      };
-    }
-    const remoteUrl = stripLineEnding(urlRun.stdout);
-    if (remoteUrl.length === 0) {
-      // `remoteReason` is non-null exactly when `remoteUrl` is null (see the
-      // doc comment above): a successful exit with empty stdout must still
-      // be treated as a stated failure, not silently paired with
-      // `remoteUrl: ''` — that pairing would violate the invariant and send
-      // an empty string into `parseForgeRemote` as `unparsable-remote`.
-      return {
-        ok: true,
-        value: {
-          branch,
-          commonDir,
-          remoteReason: `git returned an empty URL for remote "${remoteName.value}"`,
-          remoteUrl: null,
-        },
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        branch,
-        commonDir,
-        remoteReason: null,
-        remoteUrl,
-      },
-    };
-  }
-
   async function createRepositorySnapshot(): Promise<GitResult<GitRepository>> {
     const inventory = await loadRepositoryInventory();
     if (!inventory.ok) {
@@ -1049,49 +917,8 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
   }
 
   const structuredDiffOps = createStructuredDiffOps({ cwd, invoke, invokeHookFree });
-  const historyOps = createHistoryOps({ invoke });
 
   return {
-    /** Ahead/behind counts vs the upstream tracking ref. */
-    aheadBehind: async (): Promise<GitResult<GitAheadBehind>> => {
-      try {
-        const tracking = await resolveBranchTracking();
-        if (!tracking.ok) {
-          return tracking;
-        }
-        if (tracking.value.upstream === null) {
-          return {
-            ok: true,
-            value: { ahead: null, behind: null, hasUpstream: false, upstream: null },
-          };
-        }
-        const countRun = await invoke([
-          'rev-list',
-          '--left-right',
-          '--count',
-          'HEAD...@{upstream}',
-        ]);
-        if (countRun.exitCode !== 0) {
-          return { error: describeFailure(countRun), ok: false };
-        }
-        // Output is "<ahead>\t<behind>".
-        const [aheadRaw, behindRaw] = countRun.stdout.trim().split(/\s+/);
-        const ahead = Number.parseInt(aheadRaw ?? '', 10);
-        const behind = Number.parseInt(behindRaw ?? '', 10);
-        return {
-          ok: true,
-          value: {
-            ahead: Number.isNaN(ahead) ? null : ahead,
-            behind: Number.isNaN(behind) ? null : behind,
-            hasUpstream: true,
-            upstream: tracking.value.upstream,
-          },
-        };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
-
     /**
      * Commit staged changes with a required summary and optional description.
      * Each paragraph is passed as its own literal `-m <value>` argument, so
@@ -1119,12 +946,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         return { error: toErrorMessage(error), ok: false };
       }
     },
-
-    /**
-     * File list for a historical commit, scoped to the opened workspace root
-     * — implemented in `git-history.ts`; see `createHistoryOps`.
-     */
-    commitFiles: historyOps.commitFiles,
 
     /** Create a new local branch at `startPoint` and check it out in this worktree. */
     createBranch: async (params: {
@@ -1172,75 +993,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-    /**
-     * Unified diff for a path (or the whole tree), optionally for the index.
-     *
-     * In untracked mode, a plain `git diff` reports
-     * nothing (the file is not in the index), so the reviewer would see an empty
-     * diff for a file that clearly has content. In that case we diff the new file
-     * against `/dev/null` with `git diff --no-index`, which renders the whole
-     * file as additions. `--no-index` intentionally exits 1 when the inputs
-     * differ — that is the normal "there is a diff" outcome, NOT a failure.
-     */
-    diff: async (params: GitDiffParams): Promise<GitResult<GitDiff>> => {
-      try {
-        const validated = validateDiffParams(params);
-        if (!validated.ok) {
-          return validated;
-        }
-        const staged = validated.value.mode === 'staged';
-        const untracked = validated.value.mode === 'untracked';
-        const pathResult = resolveContainedPathArg(cwd, validated.value.path);
-        if (!pathResult.ok) {
-          return pathResult;
-        }
-        const pathArg = pathResult.value;
-
-        const args: string[] = ['diff', '--no-ext-diff', '--no-textconv'];
-        if (untracked && pathArg !== null) {
-          // SECURITY: --no-index reads the filesystem, so a symlinked path could
-          // escape the opened folder. Verify real-path containment before git.
-          const containment = await assertUntrackedDiffPathContained(cwd, pathArg);
-          if (!containment.ok) {
-            return containment;
-          }
-          // Whole-file additions for a new, untracked file.
-          args.push('--no-index', '--', '/dev/null', pathArg);
-        } else {
-          if (staged) {
-            args.push('--cached');
-          }
-          // `--` terminates options so a path that looks like a flag can never be
-          // parsed as one. Scope to the opened root ('.') when no path is given so
-          // a root that is a SUBDIR of a larger worktree never diffs siblings.
-          args.push('--', pathArg ?? '.');
-        }
-
-        const run_ = await (untracked ? invoke : invokeHookFree)(args);
-        // An oversized diff overflows `maxBuffer` (failureReason 'maxBuffer'):
-        // the partial stdout is still a valid prefix of the diff, so bound it and
-        // report a `truncated: true` SUCCESS rather than a failure. With
-        // `--no-index`, exit code 1 means "files differ" (expected success).
-        const failure = describeDiffFailure(run_, untracked);
-        if (failure) {
-          return { error: failure, ok: false };
-        }
-        const overflowed = run_.failureReason === 'maxBuffer';
-        const bounded = boundOutput(run_.stdout);
-        return {
-          ok: true,
-          value: {
-            path: pathArg,
-            staged,
-            truncated: bounded.truncated || overflowed,
-            unifiedDiff: bounded.text,
-          },
-        };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
-
     /** Fetch one explicit, configured remote without integrating changes. */
     fetch: async (params: { remote: string }): Promise<GitResult<GitPushPullResult>> => {
       try {
@@ -1252,30 +1004,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           ['fetch', '--prune', '--', remote.value],
           GIT_NETWORK_TIMEOUT_MS
         );
-        if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
-        }
-        const bounded = boundOutput(`${run_.stdout}${run_.stderr}`.trim());
-        return { ok: true, value: { output: bounded.text } };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
-
-    /** Repository identity + branch + default-remote URL for forge lookups. */
-    forgeRepositoryContext,
-
-    /** Paginated, summary-only history for HEAD, a local branch, or a returned OID. */
-    history: historyOps.history,
-
-    /** Pull (fetch + merge) from the upstream remote (network op). */
-    pull: async (): Promise<GitResult<GitPushPullResult>> => {
-      try {
-        const scope = await requireFullWorktreeRoot('Pull');
-        if (!scope.ok) {
-          return scope;
-        }
-        const run_ = await invokeHookFree(['pull'], GIT_NETWORK_TIMEOUT_MS);
         if (run_.exitCode !== 0) {
           return { error: describeFailure(run_), ok: false };
         }
@@ -1324,23 +1052,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-    /** Stage a path (or all changes within the opened root): `git add`. */
-    stage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
-      try {
-        const pathResult = resolveContainedPathArg(cwd, params.path);
-        if (!pathResult.ok) {
-          return pathResult;
-        }
-        // No path → scope to the opened root ('.'), never the whole worktree.
-        const run_ = await invokeHookFree(['add', '--', pathResult.value ?? '.']);
-        if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
-        }
-        return { ok: true, value: null };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
     /** Porcelain status + branch + ahead/behind, parsed into a typed structure. */
     status: async (): Promise<GitResult<GitStatus>> => {
       try {
@@ -1434,23 +1145,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
           return { error: describeFailure(run_), ok: false };
         }
         return { ok: true, value: { branch } };
-      } catch (error) {
-        return { error: toErrorMessage(error), ok: false };
-      }
-    },
-
-    /** Unstage a path (or all within the opened root): `git restore --staged`. */
-    unstage: async (params: { path?: string | undefined }): Promise<GitResult<null>> => {
-      try {
-        const pathResult = resolveContainedPathArg(cwd, params.path);
-        if (!pathResult.ok) {
-          return pathResult;
-        }
-        const run_ = await invokeHookFree(['restore', '--staged', '--', pathResult.value ?? '.']);
-        if (run_.exitCode !== 0) {
-          return { error: describeFailure(run_), ok: false };
-        }
-        return { ok: true, value: null };
       } catch (error) {
         return { error: toErrorMessage(error), ok: false };
       }

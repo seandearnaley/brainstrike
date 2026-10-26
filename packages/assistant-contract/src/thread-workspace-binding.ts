@@ -13,8 +13,6 @@ export const ThreadWorkspaceBindingSchema = Schema.Struct({
   checkoutMode: omitUndefinedOptional(Schema.Literals(['local', 'worktree'])),
   checkoutWorktreeId: omitUndefinedOptional(Id),
   checkoutWorktreePath: omitUndefinedOptional(Id),
-  forgePrUrl: omitUndefinedOptional(Id),
-  forgePrWatch: omitUndefinedOptional(Schema.Boolean),
   operatingRootDisplayName: omitUndefinedOptional(Id),
   operatingRootId: omitUndefinedOptional(Id),
   operatingRootPath: omitUndefinedOptional(Id),

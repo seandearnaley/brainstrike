@@ -3,8 +3,7 @@ import type { DiffViewSource } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Stub the heavy CodeMirror DiffView (covered by its own suite) — mirrors the
-// established pattern in `git-panel.test.tsx`.
+// Stub the heavy CodeMirror DiffView (covered by its own suite).
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {

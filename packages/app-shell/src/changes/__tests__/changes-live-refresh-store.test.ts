@@ -66,8 +66,8 @@ describe('useChangesLiveRefreshStore (BST-1161)', () => {
 
     const state = useChangesLiveRefreshStore.getState();
     // A changeset published with a different vocabulary for the SAME repo
-    // (e.g. the git panel's un-realpath'd GitRepository.repositoryRoot vs the
-    // inventory's canonical realpath) can never match the event key. It must
+    // (e.g. an un-realpath'd GitRepository.repositoryRoot vs the inventory's
+    // canonical realpath) can never match the event key. It must
     // still observe every event rather than silently never refreshing.
     expect(selectGitScopeRefreshNonce(state, '/symlinked/repo-a')).toBe(2);
   });

@@ -1,7 +1,7 @@
 /**
  * executeCommand, built over the shared build context so each agent host
  * (Desktop's, the standalone CLI's) runs it in its own process. The shell
- * supplies its own facts: the Windows wrapper it ships, and the worktree/forge
+ * supplies its own facts: the Windows wrapper it ships, and the worktree
  * correlation its ledger has (Desktop: Main's narrow RPCs; none on the CLI).
  */
 import {
@@ -28,7 +28,7 @@ import {
 
 /** What a shell composes executeCommand with. */
 export interface ExecuteCommandShell {
-  /** The call's worktree/forge correlation; absent where the shell has no worktree ledger. */
+  /** The call's worktree correlation; absent where the shell has no worktree ledger. */
   readonly correlation?: (context: NativeToolBuildContext) => ShellCorrelationDependencies;
   readonly windowsCommandEntry: WindowsCommandEntry;
 }

@@ -20,7 +20,7 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
-import { GitBranch, Globe } from 'lucide-react';
+import { Globe } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
@@ -37,10 +37,7 @@ import {
 import { resolveDesktopWorkspaceTerminalServices } from '../host-terminals';
 import { createIpcCapability } from '../ipc-capability';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
-// Task A's changes-page-content.tsx exports this by name (not default,
-// unlike its git/context-explorer/terminal siblings) — imported as written.
 import { ChangesPageContent } from './changes-page-content';
-import GitPageContent from './git-page-content';
 import { LogsPageContent } from './logs-page-content';
 import { NativeSearchProvider } from './native-search-provider';
 import SettingsPageContent from './settings/page-content';
@@ -49,7 +46,6 @@ import { ThreadContextPageContent } from './thread-context-page-content';
 import { WorktreeMapPageContent } from './worktree-map-page-content';
 
 const BROWSER_NAVIGATION_ITEM: NavigationItem = { icon: Globe, name: 'Browser', path: '/browser' };
-const GIT_NAVIGATION_ITEM: NavigationItem = { icon: GitBranch, name: 'Git', path: '/git' };
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
@@ -88,12 +84,11 @@ export default function RootLayoutContent() {
   );
   const activeToolsTabRef = useRef('host-owned');
 
-  // The agent host owns the git cluster (ADR-0029): the Git panel, Changes,
-  // forge PR awareness and worktrees. Resolved once; each surface below is
-  // offered only when its bridge is present (no isElectron check).
+  // The agent host owns the git cluster (ADR-0029): Changes, the branch chip
+  // and worktrees. Resolved once; each surface below is offered only when its
+  // bridge is present (no isElectron check).
   const workspaceGit = useMemo(() => resolveDesktopWorkspaceGitServices(), []);
   const changesAvailable = workspaceGit.changes !== null;
-  const gitAvailable = workspaceGit.git !== null;
   // ...and the terminal cluster: pty terminals and the command-session
   // inventory. The Terminal tab is offered only when its bridge is present.
   const workspaceTerminals = useMemo(() => resolveDesktopWorkspaceTerminalServices(), []);
@@ -120,14 +115,11 @@ export default function RootLayoutContent() {
   const mcpAppsEnabled = useMcpAppsEnablement(mcpStatusCapability);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...navigationItems];
-    if (gitAvailable) {
-      items.push(GIT_NAVIGATION_ITEM);
-    }
     if (browserAvailable) {
       items.push(BROWSER_NAVIGATION_ITEM);
     }
     return items;
-  }, [gitAvailable, browserAvailable]);
+  }, [browserAvailable]);
   // BST-1880: the damaged-store notice's health read and recovery actions.
   const stateHealth = useMemo(() => createDesktopStateHealth(), []);
   const sharedProps: RootLayoutContentProps = {
@@ -153,7 +145,6 @@ export default function RootLayoutContent() {
     threadContextPageContent: <ThreadContextPageContent chunkBounds={nativeSearch} />,
     ...(browserAvailable ? { browserPageContent: <BrowserPaneContent /> } : {}),
     ...(changesAvailable ? { changesPageContent: <ChangesPageContent /> } : {}),
-    ...(gitAvailable ? { gitPageContent: <GitPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     ...(worktreesAvailable ? { worktreeMapPageContent: <WorktreeMapPageContent /> } : {}),
   };

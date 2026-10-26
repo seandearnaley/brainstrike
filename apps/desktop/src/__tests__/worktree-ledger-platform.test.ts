@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { PassThrough } from 'node:stream';
 import {
-  createWorktreeForgeClient,
-  serveWorktreeForgeStore,
+  createWorktreeLedgerClient,
+  serveWorktreeLedgerStore,
 } from '@brainstrike/agent-host/catalog';
-import type { ForgeCachePort, WorktreeLedgerPort } from '@brainstrike/state-store';
+import type { WorktreeLedgerPort } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import {
   createMessageConnection,
@@ -12,7 +12,7 @@ import {
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
 
-function transport(store: ForgeCachePort & WorktreeLedgerPort) {
+function transport(store: WorktreeLedgerPort) {
   const requests = new PassThrough();
   const responses = new PassThrough();
   const main = createMessageConnection(
@@ -23,11 +23,11 @@ function transport(store: ForgeCachePort & WorktreeLedgerPort) {
     new StreamMessageReader(requests),
     new StreamMessageWriter(responses)
   );
-  const serving = serveWorktreeForgeStore(host, store);
+  const serving = serveWorktreeLedgerStore(host, store);
   main.listen();
   host.listen();
   return {
-    client: createWorktreeForgeClient(main),
+    client: createWorktreeLedgerClient(main),
     close: async () => {
       await serving.close();
       main.dispose();
@@ -40,20 +40,10 @@ function transport(store: ForgeCachePort & WorktreeLedgerPort) {
   };
 }
 
-test('private Worktree/Forge RPC preserves durable absence and rejects noncanonical operations', async () => {
-  const entry = { observedAt: '2026-10-13T00:00:00.000Z', pullRequest: null };
-  const forgeCache = vi.fn<ForgeCachePort['forgeCache']>(async () => ({ entry }));
+test('private worktree ledger RPC answers canonical operations and rejects noncanonical ones', async () => {
   const worktreeLedger = vi.fn<WorktreeLedgerPort['worktreeLedger']>(async () => ({ rows: [] }));
-  const fixture = transport({ forgeCache, forgeCacheSnapshot: async () => [], worktreeLedger });
+  const fixture = transport({ worktreeLedger });
   try {
-    await expect(
-      fixture.client.forgeCache({
-        branch: 'main',
-        operation: 'get',
-        repoCommonDir: '/disposable/repo/.git',
-      })
-    ).resolves.toEqual({ entry });
-    await expect(fixture.client.forgeCacheSnapshot()).resolves.toEqual([]);
     await expect(fixture.client.worktreeLedger({ operation: 'list-active' })).resolves.toEqual({
       rows: [],
     });
@@ -73,8 +63,6 @@ test('endpoint close fences new requests and joins the already admitted writer o
   const entered = Promise.withResolvers<void>();
   const committed = Promise.withResolvers<void>();
   const fixture = transport({
-    forgeCache: async () => ({ entry: null }),
-    forgeCacheSnapshot: async () => [],
     worktreeLedger: async () => {
       entered.resolve();
       await committed.promise;
@@ -90,9 +78,7 @@ test('endpoint close fences new requests and joins the already admitted writer o
     });
     await Promise.resolve();
     expect(closed).toBe(false);
-    await expect(
-      fixture.client.forgeCache({ branch: 'main', operation: 'get', repoCommonDir: '/repo/.git' })
-    ).rejects.toThrow();
+    await expect(fixture.client.worktreeLedger({ operation: 'list-active' })).rejects.toThrow();
     committed.resolve();
     await work;
     await closing;

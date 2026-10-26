@@ -65,7 +65,6 @@
     "./context-map": "./src/context-map/index.ts",
     "./cost-tracking-settings": "./src/cost-tracking/index.tsx",
     "./diagnostics": "./src/diagnostics/index.ts",
-    "./git-panel": "./src/git-panel/index.ts",
     "./navigation": "./src/navigation.ts",
     "./platform-bridge": "./src/platform-bridge.ts",
     "./worktree-map": "./src/worktree-map/index.ts",

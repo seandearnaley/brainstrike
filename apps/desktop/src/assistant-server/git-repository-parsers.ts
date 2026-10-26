@@ -1,11 +1,5 @@
 import path from 'node:path';
-import type {
-  GitBranchSummary,
-  GitCommitFile,
-  GitHistoryCommit,
-  GitHistoryPage,
-  GitWorktreeSummary,
-} from '@brainstrike/types';
+import type { GitBranchSummary, GitCommitFile, GitWorktreeSummary } from '@brainstrike/types';
 
 interface MutableWorktreeRecord {
   bare: boolean;
@@ -141,50 +135,6 @@ export function parseBranchSummaries(stdout: string): readonly GitBranchSummary[
     throw new Error('git returned malformed branch metadata');
   }
   return branches;
-}
-
-const HISTORY_FIELD_COUNT = 10;
-
-/** Parse fixed-width NUL fields from `git log -z --format=...`. */
-export function parseHistoryPage(
-  stdout: string,
-  options: { readonly limit: number; readonly offset: number }
-): GitHistoryPage {
-  const fields = stdout.split('\0');
-  if (fields.at(-1) === '') {
-    fields.pop();
-  }
-  if (fields.length % HISTORY_FIELD_COUNT !== 0) {
-    throw new Error('git returned malformed commit history metadata');
-  }
-
-  const parsed: GitHistoryCommit[] = [];
-  for (let index = 0; index < fields.length; index += HISTORY_FIELD_COUNT) {
-    const id = fields[index] ?? '';
-    const shortId = fields[index + 1] ?? '';
-    if (!(/^[0-9a-f]{40,64}$/.test(id) && /^[0-9a-f]+$/.test(shortId))) {
-      throw new Error('git returned an invalid commit object id');
-    }
-    parsed.push({
-      authorEmail: fields[index + 5] ?? '',
-      authoredAt: fields[index + 6] ?? '',
-      authorName: fields[index + 4] ?? '',
-      body: (fields[index + 3] ?? '').trim(),
-      committedAt: fields[index + 7] ?? '',
-      decoration: fields[index + 9] ?? '',
-      id,
-      parentIds: (fields[index + 8] ?? '').split(' ').filter(Boolean),
-      shortId,
-      summary: fields[index + 2] ?? '',
-    });
-  }
-
-  return {
-    commits: parsed.slice(0, options.limit),
-    hasMore: parsed.length > options.limit,
-    limit: options.limit,
-    offset: options.offset,
-  };
 }
 
 /** Parse `git diff-tree --name-status -z`, including rename/copy old+new paths. */

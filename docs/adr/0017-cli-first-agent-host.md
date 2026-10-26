@@ -60,7 +60,7 @@ does not store credential values in the host record or run intent.
 Host-owned thread bindings use the existing Core thread log and durable command
 identities, through `thread/workspace/binding/read` and
 `thread/workspace/binding/update`. `workspace.binding.updated` stores the merged
-existing operating-root, checkout, secondary-root and Forge metadata keys.
+existing operating-root, checkout and secondary-root metadata keys.
 The transitional legacy-thread writer is not a supported old-data route under
 [ADR-0020](0020-greenfield-data-lifecycle.md). At adoption, its removal was assigned
 to the M4 integration branch. Current development branches from `main`; the

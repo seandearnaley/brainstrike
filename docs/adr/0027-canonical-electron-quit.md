@@ -83,10 +83,10 @@ Every run used `--retries=0`. Every E2E teardown requires the app to exit 0.
 - **#4125:**
   - native smoke passed;
   - every smoke-lane test passed, with only the 5 existing Windows skips;
-  - workspace-bar and git-panel passed 30 out of 30 repeated runs.
+  - workspace-bar passed 30 out of 30 repeated runs.
 - **#4127:**
   - smoke had 35 passed, 5 skipped and 1 failed;
-  - workspace-bar and git-panel passed 15 out of 15 repeated runs.
+  - workspace-bar passed 15 out of 15 repeated runs.
 
   The one failure, `thread-workspace-close`, failed the same way on #4125's build. An
   instrumented run showed that the app committed the edit every time and that the test

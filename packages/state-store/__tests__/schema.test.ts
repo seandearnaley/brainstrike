@@ -9,7 +9,6 @@ import { cleanupDirs, freshDir } from './helpers/fs.js';
 afterEach(() => cleanupDirs());
 
 const C_SMALL = [
-  'brainstrike_forge_prs',
   'brainstrike_mcp_task_authorities',
   'brainstrike_mcp_tasks',
   'brainstrike_mind_ops',
@@ -77,29 +76,23 @@ describe('state DB migrations', () => {
     }
   });
 
-  test('CHECK constraints carry over: booleans are 0/1, json columns hold valid JSON, enums are closed', async () => {
+  test('CHECK constraints carry over: enums are closed and archive columns stay paired', async () => {
     const { db } = await openDb();
     try {
-      const pr = db.prepare(
-        "INSERT INTO brainstrike_forge_prs (repo_common_dir, branch, number, url, title, state, is_draft, checks_json, head_sha, observed_at) VALUES ('/repo', ?, 1, 'u', 't', ?, ?, ?, 'sha', ?)"
+      const worktree = db.prepare(
+        "INSERT INTO brainstrike_worktrees (id, repo_common_dir, path, base_ref, created_by, setup_status, archived_at, archive_snapshot_ref) VALUES (?, '/repo', ?, 'main', ?, ?, ?, ?)"
       );
-      pr.run('ok', 'open', 1, '[]', ISO);
-      expect(() => pr.run('bool', 'open', 2, '[]', ISO)).toThrow(/CHECK constraint failed/);
-      expect(() => pr.run('enum', 'bogus', 0, '[]', ISO)).toThrow(/CHECK constraint failed/);
-      expect(() => pr.run('json', 'open', 0, 'not json', ISO)).toThrow(/CHECK constraint failed/);
-      expect(() =>
-        db
-          .prepare(
-            "INSERT INTO brainstrike_forge_prs (repo_common_dir, branch, number, observed_at) VALUES ('/repo', 'partial', 1, ?)"
-          )
-          .run(ISO)
-      ).toThrow(/CHECK constraint failed/);
-      expect(
-        db
-          .prepare("SELECT checks_json FROM brainstrike_forge_prs WHERE branch = 'ok'")
-          .pluck()
-          .get()
-      ).toBe('[]');
+      worktree.run('ok', '/wt/ok', 'agent', 'none', ISO, 'snapshot');
+      expect(() => worktree.run('creator', '/wt/creator', 'bot', 'none', null, null)).toThrow(
+        /CHECK constraint failed/
+      );
+      expect(() => worktree.run('setup', '/wt/setup', 'user', 'bogus', null, null)).toThrow(
+        /CHECK constraint failed/
+      );
+      expect(() => worktree.run('archive', '/wt/archive', 'user', 'none', ISO, null)).toThrow(
+        /CHECK constraint failed/
+      );
+      expect(db.prepare('SELECT id FROM brainstrike_worktrees').pluck().all()).toEqual(['ok']);
     } finally {
       db.close();
     }

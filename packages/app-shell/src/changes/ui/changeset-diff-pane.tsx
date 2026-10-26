@@ -1,13 +1,9 @@
 /**
  * `ChangesetDiffPane` (BST-1114, W4 Task C): the multi-file diff stack for
  * the Changes surface — the first consumer of `DiffView`'s
- * `{ kind: 'structured', diff }` source (`packages/ui/src/diff-view`). At
- * the time this was written the git panel's own diff surfaces
- * (`git-diff-surface.tsx`) still used the legacy `strings` mode via
- * `parseUnifiedDiff`; BST-1116 W6 converged both the Changes and History
- * tabs onto `structured` and deleted that reconstruction path entirely —
- * `assistant-tool-approval-notice.tsx` is now the only remaining `strings`
- * call site (it has direct old/new text, never a unified diff to parse).
+ * `{ kind: 'structured', diff }` source (`packages/ui/src/diff-view`).
+ * `assistant-tool-approval-notice.tsx` is the only `strings` call site (it
+ * has direct old/new text, never a unified diff to parse).
  *
  * Reads `selectedFileKeys` from `changes-store.ts` itself (not modified by
  * this task) and applies `selectRenderedFiles` — an EMPTY selection renders
@@ -21,7 +17,7 @@
  * `ChangesetFileDiffCard` renders its own sticky `top-0` header inside it,
  * so the active file stays legible while its body scrolls past underneath
  * (the same `sticky top-0 z-10` pattern already used for local group
- * headers in `git-changes-view.tsx` and `model-picker-group.tsx` — not a
+ * headers in `model-picker-group.tsx` — not a
  * Radix-portaled floating layer, so it does not draw from
  * `packages/ui/src/layers.ts`'s dialog stacking scale).
  *

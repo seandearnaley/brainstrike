@@ -259,7 +259,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       rootId: 'root-1',
       worktreePath: '/workspace/repo',
     });
-    const releaseGitPanel = acquireChangesLiveRefreshSubscription(bridge, {
+    const releaseSecondSurface = acquireChangesLiveRefreshSubscription(bridge, {
       repositoryRoot: '/workspace/repo/',
       rootId: 'root-1',
       worktreePath: '/workspace/repo/',
@@ -295,7 +295,7 @@ describe('acquireChangesLiveRefreshSubscription (refcounting, PR #2288 review)',
       ).toBe(1);
     } finally {
       releaseChangesSurface();
-      releaseGitPanel();
+      releaseSecondSurface();
     }
   });
 

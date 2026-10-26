@@ -37,7 +37,7 @@ was accepted by the owner as the basis for Phase 4 implementation.
 
 - **Selective Layers from the start:** possible for an isolated owner, but the
   ownership boundaries and failure behavior are not yet explicit enough to
-  show a gain. Git and forge have separate failure-isolated shutdown steps.
+  show a gain.
 - **One Layer graph for all of main:** would still need separate pre-ready,
   early IPC, restartable reset and ordered-shutdown coordination, with a much
   larger review surface.

@@ -1,10 +1,9 @@
 import { isRetiredModelId } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, GitBranch, GitPullRequest } from 'lucide-react';
+import { AlertTriangle, GitBranch } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 
@@ -139,46 +138,35 @@ function ThreadDetail({
   );
 }
 
-const PR_ROLLUP_GLYPH: Readonly<Record<ForgePrCacheEntry['checksRollup'], string>> = {
-  failing: '✗',
-  none: '·',
-  passing: '✓',
-  pending: '◐',
-};
-
 export function ThreadMetadataBadges({
   branch,
-  pr,
   thread,
 }: {
   /** Only ever set in folder grouping, and only on desktop. */
   readonly branch: ThreadBranchInfo | null;
-  /** Only ever set in folder grouping, and only when the cache has a row. */
-  readonly pr: ForgePrCacheEntry | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement | null {
   const providerLabel = getProviderLabel(thread.latestRun?.provider);
   const modelLabel = getThreadModelLabel(thread);
   const reasoningLabel = getReasoningLabel(thread);
   const maxOutputLabel = getMaxOutputLabel(thread);
-  if (!(branch || pr || providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
+  if (!(branch || providerLabel || modelLabel || reasoningLabel || maxOutputLabel)) {
     return null;
   }
-  // Whether a badge the narrow band unconditionally protects (branch or PR)
-  // is actually rendering. When neither is present, the provider badge takes
-  // over that protected slot instead of also hiding until 560px — see the
-  // `wideOnly` note on ThreadBadge.
-  const protectedBadgePresent = Boolean(branch || pr);
+  // Whether the badge the narrow band unconditionally protects (branch) is
+  // actually rendering. When it is not, the provider badge takes over that
+  // protected slot instead of also hiding until 560px — see the `wideOnly`
+  // note on ThreadBadge.
+  const protectedBadgePresent = Boolean(branch);
   return (
     <div
       className="@[420px]/threads:flex hidden min-w-0 shrink items-center gap-1 overflow-hidden"
       data-testid="thread-metadata-badges"
     >
-      {/* Branch first, then PR: in folder grouping these two are the row's most
-          local facts, and they are always visible once the container clears
-          420px — see the `wideOnly` note on ThreadBadge for the rest. */}
+      {/* Branch first: in folder grouping it is the row's most local fact, and
+          it is always visible once the container clears 420px — see the
+          `wideOnly` note on ThreadBadge for the rest. */}
       <ThreadBranchBadge branch={branch} />
-      <ThreadPrBadge pr={pr} />
       <OptionalThreadBadge value={providerLabel} wideOnly={protectedBadgePresent} />
       <OptionalThreadBadge value={modelLabel} wideOnly />
       <OptionalThreadBadge value={reasoningLabel} wideOnly />
@@ -196,29 +184,6 @@ function ThreadBranchBadge({
     return null;
   }
   return <ThreadBadge icon={GitBranch}>{branch.detached ? 'detached' : branch.branch}</ThreadBadge>;
-}
-
-function ThreadPrBadge({ pr }: { readonly pr: ForgePrCacheEntry | null }): ReactElement | null {
-  if (!pr) {
-    return null;
-  }
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-0 text-[9px] leading-4 ${
-        pr.state === 'open' ? 'text-muted-foreground' : 'text-muted-foreground/60'
-      }`}
-      data-checks={pr.checksRollup}
-      data-state={pr.state}
-      data-testid="thread-pr-pill"
-      title={`Pull request #${pr.number} (${pr.state})`}
-    >
-      <GitPullRequest aria-hidden="true" className="size-2.5" />
-      {`#${pr.number}`}
-      <span aria-hidden="true">
-        {pr.isDraft && pr.state === 'open' ? '◌' : PR_ROLLUP_GLYPH[pr.checksRollup]}
-      </span>
-    </span>
-  );
 }
 
 function OptionalThreadBadge({
@@ -245,24 +210,18 @@ function ThreadBadge({
    * Hidden until the container clears 560px, INSTEAD of the 420px every other
    * badge in this row gets. Carried per-badge rather than as a positional
    * `nth-child` selector on the container: `nth-child` counts RENDERED
-   * children, and branch/PR are both conditional, so a positional rule's
-   * meaning shifted with whichever optional badges happened to render —
-   * bumping its threshold once (`n+2` to `n+3`) only patched the case with
-   * both branch and PR present, and on every row with NEITHER (every row
-   * outside folder grouping, and every row on web) it kept a second badge
-   * visible in the 420-560px band that previously stayed hidden there,
-   * eating into the title's `min-w-0` truncation for rows that have nothing
-   * to do with a PR at all. A class the badge carries itself is correct
-   * regardless of what else in the row rendered.
+   * children, and the branch badge is conditional, so a positional rule's
+   * meaning shifted with whichever optional badges happened to render. A
+   * class the badge carries itself is correct regardless of what else in the
+   * row rendered.
    *
    * SPARINGLY conditional: only the provider badge ever passes a computed
-   * value here (`protectedBadgePresent` — whether branch or PR rendered).
-   * When neither did, provider is the row's first badge and takes over the
-   * "always visible in the narrow band" slot branch/PR would otherwise hold
-   * — exactly the pre-PR-pill `nth-child(n+2)` behavior, where badge #1 was
-   * always shown regardless of what it was. Model/reasoning/max-output stay
-   * unconditionally `wideOnly`: they are never the row's first badge, so
-   * there is no protected slot for them to inherit.
+   * value here (`protectedBadgePresent` — whether the branch rendered). When
+   * it did not, provider is the row's first badge and takes over the "always
+   * visible in the narrow band" slot the branch would otherwise hold.
+   * Model/reasoning/max-output stay unconditionally `wideOnly`: they are
+   * never the row's first badge, so there is no protected slot for them to
+   * inherit.
    */
   readonly wideOnly?: boolean;
 }): ReactElement {

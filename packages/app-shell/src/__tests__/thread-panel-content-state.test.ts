@@ -165,34 +165,16 @@ describe('resolveThreadPanelContentState', () => {
 
 describe('hasActiveThreadFilters', () => {
   it('is false only when every Show only box is clear', () => {
-    expect(
-      hasActiveThreadFilters({ hasPr: false, needsYou: false, running: false, unseen: false })
-    ).toBe(false);
-    expect(
-      hasActiveThreadFilters({ hasPr: true, needsYou: false, running: false, unseen: false })
-    ).toBe(true);
-    expect(
-      hasActiveThreadFilters({ hasPr: false, needsYou: true, running: false, unseen: false })
-    ).toBe(true);
-    expect(
-      hasActiveThreadFilters({ hasPr: false, needsYou: false, running: true, unseen: false })
-    ).toBe(true);
-    expect(
-      hasActiveThreadFilters({ hasPr: false, needsYou: false, running: false, unseen: true })
-    ).toBe(true);
+    expect(hasActiveThreadFilters({ needsYou: false, running: false, unseen: false })).toBe(false);
+    expect(hasActiveThreadFilters({ needsYou: true, running: false, unseen: false })).toBe(true);
+    expect(hasActiveThreadFilters({ needsYou: false, running: true, unseen: false })).toBe(true);
+    expect(hasActiveThreadFilters({ needsYou: false, running: false, unseen: true })).toBe(true);
   });
 });
 
 describe('filterThreadsByThreadFilters', () => {
-  const THREADS = [
-    thread('running'),
-    thread('needs-you'),
-    thread('unseen'),
-    thread('has-pr'),
-    thread('idle'),
-  ];
+  const THREADS = [thread('running'), thread('needs-you'), thread('unseen'), thread('idle')];
   const IDS = {
-    hasPrThreadIds: new Set(['has-pr']),
     needsYouThreadIds: new Set(['needs-you']),
     runningThreadIds: new Set(['running']),
     unseenThreadIds: new Set(['unseen']),
@@ -210,7 +192,7 @@ describe('filterThreadsByThreadFilters', () => {
   it('returns the same array when no filter is active', () => {
     expect(
       filterThreadsByThreadFilters({
-        filters: { hasPr: false, needsYou: false, running: false, unseen: false },
+        filters: { needsYou: false, running: false, unseen: false },
         threads: THREADS,
         ...IDS,
       })
@@ -218,41 +200,30 @@ describe('filterThreadsByThreadFilters', () => {
   });
 
   it('narrows to the threads one active filter names', () => {
-    expect(filterIds({ hasPr: false, needsYou: false, running: true, unseen: false })).toEqual([
-      'running',
-    ]);
-    expect(filterIds({ hasPr: false, needsYou: true, running: false, unseen: false })).toEqual([
-      'needs-you',
-    ]);
-    expect(filterIds({ hasPr: false, needsYou: false, running: false, unseen: true })).toEqual([
-      'unseen',
-    ]);
-    expect(filterIds({ hasPr: true, needsYou: false, running: false, unseen: false })).toEqual([
-      'has-pr',
-    ]);
+    expect(filterIds({ needsYou: false, running: true, unseen: false })).toEqual(['running']);
+    expect(filterIds({ needsYou: true, running: false, unseen: false })).toEqual(['needs-you']);
+    expect(filterIds({ needsYou: false, running: false, unseen: true })).toEqual(['unseen']);
   });
 
   // OR, not AND: two ticked boxes ask for "anything I might want to look at".
   // An AND would answer with almost nothing — a thread is rarely running AND
   // unseen at the same time.
   it('unions two active filters instead of intersecting them', () => {
-    expect(filterIds({ hasPr: true, needsYou: false, running: true, unseen: false })).toEqual([
+    expect(filterIds({ needsYou: false, running: true, unseen: true })).toEqual([
       'running',
-      'has-pr',
+      'unseen',
     ]);
-    expect(filterIds({ hasPr: true, needsYou: true, running: true, unseen: true })).toEqual([
+    expect(filterIds({ needsYou: true, running: true, unseen: true })).toEqual([
       'running',
       'needs-you',
       'unseen',
-      'has-pr',
     ]);
   });
 
   it('can narrow to nothing rather than falling back to the whole list', () => {
     expect(
       filterThreadsByThreadFilters({
-        filters: { hasPr: true, needsYou: false, running: false, unseen: false },
-        hasPrThreadIds: new Set<string>(),
+        filters: { needsYou: false, running: true, unseen: false },
         needsYouThreadIds: new Set<string>(),
         runningThreadIds: new Set<string>(),
         threads: THREADS,

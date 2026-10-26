@@ -21,9 +21,8 @@
  * Loading is eager by default. `deferInitialLoad` (BST-1116 W6 review finding
  * 4) is an OPT-IN escape for callers behind a user gesture — see
  * {@link UseGitInventoryOptions.deferInitialLoad}. A whole repo/worktree scan
- * across every workspace root is not free, and the git panel header used to
- * pay for it on every panel mount whether or not its worktree dropdown was
- * ever opened.
+ * across every workspace root is not free, so a surface should not pay for it
+ * merely by mounting.
  *
  * `inventory.errors` is a first-class part of the payload: per-repository
  * failures are reported there rather than dropping the repository, so a
@@ -52,8 +51,8 @@ export interface UseGitInventoryOptions {
    * for its source picker and its changed-files grouping, and must keep
    * loading on mount.
    *
-   * A caller that only needs the inventory behind a user gesture (the git
-   * panel's worktree dropdown, BST-1116 W6 review finding 4) passes `true` so
+   * A caller that only needs the inventory behind a user gesture (the branch
+   * switcher, BST-1116 W6 review finding 4) passes `true` so
    * merely MOUNTING that surface no longer triggers a full repo/worktree scan
    * across every workspace root. Such a caller MUST invoke {@link
    * UseGitInventoryResult.refresh} from the gesture that reveals the data —
@@ -63,7 +62,7 @@ export interface UseGitInventoryOptions {
    * The deferred pre-first-load state is observable and must not be conflated
    * with "loading": `{ inventory: null, loading: false, error: null }` while
    * `available` is `true` means "not requested yet", and a consumer rendering
-   * a reason for it has to say so (see `git-workbench-header.tsx`).
+   * a reason for it has to say so.
    */
   readonly deferInitialLoad?: boolean;
 }

@@ -1,11 +1,6 @@
 /**
- * The pure row model behind BOTH branch switchers: the git panel's workbench
- * header dropdown (`git-workbench-header.tsx`) and the composer's Branch chip.
- *
- * Extracted rather than copied. The header's inline version was the reference
- * implementation for the git rule ("one checkout per branch"), and a second
- * copy in the chip would have drifted the moment either grew a case — the
- * dirty gate below is exactly such a case, and it belongs to both.
+ * The pure row model behind the composer Branch chip's switcher
+ * (`use-branch-switcher.ts`), applying git's rule of one checkout per branch.
  *
  * NO SILENT DISABLES: every non-switchable row carries the reason it is not
  * switchable, ordered most-specific-cause first, and the caller renders it.

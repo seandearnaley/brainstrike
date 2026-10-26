@@ -10,7 +10,7 @@
  * `deferInitialLoad: !enabled`. One
  * inventory load is a FULL repository/worktree scan across every workspace root
  * — the cost that made `deferInitialLoad` exist at all (BST-1116 W6 review
- * finding 4, where merely mounting the git panel header paid for it). Branch
+ * finding 4). Branch
  * chips exist ONLY in the Threads panel's `groupBy: 'folder'` view, so an
  * ungated hook would charge that scan to every panel mount in every grouping
  * mode.
@@ -98,16 +98,6 @@ export interface ThreadBranchByRootPathState {
   readonly byRootIdAndPath: ReadonlyMap<string, ReadonlyMap<string, ThreadBranchInfo>>;
   /** Keyed by NORMALIZED worktree path (see {@link normalizeRootPathForLookup}). */
   readonly byRootPath: ReadonlyMap<string, ThreadBranchInfo>;
-  /**
-   * True once the underlying `useGitInventory()` has resolved at least once
-   * for the CURRENT `enabled` activation — i.e. `inventory !== null` there.
-   * `available` alone answers "is the bridge present", not "has the load for
-   * THIS activation settled yet"; a caller that needs to tell "still loading"
-   * apart from "resolved, no match" (BST-1391 M2 — a forge push that arrives
-   * before the first post-activation load resolves must be buffered, not
-   * dropped as a false non-match) reads this rather than re-deriving it.
-   */
-  readonly loaded: boolean;
 }
 
 /**
@@ -198,7 +188,7 @@ export function useThreadBranchByRootPath({
     return projectBranches(inventory);
   }, [inventory]);
 
-  return { available, byRootId, byRootIdAndPath, byRootPath, loaded: inventory !== null };
+  return { available, byRootId, byRootIdAndPath, byRootPath };
 }
 
 /**

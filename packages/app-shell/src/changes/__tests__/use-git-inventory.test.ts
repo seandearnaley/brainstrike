@@ -141,7 +141,7 @@ describe('useGitInventory', () => {
   });
 
   it('skips the mount-time load with deferInitialLoad, then loads on the first refresh', async () => {
-    // BST-1116 W6 review finding 4: the git panel header must not trigger a
+    // BST-1116 W6 review finding 4: a deferring surface must not trigger a
     // full repo/worktree scan just by mounting. Deferral is OPT-IN so the
     // Changes surface (which needs the inventory eagerly) is untouched.
     const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
@@ -191,7 +191,7 @@ describe('useGitInventory', () => {
   });
 
   it('a deferred instance that was never asked to load does not refetch on invalidation (BST-1161)', async () => {
-    // The deferral exists so merely MOUNTING the git panel header does not
+    // The deferral exists so merely MOUNTING a deferring surface does not
     // trigger a repo scan — a push event must not defeat that either. Once the
     // caller HAS requested a load, later invalidations keep it fresh.
     const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);

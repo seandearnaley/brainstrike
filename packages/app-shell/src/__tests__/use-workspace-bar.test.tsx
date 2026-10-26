@@ -68,7 +68,6 @@ const {
   branchSwitcherSpy,
   checkoutSpy,
   clipboardWriteText,
-  forgePrSpy,
   loggerMock,
   toastSpy,
   worktreeArchiveSpy,
@@ -81,7 +80,6 @@ const {
   // below overrides it with mockReturnValue for the whole test body.
   checkoutSpy: vi.fn(),
   clipboardWriteText: vi.fn(),
-  forgePrSpy: vi.fn(),
   loggerMock: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -97,7 +95,6 @@ const {
 }));
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
-vi.mock('../hooks/use-thread-forge-pr', () => ({ useThreadForgePr: forgePrSpy }));
 vi.mock('../hooks/use-thread-checkout-status', () => ({ useThreadCheckoutStatus: checkoutSpy }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
@@ -314,8 +311,6 @@ beforeEach(() => {
     checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
     settled: true,
   });
-  forgePrSpy.mockReset();
-  forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
   worktreeArchiveSpy.mockReset();
   worktreeCreateSpy.mockReset();
@@ -461,46 +456,6 @@ describe('useWorkspaceBar', () => {
     );
     expect(updateThreadMetadata).toHaveBeenCalledTimes(metadataWriteCount + 1);
     expect(worktreeArchiveSpy).not.toHaveBeenCalled();
-  });
-
-  it('omits `forge` entirely when there is no forge bridge', async () => {
-    const { result } = await setup();
-    await waitFor(() => expect(result.current.primaryRoot).toBeDefined());
-    expect(result.current.forge).toBeUndefined();
-  });
-
-  it("persists the selected thread's forge watch toggle", async () => {
-    forgePrSpy.mockReturnValue({
-      diagnostic: null,
-      refresh: vi.fn(),
-      status: {
-        kind: 'pr',
-        observedAt: '2026-08-24T00:00:00.000Z',
-        pullRequest: {
-          checks: [],
-          checksRollup: 'none',
-          headSha: 'sha',
-          isDraft: false,
-          number: 7,
-          reviewDecision: null,
-          state: 'open',
-          title: 'PR',
-          url: 'https://example.test/pull/7',
-        },
-      },
-    });
-    const { result } = await setup();
-    await waitFor(() => expect(result.current.forge).toBeDefined());
-    expect(result.current.forge?.watched).toBe(true);
-    const onWatchChange = result.current.forge?.onWatchChange;
-    if (!onWatchChange) {
-      throw new Error('a thread is selected, so the Watch toggle must be present');
-    }
-    await act(async () => {
-      onWatchChange(false);
-    });
-
-    expect(updateThreadMetadata).toHaveBeenCalledWith(THREAD_ID, { forgePrWatch: false });
   });
 
   it('exposes the primary root, checkout, and recents minus the current roots', async () => {

@@ -64,8 +64,6 @@ export function createDesktopWorkspaceRootCatalog(
   };
   return {
     collections: (request) => borrow((client) => client.collections(request)),
-    forgeCache: (request) => borrow((client) => client.forgeCache(request)),
-    forgeCacheSnapshot: () => borrow((client) => client.forgeCacheSnapshot()),
     indexConfig: (request) => borrow((client) => client.indexConfig(request)),
     modelChoices: (request) => borrow((client) => client.modelChoices(request)),
     // Joins admitted operations; each outcome stays its caller's, never a close failure.

@@ -46,7 +46,7 @@ import type { ShellOutputStreamer } from './tool-execute-support.ts';
 const logger = createLogger('ExecuteCommandCorrelation');
 
 /**
- * The shell's worktree/forge correlator (Desktop's worktree ledger). It hears
+ * The shell's worktree correlator (Desktop's worktree ledger). It hears
  * each completed command with the pre-command snapshot, and never blocks or
  * fails the call it describes.
  */
@@ -63,7 +63,7 @@ export interface WorktreePathListing {
   readonly list: () => Promise<GitResult<readonly { readonly path: string }[]>>;
 }
 
-/** Where a command's worktree/forge side effects are correlated (BST-1392). */
+/** Where a command's worktree side effects are correlated (BST-1392). */
 export interface ShellCorrelationDependencies {
   readonly shellCorrelation?: ShellCorrelationCapability | undefined;
   readonly worktreeTools?: WorktreePathListing | undefined;
