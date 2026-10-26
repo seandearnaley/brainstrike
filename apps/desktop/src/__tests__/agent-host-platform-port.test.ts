@@ -223,45 +223,46 @@ function heldRead(tail: Promise<void>) {
   return { diagnostics, entered: entered.promise };
 }
 
-it('utility loss joins an in-flight Main read’s physical tail before returning the workspace lease', async () => {
-  const physicalTail = Promise.withResolvers<void>();
+it('host loss closes Main without waiting for a platform request that never settles, and aborts it', async () => {
+  // ADR-0031: closing joins no work that waits on another process (indexer, embedding host).
+  const entered = Promise.withResolvers<AbortSignal>();
   const serverClosed = Promise.withResolvers<void>();
   const release = vi.fn(async () => undefined);
-  const read = heldRead(physicalTail.promise);
-  const h = harness(lending(release), undefined, { diagnostics: read.diagnostics });
+  const h = harness(
+    mainReads({
+      acquireWorkspace: async () => ({
+        close: release,
+        revalidate: async () => undefined,
+        roots: [],
+      }),
+      indexStatus: (signal) => {
+        entered.resolve(signal);
+        return new Promise<never>(() => undefined);
+      },
+    })
+  );
   h.server.onClose(() => serverClosed.resolve());
   try {
     await acquire(h.client);
-    const reading = h.client.sendRequest('desktop-read/diagnostics/events', DIAGNOSTIC_EVENTS);
-    reading.catch(() => undefined);
-    await read.entered;
+    const status = h.client.sendRequest('platform/admission/index-status', {});
+    status.catch(() => undefined);
+    const signal = await entered.promise;
     h.crash();
     await serverClosed.promise;
-    let closed = false;
-    const closing = h.owner.close().then(() => {
-      closed = true;
-    });
-    await Promise.resolve();
-    expect(closed).toBe(false);
-    expect(release).not.toHaveBeenCalled();
-    physicalTail.resolve();
-    await closing;
-    await expect(reading).rejects.toThrow();
+    await h.owner.close();
+    expect(signal.aborted).toBe(true);
     expect(release).toHaveBeenCalledTimes(1);
   } finally {
-    physicalTail.resolve();
     h.destroy();
-    await h.owner.close();
   }
 });
 
-it('cancellation and close wait for an in-flight Main read’s physical tail before releasing borrowed capabilities', async () => {
-  const joined = Promise.withResolvers<void>();
+it('cancellation and close return borrowed capabilities without waiting for an in-flight Main read', async () => {
+  const held = Promise.withResolvers<void>();
   const close = vi.fn(async () => undefined);
-  const read = heldRead(joined.promise);
+  const read = heldRead(held.promise);
   const h = harness(lending(close), undefined, { diagnostics: read.diagnostics });
   const cancellation = new CancellationTokenSource();
-  let settled = false;
   try {
     await acquire(h.client);
     const reading = h.client.sendRequest(
@@ -272,19 +273,10 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
     reading.catch(() => undefined);
     await read.entered;
     cancellation.cancel();
-    const closing = h.owner.close().then(() => {
-      settled = true;
-    });
-    await Promise.resolve();
-    expect(settled).toBe(false);
-    expect(close).not.toHaveBeenCalled();
-    joined.resolve();
-    // This read does not observe its signal, so it settles with its result.
-    await expect(reading).resolves.toEqual([]);
-    await closing;
+    await h.owner.close();
     expect(close).toHaveBeenCalledTimes(1);
   } finally {
-    joined.resolve();
+    held.resolve();
     cancellation.dispose();
     h.destroy();
   }

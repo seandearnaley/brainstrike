@@ -270,7 +270,6 @@ export function serveDesktopPlatform(
   // The host's workspace borrows for its admitted runs, by the lease id it chose.
   const leases = new Map<string, DesktopWorkspaceBindingBorrow>();
   const controllers = new Set<AbortController>();
-  const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
   const nativeChildren = capabilities.nativeChildren;
   if (nativeChildren) {
@@ -322,11 +321,9 @@ export function serveDesktopPlatform(
           log
         );
       });
-    pending.add(task);
     const settled = (): void => {
       subscription.dispose();
       controllers.delete(controller);
-      pending.delete(task);
     };
     task.then(settled, settled);
     return task;
@@ -433,11 +430,11 @@ export function serveDesktopPlatform(
   serveHostToolServices(connection, execute, capabilities.hostTools);
   const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
+      // ADR-0031: in-flight requests may wait on another process (indexer,
+      // embedding host). Close aborts them and never joins them; each settles
+      // on its own, and an acquisition that arrives aborted returns its borrow.
       for (const controller of controllers) {
         controller.abort(new Error('Desktop platform is closing'));
-      }
-      while (pending.size > 0) {
-        await Promise.allSettled([...pending]);
       }
       mcpStores.close();
       const results = await Promise.allSettled([...leases.values()].map((lease) => lease.close()));
@@ -456,8 +453,8 @@ export function serveDesktopPlatform(
   };
   const disconnect = (): Promise<void> => {
     const joined = close();
-    // vscode-jsonrpc close does not reject pending responses. Dispose before
-    // joining executors so a lost progress acknowledgement cannot hold a tail.
+    // vscode-jsonrpc close does not reject pending responses; dispose so the
+    // connection takes no further request from a host that is gone.
     connection.dispose();
     return joined;
   };
