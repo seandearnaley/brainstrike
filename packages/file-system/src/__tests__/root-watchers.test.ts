@@ -560,13 +560,50 @@ describe('root watch engine on Node fs.watch', () => {
     await rm(root, { force: true, recursive: true });
   });
 
+  /**
+   * Starts a real watch and resolves once it reports a change in `probeDirectory`. A watch is not live when
+   * `fs.watch` returns on macOS (libuv starts the FSEvents stream on its CoreFoundation thread) or on Linux (Node
+   * watches nested directories afterwards), so a change made at once can go unseen. A probe file rewritten until one
+   * write is reported proves the watch live.
+   */
+  async function startLiveWatch(
+    probeDirectory: string,
+    onChanges: (changes: FileSystemChange[]) => void
+  ): Promise<() => Promise<void>> {
+    const probe = join(probeDirectory, '.live-probe');
+    let live = false;
+    const retire = await startJoinedRootWatch(makeHandle(root), (changes) => {
+      live ||= changes.some((change) => change.path === probe);
+      onChanges(changes);
+    });
+    let writes = 0;
+    try {
+      await expect
+        .poll(
+          async () => {
+            if (!live) {
+              writes += 1;
+              await writeFile(probe, String(writes));
+            }
+            return live;
+          },
+          { interval: 50, timeout: 4000 }
+        )
+        .toBe(true);
+    } catch (cause) {
+      await retire();
+      throw cause;
+    }
+    return retire;
+  }
+
   it('reports a file created in a nested directory, and never an ignored tree', async () => {
     await mkdir(join(root, 'src', 'deep'), { recursive: true });
     await mkdir(join(root, 'node_modules', 'pkg'), { recursive: true });
     const created = join(root, 'src', 'deep', 'created.ts');
     const seen: FileSystemChange[] = [];
     const delivered = Promise.withResolvers<void>();
-    const retire = await startJoinedRootWatch(makeHandle(root), (changes) => {
+    const retire = await startLiveWatch(join(root, 'src', 'deep'), (changes) => {
       seen.push(...changes);
       if (changes.some((change) => change.path === created)) {
         delivered.resolve();
@@ -583,15 +620,16 @@ describe('root watch engine on Node fs.watch', () => {
     }
   });
 
-  /** Starts a real watch and resolves once every path in `expected` has been reported. */
+  /** Starts a live watch, acts, and resolves once every path in `expected` has been reported. */
   async function watchUntilReported(
     expected: readonly string[],
-    act: () => Promise<void>
+    act: () => Promise<void>,
+    probeDirectory = root
   ): Promise<FileSystemChange[]> {
     const seen: FileSystemChange[] = [];
     const pending = new Set(expected);
     const delivered = Promise.withResolvers<void>();
-    const retire = await startJoinedRootWatch(makeHandle(root), (changes) => {
+    const retire = await startLiveWatch(probeDirectory, (changes) => {
       seen.push(...changes);
       for (const change of changes) {
         pending.delete(change.path);
@@ -632,9 +670,13 @@ describe('root watch engine on Node fs.watch', () => {
       });
       expect(seen).toContainEqual({ kind: 'directory', path: directory, type: 'added' });
       // The moved tree is watched: a later write inside it is reported.
-      const later = await watchUntilReported([nestedFile], async () => {
-        await writeFile(nestedFile, 'export const changed = true;');
-      });
+      const later = await watchUntilReported(
+        [nestedFile],
+        async () => {
+          await writeFile(nestedFile, 'export const changed = true;');
+        },
+        join(directory, 'nested')
+      );
       expect(later).toContainEqual(expect.objectContaining({ kind: 'file', path: nestedFile }));
     } finally {
       await rm(outside, { force: true, recursive: true });
