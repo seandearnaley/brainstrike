@@ -21,7 +21,7 @@ import {
 import type { HostClient } from './client-connection.ts';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
 import { isProcessEntrypoint } from './process-entrypoint.ts';
-import { HOST_METHOD_SCHEMAS, type HostParams } from './protocol.ts';
+import { HOST_CLOSE_GRACE_MS, HOST_METHOD_SCHEMAS, type HostParams } from './protocol.ts';
 import { openStandaloneHost, type StandaloneHost } from './standalone-host.ts';
 import {
   type CliWorkspaceRunInput,
@@ -464,10 +464,25 @@ async function settleHostWork(
     await client.request('log/unsubscribe', { threadId });
   }
 }
+/** Runs one command, closing the host it opened once the command's outcome is out. */
 export async function runHostCli(
   args: string[],
   output: HostCliOutput = process.stdout,
   defaults: HostCliDefaults = {}
+): Promise<void> {
+  const opened: { host?: StandaloneHost } = {};
+  try {
+    await runHostCliCommand(args, output, defaults, opened);
+  } finally {
+    await opened.host?.close();
+  }
+}
+/** Runs one command; the host it opens is left in `opened` for its caller to close. */
+async function runHostCliCommand(
+  args: string[],
+  output: HostCliOutput,
+  defaults: HostCliDefaults,
+  opened: { host?: StandaloneHost }
 ): Promise<void> {
   const { command, interactive, positionals, values, workspaceInput } = parseHostCliArgs(args);
   const workspaceConfiguration = cliWorkspaceConfiguration(workspaceInput);
@@ -542,6 +557,7 @@ EOF or a signal ends the command: a running run is interrupted, an unanswered de
     platformModule,
     launchSelection(values)
   );
+  opened.host = host;
   const client = host.client;
   const commandId = values['command-id'] ?? randomUUID();
   const print = (value: unknown): void => {
@@ -549,125 +565,130 @@ EOF or a signal ends the command: a running run is interrupted, an unanswered de
   };
   const threadId = (): string => required(values.thread, 'thread');
   const runId = (): string => required(values.run, 'run');
-  try {
-    await assertChildCommand(client, command, values.thread);
-    switch (command) {
-      case 'hooks trust':
-        print(
-          await trustCliProjectHooks(client, {
-            interactive,
-            root: positionals[2],
-            sha256: values.sha256,
-          })
-        );
-        break;
-      case 'auth login': {
-        print(await client.request('auth/login', required(login, 'provider')));
-        break;
-      }
-      case 'thread start':
-        print(await client.request('thread/start', { commandId }));
-        break;
-      case 'workspace search':
-        print(await searchWorkspaceCli(client, values));
-        break;
-      case 'children list':
-        print(await client.request('thread/children', { threadId: threadId() }));
-        break;
-      case 'threads search':
-        print(await client.request('thread/search', required(threadSearch, 'query')));
-        break;
-      case 'threads list':
-        print(await client.request('thread/list', {}));
-        break;
-      case 'thread read':
-      case 'threads show':
-        print(
-          await client.request('thread/read', {
-            fromSeq: Number(values['from-seq'] ?? 0),
-            threadId: threadId(),
-          })
-        );
-        break;
-      case 'run': {
-        const modelId = required(values.model, 'model');
-        const prompt = required(values.prompt ?? positionals.slice(1).join(' '), 'prompt');
-        const selected =
-          values.thread ??
-          (await client.request('thread/start', { commandId: randomUUID() })).threadId;
-        const session = { interactive, json: values.json ?? false, output };
-        const printed = await runHostCliSession({
-          ...session,
-          client,
-          startRun: () =>
-            client.request('run/start', {
-              commandId,
-              ...workspaceConfiguration,
-              modelId,
-              prompt,
-              threadId: selected,
-            }),
-          threadId: selected,
-        });
-        await settleHostWork(host, selected, session, printed);
-        break;
-      }
-      case 'attach': {
-        const session = { interactive, json: values.json ?? false, output };
-        const printed = await runHostCliSession({
-          ...session,
-          client,
-          ...(values.run ? { runId: values.run } : {}),
+  await assertChildCommand(client, command, values.thread);
+  switch (command) {
+    case 'hooks trust':
+      print(
+        await trustCliProjectHooks(client, {
+          interactive,
+          root: positionals[2],
+          sha256: values.sha256,
+        })
+      );
+      break;
+    case 'auth login': {
+      print(await client.request('auth/login', required(login, 'provider')));
+      break;
+    }
+    case 'thread start':
+      print(await client.request('thread/start', { commandId }));
+      break;
+    case 'workspace search':
+      print(await searchWorkspaceCli(client, values));
+      break;
+    case 'children list':
+      print(await client.request('thread/children', { threadId: threadId() }));
+      break;
+    case 'threads search':
+      print(await client.request('thread/search', required(threadSearch, 'query')));
+      break;
+    case 'threads list':
+      print(await client.request('thread/list', {}));
+      break;
+    case 'thread read':
+    case 'threads show':
+      print(
+        await client.request('thread/read', {
+          fromSeq: Number(values['from-seq'] ?? 0),
           threadId: threadId(),
-        });
-        await settleHostWork(host, threadId(), session, printed);
-        break;
-      }
-      case 'child stop':
-      case 'run stop':
-        print(
-          await client.request('run/stop', { commandId, runId: runId(), threadId: threadId() })
-        );
-        break;
-      case 'interaction respond': {
-        const decision = values.decision;
-        if (decision !== 'approve' && decision !== 'deny') {
-          throw new Error('--decision must be approve or deny');
-        }
-        print(
-          await client.request('interaction/respond', {
+        })
+      );
+      break;
+    case 'run': {
+      const modelId = required(values.model, 'model');
+      const prompt = required(values.prompt ?? positionals.slice(1).join(' '), 'prompt');
+      const selected =
+        values.thread ??
+        (await client.request('thread/start', { commandId: randomUUID() })).threadId;
+      const session = { interactive, json: values.json ?? false, output };
+      const printed = await runHostCliSession({
+        ...session,
+        client,
+        startRun: () =>
+          client.request('run/start', {
             commandId,
-            decision,
-            interactionId: required(values.interaction, 'interaction'),
-            runId: runId(),
-            threadId: threadId(),
-          })
-        );
-        await settleHostWork(host, threadId(), ANSWER_FOLLOW);
-        break;
+            ...workspaceConfiguration,
+            modelId,
+            prompt,
+            threadId: selected,
+          }),
+        threadId: selected,
+      });
+      await settleHostWork(host, selected, session, printed);
+      break;
+    }
+    case 'attach': {
+      const session = { interactive, json: values.json ?? false, output };
+      const printed = await runHostCliSession({
+        ...session,
+        client,
+        ...(values.run ? { runId: values.run } : {}),
+        threadId: threadId(),
+      });
+      await settleHostWork(host, threadId(), session, printed);
+      break;
+    }
+    case 'child stop':
+    case 'run stop':
+      print(await client.request('run/stop', { commandId, runId: runId(), threadId: threadId() }));
+      break;
+    case 'interaction respond': {
+      const decision = values.decision;
+      if (decision !== 'approve' && decision !== 'deny') {
+        throw new Error('--decision must be approve or deny');
       }
-      case 'interaction resume': {
-        const resumeData: unknown = JSON.parse(required(values['resume-data'], 'resume-data'));
-        const params = Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['interaction/resume'], {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })({
+      print(
+        await client.request('interaction/respond', {
           commandId,
+          decision,
           interactionId: required(values.interaction, 'interaction'),
-          resumeData,
           runId: runId(),
           threadId: threadId(),
-        });
-        print(await client.request('interaction/resume', params));
-        await settleHostWork(host, threadId(), ANSWER_FOLLOW);
-        break;
-      }
-      default:
-        throw new Error('Expected thread start/read, run stop, or interaction respond/resume');
+        })
+      );
+      await settleHostWork(host, threadId(), ANSWER_FOLLOW);
+      break;
     }
-  } finally {
-    await host.close();
+    case 'interaction resume': {
+      const resumeData: unknown = JSON.parse(required(values['resume-data'], 'resume-data'));
+      const params = Schema.decodeUnknownSync(HOST_METHOD_SCHEMAS['interaction/resume'], {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })({
+        commandId,
+        interactionId: required(values.interaction, 'interaction'),
+        resumeData,
+        runId: runId(),
+        threadId: threadId(),
+      });
+      print(await client.request('interaction/resume', params));
+      await settleHostWork(host, threadId(), ANSWER_FOLLOW);
+      break;
+    }
+    default:
+      throw new Error('Expected thread start/read, run stop, or interaction respond/resume');
   }
+}
+function reportHostCliFailure(cause: unknown): void {
+  const message =
+    cause instanceof BoundaryFailureError
+      ? describeBoundaryFailure(cause.failure)
+      : cause instanceof Error
+        ? cause.message
+        : String(cause);
+  process.stderr.write(`${message}\n`);
+  // The command's own outcome keeps its code when its host's close fails after it.
+  process.exitCode ??= cause instanceof HostCliExitError ? cause.exitCode : 1;
 }
 /** Both installed executable names and the direct Node entry share exit semantics. */
 export async function runHostCliProcess(
@@ -685,24 +706,31 @@ export async function runHostCliProcess(
       ) as typeof import('@brainstrike/windows-job-native')
     ).initialize();
   }
+  const opened: { host?: StandaloneHost } = {};
+  let tracing: Awaited<ReturnType<typeof startHostTracing>>;
   try {
     // Before the host starts: a misconfigured exporter fails the command visibly.
-    const tracing = await startHostTracing(process.env);
-    try {
-      await runHostCli(args, process.stdout, defaults);
-    } finally {
-      // After the host closed and joined its runs, so their spans are flushed too.
-      await tracing?.shutdown();
-    }
+    tracing = await startHostTracing(process.env);
+    await runHostCliCommand(args, process.stdout, defaults, opened);
   } catch (cause: unknown) {
-    const message =
-      cause instanceof BoundaryFailureError
-        ? describeBoundaryFailure(cause.failure)
-        : cause instanceof Error
-          ? cause.message
-          : String(cause);
-    process.stderr.write(`${message}\n`);
-    process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;
+    reportHostCliFailure(cause);
+  }
+  // ADR-0031: the command's outcome is out, and every write is already committed.
+  // The host's close is the ask and the one grace bounds it; this process's exit
+  // is the kill (on Windows its kill-on-close Job ends every child too). A close
+  // that ends sooner lets the process end on its own.
+  setTimeout(() => {
+    process.stderr.write(
+      `The host did not close within ${HOST_CLOSE_GRACE_MS} ms; its committed work is kept.\n`
+    );
+    process.exit();
+  }, HOST_CLOSE_GRACE_MS).unref();
+  try {
+    await opened.host?.close();
+    // After the host closed and joined its runs, so their spans are flushed too.
+    await tracing?.shutdown();
+  } catch (cause: unknown) {
+    reportHostCliFailure(cause);
   }
 }
 if (isProcessEntrypoint(import.meta.url)) {

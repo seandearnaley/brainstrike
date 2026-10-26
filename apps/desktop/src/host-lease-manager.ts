@@ -3,7 +3,11 @@ import { constants } from 'node:os';
 import type { Readable, Writable } from 'node:stream';
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
-import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from '@brainstrike/agent-host/protocol';
+import {
+  AGENT_HOST_PROTOCOL_VERSION,
+  HOST_CLOSE_GRACE_MS,
+  HOST_VERSION,
+} from '@brainstrike/agent-host/protocol';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
@@ -22,11 +26,6 @@ import {
 import { type HostStdio, openHostStdio } from './host-stdio';
 
 const logger = createLogger('DesktopHostLease');
-/**
- * Quit is ask, wait, kill, as VS Code ends its extension host: every write is
- * committed as it happens, so a host still running after this grace loses nothing.
- */
-export const HOST_CLOSE_GRACE_MS = 5000;
 
 /** The host as a plain child process with piped stdio, as Node's `spawn` returns it. */
 export interface HostChildProcess {

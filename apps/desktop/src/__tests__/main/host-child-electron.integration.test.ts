@@ -5,7 +5,11 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { openAgentHost } from '@brainstrike/agent-host';
 import { authenticateHostClient } from '@brainstrike/agent-host/client';
-import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from '@brainstrike/agent-host/protocol';
+import {
+  AGENT_HOST_PROTOCOL_VERSION,
+  HOST_CLOSE_GRACE_MS,
+  HOST_VERSION,
+} from '@brainstrike/agent-host/protocol';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { joinProcessExit, processStartTime } from '@brainstrike/test-utils/process-identity';
@@ -15,7 +19,6 @@ import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import { mainPlatformConnection } from '../../agent-host-platform/connection';
 import { encodeHostChildArgs } from '../../host-child-messages';
-import { HOST_CLOSE_GRACE_MS } from '../../host-lease-manager';
 import { openHostStdio } from '../../host-stdio';
 import { electronExecutablePath } from '../helpers/electron-executable';
 import { isRootHeld } from '../helpers/root-held';

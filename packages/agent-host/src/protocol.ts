@@ -147,6 +147,12 @@ export * from './workspace-wire.ts';
 export const AGENT_HOST_PROTOCOL_VERSION = 14;
 /** The host program's version, which a client's initialize must match. */
 export const HOST_VERSION = '0.1.0';
+/**
+ * ADR-0031: quit is ask, wait, kill, as VS Code ends its extension host. Every
+ * write is committed as it happens, so a host still closing after this grace
+ * loses nothing. Main's quit and the CLI's exit share it.
+ */
+export const HOST_CLOSE_GRACE_MS = 5000;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
