@@ -67,7 +67,7 @@ coverage, not the preview UI.
 
 ## Live refresh
 
-Use the existing watcher capability and event channel. Desktop keeps one Parcel
+Use the existing watcher capability and event channel. Desktop keeps one `fs.watch`
 subscription per owner/resolved root with independently disposable logical IDs;
 unsupported engines fail rather than falling back. Missing web observation is
 visibly unwatched. Do not add polling to disguise it.

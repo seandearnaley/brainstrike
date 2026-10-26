@@ -24,6 +24,25 @@ export function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' });
 }
 
+/**
+ * Every worktree a `git worktree list --porcelain` output registers, as a
+ * native path. Git prints forward slashes on Windows (`C:/Users/...`) while
+ * the app and Node use the platform form (`C:\Users\...`); `resolve` turns
+ * git's spelling into the platform's, so callers compare paths, not spellings.
+ */
+function parseWorktreePaths(porcelain: string, platformPath: path.PlatformPath): string[] {
+  const prefix = 'worktree ';
+  return porcelain
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith(prefix))
+    .map((line) => platformPath.resolve(line.slice(prefix.length)));
+}
+
+/** {@link parseWorktreePaths} for `repo`'s live worktree list on this platform. */
+export function listWorktreePaths(repo: string): string[] {
+  return parseWorktreePaths(git(repo, ['worktree', 'list', '--porcelain']), path);
+}
+
 export interface TempDirTracker {
   /** Remove every tracked dir and forget them. Safe to call twice. */
   removeAll(): void;

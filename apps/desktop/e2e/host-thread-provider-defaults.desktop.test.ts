@@ -4,6 +4,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { waitForAppHost } from './utils/agent-host-log';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const KEY = 'sk-or-test-host-provider-defaults';
@@ -59,6 +60,9 @@ test('adding a provider key on a host thread enables its recommended models, whi
     .getByRole('button', { name: /^Providers$/i })
     .click();
   await page.getByTestId('provider-card-toggle-openrouter').click();
+  // Settings saves a key through the agent host, the only credential writer, so
+  // the save starts once the host is attached (hosted Windows took 18 s to start).
+  await waitForAppHost(page);
   await page.getByTestId('credential-set-openrouter').click();
   await page.getByTestId('credential-key-input-openrouter').fill(KEY);
   await page.keyboard.press('Enter');

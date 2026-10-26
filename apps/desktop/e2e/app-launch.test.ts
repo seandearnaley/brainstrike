@@ -29,6 +29,13 @@ test.describe('Electron App Launch', () => {
     expect(startupOutput).not.toContain('dist/dist/main-watchdog-worker.js');
   });
 
+  // A launch through a shell left Playwright holding cmd.exe, so its Windows force close was a
+  // `taskkill /T` from that pid, which also walks into processes whose dead parent's pid it reused.
+  test('the launched process is the app itself', async ({ electronApp }) => {
+    const mainPid = await electronApp.app.evaluate(() => process.pid);
+    expect(electronApp.app.process().pid).toBe(mainPid);
+  });
+
   test('does not start persisted stores without storage', async ({ electronApp, window }) => {
     await setupAssistantMock(window);
 

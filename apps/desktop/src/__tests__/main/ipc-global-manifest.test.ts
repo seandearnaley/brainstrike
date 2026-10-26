@@ -126,7 +126,7 @@ Object.assign(mockBrowserWindow, {
 });
 
 const mockApp = {
-  commandLine: { appendSwitch: vi.fn() },
+  commandLine: { appendSwitch: vi.fn(), getSwitchValue: vi.fn(() => '') },
   getAppMetrics: vi.fn(() => []),
   getAppPath: vi.fn(() => path.resolve('/mock/app')),
   getPath: vi.fn(() => '/tmp/brainstrike-test-logs'),

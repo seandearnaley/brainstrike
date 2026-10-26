@@ -78,6 +78,7 @@ describe('createWindow', () => {
       once: vi.fn(),
       setTitle: vi.fn(),
       show: vi.fn(),
+      showInactive: vi.fn(),
       webContents: mockWebContents,
     } as any;
 
@@ -360,7 +361,7 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.destroy).toHaveBeenCalledTimes(1);
     });
 
-    it('should not show window in headless mode (CI environment)', async () => {
+    it('shows a CI window unfocused, never focused', async () => {
       existsSyncMock.mockReturnValue(true);
       process.env['CI'] = 'true';
 
@@ -369,47 +370,24 @@ describe('createWindow', () => {
       expect(
         mockBrowserWindow.once.mock.calls.some(([event]: [string]) => event === 'ready-to-show')
       ).toBe(false);
+      expect(mockBrowserWindow.showInactive).toHaveBeenCalledTimes(1);
       expect(mockBrowserWindow.show).not.toHaveBeenCalled();
     });
 
-    it('shows a test-mode window unfocused only when the E2E harness opts in (BST-2040)', async () => {
+    it('shows a test-mode window unfocused on every platform, never focused (BST-2040)', async () => {
       existsSyncMock.mockReturnValue(true);
-      const showInactive = vi.fn();
-      MockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
-        Object.assign(this, mockBrowserWindow, { showInactive });
-      });
       process.argv = [...process.argv, '--test-mode'];
-      process.env['BRAINSTRIKE_E2E_SHOW_INACTIVE'] = '1';
-      try {
-        await createWindow();
-      } finally {
-        Reflect.deleteProperty(process.env, 'BRAINSTRIKE_E2E_SHOW_INACTIVE');
-      }
-
-      expect(showInactive).toHaveBeenCalledTimes(1);
-      expect(mockBrowserWindow.show).not.toHaveBeenCalled();
-
-      showInactive.mockClear();
-      await createWindow();
-      expect(showInactive).not.toHaveBeenCalled();
-    });
-
-    it('should not show window in test mode', async () => {
-      existsSyncMock.mockReturnValue(true);
-      const originalArgv = process.argv;
-      process.argv = [...originalArgv, '--test-mode'];
 
       await createWindow();
 
-      expect(
-        mockBrowserWindow.once.mock.calls.some(([event]: [string]) => event === 'ready-to-show')
-      ).toBe(false);
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({ focusable: false, show: false, skipTaskbar: true })
+      );
+      expect(mockBrowserWindow.showInactive).toHaveBeenCalledTimes(1);
       expect(mockBrowserWindow.show).not.toHaveBeenCalled();
-
-      process.argv = originalArgv;
     });
 
-    it('keeps desktop E2E windows hidden even when stored state is maximized', async () => {
+    it('never maximizes or focuses a desktop E2E window, even when stored state is maximized', async () => {
       existsSyncMock.mockReturnValue(true);
       process.argv = [...process.argv, '--test-mode'];
 
@@ -430,6 +408,7 @@ describe('createWindow', () => {
       );
       expect(mockBrowserWindow.maximize).not.toHaveBeenCalled();
       expect(mockBrowserWindow.show).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.showInactive).toHaveBeenCalledTimes(1);
     });
 
     it('limits renderer crash recovery reloads to avoid crash loops', async () => {

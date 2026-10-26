@@ -107,13 +107,14 @@ Quit has one terminal reason: the typed native-index refusal of kind `closed`,
 reason `shutdown`. Boundaries keep it as the cause of whatever they rethrow, and a
 log site that classifies it records it at debug, never as an error.
 
-Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
+Main's root watch owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
-each joins its subscribes and unsubscribes in a graceful-shutdown step. One still
-on the libuv thread pool when Electron frees Main's Node environment completes
-into a dead JS context and aborts Main (BST-2244). An owner keeps a subscription
-whose unsubscribe failed until a retry succeeds; each terminal dispose retries it
-once and rejects visibly if it fails again (BST-2248).
+each joins its watches in a graceful-shutdown step. The engine is Node's
+recursive `fs.watch`: it arms synchronously, and `close()` is its whole
+retirement, on the event-loop thread. @parcel/watcher was removed because its
+Windows backend freed a subscription while the kernel and its backend thread
+still used it (EXCEPTION_ACCESS_VIOLATION in Main); do not bring back a native
+watcher add-on that runs threads of its own.
 The host's Git inventory service follows the same joined-producer rule; it retains
 its watcher generation through failed stop and refuses restart until retirement
 succeeds.

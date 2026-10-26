@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Locator, TestInfo } from '@playwright/test';
@@ -154,6 +154,7 @@ async function assertWorkerWrite(
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-write-'));
+  electron.removeAfterClose(workspace);
   const outputPath = path.join(workspace, 'worker-output.txt');
   const content = 'WORKER_DISPOSABLE_DELIVERABLE_1721\n';
   const childResult = `WORKER_${decision.toUpperCase()}_RESULT_1721`;
@@ -406,11 +407,13 @@ async function assertWorkerWrite(
         await expect(
           root.getByText('PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723', { exact: true })
         ).toBeVisible();
+        // Send returns in place of Stop once the host has committed the run's end.
         await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
         // The user's turn carries no second delivery of the stopped child.
-        await expect
-          .poll(() => rootRuns(electron.getUserDataDir()))
-          .toEqual([...stoppedRuns, { outcome: 'completed', states: [], via: 'command' }]);
+        expect(await rootRuns(electron.getUserDataDir())).toEqual([
+          ...stoppedRuns,
+          { outcome: 'completed', states: [], via: 'command' },
+        ]);
         const afterStop = modelCalls();
         await window.reload();
         await ensureAssistantShellVisible(window);
@@ -665,7 +668,6 @@ async function assertWorkerWrite(
           }
         }
       },
-      async () => rm(workspace, { force: true, recursive: true }),
     ]) {
       try {
         await cleanup();

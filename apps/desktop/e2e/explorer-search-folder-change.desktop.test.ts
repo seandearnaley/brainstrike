@@ -7,7 +7,7 @@
  * workspace root") until restart.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -106,7 +106,9 @@ test('Explorer search follows a folder disconnected with its indexed data delete
 }) => {
   test.setTimeout(300_000);
   const alpha = workspaceFolder('bs-m6-explorer-alpha-', 'alpha.txt', ALPHA_WORD);
+  electron.removeAfterClose(alpha);
   const bravo = workspaceFolder('bs-m6-explorer-bravo-', 'bravo.txt', BRAVO_WORD);
+  electron.removeAfterClose(bravo);
   const addBravo = async (): Promise<void> => {
     await electronApp.app.evaluate((_electron, picked) => {
       process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = picked;
@@ -115,26 +117,20 @@ test('Explorer search follows a folder disconnected with its indexed data delete
     await page.getByRole('button', { name: 'Add Folder to Workspace' }).click();
     await expect(page.getByText('bravo.txt').first()).toBeVisible({ timeout: 60_000 });
   };
-  try {
-    await seedRoot(page, alpha, {
-      reloadReason: 'm6-explorer-folder-change',
-      rootId: randomUUID(),
-    });
-    await addBravo();
-    await expect.poll(() => indexReadiness(page), { timeout: 120_000 }).toEqual({ folders: 2 });
-    await expectSearchFinds(page, ALPHA_WORD, 'alpha.txt');
-    await expectSearchFinds(page, BRAVO_WORD, 'bravo.txt');
+  await seedRoot(page, alpha, {
+    reloadReason: 'm6-explorer-folder-change',
+    rootId: randomUUID(),
+  });
+  await addBravo();
+  await expect.poll(() => indexReadiness(page), { timeout: 120_000 }).toEqual({ folders: 2 });
+  await expectSearchFinds(page, ALPHA_WORD, 'alpha.txt');
+  await expectSearchFinds(page, BRAVO_WORD, 'bravo.txt');
 
-    await disconnectDeletingData(page, path.basename(bravo));
-    await expect.poll(() => indexReadiness(page), { timeout: 60_000 }).toEqual({ folders: 1 });
-    await expectSearchFinds(page, ALPHA_WORD, 'alpha.txt');
+  await disconnectDeletingData(page, path.basename(bravo));
+  await expect.poll(() => indexReadiness(page), { timeout: 60_000 }).toEqual({ folders: 1 });
+  await expectSearchFinds(page, ALPHA_WORD, 'alpha.txt');
 
-    await addBravo();
-    await expect.poll(() => indexReadiness(page), { timeout: 120_000 }).toEqual({ folders: 2 });
-    await expectSearchFinds(page, BRAVO_WORD, 'bravo.txt');
-  } finally {
-    await electron.dispose();
-    rmSync(alpha, { force: true, recursive: true });
-    rmSync(bravo, { force: true, recursive: true });
-  }
+  await addBravo();
+  await expect.poll(() => indexReadiness(page), { timeout: 120_000 }).toEqual({ folders: 2 });
+  await expectSearchFinds(page, BRAVO_WORD, 'bravo.txt');
 });

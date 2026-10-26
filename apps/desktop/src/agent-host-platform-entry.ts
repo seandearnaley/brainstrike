@@ -3,6 +3,7 @@ import {
   type HostPlatform,
   type HostPlatformLaunchOptions,
   type HostStartupContext,
+  timeStartupPhase,
 } from '@brainstrike/agent-host';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { HostStartOptions } from '@brainstrike/host-lease';
@@ -24,6 +25,6 @@ export async function createHostPlatform(
     startup,
   });
   // Main binding, then the caller's purge replay/Core recovery, still precede publication.
-  await configuration.confirmMainReady();
+  await timeStartupPhase(startup.phases, 'platform-bind', () => configuration.confirmMainReady());
   return platform;
 }

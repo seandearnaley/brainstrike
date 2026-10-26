@@ -550,18 +550,16 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   // parses. ready-to-show intentionally stays log-only (see above): it fires for
   // the initial about:blank document, so gating reveal on it produced long blank
   // windows.
-  if (!(isTestMode || win.isDestroyed())) {
+  if (isTestMode && !win.isDestroyed()) {
+    // A never-shown window renders no usable frames: X11 renders an unmapped
+    // window at 1 fps (BST-2040), Windows captures its screenshots in seconds
+    // (BST-2239), and requestAnimationFrame work (focus restore, virtualized
+    // lists) never runs. So test mode shows its window on every platform, but
+    // unfocused, unfocusable and off the taskbar: it never steals focus.
+    win.showInactive();
+  } else if (!win.isDestroyed()) {
     win.show();
     logStartupPhase('window-shown');
-  } else if (
-    isTestMode &&
-    process.env['BRAINSTRIKE_E2E_SHOW_INACTIVE'] === '1' &&
-    !win.isDestroyed()
-  ) {
-    // E2E keeps windows hidden so runs never pop up on a developer's desktop. On
-    // Linux, Chromium renders a window X11 never mapped at one frame per second,
-    // so the harness opts in to an unfocused show for Linux CI under Xvfb (BST-2040).
-    win.showInactive();
   }
 
   logStartupPhase('loading-renderer');

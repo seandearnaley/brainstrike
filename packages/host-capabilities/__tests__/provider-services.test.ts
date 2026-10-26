@@ -98,6 +98,41 @@ describe('host provider services', () => {
   });
 });
 
+describe('host provider services: one configured OpenRouter origin', () => {
+  it('sends the model metadata lookup where the key probe goes, from the host env', async () => {
+    // The ambient process env names another origin; the host's own env decides.
+    vi.stubEnv('OPENROUTER_BASE_URL', 'http://127.0.0.1:9/ambient');
+    try {
+      const urls: string[] = [];
+      const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+        urls.push(String(input));
+        return new Response('{}', { status: 401 });
+      });
+      const { credentials } = credentialsWith({
+        openrouter: { key: 'stored-key', type: 'api_key' },
+      });
+      const services = createHostProviderServices({
+        auth: { secrets: credentials.secrets },
+        env: { OPENROUTER_BASE_URL: 'http://127.0.0.1:9/boundary' },
+        envFileFailures: [],
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+
+      await services.verify('openrouter', open);
+      await expect(services.openRouterModel('anthropic/claude-sonnet-4.6', open)).rejects.toThrow(
+        'OpenRouter Models API returned status 401'
+      );
+
+      expect(urls).toEqual([
+        'http://127.0.0.1:9/boundary/key',
+        'http://127.0.0.1:9/boundary/model/anthropic/claude-sonnet-4.6',
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 /** A provider fetch that answers only when the test says, and honours its signal like fetch. */
 function heldFetch() {
   const signals: AbortSignal[] = [];

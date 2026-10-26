@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process';
+import { access, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { FullConfig } from '@playwright/test';
+import { createServer } from 'vite';
 import { resolveDesktopE2eTarget } from './utils/desktop-e2e-target';
 import { E2E_CREDENTIAL_ENV_NAMES } from './utils/model-provider-shim';
+import { E2E_VITE_CACHE_DIR_ENV } from './utils/run-vite-cache';
 
 const execFileAsync = promisify(execFile);
 const appRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -29,6 +33,42 @@ function scrubInheritedProviderCredentials(): void {
       verboseLog(`🔒 Removed inherited provider credential ${name}`);
     }
   }
+}
+
+/**
+ * Optimizes the dev renderer's dependencies once for the run, before any worker starts, into a
+ * run-level cache that dev-server specs read without optimizing again (`run-vite-cache.ts`).
+ * The directory is named `.vite` so the React transform keeps excluding its chunks. Returns
+ * the cache's removal.
+ */
+async function optimizeRunViteCache(): Promise<() => Promise<void>> {
+  const directory = await mkdtemp(path.join(tmpdir(), 'bs-e2e-vite-'));
+  const cacheDir = path.join(directory, '.vite');
+  const server = await createServer({
+    cacheDir,
+    configFile: path.join(appRoot, 'vite.config.mts'),
+    optimizeDeps: { force: true, holdUntilCrawlEnd: false },
+    root: appRoot,
+    server: { host: '127.0.0.1', port: 0 },
+  });
+  try {
+    await server.listen();
+    const optimizer = server.environments.client.depsOptimizer;
+    if (!optimizer) {
+      throw new Error('The dev renderer has no dependency optimizer');
+    }
+    await optimizer.scanProcessing;
+    await Promise.all(
+      Object.values(optimizer.metadata.discovered).map((dependency) => dependency.processing)
+    );
+  } finally {
+    await server.close();
+  }
+  // The optimizer commits its metadata last; without it every dev-server spec would optimize.
+  await access(path.join(cacheDir, 'deps', '_metadata.json'));
+  process.env[E2E_VITE_CACHE_DIR_ENV] = cacheDir;
+  console.log(`Dev renderer dependencies optimized once for this run into ${cacheDir}`);
+  return () => rm(directory, { force: true, recursive: true });
 }
 
 async function globalSetup(_config: FullConfig) {
@@ -91,7 +131,9 @@ async function globalSetup(_config: FullConfig) {
     throw new Error(`Renderer entry point not found. Expected at: ${rendererPath}`);
   }
 
+  const removeViteCache = await optimizeRunViteCache();
   verboseLog('🚀 Electron E2E setup complete');
+  return removeViteCache;
 }
 
 export default globalSetup;

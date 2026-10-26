@@ -90,7 +90,6 @@ catalog:
   '@opentelemetry/exporter-trace-otlp-http': 0.223.0
   '@opentelemetry/resources': 2.12.0
   '@opentelemetry/sdk-trace-node': 2.12.0
-  '@parcel/watcher': ^2.6.0
   '@playwright/test': 1.64.1
   '@radix-ui/react-accordion': ^1.3.1
   '@radix-ui/react-checkbox': ^1.4.1
@@ -275,7 +274,7 @@ allowBuilds:
   # BST-1920: DENIED, never allowed. better-sqlite3 ships `binding.gyp`, so pnpm
   # counts an implicit `node-gyp rebuild` as an unreviewed build script and fails
   # `pnpm install` with ERR_PNPM_IGNORED_BUILDS unless the package is reviewed.
-  # `false` is the review verdict (same as '@parcel/watcher' below): the shipped
+  # `false` is the review verdict: the shipped
   # `prebuilds/<platform>-<arch>.node` is the only binary, nothing compiles.
   better-sqlite3: false
   core-js: true
@@ -287,7 +286,6 @@ allowBuilds:
   node-pty: true
   oxc-resolver: true
   protobufjs: true
-  '@parcel/watcher': false
 # Owner decision, 2026-10-16: install selected versions without a release-age delay.
 # Explicit zero overrides pnpm 11's default one-day floor.
 minimumReleaseAge: 0
@@ -315,3 +313,12 @@ patchedDependencies:
   # Drop it at the first streamdown release containing #677, and bump
   # @assistant-ui/react-streamdown (and its override) to match.
   streamdown@2.7.0: patches/streamdown@2.7.0.patch
+  # Playwright 1.64 launches Electron through cmd.exe on every Windows path, so it holds the
+  # shell, not Main, and force-closes with `taskkill /T` from the shell's pid. /T walks parent
+  # pids, which Windows never checks against creation time, so a reused pid takes in processes
+  # that are not the app's. The patch keeps the shell for .bat/.cmd only (Electron is an .exe)
+  # and, without a shell, force-closes through the launched process's own handle
+  # (TerminateProcess), never by pid; the kill-on-close Job Main holds for its host ends the host
+  # (apps/desktop/src/host-process-job.ts). Paired tests: apps/desktop/e2e/app-launch.test.ts
+  # (the launched process is the app itself) and main-process-loss.desktop.test.ts.
+  playwright-core@1.64.1: patches/playwright-core@1.64.1.patch

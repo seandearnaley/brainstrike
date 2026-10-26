@@ -30,6 +30,7 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { forkUtility } from './fork-utility';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
+import { holdHostProcessJob, releaseHostProcessJob } from './host-process-job';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { joinProcessExit, type ProcessIdentity } from './process-exit-join';
 
@@ -145,6 +146,10 @@ interface OwnedChild {
   lost: boolean;
   /** The exit as Main observes it, shared by every join of this child. */
   observedExit?: Promise<number>;
+  /** Windows: the kill-on-close Job Main assigned it to at spawn, released after its exit. */
+  processJob?: ReturnType<typeof holdHostProcessJob>;
+  /** The assignment to that Job failed: its acquisition fails with this. */
+  processJobFailure?: unknown;
   ready: boolean;
   /** Asked to close for a user's restart (`stopForRelaunch`): its exit is a requested loss. */
   relaunchRequested: boolean;
@@ -160,6 +165,15 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void)
     exitListener: (code) => {
       child.exitCode = code;
       completion.resolve(code);
+      // A ready host's exit names its process, so a log of several apps' hosts says whose
+      // host it was. A host that exits before ready fails its acquisition instead.
+      if (child.ready && (!child.closing || (code !== 0 && !child.killed))) {
+        logger.warn('The owned agent host exited', {
+          closing: child.closing,
+          code,
+          pid: child.identity?.pid,
+        });
+      }
       if (!child.closing) {
         child.lost = true;
         lost(code);
@@ -225,6 +239,9 @@ async function awaitReady(
  * time, read before this owner has observed its exit (a zombie has no start time).
  */
 function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
+  if (child.processJobFailure !== undefined) {
+    throw child.processJobFailure;
+  }
   const pid = child.handle.pid;
   const start = child.exitCode === undefined && pid !== undefined ? processStartTime(pid) : null;
   if (pid === undefined || start === null) {
@@ -304,6 +321,7 @@ async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void>
   const code = child.clearRequested
     ? await observedExit(child, ladder)
     : await askCloseAndJoin(child, ladder);
+  await releaseHostProcessJob(child.processJob);
   child.handle.off('exit', child.exitListener);
   if (child.clearRequested && !child.clearReceipt) {
     throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
@@ -311,7 +329,7 @@ async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void>
   // A lost host's exit was reported when it happened, and a kill this owner escalated to was
   // logged then: neither is a failed close.
   if (child.ready && code !== 0 && !(child.lost || child.killed)) {
-    throw new Error(`Owned host utility exited with code ${code}`);
+    throw new Error(`Owned host utility ${child.identity?.pid} exited with code ${code}`);
   }
 }
 function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {
@@ -452,6 +470,12 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             stage = 'spawned';
+            // Assigned at once, before the host can have started much.
+            try {
+              child.processJob = holdHostProcessJob(child.handle.pid);
+            } catch (cause) {
+              child.processJobFailure = cause;
+            }
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);

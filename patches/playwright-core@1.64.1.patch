@@ -1,0 +1,25 @@
+diff --git a/lib/coreBundle.js b/lib/coreBundle.js
+index 6893f1cf133efec2c5dccc35c77cc7a53870ccbc..5649e9d2e57aa82c7022727cf2e4489bba33920b 100644
+--- a/lib/coreBundle.js
++++ b/lib/coreBundle.js
+@@ -10109,8 +10109,10 @@ async function launchProcess(options) {
+     if (spawnedProcess.pid && !spawnedProcess.killed && !processClosed) {
+       options.log(`[pid=${spawnedProcess.pid}] <will force kill>`);
+       try {
+-        if (process.platform === "win32")
++        if (process.platform === "win32" && options.shell)
+           killProcessTree(spawnedProcess.pid);
++        else if (process.platform === "win32")
++          spawnedProcess.kill("SIGKILL");
+         else
+           process.kill(-spawnedProcess.pid, "SIGKILL");
+       } catch (e) {
+@@ -45698,7 +45700,7 @@ var init_electron = __esm({
+           electronArguments.unshift("-r", libPath("server", "electron", "loader.js"));
+         }
+         let shell = false;
+-        if (process.platform === "win32") {
++        if (process.platform === "win32" && /\.(?:bat|cmd)$/i.test(command)) {
+           shell = true;
+           command = [command, ...electronArguments].map((arg2) => `"${escapeDoubleQuotes(arg2)}"`).join(" ");
+           electronArguments = [];

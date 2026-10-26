@@ -345,7 +345,7 @@ download offline. The DMG container itself is deliberately unsigned
   `allow-jit` and `allow-unsigned-executable-memory` for V8, and
   `disable-library-validation` because the bundle loads code not signed by our
   Team ID (the Electron framework, `node-pty` prebuilds,
-  `@brainstrike/secure-fs-native` and `@parcel` addons under
+  `@brainstrike/secure-fs-native` addon under
   `app.asar.unpacked`, and the bundled CPython). The app is NOT App-Sandboxed;
   no `app-sandbox` / `files.*` keys exist and none may be added "just in case".
 - **Bundled CPython ships as loose, signed files.** Apple's notarization

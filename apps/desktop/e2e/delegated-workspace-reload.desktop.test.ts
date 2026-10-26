@@ -254,13 +254,11 @@ test('restores distinct child tabs and native transcripts without executing a ru
     window.getByTestId('thread-row').getByRole('button', { exact: true, name: title });
   await expect(threadRow(OTHER_TITLE)).toBeVisible();
   await expect(threadRow(ROOT_TITLE)).toBeVisible();
-  await expect
-    .poll(async () => {
-      const { other, settled } = await readFixtureTree(userDataDir);
-      return other !== undefined && settled;
-    })
-    .toBe(true);
-  const other = (await readFixtureTree(userDataDir)).other;
+  // The pane leaves the running state once the host has committed the run's end.
+  await expect(otherPanel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+  const afterOther = await readFixtureTree(userDataDir);
+  expect(afterOther.settled).toBe(true);
+  const { other } = afterOther;
   if (!other) {
     throw new Error('The host committed no second root');
   }

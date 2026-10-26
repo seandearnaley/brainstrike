@@ -40,7 +40,7 @@ function createMockBrowserWindow() {
 type MockBrowserWindow = ReturnType<typeof createMockBrowserWindow>;
 
 const mockApp = {
-  commandLine: { appendSwitch: vi.fn() },
+  commandLine: { appendSwitch: vi.fn(), getSwitchValue: vi.fn(() => '') },
   getAppMetrics: vi.fn(() => []),
   getAppPath: vi.fn(() => '/mock/app'),
   getPath: vi.fn(() => '/tmp/brainstrike-test-logs'),

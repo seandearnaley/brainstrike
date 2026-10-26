@@ -81,13 +81,10 @@ test('a host run’s command session appears in the Terminal panel and stops fro
         .getByRole('tab', { selected: true })
         .getAttribute('id')) ?? '';
     const threadId = tabId.replace('assistant-thread-tab-', '');
-    // The reply streams before its run commits run.finished.
-    await expect
-      .poll(async () => (await readCommittedRuns(electron.getUserDataDir(), threadId))[0]?.status, {
-        timeout: 30_000,
-      })
-      .toBe('completed');
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const [run] = await readCommittedRuns(electron.getUserDataDir(), threadId);
+    expect(run?.status).toBe('completed');
     // load_tool's result comes first, then the session start's.
     expect(run?.results).toHaveLength(2);
     expect(run?.results[0]?.output).toMatchObject({ success: true });

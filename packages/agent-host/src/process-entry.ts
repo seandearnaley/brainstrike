@@ -22,6 +22,7 @@ import {
 import type { HostPlatform } from './ports.ts';
 import { isProcessEntrypoint } from './process-entrypoint.ts';
 import { type AgentHost, type HostStartupContext, startAgentHost } from './runtime.ts';
+import { stderrStartupPhases, timeStartupPhase } from './startup-phases.ts';
 import { type HostTracing, startHostTracing } from './telemetry/otel.ts';
 export type HostPlatformFactory = (
   options: HostStartOptions,
@@ -127,6 +128,9 @@ export async function runAgentHostProcess(
   // Canonical tools and MCP use the shared logger. Stdout belongs exclusively
   // to JSON-RPC framing; configure before dynamically importing the platform.
   configureLogger({ console: { destination: 2 }, includeTimestamp: true });
+  const phases = stderrStartupPhases();
+  // From the process's start to here: the runtime's own boot and the host's module graph.
+  phases({ durationMs: performance.now(), outcome: 'ok', phase: 'modules' });
   if (process.platform === 'win32') {
     // ADR-0017: Windows has no inheritable Root lock. Before this host starts any
     // native process it joins a kill-on-close Job, which ends them all when it exits.
@@ -200,10 +204,13 @@ export async function runAgentHostProcess(
             errors: 'all',
             onExcessProperty: 'error',
           })(JSON.parse(privateArgs[1] ?? 'null'));
-    host = await startAgentHost(
-      options,
-      (context) => loadHostPlatform(modulePath, options, context, platformOptions),
-      controller.signal
+    host = await timeStartupPhase(phases, 'start', () =>
+      startAgentHost(
+        options,
+        (context) => loadHostPlatform(modulePath, options, context, platformOptions),
+        controller.signal,
+        phases
+      )
     );
     const acquired = host;
     if (stdio) {
@@ -222,6 +229,8 @@ export async function runAgentHostProcess(
     parent?.started?.(acquired);
     ready = true;
     await publish({ event: 'ready', record: acquired.record });
+    // From the process's start to its ready report.
+    phases({ durationMs: performance.now(), outcome: 'ok', phase: 'ready' });
     await host.closed;
   } catch (cause) {
     failures.push(cause);

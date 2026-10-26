@@ -25,6 +25,7 @@ export class ElectronHarness {
   private readonly modelProvider: ModelProviderShim | undefined;
   /** The real folder every launch's folder picker mounts by default, restarts included. */
   private readonly workspaceRoot: string | undefined;
+  private readonly removedAfterClose = new Set<string>();
 
   constructor(
     debugPort?: number,
@@ -51,6 +52,20 @@ export class ElectronHarness {
       throw new Error('Electron harness requires a disposable workspace root.');
     }
     return this.workspaceRoot;
+  }
+
+  /**
+   * Hands `directory` to the fixture, which removes it after the app has closed. A test never
+   * deletes a folder the running app may still hold: Windows refuses to remove an open
+   * directory (EBUSY), so the app closes first, then its folders go.
+   */
+  removeAfterClose(directory: string): void {
+    this.removedAfterClose.add(directory);
+  }
+
+  /** The folders `removeAfterClose` collected, for the fixture's teardown. */
+  directoriesRemovedAfterClose(): readonly string[] {
+    return [...this.removedAfterClose];
   }
 
   getUserDataDir(): string {
@@ -130,14 +145,18 @@ export class ElectronHarness {
    * rethrown, because the fixture's teardown finds nothing to close once the context is forgotten.
    * If that SIGTERM cannot be confirmed either, the context is kept for the teardown to close, and
    * both errors are thrown together. Afterwards the next `ensureContext()`/`restart()` launches a fresh process on the same userData.
+   * `killSignal`: `end` kills the process with it (a simulated crash), so that exit is intended.
    */
-  async endOutOfBand(end: (mainProcess: ChildProcess) => Promise<void>): Promise<void> {
+  async endOutOfBand(
+    end: (mainProcess: ChildProcess) => Promise<void>,
+    killSignal?: NodeJS.Signals
+  ): Promise<void> {
     const context = this.context;
     if (!context) {
       throw new Error('Electron harness has no running app to end.');
     }
     const mainProcess = context.app.process();
-    this.exitGuard.beginIntentionalClose(mainProcess);
+    this.exitGuard.beginIntentionalClose(mainProcess, killSignal);
     try {
       await end(mainProcess);
       if (!hasExited(mainProcess)) {
@@ -240,6 +259,10 @@ export class ElectronHarness {
     const { launchElectronApp } = await loadElectronHelpers();
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       onAppAcquired: (app) => {
+        // Names the test behind each Main pid, since parallel tests' output interleaves.
+        console.log(
+          `[Electron Launch] pid=${app.process().pid} userData=${this.userDataDir} test=${this.testInfo.titlePath.join(' › ')}`
+        );
         this.app = app;
         this.exitGuard.observe(app.process());
         onAppAcquired?.(app);

@@ -1,6 +1,9 @@
 /// <reference path="../types/window.d.ts" />
 import type { AnyContextAction } from '@brainstrike/context-actions';
-import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import {
+  countSelectedInDirectory,
+  encodeFileSelection,
+} from '@brainstrike/file-explorer/selection';
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
@@ -316,9 +319,11 @@ const FileExplorerPanelInner = React.memo((props: FileExplorerPanelProps) => {
       const folderId =
         node.rootFolderId ||
         (getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '');
-      const selectedDescendantCount = selectedFilesList.filter((selectionKey) =>
-        selectionKey.startsWith(`${folderId}|@|${node.path}/`)
-      ).length;
+      const selectedDescendantCount = countSelectedInDirectory(
+        selectedFilesList,
+        folderId,
+        node.path
+      );
       return selectFolderRecursively(
         node,
         folderId,
