@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron } from 'playwright';
 import { expect, test } from 'vitest';
@@ -67,7 +68,8 @@ runtime.waitForProfileLaunch = async (acquisition) => {
   require('node:fs').writeFileSync(${JSON.stringify(phaseMarker)}, 'host spawned; Main admission held');
   await new Promise(() => {});
 };
-require(${JSON.stringify(join(desktop, 'dist/main.js'))});
+// Main's bootstrap has a top-level await, which require() of ES modules refuses.
+void import(${JSON.stringify(pathToFileURL(join(desktop, 'dist/main.js')).href)});
 `
   );
   const app = await _electron.launch({
