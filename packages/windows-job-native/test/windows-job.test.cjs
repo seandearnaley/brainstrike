@@ -10,9 +10,9 @@ const windowsJob = require('..');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function waitForFile(filePath, timeoutMs = 5000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+/** Polls until the file exists; the test's timeout is the one deadline. */
+async function waitForFile(filePath) {
+  for (;;) {
     try {
       return await readFile(filePath, 'utf8');
     } catch (error) {
@@ -22,7 +22,6 @@ async function waitForFile(filePath, timeoutMs = 5000) {
     }
     await sleep(25);
   }
-  throw new Error(`Timed out waiting for ${filePath}.`);
 }
 
 async function waitForChildExit(child) {

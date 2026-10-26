@@ -31,17 +31,11 @@ async function waitForChildExit(child) {
   });
 }
 
-// Every wait() is bounded, so a stuck fixture child fails naming its event and
-// stderr instead of hanging the job. BST-2213 measured both bounds.
-//
-// A guard reports each event, and the observer starts and answers each command,
-// within EVENT_DEADLINE_MS. On hosted Windows (2 vCPUs) and on a 16-core
-// Windows 11 box the slowest such wait took 158 ms. In the failed attempt of
-// hosted Test run 39192445447, on a runner 2-15x slower than usual, every one
-// that ran still fit.
-const EVENT_DEADLINE_MS = 5000;
-
-function inbox(child, stdout = false) {
+// A wait() ends with its test: the test's timeout (`--test-timeout`) aborts
+// `t.signal`, and a stuck fixture child then fails naming its event and stderr.
+// A separate 5 s bound per wait failed loaded Windows runs whose waits were slow,
+// not stuck.
+function inbox(child, stdout, signal) {
   const messages = [];
   let output = '';
   let stderr = '';
@@ -70,10 +64,10 @@ function inbox(child, stdout = false) {
   }
   return {
     child,
-    wait: (event, deadlineMs = EVENT_DEADLINE_MS) =>
+    wait: (event) =>
       new Promise((resolve, reject) => {
         const cleanup = () => {
-          clearTimeout(timer);
+          signal?.removeEventListener('abort', aborted);
           child.off('fixture-message', check);
           child.off('exit', exited);
           child.off('error', failed);
@@ -83,6 +77,7 @@ function inbox(child, stdout = false) {
           reject(error);
         };
         const exited = () => failed(new Error(`Fixture exited before ${event}: ${stderr}`));
+        const aborted = () => failed(new Error(`Test ended waiting for ${event}: ${stderr}`));
         const check = () => {
           const error = messages.find((message) => message.event === 'failed');
           const index = messages.findIndex((entry) => entry.event === event);
@@ -95,11 +90,7 @@ function inbox(child, stdout = false) {
             resolve(message);
           }
         };
-        const timer = setTimeout(
-          () =>
-            failed(new Error(`Timed out after ${deadlineMs} ms waiting for ${event}: ${stderr}`)),
-          deadlineMs
-        );
+        signal?.addEventListener('abort', aborted, { once: true });
         child.on('fixture-message', check);
         child.once('exit', exited);
         child.once('error', failed);
@@ -192,23 +183,32 @@ async function commandFixture(t) {
             '})().catch(error=>process.send({event:"failed",message:error.stack}));',
         ],
         {
-          cwd: root,
-          env: { ...process.env, ...extraEnvironment },
+          // Outside root: a guard's helpers (its control process, a detached host) can still be
+          // ending when cleanup removes root, and Windows refuses to remove a directory that is
+          // some process's current directory (EBUSY). Commands that run in root get it from the
+          // environment and are joined by their Job.
+          cwd: os.tmpdir(),
+          env: {
+            ...process.env,
+            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+            BRAINSTRIKE_FIXTURE_ROOT: root,
+            ...extraEnvironment,
+          },
           stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
           windowsHide: true,
         }
       );
-      const guard = inbox(child);
+      const guard = inbox(child, false, t.signal);
       guards.push(guard);
       return guard;
     },
     async observe(pids) {
       const child = spawn(observerPath, [pids.join(',')], {
-        cwd: root,
+        cwd: os.tmpdir(),
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });
-      const observer = inbox(child, true);
+      const observer = inbox(child, true, t.signal);
       observers.push(observer);
       const pinned = await observer.wait('pinned');
       observer.pinned = pinned;
@@ -234,7 +234,6 @@ async function commandFixture(t) {
 }
 module.exports = {
   commandFixture,
-  eventDeadlineMs: EVENT_DEADLINE_MS,
   inbox,
   waitForChildExit,
 };
