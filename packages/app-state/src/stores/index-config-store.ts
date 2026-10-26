@@ -21,6 +21,8 @@ export type IndexConfigView =
   | { readonly failure: BoundaryFailure; readonly kind: 'failed'; readonly message: string };
 
 interface IndexConfigStore {
+  /** Main's reset of a saved config it cannot read; null without the index capability. */
+  readonly reset: (() => Promise<IndexConfig>) | null;
   readonly state: IndexConfigView;
   /** Main's write path; null in a window without the index capability. */
   readonly update: ((patch: IndexConfigPatch) => Promise<IndexConfig>) | null;
@@ -28,6 +30,7 @@ interface IndexConfigStore {
 
 /** Main's saved search index config as this window last heard it; Main is the only writer. */
 export const useIndexConfigStore = create<IndexConfigStore>(() => ({
+  reset: null,
   state: { kind: 'loading' },
   update: null,
 }));
@@ -55,7 +58,10 @@ export function followIndexConfig(capability: IndexConfigCapability): () => void
   let published = false;
   const ready = (config: IndexConfig) =>
     useIndexConfigStore.setState({ state: { config, kind: 'ready' } });
-  useIndexConfigStore.setState({ update: (patch) => capability.updateConfig(patch) });
+  useIndexConfigStore.setState({
+    reset: () => capability.resetConfig(),
+    update: (patch) => capability.updateConfig(patch),
+  });
   const unsubscribe = capability.onConfigChanged((config) => {
     published = true;
     ready(config);
@@ -82,6 +88,6 @@ export function followIndexConfig(capability: IndexConfigCapability): () => void
   return () => {
     following = false;
     unsubscribe();
-    useIndexConfigStore.setState({ update: null });
+    useIndexConfigStore.setState({ reset: null, update: null });
   };
 }

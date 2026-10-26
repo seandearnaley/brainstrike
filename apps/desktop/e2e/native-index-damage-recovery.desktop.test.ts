@@ -5,32 +5,25 @@
  * b-tree leaf of `index.sqlite`: `integrity_check` refuses it at open while
  * the table pages stay readable.
  */
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { withAppHost } from './utils/agent-host-log';
+import { readIndexConfig } from './utils/index-config';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import { profileFile } from './utils/profile-files';
 import { seedHostThreads } from './utils/seed-threads';
 import { nativeStatus, textReadiness } from './utils/text-search-mode';
 
 const MARKER = 'damaged-index-marker-1878';
 /** The user-facing words of a `rebuild-required` refusal (`native-index-lifecycle.ts`). */
 const REBUILD_REQUIRED = 'The search index needs a rebuild';
-
-function findIndexFile(userDataDir: string): string {
-  const found = readdirSync(userDataDir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name === 'index.sqlite')
-    .map((entry) => path.join(entry.parentPath, entry.name));
-  if (found.length !== 1) {
-    throw new Error(`Expected one native index file, found: ${JSON.stringify(found)}`);
-  }
-  return found[0] as string;
-}
 
 function integrity(file: string): { full: readonly unknown[]; quick: readonly unknown[] } {
   const db = new DatabaseSync(file, { readOnly: true });
@@ -131,7 +124,7 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
       expect(catalogBefore).toHaveLength(1);
 
       await electron.closeForStateSeeding();
-      const file = findIndexFile(userData);
+      const file = profileFile(userData, 'index.sqlite');
       const damage = corruptIndexLeaf(file);
       const damaged = integrity(file);
       expect(damaged.full).not.toEqual([{ integrity_check: 'ok' }]);
@@ -182,11 +175,76 @@ test.describe('Native index damage (desktop) @desktop-db-storage', () => {
         .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
       const restored = await searchFor(reopened, MARKER);
       await expect(restored.getByText('notes.txt').first()).toBeVisible({ timeout: 30_000 });
-      expect(integrity(findIndexFile(userData)).full).toEqual([{ integrity_check: 'ok' }]);
+      expect(integrity(profileFile(userData, 'index.sqlite')).full).toEqual([
+        { integrity_check: 'ok' },
+      ]);
 
       const threads = await withAppHost(userData, (host) => host.request('thread/list', {}));
       expect(threads.threads.some((thread) => thread.threadId === threadId)).toBe(true);
       expect(await restoredRoots(reopened)).toEqual(catalogBefore);
+    } finally {
+      await electron.dispose();
+    }
+  });
+
+  // A config saved before local embedding models were removed (#4420) names one. Settings
+  // replaces it with the defaults in place, without a Factory Reset.
+  test('Reset search settings replaces a saved config this version cannot read', async ({
+    electron,
+    window: page,
+  }) => {
+    test.setTimeout(300_000);
+    try {
+      await ensureMockWorkspaceOpen(page);
+      await expect
+        .poll(() => textReadiness(page), { timeout: 120_000 })
+        .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
+      const userData = electron.getUserDataDir();
+      await electron.closeForStateSeeding();
+      const state = new DatabaseSync(profileFile(userData, 'state.db'));
+      try {
+        state
+          .prepare(
+            `INSERT INTO settings (key, value) VALUES ('index/config', ?)
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+          )
+          .run(
+            JSON.stringify({
+              ...DEFAULT_INDEX_CONFIG,
+              mode: 'semantic',
+              model: {
+                dimensions: 384,
+                local: { runtime: 'onnx' },
+                modelKey: 'local::onnx-community/granite-embedding-small-english-r2-ONNX',
+              },
+            })
+          );
+      } finally {
+        state.close();
+      }
+
+      const reopened = await electron.ensureWindow({ preserveState: true });
+      const home = new HomePage(reopened);
+      await home.openSettings();
+      const settings = await new SettingsPage(reopened).openCategory(
+        /Search & Indexing/i,
+        'search-indexing'
+      );
+      const unreadable = settings.getByRole('alert').first();
+      await expect(unreadable).toContainText('cannot be read');
+      await expect(unreadable).not.toContainText('Factory Reset');
+      await settings.getByRole('button', { name: 'Reset search settings' }).click();
+      await expect(settings.getByRole('button', { name: /^Text/ })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+        { timeout: 60_000 }
+      );
+      await expect(settings.getByRole('alert')).toHaveCount(0);
+      expect(await readIndexConfig(reopened)).toEqual(DEFAULT_INDEX_CONFIG);
+      await home.leaveSettings();
+      await expect
+        .poll(() => textReadiness(reopened), { timeout: 120_000 })
+        .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
     } finally {
       await electron.dispose();
     }

@@ -4,6 +4,7 @@ import {
   CHUNK_OVERLAP_TOKENS,
   CHUNK_SIZE_TOKENS,
   INDEX_CHUNKING_OFF_MESSAGE,
+  INDEX_CONFIG_UNREADABLE,
   type IndexChunking,
   type IndexConfig,
   type IndexConfigPatch,
@@ -124,6 +125,7 @@ export function SearchIndexSettingsSection({
 } = {}) {
   const view = useIndexConfigStore((store) => store.state);
   const update = useIndexConfigStore((store) => store.update);
+  const reset = useIndexConfigStore((store) => store.reset);
   if (view.kind === 'loading') {
     return (
       <p className="text-muted-foreground text-sm" role="status">
@@ -132,7 +134,9 @@ export function SearchIndexSettingsSection({
     );
   }
   if (view.kind === 'failed') {
-    return (
+    return view.failure.code === INDEX_CONFIG_UNREADABLE && reset ? (
+      <UnreadableSettings message={view.message} reset={reset} />
+    ) : (
       <p className="text-destructive text-sm" role="alert">
         {view.message}
       </p>
@@ -464,6 +468,48 @@ function TokenField({
           Between {bounds.minimum} and {bounds.maximum} tokens.
         </p>
       )}
+    </div>
+  );
+}
+
+/** A saved config this version cannot read: its remedy saves the defaults in its place. */
+function UnreadableSettings({
+  message,
+  reset,
+}: {
+  readonly message: string;
+  readonly reset: () => Promise<IndexConfig>;
+}) {
+  const [resetError, run, resetting] = useActionState(async (): Promise<string | null> => {
+    try {
+      await reset();
+      return null;
+    } catch (cause) {
+      return describeBoundaryError(cause);
+    }
+  }, null);
+  return (
+    <div className="space-y-2">
+      <p className="text-destructive text-sm" role="alert">
+        {message}
+      </p>
+      <Button
+        disabled={resetting}
+        onClick={() => startTransition(() => run())}
+        type="button"
+        variant="outline"
+      >
+        {resetting ? 'Resetting search settings…' : 'Reset search settings'}
+      </Button>
+      <p className="text-muted-foreground text-sm">
+        Saves the default search settings and rebuilds the index. Chats, folders and your other
+        settings are kept.
+      </p>
+      {resetError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {resetError}
+        </p>
+      ) : null}
     </div>
   );
 }

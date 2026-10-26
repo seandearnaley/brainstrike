@@ -23,7 +23,10 @@ import { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 
 const logger = createLogger('NativeIndexBoundary');
 
-/** Only Factory Reset clears a saved config that no longer decodes, where the app offers it. */
+/**
+ * The settings store itself failed (a saved value that no longer decodes is the host's
+ * `index-config.unreadable` refusal, with its own reset): Factory Reset, where the app offers it.
+ */
 const STORE_FAILED_REMEDY =
   getFactoryResetUnavailableReason(process.platform) === undefined
     ? 'If this keeps happening, the saved settings may be damaged. Factory Reset in Settings clears them, along with your other local app data.'
