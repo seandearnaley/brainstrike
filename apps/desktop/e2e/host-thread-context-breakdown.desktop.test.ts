@@ -34,8 +34,7 @@ test('a host run shows its prompt breakdown in the context popover, from its com
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText(REPLY)).toBeVisible({ timeout: 90_000 });
 
-  // The meter's popover opens on hover and focus.
-  await region.getByTestId('context-usage-trigger').hover();
+  await region.getByTestId('context-usage-trigger').click();
   const breakdown = page.getByTestId('context-usage-breakdown');
   await expect(breakdown.getByTestId('context-usage-breakdown-system')).toContainText(
     /System instructions.*~\d/u,

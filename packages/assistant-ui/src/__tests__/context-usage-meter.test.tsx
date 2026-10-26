@@ -19,9 +19,9 @@ vi.mock('@assistant-ui/react', () => ({
   ) => selector({ thread: { isRunning: mockIsRunning, messages: mockMessages } }),
 }));
 
-/** Open the meter's detail popover through the focus affordance. */
+/** Open the meter's detail popover by activating its trigger. */
 function openMeterPopover(): void {
-  fireEvent.focus(screen.getByTestId('context-usage-trigger'));
+  fireEvent.click(screen.getByTestId('context-usage-trigger'));
 }
 
 describe('ContextUsageMeter', () => {
@@ -135,7 +135,7 @@ describe('ContextUsageMeter', () => {
     );
   });
 
-  it('opens the detail popover on focus and closes it via outside interaction state', () => {
+  it('opens the detail popover on click', () => {
     render(<ContextUsageMeter {...props} />);
     expect(screen.queryByTestId('context-usage-popover')).not.toBeInTheDocument();
     openMeterPopover();
@@ -143,16 +143,12 @@ describe('ContextUsageMeter', () => {
     expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(/% full/);
   });
 
-  it('opens the detail popover on click (touch affordance)', () => {
+  it('keeps the detail popover closed on hover and focus', () => {
     render(<ContextUsageMeter {...props} />);
-    fireEvent.click(screen.getByTestId('context-usage-trigger'));
-    expect(screen.getByTestId('context-usage-popover')).toBeInTheDocument();
-  });
-
-  it('opens the detail popover on hover', () => {
-    render(<ContextUsageMeter {...props} />);
-    fireEvent.mouseEnter(screen.getByTestId('context-usage-trigger'));
-    expect(screen.getByTestId('context-usage-popover')).toBeInTheDocument();
+    const trigger = screen.getByTestId('context-usage-trigger');
+    fireEvent.mouseEnter(trigger);
+    fireEvent.focus(trigger);
+    expect(screen.queryByTestId('context-usage-popover')).not.toBeInTheDocument();
   });
 
   it('shows the client conversation estimate as a popover breakdown row before exact usage', () => {
