@@ -41,18 +41,10 @@
  *    Reachable today: a `git-scope` changeset for a worktree with no
  *    containing workspace root resolves to a null `resolutionRootId` while the
  *    surface's own `rootId` stays non-null, so the panes render and wait.
- * 2. A CALL THAT NEVER ANSWERS. `bridge.resolveView` is a main-process
- *    round-trip that reaches PGlite through the DB host. When that host is
- *    wedged (observed in the field: a 30s `VACUUM (ANALYZE)` blowing its own
- *    timeout, every later query queued behind it) the desktop side eventually
- *    rejects with its own 30s per-request timeout — but nothing in the
- *    RENDERER bounded the wait, so a main process that never answers at all
- *    left the surface loading forever. Every resolve is now raced against
- *    {@link RESOLVE_VIEW_TIMEOUT_MS} and a lapsed race is a typed error with
- *    the same Retry affordance as any other failure. That bound deliberately
- *    sits ABOVE the desktop's own 30s timeout: when main is merely slow it
- *    still wins and reports the REAL reason; this only speaks when nothing
- *    answers at all.
+ * 2. A CALL THAT NEVER ANSWERS. `bridge.resolveView` is a round-trip to the
+ *    changes service. The renderer never races it against a clock of its own:
+ *    the surface shows the reply, or the boundary error the bridge rejects
+ *    with when its owner fails or goes away, and either one carries Retry.
  */
 import { createLogger } from '@brainstrike/logging';
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
@@ -71,47 +63,9 @@ import { useStructuralIdentity } from './use-structural-identity';
 const logger = createLogger('UseChangeset');
 
 /**
- * How long the renderer waits for a `changes:resolveView` round-trip before
- * reporting an honest timeout. Above the desktop DB host's own 30s
- * per-request timeout (`DbHostManager`) so a slow-but-answering main process
- * still reports its real failure and this bound only fires when nothing
- * answers — see this module's "NO ETERNAL LOADING" note.
- */
-export const RESOLVE_VIEW_TIMEOUT_MS = 45_000;
-
-const RESOLVE_VIEW_TIMEOUT_ERROR = `changeset-resolve-timeout: the changes service did not answer within ${Math.round(
-  RESOLVE_VIEW_TIMEOUT_MS / 1000
-)}s. It may be busy with a long-running database operation.`;
-
-/**
- * Race `pending` against a timer, resolving to a typed timeout failure rather
- * than leaving the caller waiting forever. The timer is always cleared, so a
- * settled call never leaves a pending handle behind.
- */
-async function withResolveTimeout(
-  pending: Promise<GitResult<ChangesetView>>
-): Promise<GitResult<ChangesetView>> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      pending,
-      new Promise<GitResult<ChangesetView>>((resolve) => {
-        timer = setTimeout(() => {
-          resolve({ error: RESOLVE_VIEW_TIMEOUT_ERROR, ok: false });
-        }, RESOLVE_VIEW_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) {
-      clearTimeout(timer);
-    }
-  }
-}
-
-/**
- * One resolve attempt, reduced to a typed result: bounded by
- * {@link RESOLVE_VIEW_TIMEOUT_MS} and with a thrown bridge failure folded into
- * the same `{ ok: false }` shape, so the caller only ever branches on `ok`.
+ * One resolve attempt, reduced to a typed result: a thrown bridge failure is
+ * folded into the same `{ ok: false }` shape, so the caller only ever branches
+ * on `ok`.
  */
 async function resolveViewSafely(
   bridge: ChangesBridge,
@@ -119,7 +73,7 @@ async function resolveViewSafely(
   changeset: Changeset
 ): Promise<GitResult<ChangesetView>> {
   try {
-    return await withResolveTimeout(bridge.resolveView(rootId, changeset));
+    return await bridge.resolveView(rootId, changeset);
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
     logger.error('Failed to resolve changeset view', { error: caught });

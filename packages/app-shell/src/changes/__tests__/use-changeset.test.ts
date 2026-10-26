@@ -21,7 +21,7 @@ import {
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
-import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
+import { useChangeset } from '../use-changeset';
 
 const { loggerWarnSpy } = vi.hoisted(() => ({ loggerWarnSpy: vi.fn() }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
@@ -139,9 +139,15 @@ describe('useChangeset', () => {
     expect(resolveView).not.toHaveBeenCalled();
   });
 
-  it('times out a resolveView that never answers, into an error the surface can retry', async () => {
+  it('shows the view of a resolveView that answers late, never a renderer-made timeout', async () => {
     vi.useFakeTimers();
-    const resolveView = vi.fn(() => new Promise<GitResult<ChangesetView>>(() => undefined));
+    let answer: (result: GitResult<ChangesetView>) => void = () => undefined;
+    const resolveView = vi.fn(
+      () =>
+        new Promise<GitResult<ChangesetView>>((resolve) => {
+          answer = resolve;
+        })
+    );
     stubBridge({ fileDiff: vi.fn(), inventory: vi.fn(), resolveView });
 
     const { result } = renderHook(() => useChangeset('root-1', CHANGESET), {
@@ -151,15 +157,21 @@ describe('useChangeset', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(resolveView).toHaveBeenCalledTimes(1);
+
+    // A long database operation in the changes service: a minute passes with no reply.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
     expect(result.current.error).toBeNull();
     expect(result.current.view).toBeNull();
 
+    const view = viewFixture({ totalAdditions: 3 });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(RESOLVE_VIEW_TIMEOUT_MS);
+      answer({ ok: true, value: view });
+      await vi.advanceTimersByTimeAsync(0);
     });
-
-    expect(result.current.view).toBeNull();
-    expect(result.current.error).toContain('changeset-resolve-timeout:');
+    expect(result.current.error).toBeNull();
+    expect(result.current.view).toEqual(view);
   });
 
   it('re-resolves the active changeset when the live Last Turn nonce is bumped', async () => {
