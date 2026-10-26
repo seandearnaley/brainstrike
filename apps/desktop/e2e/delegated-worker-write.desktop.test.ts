@@ -9,6 +9,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   ensureActivityExpanded,
   ensureAssistantShellVisible,
@@ -343,7 +344,7 @@ async function assertWorkerWrite(
           root = window.getByRole('region', { exact: true, name: 'Assistant' });
           child = window.getByRole('region', { exact: true, name: childName });
         } else {
-          await window.reload();
+          await reloadRenderer(window, 'delegated-worker-write: reloaded leaf approval');
         }
         await configureAssistantProvider(window, {
           compositeModelKey: 'openrouter::openai/gpt-5.4',
@@ -415,7 +416,7 @@ async function assertWorkerWrite(
           { outcome: 'completed', states: [], via: 'command' },
         ]);
         const afterStop = modelCalls();
-        await window.reload();
+        await reloadRenderer(window, 'delegated-worker-write: reload after child stop');
         await ensureAssistantShellVisible(window);
         await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
         const reopen = root.getByRole('button', { name: /Open .* conversation/ }).first();
@@ -503,7 +504,7 @@ async function assertWorkerWrite(
           .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
           .click();
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-        await window.reload();
+        await reloadRenderer(window, 'delegated-worker-write: reload after child tab close');
         await ensureAssistantShellVisible(window);
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
         expect(modelCalls()).toBe(completedRequests);
@@ -575,7 +576,10 @@ async function assertWorkerWrite(
             .last()
             .click();
           await expect(selectedTab).toHaveText(secondName);
-          await window.reload();
+          await reloadRenderer(
+            window,
+            'delegated-worker-write: reload with a sibling child selected'
+          );
           await ensureAssistantShellVisible(window);
           await expect(selectedTab).toHaveText(secondName);
           await expect(
@@ -598,7 +602,7 @@ async function assertWorkerWrite(
           await expect(child.getByTestId('checkpoint-reverted')).toBeVisible();
           await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
           expect(await readFile(userPath, 'utf8')).toBe('Independent user edit\n');
-          await window.reload();
+          await reloadRenderer(window, 'delegated-worker-write: reload after checkpoint revert');
           await ensureAssistantShellVisible(window);
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
           await ensureActivityExpanded(child);
