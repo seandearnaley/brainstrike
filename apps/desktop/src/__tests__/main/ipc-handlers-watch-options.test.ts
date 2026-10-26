@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { startJoinedParcelWatch } from '@brainstrike/file-system/native-watch';
+import { startJoinedRootWatch } from '@brainstrike/file-system/native-watch';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystemIpcDomain } from '../../ipc-domains/file-system-ipc';
@@ -21,7 +21,7 @@ const watcherComposition = vi.hoisted(() => ({
 
 vi.mock('@brainstrike/file-system/native-watch', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/file-system/native-watch')>()),
-  startJoinedParcelWatch: vi.fn(),
+  startJoinedRootWatch: vi.fn(),
 }));
 
 vi.mock('../../ipc-domains/file-system-watch-ipc', () => ({
@@ -56,7 +56,7 @@ async function fixture() {
   const descriptor = await roots.addRoot(rootHandle(WORKSPACE));
   watcherComposition.domain = { close: () => roots.dispose(), roots, unregister: vi.fn() };
   const stop = vi.fn<() => Promise<void>>(async () => undefined);
-  vi.mocked(startJoinedParcelWatch).mockResolvedValue(stop);
+  vi.mocked(startJoinedRootWatch).mockResolvedValue(stop);
   const domain = createApplicationIpcDomain(
     {} as ElectronFileSystemAdapter,
     {} as ElectronStorageAdapter,
@@ -84,7 +84,7 @@ describe('Explorer watcher composition', () => {
   it('uses the existing pinned mount and enables bounded default-filter reporting', async () => {
     const f = await fixture();
     const watch = await f.start(WORKSPACE, vi.fn(), vi.fn());
-    expect(startJoinedParcelWatch).toHaveBeenCalledExactlyOnceWith(
+    expect(startJoinedRootWatch).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ path: WORKSPACE, platform: 'electron' }),
       expect.any(Function),
       expect.objectContaining({ reportDefaultFilteredChanges: true })
@@ -105,7 +105,7 @@ describe('Explorer watcher composition', () => {
       signal: new AbortController().signal,
     });
     const visible = await f.start(WORKSPACE, vi.fn(), vi.fn());
-    expect(startJoinedParcelWatch).toHaveBeenCalledTimes(1);
+    expect(startJoinedRootWatch).toHaveBeenCalledTimes(1);
     await visible.close();
     expect(f.stop).not.toHaveBeenCalled();
     await lease.retire();

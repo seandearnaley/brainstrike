@@ -26,7 +26,7 @@ import type {
 } from '../types.ts';
 import { validateDirectoryPath } from '../utils.ts';
 import { normalizeDirectoryReadOptions } from '../utils-browser.ts';
-import { assertValidParcelWatchFilterOptions, startParcelWatch } from './root-watchers.ts';
+import { assertValidRootWatchFilterOptions, startRootWatch } from './root-watchers.ts';
 
 const logger = createLogger('ElectronFileSystemAdapter');
 
@@ -599,7 +599,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     onSignal?: (signal: FileSystemWatchSignal) => void,
     options?: WatchDirectoryOptions
   ): () => void {
-    assertValidParcelWatchFilterOptions(options ?? {});
+    assertValidRootWatchFilterOptions(options ?? {});
     let closed = false;
     let dispose: () => void = () => {};
 
@@ -645,7 +645,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       }
     };
 
-    startParcelWatch(handle, callbackWithCacheInvalidation, {
+    startRootWatch(handle, callbackWithCacheInvalidation, {
       ignorePatterns: options?.ignorePatterns,
       onHealth,
       reportDefaultFilteredChanges: options?.reportDefaultFilteredChanges ?? false,
@@ -659,7 +659,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       })
       .catch((error: unknown) => {
         // No fallback engine by design. The onHealth 'failed' transition
-        // (emitted inside startParcelWatch) is the renderer-visible signal;
+        // (emitted inside startRootWatch) is the renderer-visible signal;
         // the structured log covers the no-listener case.
         logger.error('Root watcher setup failed; folder will not be watched', {
           error,

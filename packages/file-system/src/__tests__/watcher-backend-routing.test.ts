@@ -10,8 +10,8 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: vi.fn() },
 }));
 
-const { startParcelWatchMock } = vi.hoisted(() => ({
-  startParcelWatchMock: vi.fn((...args: unknown[]): Promise<() => void> => {
+const { startRootWatchMock } = vi.hoisted(() => ({
+  startRootWatchMock: vi.fn((...args: unknown[]): Promise<() => void> => {
     void args;
     return Promise.resolve(() => undefined);
   }),
@@ -20,7 +20,7 @@ vi.mock('../adapters/root-watchers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../adapters/root-watchers.js')>();
   return {
     ...actual,
-    startParcelWatch: startParcelWatchMock,
+    startRootWatch: startRootWatchMock,
   };
 });
 
@@ -30,7 +30,7 @@ describe('watchDirectory backend routing', () => {
   let tempDir = '';
 
   beforeEach(() => {
-    startParcelWatchMock.mockClear();
+    startRootWatchMock.mockClear();
     tempDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'routing-')));
   });
 
@@ -50,7 +50,7 @@ describe('watchDirectory backend routing', () => {
     const adapter = new ElectronFileSystemAdapter();
     const stop = adapter.watchDirectory(makeHandle(), vi.fn());
     await vi.waitFor(() => {
-      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+      expect(startRootWatchMock).toHaveBeenCalledTimes(1);
     });
     stop();
   });
@@ -61,9 +61,9 @@ describe('watchDirectory backend routing', () => {
     const onSignal = vi.fn();
     const stop = adapter.watchDirectory(makeHandle(), vi.fn(), onSignal, { onHealth });
     await vi.waitFor(() => {
-      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+      expect(startRootWatchMock).toHaveBeenCalledTimes(1);
     });
-    const options = startParcelWatchMock.mock.calls[0]?.[2] as
+    const options = startRootWatchMock.mock.calls[0]?.[2] as
       | { onHealth?: (event: unknown) => void }
       | undefined;
     expect(typeof options?.onHealth).toBe('function');
@@ -90,9 +90,9 @@ describe('watchDirectory backend routing', () => {
       reportDefaultFilteredChanges: true,
     });
     await vi.waitFor(() => {
-      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+      expect(startRootWatchMock).toHaveBeenCalledTimes(1);
     });
-    expect(startParcelWatchMock.mock.calls[0]?.[2]).toEqual(
+    expect(startRootWatchMock.mock.calls[0]?.[2]).toEqual(
       expect.objectContaining({ reportDefaultFilteredChanges: true })
     );
     stop();
@@ -102,9 +102,9 @@ describe('watchDirectory backend routing', () => {
     const adapter = new ElectronFileSystemAdapter();
     const stop = adapter.watchDirectory(makeHandle(), vi.fn(), undefined, { ignorePatterns: [] });
     await vi.waitFor(() => {
-      expect(startParcelWatchMock).toHaveBeenCalledTimes(1);
+      expect(startRootWatchMock).toHaveBeenCalledTimes(1);
     });
-    expect(startParcelWatchMock.mock.calls[0]?.[2]).toEqual(
+    expect(startRootWatchMock.mock.calls[0]?.[2]).toEqual(
       expect.objectContaining({
         ignorePatterns: [],
         reportDefaultFilteredChanges: false,
@@ -124,7 +124,7 @@ describe('watchDirectory backend routing', () => {
     ).toThrow(
       /reportDefaultFilteredChanges.*ignorePatterns|ignorePatterns.*reportDefaultFilteredChanges/u
     );
-    expect(startParcelWatchMock).not.toHaveBeenCalled();
+    expect(startRootWatchMock).not.toHaveBeenCalled();
   });
 
   it('dispose before async engine start still stops the engine on arrival', async () => {
@@ -132,7 +132,7 @@ describe('watchDirectory backend routing', () => {
     const engine: { resolve: ((stop: () => void) => void) | null } = {
       resolve: null,
     };
-    startParcelWatchMock.mockImplementationOnce(
+    startRootWatchMock.mockImplementationOnce(
       () =>
         new Promise<() => void>((resolve) => {
           engine.resolve = resolve;

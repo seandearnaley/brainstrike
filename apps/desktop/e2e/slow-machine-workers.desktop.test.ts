@@ -22,7 +22,7 @@ import { HOSTED_INDEX_MODEL } from './utils/native-index-build';
 test.use({
   electronEnv: {
     BRAINSTRIKE_E2E_LIFECYCLE_DELAYS:
-      'indexer-request:7000,canonical-attach:7000,parcel-subscribe:12000',
+      'indexer-request:7000,canonical-attach:7000,root-watch-subscribe:12000',
   },
 });
 

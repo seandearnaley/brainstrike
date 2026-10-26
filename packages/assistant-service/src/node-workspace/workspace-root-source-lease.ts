@@ -7,7 +7,7 @@ import type {
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
-import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { NATIVE_MAX_READ_BYTES } from '@brainstrike/file-system/secure-file-read';
 import { MAX_DIRECTORY_ENTRIES } from '@brainstrike/file-system/workspace-root-nodes';
 import { NativeAuthorityTransitionError } from '../node-native-index/errors.ts';
@@ -112,7 +112,7 @@ class WorkspaceRootSourceLease implements CanonicalWorkspaceLease {
         return this.retainSubscription(subscription, stopping);
       } catch (error) {
         stopping.abort(error);
-        if (error instanceof ParcelWatchRetirementError) {
+        if (error instanceof RootWatchRetirementError) {
           this.retainSubscription({ close: error.retire }, stopping);
         }
         throw error;
