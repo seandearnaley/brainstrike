@@ -130,6 +130,13 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const sessionDataDir = path.join(userDataDir, 'session-data');
   fs.mkdirSync(sessionDataDir, { recursive: true });
   app.setPath('sessionData', sessionDataDir);
+  // Linux launches the GPU process through Chromium's zygote. A signal to Main's process group
+  // (Ctrl+C in a terminal, a tree kill) ends the zygote too, every GPU relaunch then fails, and
+  // Chromium aborts Main ("GPU process isn't usable") before shutdown closes the stores. Running
+  // the GPU work in Main leaves nothing to relaunch.
+  if (process.platform === 'linux') {
+    app.commandLine.appendSwitch('in-process-gpu');
+  }
   const e2e = isElectronE2ETestMode();
   const singleInstanceLockAcquired =
     development?.singleInstanceLockAcquired ?? (e2e ? true : app.requestSingleInstanceLock());
