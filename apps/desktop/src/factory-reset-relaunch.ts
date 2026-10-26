@@ -43,7 +43,7 @@ const decodeMarker = makeThrowingDecoder(MarkerSchema, { onExcessProperty: 'erro
 
 type WindowsJobNative = Pick<
   typeof import('@brainstrike/windows-job-native'),
-  'getProcessCreationTime' | 'waitForProcessExit'
+  'getProcessCreationTime' | 'launchOutsideJob' | 'waitForProcessExit'
 >;
 const windowsJobNative = (): WindowsJobNative =>
   createRequire(import.meta.url)('@brainstrike/windows-job-native') as WindowsJobNative;
@@ -68,6 +68,21 @@ const processExitWait =
           windowsJobNative().waitForProcessExit(identity.pid, identity.creationTime),
       }
     : undefined;
+
+/**
+ * Windows: starts the next Main now, outside this Main's kill-on-close Job, which would end the
+ * relauncher `app.relaunch()` starts with this process. It runs what `app.relaunch()` would: this
+ * executable with the rest of `process.argv`, which holds the app path when unpackaged
+ * (`electron .`), from this working directory. Returns its pid. The next Main waits for this one
+ * to exit before it wipes (`completePendingFactoryReset`). Throws when it cannot start.
+ */
+export function launchNextMainOutsideJob(): number {
+  return windowsJobNative().launchOutsideJob(
+    process.execPath,
+    process.argv.slice(1),
+    process.cwd()
+  );
+}
 
 /**
  * Records a factory reset for the next start and returns the reset lock, which the caller holds

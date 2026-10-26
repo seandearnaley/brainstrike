@@ -95,7 +95,11 @@ import {
 } from './document-unload';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
-import { type FactoryResetScope, requestFactoryReset } from './factory-reset-relaunch';
+import {
+  type FactoryResetScope,
+  launchNextMainOutsideJob,
+  requestFactoryReset,
+} from './factory-reset-relaunch';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
@@ -506,6 +510,22 @@ let factoryResetRequest:
   | Promise<{ readonly message?: string; readonly success: boolean }>
   | undefined;
 /**
+ * Starts the next Main after a recorded factory reset. Windows: Main's kill-on-close Job would end
+ * Electron's relauncher with this process, so the next Main starts now, outside the Job. An
+ * unpackaged one asks for the single-instance lock before it waits for this Main to exit, so this
+ * Main gives the lock up first.
+ */
+function relaunchAfterFactoryReset(): void {
+  if (process.platform !== 'win32') {
+    app.relaunch();
+    return;
+  }
+  app.releaseSingleInstanceLock();
+  const pid = launchNextMainOutsideJob();
+  logger.warn('Factory reset started the next Main outside this process’s Job', { pid });
+}
+
+/**
  * Factory Reset, and the developer menu's database reset: record the wipe, then relaunch through
  * the normal quit. The next start wipes before it opens anything (`factory-reset-relaunch.ts`).
  * Saved credentials can live in the OS keyring, outside every directory the wipe deletes, so
@@ -538,10 +558,21 @@ function requestFactoryRelaunch(
       return { message: error instanceof Error ? error.message : String(error), success: false };
     }
     logger.warn('Factory reset recorded; the app restarts and wipes its data first', { scope });
-    // Playwright cannot follow the process `app.relaunch()` starts, so under E2E the app only
-    // quits and the spec launches it again on the same profile.
+    // Playwright cannot follow the process a relaunch starts, so under E2E the app only quits
+    // and the spec launches it again on the same profile.
     if (!isElectronE2ETestMode()) {
-      app.relaunch();
+      try {
+        relaunchAfterFactoryReset();
+      } catch (error) {
+        // The marker is written and this process holds the reset lock until it exits, so the
+        // next start still wipes; the user is told to quit and start the app.
+        logger.error('Factory reset is recorded, but the app could not restart', { error });
+        const reason = error instanceof Error ? error.message : String(error);
+        return {
+          message: `The factory reset is recorded, but Brainstrike could not restart (${reason}). Quit Brainstrike and start it again to finish the reset.`,
+          success: false,
+        };
+      }
     }
     app.quit();
     return { success: true };
