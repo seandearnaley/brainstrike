@@ -1,10 +1,12 @@
+import { createLogger } from '@brainstrike/logging';
 import {
   type Client,
   type SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
+import type { ExplicitHttpMcpFetch } from './explicit-http-client-types.ts';
 
-const SESSION_TERMINATION_TIMEOUT_MS = 250;
+const logger = createLogger('McpHttpConnectionCleanup');
 
 interface OwnedHttpConnection {
   readonly capabilityLease: { close: () => Promise<unknown> };
@@ -13,37 +15,33 @@ interface OwnedHttpConnection {
   readonly transport: SSEClientTransport | StreamableHTTPClientTransport;
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_resolve, reject) => {
-    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
+/**
+ * The session DELETE is the server's farewell, not local cleanup: close sends
+ * it and never joins it (ADR-0031). The SDK sends it on the transport's abort
+ * signal, which the local close aborts at once, so the DELETE alone leaves that
+ * signal behind and outlives the connection it ends.
+ */
+export function sessionTerminationOutlivesClose(fetch: ExplicitHttpMcpFetch): ExplicitHttpMcpFetch {
+  return (url, init) => {
+    if (init?.method !== 'DELETE') {
+      return fetch(url, init);
     }
-  }
+    const { signal: _closedWithConnection, ...farewell } = init;
+    return fetch(url, farewell);
+  };
 }
 
 export async function closeOwnedHttpConnection(connection: OwnedHttpConnection): Promise<void> {
-  const errors: unknown[] = [];
   if (
     !connection.disconnected &&
     connection.transport instanceof StreamableHTTPClientTransport &&
     connection.transport.sessionId
   ) {
-    try {
-      await withTimeout(
-        connection.transport.terminateSession(),
-        SESSION_TERMINATION_TIMEOUT_MS,
-        `MCP session termination timed out after ${SESSION_TERMINATION_TIMEOUT_MS}ms`
-      );
-    } catch (error) {
-      errors.push(error);
-    }
+    void connection.transport.terminateSession().catch((error: unknown) => {
+      logger.warn('MCP session termination failed', { error });
+    });
   }
+  const errors: unknown[] = [];
   try {
     await connection.capabilityLease.close();
   } catch (error) {
@@ -58,6 +56,6 @@ export async function closeOwnedHttpConnection(connection: OwnedHttpConnection):
     throw errors[0];
   }
   if (errors.length > 1) {
-    throw new AggregateError(errors, 'MCP session termination or owned local cleanup failed');
+    throw new AggregateError(errors, 'MCP owned local cleanup failed');
   }
 }

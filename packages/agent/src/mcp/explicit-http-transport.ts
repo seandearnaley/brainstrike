@@ -26,6 +26,7 @@ import {
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
 import type { NormalizedHttpClientOptions } from './explicit-http-client-options.ts';
+import { sessionTerminationOutlivesClose } from './http-connection-cleanup.ts';
 import { installRegisteredExtensionDispatch } from './registered-extension-dispatch.ts';
 import { installMcpResultTypeCompatibility } from './result-type-compatibility.ts';
 
@@ -51,7 +52,7 @@ export function createExplicitHttpTransport(
         installRegisteredExtensionDispatch(
           new StreamableHTTPClientTransport(options.url, {
             ...(authProvider ? { authProvider } : {}),
-            fetch: options.fetch,
+            fetch: sessionTerminationOutlivesClose(options.fetch),
             ...(options.maxStepUpRetries === undefined
               ? {}
               : { maxStepUpRetries: options.maxStepUpRetries }),

@@ -336,7 +336,10 @@ describe('surviving Desktop MCP host integration', () => {
         failures: [],
         requestsSettled: 1,
       });
-      expect(server.requests.at(-1)).toMatchObject({ method: 'DELETE', pathname: '/mcp' });
+      // Close sends the session DELETE and never joins it; the server still receives it.
+      await expect
+        .poll(() => server.requests.at(-1))
+        .toMatchObject({ method: 'DELETE', pathname: '/mcp' });
     } finally {
       await runtime.host.close();
       await server.close();
