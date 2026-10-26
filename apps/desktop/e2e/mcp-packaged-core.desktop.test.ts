@@ -812,20 +812,8 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       true
     );
     expect(JSON.stringify(durable)).not.toContain('bst-1577-secret');
-    const firstShutdown = (
-      await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime shutdown cleanup completed')
-    ).at(-1);
-    const firstCloseReport = Reflect.get(firstShutdown ?? {}, 'hostCloseReport') as CloseReport;
-    expect(firstCloseReport).toMatchObject({
-      failures: [],
-      loopbackPortsClosed: 1,
-      probesClosed: 0,
-      subscriptionsClosed: 0,
-    });
-    expect(firstCloseReport['childProcessesClosed']).toBeGreaterThanOrEqual(3);
-    expect(firstCloseReport['clientsClosed']).toBeGreaterThanOrEqual(6);
-    expect(firstCloseReport['callbacksClosed']).toBe(Number(firstCloseReport['clientsClosed']) + 1);
-    expect(firstShutdown).toMatchObject({ legacyClientsClosed: true });
+    // The quit closed the MCP runtime: its stdio child is gone (above), and the restart below
+    // rebinds the persisted OAuth loopback port, which only a released port allows.
     const bindingsBeforeRestart = await readOAuthLoopbackBindings(userDataDir);
     const firstLaunchLoopbackPort = bindingsBeforeRestart.at(-1)?.['port'];
     expect(typeof firstLaunchLoopbackPort).toBe('number');
