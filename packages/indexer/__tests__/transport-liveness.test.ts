@@ -35,6 +35,8 @@ function slowProcess(timing: {
   readonly losesCloseAnswer?: boolean;
   /** The code it exits with after `close` (0 by default). */
   readonly closeExitCode?: number;
+  /** Its startup ends with a startup error instead of a ready report. */
+  readonly startupError?: boolean;
 }) {
   const messages = new Set<(message: unknown) => void>();
   const exits = new Set<(code: number | null) => void>();
@@ -79,7 +81,15 @@ function slowProcess(timing: {
     send: (message) => {
       if (!started) {
         started = true;
-        deliver({ kind: 'ready', value: info }, timing.readyMs);
+        deliver(
+          timing.startupError
+            ? {
+                error: { code: 'open-failed', message: 'Store did not open.' },
+                kind: 'startup-error',
+              }
+            : { kind: 'ready', value: info },
+          timing.readyMs
+        );
         return;
       }
       const { id, op } = message as { readonly id: number; readonly op: string };
@@ -343,4 +353,58 @@ it('kills at once, refuses new requests, and resolves at the exit', async () => 
   expect(await answer).toMatchObject({ code: 'indexer-closed' });
   expect(connection.exited).toBe(true);
   expect(process.kills()).toBe(1);
+});
+
+// ADR-0031: a failure is reported at once; the retirement (one kill, the joined exit) goes on, and
+// the owner's close joins that exit before anything replaces the process.
+it('fails a request on a protocol fault while its killed process has not exited yet', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ exitAfterKillMs: 60_000, garble: true, readyMs: 0, replyMs: 0 });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  const port = await connection.ready;
+
+  const answer = port.info();
+  answer.catch(() => undefined);
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(answer).rejects.toThrow('Unexpected indexer response id');
+  expect(process.kills()).toBe(1);
+  expect(connection.exited).toBe(false);
+  expect(connection.retired).toBe(true);
+
+  let closed = false;
+  const closing = connection.close().then(() => {
+    closed = true;
+  });
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(closed).toBe(false);
+  await vi.advanceTimersByTimeAsync(30_000);
+  await closing;
+  expect(connection.exited).toBe(true);
+  expect(process.kills()).toBe(1);
+});
+
+it('rejects a failed startup while its killed process has not exited yet', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ readyMs: 0, refusesKill: true, replyMs: 0, startupError: true });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  const ready = connection.ready;
+  ready.catch(() => undefined);
+  await vi.advanceTimersByTimeAsync(0);
+
+  await expect(ready).rejects.toMatchObject({ code: 'open-failed' });
+  expect(process.kills()).toBe(1);
+  expect(connection.exited).toBe(false);
+  expect(connection.retired).toBe(true);
+
+  let closed = false;
+  const closing = connection.close().then(() => {
+    closed = true;
+  });
+  await vi.advanceTimersByTimeAsync(CHILD_SIGNAL_GRACE_MS * 2);
+  expect(closed).toBe(false);
+  process.exitNow();
+  await vi.advanceTimersByTimeAsync(0);
+  await closing;
+  expect(connection.exited).toBe(true);
 });

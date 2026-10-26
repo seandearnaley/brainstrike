@@ -206,10 +206,10 @@ export function createStateIndexOwner(options: {
       return Promise.reject(closingError());
     }
     if (state.kind === 'live') {
-      if (!state.connection.exited) {
+      if (!state.connection.retired) {
         return Promise.resolve(state);
       }
-      retire(state.connection, new Error('Host state index worker exited between requests.'));
+      retire(state.connection, new Error('Host state index worker retired between requests.'));
     }
     advancing ??= advance().finally(() => {
       advancing = undefined;
@@ -224,9 +224,9 @@ export function createStateIndexOwner(options: {
       return value;
     } catch (cause) {
       // A live worker's refusal is the request's own answer; only retirement is the owner's.
-      // The connection retires its worker only on a transport or protocol failure, and a
-      // retirement always joins the exit (ADR-0030).
-      if (!live.connection.exited) {
+      // The connection retires its worker only on a transport or protocol failure; the request
+      // is answered at once and the owner joins that exit before it starts a replacement.
+      if (!live.connection.retired) {
         throw cause;
       }
       retire(live.connection, cause);

@@ -167,6 +167,11 @@ export interface IndexerConnection {
       StateObservationVectorPort &
       CoverageAuthorityPort
   >;
+  /**
+   * The connection retired its process: a transport or protocol failure, a failed startup, its
+   * exit or a close. Its exit may still be pending; `close` joins it.
+   */
+  readonly retired: boolean;
 }
 export function createIndexerConnection(
   input: unknown,
@@ -236,9 +241,14 @@ export function createIndexerConnection(
       }
     }),
   ];
-  const failAndJoin = async (error: unknown): Promise<never> => {
+  /**
+   * A transport or protocol failure answers at once (ADR-0031): the retirement, one kill and the
+   * joined exit, goes on in the background, and the owner's `close` joins that exit before it
+   * starts a replacement.
+   */
+  const fail = (error: unknown): never => {
     client.fail(error);
-    await retire();
+    void retire();
     throw error;
   };
   const call = async <T>(
@@ -258,11 +268,11 @@ export function createIndexerConnection(
         try {
           client.assertActive();
         } catch {
-          return failAndJoin(error);
+          return fail(error);
         }
         throw error;
       }
-      return failAndJoin(error);
+      return fail(error);
     }
   };
   /**
@@ -584,7 +594,7 @@ export function createIndexerConnection(
       decoder(infoSchema)(await client.ready);
       return port;
     } catch (error) {
-      return failAndJoin(error);
+      return fail(error);
     }
   })();
   return {
@@ -599,5 +609,8 @@ export function createIndexerConnection(
       return retire();
     },
     ready,
+    get retired() {
+      return exited || retirement !== undefined;
+    },
   };
 }
