@@ -96,8 +96,6 @@ export interface NativeIndexActivationDependencies {
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;
   readonly profile: DesktopProfileRuntime<HostClient>;
-  /** Waits before each automatic re-open of a transient startup failure; defaults apply. */
-  readonly reopenDelaysMs?: readonly number[];
   /** Main's search index config, as the native index runs it. */
   readonly settings: () => Promise<NativeIndexSettings>;
   readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;

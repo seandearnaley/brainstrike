@@ -20,12 +20,6 @@ type NativeIndexCloseReason =
   | 'shutdown'
   | 'host-released';
 
-/** An automatic re-open scheduled after a transient startup failure: which, of how many. */
-export interface NativeIndexReopen {
-  readonly attempt: number;
-  readonly attempts: number;
-}
-
 /**
  * Why the native index is not serving, as a value the renderer and the agent
  * read (BST-1988 lifecycle). A transition is a cause, never a failure.
@@ -45,8 +39,6 @@ export type NativeIndexCause =
       readonly message: string;
       readonly error?: unknown;
       readonly recovery?: 'sources';
-      /** Set while an automatic re-open of these settings is scheduled. */
-      readonly reopen?: NativeIndexReopen;
     }
   /** The index was closed for good: shutdown, reset, or profile retirement. */
   | { readonly kind: 'closed'; readonly reason: NativeIndexCloseReason };
@@ -80,7 +72,7 @@ export type NativeIndexState =
       readonly from: number;
       readonly generation: number;
       readonly settings: NativeIndexSettings;
-      /** The failure an automatic or Retry re-open of these settings is retrying, kept visible. */
+      /** The failure a Retry re-open of these settings is retrying, kept visible. */
       readonly retrying?: Extract<NativeIndexCause, { readonly kind: 'source-failure' }>;
     }
   | { readonly kind: 'ready'; readonly generation: number; readonly settings: NativeIndexSettings }
@@ -129,11 +121,10 @@ export type NativeIndexEvent =
       readonly message: string;
       readonly error?: unknown;
       readonly recovery?: 'sources';
-      readonly reopen?: NativeIndexReopen;
     }
   /**
-   * Open the failed generation's own settings again: a scheduled automatic re-open, or the
-   * person's Retry indexing once the embedding host restarted.
+   * Open the failed generation's own settings again: the person's Retry indexing once the
+   * embedding host restarted.
    */
   | { readonly kind: 'reopen'; readonly generation: number }
   /** Rebuild the derived index from the catalog. */
@@ -262,7 +253,7 @@ function rootsChanged(
 
 function failure(
   state: NativeIndexState,
-  { error, generation, message, recovery, reopen }: Extract<NativeIndexEvent, { kind: 'failure' }>
+  { error, generation, message, recovery }: Extract<NativeIndexEvent, { kind: 'failure' }>
 ): NativeIndexTransition {
   if (
     generation !== state.generation ||
@@ -282,7 +273,6 @@ function failure(
         message,
         ...(error === undefined ? {} : { error }),
         ...(recovery ? { recovery } : {}),
-        ...(reopen ? { reopen } : {}),
       },
       generation,
       kind: 'failed',
@@ -591,14 +581,5 @@ export function nativeIndexFailureRefusal(
   if (unresponsive) {
     return { kind: 'embedding-host-unresponsive', message: unresponsive.message };
   }
-  return { kind: cause.kind, message: describeCause(cause) };
-}
-
-function describeCause(
-  cause: Exclude<NativeIndexCause, { readonly kind: 'transitioning' | 'closed' }>
-): string {
-  const reopen = cause.kind === 'source-failure' ? cause.reopen : undefined;
-  return reopen
-    ? `${cause.message} Retrying automatically (attempt ${reopen.attempt} of ${reopen.attempts}).`
-    : cause.message;
+  return { kind: cause.kind, message: cause.message };
 }

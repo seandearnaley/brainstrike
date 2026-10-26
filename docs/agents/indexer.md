@@ -149,10 +149,10 @@ only a user's grep keeps its R5(a) bound, a typed refusal of that grep. The Node
 worker's read itself projects at most one more step and refuses past it as
 `state-behind` (an append raced the last step), and the transport steps again, so
 no single request carries a backlog. A native generation whose startup sync
-fails with a typed `timeout` or `availability` fault re-opens its saved settings
-after 2 s, 10 s and 30 s, shown in its refusal cause; any other failure waits for
-the user (`native-index-reopen.ts`). While a re-open is opening, status keeps the
-failure it retries in its reason, so an unavailable index always names its cause.
+fails stays refused with that cause until the user's Rebuild, a settings save or
+Retry indexing re-opens it; nothing re-opens on a clock. While a re-open is
+opening, status keeps the failure it retries in its reason, so an unavailable
+index always names its cause.
 
 Whole-root deletion uses the original mounted root and its acknowledged bindings,
 joins its source/read/inference owners, then removes only that root's canonical

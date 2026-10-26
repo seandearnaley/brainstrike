@@ -259,7 +259,7 @@ describe('read admission', () => {
   });
 });
 
-describe('automatic re-open', () => {
+describe('Retry re-open', () => {
   const reopen = (generation: number): NativeIndexEvent => ({ generation, kind: 'reopen' });
 
   it('a re-open of the failed generation opens its own settings again', () => {
@@ -277,13 +277,12 @@ describe('automatic re-open', () => {
 
   // Lifecycle redesign PR D (smoke45): status keeps the failure a re-open retries until it settles.
   it('a re-opening generation keeps the failure it retries in its status reason', () => {
-    const scheduled = reduceNativeIndex(ready, {
+    const failedOpen = reduceNativeIndex(ready, {
       generation: 3,
       kind: 'failure',
       message: 'Canonical attachment failed.',
-      reopen: { attempt: 1, attempts: 3 },
     }).state;
-    const reopening = reduceNativeIndex(scheduled, reopen(3)).state;
+    const reopening = reduceNativeIndex(failedOpen, reopen(3)).state;
     expect(nativeIndexReadiness(reopening)).toEqual({
       cause: { kind: 'transitioning' },
       kind: 'preparing',
@@ -292,7 +291,7 @@ describe('automatic re-open', () => {
     expect(error).toBeInstanceOf(NativeIndexRefusalError);
     expect(error).toMatchObject({ refusal: { kind: 'transitioning' } });
     expect(error.message).toBe(
-      'Native index is re-opening after a failure: Canonical attachment failed. Retrying automatically (attempt 1 of 3).'
+      'Native index is re-opening after a failure: Canonical attachment failed.'
     );
     // Once the re-open settles, the retried failure is gone with it.
     const served = reduceNativeIndex(reopening, { generation: 4, kind: 'opened' }).state;
@@ -321,31 +320,7 @@ describe('automatic re-open', () => {
     }
   });
 
-  it('a failure with a scheduled re-open carries it, and observers read it with the cause', () => {
-    const next = reduceNativeIndex(ready, {
-      generation: 3,
-      kind: 'failure',
-      message: 'The state index did not answer in time.',
-      reopen: { attempt: 1, attempts: 3 },
-    });
-    expect(next.state).toEqual({
-      cause: {
-        kind: 'source-failure',
-        message: 'The state index did not answer in time.',
-        reopen: { attempt: 1, attempts: 3 },
-      },
-      generation: 3,
-      kind: 'failed',
-      settings: VECTOR,
-    });
-    expect(nativeIndexObservation(next.state)).toEqual({
-      cause: {
-        kind: 'source-failure',
-        message: 'The state index did not answer in time. Retrying automatically (attempt 1 of 3).',
-      },
-      generation: 3,
-      kind: 'refused',
-    });
+  it('observers read a failure with its cause', () => {
     expect(nativeIndexObservation(failed)).toEqual({
       cause: { kind: 'source-failure', message: 'Initial native workspace scan was aborted.' },
       generation: 3,

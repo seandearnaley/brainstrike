@@ -112,7 +112,6 @@ function startup(syncs: readonly Sync[]) {
     application,
     embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
-    reopenDelaysMs: [0, 0, 0],
     settings: async () => textSettings(),
     storage: { getItem: unused },
   });
@@ -138,30 +137,22 @@ const refusals = (observed: readonly NativeIndexLifecycleObservation[]) =>
       : []
   );
 
-it('re-opens a generation whose startup sync timed out, visibly, and serves once it succeeds', async () => {
+it('keeps a startup sync that timed out refused with its cause until the person rebuilds', async () => {
   const index = startup(['timeout', 'complete']);
   await expect(index.activation.acquire()).rejects.toThrow('did not answer in time');
 
+  await vi.waitFor(() => expect(refusals(index.observed)).toHaveLength(1));
+  // Status names the failure and the remedy it carries; nothing claims a retry of its own.
+  expect(refusals(index.observed)).toEqual([
+    "The agent host's state index did not answer in time. It restarts on the next request.",
+  ]);
+  await expect(index.activation.acquireRead()).rejects.toThrow('did not answer in time');
+  expect(index.attached()).toBe(1);
+
+  await index.activation.rebuild();
   await vi.waitFor(() => expect(index.observed.at(-1)?.kind).toBe('ready'));
   await expect(index.activation.acquireRead()).resolves.toBeDefined();
   expect(index.attached()).toBe(2);
-  expect(refusals(index.observed)).toEqual([
-    "The agent host's state index did not answer in time. It restarts on the next request. Retrying automatically (attempt 1 of 3).",
-  ]);
-  await index.close();
-});
-
-it('stops after three re-opens and stays refused with the typed cause', async () => {
-  const index = startup(['timeout']);
-  await expect(index.activation.acquire()).rejects.toThrow('did not answer in time');
-
-  await vi.waitFor(() => expect(refusals(index.observed)).toHaveLength(4));
-  expect(index.attached()).toBe(4);
-  expect(refusals(index.observed).at(-1)).toBe(
-    "The agent host's state index did not answer in time. It restarts on the next request."
-  );
-  await expect(index.activation.acquireRead()).rejects.toThrow('did not answer in time');
-  expect(index.attached()).toBe(4);
   await index.close();
 });
 

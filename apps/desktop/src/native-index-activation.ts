@@ -56,7 +56,6 @@ import {
 } from './native-index-lifecycle-owner';
 import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
 import { createNativeIndexProfileAdmission } from './native-index-profile-admission';
-import { createNativeIndexFailures } from './native-index-reopen';
 import { createNativeIndexRetry } from './native-index-retry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import { type NativeIndexSettings, prepareSavedNativeIndexPause } from './native-index-settings';
@@ -263,7 +262,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     current.observedCatalogFingerprint = catalogFingerprint(await loadRecords(current));
     assertCurrent(current);
     if (!settings.paused) {
-      admitSources(current, port).then(failures.started, (error: unknown) => {
+      admitSources(current, port).catch((error: unknown) => {
         if (current.controller.signal.aborted || current.settings.paused) {
           // Superseded: the next generation redoes the work.
           logger.debug('A retired native ingestion generation ended with an error', {
@@ -272,7 +271,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           });
           return;
         }
-        failures.record(current.generation, error, true);
+        recordFailure(current.generation, error);
       });
     }
   };
@@ -514,7 +513,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         () => refreshCatalog(current),
         (error) => {
           if (graph === current && !current.controller.signal.aborted) {
-            failures.record(current.generation, error);
+            recordFailure(current.generation, error);
             dependencies.onError('catalog refresh after scan', error);
           }
         }
@@ -552,8 +551,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (!current.settings.paused) {
       const port = await runtime.acquire();
       assertCurrent(current);
-      admitSources(current, port).then(failures.started, (error: unknown) =>
-        failures.record(current.generation, error, true)
+      admitSources(current, port).catch((error: unknown) =>
+        recordFailure(current.generation, error)
       );
     }
   };
@@ -612,11 +611,22 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       },
     }
   );
-  const failures = createNativeIndexFailures({
-    delaysMs: dependencies.reopenDelaysMs,
-    dispatch: async (event) => (await lifecycle).dispatch(event),
-    onError: dependencies.onError,
-  });
+  /**
+   * Records a generation's failure with the lifecycle owner. It stays the owner's visible state
+   * until the person's Rebuild, a settings save or a close replaces it; nothing re-opens on a clock.
+   */
+  const recordFailure = (generation: number, error: unknown): void => {
+    lifecycle
+      .then((owner) =>
+        owner.dispatch({
+          error,
+          generation,
+          kind: 'failure',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      )
+      .catch((failure: unknown) => dependencies.onError('failure observation', failure));
+  };
   const currentReader = async (joinOpen = false): Promise<Graph> => {
     // Capture this command's input before owner construction can yield to a later save.
     // Only the lifecycle owner may accept it as an initial configuration.
@@ -704,14 +714,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     void openResumed();
   });
   const fenceTerminal = (): void => {
-    failures.cancel();
     admission.fenceTerminal();
     dispatch({ kind: 'fence', reason: 'shutdown' }).catch((error: unknown) =>
       dependencies.onError('terminal fence', error)
     );
   };
   const close = async (cause?: unknown): Promise<void> => {
-    failures.cancel();
     await dispatch({ cause, kind: 'terminal', reason: 'profile-retired' });
   };
   const resume = async (signal?: AbortSignal): Promise<void> => {
