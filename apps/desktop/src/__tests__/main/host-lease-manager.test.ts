@@ -147,6 +147,8 @@ describe('desktop host child', () => {
       },
     });
     await expect(failing.acquire()).rejects.toThrow('no platform');
+    // The refusal answers at once; the lease's close joins the failed host's end.
+    await failing.close();
     expect(reported.pid).toBeUndefined();
 
     const exited = new Child();
