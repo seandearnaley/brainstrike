@@ -36,6 +36,7 @@ import {
   FILE_READ_ERROR_CODE_NOT_FOUND,
   type FileReadErrorPayload,
 } from '../file-read-errors';
+import { heldRoot } from '../native-index-boundary-failure';
 import {
   createDesktopIpcRegistry,
   registerDomain,
@@ -551,9 +552,12 @@ export function createFileSystemIpcDomain({
     evictLspServersForRoot,
     getRootsCatalog,
     // ADR-0015: the catalog refuses once the app quits during a reset; that is
-    // expected. So is a damaged store, which opened read-only (BST-2144).
+    // expected. So is a damaged store, which opened read-only (BST-2144), and a
+    // profile another process holds (ADR-0031), which the window already names.
     isExpectedCatalogRefusal: (error) =>
-      isExpectedShutdownRefusal(error) || isStateStoreReadOnly(error),
+      isExpectedShutdownRefusal(error) ||
+      isStateStoreReadOnly(error) ||
+      heldRoot(error) !== undefined,
     onRestoredRootsChanged: onWorkspaceRootsChanged,
     onRootGranted: notifyRootGranted,
     pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),

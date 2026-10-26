@@ -47,7 +47,8 @@ export async function markRootsDisconnectedExcept(
 /** Reopens the same granted records; no identity inference or conversion is allowed. */
 export async function recordRestoredWorkspaceRoots(
   getCatalog: () => Promise<WorkspaceRootPort>,
-  roots: readonly { readonly path: string; readonly rootId: string }[]
+  roots: readonly { readonly path: string; readonly rootId: string }[],
+  isExpectedCatalogRefusal?: (error: unknown) => boolean
 ): Promise<void> {
   if (roots.length === 0) {
     return;
@@ -67,6 +68,10 @@ export async function recordRestoredWorkspaceRoots(
       }
     }
   } catch (error) {
+    if (isExpectedCatalogRefusal?.(error)) {
+      logger.info('Restored workspace folders were not recorded: the catalog refused', { error });
+      return;
+    }
     logger.error('Restored workspace folders could not be recorded', { error });
   }
 }

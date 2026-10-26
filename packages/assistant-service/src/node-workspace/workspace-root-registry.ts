@@ -757,10 +757,11 @@ export class WorkspaceRootRegistry {
     if (persistPreferences && storedSurvivors.length !== entries.length) {
       await writeStoredRoots(this.storage, storedSurvivors);
     }
+    const { getRootsCatalog, isExpectedCatalogRefusal: refused, storage } = this;
     if (persistPreferences) {
-      await recordRestoredRecentRoots(this.storage, this.getRootsCatalog, recentRootCandidates);
+      await recordRestoredRecentRoots(storage, getRootsCatalog, recentRootCandidates, refused);
     }
-    await recordRestoredWorkspaceRoots(this.getRootsCatalog, recentRootCandidates);
+    await recordRestoredWorkspaceRoots(getRootsCatalog, recentRootCandidates, refused);
     await this.convergeDatabase();
     return descriptors;
   }

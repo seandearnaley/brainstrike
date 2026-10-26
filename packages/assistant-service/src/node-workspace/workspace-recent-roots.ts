@@ -202,9 +202,14 @@ export async function recordRecentRoot(
 export async function recordRestoredRecentRoots(
   storage: WorkspaceRootStorage,
   getRootsCatalog: () => Promise<WorkspaceRootPort>,
-  entries: readonly StoredWorkspaceRoot[]
+  entries: readonly StoredWorkspaceRoot[],
+  isExpectedCatalogRefusal?: (error: unknown) => boolean
 ): Promise<void> {
-  const kindByRootId = await loadRecordedRootKinds(getRootsCatalog, entries);
+  const kindByRootId = await loadRecordedRootKinds(
+    getRootsCatalog,
+    entries,
+    isExpectedCatalogRefusal
+  );
   await recordRecentRootsIfNew(
     storage,
     entries.flatMap((entry) =>
@@ -217,7 +222,8 @@ export async function recordRestoredRecentRoots(
 
 async function loadRecordedRootKinds(
   getRootsCatalog: () => Promise<WorkspaceRootPort>,
-  entries: readonly StoredWorkspaceRoot[]
+  entries: readonly StoredWorkspaceRoot[],
+  isExpectedCatalogRefusal: ((error: unknown) => boolean) | undefined
 ): Promise<ReadonlyMap<string, string | null>> {
   const kindByRootId = new Map<string, string | null>();
   if (entries.length === 0) {
@@ -231,9 +237,13 @@ async function loadRecordedRootKinds(
       kindByRootId.set(row.id, row.kind);
     }
   } catch (error) {
-    logger.warn('Could not read persisted workspace root kinds; restoring Recents as before', {
-      error,
-    });
+    if (isExpectedCatalogRefusal?.(error)) {
+      logger.info('Persisted workspace root kinds were not read: the catalog refused', { error });
+    } else {
+      logger.warn('Could not read persisted workspace root kinds; restoring Recents as before', {
+        error,
+      });
+    }
   }
   return kindByRootId;
 }

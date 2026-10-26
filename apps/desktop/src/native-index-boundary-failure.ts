@@ -162,7 +162,7 @@ function lostIndexProcess(error: unknown): BoundaryFailureError | undefined {
 
 /** Preserve proven native outcomes; source and cleanup diagnostics stay in Main. */
 /** The held Root a failure comes from, through its causes and joined errors. */
-function heldRoot(error: unknown): RootLockedError | undefined {
+export function heldRoot(error: unknown): RootLockedError | undefined {
   if (error instanceof RootLockedError) {
     return error;
   }
