@@ -14,7 +14,11 @@ import {
 import type { McpClientExtensionRequestContract } from '@brainstrike/agent/mcp-tasks';
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { McpTaskStore } from '@brainstrike/assistant-contract/mcp-task-store';
+import {
+  type McpTaskStorage,
+  McpTaskStore,
+  McpTaskStoreStoppedError,
+} from '@brainstrike/assistant-contract/mcp-task-store';
 import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
 import type {
   McpBoundTaskElicitationPresenter,
@@ -765,5 +769,93 @@ describe('McpDesktopTaskHost', () => {
     });
     expect(replacement.handle.authorityEpoch).not.toBe(initial.handle.authorityEpoch);
     expect(internalErrors).toEqual([]);
+  });
+});
+
+/**
+ * A host whose store holds a create inside its metadata measure until the test
+ * lets it go, so the create is still in flight when the host stops.
+ */
+function hostWithHeldCreate() {
+  const base = stateStoreMcpTaskStorage(store);
+  const held = Promise.withResolvers<void>();
+  const reached = Promise.withResolvers<void>();
+  let authorityEpoch: string | undefined;
+  let inserts = 0;
+  let holding = false;
+  const storage: McpTaskStorage = {
+    ...base,
+    insert: async (row, lease) => {
+      inserts += 1;
+      return await base.insert(row, lease);
+    },
+    measureMetadata: async (inputMetadata, resultMetadata, maxBytes) => {
+      if (holding) {
+        reached.resolve();
+        await held.promise;
+      }
+      return await base.measureMetadata(inputMetadata, resultMetadata, maxBytes);
+    },
+    openAuthority: async (input, at) => {
+      const rows = await base.openAuthority(input, at);
+      const row = rows[0];
+      if (typeof row === 'object' && row !== null && 'authority_epoch' in row) {
+        authorityEpoch = String(row.authority_epoch);
+      }
+      return rows;
+    },
+  };
+  const heldHost = new McpDesktopTaskHost({
+    elicitationPresenter,
+    lifecycleLimits: LIMITS,
+    onInternalError: (code, cause) => internalErrors.push([code, cause]),
+    openStorage: async () => storage,
+    runtimeId: 'test-runtime',
+  });
+  return {
+    hold() {
+      holding = true;
+    },
+    host: heldHost,
+    inserts: () => inserts,
+    reached: reached.promise,
+    release: () => held.resolve(),
+    /** The durable row of `taskId` under the session's authority, read from `from`. */
+    async row(from: StateStore, taskId: string) {
+      if (authorityEpoch === undefined) {
+        throw new Error('the session opened no authority');
+      }
+      const identity = deriveMcpTaskAuthorityIdentity(HTTP_SERVER);
+      return await new McpTaskStore(stateStoreMcpTaskStorage(from)).get({
+        authorityEpoch,
+        principalId: identity.principalId,
+        resource: identity.resource,
+        serverId: SERVER_ID,
+        taskId,
+      });
+    },
+  };
+}
+
+describe('a task create still in flight when the MCP Tasks host stops', () => {
+  it('fails with the stopped store error and writes no row', async () => {
+    const held = hostWithHeldCreate();
+    await host.close();
+    host = held.host;
+    const server = createFakeServer();
+    await host.connected(createConnection(server));
+    held.hold();
+    const tracking = host.track({
+      configuredServerId: SERVER_ID,
+      result: server.created('t-late'),
+      toolName: 'long_job',
+    });
+    await held.reached;
+    const closing = host.close();
+    held.release();
+    await expect(tracking).rejects.toBeInstanceOf(McpTaskStoreStoppedError);
+    await closing;
+    expect(held.inserts()).toBe(0);
+    await expect(held.row(store, 't-late')).resolves.toBeNull();
   });
 });

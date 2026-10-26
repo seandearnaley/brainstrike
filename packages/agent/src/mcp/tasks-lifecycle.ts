@@ -337,6 +337,8 @@ export class McpTaskLifecycle {
       for (const task of this.active.values()) {
         task.controller.abort(failure);
       }
+      // A create or update still in flight is refused by the store from here on.
+      void this.repository.stop();
       this.stopPromise = this.drain();
     }
     await this.stopPromise;
@@ -655,12 +657,10 @@ export class McpTaskLifecycle {
   }
 
   private retire(): Promise<void> {
-    this.retirePromise ??= this.repository
-      .retireAuthority(this.authority)
-      .catch((cause: unknown) => {
-        this.retirePromise = undefined;
-        throw cause;
-      });
+    this.retirePromise ??= this.repository.stop(this.authority).catch((cause: unknown) => {
+      this.retirePromise = undefined;
+      throw cause;
+    });
     return this.retirePromise;
   }
 }

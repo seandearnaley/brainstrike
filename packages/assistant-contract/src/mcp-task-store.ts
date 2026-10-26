@@ -145,6 +145,17 @@ export class McpTaskMetadataTooLargeError extends TypeError {
   }
 }
 
+/**
+ * A write refused because its store was stopped. A create or update still in
+ * flight when its owner stopped fails with this instead of writing a row.
+ */
+export class McpTaskStoreStoppedError extends Error {
+  constructor() {
+    super('MCP task store is stopped; it refuses every write.');
+    this.name = 'McpTaskStoreStoppedError';
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -367,10 +378,15 @@ function explainRejectedUpdate(
   return new Error('MCP task handle is missing or stale.');
 }
 
-/** Durable local Tasks handle store. Lifecycle polling is deliberately out of scope. */
+/**
+ * Durable local Tasks handle store. Lifecycle polling is deliberately out of scope.
+ * Once stopped it refuses every write with {@link McpTaskStoreStoppedError}; a
+ * write already handed to storage commits there.
+ */
 export class McpTaskStore {
   private readonly storage: McpTaskStorage;
   private readonly now: () => Date;
+  private stopped = false;
 
   constructor(storage: McpTaskStorage, now: () => Date = () => new Date()) {
     this.storage = storage;
@@ -380,6 +396,7 @@ export class McpTaskStore {
   async openAuthority(input: McpTaskAuthorityInput): Promise<McpTaskAuthorityLease> {
     requireAuthorityInput(input);
     const at = decodeMcpTaskClock(this.now()).toISOString();
+    this.requireWritable();
     const rows = await this.storage.openAuthority(input, at);
     const row = rows[0];
     if (row === undefined) {
@@ -391,10 +408,19 @@ export class McpTaskStore {
     return mapAuthorityRow(row);
   }
 
-  async retireAuthority(lease: McpTaskAuthorityLease): Promise<void> {
-    requireAuthorityLease(lease);
+  /**
+   * Refuses every later write. `retire` names an authority whose retirement is
+   * this store's last write; a failed retirement rejects, and a later `stop`
+   * with the same lease writes it again.
+   */
+  async stop(retire?: McpTaskAuthorityLease): Promise<void> {
+    this.stopped = true;
+    if (retire === undefined) {
+      return;
+    }
+    requireAuthorityLease(retire);
     const at = decodeMcpTaskClock(this.now()).toISOString();
-    await this.storage.retireAuthority(lease, at);
+    await this.storage.retireAuthority(retire, at);
   }
 
   async create(input: CreateMcpTaskInput, lease: McpTaskAuthorityLease): Promise<McpTaskRecord> {
@@ -419,6 +445,7 @@ export class McpTaskStore {
     await this.assertMetadataBudgets(inputMetadataJson, resultMetadataJson);
     assertBlockedDiagnosticBudget(blockedDiagnosticJson);
     const at = decodeMcpTaskClock(this.now()).toISOString();
+    this.requireWritable();
     const row = await this.storage.insert(
       {
         at,
@@ -495,6 +522,7 @@ export class McpTaskStore {
     );
     assertBlockedDiagnosticBudget(blockedDiagnosticJson);
     const at = decodeMcpTaskClock(this.now()).toISOString();
+    this.requireWritable();
     const row = await this.storage.update(
       identity,
       {
@@ -522,6 +550,13 @@ export class McpTaskStore {
       inputMetadata,
       resultMetadata,
     });
+  }
+
+  /** Checked after every await, immediately before a write reaches storage. */
+  private requireWritable(): void {
+    if (this.stopped) {
+      throw new McpTaskStoreStoppedError();
+    }
   }
 
   private async assertMetadataBudgets(
