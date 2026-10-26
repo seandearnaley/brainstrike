@@ -61,16 +61,17 @@ is joined. The first window waits for neither the host nor the index.
 The bounds that remain apply only to owners a launch did not start (R5(a), the
 R2 exception: not ours to wait on):
 
-- **Startup, 30 s** (`HOST_STARTUP_TIMEOUT_MS`, or `startupTimeoutMs`),
+- **Startup, 90 s** (`HOST_STARTUP_TIMEOUT_MS`, or `startupTimeoutMs`),
   measured from the launch's start: waiting for a starting or leaving owner, and
   the handshake with an existing owner or a race's winner; a live but unreachable
   owner is refused at it. The handshake has no tighter bound of its own: a loaded
-  runner slows it 100-300 times, and a 1.5 s bound refused live CLI hosts. It never
-  bounds the start or attach of the launch's own host.
+  runner slows it 100-300 times: a 1.5 s bound refused live CLI hosts, and 30 s
+  refused hosted Windows runners, which take 20-30 s to start a healthy host. It
+  never bounds the start or attach of the launch's own host.
 - The caller's `signal` (quit) ends either wait at once with its own reason
   (BST-2279): quit has no deadline of its own to bound them (ADR-0026).
 - **The Node (CLI) starter** keeps its own ladder, an R2 exception on the
-  external CLI path this redesign did not convert: readiness 30 s
+  external CLI path this redesign did not convert: readiness 90 s
   (`HOST_STARTER_READY_TIMEOUT_MS`), then `cancel-startup`, then SIGKILL (the
   group of a detached host) if the host has not exited within the one close
   budget (`CHILD_CLOSE_BUDGET_MS`, ADR-0030). A forced kill is an error, never a
