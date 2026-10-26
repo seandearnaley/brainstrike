@@ -15,6 +15,7 @@ import {
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { decodeVectorProfile, type VectorProfile } from '@brainstrike/indexer';
+import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.ts';
@@ -344,6 +345,8 @@ interface StagedProductionPlatform<Configuration extends ProductionConfiguration
   readonly configuration: Configuration;
   readonly platform: HostPlatform;
 }
+const logger = createLogger('ProductionHostPlatform');
+
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
 export function createProductionHostPlatform(
   options: ProductionHostPlatformOptions
@@ -360,9 +363,12 @@ export async function createProductionHostPlatform<Configuration extends Product
   const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
   let stateIndex: Promise<HostStateIndex> | undefined;
+  let configurationSettled: Promise<unknown> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
       const joined = await Promise.allSettled([...selections].map((release) => release()));
+      // A startup that failed first still owns a configuration that may be settling.
+      await configurationSettled;
       // Capability transports remain available until their borrowed selections join.
       if (configuration?.status === 'fulfilled') {
         const configured = configuration.value;
@@ -450,35 +456,35 @@ export async function createProductionHostPlatform<Configuration extends Product
           })
         )
       : Promise.resolve(input);
-  const [indexed, configured] = await Promise.allSettled([
-    stateIndex,
-    configuring.then(
-      (value) => {
-        configuration = { status: 'fulfilled', value };
-        return value;
-      },
-      (reason: unknown) => {
-        configuration = { reason, status: 'rejected' };
-        throw reason;
+  // ADR-0031: the first failure is reported at once. Both acquisitions stay owned through their
+  // startup registrations, which the failed startup's close joins; a later failure of the other
+  // is logged, not dropped.
+  let acquisitionFailed = false;
+  const acquisition = <T>(acquiring: Promise<T>): Promise<T> =>
+    acquiring.catch((reason: unknown) => {
+      if (acquisitionFailed) {
+        logger.error('Production host acquisition also failed', {
+          code: 'host_acquisition_failed',
+          error: reason,
+        });
       }
-    ),
-  ]);
-  // Both acquisitions remain owned through cancellation or either failure.
-  if (indexed.status === 'rejected' && configured.status === 'rejected') {
-    throw new AggregateError(
-      [indexed.reason, configured.reason],
-      'Production host acquisition failed'
-    );
-  }
-  if (indexed.status === 'rejected') {
-    throw indexed.reason;
-  }
-  if (configured.status === 'rejected') {
-    throw configured.reason;
-  }
+      acquisitionFailed = true;
+      throw reason;
+    });
+  const recorded = configuring.then(
+    (value) => {
+      configuration = { status: 'fulfilled', value };
+      return value;
+    },
+    (reason: unknown) => {
+      configuration = { reason, status: 'rejected' };
+      throw reason;
+    }
+  );
+  configurationSettled = recorded.catch(() => undefined);
+  const [index, configured] = await Promise.all([acquisition(stateIndex), acquisition(recorded)]);
   input.startup.signal.throwIfAborted();
-  const index = indexed.value;
-  options = { ...configured.value, startup: input.startup };
+  options = { ...configured, startup: input.startup };
   // One run's captured vector bridge over the host's own state index.
   const runVectorBridge = (
     selected: ProductionHostRunConfiguration,
@@ -719,5 +725,5 @@ export async function createProductionHostPlatform<Configuration extends Product
     stateIndexer: index.indexer,
     ...productionClientServices(options),
   };
-  return 'configure' in input ? { configuration: configured.value, platform } : platform;
+  return 'configure' in input ? { configuration: configured, platform } : platform;
 }
