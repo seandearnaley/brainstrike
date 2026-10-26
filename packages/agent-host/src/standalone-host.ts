@@ -1,4 +1,5 @@
 import { PassThrough } from 'node:stream';
+import { createLogger } from '@brainstrike/logging';
 import { authenticateHostClient, type HostClient } from './client-connection.ts';
 import type { HostPlatformLaunchOptions } from './platform-launch-options.ts';
 import type { HostClientOrigin } from './ports.ts';
@@ -6,6 +7,8 @@ import { loadHostPlatform } from './process-entry.ts';
 import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from './protocol.ts';
 import { type OpenedAgentHost, openAgentHost } from './runtime.ts';
 import { stdioConnection } from './transports.ts';
+
+const logger = createLogger('AgentHost');
 
 /** A client of a host this process opened, and that host's close. */
 export interface StandaloneHost {
@@ -32,7 +35,13 @@ export async function openStandaloneHost(
   try {
     client = await connectInProcessClient(host, 'public-socket');
   } catch (cause) {
-    await host.close();
+    // ADR-0031: the failure is reported first. The host's close goes on, holding
+    // the data root until it ends, and a failed close is logged.
+    host.close().catch((failure: unknown) => {
+      logger.error('Standalone host close after a failed connect failed', {
+        errorName: failure instanceof Error ? failure.name : typeof failure,
+      });
+    });
     throw cause;
   }
   return {
