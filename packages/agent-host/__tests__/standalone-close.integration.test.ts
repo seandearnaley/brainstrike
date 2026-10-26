@@ -21,11 +21,13 @@ vi.mock('../src/client-connection.js', async (importOriginal) => {
 });
 
 const platformModule = fileURLToPath(new URL('./fixtures/held-close-platform.ts', import.meta.url));
-// The CLI as Node runs it, with a platform whose close keeps the process alive.
+// The CLI as Node runs it, with platforms whose close, or whose run's owner
+// close, keeps the process alive.
 const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const ignoredClose = fileURLToPath(
   new URL('./fixtures/ignored-close-platform.ts', import.meta.url)
 );
+const heldRun = fileURLToPath(new URL('./fixtures/held-run-platform.ts', import.meta.url));
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
@@ -61,23 +63,9 @@ function tracked<T>(pending: Promise<T>) {
   return { result, state };
 }
 
-test("the CLI prints its failure, then exits with its code at the grace while its host's close never ends", async () => {
-  const root = await freshRoot();
-  const child = spawn(
-    process.execPath,
-    [
-      cli,
-      '--data-root',
-      root,
-      '--platform',
-      ignoredClose,
-      'thread',
-      'read',
-      '--thread',
-      randomUUID(),
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
-  );
+/** The CLI as Node runs it, as its own process; cleanup kills one still running. */
+function spawnCli(args: readonly string[]) {
+  const child = spawn(process.execPath, [cli, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
   const exited = once(child, 'exit');
   cleanups.push(async () => {
     if (child.exitCode === null && child.signalCode === null) {
@@ -89,12 +77,49 @@ test("the CLI prints its failure, then exits with its code at the grace while it
   child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
     stderr += chunk;
   });
-  await expect.poll(() => stderr, { timeout: 45_000 }).toContain('Unknown thread');
+  return { child, exited, stderr: () => stderr };
+}
+
+test("the CLI prints its failure, then exits with its code at the grace while its host's close never ends", async () => {
+  const root = await freshRoot();
+  const { child, exited, stderr } = spawnCli([
+    '--data-root',
+    root,
+    '--platform',
+    ignoredClose,
+    'thread',
+    'read',
+    '--thread',
+    randomUUID(),
+  ]);
+  await expect.poll(() => stderr(), { timeout: 45_000 }).toContain('Unknown thread');
   // Printed while the host's close still holds the process.
   expect(child.exitCode).toBeNull();
   const [code] = await exited;
   expect(code).toBe(1);
-  expect(stderr).toContain(`The host did not close within ${HOST_CLOSE_GRACE_MS} ms`);
+  expect(stderr()).toContain(`The host did not close within ${HOST_CLOSE_GRACE_MS} ms`);
+});
+
+test("Ctrl-C ends a CLI run whose stopped run's owner never closes, with the signal's code", async () => {
+  const root = await freshRoot();
+  const { exited, stderr, child } = spawnCli([
+    '--data-root',
+    root,
+    '--platform',
+    heldRun,
+    'run',
+    'Report completion.',
+    '--model',
+    'scripted',
+  ]);
+  await expect.poll(() => stderr(), { timeout: 45_000 }).toMatch(/Thread \S+; run \S+/u);
+  child.kill('SIGINT');
+  // The Stop is committed and the command ends within the grace; nothing joins
+  // the stopped run's owner, which never closes.
+  await expect.poll(() => child.exitCode, { timeout: HOST_CLOSE_GRACE_MS + 10_000 }).not.toBeNull();
+  const [code] = await exited;
+  expect(code).toBe(130);
+  expect(stderr()).toContain('SIGINT: the command ended');
 });
 
 test("a failed connect is reported while the opened host's close is still held", async () => {

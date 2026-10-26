@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { constants } from 'node:os';
 import { createInterface } from 'node:readline';
 import { Schema } from 'effect';
 import type { HostCliOutput } from './cli.ts';
@@ -173,7 +174,8 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   let displayedMcpInput: string | undefined;
   let pending: PendingHostApproval | undefined;
   let mcpInput: string | undefined;
-  let stopRequested = false;
+  /** EOF or a signal ended the command: nothing the session leaves in flight is joined. */
+  let ending: HostCliExitError | undefined;
   let connectionClosed = false;
   const finish = (cause?: unknown): void => {
     if (finished) {
@@ -307,18 +309,25 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     view.accept(rows);
     update();
   };
-  const stop = (): void => {
-    if (!options.startRun) {
-      finish();
-      return;
-    }
-    stopRequested = true;
-    if (!runId) {
+  /**
+   * A signal ends the command (ADR-0031): the run this session started is
+   * stopped, answered once its Stop is committed, and nothing joins its
+   * physical end, which the host's close bounds with its grace.
+   */
+  const stop = (signal: NodeJS.Signals): void => {
+    const ended = new HostCliExitError(
+      `${signal}: the command ended; a running run is stopped, and an unanswered decision stays for attach.`,
+      128 + constants.signals[signal]
+    );
+    ending = ended;
+    if (!(options.startRun && runId)) {
+      // Before its run is admitted, the host's close withdraws the admission.
+      finish(ended);
       return;
     }
     stopping ??= client
       .request('run/stop', { commandId: randomUUID(), runId, threadId })
-      .then(() => finish(), finish);
+      .then(() => finish(ended), finish);
   };
   /** The host request that answers `interaction`, or nothing when `answer` is not an answer. */
   const answerInteraction = (
@@ -396,12 +405,11 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       });
   };
   const eof = (): void => {
-    finish(
-      new HostCliExitError(
-        'Terminal input closed; a running run is interrupted, and an unanswered decision stays for attach.',
-        2
-      )
+    ending = new HostCliExitError(
+      'Terminal input closed; a running run is interrupted, and an unanswered decision stays for attach.',
+      2
     );
+    finish(ending);
   };
   terminal?.on('line', line);
   terminal?.once('close', eof);
@@ -420,20 +428,23 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   process.once('SIGTERM', stop);
   try {
     accept((await client.request('log/subscribe', { fromSeq: 0, threadId })).rows);
-    if (finished || stopRequested) {
-      finish();
+    if (finished) {
       await completion.promise;
       return printedSeq;
     }
     if (options.startRun) {
-      ({ runId } = await options.startRun());
+      const starting = options.startRun();
+      // An ended command leaves the start to its host's close.
+      starting.catch(() => undefined);
+      const started = await Promise.race([starting, completion.promise]);
+      if (!started) {
+        return printedSeq;
+      }
+      runId = started.runId;
       if (options.json) {
         output.write(`${JSON.stringify({ runId, threadId })}\n`);
       } else {
         process.stderr.write(`Thread ${threadId}; run ${runId}\n`);
-      }
-      if (stopRequested) {
-        stop();
       }
     }
     initialized = true;
@@ -448,10 +459,13 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     terminal?.close();
     release();
     releaseTelemetry();
-    await responding;
-    await stopping;
-    if (!connectionClosed) {
-      await client.request('log/unsubscribe', { threadId });
+    // An ended command's host closes next, which ends its subscription too.
+    if (!ending) {
+      await responding;
+      await stopping;
+      if (!connectionClosed) {
+        await client.request('log/unsubscribe', { threadId });
+      }
     }
   }
 }

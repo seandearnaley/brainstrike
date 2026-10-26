@@ -455,14 +455,15 @@ async function settleHostWork(
           })
         );
       } else if (await Promise.race([idle, changed.promise.then(() => false)])) {
-        return;
+        break;
       }
     }
   } finally {
     releaseChildren();
     releaseRows();
-    await client.request('log/unsubscribe', { threadId });
   }
+  // A session that EOF or a signal ended throws past this: the host's close ends the subscription.
+  await client.request('log/unsubscribe', { threadId });
 }
 /** Runs one command, closing the host it opened once the command's outcome is out. */
 export async function runHostCli(
