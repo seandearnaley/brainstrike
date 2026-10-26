@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 it('watches a drive root at the root, not at the drive’s current directory', async () => {
-  const { startParcelWatch } = await import('../adapters/root-watchers.js');
+  const { startRootWatch } = await import('../adapters/root-watchers.js');
   const access = vi.spyOn(fs.promises, 'access').mockResolvedValue(undefined);
   let watched: string | undefined;
   const watch: RootWatchFunction = (directory) => {
@@ -23,7 +23,7 @@ it('watches a drive root at the root, not at the drive’s current directory', a
     return { close: () => undefined, on: () => undefined };
   };
 
-  const stop = await startParcelWatch(
+  const stop = await startRootWatch(
     { kind: 'directory', name: 'C:', path: 'C:\\', platform: 'electron' },
     () => undefined,
     { watch }
