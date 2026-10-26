@@ -15,6 +15,7 @@ const OPERATIONS = [
   'native-index.settings',
   'native-index.action',
   'index-config.read',
+  'index-config.reset',
   'index-config.update',
   'index-config.native-settings',
   'index-config.publish-saved',
