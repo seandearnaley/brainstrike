@@ -8,6 +8,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readAgentHostLog } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -119,7 +120,7 @@ async function assertLiveReload(
       });
     }
     await window.evaluate(() => window.sessionStorage.clear());
-    await window.reload();
+    await reloadRenderer(window, 'assistant-active-run-reload: reload');
     await ensureAssistantShellVisible(window);
     // Reinstall the fixture's renderer-only provider availability override.
     await configureAssistantProvider(window, {

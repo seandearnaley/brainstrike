@@ -6,6 +6,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import { nodeCommand } from './utils/node-command';
@@ -274,7 +275,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
       await expect(root.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
       // A reload must not call the model; count generations, not metadata reads.
       const completedRequests = provider.requests().length;
-      await window.reload();
+      await reloadRenderer(window, 'delegated-worker-command-output: reload');
       await ensureAssistantShellVisible(window);
       await expect(
         second.getByText('CHILD_SECOND_COMMAND_COMPLETE', { exact: true })

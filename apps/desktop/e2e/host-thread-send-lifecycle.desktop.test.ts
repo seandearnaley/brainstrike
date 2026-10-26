@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
@@ -141,7 +142,7 @@ test('a text-only Stop keeps its text and shows one Stopped marker, after a relo
   await page.screenshot({ path: test.info().outputPath('text-only-stop.png') });
 
   // A reload folds the same committed log.
-  await page.reload();
+  await reloadRenderer(page, 'host-thread-send-lifecycle: reload');
   await openHostThread(page);
   const reloaded = assistantRegion(page).region;
   await expect(reloaded.getByText('Write until I stop you.', { exact: true })).toBeVisible({

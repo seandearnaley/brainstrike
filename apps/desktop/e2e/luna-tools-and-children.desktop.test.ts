@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
+import { launchElectronAppWithOptions, reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import { seedRoot } from './utils/seed-root';
@@ -127,7 +127,7 @@ test('Luna loads eager tools, runs an extensionless skill and completes three Ex
       const requests = JSON.stringify(provider.requests());
       expect(requests).toContain('alreadyLoaded');
       expect(requests).not.toContain('Tool \\"brainstrike_globWorkspace\\" not found');
-      await page.reload();
+      await reloadRenderer(page, 'luna-tools-and-children: reload');
       await expect(region.getByText(reply, { exact: true }).first()).toBeVisible();
       expect(provider.refusals()).toEqual([]);
       await testInfo.attach('committed-thread-tree', {
