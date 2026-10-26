@@ -247,3 +247,32 @@ it('escalates a close the utility never answers to one kill after closeMs, then 
   expect(await closing).toBeInstanceOf(IndexerUtilityExitedError);
   expect(host.exited).toBe(true);
 });
+
+/** A utility that is alive but never reports ready, and exits only when it is killed. */
+function unreadyUtility(): FakeUtility {
+  const utility: FakeUtility = Object.assign(new EventEmitter(), {
+    canonicalOps: [] as string[],
+    kill: () => {
+      utility.kills += 1;
+      return true;
+    },
+    kills: 0,
+    postMessage: (): void => {},
+  });
+  return utility;
+}
+
+// ADR-0031: source retirement waits on no process. A utility still starting has no attachments.
+it('retires canonical sources without waiting for a utility that never reports ready', async () => {
+  const utility = unreadyUtility();
+  const host = await manager(utility);
+  const starting = host.start();
+  starting.catch(() => undefined);
+  await vi.waitFor(() => expect(forks.count).toBe(1));
+
+  const retired = vi.fn();
+  void host.retireCanonicalSources().then(retired);
+
+  await vi.waitFor(() => expect(retired).toHaveBeenCalled());
+  expect(utility.kills).toBe(0);
+});

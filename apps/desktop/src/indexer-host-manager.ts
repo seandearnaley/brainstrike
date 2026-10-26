@@ -220,8 +220,7 @@ export class IndexerHostManager {
     this.#sourceRetirementOwned = true;
     const admitted = this.#canonical?.retireAttachments();
     this.#sourceRetirement ??= (async () => {
-      // The utility's startup has no deadline (R3), so it is joined outside the close ladder.
-      await this.#start;
+      // Never joins the startup (ADR-0031): a utility still starting has no attachment to retire.
       await this.#escalated(async () => {
         await (admitted ?? this.#canonical?.retireAttachments());
       });
