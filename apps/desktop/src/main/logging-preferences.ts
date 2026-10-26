@@ -383,7 +383,6 @@ export function createDesktopLoggingPreferencesController(
         arch: process.arch,
         electron: process.versions.electron,
         node: process.versions.node,
-        pid: process.pid,
         platform: process.platform,
         ...(initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination
           ? { logFile: initialLoggingPreferences.file.destination }
@@ -416,7 +415,6 @@ export function createDesktopLoggingPreferencesController(
             currentLoggingPreferences.file.enabled && currentLoggingPreferences.file.destination
               ? currentLoggingPreferences.file.destination
               : null,
-          pid: process.pid,
         },
         fileTransport: createMainLogTransportConfig(),
       }

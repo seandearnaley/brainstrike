@@ -125,7 +125,6 @@ export {
   type PurgeReport,
   STATE_DB,
   STORE_ENTRIES,
-  type StartupSpan,
   StateStore,
   type StateStoreHooks,
   type StateStoreOptions,

@@ -259,10 +259,6 @@ export class ElectronHarness {
     const { launchElectronApp } = await loadElectronHelpers();
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       onAppAcquired: (app) => {
-        // Names the test behind each Main pid, since parallel tests' output interleaves.
-        console.log(
-          `[Electron Launch] pid=${app.process().pid} userData=${this.userDataDir} test=${this.testInfo.titlePath.join(' › ')}`
-        );
         this.app = app;
         this.exitGuard.observe(app.process());
         onAppAcquired?.(app);

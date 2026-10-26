@@ -48,14 +48,6 @@ export interface SyncSpan extends WriteSpan {
   readonly thread: string;
 }
 
-/** One step of `StateStore.open`, timed whether it succeeded or threw. */
-export interface StartupSpan {
-  readonly durationMs: number;
-  readonly outcome: 'ok' | 'failed';
-  /** The Root lock, the writer worker until its ready reply, the replay of an interrupted deletion. */
-  readonly phase: 'root-lock' | 'writer' | 'deletion-recovery';
-}
-
 export interface StateStoreOptions extends LockOptions {
   /** busy_timeout of the writer, which bounds how long a purge waits on a reader pinning the WAL. Default 5000. */
   readonly busyTimeoutMs?: number;
@@ -72,7 +64,6 @@ export interface StateStoreOptions extends LockOptions {
   readonly indexer?: IndexerPort;
   /** Trusted host composition only; never supplied in a client memory request. */
   readonly memoryCalculatorModule?: string;
-  readonly onStartupSpan?: (span: StartupSpan) => void;
   readonly onSyncSpan?: (span: SyncSpan) => void;
   readonly onWriteSpan?: (span: WriteSpan) => void;
   readonly startup?: StateStoreStartupOwner;

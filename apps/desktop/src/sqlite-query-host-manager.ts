@@ -32,30 +32,6 @@ const reportSlowExit = (elapsedMs: number): void => {
   logger.warn('Index query process has not exited after its kill; still joined', { elapsedMs });
 };
 
-/**
- * A query process whose exit its owner did not ask for is reported with Electron's exit code:
- * its client only sees the exit, so without this a process that ended on its own, or was ended
- * by the OS, cannot be told from one that crashed.
- */
-function spawnObservedQueryProcess(serviceName: string, entryPath: string): QueryProcess {
-  let stopped = false;
-  const child = forkUtility(entryPath, [], { serviceName });
-  const pid = child.pid;
-  child.on('exit', (code) => {
-    if (!stopped) {
-      logger.warn('Index query process exited without being stopped', { code, pid, serviceName });
-    }
-  });
-  const spawned = spawnUtilityQueryProcess(() => child, entryPath);
-  return {
-    ...spawned,
-    kill: (): void => {
-      stopped = true;
-      spawned.kill();
-    },
-  };
-}
-
 const owners = new Set<SqliteQueryClient>();
 /** Each acquisition still starting, with the stop of the process it spawned, for close. */
 const acquisitions = new Map<Promise<SqliteQueryClient>, () => void>();
@@ -101,8 +77,8 @@ export async function openIndexQuery(): Promise<Pick<SqliteQueryClient, 'grep' |
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('The authoritative index owner changed before query acquisition.');
       }
-      spawned = spawnObservedQueryProcess(
-        'brainstrike-index-query',
+      spawned = spawnUtilityQueryProcess(
+        (entryPath) => forkUtility(entryPath, [], { serviceName: 'brainstrike-index-query' }),
         resolveBundledSiblingPath('SQLite index query', 'sqlite-query-host-entry.js')
       );
       return spawned;
@@ -134,8 +110,8 @@ export async function openIndexCoverage(
       if (target !== registered || registered.acquire() !== index) {
         throw new Error('Native coverage owner changed before acquisition.');
       }
-      spawned = spawnObservedQueryProcess(
-        'brainstrike-index-coverage',
+      spawned = spawnUtilityQueryProcess(
+        (entryPath) => forkUtility(entryPath, [], { serviceName: 'brainstrike-index-coverage' }),
         resolveBundledSiblingPath('SQLite index coverage', 'sqlite-query-host-entry.js')
       );
       return spawned;

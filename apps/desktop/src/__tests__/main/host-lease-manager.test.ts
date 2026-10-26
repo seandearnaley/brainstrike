@@ -531,7 +531,7 @@ describe('desktop host lease ownership', () => {
       expect(errors).toEqual(['Could not kill the owned agent host; still waiting for it to exit']);
 
       child.exit(1);
-      await expect(closing).rejects.toThrow(/^Owned host utility \d+ exited with code 1$/u);
+      await expect(closing).rejects.toThrow('Owned host utility exited with code 1');
     } finally {
       vi.useRealTimers();
       stop();

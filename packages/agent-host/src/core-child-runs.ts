@@ -144,9 +144,6 @@ function reportHostGrantFailure(run: HostRunState, cause: unknown): void {
 /** A wake that was not admitted leaves its results for the next user turn. */
 export function reportHostChildWakeFailure(threadId: string, cause: unknown): void {
   logger.warn('Host child wake was not admitted', {
-    // The refusal's own reason (and its admission cause): without it a refused
-    // wake, which leaves the parent's turn waiting, cannot be diagnosed.
-    cause,
     code: 'host_child_wake_failed',
     errorName: cause instanceof Error ? cause.name : typeof cause,
     threadId,

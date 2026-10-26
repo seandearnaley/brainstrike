@@ -93,11 +93,5 @@ export {
   type HostStartupContext,
   startAgentHost,
 } from './runtime.ts';
-export {
-  type StartupPhase,
-  type StartupPhaseSink,
-  stderrStartupPhases,
-  timeStartupPhase,
-} from './startup-phases.ts';
 export { pendingRewindSnapshotTargets } from './thread-rewind.ts';
 export { nodePortConnection, stdioConnection } from './transports.ts';

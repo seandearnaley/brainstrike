@@ -137,9 +137,7 @@ describe('createDesktopLoggingPreferencesController', () => {
     expect(applyLoggingPreferencesMock).toHaveBeenLastCalledWith(
       controller.current,
       'electron-main',
-      expect.objectContaining({
-        baseBindings: { logFile: '/mock/logs/brainstrike.log', pid: process.pid },
-      })
+      expect.objectContaining({ baseBindings: { logFile: '/mock/logs/brainstrike.log' } })
     );
   });
 

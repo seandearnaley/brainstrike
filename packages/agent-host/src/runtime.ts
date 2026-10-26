@@ -27,7 +27,6 @@ import { HostCore } from './core.ts';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.ts';
 import type { HostClientOrigin, HostPlatform } from './ports.ts';
 import { AGENT_HOST_PROTOCOL_VERSION, HOST_CLOSING_EVENT, HOST_DRAINED_EVENT } from './protocol.ts';
-import { type StartupPhaseSink, timeStartupPhase } from './startup-phases.ts';
 
 export interface AgentHost extends HostRuntime {
   /** Binds a transport the launching parent supplied, as the given client origin. */
@@ -36,8 +35,6 @@ export interface AgentHost extends HostRuntime {
   readonly core: HostCore;
 }
 export interface HostStartupContext {
-  /** The host process's startup record; a platform times its own startup steps into it. */
-  readonly phases?: StartupPhaseSink;
   /** Register a partial resource's join before starting its first side effect. */
   register(close: () => Promise<void>): Promise<void>;
   readonly signal: AbortSignal;
@@ -146,8 +143,7 @@ function composeHostRoot(
   root: string,
   inputPlatform: HostPlatformInitializer,
   signal: AbortSignal,
-  cancelled: () => void,
-  phases?: StartupPhaseSink
+  cancelled: () => void
 ): HostRoot {
   const partialPlatform = new ResourceOwner();
   const context: Omit<HostStartupContext, 'store'> = {
@@ -160,7 +156,6 @@ function composeHostRoot(
       signal.throwIfAborted();
     },
     signal,
-    ...(phases ? { phases } : {}),
   };
   let platform = typeof inputPlatform === 'function' ? undefined : inputPlatform;
   const currentPlatform = (): HostPlatform => {
@@ -256,12 +251,6 @@ function composeHostRoot(
               import.meta.url
             )
           ),
-          ...(phases
-            ? {
-                onStartupSpan: ({ durationMs, outcome, phase }) =>
-                  phases({ durationMs, outcome, phase: `store-${phase}` }),
-              }
-            : {}),
           // ADR-0017: the native processes this host starts inherit its Root.
           shareWithNativeChildren: true,
           startup: {
@@ -272,9 +261,7 @@ function composeHostRoot(
               // host readiness. Root and the canonical writer are already held.
               platform ??=
                 typeof inputPlatform === 'function'
-                  ? await timeStartupPhase(phases, 'platform', async () =>
-                      inputPlatform({ ...context, store: acquired })
-                    )
+                  ? await inputPlatform({ ...context, store: acquired })
                   : inputPlatform;
               signal.throwIfAborted();
               return platform.stateIndexer;
@@ -291,14 +278,12 @@ function composeHostRoot(
       try {
         signal.throwIfAborted();
         bindAcquiredPlatform(ownedPlatform, currentPlatform());
-        core = await timeStartupPhase(phases, 'core', () =>
-          HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
-            core = acquired;
-            if (signal.aborted) {
-              cancelled();
-            }
-          })
-        );
+        core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
+          core = acquired;
+          if (signal.aborted) {
+            cancelled();
+          }
+        });
         signal.throwIfAborted();
       } catch (cause) {
         try {
@@ -416,12 +401,10 @@ export async function openAgentHost(
   };
 }
 
-/** `phases`: the host process's startup record, which times each startup step. */
 export async function startAgentHost(
   options: HostStartOptions,
   inputPlatform: HostPlatformInitializer,
-  signal: AbortSignal = new AbortController().signal,
-  phases?: StartupPhaseSink
+  signal: AbortSignal = new AbortController().signal
 ): Promise<AgentHost> {
   signal.throwIfAborted();
   let runtime: HostRuntime | undefined;
@@ -432,7 +415,7 @@ export async function startAgentHost(
     // startup rollback still owns the store/root until every join settles.
     void (runtime ? runtime.close() : host.core()?.close())?.catch(() => undefined);
   };
-  const host = composeHostRoot(options.root, inputPlatform, signal, cancelled, phases);
+  const host = composeHostRoot(options.root, inputPlatform, signal, cancelled);
   // Each private client's retirement, like a socket's: announce, refuse, then answer what it read.
   const privateClients = new Set<() => Promise<void>>();
   let privateClientsRetired: Promise<void> | undefined;
