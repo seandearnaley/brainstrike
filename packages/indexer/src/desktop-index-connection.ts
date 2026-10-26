@@ -25,7 +25,8 @@ export function openDesktopIndex(input: unknown, projection?: StateProjection): 
   assertFreshOpen(options, fresh);
   mkdirSync(path.dirname(options.dbPath), { recursive: true });
   return {
-    db: openConnection(options.dbPath),
+    // The one writer of this index never waits on another connection (ADR-0031): busy is refused at once.
+    db: openConnection(options.dbPath, { timeout: 0 }),
     engine: sqliteVecEngine,
     fresh,
     owner: { pid: process.pid, writerThreadId: threadId },
