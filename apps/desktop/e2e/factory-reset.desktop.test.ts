@@ -1,15 +1,19 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { DEFAULT_INDEX_CONFIG } from '@brainstrike/assistant-contract/index-config';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
 import type { ConsoleMessage } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readIndexConfig } from './utils/index-config';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { captureResetLogs } from './utils/reset-log-capture';
 import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
+import { textReadiness } from './utils/text-search-mode';
 
 type ConfirmOverrideTarget = typeof globalThis & {
   confirm: () => boolean;
@@ -21,6 +25,18 @@ const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e
 const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
 const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
 const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
+
+/** The one file of this name in the profile under `userDataDir`. */
+function profileFile(userDataDir: string, name: string): string {
+  const found = fs
+    .readdirSync(userDataDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name === name)
+    .map((entry) => path.join(entry.parentPath, entry.name));
+  if (found.length !== 1) {
+    throw new Error(`Expected one ${name}, found: ${JSON.stringify(found)}`);
+  }
+  return found[0] as string;
+}
 
 async function openTokenCountingSettings(
   homePage: HomePage,
@@ -341,6 +357,75 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await restartedHomePage.openSettings();
     await restartedSettingsPage.openCategory(/Permissions/i, 'permissions');
     await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
+  });
+  // A profile saved before local embedding models were removed (#4420) holds an index file of
+  // the previous schema and a search config naming a local model. Neither opens now, so the
+  // settings cannot be read and the index never starts; Factory Reset still replaces both.
+  test('reset replaces a search index and settings saved by a previous version', async ({
+    electronHarness,
+    window,
+  }) => {
+    test.skip(
+      process.platform === 'win32',
+      'Windows Factory Reset is disabled for M3 by owner decision.'
+    );
+    await ensureMockWorkspaceOpen(window);
+    await expect
+      .poll(() => textReadiness(window), { timeout: 120_000 })
+      .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
+    const userData = electronHarness.getUserDataDir();
+    await electronHarness.closeForStateSeeding();
+    const index = new DatabaseSync(profileFile(userData, 'index.sqlite'));
+    try {
+      index.prepare('UPDATE index_metadata SET schema_version = 15').run();
+    } finally {
+      index.close();
+    }
+    const state = new DatabaseSync(profileFile(userData, 'state.db'));
+    try {
+      state
+        .prepare(
+          `INSERT INTO settings (key, value) VALUES ('index/config', ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+        )
+        .run(
+          JSON.stringify({
+            ...DEFAULT_INDEX_CONFIG,
+            mode: 'semantic',
+            model: {
+              dimensions: 384,
+              local: { runtime: 'onnx' },
+              modelKey: 'local::onnx-community/granite-embedding-small-english-r2-ONNX',
+            },
+          })
+        );
+    } finally {
+      state.close();
+    }
+
+    const reopened = await electronHarness.ensureWindow({ preserveState: true });
+    const homePage = new HomePage(reopened);
+    const settingsPage = new SettingsPage(reopened);
+    await homePage.openSettings();
+    const unreadable = await settingsPage.openCategory(/Search & Indexing/i, 'search-indexing');
+    await expect(unreadable.getByRole('alert').first()).toContainText(
+      'The search index settings could not be read'
+    );
+    await openFactoryResetSettings(homePage, settingsPage);
+    await overrideNextConfirm(reopened, true);
+    // Only a reset that removed the old index replaces the renderer.
+    await Promise.all([
+      reopened.waitForEvent('framenavigated', {
+        predicate: (frame) => frame === reopened.mainFrame(),
+      }),
+      reopened.getByTestId('factory-reset-button').click(),
+    ]);
+    const { waitForAppReady } = await loadElectronHelpers();
+    await waitForAppReady(reopened);
+    expect(await readIndexConfig(reopened)).toEqual(DEFAULT_INDEX_CONFIG);
+    await homePage.openSettings();
+    const fresh = await settingsPage.openCategory(/Search & Indexing/i, 'search-indexing');
+    await expect(fresh.getByRole('alert')).toHaveCount(0);
   });
   for (const folderCount of [1, 2]) {
     test(`reset with ${folderCount} mounted folders retires cleanly and stays fresh after reopen`, async ({
