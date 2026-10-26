@@ -2,7 +2,6 @@
 import { IndexerError } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
-import { isHostLeaseClosed } from '../desktop-shutdown-state';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { isolateNativeCoverage } from '../native-coverage-reader';
 import type { NativeIndexAuthority } from '../native-index-runtime';
@@ -96,14 +95,22 @@ it('keeps failed physical profile retirement visible to assistant admission', as
   expect(f.acquireProfile).toHaveBeenCalledOnce();
 });
 
-it('starts no host for an acquisition still waiting when retirement begins', async () => {
+it('starts no host under a retirement that begins while an acquisition waits', async () => {
   const f = fixture();
-  const acquiring = f.runtime.acquireProfile();
-  const observed = acquiring.catch((cause: unknown) => cause);
+  await f.runtime.acquireProfile();
+  const hostClosing = Promise.withResolvers<void>();
+  f.closeProfile.mockImplementationOnce(() => hostClosing.promise);
   const retiring = f.runtime.retireProfile();
-  expect(isHostLeaseClosed(await observed)).toBe(true);
+  const next = f.runtime.acquireProfile({ indexIndependent: true });
+  // The host is still closing: nothing starts beside it.
+  await vi.waitFor(() => expect(f.closeProfile).toHaveBeenCalledOnce());
+  await Promise.resolve();
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+  hostClosing.resolve();
   await retiring;
-  expect(f.acquireProfile).not.toHaveBeenCalled();
+  // The next owner starts only after the retirement has ended.
+  await next;
+  expect(f.acquireProfile).toHaveBeenCalledTimes(2);
 });
 
 it('closes the host beside the index close, and reopens only after both', async () => {

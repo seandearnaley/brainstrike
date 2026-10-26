@@ -116,6 +116,19 @@ describe('desktop profile runtime: retiring during host startup', () => {
 });
 
 describe('desktop profile runtime: quit (ADR-0031)', () => {
+  it('starts no host under a retirement that begins while an acquisition yields', async () => {
+    const { createOwner } = owners();
+    const profile = createDesktopProfileRuntime(createOwner);
+    const indexClose = Promise.withResolvers<void>();
+    const acquiring = profile.acquire();
+    const retiring = profile.retire(indexClose.promise);
+    await turn();
+    expect(createOwner).not.toHaveBeenCalled();
+    indexClose.resolve();
+    await retiring;
+    expect(await acquiring).toBe('host-1');
+  });
+
   it('asks the host to close while the index close is still pending', async () => {
     const { createOwner, created } = owners();
     const profile = createDesktopProfileRuntime(createOwner);

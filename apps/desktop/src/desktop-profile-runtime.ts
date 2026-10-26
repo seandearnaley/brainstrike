@@ -59,7 +59,11 @@ export function createDesktopProfileRuntime<Attachment>(
   };
   return {
     acquire: async (signal) => {
-      await retirement;
+      // A retirement that begins while this acquisition yields ends before any owner starts:
+      // no host ever starts under a retirement.
+      do {
+        await retirement;
+      } while (retirement);
       signal?.throwIfAborted();
       if (!owner && failedOwner) {
         // A failed start answers at once while its release goes on; the next owner starts
