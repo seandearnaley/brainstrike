@@ -407,7 +407,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
-        // Fence profile admission before joining the renderer's in-flight host connect:
+        // Fence profile admission before refusing the renderer's in-flight host connects:
         // a host start that fails during shutdown is then never retried as a second host.
         const nativeRetirement = nativeIndexActivation.close();
         void retireEmbeddings();

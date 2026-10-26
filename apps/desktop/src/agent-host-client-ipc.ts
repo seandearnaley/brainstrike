@@ -21,14 +21,17 @@ export function registerAgentHostClientIpc(
 ) {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const relays = new Set<AgentHostPortRelay>();
-  const pending = new Set<Promise<void>>();
+  // ADR-0031: quit never joins the profile's startup. Close refuses every connect still
+  // acquiring the host instead of waiting for it.
+  const closed = Promise.withResolvers<false>();
   let closing: Promise<void> | undefined;
   registry.registerAuthorizedInvoke(
     'agent',
     DESKTOP_IPC_CHANNELS.agent.hostConnect,
     { roles: ['visible-ui'] },
     (event, requestId: unknown) => {
-      const operation = (async (): Promise<void> => {
+      // A refusal (a profile closed for reset or quit) reaches the frame typed.
+      return settleIpcResult(CONNECT_FAILURE, async (): Promise<void> => {
         const id = wireDecoder(Schema.String.check(Schema.isUUID()), {
           errors: 'all',
           onExcessProperty: 'error',
@@ -40,7 +43,10 @@ export function registerAgentHostClientIpc(
         if (!frame) {
           throw new Error('Agent client has no authorized frame');
         }
-        await acquireProfile();
+        const acquired = await Promise.race([acquireProfile().then(() => true), closed.promise]);
+        if (!acquired) {
+          throw new Error('Agent client bridge is closing');
+        }
         const privatePort = openPrivateClientPort();
         if (!privatePort) {
           throw new Error('The agent host exited before this client connected');
@@ -85,21 +91,14 @@ export function registerAgentHostClientIpc(
           await relay.close();
           throw cause;
         }
-      })();
-      pending.add(operation);
-      operation.then(
-        () => pending.delete(operation),
-        () => pending.delete(operation)
-      );
-      // A refusal (a profile closed for reset or quit) reaches the frame typed.
-      return settleIpcResult(CONNECT_FAILURE, () => operation);
+      });
     }
   );
   return {
     close: (): Promise<void> => {
       closing ??= (async () => {
         registry.unregisterAll();
-        await Promise.allSettled([...pending]);
+        closed.resolve(false);
         await Promise.all([...relays].map((relay) => relay.close()));
       })();
       return closing;
