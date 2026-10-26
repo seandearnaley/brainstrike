@@ -41,6 +41,7 @@ import { executePromptLibrary } from './prompt-library.ts';
 import { withSeq } from './run-log-format.mjs';
 import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
 import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.ts';
+import { withStartupRelease } from './startup-release.ts';
 import { type DeletionWriter, StateDeletion } from './state-deletion.ts';
 import { BLOBS_DIR, exportStateBundle, importStateBundle, STATE_DB } from './state-store-bundle.ts';
 import type {
@@ -93,11 +94,14 @@ export type {
 /** Trusted host composition after writer readiness, before interrupted purge replay. */
 export interface StateStoreStartupOwner {
   acquire(store: StateStore): Promise<IndexerPort | undefined>;
-  /** Failed startup joins external resources before the canonical writer or Root can close. */
+  /** A failed startup's cleanup runs this before the canonical writer or Root can close. */
   close(): Promise<void>;
 }
 
-/** Failed startup retains the original writer and Root when external cleanup is unproved. */
+/**
+ * Failed startup retains the original writer and Root when external cleanup is unproved. The
+ * failed open's `released` (see {@link startupRelease}) rejects with it.
+ */
 export class StateStoreStartupError extends AggregateError {
   readonly store: StateStore;
 
@@ -220,20 +224,28 @@ export class StateStore implements MemoryDomainPort {
       }
       return store;
     } catch (e) {
-      if (store && options.startup) {
-        try {
-          await options.startup.close();
-        } catch (cleanup) {
-          throw new StateStoreStartupError([e, cleanup], store);
+      // ADR-0031: the failure is reported at once. This cleanup is the store's one owner from here:
+      // it holds the Root lock until it ends, so no second opener enters beside the writer.
+      const failed = store;
+      const startup = options.startup;
+      const opened = worker;
+      const released = (async () => {
+        if (failed && startup) {
+          try {
+            await startup.close();
+          } catch (cleanup) {
+            // Unproved external cleanup: the writer and the Root stay owned.
+            throw new StateStoreStartupError([e, cleanup], failed);
+          }
         }
-      }
-      if (worker) {
-        await worker.terminate(); // better-sqlite3 closes the connection when the worker is torn down
-      }
-      if (!lock.isReleased) {
-        lock.release();
-      }
-      throw e;
+        if (opened) {
+          await opened.terminate(); // better-sqlite3 closes the connection when the worker is torn down
+        }
+        if (!lock.isReleased) {
+          lock.release();
+        }
+      })();
+      throw withStartupRelease(e, released);
     }
   }
 

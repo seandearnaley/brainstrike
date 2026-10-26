@@ -103,6 +103,7 @@ export {
   readAll,
   SqliteReader,
 } from './sqlite-reader.ts';
+export { startupRelease, withStartupRelease } from './startup-release.ts';
 export type { ClearContentResult } from './state-store.ts';
 export {
   BLOB_MIN_BYTES,

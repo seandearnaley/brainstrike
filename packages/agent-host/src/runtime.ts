@@ -5,6 +5,8 @@ import {
   type ClearContentResult,
   StateStore,
   StateStoreStartupError,
+  startupRelease,
+  withStartupRelease,
 } from '@brainstrike/state-store';
 import type { MessageConnection } from 'vscode-jsonrpc/node';
 import { serveHostCatalog } from './catalog/transport.ts';
@@ -26,7 +28,10 @@ export interface HostStartupContext {
 export type HostPlatformInitializer =
   | HostPlatform
   | ((context: HostStartupContext) => HostPlatform | Promise<HostPlatform>);
-/** Failed startup still owns its durable root when physical cleanup was not proven. */
+/**
+ * Failed startup still owns its durable root when physical cleanup was not proven. A failed open
+ * is reported at once; its `released` (`startupRelease` of the error) rejects with this.
+ */
 export class AgentHostStartupError extends AggregateError {
   readonly store: StateStore;
   readonly core: HostCore | undefined;
@@ -241,10 +246,16 @@ function composeHostRoot(
           },
         });
       } catch (cause) {
-        if (cause instanceof StateStoreStartupError) {
-          throw new AgentHostStartupError([cause], cause.store, core);
-        }
-        throw cause;
+        // Reported at once; the store's cleanup goes on, and its unproved cleanup retains the root.
+        throw withStartupRelease(
+          cause,
+          startupRelease(cause).catch((failure: unknown) => {
+            if (failure instanceof StateStoreStartupError) {
+              throw new AgentHostStartupError([failure], failure.store, core);
+            }
+            throw failure;
+          })
+        );
       }
       try {
         signal.throwIfAborted();
