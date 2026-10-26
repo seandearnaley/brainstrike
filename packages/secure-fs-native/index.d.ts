@@ -48,9 +48,6 @@ export class SecureRoot {
  */
 export function tryExclusiveFlock(fd: number): boolean;
 
-/** Windows atomic same-directory replacement; existing readers retain old bytes. No retries or ACL bypass. */
-export function replaceFileSync(source: string, target: string): void;
-
 /**
  * A Windows directory's owner and DACL against the private grant. `private`:
  * the current user owns it, and its DACL is protected and holds exactly one ACE,
