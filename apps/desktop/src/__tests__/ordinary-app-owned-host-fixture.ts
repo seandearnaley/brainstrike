@@ -696,7 +696,8 @@ setInterval(() => {}, 1000);
         // Explicit fault injection targets only this test's proven-owned utility.
         // The real native executor still owns its existing SIGTERM/grace tail.
         process.kill(record.pid, 'SIGKILL');
-        await expect.poll(() => processStartTime(record.pid)).not.toBe(record.start);
+        // A kill only starts the exit (TerminateProcess returns before the process ends); join it.
+        await joinProcessExit(record.pid, record.start);
         const before = commandIdentities.filter(
           ({ pid, start }) => processStartTime(pid) === start
         );
@@ -728,11 +729,7 @@ setInterval(() => {}, 1000);
           // ADR-0017: the utility's kill-on-close Job ends its commands with it, and nothing they
           // hold keeps the Root, so the next owner takes it at once.
           expect(refusal).toBeUndefined();
-          await expect
-            .poll(() =>
-              commandIdentities.filter(({ pid, start }) => processStartTime(pid) === start)
-            )
-            .toEqual([]);
+          await Promise.all(commandIdentities.map(({ pid, start }) => joinProcessExit(pid, start)));
           return;
         }
         // POSIX: a command that outlives its utility inherited the Root's flock and keeps it refused.
