@@ -6,6 +6,12 @@
  * resolves the real binary — the pinned environment, the argument array, the
  * exit-code classification and the JSON parsing are all under test.
  *
+ * One script (`SHIM`) is the fake on every platform. On POSIX `gh` is a
+ * `#!/bin/sh` wrapper that runs it with this Node. On Windows the app's
+ * shell-less `execFile('gh')` runs only `gh.exe` or `gh.com`, so `gh.exe` is a
+ * Node single executable application built from it (`node --build-sea`, Node
+ * 25.5 or later, which `.nvmrc` pins).
+ *
  * Scope: prepending to `process.env.PATH` is process-global for the
  * Playwright WORKER, and workers are NOT one-per-file — a worker runs several
  * spec files in sequence (see `git-fixtures.ts`'s `TempDirTracker` comment for
@@ -17,6 +23,7 @@
  * previous PATH/env before the next file (reusing the same worker) installs
  * its own.
  */
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,37 +47,72 @@ export interface GhShim {
   readonly setPullRequests: (rows: readonly unknown[]) => void;
 }
 
-const SCRIPT = `#!/bin/sh
-printf '%s\\n' "$@" >> "$${LOG_ENV}"
-echo "${LOG_SEPARATOR}" >> "$${LOG_ENV}"
-case "$1" in
-  --version) echo "gh version 2.60.0 (brainstrike-e2e-shim)"; exit 0 ;;
-  auth)
-    host=""
-    while [ "$#" -gt 0 ]; do
-      if [ "$1" = "--hostname" ]; then host="$2"; fi
-      shift
-    done
-    case " $${HOSTS_ENV} " in
-      *" $host "*) exit 0 ;;
-      *) echo "You are not logged into $host." 1>&2; exit 1 ;;
-    esac ;;
-  pr) cat "$${PR_FILE_ENV}"; exit 0 ;;
-  *) echo "brainstrike-e2e gh shim: unsupported command $1" 1>&2; exit 1 ;;
-esac
+/** The fake: its arguments are argv[2..] under the sh wrapper and in the single executable. */
+const SHIM = `'use strict';
+const { appendFileSync, readFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+appendFileSync(
+  process.env.${LOG_ENV},
+  args.map((arg) => arg + '\\n').join('') + ${JSON.stringify(`${LOG_SEPARATOR}\n`)}
+);
+const fail = (message) => {
+  process.stderr.write(message + '\\n');
+  process.exit(1);
+};
+if (args[0] === '--version') {
+  process.stdout.write('gh version 2.60.0 (brainstrike-e2e-shim)\\n');
+} else if (args[0] === 'auth') {
+  const at = args.indexOf('--hostname');
+  const host = at === -1 ? '' : (args[at + 1] ?? '');
+  if (!(process.env.${HOSTS_ENV} ?? '').split(' ').includes(host)) {
+    fail('You are not logged into ' + host + '.');
+  }
+} else if (args[0] === 'pr') {
+  process.stdout.write(readFileSync(process.env.${PR_FILE_ENV}, 'utf8'));
+} else {
+  fail('brainstrike-e2e gh shim: unsupported command ' + args[0]);
+}
 `;
+
+/** One word for `sh`, single-quoted. */
+const shellWord = (word: string): string => `'${word.replaceAll("'", `'\\''`)}'`;
+
+/** Writes the `gh` that `execFile` finds in `dir`: a sh wrapper, or on Windows `gh.exe`. */
+function writeGhExecutable(dir: string, script: string): void {
+  if (process.platform === 'win32') {
+    const config = path.join(dir, 'gh-sea.json');
+    writeFileSync(
+      config,
+      JSON.stringify({
+        disableExperimentalSEAWarning: true,
+        main: script,
+        output: path.join(dir, 'gh.exe'),
+      }),
+      'utf8'
+    );
+    execFileSync(process.execPath, ['--build-sea', config], { cwd: dir, stdio: 'pipe' });
+    return;
+  }
+  const binary = path.join(dir, 'gh');
+  writeFileSync(
+    binary,
+    `#!/bin/sh\nexec ${shellWord(process.execPath)} ${shellWord(script)} "$@"\n`,
+    'utf8'
+  );
+  chmodSync(binary, 0o755);
+}
 
 export function installGhShim(
   options: { readonly authenticatedHosts?: readonly string[] } = {}
 ): GhShim {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'bst-gh-shim-'));
-  const binary = path.join(dir, 'gh');
+  const script = path.join(dir, 'gh-shim.cjs');
   const prFile = path.join(dir, 'pr.json');
   const logFile = path.join(dir, 'invocations.log');
   writeFileSync(prFile, '[]', 'utf8');
   writeFileSync(logFile, '', 'utf8');
-  writeFileSync(binary, SCRIPT, 'utf8');
-  chmodSync(binary, 0o755);
+  writeFileSync(script, SHIM, 'utf8');
+  writeGhExecutable(dir, script);
 
   const previousPath = process.env['PATH'] ?? '';
   const previousPrFile = process.env[PR_FILE_ENV];
