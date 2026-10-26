@@ -107,9 +107,9 @@ test('the seen rule follows the native window focus: a run finishing in an unfoc
     await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the sentence.');
     await panel.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(panel.getByText(REPLY_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
-    await expect
-      .poll(() => readCommittedRunStatus(electron.getUserDataDir(), threadId), { timeout: 60_000 })
-      .toBe('completed');
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+    expect(await readCommittedRunStatus(electron.getUserDataDir(), threadId)).toBe('completed');
     await expect(strip.getByRole('tab', { name: THREAD_TITLE })).toHaveCount(1, {
       timeout: 30_000,
     });

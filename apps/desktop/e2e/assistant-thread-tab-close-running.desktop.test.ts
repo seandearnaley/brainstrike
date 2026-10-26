@@ -92,9 +92,9 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the first sentence.');
     await panel.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(panel.getByText(FIRST_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
-    await expect
-      .poll(() => readCommittedRunStatus(electron.getUserDataDir(), threadId), { timeout: 60_000 })
-      .toBe('completed');
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+    expect(await readCommittedRunStatus(electron.getUserDataDir(), threadId)).toBe('completed');
     await expect(strip.getByRole('tab', { name: THREAD_TITLE })).toHaveCount(1, {
       timeout: 30_000,
     });
@@ -114,10 +114,9 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     await expect(spinners).toHaveCount(1);
 
     release.resolve();
-    await expect
-      .poll(() => readCommittedRunStatus(electron.getUserDataDir(), threadId), { timeout: 60_000 })
-      .toBe('completed');
-    await expect(spinners).toHaveCount(0);
+    // The row's spinner follows the committed log: it stops at the run's committed end.
+    await expect(spinners).toHaveCount(0, { timeout: 60_000 });
+    expect(await readCommittedRunStatus(electron.getUserDataDir(), threadId)).toBe('completed');
     await expect(threadsPanel.getByTestId('thread-unseen-glyph')).toHaveCount(1);
 
     await threadsPanel.getByRole('button', { name: / has unseen activity/ }).click();

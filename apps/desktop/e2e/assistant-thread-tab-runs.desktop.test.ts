@@ -123,9 +123,9 @@ async function startHeldSecondTurn(
   await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the first sentence.');
   await panel.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(panel.getByText(FIRST_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
-  await expect
-    .poll(() => readCommittedRunStatus(electron.getUserDataDir(), threadId), { timeout: 60_000 })
-    .toBe('completed');
+  // The pane leaves the running state once the host has committed the run's end.
+  await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+  expect(await readCommittedRunStatus(electron.getUserDataDir(), threadId)).toBe('completed');
   await expect(strip.getByRole('tab', { name: THREAD_TITLE })).toHaveCount(1, { timeout: 30_000 });
 
   // Turn 2 is held open at the provider, so every gesture below lands mid-run.
@@ -177,12 +177,11 @@ test('switching thread tabs mid-run neither aborts the run nor throws', async ({
 
     // Released while its panel is hidden, the run still finishes in place.
     held.release();
-    await expect
-      .poll(() => readCommittedRunStatus(electron.getUserDataDir(), held.threadId), {
-        timeout: 60_000,
-      })
-      .toBe('completed');
-    await expect(held.spinners).toHaveCount(0);
+    // The row's spinner follows the committed log: it stops at the run's committed end.
+    await expect(held.spinners).toHaveCount(0, { timeout: 60_000 });
+    expect(await readCommittedRunStatus(electron.getUserDataDir(), held.threadId)).toBe(
+      'completed'
+    );
     await held.tab.click();
     await expect(held.panel.getByText(FINAL_TEXT, { exact: true })).toBeVisible();
     expect(pageErrors).toEqual([]);
@@ -214,16 +213,13 @@ test('Stop aborts the held run: it ends stopped and the released reply never lan
     await expect(stop).toBeVisible();
     await stop.click();
 
+    // Stop drops once the host has committed the run's end.
     await expect(stop).toHaveCount(0, { timeout: 30_000 });
-    await expect
-      .poll(
-        async () =>
-          (await readCommittedRuns(electron.getUserDataDir(), held.threadId)).map(
-            ({ status }) => status
-          ),
-        { timeout: 60_000 }
+    expect(
+      (await readCommittedRuns(electron.getUserDataDir(), held.threadId)).map(
+        ({ status }) => status
       )
-      .toEqual(['completed', 'stopped']);
+    ).toEqual(['completed', 'stopped']);
     await expect(held.spinners).toHaveCount(0);
     await expect(held.panel.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
 
@@ -263,12 +259,11 @@ test('reopening a hidden running thread shows the live run, which then finishes 
     await expect(held.panel.getByText(FINAL_TEXT, { exact: true })).toBeVisible({
       timeout: 60_000,
     });
+    // The row's spinner follows the committed log: it stops at the run's committed end.
     await expect(held.spinners).toHaveCount(0);
-    await expect
-      .poll(() => readCommittedRunStatus(electron.getUserDataDir(), held.threadId), {
-        timeout: 60_000,
-      })
-      .toBe('completed');
+    expect(await readCommittedRunStatus(electron.getUserDataDir(), held.threadId)).toBe(
+      'completed'
+    );
     expect(pageErrors).toEqual([]);
     expect(modelProvider.refusals()).toEqual([]);
   } finally {

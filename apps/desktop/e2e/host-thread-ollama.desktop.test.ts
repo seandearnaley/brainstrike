@@ -169,6 +169,8 @@ test('a host thread on a discovered Ollama model sends, renders the reply and co
         .getByRole('tablist', { name: 'Open assistant threads' })
         .getByRole('tab', { selected: true })
         .getAttribute('id')) ?? '';
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const [run] = await readCommittedRuns(
       electron.getUserDataDir(),
       tabId.replace('assistant-thread-tab-', '')

@@ -39,6 +39,9 @@ async function send(page: Page, message: string): Promise<void> {
   await conversation.getByRole('textbox', { name: 'Message input' }).fill(message);
   await conversation.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(conversation.getByText('DEV_PROFILE_REPLY', { exact: true })).toBeVisible();
+  // The reply streams before the host commits the run's end; the pane leaves the
+  // running state once that end is committed.
+  await expect(conversation.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
   await expect(page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
 }
 
@@ -306,14 +309,13 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
   expect(restoredA).toBe(rootA);
   await newThread(returnedA.page);
   await send(returnedA.page, 'A_RETURN_FIRST_SEND');
-  // A's own host commits the first Send after return; the reply streams before
-  // the run's finish is committed. The host publishes its record in the
-  // profile's database root, beside Electron's per-profile userData.
+  // A's own host committed the first Send after return. The host publishes its
+  // record in the profile's database root, beside Electron's per-profile userData.
   const hostRoot = path.join(ordinaryDev.directory, 'database/profiles/incident-a');
   const threadId = await selectedThreadId(returnedA.page);
-  await expect
-    .poll(async () => (await readCommittedRuns(hostRoot, threadId)).map((run) => run.status))
-    .toEqual(['completed']);
+  expect((await readCommittedRuns(hostRoot, threadId)).map((run) => run.status)).toEqual([
+    'completed',
+  ]);
   await expect(returnedA.page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
   expect(ordinaryDev.provider.refusals()).toEqual([]);
   await info.attach('normal-dev-profile-paths', {
