@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
     kill: ReturnType<typeof vi.fn>;
   }>,
   heldStartup: false,
+  /** A killed process that never exits: alive past its kill, as a wedged one is. */
+  lingers: false,
   refuse: false,
 }));
 vi.mock('electron', () => ({
@@ -26,7 +28,9 @@ vi.mock('electron', () => ({
         if (mocks.refuse) {
           return false;
         }
-        queueMicrotask(() => emit('exit'));
+        if (!mocks.lingers) {
+          queueMicrotask(() => emit('exit'));
+        }
         return true;
       });
       mocks.children.push({
@@ -73,6 +77,7 @@ afterEach(() => {
   vi.useRealTimers();
   mocks.children.length = 0;
   mocks.refuse = false;
+  mocks.lingers = false;
   mocks.heldStartup = false;
   vi.resetModules();
 });
@@ -96,7 +101,7 @@ it('retains a failed reader exit through reset and joins it on retry', async () 
   await manager.closeAllIndexQueries();
 });
 
-it('stops and joins a held startup before reset allows a replacement owner', async () => {
+it('stops a held startup on reset, which then allows a replacement owner', async () => {
   mocks.heldStartup = true;
   const manager = await import('../sqlite-query-host-manager');
   const index = { databasePath: authority.dbPath };
@@ -150,4 +155,19 @@ it('reads coverage from a reader slower to start and to answer than any former d
   expect(child?.kill).not.toHaveBeenCalled();
   await reader.close();
   await manager.closeAllIndexQueries();
+});
+
+// ADR-0031: quit waits on no process. A query process holds only read-only connections.
+it('closes every query process by its kill and returns without its exit', async () => {
+  const manager = await import('../sqlite-query-host-manager');
+  const index = { databasePath: authority.dbPath };
+  manager.installIndexQueryTarget(() => index, { deadlineMs: 1000, startupDeadlineMs: 5000 });
+  await manager.openIndexCoverage(authority);
+  mocks.lingers = true;
+
+  const closed = vi.fn();
+  void manager.closeAllIndexQueries().then(closed);
+
+  await vi.waitFor(() => expect(closed).toHaveBeenCalled());
+  expect(mocks.children[0]?.kill).toHaveBeenCalledOnce();
 });

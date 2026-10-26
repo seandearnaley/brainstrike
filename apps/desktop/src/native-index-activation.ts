@@ -69,6 +69,7 @@ import {
   closeAllIndexQueries,
   installIndexQueryTarget,
   openIndexCoverage,
+  retireAllIndexQueries,
 } from './sqlite-query-host-manager';
 
 /** Why a closing generation's work ends: its settings failure, or the typed Off choice. */
@@ -146,7 +147,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       return {
         close: () => closeIndexerRuntime(closeAllIndexQueries),
         databasePath,
-        destroy: () => destroyIndexerRuntime(closeAllIndexQueries),
+        // Deletes the index files: joins the killed query processes' exits first.
+        destroy: () => destroyIndexerRuntime(retireAllIndexQueries),
         start: async (): Promise<IndexerPort & ScopedIndexerPort> => {
           await creation;
           return isolateNativeCoverage(getReadyScopedIndexerPort(), openIndexCoverage);

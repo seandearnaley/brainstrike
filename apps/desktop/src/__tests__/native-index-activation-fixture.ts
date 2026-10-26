@@ -92,6 +92,7 @@ vi.mock('../sqlite-query-host-manager', () => ({
         Promise.all(requests.map((request) => port.coverageScope(request))),
     };
   },
+  retireAllIndexQueries: mocks.closeReaders,
 }));
 
 export const storeId = 'a'.repeat(64);

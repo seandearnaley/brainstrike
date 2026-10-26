@@ -188,16 +188,23 @@ export class SqliteQueryClient {
   }
 
   /**
-   * Closing a query process is its kill (it holds only read-only connections), then the exit,
-   * joined however long it takes (R5(b)); a late exit is reported, never abandoned. A refused
-   * kill throws, and the live process stays owned for a retry.
+   * Ends the query process at once (ADR-0031): it holds only read-only connections, so its kill
+   * loses nothing. A refused kill throws here, and the live process stays owned for a retry.
    */
-  async close(): Promise<void> {
+  kill(): void {
     this.#fail(this.#terminal ?? new Error('SQLite query client is closed.'));
     if (!(this.#hasExited || this.#killRequested)) {
       this.#process.kill();
       this.#killRequested = true;
     }
+  }
+
+  /**
+   * The kill, then the exit, for an owner that needs the process gone before it deletes the
+   * index files; a late exit is reported, never abandoned.
+   */
+  async close(): Promise<void> {
+    this.kill();
     if (this.#hasExited) {
       return;
     }

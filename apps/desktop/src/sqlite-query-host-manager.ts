@@ -35,6 +35,12 @@ const reportSlowExit = (elapsedMs: number): void => {
 const owners = new Set<SqliteQueryClient>();
 /** Each acquisition still starting, with the stop of the process it spawned, for close. */
 const acquisitions = new Map<Promise<SqliteQueryClient>, () => void>();
+/** The exits of the processes a close killed; only a file deletion joins them. */
+const exiting = new Set<Promise<void>>();
+function joinable(exit: Promise<void>): void {
+  exiting.add(exit);
+  void exit.then(() => exiting.delete(exit));
+}
 let target:
   | { readonly acquire: () => IndexQueryTarget; readonly deadlines: IndexQueryDeadlines }
   | undefined;
@@ -153,30 +159,46 @@ async function ownIndexReader(
 }
 
 /**
- * Close admission, stop every query process still starting (a startup may have no deadline),
- * and join those startups and the read-only hosts; reset may delete files only after this resolves.
+ * Quit's close (ADR-0031): closes admission and kills every query process, still starting or
+ * serving, then returns. It joins no exit: a query process holds only read-only connections. A
+ * refused kill is reported at once, and its owner stays owned for a retry.
  */
-export async function closeAllIndexQueries(): Promise<void> {
+export function closeAllIndexQueries(): Promise<void> {
   target = undefined;
-  const stopping = [...acquisitions].map(async ([acquisition, stop]) => {
-    stop();
-    await acquisition.catch(() => undefined);
-  });
-  const stopped = await Promise.allSettled(stopping);
-  const closing = [...owners];
-  const outcomes = await Promise.allSettled(
-    closing.map(async (owner) => {
-      await owner.close();
-      owners.delete(owner);
-    })
-  );
-  const errors = [...stopped, ...outcomes].flatMap((outcome) =>
-    outcome.status === 'rejected' ? [outcome.reason as unknown] : []
-  );
-  if (errors.length > 0) {
-    throw new AggregateError(
-      errors,
-      'Index query owners did not all exit; index files must be retained.'
+  const refusals: unknown[] = [];
+  for (const [acquisition, stop] of acquisitions) {
+    try {
+      stop();
+    } catch (error) {
+      refusals.push(error);
+      continue;
+    }
+    acquisitions.delete(acquisition);
+    joinable(acquisition.then((client) => client.close()).catch(() => undefined));
+  }
+  for (const owner of owners) {
+    try {
+      owner.kill();
+    } catch (error) {
+      refusals.push(error);
+      continue;
+    }
+    owners.delete(owner);
+    joinable(owner.close());
+  }
+  if (refusals.length > 0) {
+    return Promise.reject(
+      new AggregateError(
+        refusals,
+        'Index query owners did not all exit; index files must be retained.'
+      )
     );
   }
+  return Promise.resolve();
+}
+
+/** The kills, then every killed process's exit: index files may be deleted only after this. */
+export async function retireAllIndexQueries(): Promise<void> {
+  await closeAllIndexQueries();
+  await Promise.all(exiting);
 }
