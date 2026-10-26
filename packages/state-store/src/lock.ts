@@ -370,6 +370,17 @@ async function judgeHeld(
   return cur;
 }
 
+/** Remove a claim's temp. One a reader still holds without delete sharing (EBUSY on Windows) stays behind. */
+function removeTemp(tmp: string): void {
+  try {
+    unlinkSync(tmp);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EBUSY') {
+      throw e;
+    }
+  }
+}
+
 /** Create generation `next` as a link of a complete, fsynced temp file: false when another process holds it (EEXIST). */
 function linkGeneration(dir: string, record: LockOwner, next: number): boolean {
   const tmp = join(dir, `.${record.token}.${randomBytes(4).toString('hex')}.tmp`);
@@ -382,15 +393,16 @@ function linkGeneration(dir: string, record: LockOwner, next: number): boolean {
       closeSync(fd);
     }
     linkSync(tmp, join(dir, genName(next)));
-    return true;
   } catch (e) {
+    removeTemp(tmp);
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
       throw e;
     }
     return false;
-  } finally {
-    unlinkSync(tmp);
   }
+  // Once linked, the generation stands: its temp is only scaffolding.
+  removeTemp(tmp);
+  return true;
 }
 
 /**

@@ -15,6 +15,7 @@ const acquire = (): Promise<RootLock> => RootLock.acquire(freshDir('release'));
 
 afterEach(() => {
   Object.defineProperty(fs, 'writeSync', { value: original.writeSync });
+  Object.defineProperty(fs, 'unlinkSync', { value: original.unlinkSync });
   syncBuiltinESMExports();
   cleanupDirs();
 });
@@ -77,4 +78,27 @@ test('a release whose record cannot be written leaves the Root held and no temp 
   expect(lock.isReleased).toBe(false);
   expect(fs.existsSync(generation(lock, lock.gen + 1))).toBe(false);
   expect(temps(lock)).toEqual([]);
+});
+
+test('a release whose temp a reader still holds (EBUSY) completes and leaves only that temp', async () => {
+  const lock = await acquire();
+  const busy = Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+  Object.defineProperty(fs, 'unlinkSync', {
+    value: (path: string) => {
+      if (String(path).endsWith('.tmp')) {
+        throw busy;
+      }
+      original.unlinkSync(path);
+    },
+  });
+  syncBuiltinESMExports();
+  lock.release();
+  expect(lock.isReleased).toBe(true);
+  expect(RootLock.inspect(lock.owner.root)?.owner).toEqual({ ...lock.owner, released: true });
+  expect(temps(lock)).toHaveLength(1);
+  Object.defineProperty(fs, 'unlinkSync', { value: original.unlinkSync });
+  syncBuiltinESMExports();
+  const next = await RootLock.acquire(lock.owner.root);
+  expect(next.gen).toBe(lock.gen + 2);
+  next.release();
 });
