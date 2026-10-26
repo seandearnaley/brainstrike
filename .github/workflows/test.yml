@@ -1,15 +1,16 @@
 # Gates every merge-queue batch but its Windows jobs; the nightly on main runs
-# only its Unit and Windows jobs.
+# only its Unit and Windows (unit tests only) jobs.
 # Per-PR hosted CI is off; main lands through the merge queue after `pnpm check`.
 
 name: Test
 
 on:
   # BST-2233: no schedule of its own. nightly.yml calls this workflow each
-  # night with `nightly: true`: only the complete Unit and Windows runs (every
-  # package, the state-store soak) run, because every other job gates each
-  # queue batch, a batch runs Unit on affected packages only and no batch runs
-  # Windows.
+  # night with `nightly: true`: only the complete Unit run (every package, the
+  # state-store soak) and the Windows unit tests run, because every other job
+  # gates each queue batch, a batch runs Unit on affected packages only and no
+  # batch runs Windows. Windows integration and E2E run on demand on a real
+  # Windows machine (owner decision 2026-10-26).
   workflow_dispatch:
   # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
   # on each Mergify merge-queue batch, so the queue's fast tier is these jobs,
@@ -667,14 +668,18 @@ jobs:
             exit 1
           fi
 
-  # Windows unit and integration: the same shards as Unit, on hosted Windows
-  # runners, in the nightly and manual runs only. No merge-queue batch runs them
-  # (owner decision 2026-10-26): a hosted runner here has 2 vCPUs, starts a host
-  # in 20-30 s against 3 s on a real Windows machine, and failed about a third
-  # of batches on deadlines. Hosted runners run elevated; test processes take
-  # the user as default owner like the app's process entries (BST-2246), so
-  # private directories stay theirs. ripgrep is a host dependency (live grep),
-  # as the Linux test host installs it.
+  # Windows unit tests: the same shards as Unit, on hosted Windows runners, in
+  # the nightly and manual runs only. No merge-queue batch runs them (owner
+  # decision 2026-10-26): a hosted runner here has 2 vCPUs, starts a host in
+  # 20-30 s against 3 s on a real Windows machine, and failed about a third of
+  # batches on deadlines. Windows integration and E2E tests run on demand on a
+  # real Windows machine, not here (owner decision 2026-10-26): on 26 Oct, 10
+  # of 12 failed Windows shards failed on full-app integration tests that
+  # missed deadlines on these runners, while the unit tests ran reliably.
+  # Hosted runners run elevated; test processes take the user as default owner
+  # like the app's process entries (BST-2246), so private directories stay
+  # theirs. ripgrep is a host dependency (live grep), as the Linux test host
+  # installs it.
   windows-shard:
     name: Windows (${{ matrix.shard }})
     if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue && needs.unit-plan.outputs.unit-shard-count != '0'
@@ -739,52 +744,8 @@ jobs:
           & (Join-Path $bin 'rg.exe') --version
           Add-Content -Path $env:GITHUB_PATH -Value $bin
 
-      # Windows Error Reporting keeps a minidump of any process that crashes in the
-      # desktop lanes (Electron Main, a renderer, a utility, node), so a crash is
-      # read from its stack instead of only its exit code. The runner is ephemeral.
-      # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
-      - name: Keep crash dumps
-        if: matrix.partition == 'desktop'
-        shell: pwsh
-        run: |
-          $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
-          New-Item -ItemType Directory -Force -Path $dumps | Out-Null
-          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
-          New-Item -Path $key -Force | Out-Null
-          New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumps -Force | Out-Null
-          New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
-          New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 10 -Force | Out-Null
-
       - name: Unit tests
         run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
-
-      - name: Integration tests
-        run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
-
-      # A failed real-app proof keeps its evidence (the app's output, first failure,
-      # cleanup verdict, any crash dump) in the runner's temp directory; uploaded, a
-      # Windows failure names its cause instead of only a test timeout.
-      - name: Collect app proof evidence
-        if: failure() && matrix.partition == 'desktop'
-        shell: pwsh
-        run: |
-          $out = Join-Path $env:RUNNER_TEMP 'app-proof-evidence'
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Get-ChildItem -Path ([System.IO.Path]::GetTempPath()) -Directory -Filter 'brainstrike-*-evidence' |
-            Copy-Item -Destination $out -Recurse
-          $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
-          if (Get-ChildItem -Path $dumps -Filter '*.dmp') {
-            Copy-Item -Path $dumps -Destination $out -Recurse
-          }
-
-      - name: Upload app proof evidence
-        if: failure() && matrix.partition == 'desktop'
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-app-proof-evidence-${{ strategy.job-index }}
-          path: ${{ runner.temp }}/app-proof-evidence/
-          retention-days: 3
-          if-no-files-found: warn
 
   # Fan-in over the Windows shards, like Unit over unit-shard.
   windows:
