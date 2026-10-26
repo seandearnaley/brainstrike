@@ -112,7 +112,7 @@ interface SessionEntry {
   info: CommandSessionInfo;
   outputCursor: number;
   process: IPty;
-  reaping?: Promise<void>;
+  reaped?: true;
   releaseWorkspaceLease: (() => void) | undefined;
   removed: boolean;
   resolveExit: () => void;
@@ -548,23 +548,34 @@ export function createCommandSessionManager({
     });
   }
 
-  function reap(entry: SessionEntry): Promise<void> {
-    if (entry.reaping) {
-      return entry.reaping;
+  /**
+   * Ends a session's process tree without waiting on a helper process or on its exit. POSIX:
+   * the PTY's shell leads its own group, which is SIGKILLed at once with the PTY; `tree-kill`
+   * then reaches any descendant that left the group, and nothing joins it. Windows has no
+   * groups: `taskkill /T` must walk the tree while its root still runs, so it goes first, in the
+   * background, before the PTY is killed.
+   */
+  function reap(entry: SessionEntry): void {
+    if (entry.reaped) {
+      return;
     }
-    entry.reaping = endTree(entry.info.pid)
-      .catch((cause: unknown) => {
-        logger.warn('Could not end the command session process tree', {
-          cause,
-          pid: entry.info.pid,
-          sessionId: entry.info.id,
-        });
-      })
-      .then(() => {
-        killCommandSessionProcessGroup(entry);
-        killCommandSessionPty(entry);
+    entry.reaped = true;
+    const logTreeFailure = (cause: unknown): void => {
+      logger.warn('Could not end the command session process tree', {
+        cause,
+        pid: entry.info.pid,
+        sessionId: entry.info.id,
       });
-    return entry.reaping;
+    };
+    if (process.platform === 'win32') {
+      endTree(entry.info.pid)
+        .catch(logTreeFailure)
+        .then(() => killCommandSessionPty(entry));
+      return;
+    }
+    killCommandSessionProcessGroup(entry);
+    killCommandSessionPty(entry);
+    endTree(entry.info.pid).catch(logTreeFailure);
   }
 
   /** The PTY's exit is the only end of a session (ADR-0030); a late one is logged, still joined. */
@@ -816,46 +827,39 @@ export function createCommandSessionManager({
     if (entry.info.status === 'exited') {
       throw new CommandSessionError('session-exited', `Command session "${sessionId}" has exited.`);
     }
-    await reap(entry);
+    reap(entry);
     await waitForExit(entry);
   }
 
-  async function stopDelegatedThreads(threadIds: readonly string[]): Promise<void> {
+  // Stop, removal and disposal report at the kill: none of them joins a session's exit.
+  function stopDelegatedThreads(threadIds: readonly string[]): Promise<void> {
     const selected = new Set(threadIds);
-    const owned = [...sessions.values()].filter(
-      (entry) =>
+    for (const entry of sessions.values()) {
+      if (
         entry.delegatedThreadId &&
         selected.has(entry.delegatedThreadId) &&
         entry.info.status === 'running'
-    );
-    const results = await Promise.allSettled(
-      owned.map(async (entry) => {
-        await reap(entry);
-        await waitForExit(entry);
-      })
-    );
-    const errors = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
-    );
-    if (errors.length) {
-      throw new AggregateError(errors, 'Delegated command sessions did not finish Stop.');
+      ) {
+        reap(entry);
+      }
     }
+    return Promise.resolve();
   }
 
-  async function remove(rootId: string, sessionId: string): Promise<void> {
+  function remove(rootId: string, sessionId: string): Promise<void> {
     const entry = resolveOwned(rootId, sessionId);
     entry.removed = true;
     sessions.delete(sessionId);
     entry.abortListener?.();
     if (entry.info.status === 'running') {
-      await reap(entry);
-      await waitForExit(entry);
-      return;
+      reap(entry);
+    } else {
+      disposeSubscriptions(entry);
     }
-    disposeSubscriptions(entry);
+    return Promise.resolve();
   }
 
-  async function disposeRoot(rootId: string): Promise<number> {
+  function disposeRoot(rootId: string): Promise<number> {
     assertRootId(rootId);
     const trimmed = rootId.trim();
     const owned = Array.from(sessions.entries()).filter(
@@ -870,33 +874,19 @@ export function createCommandSessionManager({
         disposeSubscriptions(entry);
       }
     }
-    const results = await Promise.allSettled(
-      running.map(async ([, entry]) => {
-        await reap(entry);
-        await waitForExit(entry);
-      })
-    );
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        return;
-      }
-      const entry = running[index]?.[1];
-      logger.error('Command session did not finish disposal for workspace root', {
-        errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
-        rootId: trimmed,
-        sessionId: entry?.info.id,
-      });
-    });
+    for (const [, entry] of running) {
+      reap(entry);
+    }
     if (running.length > 0) {
       logger.info('Reaped command sessions for workspace root', {
         count: running.length,
         rootId: trimmed,
       });
     }
-    return running.length;
+    return Promise.resolve(running.length);
   }
 
-  async function dispose(): Promise<number> {
+  function dispose(): Promise<number> {
     const entries = Array.from(sessions.values());
     const running = entries.filter((entry) => entry.info.status === 'running');
     sessions.clear();
@@ -907,26 +897,13 @@ export function createCommandSessionManager({
         disposeSubscriptions(entry);
       }
     }
-    const results = await Promise.allSettled(
-      running.map(async (entry) => {
-        await reap(entry);
-        await waitForExit(entry);
-      })
-    );
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        return;
-      }
-      const entry = running[index];
-      logger.error('Command session did not finish disposal', {
-        errorName: result.reason instanceof Error ? result.reason.name : 'UnknownError',
-        sessionId: entry?.info.id,
-      });
-    });
+    for (const entry of running) {
+      reap(entry);
+    }
     if (running.length > 0) {
       logger.info('Reaped command sessions on dispose', { count: running.length });
     }
-    return running.length;
+    return Promise.resolve(running.length);
   }
 
   return {
