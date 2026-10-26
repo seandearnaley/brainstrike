@@ -44,7 +44,9 @@ next Main, before Chromium or the runtime opens userData or the profile, waits f
 the old process with an OS wait (POSIX: a blocking `flock` on that lock, which the
 kernel releases only when the old process exits; Windows: its process handle, by pid
 and creation time), takes the profile's Root lock, deletes the profile and userData
-except the logs (the error-log mirror goes too), and removes the marker last. A
+except the logs (the error-log mirror goes too), and removes the marker last. Before
+that wait it takes `brainstrike-factory-reset-wipe.lock` without waiting; a second new
+instance that finds it held is refused at once and keeps the marker. A
 failed wipe fails startup visibly and keeps the marker. New durable state in userData
 or the profile participates without extra code; state elsewhere needs its own owner
 in that wipe. The developer menu's database reset is the same marker with the

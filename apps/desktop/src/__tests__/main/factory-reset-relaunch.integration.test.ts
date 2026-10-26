@@ -12,6 +12,7 @@ import { completePendingFactoryReset, requestFactoryReset } from '../../factory-
 const secureFsNative = createRequire(import.meta.url).resolve('@brainstrike/secure-fs-native');
 const MARKER = 'brainstrike-factory-reset.json';
 const LOCK = 'brainstrike-factory-reset.lock';
+const WIPE_LOCK = 'brainstrike-factory-reset-wipe.lock';
 
 const owned: ChildProcess[] = [];
 const directories: string[] = [];
@@ -144,9 +145,36 @@ it('waits for the Main that asked for the reset to exit, then wipes all but the 
   // The logs stay, another profile is untouched, and the next start finds nothing to do.
   expect(existsSync(files.log)).toBe(true);
   expect(existsSync(files.otherProfile)).toBe(true);
-  expect(readdirSync(userData).sort()).toEqual(['data', LOCK, 'logs'].sort());
+  expect(readdirSync(userData).sort()).toEqual(['data', LOCK, WIPE_LOCK, 'logs'].sort());
   await completePendingFactoryReset({ logsPath: logs, userDataPath: userData });
   expect(existsSync(files.log)).toBe(true);
+});
+
+// ADR-0031: the reset relaunch's one wait is for the old Main. A second new instance started
+// during it is refused at once with the marker kept, never queued behind the first one's wipe.
+it('refuses a second new instance at once while the first waits for the old Main, which then wipes', async () => {
+  const { files, logs, profile, userData } = seed();
+  const old = await previousMain([path.join(userData, LOCK)]);
+  recordReset(userData, profile, old.identity);
+  let finished = false;
+  const first = completePendingFactoryReset({ logsPath: logs, userDataPath: userData }).then(() => {
+    finished = true;
+  });
+  await old.alive();
+
+  await expect(
+    completePendingFactoryReset({ logsPath: logs, userDataPath: userData })
+  ).rejects.toThrow('Another Brainstrike instance is finishing the factory reset of this data.');
+  await old.alive();
+  expect(finished).toBe(false);
+  expect(existsSync(path.join(userData, MARKER))).toBe(true);
+  expect(existsSync(files.threads)).toBe(true);
+
+  await old.exit();
+  await first;
+  expect(existsSync(files.threads)).toBe(false);
+  expect(existsSync(files.settings)).toBe(false);
+  expect(existsSync(path.join(userData, MARKER))).toBe(false);
 });
 
 it('the developer database reset wipes the profile and keeps userData', async () => {
@@ -198,21 +226,21 @@ it('starts as usual with no reset recorded, and a second request is refused whil
   }
 });
 
-// ADR-0031: on Windows the old Main's process handle is the reset's one wait. A lock still held
-// after it is another new instance wiping, so this start is refused at once instead of waiting.
+// ADR-0031: on Windows the old Main's process handle is the reset's one wait. A reset lock still
+// held after it belongs to another process, so this start is refused at once instead of waiting.
 it.runIf(process.platform === 'win32')(
-  'refuses at once while another new instance holds the reset lock after the old Main exited',
+  'refuses at once while another process holds the reset lock after the old Main exited',
   async () => {
     const { files, logs, profile, userData } = seed();
     const old = await previousMain([]);
     recordReset(userData, profile, old.identity);
     await old.exit();
-    const wiping = await previousMain([path.join(userData, LOCK)]);
+    const holder = await previousMain([path.join(userData, LOCK)]);
 
     await expect(
       completePendingFactoryReset({ logsPath: logs, userDataPath: userData })
-    ).rejects.toThrow('Another Brainstrike instance is finishing the factory reset of this data.');
-    await wiping.alive();
+    ).rejects.toThrow('Another Brainstrike process is finishing a factory reset of this data.');
+    await holder.alive();
     expect(existsSync(path.join(userData, MARKER))).toBe(true);
     expect(existsSync(files.threads)).toBe(true);
   }

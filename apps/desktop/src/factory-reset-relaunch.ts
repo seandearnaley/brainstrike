@@ -22,6 +22,11 @@ const logger = createLogger('DesktopFactoryReset');
 const MARKER_FILE = 'brainstrike-factory-reset.json';
 /** Held by the Main that asked for the reset until it exits; the wipe holds it too. */
 const LOCK_FILE = 'brainstrike-factory-reset.lock';
+/**
+ * Held by the one new instance finishing the reset, from before its wait for the old Main until
+ * the wipe ends, so a second new instance is refused at once instead of queueing. The wipe keeps it.
+ */
+const WIPE_LOCK_FILE = 'brainstrike-factory-reset-wipe.lock';
 /** The userData entry the wipe keeps: diagnostic logs survive a reset. */
 const LOGS_DIR = 'logs';
 
@@ -164,7 +169,7 @@ async function clearExcept(
 /**
  * The wipe. The profile's Root lock is held throughout, so no host or CLI command has it open,
  * and its lock directory stays. Factory Reset also deletes userData, except its logs, the marker
- * and the reset lock, and the error-log mirror of the diagnostics it deletes. Every deletion is
+ * and both reset locks, and the error-log mirror of the diagnostics it deletes. Every deletion is
  * attempted; any failure throws with all of them and leaves the marker for the next start.
  */
 async function wipe(marker: FactoryResetMarker, userDataPath: string, logsPath: string) {
@@ -182,6 +187,7 @@ async function wipe(marker: FactoryResetMarker, userDataPath: string, logsPath: 
           path.join(userData, LOGS_DIR),
           path.join(userData, MARKER_FILE),
           path.join(userData, LOCK_FILE),
+          path.join(userData, WIPE_LOCK_FILE),
           ...(profileLock ? [profileLock.dir] : []),
         ],
         failures
@@ -201,7 +207,8 @@ async function wipe(marker: FactoryResetMarker, userDataPath: string, logsPath: 
 /**
  * Finishes a reset the previous Main asked for, before anything opens userData or the profile.
  * Waits for that process to exit with the OS's own waits, then wipes and removes the marker.
- * Resolves at once without a marker. Rejects when the wipe fails; the marker is kept.
+ * Resolves at once without a marker. Rejects at once, keeping the marker, while another new
+ * instance is finishing it, and when the wipe fails; the marker is kept.
  */
 export async function completePendingFactoryReset(options: {
   readonly logsPath: string;
@@ -211,38 +218,48 @@ export async function completePendingFactoryReset(options: {
   if (!pending) {
     return;
   }
-  logger.warn('Finishing the factory reset the previous run asked for', { scope: pending.scope });
-  const started = performance.now();
-  const lockPath = path.join(options.userDataPath, LOCK_FILE);
-  let lock: ExclusiveLock;
-  if (pending.process && processExitWait) {
-    await processExitWait.wait(pending.process);
-    // The previous Main has exited, so a holder now is another new instance wiping: refused at once.
-    const held = tryExclusiveLock(lockPath);
-    if (held === null) {
-      throw new Error('Another Brainstrike instance is finishing the factory reset of this data.');
-    }
-    lock = held;
-  } else {
-    // POSIX: the previous Main holds this until it exits, and this wait is the reset's one wait on
-    // it. A lock does not name its holder, so a second new instance waits out the first one's wipe.
-    lock = await waitForExclusiveLock(lockPath);
+  // Only new instances take this, and none waits for it: the wait below is for the old Main alone.
+  const wipeLock = tryExclusiveLock(path.join(options.userDataPath, WIPE_LOCK_FILE));
+  if (wipeLock === null) {
+    throw new Error(
+      'Another Brainstrike instance is finishing the factory reset of this data. Open Brainstrike again once it has started.'
+    );
   }
-  const exited = performance.now();
   try {
-    // An instance that held the lock first may have finished this reset already.
-    const marker = readMarker(options.userDataPath);
-    if (!marker) {
-      return;
+    logger.warn('Finishing the factory reset the previous run asked for', { scope: pending.scope });
+    const started = performance.now();
+    const lockPath = path.join(options.userDataPath, LOCK_FILE);
+    let lock: ExclusiveLock;
+    if (pending.process && processExitWait) {
+      await processExitWait.wait(pending.process);
+      // The previous Main has exited, so a holder now is a Main that asked for another reset.
+      const held = tryExclusiveLock(lockPath);
+      if (held === null) {
+        throw new Error('Another Brainstrike process is finishing a factory reset of this data.');
+      }
+      lock = held;
+    } else {
+      // POSIX: the previous Main holds this until it exits; this is the reset's one wait on it.
+      lock = await waitForExclusiveLock(lockPath);
     }
-    await wipe(marker, options.userDataPath, options.logsPath);
-    await rm(path.join(options.userDataPath, MARKER_FILE), { force: true });
+    const exited = performance.now();
+    try {
+      // An instance that finished before this one took the wipe lock completed this reset.
+      const marker = readMarker(options.userDataPath);
+      if (!marker) {
+        return;
+      }
+      await wipe(marker, options.userDataPath, options.logsPath);
+      await rm(path.join(options.userDataPath, MARKER_FILE), { force: true });
+    } finally {
+      lock.release();
+    }
+    logger.warn('Factory reset finished', {
+      scope: pending.scope,
+      waitMs: Math.round(exited - started),
+      wipeMs: Math.round(performance.now() - exited),
+    });
   } finally {
-    lock.release();
+    wipeLock.release();
   }
-  logger.warn('Factory reset finished', {
-    scope: pending.scope,
-    waitMs: Math.round(exited - started),
-    wipeMs: Math.round(performance.now() - exited),
-  });
 }
