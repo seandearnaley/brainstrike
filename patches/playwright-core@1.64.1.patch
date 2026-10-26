@@ -1,0 +1,13 @@
+diff --git a/lib/coreBundle.js b/lib/coreBundle.js
+index 6893f1cf133efec2c5dccc35c77cc7a53870ccbc..5408fe5cb6d19fb4b3ea2b8d48f5fbc4a109e725 100644
+--- a/lib/coreBundle.js
++++ b/lib/coreBundle.js
+@@ -45698,7 +45698,7 @@ var init_electron = __esm({
+           electronArguments.unshift("-r", libPath("server", "electron", "loader.js"));
+         }
+         let shell = false;
+-        if (process.platform === "win32") {
++        if (process.platform === "win32" && /\.(?:bat|cmd)$/i.test(command)) {
+           shell = true;
+           command = [command, ...electronArguments].map((arg2) => `"${escapeDoubleQuotes(arg2)}"`).join(" ");
+           electronArguments = [];

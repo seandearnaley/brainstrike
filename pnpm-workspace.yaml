@@ -329,3 +329,8 @@ patchedDependencies:
   # Drop it at the first streamdown release containing #677, and bump
   # @assistant-ui/react-streamdown (and its override) to match.
   streamdown@2.7.0: patches/streamdown@2.7.0.patch
+  # Playwright 1.64 launches Electron through cmd.exe on every Windows path, so it holds the
+  # shell, not Main, and force-closes with `taskkill /T` from the shell's pid. The patch keeps
+  # the shell for .bat/.cmd only; Electron itself is an .exe. Paired test: the launched process
+  # is the app itself, in apps/desktop/e2e/app-launch.test.ts.
+  playwright-core@1.64.1: patches/playwright-core@1.64.1.patch
