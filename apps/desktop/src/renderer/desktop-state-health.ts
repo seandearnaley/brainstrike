@@ -3,11 +3,7 @@ import type { StateHealthCapability } from '@brainstrike/app-shell';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
-import {
-  type DesktopHostConnection,
-  type DesktopHostConnectionState,
-  windowHostConnection,
-} from './desktop-host-connection';
+import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
 
 const logger = createLogger('DesktopStateHealth');
 /** JSON-RPC's MethodNotFound, the raw cause the client keeps under its typed fault. */
@@ -20,14 +16,8 @@ function isMethodNotFound(cause: unknown): boolean {
   );
 }
 
-/** How long a restart may take to bring a new host back before the notice says so. */
-const RESTART_RECONNECT_TIMEOUT_MS = 60_000;
-
-/** The connection once it is past `lost`: connected to another client, failed, or closed. */
-function settledAfter(
-  connection: DesktopHostConnection,
-  lost: HostClient
-): Promise<DesktopHostConnectionState> {
+/** The connection's next state past `lost`: connected to another client, failed, or closed. */
+function settledAfter(connection: DesktopHostConnection, lost: HostClient): Promise<void> {
   return new Promise((resolve) => {
     const check = (): void => {
       const state = connection.getSnapshot();
@@ -37,30 +27,12 @@ function settledAfter(
         state.kind === 'closed'
       ) {
         unsubscribe();
-        resolve(state);
+        resolve();
       }
     };
     const unsubscribe = connection.subscribe(check);
     check();
   });
-}
-
-async function withRestartDeadline(work: () => Promise<void>): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      work(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(new Error('The agent host did not come back. Use Reconnect, then check again.')),
-          RESTART_RECONNECT_TIMEOUT_MS
-        );
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**
@@ -91,17 +63,16 @@ export function createDesktopStateHealth(): StateHealthCapability | null {
     },
     restartHost: async () => {
       const before = await connection.current();
-      const replaced = connection.replacement(before);
       await callBoundary(() => recovery.restartHost());
-      // Main resolves once the old host has exited, but this frame may still be
-      // reconnecting: its automatic attempt can reach the stopping host and fail.
-      // Wait for it to settle; when it failed, retry once.
-      await withRestartDeadline(async () => {
-        if ((await settledAfter(connection, before)).kind === 'failed') {
-          connection.reconnect();
-        }
-        await replaced;
-      });
+      // Main replies once the old host has exited and the new one is running, so
+      // one attempt reaches it: Reconnect when the automatic attempt has already
+      // failed, otherwise that automatic attempt. Its outcome is the restart's.
+      if (connection.getSnapshot().kind === 'failed') {
+        connection.reconnect();
+      }
+      await settledAfter(connection, before);
+      // Connected resolves; failed rejects with that attempt's own cause.
+      await connection.current();
     },
     showDataFolder: () => callBoundary(() => recovery.showDataFolder()),
   };
