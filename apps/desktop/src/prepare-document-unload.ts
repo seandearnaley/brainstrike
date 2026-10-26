@@ -11,9 +11,9 @@ const logger = createLogger('RendererClose');
  * R5(b) (ADR-0026): how long a renderer may take to acknowledge its close preparation (flush
  * its durable writers, close its host transport) before Main escalates that cooperative close
  * to `destroy()` and joins the window's `closed`. Escalating is a warn and a failed preparation,
- * never an abandoned window.
+ * never an abandoned window. 30 s escalated healthy renderers on hosted Windows runners.
  */
-export const RENDERER_CLOSE_PREPARATION_MS = 30_000;
+export const RENDERER_CLOSE_PREPARATION_MS = 90_000;
 
 const isPrepared = (data: unknown): boolean =>
   !!data &&

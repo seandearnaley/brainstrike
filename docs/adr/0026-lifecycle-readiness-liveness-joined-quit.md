@@ -55,7 +55,8 @@ The desktop lifecycle follows six rules. They must hold at any machine speed.
 
 Owner decisions taken with this ADR: no startup kill of our own host (a stall is
 logged and shown); our agent host gets 30 s to exit after close, then `kill()` and a
-joined exit; a visible renderer gets 30 s to acknowledge its close preparation, then
+joined exit; a visible renderer gets 90 s (30 s until 2026-10-26, which escalated
+healthy renderers on hosted Windows runners) to acknowledge its close preparation, then
 `destroy()` and a joined `closed`; the first window is not gated on host or index
 readiness; the Explorer serializer worker is deleted on web too; a slow quit is
 logged only, with no "quit anyway" dialog; the E2E delay seam is runtime-gated like the
