@@ -183,7 +183,17 @@ describe('configured-server MCP authority with injected Node platform', () => {
         clientsClosed: 1,
         failures: [],
       });
-      expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
+      // Close kills the child and returns without joining its exit (ADR-0031).
+      await expect
+        .poll(() => {
+          try {
+            process.kill(pid, 0);
+            return 'running';
+          } catch (error) {
+            return (error as NodeJS.ErrnoException).code;
+          }
+        })
+        .toBe('ESRCH');
     } finally {
       await runtime.host.close();
       await rm(directory, { force: true, recursive: true });

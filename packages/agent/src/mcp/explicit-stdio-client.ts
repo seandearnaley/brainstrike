@@ -136,6 +136,8 @@ interface ActiveConnection {
   extensionDispatchLedger: RegisteredExtensionDispatchLedger;
   /** Rejects in-flight writes that the dead child's pipe can never drain. */
   failInFlightSends(cause: Error): void;
+  /** Ends the child's stdin and kills it at once; never waits for it to exit. */
+  killChild(): void;
   removeStderrListener(): void;
   toolDefinitions: ReadonlyMap<string, ExplicitHttpMcpTool>;
   toolMetadataReady: boolean;
@@ -165,6 +167,31 @@ interface NormalizedClientOptions {
 
 function closedClientError(): Error {
   return new Error(CLOSED_ERROR_MESSAGE);
+}
+
+/**
+ * Close kills the child and never waits for it (ADR-0031). The SDK's own
+ * `close()` ends stdin, then waits 2 s, sends SIGTERM, waits 2 s more and
+ * sends SIGKILL; it is started here only to end stdin and release the
+ * transport, and is never joined. The direct child is killed at once.
+ *
+ * Interim: the SDK owns the spawn, so a server's own children are not reached
+ * here (on Windows neither was the SDK's ladder). Owning the spawn as a
+ * reported process group and a command Job is the follow-up.
+ */
+function killStdioChild(transport: StdioClientTransport): void {
+  const pid = transport.pid;
+  void transport.close();
+  if (pid === null) {
+    return;
+  }
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+      throw error;
+    }
+  }
 }
 
 function normalizeOptions(options: ExplicitStdioMcpClientOptions): NormalizedClientOptions {
@@ -448,7 +475,6 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private async closeConnections(): Promise<void> {
-    const connectionSettled = this.connectPromise?.catch(() => undefined);
     const connections = new Set<ActiveConnection>();
     if (this.activeConnection) {
       connections.add(this.activeConnection);
@@ -463,7 +489,6 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     const results = await Promise.allSettled(
       [...connections].map((connection) => this.closeConnection(connection))
     );
-    await connectionSettled;
     const errors = results.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
     );
@@ -549,23 +574,29 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
   }
 
   private async closeConnection(connection: ActiveConnection): Promise<void> {
+    const errors: unknown[] = [];
+    // Kill first, so the client close below finds the transport already released.
+    try {
+      connection.killChild();
+    } catch (error) {
+      errors.push(error);
+    }
     const results = await Promise.allSettled([
       connection.capabilityLease.close(),
-      connection.transport.close(),
       connection.client.close(),
     ]);
     // Only AFTER teardown. Severing first would poison this connection's own
     // farewell traffic — the SDK answers a capability request the lease aborts
     // through the transport it captured at request time — and would attribute a
     // still-live child's ordinary backpressure to a dead pipe. By this point
-    // `transport.close()` has ended the parent's write end (and killed the
-    // child if it did not exit), so any write still waiting on `'drain'` truly
+    // `killChild()` has ended the parent's write end and killed the child, so
+    // any write still waiting on `'drain'` truly
     // can never be written and the cause below reads accurately. Teardown never
     // awaits a send, so nothing here can deadlock behind the move.
     connection.failInFlightSends(new Error(SEVERED_SEND_ERROR_MESSAGE));
     connection.removeStderrListener();
-    const errors = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
+    errors.push(
+      ...results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []))
     );
     if (errors.length === 1) {
       throw errors[0];
@@ -622,6 +653,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       disconnected: false,
       extensionDispatchLedger,
       failInFlightSends: (cause) => sendClosure.close(cause),
+      killChild: () => killStdioChild(stdioTransport),
       removeStderrListener: () => stderr?.off('data', onStderrData),
       toolDefinitions: new Map(),
       toolMetadataReady: false,
