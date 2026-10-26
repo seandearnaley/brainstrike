@@ -168,7 +168,7 @@ it('a failed pause retains a failed state, instead of claiming its sources are r
   });
 });
 
-it('terminal retirement fences admission and aborts a held open before joining its physical close', async () => {
+it('quit fences admission and aborts a held open, and closes without joining it', async () => {
   const e = executor();
   const opening = Promise.withResolvers<void>();
   const finishing = Promise.withResolvers<void>();
@@ -188,17 +188,20 @@ it('terminal retirement fences admission and aborts a held open before joining i
     .catch((error: unknown) => error);
   await vi.waitFor(() => expect(e.execute).toHaveBeenCalledOnce());
   const closing = lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
-  await expect(lifecycle.state()).resolves.toMatchObject({ kind: 'closed', retirement: 'pending' });
   expect(e.fence).toHaveBeenCalledOnce();
-  expect(e.execute).toHaveBeenCalledOnce();
-  finishing.resolve();
-  expect(await changed).toBe(interrupted);
+  // ADR-0031: the held open does not hold quit's close.
   await expect(closing).resolves.toMatchObject({ kind: 'closed', retirement: 'complete' });
   expect(e.execute.mock.calls.map(([action]) => action.kind)).toEqual([
     'open',
     'close',
     'retire-profile',
   ]);
+  finishing.resolve();
+  expect(await changed).toBe(interrupted);
+  await expect(lifecycle.state()).resolves.toMatchObject({
+    kind: 'closed',
+    retirement: 'complete',
+  });
 });
 
 it('a pending failed close refuses resume until its physical cleanup succeeds', async () => {
@@ -344,17 +347,16 @@ it('a prepared pause cannot complete by reopening after folder deletion or shutd
   }
 });
 
-it('fences read admission while saved settings are read and joins that read before shutdown', async () => {
+it('fences read admission while saved settings are read, and quit closes without joining that read', async () => {
   const e = executor();
   const saved = Promise.withResolvers<typeof TEXT>();
   const lifecycle = await createNativeIndexLifecycle(ready, e);
   const configured = lifecycle.configure(() => saved.promise).catch((error: unknown) => error);
   await expect(lifecycle.state()).resolves.toMatchObject({ kind: 'validating' });
-  const closing = lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
-  expect(e.execute).not.toHaveBeenCalled();
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  expect(e.performed).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
   saved.resolve(TEXT);
   expect(await configured).toBeInstanceOf(NativeIndexEventRefusedError);
-  await closing;
   expect(e.performed).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
 });
 
@@ -431,4 +433,26 @@ it('retains both an unreadable-settings failure and a synchronous cleanup defect
     cause: { error: rejected },
     kind: 'unconfigured',
   });
+});
+
+// ADR-0031: quit waits on no process. An open waiting for the utility's ready does not hold it.
+it("closes for quit while an open is held, without waiting for that open's permit", async () => {
+  const e = executor();
+  const held = Promise.withResolvers<void>();
+  e.execute.mockImplementationOnce(async (action) => {
+    e.performed.push(action);
+    await held.promise;
+    return;
+  });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  void lifecycle.dispatch({ kind: 'settings-saved', settings: TEXT }).catch(() => undefined);
+  await vi.waitFor(() => expect(e.performed).toHaveLength(1));
+
+  const closed = vi.fn();
+  void lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' }).then(closed);
+
+  await vi.waitFor(() => expect(closed).toHaveBeenCalled());
+  expect(e.fence).toHaveBeenCalledOnce();
+  expect(e.performed.map((action) => action.kind)).toEqual(['open', 'close', 'retire-profile']);
+  held.resolve();
 });

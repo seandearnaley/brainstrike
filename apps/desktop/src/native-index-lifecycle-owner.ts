@@ -210,7 +210,14 @@ export async function createNativeIndexLifecycle(
               if (transition.actions.length > 0 || event.kind === 'fence') {
                 executor.fence();
               }
-              return permit.withPermits(1)(execute(event, transition));
+              // Quit (ADR-0031) waits on no process: an open holding the permit may be waiting
+              // for the indexer utility's ready, so quit's close runs beside it. The fence above
+              // has already revoked that open's work, and its late events reduce as no-ops.
+              return transition.state.kind === 'closed' &&
+                transition.state.reason === 'profile-retired' &&
+                event.kind === 'terminal'
+                ? execute(event, transition)
+                : permit.withPermits(1)(execute(event, transition));
             })
           )
         : permit.withPermits(1)(step(event))
