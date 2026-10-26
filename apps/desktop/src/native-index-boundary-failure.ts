@@ -157,7 +157,6 @@ function lostIndexProcess(error: unknown): BoundaryFailureError | undefined {
   return undefined;
 }
 
-/** Preserve proven native outcomes; source and cleanup diagnostics stay in Main. */
 /** The held Root a failure comes from, through its causes and joined errors. */
 export function heldRoot(error: unknown): RootLockedError | undefined {
   if (error instanceof RootLockedError) {
@@ -177,18 +176,15 @@ export function heldRoot(error: unknown): RootLockedError | undefined {
   return undefined;
 }
 
+/** Preserve proven native outcomes; source and cleanup diagnostics stay in Main. */
 export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): BoundaryFailure {
-  // ADR-0031: another process holds the profile's Root, so its host was refused. Say who,
-  // whichever operation needed the host.
-  const held = heldRoot(error);
-  if (held) {
+  // ADR-0031: another process holds the profile's Root, so its host was refused, whichever
+  // operation needed the host. The OS lock names no holder; only a live process holds it.
+  if (heldRoot(error)) {
     return refusal({
       category: 'availability',
       code: 'profile.data-in-use',
-      message:
-        held.holder === 'owner'
-          ? `This profile’s data is in use by another process (pid ${held.owner.pid}).`
-          : `This profile’s data is still held by a process that pid ${held.owner.pid} started.`,
+      message: 'This profile’s data is in use by another Brainstrike process.',
       remedy: 'Close that process, then open BrainStrike again.',
     });
   }

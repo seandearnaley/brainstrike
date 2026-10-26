@@ -50,10 +50,10 @@ test('a launch while another process holds the profile is refused visibly; the n
   const holder = RootLock.acquire(root);
   try {
     page = (await electron.restart()).window;
-    // The lock's refusal names the process that holds the Root.
+    // The lock's own refusal, not a closed index.
     await expect(
       page.getByRole('alert').filter({ hasText: 'couldn’t check its conversation store' })
-    ).toContainText(`This profile’s data is in use by another process (pid ${process.pid}).`);
+    ).toContainText('This profile’s data is in use by another Brainstrike process.');
   } finally {
     holder.release();
   }
