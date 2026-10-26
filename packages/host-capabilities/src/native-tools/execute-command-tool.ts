@@ -525,6 +525,7 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
     let timedOut = false;
     let settled = false;
     let terminated = false;
+    let stopping = false;
     let killTimer: NodeJS.Timeout | undefined;
     let exitStatus: { code: number | null; signal: NodeJS.Signals | null } | undefined;
 
@@ -572,6 +573,15 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
       resolve({ exitCode: code, signal: exitSignal, stderr, stdout, timedOut });
     };
 
+    // A stopped call ends at the shell's exit, not at `close`: once its group is killed, only a
+    // process that left the group can still hold the pipes, and it may never let them go.
+    const settleAtExit = (): void => {
+      stopping = true;
+      if (exitStatus !== undefined) {
+        settle(exitStatus.code, exitStatus.signal);
+      }
+    };
+
     // An abort or a disposal kills the whole group at once: no SIGTERM grace.
     const terminate = (): void => {
       if (terminated) {
@@ -579,6 +589,7 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
       }
       terminated = true;
       killProcessTree(pid, 'SIGKILL');
+      settleAtExit();
     };
 
     const owner = {
@@ -619,6 +630,9 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
     // the disposal or the timeout ends the call — see killProcessTree.
     child.on('exit', (code, exitSignal) => {
       exitStatus = { code, signal: exitSignal };
+      if (stopping) {
+        settle(code, exitSignal);
+      }
     });
 
     child.on('close', (code, closeSignal) => {
