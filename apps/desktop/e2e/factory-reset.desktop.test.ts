@@ -11,6 +11,7 @@ import { SettingsPage } from './page-objects/settings-page';
 import { readIndexConfig } from './utils/index-config';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { profileFile } from './utils/profile-files';
 import { captureResetLogs } from './utils/reset-log-capture';
 import { readNativeResetProbe, seedNativeResetProbe } from './utils/reset-seed-helpers';
 import { textReadiness } from './utils/text-search-mode';
@@ -25,18 +26,6 @@ const FACTORY_RESET_BROWSER_CACHE_ENTRY_URL = 'https://brainstrike.local/reset-e
 const FACTORY_RESET_BROWSER_DB_NAME = 'brainstrike-reset-e2e-indexed-db';
 const FACTORY_RESET_LOCAL_STORAGE_KEY = 'brainstrike:reset:e2e:local-storage';
 const FACTORY_RESET_SESSION_STORAGE_KEY = 'brainstrike:reset:e2e:session-storage';
-
-/** The one file of this name in the profile under `userDataDir`. */
-function profileFile(userDataDir: string, name: string): string {
-  const found = fs
-    .readdirSync(userDataDir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name === name)
-    .map((entry) => path.join(entry.parentPath, entry.name));
-  if (found.length !== 1) {
-    throw new Error(`Expected one ${name}, found: ${JSON.stringify(found)}`);
-  }
-  return found[0] as string;
-}
 
 async function openTokenCountingSettings(
   homePage: HomePage,
@@ -409,7 +398,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await homePage.openSettings();
     const unreadable = await settingsPage.openCategory(/Search & Indexing/i, 'search-indexing');
     await expect(unreadable.getByRole('alert').first()).toContainText(
-      'The search index settings could not be read'
+      'The saved search index settings are from another version and cannot be read'
     );
     await openFactoryResetSettings(homePage, settingsPage);
     await overrideNextConfirm(reopened, true);
