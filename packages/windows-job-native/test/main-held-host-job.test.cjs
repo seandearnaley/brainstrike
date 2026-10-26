@@ -22,7 +22,7 @@ const {spawn}=require('node:child_process');
 ${message}
 const startChild=async()=>{
  job.initialize();
- const child=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','ignore','ignore','ipc']});
+ const child=spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','ignore','ignore','ipc'],windowsHide:true});
  return await message(child);
 };
 (async()=>{
@@ -35,11 +35,15 @@ const startChild=async()=>{
 setInterval(()=>{},1000);
 `;
 
-/** Main: forks the host and assigns it to a Job of its own, unless `assign` is false. */
+/**
+ * Main: starts the host and assigns it to a Job of its own, unless `assign` is false. Node puts
+ * every child it spawns on Windows in its own kill-on-close Job unless the child is detached,
+ * and Electron's utilityProcess launches the real host in no Job, so the host here is detached.
+ */
 const main = (order, assign) => `
 const {spawn}=require('node:child_process');
 ${message}
-const host=spawn(process.execPath,['-e',${JSON.stringify(host(order))}],{stdio:['ignore','ignore','pipe','ipc']});
+const host=spawn(process.execPath,['-e',${JSON.stringify(host(order))}],{detached:true,stdio:['ignore','ignore','pipe','ipc'],windowsHide:true});
 let stderr='';
 host.stderr.on('data',data=>{stderr+=data;});
 host.once('exit',code=>process.send({event:'failed',message:'Host exited ('+code+'): '+stderr}));
@@ -68,6 +72,21 @@ async function killMain(t, order, assign) {
   const fixture = await commandFixture(t);
   const guard = fixture.guard(main(order, assign));
   const ready = await guard.wait('ready');
+  // A detached host is in no Job of the test's: end whatever a failed test leaves running.
+  t.after(() => {
+    for (const { creationTime, pid } of [ready.host, ready.child]) {
+      try {
+        if (job.getProcessCreationTime(pid) === creationTime) {
+          process.kill(pid);
+        }
+      } catch (error) {
+        // Already ending: the host's own Job may end the child between the check and the kill.
+        if (error.code !== 'ESRCH') {
+          throw error;
+        }
+      }
+    }
+  });
   assert.notEqual(ready.host.pid, ready.child.pid);
   guard.child.kill();
   await waitForChildExit(guard.child);
@@ -90,15 +109,14 @@ test(
   windows,
   async (t) => {
     const { child, host: identity } = await killMain(t, 'before', false);
-    try {
-      assert.equal(job.getProcessCreationTime(identity.pid), identity.creationTime);
-      assert.equal(job.getProcessCreationTime(child.pid), child.creationTime);
-    } finally {
+    const alive = [identity, child].map(
+      ({ creationTime, pid }) => job.getProcessCreationTime(pid) === creationTime
+    );
+    if (alive[0]) {
       // Its own Job ends the child with the host.
-      if (job.getProcessCreationTime(identity.pid) === identity.creationTime) {
-        process.kill(identity.pid);
-      }
+      process.kill(identity.pid);
       await Promise.all([exited(identity), exited(child)]);
     }
+    assert.deepEqual(alive, [true, true], 'host and child alive after Main was killed');
   }
 );
