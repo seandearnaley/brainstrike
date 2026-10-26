@@ -427,6 +427,12 @@ export class McpCoreServerFeatures {
     return this.closePromise;
   }
 
+  /**
+   * Close never joins the server (ADR-0031). The subscription's close sends
+   * `notifications/cancelled` to it, so it is started and its failure
+   * diagnosed, never awaited; a listen still queued sees the aborted signal
+   * and closes its own uncommitted subscription.
+   */
   private async closeOwnedResources(): Promise<CloseProof> {
     this.abort.abort(new Error('MCP core server features closed'));
     const unsubscribe = this.unsubscribeEvents;
@@ -435,10 +441,11 @@ export class McpCoreServerFeatures {
     const subscription = this.currentSubscription;
     this.currentSubscription = undefined;
     if (subscription) {
-      await subscription.close();
+      void subscription.close().catch((cause: unknown) => {
+        this.diagnose('mcp-subscription-close-failed', cause);
+      });
       this.subscriptionClosures += 1;
     }
-    await this.listenTail.catch(() => undefined);
     return {
       callbacksClosed: unsubscribe ? 1 : 0,
       subscriptionsClosed: this.subscriptionClosures,

@@ -196,6 +196,25 @@ describe('MCP core server features', () => {
     await features.close();
   });
 
+  it('closes while the server has not taken the subscription cancel, and reports a failed cancel', async () => {
+    const fixture = createClient();
+    const cancel = Promise.withResolvers<undefined>();
+    fixture.firstSubscription.close.mockImplementation(() => cancel.promise);
+    const internalError = vi.fn();
+    const features = createMcpCoreServerFeatures(fixture.client, {
+      onInternalError: internalError,
+    });
+    await features.initialize();
+
+    await expect(features.close()).resolves.toMatchObject({ subscriptionsClosed: 1 });
+
+    expect(fixture.firstSubscription.close).toHaveBeenCalledOnce();
+    const cause = new Error('cancel never written');
+    cancel.reject(cause);
+    await vi.waitFor(() =>
+      expect(internalError).toHaveBeenCalledWith('mcp-subscription-close-failed', cause)
+    );
+  }, 5000);
   it('re-listens with bounded backoff only after remote closure', async () => {
     const firstClosed = Promise.withResolvers<'graceful' | 'local' | 'remote'>();
     const secondClosed = Promise.withResolvers<'graceful' | 'local' | 'remote'>();
