@@ -118,6 +118,8 @@ export async function hostRunTerminalEvents(
   finished: RunFinishedEvent
 ): Promise<HostEvent[]> {
   const label = await hostStopLabel(run, finished);
+  // A store that could not commit the start cannot commit this end either: it fails the same way.
+  await joinHostTurnStart(run);
   return [...label, ...(await hostTurnEnd(run)), finished];
 }
 
@@ -183,6 +185,11 @@ interface HostRunStartSteps {
  * UserPromptSubmit hooks: a block fails it, else its loop runs. With none of
  * these, the loop starts in this same turn, so the run's owner opens before
  * run/start replies, as it did before lifecycle hooks.
+ *
+ * Without prompt hooks nothing changes the workspace before the run's first
+ * tool call, so the loop starts while the turn start is recorded: preparing
+ * and streaming the first request needs no snapshot, and every tool call
+ * waits for the recorded start (`joinHostTurnStart`) before its decision.
  */
 export function beginHostRun(
   run: HostRunState,
@@ -199,6 +206,25 @@ async function gatedHostRun(
   admission: HostRunAdmission,
   steps: HostRunStartSteps
 ): Promise<void> {
+  const recording = recordHostTurnStart(run, admission, steps.commit);
+  if (!admission.hooks) {
+    run.turnStarting = recording;
+    // A failed record fails the run: no tool may act on an unrecorded workspace.
+    recording.catch((cause: unknown) => run.controller.abort(cause));
+    await steps.loop(admission.model);
+    return;
+  }
+  await recording;
+  const failure = await passHostPromptHooks(run, admission, steps.commit);
+  await (failure === undefined ? steps.loop(admission.model) : steps.fail(failure));
+}
+
+/** The run's turn start and the hook files it did not load, committed together. */
+async function recordHostTurnStart(
+  run: HostRunState,
+  admission: HostRunAdmission,
+  commit: HostRunStartSteps['commit']
+): Promise<void> {
   const start = hostTurnStart(run, admission);
   const skips = admission.hookSkips ?? [];
   const recorded: HostEvent[] = [
@@ -208,8 +234,15 @@ async function gatedHostRun(
       : []),
   ];
   if (recorded.length > 0) {
-    await steps.commit(recorded);
+    await commit(recorded);
   }
-  const failure = await passHostPromptHooks(run, admission, steps.commit);
-  await (failure === undefined ? steps.loop(admission.model) : steps.fail(failure));
+}
+
+/**
+ * Resolves once the run's turn start is committed: a tool call waits for it
+ * before its decision, and the run's end before its terminal rows, so the
+ * start always precedes the run's first effect and its turn end.
+ */
+export async function joinHostTurnStart(run: HostRunState): Promise<void> {
+  await run.turnStarting;
 }

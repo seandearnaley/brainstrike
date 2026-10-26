@@ -383,6 +383,8 @@ export interface HostRunState {
       type: 'workspace.snapshot.recorded';
     }
   >;
+  /** The run's turn start while it is still being recorded beside its first request. */
+  turnStarting?: Promise<void>;
 }
 /**
  * Core's runs by run ID, which also keeps each thread's runs in the order they

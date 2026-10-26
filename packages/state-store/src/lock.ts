@@ -18,7 +18,8 @@
 //
 // Owner identity = { pid, start, host, root, token }. `start` is the OS-reported start time of `pid`, read the SAME way
 // for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse:
-//   darwin/linux: `ps -o lstart= -p <pid>` with LC_ALL=C TZ=UTC (1 s resolution);
+//   darwin: `ps -o lstart= -p <pid>` with LC_ALL=C TZ=UTC (1 s resolution);
+//   linux: the same text, computed from /proc as procps computes it, so no process is started per read;
 //   win32: the creation time from GetProcessTimes (100 ns FILETIME).
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -89,7 +90,12 @@ export function processStartTime(pid: number): string | null {
   if (pid === process.pid && ownStart !== undefined) {
     return ownStart; // a process's own start time never changes
   }
-  const start = process.platform === 'win32' ? windowsStartTime(pid) : posixStartTime(pid);
+  const start =
+    process.platform === 'win32'
+      ? windowsStartTime(pid)
+      : process.platform === 'linux'
+        ? linuxStartTime(pid)
+        : posixStartTime(pid);
   if (pid === process.pid) {
     ownStart = start;
   }
@@ -102,6 +108,64 @@ function psEnv(): NodeJS.ProcessEnv {
   env['LC_ALL'] = 'C';
   env['TZ'] = 'UTC';
   return env;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const;
+/** Linux reports /proc times in USER_HZ, which is 100 on every architecture (`man 5 proc`). */
+const LINUX_USER_HZ = 100;
+
+/**
+ * The `ps -o stat=,lstart=` reading of {@link posixStartTime}, without starting `ps`: procps
+ * computes `lstart` as the boot time (`btime` in /proc/stat, read fresh as procps reads it) plus
+ * the process's start in clock ticks (field 22 of /proc/<pid>/stat), printed as `ctime` in UTC.
+ * Every host process records and checks its native children this way, so a `ps` per spawn kept
+ * the host's event loop blocked for each git command on a slow machine.
+ */
+function linuxStartTime(pid: number): string | null {
+  // Read first: without /proc the identity source is unavailable, which never implies a stale owner.
+  const bootTime = Number(/^btime (\d+)$/mu.exec(readFileSync('/proc/stat', 'utf8'))?.[1]);
+  let stat: string;
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch (e) {
+    if (e !== null && typeof e === 'object' && 'code' in e && e.code === 'ENOENT') {
+      return null; // /proc is readable, and it has no such process
+    }
+    throw e;
+  }
+  // `comm` (field 2) is parenthesized and may hold spaces or parentheses; fields 3+ follow the last ')'.
+  const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+  // A zombie has exited and holds nothing (BST-2106), as in posixStartTime.
+  if (fields[0] === 'Z') {
+    return null;
+  }
+  const startTicks = Number(fields[19]);
+  if (!(Number.isSafeInteger(startTicks) && Number.isSafeInteger(bootTime))) {
+    throw new Error(`Unreadable start time in /proc for pid ${pid}`);
+  }
+  const started = new Date((bootTime + Math.floor(startTicks / LINUX_USER_HZ)) * 1000);
+  const two = (value: number): string => String(value).padStart(2, '0');
+  return [
+    WEEKDAYS[started.getUTCDay()],
+    MONTHS[started.getUTCMonth()],
+    String(started.getUTCDate()).padStart(2, ' '),
+    `${two(started.getUTCHours())}:${two(started.getUTCMinutes())}:${two(started.getUTCSeconds())}`,
+    started.getUTCFullYear(),
+  ].join(' ');
 }
 
 function posixStartTime(pid: number): string | null {

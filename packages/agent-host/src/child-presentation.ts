@@ -75,35 +75,75 @@ export function hostChildCallSign(threadId: string): string {
   return `${name}-${digest.toString('hex').slice(0, 6)}`;
 }
 
+/** One child of a root tree, in creation order. */
+export interface HostChildColorEntry {
+  readonly parentThreadId: string;
+  readonly threadId: string;
+}
+
+/** A root tree's allocated family colours and the children they were allocated for. */
+export interface HostChildColoring {
+  readonly children: readonly HostChildColorEntry[];
+  readonly colors: ReadonlyMap<string, AgentColor>;
+  readonly root: AgentColor;
+}
+
 /**
  * The family colour of each child under one root, in creation order: each
  * child's colour stays near its parent's and apart from the root and every
- * child created before it, as each was coloured when it started.
+ * child created before it, as each was coloured when it started. A child's
+ * colour depends only on the root's colour and the children before it, so a
+ * `previous` allocation over a prefix of `children` is kept and only the
+ * children after it are allocated.
  */
 export function hostChildColors(
   rootThreadId: string,
   rootColor: string | undefined,
-  children: readonly { readonly parentThreadId: string; readonly threadId: string }[]
-): ReadonlyMap<string, AgentColor> {
+  children: readonly HostChildColorEntry[],
+  previous?: HostChildColoring
+): HostChildColoring {
   const root = rootColor ?? DEFAULT_ROOT_COLOR;
   if (!isAgentColor(root)) {
     throw new Error('The root conversation colour is not an agent colour.');
   }
-  const colors = new Map<string, AgentColor>([[rootThreadId, root]]);
+  const kept = previous && isColoredPrefix(previous, root, children) ? previous : undefined;
+  const colors = new Map<string, AgentColor>(kept?.colors ?? [[rootThreadId, root]]);
   const occupied: AgentColor[] = [root];
-  for (const child of children) {
+  for (const [index, child] of children.entries()) {
+    const assigned = kept && index < kept.children.length ? colors.get(child.threadId) : undefined;
+    if (assigned) {
+      occupied.push(assigned);
+      continue;
+    }
     const parent = colors.get(child.parentThreadId);
     if (!parent) {
       throw new Error('A child conversation was created before its parent.');
     }
     const siblings = children.flatMap((sibling) => {
-      const assigned =
+      const taken =
         sibling.parentThreadId === child.parentThreadId ? colors.get(sibling.threadId) : undefined;
-      return assigned ? [assigned] : [];
+      return taken ? [taken] : [];
     });
     const color = createAgentFamilyColor(parent, child.threadId, siblings, occupied);
     colors.set(child.threadId, color);
     occupied.push(color);
   }
-  return colors;
+  return { children: [...children], colors, root };
+}
+
+/** `previous` coloured these same first children under this same root colour. */
+function isColoredPrefix(
+  previous: HostChildColoring,
+  root: AgentColor,
+  children: readonly HostChildColorEntry[]
+): boolean {
+  return (
+    previous.root === root &&
+    previous.children.length <= children.length &&
+    previous.children.every(
+      (child, index) =>
+        child.threadId === children[index]?.threadId &&
+        child.parentThreadId === children[index]?.parentThreadId
+    )
+  );
 }

@@ -1,9 +1,9 @@
 // M0-A1 guard of the lock's start-time source on every platform (spike test/m0-dir-lock-start.test.ts). Windows:
-// native GetProcessTimes; POSIX: ps -o lstart. The pid-reuse test derives "the real start"
+// native GetProcessTimes; macOS: ps -o lstart; Linux: the same text from /proc. The pid-reuse test derives "the real start"
 // through the same function, so it cannot catch a wrong source (a constant passes it); this test checks the value
 // against the real spawn time.
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { createInterface } from 'node:readline';
@@ -48,11 +48,31 @@ test('L-gone: an exited pid has no start time (null), it does not throw', async 
   expect(processStartTime(p.pid as number)).toBeNull();
 }, 60_000);
 
-// An unavailable OS identity source must never be interpreted as a dead owner. Both sources fail here (`ps`, and the
-// Windows process-identity addon), so whichever one this OS reads is the one that is unavailable.
+// Linux reads /proc instead of starting `ps` for every native child; the text must stay the one `ps` prints, so a
+// start recorded either way still matches.
+test.skipIf(process.platform === 'win32')(
+  'L-ps: a process start time reads exactly as ps -o lstart reports it',
+  async () => {
+    const a = await live();
+    try {
+      const ps = execFileSync('ps', ['-o', 'lstart=', '-p', String(a.pid)], {
+        encoding: 'utf8',
+        env: { ...process.env, ['LC_ALL']: 'C', ['TZ']: 'UTC' },
+      }).trim();
+      expect(processStartTime(a.pid)).toBe(ps);
+    } finally {
+      a.kill();
+    }
+  },
+  60_000
+);
+
+// An unavailable OS identity source must never be interpreted as a dead owner. Every source fails here (`ps`, /proc
+// and the Windows process-identity addon), so whichever one this OS reads is the one that is unavailable.
 test('L-error: an unavailable identity source rejects identity instead of claiming the pid is gone', () => {
   const require = createRequire(import.meta.url);
   const cp = require('node:child_process') as typeof import('node:child_process');
+  const fs = require('node:fs') as typeof import('node:fs');
   const windowsIdentity = require('@brainstrike/windows-job-native') as {
     getProcessCreationTime: (pid: number) => string | null;
   };
@@ -60,14 +80,17 @@ test('L-error: an unavailable identity source rejects identity instead of claimi
     throw Object.assign(new Error('identity source unavailable'), { code: 'ENOENT' });
   };
   const originalPs = cp.execFileSync;
+  const originalProc = fs.readFileSync;
   const originalWindows = windowsIdentity.getProcessCreationTime;
   (cp as { execFileSync: unknown }).execFileSync = unavailable;
+  (fs as { readFileSync: unknown }).readFileSync = unavailable;
   windowsIdentity.getProcessCreationTime = unavailable;
   syncBuiltinESMExports();
   try {
     expect(() => processStartTime(99_999_999)).toThrow(/identity source unavailable/);
   } finally {
     (cp as { execFileSync: unknown }).execFileSync = originalPs;
+    (fs as { readFileSync: unknown }).readFileSync = originalProc;
     windowsIdentity.getProcessCreationTime = originalWindows;
     syncBuiltinESMExports();
   }
