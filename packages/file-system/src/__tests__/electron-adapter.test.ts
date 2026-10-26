@@ -487,7 +487,7 @@ describe('ElectronFileSystemAdapter', () => {
         const actual = await importOriginal<typeof import('../adapters/root-watchers.js')>();
         return {
           ...actual,
-          startParcelWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {
+          startRootWatch: (_handle: unknown, onChanges: (changes: unknown[]) => void) => {
             captured.callback = onChanges;
             return Promise.resolve(() => undefined);
           },
