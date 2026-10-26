@@ -10,12 +10,16 @@ import {
 } from './client-connection.ts';
 
 export type { HostClient, HostClientExpectation } from './client-connection.ts';
-/** The owning bridge supplies what to expect of the host and reports the port's lifetime. */
+/**
+ * The owning bridge supplies what to expect of the host and reports when the far end
+ * disconnects. Closing this end closes the client too, without waiting for that report.
+ */
 export function attachBrowserHost(
   port: MessagePort,
   expected: HostClientExpectation,
-  closed: Promise<void>
+  disconnected: Promise<void>
 ): Promise<HostClient> {
+  const closedHere = Promise.withResolvers<void>();
   const connection = createMessageConnection(
     new BrowserMessageReader(port),
     new BrowserMessageWriter(port)
@@ -26,7 +30,8 @@ export function attachBrowserHost(
     expected,
     async () => {
       port.close();
+      closedHere.resolve();
     },
-    closed
+    Promise.race([disconnected, closedHere.promise])
   );
 }

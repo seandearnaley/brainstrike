@@ -131,16 +131,11 @@ export function createDesktopHostConnection(
   };
   const close = (): Promise<void> => {
     closing ??= (async () => {
-      const pending = attempt;
       const connected = state.kind === 'connected' ? state.client : undefined;
       publish({ kind: 'closed' });
-      // A connected client closes now; an attempt still in flight closes its own on arrival.
-      const [settled] = await Promise.allSettled([pending]);
-      const client = connected ?? (settled?.status === 'fulfilled' ? settled.value : undefined);
-      if (client) {
-        await client.close();
-        await client.closed;
-      }
+      // A connected client closes its own end now; the frame never waits on Main for it.
+      // An attempt still in flight closes its own client on arrival.
+      await connected?.close();
     })();
     return closing;
   };

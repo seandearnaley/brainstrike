@@ -133,4 +133,23 @@ describe('desktop host connection (BST-2004)', () => {
     expect(connection.getSnapshot()).toEqual({ kind: 'closed' });
     await expect(connection.current()).rejects.toThrow('closing');
   });
+
+  it('closes while Main never answers its connect, and closes the late client itself', async () => {
+    const late = liveClient();
+    const answer = Promise.withResolvers<HostClient>();
+    const connection = createDesktopHostConnection(() => answer.promise);
+    const attempt = connection.current();
+    attempt.catch(() => undefined);
+    // Main is busy (preparing its own close): the frame's close does not wait for it.
+    const closed = await Promise.race([
+      connection.close().then(() => 'closed'),
+      new Promise((resolve) => setImmediate(resolve, 'waiting on Main')),
+    ]);
+    expect(closed).toBe('closed');
+    expect(connection.getSnapshot()).toEqual({ kind: 'closed' });
+    // A client Main hands over afterwards is closed on arrival, never published.
+    answer.resolve(late.client);
+    await expect(attempt).rejects.toThrow('closing');
+    expect(late.client.close).toHaveBeenCalledOnce();
+  });
 });
