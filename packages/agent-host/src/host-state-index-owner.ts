@@ -124,41 +124,36 @@ export function createStateIndexOwner(options: {
       });
     }
   };
-  const start = async (): Promise<Live> => {
-    for (let rebuilt = false; ; rebuilt = true) {
-      if (closed) {
-        throw closingError();
-      }
-      let connection: IndexerConnection;
-      try {
-        connection = options.start();
-      } catch (cause) {
-        // No worker exists to own; the next advance replaces it as it would a retired one.
-        state = { cause, kind: 'stopped' };
-        throw cause;
-      }
-      state = { connection, kind: 'starting' };
-      try {
-        const live: Live = { connection, kind: 'live', port: await connection.ready };
-        state = live;
-        return live;
-      } catch (cause) {
-        // A failed start is a retired worker: the next advance joins its exit.
-        state = { cause, connection, kind: 'retired' };
-        if (rebuilt || !isRebuildRequired(cause)) {
-          throw cause;
-        }
-        // The index is derived from the state log, so the host rebuilds a store whose
-        // derived identity changed (for example its memory resource grants). Vectors
-        // of a superseded identity are not recoverable and are not carried over.
-        await join(connection);
-        state = { kind: 'idle' };
-        logger.warn('Rebuilding the host state index from the state log', {
-          code: 'host_state_index_rebuilt',
-          reason: cause.message,
-        });
-        await removeFiles();
-      }
+  /**
+   * Starts one worker. `rebuild` first removes the derived index files: the index is derived
+   * from the state log, so a store whose derived identity changed (for example its memory
+   * resource grants) is rebuilt; vectors of a superseded identity are not carried over.
+   */
+  const start = async (rebuild = false): Promise<Live> => {
+    if (closed) {
+      throw closingError();
+    }
+    if (rebuild) {
+      await removeFiles();
+    }
+    let connection: IndexerConnection;
+    try {
+      connection = options.start();
+    } catch (cause) {
+      // No worker exists to own; the next advance replaces it as it would a retired one.
+      state = { cause, kind: 'stopped' };
+      throw cause;
+    }
+    state = { connection, kind: 'starting' };
+    try {
+      const live: Live = { connection, kind: 'live', port: await connection.ready };
+      state = live;
+      return live;
+    } catch (cause) {
+      // A failed start is a retired worker, refused at once. A `rebuild-required` one is rebuilt
+      // by the next advance, after its exit.
+      state = { cause, connection, kind: 'retired' };
+      throw cause;
     }
   };
   const replace = async (
@@ -196,8 +191,15 @@ export function createStateIndexOwner(options: {
       limit: STATE_INDEX_REPLACEMENTS,
     });
     state = { cause: previous.cause, kind: 'stopped' };
+    const rebuild = isRebuildRequired(previous.cause);
+    if (rebuild) {
+      logger.warn('Rebuilding the host state index from the state log', {
+        code: 'host_state_index_rebuilt',
+        reason: previous.cause.message,
+      });
+    }
     try {
-      return await start();
+      return await start(rebuild);
     } catch (cause) {
       throw closed ? cause : retiredFailure(cause);
     }

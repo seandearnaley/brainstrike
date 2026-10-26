@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createIndexerConnection, type IndexerTransport } from '@brainstrike/indexer/transport';
 import { expect, it, vi } from 'vitest';
@@ -38,8 +41,8 @@ interface FakeWorker {
   /** False: it refuses termination, as Windows does for a process already exiting; it exits on `crash`. */
   killable: boolean;
   kills: number;
-  /** How its startup ends: ready, a startup error (which retires it), or never. */
-  readonly starts: 'ready' | 'error' | 'never';
+  /** How its startup ends: ready, a startup error (which retires it), a stale index, or never. */
+  readonly starts: 'ready' | 'error' | 'rebuild' | 'never';
 }
 
 function fake(
@@ -103,6 +106,11 @@ function transport(worker: FakeWorker): IndexerTransport {
         } else if (worker.starts === 'error') {
           deliver({
             error: { code: 'open-failed', message: 'Store did not open.' },
+            kind: 'startup-error',
+          });
+        } else if (worker.starts === 'rebuild') {
+          deliver({
+            error: { code: 'rebuild-required', message: 'Stored index identity changed.' },
             kind: 'startup-error',
           });
         }
@@ -445,4 +453,38 @@ it('a request after a faulted worker that has not exited is refused at once, and
   await expect(index.port.stateHealth()).resolves.toEqual(healthy);
   expect(starts()).toBe(2);
   await index.close();
+});
+
+// ADR-0031: a stale index is refused at once; it is rebuilt by the first request after its worker's exit.
+it('a start that needs a rebuild is refused at once, and the first request after its exit rebuilds', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'state-index-rebuild-'));
+  try {
+    const stalePath = join(dir, 'state-index.sqlite');
+    writeFileSync(stalePath, 'stale');
+    const stale = fake(['serve'], { killable: false, starts: 'rebuild' });
+    const workers = [stale, fake(['serve'])];
+    let starts = 0;
+    const index = createStateIndexOwner({
+      dbPath: stalePath,
+      start: () => {
+        const worker = workers[Math.min(starts, workers.length - 1)] ?? fake(['serve']);
+        starts += 1;
+        return createIndexerConnection(options, deadlines, transport(worker));
+      },
+    });
+    await expect(index.open()).rejects.toMatchObject({ code: 'rebuild-required' });
+    // Its worker has not exited: nothing is removed or started beside it.
+    await expect(index.port.stateHealth()).rejects.toMatchObject(typed('state-index.unavailable'));
+    expect(existsSync(stalePath)).toBe(true);
+    expect(starts).toBe(1);
+
+    stale.crash();
+    await settle();
+    await expect(index.port.stateHealth()).resolves.toEqual(healthy);
+    expect(existsSync(stalePath)).toBe(false);
+    expect(starts).toBe(2);
+    await index.close();
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
 });
