@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/indexer';
 
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
+import { requiresRebuild } from './native-index-lifecycle';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
 
@@ -385,13 +386,19 @@ export function createNativeIndexRuntime<Attachment>(
       if (destroy && !indexOwner) {
         // Clear Content also owns an inactive on-disk index. Borrow the existing
         // writer with no source/query authority, then destroy through its close join.
+        // A writer that refused its file (a damaged or older index) still destroys
+        // it: that file is the one this removes.
         await acquireProfile({ indexIndependent: true });
         indexOwner = await dependencies.createIndexOwner({
           fileBindings: [],
           rootIds: [],
           scopes: [],
         });
-        await indexOwner.start();
+        await indexOwner.start().catch((error: unknown) => {
+          if (!requiresRebuild(error)) {
+            throw error;
+          }
+        });
       }
       if (destroy && indexOwner) {
         if (!indexOwner.destroy) {

@@ -567,7 +567,7 @@ export const NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE =
   'Rebuild it in Settings, Search & Indexing. Chats, folders and settings are kept.';
 
 /** The store refused to open its file, so only an explicit rebuild serves again. */
-function requiresRebuild(error: unknown): boolean {
+export function requiresRebuild(error: unknown): boolean {
   for (let current = error; current instanceof Error; current = current.cause) {
     if (current.name === 'IndexerError' && Reflect.get(current, 'code') === 'rebuild-required') {
       return true;
