@@ -12,7 +12,8 @@ export interface DesktopProfileRuntime<Attachment> {
   isRetiring(): boolean;
   /** Why the profile's last host start failed, until a start succeeds. */
   lastFailure(): { readonly cause: unknown } | undefined;
-  retire(beforeClose?: Promise<void>, reason?: unknown): Promise<void>;
+  /** Closes the current host at once; `beside` runs alongside that close and is joined. */
+  retire(beside?: Promise<void>, reason?: unknown): Promise<void>;
   retireFailed(): Promise<boolean>;
 }
 
@@ -46,7 +47,8 @@ export function createDesktopProfileRuntime<Attachment>(
   };
   const create = (): ProfileOwner<Attachment> => {
     const created: ProfileOwner<Attachment> = createOwner(() => {
-      if (retirement || owner !== created) {
+      // An intended retirement closes its own owner, from the moment it is asked for.
+      if (retirementPending || retirement || owner !== created) {
         return;
       }
       failedOwner = created;
@@ -120,19 +122,34 @@ export function createDesktopProfileRuntime<Attachment>(
     },
     isRetiring: () => retirement !== undefined,
     lastFailure: () => lastFailure,
-    retire: (beforeClose = Promise.resolve(), reason?: unknown) => {
+    retire: (beside = Promise.resolve(), reason?: unknown) => {
       if (retirement && retirementPending) {
-        return retirement;
+        // A retirement already in flight closes the host; this caller's own work still reports.
+        return Promise.all([retirement, beside]).then(() => undefined);
       }
       retirementPending = true;
       const retiring = (async (): Promise<void> => {
-        await beforeClose;
-        await retireFailed();
-        // Close aborts a startup still in flight and ends once the owner's release
-        // has; reset creates the next profile owner only after it.
-        await owner?.close(reason);
-        owner = undefined;
-        acquisition = undefined;
+        // ADR-0031: the host's close (stdin end, 5 s, kill) starts now. `beside` (the index
+        // close) and a failed owner's release run alongside it, never in front of it. The
+        // owner's close ends a startup in flight; nothing waits on that startup itself.
+        const [closed, besideSettled, failedSettled] = await Promise.allSettled([
+          owner?.close(reason),
+          beside,
+          retireFailed(),
+        ]);
+        if (closed.status === 'fulfilled') {
+          owner = undefined;
+          acquisition = undefined;
+        }
+        const failures = [closed, besideSettled, failedSettled].flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Profile retirement failed');
+        }
+        if (failures.length === 1) {
+          throw failures[0];
+        }
       })();
       retirement = retiring;
       return retiring.then(

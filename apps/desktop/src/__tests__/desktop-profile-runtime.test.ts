@@ -1,3 +1,4 @@
+import { setImmediate as turn } from 'node:timers/promises';
 import { describe, expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 
@@ -111,5 +112,38 @@ describe('desktop profile runtime: retiring during host startup', () => {
     await vi.waitFor(() => expect(retired).toBe(true));
     expect(closeReasons).toEqual([reason]);
     expect(await profile.acquire()).toBe('host-2');
+  });
+});
+
+describe('desktop profile runtime: quit (ADR-0031)', () => {
+  it('asks the host to close while the index close is still pending', async () => {
+    const { createOwner, created } = owners();
+    const profile = createDesktopProfileRuntime(createOwner);
+    await profile.acquire();
+    const indexClose = Promise.withResolvers<void>();
+
+    const retiring = profile.retire(indexClose.promise);
+    // Every pending reaction runs; the index close is still open.
+    await turn();
+    expect(created[0]?.close).toHaveBeenCalledOnce();
+
+    indexClose.resolve();
+    await retiring;
+  });
+
+  it('a second retirement joins the first and still reports its own index close failing', async () => {
+    const { createOwner, created } = owners();
+    const profile = createDesktopProfileRuntime(createOwner);
+    await profile.acquire();
+    const hostClose = Promise.withResolvers<void>();
+    created[0]?.close.mockImplementation(() => hostClose.promise);
+
+    const quit = profile.retire();
+    const index = profile.retire(Promise.reject(new Error('index close failed')));
+    hostClose.resolve();
+
+    await quit;
+    await expect(index).rejects.toThrow('index close failed');
+    expect(created[0]?.close).toHaveBeenCalledOnce();
   });
 });

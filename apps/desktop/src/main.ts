@@ -367,19 +367,18 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
     // Finish an accepted content clear; terminal quit cancels replacement startup.
     'factory-reset': () => contentClear.close(),
     owners: {
+      // First, and never behind another owner (ADR-0031): the agent host's stdin ends, a 5 s
+      // grace, then a kill. The index's own retirement joins this close.
+      'agent-host': () => desktopBootstrap.profile.retire(),
+      'agent-host-clients': () => agentHostClientIpc.close(),
       'embedding-host': () => embeddingHostManager.dispose(),
       'file-system': () => applicationIpcDomain.close(),
       'main-catalog': () =>
         prepareMainCatalogClose(applicationIpcDomain.roots, workspaceRootCatalog),
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
-      // The agent host: its stdin ends, a 5 s grace, then a kill.
-      'native-index': async () => {
-        // Fence profile admission before refusing the renderer's in-flight host connects:
-        // a host start that fails during shutdown is then never retried as a second host.
-        await nativeIndexActivation.close();
-        await agentHostClientIpc.close();
-      },
+      // Fences profile admission: a host start that fails during shutdown is never retried.
+      'native-index': () => nativeIndexActivation.close(),
       'process-sampler': () => {
         processCounterSampler.stop();
       },

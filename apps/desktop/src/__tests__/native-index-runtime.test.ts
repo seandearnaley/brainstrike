@@ -2,6 +2,7 @@
 import { IndexerError } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
+import { isHostLeaseClosed } from '../desktop-shutdown-state';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { isolateNativeCoverage } from '../native-coverage-reader';
 import type { NativeIndexAuthority } from '../native-index-runtime';
@@ -95,43 +96,42 @@ it('keeps failed physical profile retirement visible to assistant admission', as
   expect(f.acquireProfile).toHaveBeenCalledOnce();
 });
 
-it('joins a late profile attachment during retirement without returning it to a client', async () => {
+it('starts no host for an acquisition still waiting when retirement begins', async () => {
   const f = fixture();
-  const pending = Promise.withResolvers<typeof f.profileAttachment>();
-  f.acquireProfile.mockReturnValueOnce(pending.promise);
   const acquiring = f.runtime.acquireProfile();
   const observed = acquiring.catch((cause: unknown) => cause);
   const retiring = f.runtime.retireProfile();
-  expect(f.closeProfile).not.toHaveBeenCalled();
-  pending.resolve(f.profileAttachment);
-  expect(await observed).toMatchObject({
-    message: 'Native profile ownership closed during startup.',
-  });
+  expect(isHostLeaseClosed(await observed)).toBe(true);
   await retiring;
-  expect(f.closeProfile).toHaveBeenCalledOnce();
+  expect(f.acquireProfile).not.toHaveBeenCalled();
 });
 
-it('retains profile ownership until readers and writer have both exited', async () => {
+it('closes the host beside the index close, and reopens only after both', async () => {
   const f = fixture();
   await f.runtime.acquire();
-  await f.runtime.closeIndex();
-  expect(f.closeProfile).not.toHaveBeenCalled();
-  await expect(f.runtime.acquire()).rejects.toThrow('admission is closed');
-  await f.runtime.retireProfile();
-  expect(f.events.slice(-3)).toEqual(['writer-close', 'readers-close', 'profile-close']);
+  const readersClosing = Promise.withResolvers<void>();
+  f.closeQueries.mockImplementationOnce(() => readersClosing.promise);
+  const retiring = f.runtime.retireProfile();
+  // ADR-0031: the host's close never waits on the index's readers or writer.
+  await vi.waitFor(() => expect(f.closeProfile).toHaveBeenCalledOnce());
+  expect(f.closeWriter).not.toHaveBeenCalled();
+  await expect(f.runtime.resume()).rejects.toThrow('Previous native ownership');
+  readersClosing.resolve();
+  await retiring;
+  expect(f.closeWriter).toHaveBeenCalledOnce();
   await f.runtime.resume();
   await f.runtime.acquire();
   expect(f.createIndexOwner).toHaveBeenCalledTimes(2);
 });
 
-it('retains the writer and lease when reader cleanup fails, then retries the same owner', async () => {
+it('retains the writer when reader cleanup fails, closes the host anyway, then retries the same owner', async () => {
   const f = fixture();
   await f.runtime.acquire();
   const cause = new Error('reader utility did not exit');
   f.closeQueries.mockRejectedValueOnce(cause);
   await expect(f.runtime.retireProfile()).rejects.toBe(cause);
   expect(f.closeWriter).not.toHaveBeenCalled();
-  expect(f.closeProfile).not.toHaveBeenCalled();
+  expect(f.closeProfile).toHaveBeenCalledOnce();
   await expect(f.runtime.resume()).rejects.toThrow('Previous native ownership');
   await f.runtime.retireProfile();
   expect(f.closeWriter).toHaveBeenCalledTimes(1);
@@ -442,12 +442,12 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
       await expect(capability.status()).resolves.toMatchObject({ kind: 'unavailable' });
       expect(opened).toBe(1);
       expect(f.closeWriter).not.toHaveBeenCalled();
-      expect(f.closeProfile).not.toHaveBeenCalled();
+      // ADR-0031: the host closes at once; only the index's writer waits for its readers.
+      expect(f.closeProfile).toHaveBeenCalledOnce();
       release.resolve();
       await closingReader.promise;
       expect(settled).toBe(false);
       expect(f.closeWriter).not.toHaveBeenCalled();
-      expect(f.closeProfile).not.toHaveBeenCalled();
       exitedReader.resolve();
       const observation = await pending;
       if (mode === 'invalidated') {
@@ -464,7 +464,6 @@ it.each(['invalidated', 'native-error', 'cleanup-error'] as const)(
         f.events.indexOf('coverage-settled')
       );
       expect(f.events.indexOf('coverage-settled')).toBeLessThan(f.events.indexOf('writer-close'));
-      expect(f.events.indexOf('writer-close')).toBeLessThan(f.events.indexOf('profile-close'));
       await f.runtime.resume();
       generation += 1;
       const fresh = await capability.coverageBatch([{ rootIds: ['root'] }]);

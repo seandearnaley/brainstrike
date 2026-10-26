@@ -20,7 +20,7 @@ test('inactive collection cleanup acquires the same writer without saved setting
   await f.runtime.retireProfile();
 });
 
-test('terminal retirement joins an admitted cleanup before closing its physical writer and profile', async () => {
+test('terminal retirement joins an admitted cleanup before closing its physical writer, and closes the host beside it', async () => {
   const f = nativeRuntimeFixture();
   await f.runtime.closeIndex();
   const starting = Promise.withResolvers<void>();
@@ -41,12 +41,13 @@ test('terminal retirement joins an admitted cleanup before closing its physical 
   await Promise.resolve();
   expect(finished).toBe(false);
   expect(f.closeWriter).not.toHaveBeenCalled();
+  // ADR-0031: the host's close never waits on the index's cleanup.
+  expect(f.closeProfile).toHaveBeenCalledOnce();
   starting.resolve();
   await cleaning;
   await retirement;
   expect(f.closeWriter).toHaveBeenCalledOnce();
   expect(f.closeProfile).toHaveBeenCalledOnce();
-  expect(f.events.indexOf('writer-close')).toBeLessThan(f.events.indexOf('profile-close'));
 });
 
 test('failed cleanup writer release remains owned until an explicit close succeeds', async () => {

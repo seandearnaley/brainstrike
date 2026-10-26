@@ -7,6 +7,8 @@ import {
 
 /** Main's quit owners, as main.ts plans them. */
 const OWNERS = [
+  'agent-host',
+  'agent-host-clients',
   'embedding-host',
   'file-system',
   'main-catalog',
@@ -112,7 +114,7 @@ describe('desktop graceful shutdown', () => {
     const host = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const { events, options } = createHarness({
-      'native-index': async () => {
+      'agent-host': async () => {
         entered.resolve();
         await host.promise;
       },
