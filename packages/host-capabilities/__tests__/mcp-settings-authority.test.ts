@@ -546,6 +546,21 @@ describe('MCP settings authority shutdown and snapshot', () => {
     });
   });
 
+  it('closes while a discovery is still running, and the late discovery publishes nothing', async () => {
+    const held = Promise.withResolvers<ReturnType<typeof toolList>>();
+    const h = await setup({ listTools: async () => await held.promise });
+    await h.writeConfig([stdioServer('slow')]);
+    const started = h.authority.start();
+    await vi.waitFor(() => expect(h.invoke).toHaveBeenCalled());
+
+    await h.authority.close();
+
+    held.resolve(toolList('late'));
+    await started.catch(() => undefined);
+    expect(enabledById()).toEqual({});
+    expect(h.toolsEvents()).toEqual([]);
+  }, 10_000);
+
   it('stops the watcher, clears the registry and refuses later operations on close', async () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.writeConfig([stdioServer('fs')]);

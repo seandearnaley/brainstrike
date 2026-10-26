@@ -479,10 +479,14 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     }
   }
 
-  /** Host shutdown: retire the lifecycle and join its work. The runtime closes with its owner. */
+  /**
+   * Host shutdown: retire the lifecycle and return (ADR-0031). Work still in
+   * flight, such as a discovery spawning and listing every server, is never
+   * joined: the retired epochs keep it from publishing, and the runtime, which
+   * closes with its owner, ends it.
+   */
   async close(): Promise<void> {
     const failures = this.#beginCleanup();
-    await this.#barrier;
     this.#pendingFactoryResetSnapshot = null;
     this.#purgeProjection();
     this.#listeners.clear();
