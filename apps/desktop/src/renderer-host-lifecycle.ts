@@ -69,13 +69,25 @@ function createLifecycleDisposedError(role: Exclude<DesktopWindowRole, 'visible-
 }
 
 function isLifecycleDisposedError(error: unknown): boolean {
+  return hasErrorCode(error, RENDERER_HOST_LIFECYCLE_DISPOSED_CODE);
+}
+
+/** The lifecycle's owner destroyed the host on purpose, so the owner reports the outcome. */
+class HostDestroyedError extends Error {
+  constructor(role: Exclude<DesktopWindowRole, 'visible-ui'>) {
+    super(`${role} was stopped before its state transition completed.`);
+    this.name = 'HostDestroyedError';
+  }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
   return (
     error instanceof Error &&
     (
       error as Error & {
         code?: string;
       }
-    ).code === RENDERER_HOST_LIFECYCLE_DISPOSED_CODE
+    ).code === code
   );
 }
 
@@ -189,7 +201,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
           (status) => status.state === 'running' || status.state === 'error'
         );
       } catch (error) {
-        if (isLifecycleDisposedError(error)) {
+        if (isLifecycleDisposedError(error) || error instanceof HostDestroyedError) {
           return this.getStatus();
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -289,7 +301,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       this.rejectPendingStatusWaiters(
         this.disposed
           ? createLifecycleDisposedError(this.options.role)
-          : this.createWindowClosedError()
+          : new HostDestroyedError(this.options.role)
       );
     }
     if (window && !window.isDestroyed()) {

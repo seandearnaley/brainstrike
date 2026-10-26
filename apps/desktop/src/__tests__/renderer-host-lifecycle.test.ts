@@ -1122,7 +1122,9 @@ describe('RendererHostLifecycle', () => {
     const lost = lifecycle.waitForStatus((status) => status.state === 'running');
     const lostFailure = lost.catch((error: unknown) => error);
     lifecycle.destroyHostWindow();
-    expect(((await lostFailure) as Error).message).toContain('window closed');
+    expect(((await lostFailure) as Error).message).toContain(
+      'was stopped before its state transition completed'
+    );
     const disposed = lifecycle.waitForStatus((status) => status.state === 'running');
     const disposedFailure = disposed.catch((error: unknown) => error);
     expect(statusListenerCount(lifecycle)).toBe(1);
@@ -1187,6 +1189,32 @@ describe('RendererHostLifecycle', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('ends startup with the stop it was asked for when its host is destroyed before it reports', async () => {
+    const hostWindow = createFakeWindow(74);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [hostWindow]) });
+    const lifecycle = createWaitLifecycle();
+
+    const startup = lifecycle.ensureStarted({ waitForRunning: true });
+    await vi.waitFor(() => expect(statusListenerCount(lifecycle)).toBe(1));
+    lifecycle.destroyHostWindow();
+    lifecycle.setStatus(
+      createStatus({
+        active: false,
+        lastError: null,
+        runtimeId: 'embedding-host:stopped',
+        state: 'stopped',
+      })
+    );
+
+    await expect(startup).resolves.toMatchObject({ lastError: null, state: 'stopped' });
+    expect(lifecycle.getStatus()).toMatchObject({ lastError: null, state: 'stopped' });
+    expect(statusListenerCount(lifecycle)).toBe(0);
   });
 
   it('releases the readiness wait when making its result snapshot throws', async () => {
