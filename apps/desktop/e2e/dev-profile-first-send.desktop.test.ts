@@ -17,6 +17,7 @@ import {
   ordinaryDevLaunchConfiguration,
   prepareOrdinaryDevApp,
 } from './utils/ordinary-dev-app';
+import { runViteCache } from './utils/run-vite-cache';
 
 async function newThread(page: Page): Promise<void> {
   const tabs = page.getByRole('tablist', { name: 'Open assistant threads' });
@@ -131,7 +132,7 @@ const test = base.extend<{ ordinaryDev: OrdinaryDev }>({
       verifyOpenRouterKey: true,
     });
     const server = await createServer({
-      cacheDir: info.outputPath('.vite'),
+      ...runViteCache(),
       configFile: path.resolve('vite.config.mts'),
       server: { host: '127.0.0.1', port: 0 },
     });

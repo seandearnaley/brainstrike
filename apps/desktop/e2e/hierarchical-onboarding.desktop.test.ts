@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createServer } from 'vite';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
@@ -100,20 +99,9 @@ test('hierarchical research uses two supervisors and four Explorer leaves, creat
     };
   });
   let joined = false;
-  const server = await createServer({
-    configFile: path.resolve('vite.config.mts'),
-    server: { host: '127.0.0.1', port: 0 },
-  });
   try {
-    await server.listen();
-    const rendererUrl = server.resolvedUrls?.local[0];
-    if (!rendererUrl) {
-      throw new Error('Dev renderer URL unavailable');
-    }
     const context = await launchElectronAppWithOptions({
       disableExternalLocalRuntimeProbes: true,
-      env: { ['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']: rendererUrl },
-      launchMode: 'dev-server',
       modelProvider: provider,
       userDataDir: profile,
       workspaceRoot: workspace,
@@ -147,6 +135,8 @@ test('hierarchical research uses two supervisors and four Explorer leaves, creat
       await expect(approve).toBeVisible();
       await approve.click();
       await expect(region.getByText(reply, { exact: true }).first()).toBeVisible();
+      // The pane leaves the running state once the host has committed the root's end.
+      await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
       const tree = await readHostThreadTree(profile);
       const root = tree.find(({ parentThreadId }) => parentThreadId === undefined);
       expect(root).toBeDefined();
@@ -201,7 +191,6 @@ test('hierarchical research uses two supervisors and four Explorer leaves, creat
       expect(child.exitCode).toBe(0);
     }
   } finally {
-    await server.close();
     await provider.close();
     if (joined) {
       await rm(profile, { force: true, recursive: true });
