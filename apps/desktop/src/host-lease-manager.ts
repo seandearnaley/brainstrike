@@ -115,8 +115,6 @@ export interface DesktopHostLease {
   close(reason?: unknown): Promise<void>;
   /** The exit of this lease's ready host, once it has one. */
   hostExited(): Promise<number> | undefined;
-  /** Why this lease's start failed, known as soon as it failed, before its release ends. */
-  startFailure(): { readonly cause: unknown } | undefined;
 }
 
 interface OwnedChild {
@@ -281,7 +279,6 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   const abort = new AbortController();
   let acquiring: Promise<HostClient> | undefined;
   let retired = false;
-  let startFailure: { readonly cause: unknown } | undefined;
   let releasing: Promise<void> | undefined;
   let ownedChild: OwnedChild | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
@@ -370,14 +367,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       retired = true;
       // A startup its own close cancelled settles with that close's typed reason.
       const cause: unknown = abort.signal.aborted ? abort.signal.reason : failure;
-      startFailure = { cause };
-      try {
-        await closeScope();
-      } catch (cleanupCause) {
-        throw new AggregateError([cause, cleanupCause], 'Host acquisition and cleanup failed', {
-          cause,
-        });
-      }
+      // ADR-0031: a refused start is its acquisition's answer the moment the host reports it.
+      // The release goes on; this lease's close joins it and reports a failed cleanup.
+      closeScope().catch(() => undefined);
       throw cause;
     }
   };
@@ -439,6 +431,5 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
         .then(closeScope);
     },
     hostExited: () => (ownedChild?.ready ? ownedChild.exited : undefined),
-    startFailure: () => startFailure,
   };
 }

@@ -258,7 +258,6 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
         return lease.close(reason);
       },
       hostExited: lease.hostExited,
-      startFailure: lease.startFailure,
     };
   });
   return {

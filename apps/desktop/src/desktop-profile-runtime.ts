@@ -6,8 +6,6 @@ interface ProfileOwner<Attachment> {
   close(reason?: unknown): Promise<void>;
   /** The exit of this owner's ready host, once it has one. */
   hostExited?(): Promise<unknown> | undefined;
-  /** Why this owner's start failed, known before its release ends. */
-  startFailure?(): { readonly cause: unknown } | undefined;
 }
 
 export interface DesktopProfileRuntime<Attachment> {
@@ -65,6 +63,12 @@ export function createDesktopProfileRuntime<Attachment>(
     acquire: async (signal) => {
       await retirement;
       signal?.throwIfAborted();
+      if (!owner && failedOwner) {
+        // A failed start answers at once while its release goes on; the next owner starts
+        // against the Root only once that release has ended.
+        await failedOwner.close();
+        signal?.throwIfAborted();
+      }
       owner ??= create();
       const retained = owner;
       acquisition ??= retained.acquire();
@@ -118,8 +122,7 @@ export function createDesktopProfileRuntime<Attachment>(
     },
     hostExited: () => owner?.hostExited?.(),
     isRetiring: () => retirement !== undefined,
-    // A start that failed is known to its owner before its release ends and the acquisition settles.
-    lastFailure: () => lastFailure ?? owner?.startFailure?.(),
+    lastFailure: () => lastFailure,
     retire: (beforeClose = Promise.resolve(), reason?: unknown) => {
       if (retirement && retirementPending) {
         return retirement;
