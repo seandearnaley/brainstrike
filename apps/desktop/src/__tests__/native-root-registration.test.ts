@@ -43,7 +43,7 @@ it('reports and rejects genuine activation failure', async () => {
   expect(f.dependencies.reportError).toHaveBeenCalledWith(expect.any(String), failure);
 });
 
-it('rechecks shutdown after the existing transition queue admits the notification', async () => {
+it('ends quietly when the app quits while the registration waits on the transition queue', async () => {
   const f = fixture();
   const admission = Promise.withResolvers<void>();
   f.dependencies.transition.mockImplementation(async (operation) => {
@@ -53,10 +53,26 @@ it('rechecks shutdown after the existing transition queue admits the notificatio
   const registration = f.registration.rootsRegistered();
   f.dependencies.isShuttingDown.mockReturnValue(true);
   admission.resolve();
-  await expect(registration).rejects.toBeInstanceOf(NativeAuthorityTransitionError);
+  // The roots are committed; the next start's activation reads them.
+  await expect(registration).resolves.toBeUndefined();
   expect(f.dependencies.reconfigureRoots).not.toHaveBeenCalled();
-  expect(f.dependencies.reportError).toHaveBeenCalledWith(
-    expect.any(String),
-    expect.any(NativeAuthorityTransitionError)
-  );
+  expect(f.dependencies.reportError).not.toHaveBeenCalled();
+});
+
+it('ends quietly when the quit retires the index the registration was waiting on', async () => {
+  const f = fixture();
+  f.dependencies.transition.mockImplementation(async () => {
+    f.dependencies.isShuttingDown.mockReturnValue(true);
+    throw new NativeAuthorityTransitionError('Native authority retired during shutdown.');
+  });
+  await expect(f.registration.rootsRegistered()).resolves.toBeUndefined();
+  expect(f.dependencies.reportError).not.toHaveBeenCalled();
+});
+
+it('reports and rejects a transition refusal outside a quit', async () => {
+  const f = fixture();
+  const refusal = new NativeAuthorityTransitionError('Native authority is transitioning.');
+  f.dependencies.transition.mockRejectedValue(refusal);
+  await expect(f.registration.rootsRegistered()).rejects.toBe(refusal);
+  expect(f.dependencies.reportError).toHaveBeenCalledWith(expect.any(String), refusal);
 });
