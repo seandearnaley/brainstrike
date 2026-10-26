@@ -126,6 +126,7 @@ vi.mock('@xterm/addon-web-links', () => {
   return { WebLinksAddon };
 });
 
+import { notifyRootRegistered } from '../roots/root-registration-events';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { TerminalPanel } from '../terminal-panel/terminal-panel';
 
@@ -368,12 +369,12 @@ describe('TerminalPanel', () => {
     );
   });
 
-  it('silently retries create while the workspace root has not reconciled into the DB yet', async () => {
+  it('retries create when the workspace root registers, without an error state', async () => {
     // Right after boot the renderer can be interactive BEFORE roots
     // reconciliation lands the workspace row in the DB; the main process then
     // rejects create with the transient "No open folder matches root id"
-    // error. The panel must keep the starting state and retry — no dead
-    // error state, no toast.
+    // error. The panel must keep the starting state and retry once the root
+    // registers — no dead error state, no toast.
     const create = vi.fn(
       async (): Promise<TerminalResult<{ terminalId: string; cwd: string }>> =>
         ok({ cwd: '/abs/repo', terminalId: 'pty-1' })
@@ -386,10 +387,12 @@ describe('TerminalPanel', () => {
     installBridge({ create: create as TerminalBridge['create'] });
     render(<TerminalPanel />);
 
-    await waitFor(() => expect(create.mock.calls.length).toBeGreaterThanOrEqual(3), {
-      timeout: 5000,
-    });
-    await waitFor(() => expect(lastTerminal().focus).toHaveBeenCalled(), { timeout: 5000 });
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    act(() => notifyRootRegistered(['root-1']));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    act(() => notifyRootRegistered(['root-1']));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(lastTerminal().focus).toHaveBeenCalled());
     expect(screen.queryByTestId('terminal-panel-error')).not.toBeInTheDocument();
     expect(toastSpy).not.toHaveBeenCalled();
   });

@@ -1,13 +1,10 @@
 import { useFileExplorerStoreSelector, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { summarizeGitFailure } from '../git-failure-summary';
-import {
-  isTransientRootError,
-  TRANSIENT_ROOT_RETRY_DELAY_MS,
-  TRANSIENT_ROOT_RETRY_LIMIT,
-} from '../roots/transient-root-error';
+import { onRootRegistered, rootRegistrationSeq } from '../roots/root-registration-events';
+import { isTransientRootError } from '../roots/transient-root-error';
 import { useGitBridge } from '../workspace-git-services';
 import type {
   GitBridge,
@@ -180,11 +177,6 @@ export function useGitPanel(): UseGitPanelResult {
   // Bumped to force a refresh after a mutation or a manual refresh click.
   const [refreshToken, setRefreshToken] = useState(0);
 
-  // Counts consecutive transient "root not reconciled yet" failures so the
-  // silent boot-race retry loop is bounded. Reset on success, on a manual
-  // refresh, and when the focused root changes.
-  const transientRetryCountRef = useRef(0);
-
   const status = statusState?.rootId === activeRootId ? statusState.value : null;
   const repository = repositoryState?.rootId === activeRootId ? repositoryState.value : null;
   const repositoryError =
@@ -195,7 +187,6 @@ export function useGitPanel(): UseGitPanelResult {
     (loadingRootId === activeRootId || statusState?.rootId !== activeRootId);
 
   const refresh = useCallback(() => {
-    transientRetryCountRef.current = 0;
     setRefreshToken((token) => token + 1);
   }, []);
 
@@ -211,7 +202,10 @@ export function useGitPanel(): UseGitPanelResult {
     }
 
     let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelRegistrationWait: (() => void) | null = null;
+    // Captured before the request: only a registration after it can change
+    // Main's answer to a transient "root not registered yet" failure.
+    const registrationSince = rootRegistrationSeq(activeRootId);
     setLoadingRootId(activeRootId);
     setStatusErrorState(null);
 
@@ -222,26 +216,18 @@ export function useGitPanel(): UseGitPanelResult {
           return;
         }
         if (result.ok) {
-          transientRetryCountRef.current = 0;
           setStatusState({ rootId: activeRootId, value: result.value });
           setStatusErrorState(null);
-        } else if (
-          isTransientRootError(result.error) &&
-          transientRetryCountRef.current < TRANSIENT_ROOT_RETRY_LIMIT
-        ) {
+        } else if (isTransientRootError(result.error)) {
           // Boot race: the workspace root row hasn't reconciled into the DB
-          // yet. Keep the loading state and poll again shortly — no error UI,
-          // no toast — until it lands or the retry budget runs out.
-          transientRetryCountRef.current += 1;
-          logger.debug('git status waiting for workspace root reconciliation', {
-            attempt: transientRetryCountRef.current,
+          // yet. Keep the loading state — no error UI, no toast — and reload
+          // once this root's registration lands.
+          logger.debug('git status waiting for workspace root registration', {
             error: result.error,
           });
-          retryTimer = setTimeout(() => {
-            if (!cancelled) {
-              setRefreshToken((token) => token + 1);
-            }
-          }, TRANSIENT_ROOT_RETRY_DELAY_MS);
+          cancelRegistrationWait = onRootRegistered(activeRootId, registrationSince, () => {
+            setRefreshToken((token) => token + 1);
+          });
           return;
         } else {
           setStatusState(null);
@@ -269,18 +255,16 @@ export function useGitPanel(): UseGitPanelResult {
         });
       })
       .finally(() => {
-        // Keep the loading state up while a transient-root retry is pending so
-        // the panel shows "loading", not a flash of empty/error UI.
-        if (!(cancelled || retryTimer)) {
+        // Keep the loading state up while waiting for the root's registration
+        // so the panel shows "loading", not a flash of empty/error UI.
+        if (!(cancelled || cancelRegistrationWait)) {
           setLoadingRootId((rootId) => (rootId === activeRootId ? null : rootId));
         }
       });
 
     return () => {
       cancelled = true;
-      if (retryTimer) {
-        clearTimeout(retryTimer);
-      }
+      cancelRegistrationWait?.();
     };
   }, [bridge, activeRootId, refreshToken, toast]);
 
@@ -329,11 +313,6 @@ export function useGitPanel(): UseGitPanelResult {
       cancelled = true;
     };
   }, [activeRootId, bridge, refreshToken, status?.isRepository, toast]);
-
-  // A different focused root starts with a fresh transient-retry budget.
-  useEffect(() => {
-    transientRetryCountRef.current = 0;
-  }, [activeRootId]);
 
   /**
    * Run a mutating git op, surfacing any failure as a toast + log, and refresh

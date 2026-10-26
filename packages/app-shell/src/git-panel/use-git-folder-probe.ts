@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
-import {
-  isTransientRootError,
-  TRANSIENT_ROOT_RETRY_DELAY_MS,
-  TRANSIENT_ROOT_RETRY_LIMIT,
-} from '../roots/transient-root-error';
+import { onRootRegistered, rootRegistrationSeq } from '../roots/root-registration-events';
+import { isTransientRootError } from '../roots/transient-root-error';
 import type { GitResult, GitStatus } from './git-bridge';
 
 /** What the folder switcher knows about one mounted root's Git state (BST-1897). */
@@ -34,8 +31,8 @@ function toProbe(result: GitResult<GitStatus>): GitFolderProbe {
  * Reads Git status once for each listed root while the switcher is mounted, so
  * it can say which mounted roots are repositories. Only the workspace's own
  * mounted roots are read; no other path is scanned. A root whose row has not
- * reconciled yet is retried on the panel's transient-root budget, then reported
- * as an error rather than dropped.
+ * registered yet stays "checking" and is read again once its registration
+ * lands.
  */
 export function useGitFolderProbe(
   rootIds: readonly string[],
@@ -49,7 +46,7 @@ export function useGitFolderProbe(
       return;
     }
     let cancelled = false;
-    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const pendingWaits = new Set<() => void>();
     const record = (rootId: string, value: GitFolderProbe): void => {
       if (cancelled) {
         return;
@@ -60,18 +57,17 @@ export function useGitFolderProbe(
         return { key, probes };
       });
     };
-    const run = (rootId: string, attempt: number): void => {
+    const run = (rootId: string): void => {
+      // Captured before the request: only a registration after it can change
+      // Main's answer.
+      const since = rootRegistrationSeq(rootId);
       probe(rootId)
         .then((result) => {
           if (cancelled) {
             return;
           }
-          if (
-            !result.ok &&
-            isTransientRootError(result.error) &&
-            attempt < TRANSIENT_ROOT_RETRY_LIMIT
-          ) {
-            timers.add(setTimeout(() => run(rootId, attempt + 1), TRANSIENT_ROOT_RETRY_DELAY_MS));
+          if (!result.ok && isTransientRootError(result.error)) {
+            pendingWaits.add(onRootRegistered(rootId, since, () => run(rootId)));
             return;
           }
           record(rootId, toProbe(result));
@@ -84,12 +80,12 @@ export function useGitFolderProbe(
         });
     };
     for (const rootId of key.split('\n')) {
-      run(rootId, 0);
+      run(rootId);
     }
     return () => {
       cancelled = true;
-      for (const timer of timers) {
-        clearTimeout(timer);
+      for (const cancelWait of pendingWaits) {
+        cancelWait();
       }
     };
   }, [key, probe]);

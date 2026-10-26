@@ -191,7 +191,7 @@ function applyBootReconciliationResult({
     if (kind !== undefined) {
       publishCanonicalKind(descriptor.rootId, kind);
     }
-    // Wakes any `awaitRootRegistration` waiter outside this component subtree
+    // Wakes any `onRootRegistered` wait outside this component subtree
     // (e.g. `useWorkspaceBar`'s MAIN-root resolution) — see
     // `root-registration-events.ts` for why this can't be a React context read.
     // Fires for EVERY successfully-mapped root.

@@ -85,6 +85,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 
 import { GitPanel } from '../git-panel/git-panel';
 import { useGitPanel } from '../git-panel/use-git-panel';
+import { notifyRootRegistered } from '../roots/root-registration-events';
 import { workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 function ok<T>(value: T): GitResult<T> {
@@ -377,7 +378,7 @@ describe('GitPanel focused folder (BST-1897)', () => {
     );
   });
 
-  it('keeps checking a folder whose root has not reconciled yet', async () => {
+  it('keeps checking a folder whose root has not registered yet, then reads it once it does', async () => {
     openWorkspace([PARENT, CHILD], PARENT.rootId);
     let childCalls = 0;
     installBridge({
@@ -395,9 +396,10 @@ describe('GitPanel focused folder (BST-1897)', () => {
       name: 'Show app in Git (/work/projects/app)',
     });
     expect(child).toHaveAccessibleDescription('Checking for a Git repository…');
-    await waitFor(() => expect(child).toHaveAccessibleDescription('Git repository · main'), {
-      timeout: 3000,
-    });
+    await waitFor(() => expect(childCalls).toBe(1));
+    expect(child).toHaveAccessibleDescription('Checking for a Git repository…');
+    act(() => notifyRootRegistered([CHILD.rootId]));
+    await waitFor(() => expect(child).toHaveAccessibleDescription('Git repository · main'));
   });
 
   it('names the folder in a status error and still offers the others', async () => {

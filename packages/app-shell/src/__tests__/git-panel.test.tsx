@@ -155,6 +155,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
 }));
 
 import { GitPanel } from '../git-panel/git-panel';
+import { notifyRootRegistered } from '../roots/root-registration-events';
 import type { WorkspaceGitServices } from '../workspace-git-services';
 import { workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
@@ -1804,28 +1805,53 @@ describe('GitPanel', () => {
     expect(bridge.status).toHaveBeenCalledTimes(1);
   });
 
-  it('silently retries when the workspace root has not reconciled into the DB yet', async () => {
+  it('reruns status when the workspace root registers, and never before', async () => {
     // Right after app boot the renderer can be interactive BEFORE roots
-    // reconciliation lands the workspace row in the DB. The main process then
-    // answers status with the transient "No open folder matches root id"
-    // error. The panel must keep polling until reconciliation lands instead of
-    // freezing on a dead error state.
-    const status = vi.fn(
-      async (): Promise<GitResult<GitStatus>> => ({
+    // reconciliation lands the workspace row. The main process then answers
+    // status with a transient "root not registered yet" error. The panel stays
+    // loading and reruns status when that root's registration lands — the
+    // event, not a clock: with timers frozen, nothing reruns until it fires.
+    // Both `waitFor`s need a running clock, so the test drains React and the
+    // bridge's promises with `act` instead.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const status = vi.fn(
+        async (): Promise<GitResult<GitStatus>> =>
+          ok(makeStatus({ branch: 'main', clean: true, files: [] }))
+      );
+      status.mockResolvedValueOnce({
         error: 'No open folder matches root id "root-1".',
         ok: false,
-      })
-    );
-    status.mockResolvedValueOnce({ error: 'No open folder matches root id "root-1".', ok: false });
-    status.mockResolvedValueOnce({ error: 'Workspace roots are unavailable.', ok: false });
-    status.mockResolvedValue(ok(makeStatus({ branch: 'main', clean: true, files: [] })));
-    installBridge({ status });
-    render(<GitPanel />, { wrapper: workspaceHost() });
+      });
+      status.mockResolvedValueOnce({ error: 'Workspace roots are unavailable.', ok: false });
+      installBridge({ status });
+      render(<GitPanel />, { wrapper: workspaceHost() });
 
-    const panel = await screen.findByTestId('git-panel');
-    await waitFor(() => expect(panel).toHaveTextContent('main'), { timeout: 5000 });
-    expect(status.mock.calls.length).toBeGreaterThanOrEqual(3);
-    expect(screen.queryByTestId('git-panel-error')).not.toBeInTheDocument();
-    expect(toastSpy).not.toHaveBeenCalled();
+      const settle = async (): Promise<void> => {
+        for (let turn = 0; turn < 5; turn += 1) {
+          await act(async () => {});
+        }
+      };
+      await settle();
+      expect(status).toHaveBeenCalledTimes(1);
+
+      // Another root registering is not this root's event.
+      act(() => notifyRootRegistered(['root-other']));
+      await settle();
+      expect(status).toHaveBeenCalledTimes(1);
+
+      act(() => notifyRootRegistered(['root-1', '/abs/repo']));
+      await settle();
+      expect(status).toHaveBeenCalledTimes(2);
+
+      act(() => notifyRootRegistered(['root-1', '/abs/repo']));
+      await settle();
+      expect(status).toHaveBeenCalledTimes(3);
+      expect(screen.getByTestId('git-panel')).toHaveTextContent('main');
+      expect(screen.queryByTestId('git-panel-error')).not.toBeInTheDocument();
+      expect(toastSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

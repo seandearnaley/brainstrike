@@ -3,7 +3,7 @@ import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import {
-  awaitRootRegistration,
+  onRootRegistered,
   resetRootRegistrationEventsForTests,
   rootRegistrationSeq,
 } from '../roots/root-registration-events';
@@ -53,14 +53,12 @@ it('registers a folder re-added under its one id again after it was removed', as
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([]);
   expect([...result.current.dbRootKindByAdapterRootId]).toEqual([]);
   // Re-added under the same id: a new registration wakes waiters again.
-  const waiter = awaitRootRegistration('/workspace/docs', {
-    since: rootRegistrationSeq('/workspace/docs'),
-    timeoutMs: 1000,
-  });
+  const wake = vi.fn();
+  onRootRegistered('/workspace/docs', rootRegistrationSeq('/workspace/docs'), wake);
   await act(async () => {
     await result.current.syncMountedRoots([descriptor]);
   });
-  await expect(waiter).resolves.toBeUndefined();
+  expect(wake).toHaveBeenCalledTimes(1);
   expect([...result.current.dbRootIdByAdapterRootId]).toEqual([['one-id', 'one-id']]);
   await expect(result.current.resolveDbRootId('/workspace/docs', 'one-id')).resolves.toBe('one-id');
 });

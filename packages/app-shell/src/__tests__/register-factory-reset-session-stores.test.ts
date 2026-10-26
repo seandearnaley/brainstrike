@@ -19,8 +19,8 @@ import { useChangesStore } from '../changes/changes-store';
 import { useDiagnosticSinkHealthStore } from '../diagnostics/diagnostic-sink-health-store';
 import { useDiagnosticsSeenStore } from '../diagnostics/diagnostics-seen-store';
 import {
-  awaitRootRegistration,
   notifyRootRegistered,
+  onRootRegistered,
   resetRootRegistrationEventsForTests,
   rootRegistrationSeq,
 } from '../roots/root-registration-events';
@@ -233,18 +233,11 @@ describe('register-factory-reset-session-stores', () => {
     // And the surviving (stale) generation is still honestly stale: a waiter
     // that captures it as `since` AFTER the reset must not resolve off the
     // pre-reset registration — only a genuinely new one satisfies it.
-    vi.useFakeTimers();
-    const waiter = awaitRootRegistration('/ws/docs', { since: preResetSeq, timeoutMs: 5000 });
-    let settled = false;
-    void waiter.then(() => {
-      settled = true;
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(settled).toBe(false);
+    const wake = vi.fn();
+    onRootRegistered('/ws/docs', preResetSeq, wake);
+    expect(wake).not.toHaveBeenCalled();
 
     notifyRootRegistered(['/ws/docs']); // the post-reset re-add's registration
-    await vi.advanceTimersByTimeAsync(0);
-    expect(settled).toBe(true);
-    vi.useRealTimers();
+    expect(wake).toHaveBeenCalledTimes(1);
   });
 });

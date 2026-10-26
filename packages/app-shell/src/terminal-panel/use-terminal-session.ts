@@ -3,12 +3,9 @@ import { useToast } from '@brainstrike/ui';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  isTransientRootError,
-  TRANSIENT_ROOT_RETRY_DELAY_MS,
-  TRANSIENT_ROOT_RETRY_LIMIT,
-} from '../roots/transient-root-error';
+import { useCallback, useEffect, useState } from 'react';
+import { onRootRegistered, rootRegistrationSeq } from '../roots/root-registration-events';
+import { isTransientRootError } from '../roots/transient-root-error';
 import { useTerminalBridge } from '../workspace-terminal-services';
 import { SurrogateBuffer } from './surrogate-buffer';
 import { XTERM_THEME } from './xterm-theme';
@@ -83,9 +80,9 @@ interface TerminalSessionHandles {
   readonly offData: (() => void) | null;
   readonly offExit: (() => void) | null;
   readonly offInput: (() => void) | null;
+  readonly offRegistrationWait: (() => void) | null;
   readonly resizeObserver: ResizeObserver | null;
   readonly resizeTimer: ReturnType<typeof setTimeout> | null;
-  readonly retryTimer: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -97,8 +94,8 @@ interface TerminalSessionHandles {
  * before `bridge.create()` resolves).
  */
 function disposeTerminalSessionHandles(handles: TerminalSessionHandles): void {
-  if (handles.retryTimer !== null) {
-    clearTimeout(handles.retryTimer);
+  if (handles.offRegistrationWait !== null) {
+    handles.offRegistrationWait();
   }
   if (handles.resizeTimer !== null) {
     clearTimeout(handles.resizeTimer);
@@ -159,27 +156,16 @@ export function useTerminalSession(
   // (restart) re-keys the effect and invalidates any stale outcome. This is the
   // only "input" state — it is not derived from props.
   const [sessionId, setSessionId] = useState(0);
-  // Counts consecutive transient "root not reconciled yet" create failures so
-  // the silent boot-race retry loop is bounded. Reset on success, on a manual
-  // restart, and when the focused root changes.
-  const transientRetryCountRef = useRef(0);
   const restart = useCallback(() => {
-    transientRetryCountRef.current = 0;
     setSessionId((id) => id + 1);
   }, []);
-
-  // A different target (root or pinned checkout) starts with a fresh
-  // transient-retry budget.
-  useEffect(() => {
-    transientRetryCountRef.current = 0;
-  }, [sessionKey]);
 
   // The async OUTCOME of a session, tagged with the id it belongs to. The effect
   // writes only this (a subscribe-to-external-system result), never a derived
   // value. A stale outcome (sessionId mismatch) is ignored during render.
   const [tagged, setTagged] = useState<TaggedOutcome | null>(null);
 
-  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- Confirmed pre-existing on the PR base tip (3d54958160, full-scope scan reproduces it there too); scope-changed's line-shift-sensitive diff misclassifies it as new whenever code above this effect moves. The rule's own docs name this exact failure mode ("descends into every nested function" to find registrations but checks only the top-level/returned function for cleanup) and its explicit skip criterion: "A returned cleanup does release the resource even if the matcher missed it" -- which this one does, for every handle (retryTimer, resizeTimer, resizeObserver, offData, offExit, offInput) via disposeTerminalSessionHandles() below. The resizeObserver branch is spy-tested: terminal-panel.test.tsx's "unsubscribes and destroys the pty on unmount" asserts resizeObserverDisconnect was called.
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- Confirmed pre-existing on the PR base tip (3d54958160, full-scope scan reproduces it there too); scope-changed's line-shift-sensitive diff misclassifies it as new whenever code above this effect moves. The rule's own docs name this exact failure mode ("descends into every nested function" to find registrations but checks only the top-level/returned function for cleanup) and its explicit skip criterion: "A returned cleanup does release the resource even if the matcher missed it" -- which this one does, for every handle (offRegistrationWait, resizeTimer, resizeObserver, offData, offExit, offInput) via disposeTerminalSessionHandles() below. The resizeObserver branch is spy-tested: terminal-panel.test.tsx's "unsubscribes and destroys the pty on unmount" asserts resizeObserverDisconnect was called.
   useEffect(() => {
     if (!(bridge && rootId && container)) {
       return;
@@ -187,7 +173,10 @@ export function useTerminalSession(
 
     let cancelled = false;
     let terminalId: string | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let offRegistrationWait: (() => void) | null = null;
+    // Captured before the request: only a registration after it can change
+    // Main's answer to a transient "root not registered yet" failure.
+    const registrationSince = rootRegistrationSeq(rootId);
     // Every subscription/timer this effect can create is hoisted to THIS
     // scope (never declared inside the `.then()` success branch below) so
     // the cleanup at the bottom has one textually-visible teardown call per
@@ -232,23 +221,16 @@ export function useTerminalSession(
           return;
         }
         if (!result.ok) {
-          if (
-            isTransientRootError(result.error) &&
-            transientRetryCountRef.current < TRANSIENT_ROOT_RETRY_LIMIT
-          ) {
+          if (isTransientRootError(result.error)) {
             // Boot race: the workspace root row hasn't reconciled into the DB
-            // yet. Stay in the 'starting' state and re-key the session shortly
-            // — no error UI, no toast — until it lands or the budget runs out.
-            transientRetryCountRef.current += 1;
-            logger.debug('terminal create waiting for workspace root reconciliation', {
-              attempt: transientRetryCountRef.current,
+            // yet. Stay in the 'starting' state — no error UI, no toast — and
+            // re-key the session once this root's registration lands.
+            logger.debug('terminal create waiting for workspace root registration', {
               error: result.error,
             });
-            retryTimer = setTimeout(() => {
-              if (!cancelled) {
-                setSessionId((id) => id + 1);
-              }
-            }, TRANSIENT_ROOT_RETRY_DELAY_MS);
+            offRegistrationWait = onRootRegistered(rootId, registrationSince, () => {
+              setSessionId((id) => id + 1);
+            });
             return;
           }
           setTagged({
@@ -265,7 +247,6 @@ export function useTerminalSession(
           return;
         }
 
-        transientRetryCountRef.current = 0;
         terminalId = result.value.terminalId;
         const liveId = terminalId;
         setTagged({
@@ -319,7 +300,7 @@ export function useTerminalSession(
         // `resizeTimer`/`resizeObserver` are the OUTER, effect-scoped bindings
         // declared above — not re-declared here — so the main cleanup below
         // can clear/disconnect them directly, the same way it already does
-        // for `retryTimer`.
+        // for `offRegistrationWait`.
         const commitResize = () => {
           resizeTimer = null;
           try {
@@ -357,9 +338,9 @@ export function useTerminalSession(
         offData,
         offExit,
         offInput,
+        offRegistrationWait,
         resizeObserver,
         resizeTimer,
-        retryTimer,
       });
       if (terminalId) {
         void bridge.destroy({ terminalId }).catch(warnBridgeRejection('destroy'));

@@ -16,15 +16,18 @@
  * restructures the reconciliation state machine — it only NOTIFIES, from the
  * two places that machine already learns a root's durable id (the boot batch
  * in `applyBootReconciliationResult` and the mid-session path in
- * `performRootRegistration`), so a caller elsewhere in the app can AWAIT that
- * fact instead of polling the database for it.
+ * `performRootRegistration`), so a caller elsewhere in the app can WAIT for
+ * that fact (`onRootRegistered`) instead of polling or retrying on a clock.
  *
  * Deliberately identity-only: this module does not carry the resolved
  * `roots.id` itself, only the fact that `key` (an adapter rootId or root path)
  * became registered. The caller still reads the row through its own query —
  * this seam replaces the WAIT, never the read, so the existing
  * uniqueness/duplicate-row guard in that read (see
- * `resolveAssistantOperatingRootBinding`) stays authoritative.
+ * `resolveAssistantOperatingRootBinding`) stays authoritative. The root-scoped
+ * surfaces (git panel, folder probe, terminal) use it the same way: a request
+ * Main answers with a transient "root not registered yet" error reruns once
+ * that root's registration lands — never on a timer.
  *
  * EPOCH, not membership (BST-1400 review fix). A path can register more than
  * once in a session — remove a root (`fs:removeRoot` leaves the DB row
@@ -50,10 +53,9 @@
  * `register-factory-reset-session-stores.ts`, and there must not be. This
  * module DOES hold a fact a reset makes wrong to keep as an absolute — "path P
  * has registered N times" becomes false the instant the DB row it counted is
- * gone. What keeps it correct anyway is that its ONLY consumer
- * (`resolveRootIdAfterReconciliation` in `use-workspace-bar.ts`) never reads
- * the counter as an absolute, only as a DELTA: capture-before-read, compare
- * strictly-greater. A stale (pre-reset) generation can structurally never
+ * gone. What keeps it correct anyway is that `onRootRegistered`, its only
+ * reader, never reads the counter as an absolute, only as a DELTA:
+ * capture-before-read, compare strictly-greater. A stale (pre-reset) generation can structurally never
  * satisfy a wait captured after it, so a survived-reset counter is harmless —
  * pinned by the real reset-pipeline test in
  * `register-factory-reset-session-stores.test.ts`. Wiring a resetter here
@@ -61,9 +63,8 @@
  * reset-without-reload path this repo's own contract exists for) would strand
  * any IN-FLIGHT waiter whose `since` sits above the post-reset generation
  * (e.g. `since: 3`, reset rebumps to 1) — `1 > 3` is false forever, so that
- * waiter would run its full bounded timeout and raise the destructive "Folder
- * added, but not attached to this thread" toast on a request that should have
- * succeeded. See `rootRegistrationSeq` below for the one way this delta-only
+ * waiter would never wake and its surface would stay loading on a request that
+ * should have succeeded. See `rootRegistrationSeq` below for the one way this delta-only
  * safety argument can be reopened.
  */
 
@@ -74,7 +75,6 @@ type Waiter = () => void;
 // `warnedUnmappedRoots` in `use-roots-reconciliation.ts`. The counter, not
 // membership, is what a waiter compares against.
 const seqByKey = new Map<string, number>();
-const waitersByKey = new Map<string, Set<Waiter>>();
 const subscribers = new Set<Waiter>();
 
 /** Observe committed registrations; consumers still read the authoritative rows. */
@@ -88,7 +88,7 @@ export function subscribeRootRegistered(read: Waiter): () => void {
 /**
  * The current registration generation for `key` (0 = never registered).
  *
- * ONLY valid as a BEFORE snapshot to pass through as `awaitRootRegistration`'s
+ * ONLY valid as a BEFORE snapshot to pass through as `onRootRegistered`'s
  * `since` — a fresh capture, compared strictly-greater. Never read it as an
  * absolute: `rootRegistrationSeq(key) > 0` reconstructs the exact "was this
  * key EVER registered?" membership predicate BST-1400 removed as a Critical
@@ -101,98 +101,49 @@ export function rootRegistrationSeq(key: string): number {
 }
 
 /**
- * Bumps every entry in `keys` to its next generation and wakes any waiter
- * currently subscribed to one of them. Called once per successfully-mapped
- * root — never a second source of truth for the mapping itself, which
- * `use-roots-reconciliation.ts` continues to own.
+ * Bumps every entry in `keys` to its next generation and wakes every
+ * subscriber. Called once per successfully-mapped root — never a second source
+ * of truth for the mapping itself, which `use-roots-reconciliation.ts`
+ * continues to own.
  */
 export function notifyRootRegistered(keys: readonly string[]): void {
   for (const key of keys) {
     seqByKey.set(key, rootRegistrationSeq(key) + 1);
-    const waiters = waitersByKey.get(key);
-    if (!waiters) {
-      continue;
-    }
-    waitersByKey.delete(key);
-    for (const wake of waiters) {
-      wake();
-    }
   }
   for (const read of subscribers) {
     read();
   }
 }
 
-export interface AwaitRootRegistrationOptions {
-  /**
-   * The generation observed (via `rootRegistrationSeq`) BEFORE the caller's
-   * first failed read — required, not optional, so a caller cannot
-   * accidentally fall back to the old membership behavior by omitting it.
-   * Only a registration strictly after that observation satisfies the wait.
-   */
-  readonly since: number;
-  readonly timeoutMs: number;
-}
-
 /**
- * Resolves once `key`'s generation has advanced past `since` — including
- * immediately, if a registration already did between the caller's read and
- * this call (the late-subscriber case `recordAddedAsSecondary` depends on).
- * Rejects on timeout — LOUD, never a silent hang, the same bounded-budget
- * contract the polling loop it replaces enforced. Never rejects for any other
- * reason.
+ * Calls `wake` once, when `key`'s generation has advanced past `since` —
+ * immediately, if a registration already landed between the caller's
+ * `rootRegistrationSeq` snapshot and this call. `since` is the generation
+ * observed BEFORE the caller's failed request, so only a registration strictly
+ * after that request satisfies the wait. Event-only: there is no deadline; the
+ * returned function cancels a wait that has not fired (an unmount, a newer
+ * request).
  */
-export function awaitRootRegistration(
-  key: string,
-  { since, timeoutMs }: AwaitRootRegistrationOptions
-): Promise<void> {
+export function onRootRegistered(key: string, since: number, wake: Waiter): () => void {
   if (rootRegistrationSeq(key) > since) {
-    return Promise.resolve();
+    wake();
+    return () => {};
   }
-  return new Promise<void>((resolve, reject) => {
-    let waiters = waitersByKey.get(key);
-    if (!waiters) {
-      waiters = new Set<Waiter>();
-      waitersByKey.set(key, waiters);
+  const unsubscribe = subscribeRootRegistered(() => {
+    if (rootRegistrationSeq(key) > since) {
+      unsubscribe();
+      wake();
     }
-    const activeWaiters = waiters;
-    const wake: Waiter = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      // Only clean up the set THIS waiter believes it is in. A `notify` can
-      // never leave a stale live timer behind (it deletes the map entry and
-      // then wakes — clearing the timer of — every member of the set it just
-      // unlinked), so this guard is NOT defending against a notify race. It
-      // is defending against `resetRootRegistrationEventsForTests` (and, by
-      // the same shape, any future reset callback): `waitersByKey.clear()`
-      // wakes nobody, so a waiter subscribed before a reset is orphaned with
-      // its timer still armed, while a SECOND waiter subscribing after the
-      // reset creates a fresh Set under the same key. Without this check, the
-      // orphaned waiter's timeout would delete `waitersByKey`'s entry out
-      // from under that second, unrelated waiter. Falsified by
-      // `root-registration-events.test.ts` — "a stale timer from a WIPED
-      // generation must not delete a NEWER waiter set it no longer owns".
-      if (waitersByKey.get(key) === activeWaiters) {
-        activeWaiters.delete(wake);
-        if (activeWaiters.size === 0) {
-          waitersByKey.delete(key);
-        }
-      }
-      reject(new Error(`Timed out after ${timeoutMs}ms waiting for root registration: ${key}`));
-    }, timeoutMs);
-    activeWaiters.add(wake);
   });
+  return unsubscribe;
 }
 
 /**
- * Test-only: clears every registration generation and pending waiter so test
+ * Test-only: clears every registration generation and subscriber so test
  * files that import this module do not leak state across test cases.
  * @internal Test seam: the roots and workspace-bar suites.
  */
 export function resetRootRegistrationEventsForTests(): void {
   seqByKey.clear();
-  waitersByKey.clear();
   subscribers.clear();
 }
