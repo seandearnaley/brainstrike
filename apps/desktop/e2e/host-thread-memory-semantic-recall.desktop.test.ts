@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-host-memory-semantic-recall';
@@ -66,7 +67,7 @@ async function enableSemanticRecall(page: Page, embedder: string): Promise<void>
     version: MEMORY_SETTINGS_VERSION,
   });
   // The renderer reads its persisted memory settings when it loads.
-  await page.reload();
+  await reloadRenderer(page, 'host-thread-memory-semantic-recall: reload');
   await enableModel(page);
   await ensureAssistantShellVisible(page);
 }

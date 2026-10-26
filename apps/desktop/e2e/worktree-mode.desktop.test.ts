@@ -12,6 +12,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   freshRepo as createFreshRepo,
   createTempDirTracker,
@@ -219,7 +220,7 @@ test.describe('Worktree mode (desktop)', () => {
       timeout: 90_000,
     });
 
-    await page.reload();
+    await reloadRenderer(page, 'worktree-mode: reload 1');
     await openComposer(page);
     await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText('Local', {
@@ -233,7 +234,7 @@ test.describe('Worktree mode (desktop)', () => {
     await openComposer(page);
     const created = await createAndUseWorktree(page);
 
-    await page.reload();
+    await reloadRenderer(page, 'worktree-mode: reload 2');
     await openComposer(page);
     await expect(page.getByTestId('workspace-bar-mode-chip')).toContainText(created.name, {
       timeout: 90_000,
