@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
 import type { HostChildStatus, HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { foldHostRuns, type HostRunView } from '@brainstrike/agent-host/thread-view';
-import type { Page } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 import {
   AbstractMessageReader,
   AbstractMessageWriter,
@@ -138,6 +138,39 @@ async function bindHostMessages(page: Page): Promise<void> {
 export async function attachAppHost(userDataDir: string): Promise<HostClient> {
   return await attachHostThroughWindow(await visibleWindow(userDataDir));
 }
+const sharedClients = new Map<Page, Promise<HostClient>>();
+/**
+ * The readers' one client of the app's host, per window: attached on first use and kept
+ * until its channel closes, the window navigates (a reload drops the frame's port) or
+ * the window closes. Readers never close it.
+ */
+function sharedAppHost(userDataDir: string): Promise<HostClient> {
+  return visibleWindow(userDataDir).then((page) => {
+    const current = sharedClients.get(page);
+    if (current) {
+      return current;
+    }
+    const attached = attachHostThroughWindow(page);
+    sharedClients.set(page, attached);
+    const navigated = (frame: Frame): void => {
+      if (frame === page.mainFrame()) {
+        forget();
+      }
+    };
+    const forget = (): void => {
+      page.off('framenavigated', navigated);
+      if (sharedClients.get(page) === attached) {
+        sharedClients.delete(page);
+        attached.then((client) => client.close()).catch(() => undefined);
+      }
+    };
+    page.on('framenavigated', navigated);
+    page.once('close', forget);
+    attached.then((client) => client.closed).then(forget, forget);
+    return attached;
+  });
+}
+
 /** {@link attachAppHost} through a window the caller already holds. */
 export async function attachHostThroughWindow(page: Page): Promise<HostClient> {
   await bindHostMessages(page);
@@ -247,12 +280,8 @@ export async function attachHostThroughWindow(page: Page): Promise<HostClient> {
 export async function readHostProcess(
   userDataDir: string
 ): Promise<{ readonly pid: number; readonly start: string }> {
-  const client = await attachAppHost(userDataDir);
-  try {
-    return { pid: client.host.pid, start: client.host.start };
-  } finally {
-    await client.close();
-  }
+  const client = await sharedAppHost(userDataDir);
+  return { pid: client.host.pid, start: client.host.start };
 }
 /** The host Root: the directory of the app's state store under its user data. */
 async function hostRootPath(userDataDir: string): Promise<string> {
@@ -328,13 +357,9 @@ export async function readCommittedRuns(
   userDataDir: string,
   threadId: string
 ): Promise<readonly HostRunView[]> {
-  const client = await attachAppHost(userDataDir);
-  try {
-    const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
-    return foldHostRuns(rows);
-  } finally {
-    await client.close();
-  }
+  const client = await sharedAppHost(userDataDir);
+  const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+  return foldHostRuns(rows);
 }
 
 /** A thread's latest committed run status (`running`, or its `run.finished` outcome), or null before its first run. */
@@ -346,28 +371,24 @@ export async function readCommittedRunStatus(
 }
 
 export async function readAgentHostLog(userDataDir: string): Promise<AgentHostLogSummary> {
-  const client = await attachAppHost(userDataDir);
-  try {
-    const { threads } = await client.request('thread/list', {});
-    const mcpInputs: McpInputFact[] = [];
-    const typeCounts: Record<string, number> = {};
-    for (const { threadId } of threads) {
-      const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
-      for (const { event } of rows) {
-        typeCounts[event.type] = (typeCounts[event.type] ?? 0) + 1;
-        if (event.type.startsWith('mcp.input.')) {
-          mcpInputs.push({
-            type: event.type,
-            ...('action' in event ? { action: String(event.action) } : {}),
-            ...('status' in event ? { status: String(event.status) } : {}),
-          });
-        }
+  const client = await sharedAppHost(userDataDir);
+  const { threads } = await client.request('thread/list', {});
+  const mcpInputs: McpInputFact[] = [];
+  const typeCounts: Record<string, number> = {};
+  for (const { threadId } of threads) {
+    const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
+    for (const { event } of rows) {
+      typeCounts[event.type] = (typeCounts[event.type] ?? 0) + 1;
+      if (event.type.startsWith('mcp.input.')) {
+        mcpInputs.push({
+          type: event.type,
+          ...('action' in event ? { action: String(event.action) } : {}),
+          ...('status' in event ? { status: String(event.status) } : {}),
+        });
       }
     }
-    return { mcpInputs, threads: threads.length, typeCounts };
-  } finally {
-    await client.close();
   }
+  return { mcpInputs, threads: threads.length, typeCounts };
 }
 
 /** A thread's saved workspace (open tabs and selection) as the host keeps it; null before its first save. */
@@ -375,12 +396,8 @@ export async function readHostThreadWorkspace(
   userDataDir: string,
   threadId: string
 ): Promise<HostResults['thread/workspace/read']['snapshot']> {
-  const client = await attachAppHost(userDataDir);
-  try {
-    return (await client.request('thread/workspace/read', { threadId })).snapshot;
-  } finally {
-    await client.close();
-  }
+  const client = await sharedAppHost(userDataDir);
+  return (await client.request('thread/workspace/read', { threadId })).snapshot;
 }
 
 /** The running app's host Root: the directory of its published record. */
@@ -412,7 +429,7 @@ export function readSpooledBlobHashes(root: string, threadId: string): readonly 
 
 /** Whether the host still holds a thread: a deleted thread's read is refused as unknown. */
 export async function hostThreadExists(userDataDir: string, threadId: string): Promise<boolean> {
-  const client = await attachAppHost(userDataDir);
+  const client = await sharedAppHost(userDataDir);
   try {
     await client.request('thread/read', { fromSeq: 0, threadId });
     return true;
@@ -421,8 +438,6 @@ export async function hostThreadExists(userDataDir: string, threadId: string): P
       return false;
     }
     throw error;
-  } finally {
-    await client.close();
   }
 }
 
@@ -445,27 +460,23 @@ export interface HostThreadLog {
  * threads never appear in the thread list; `thread/children` reaches them.
  */
 export async function readHostThreadTree(userDataDir: string): Promise<readonly HostThreadLog[]> {
-  const client = await attachAppHost(userDataDir);
-  try {
-    const { threads } = await client.request('thread/list', {});
-    const pending: Omit<HostThreadLog, 'rows'>[] = threads.map(({ threadId }) => ({ threadId }));
-    const logs: HostThreadLog[] = [];
-    for (let next = pending.shift(); next; next = pending.shift()) {
-      const { rows } = await client.request('thread/read', { fromSeq: 0, threadId: next.threadId });
-      logs.push({ ...next, rows });
-      const { children } = await client.request('thread/children', { threadId: next.threadId });
-      for (const { callSign, color, status, threadId } of children) {
-        pending.push({
-          child: { callSign, color, status },
-          parentThreadId: next.threadId,
-          threadId,
-        });
-      }
+  const client = await sharedAppHost(userDataDir);
+  const { threads } = await client.request('thread/list', {});
+  const pending: Omit<HostThreadLog, 'rows'>[] = threads.map(({ threadId }) => ({ threadId }));
+  const logs: HostThreadLog[] = [];
+  for (let next = pending.shift(); next; next = pending.shift()) {
+    const { rows } = await client.request('thread/read', { fromSeq: 0, threadId: next.threadId });
+    logs.push({ ...next, rows });
+    const { children } = await client.request('thread/children', { threadId: next.threadId });
+    for (const { callSign, color, status, threadId } of children) {
+      pending.push({
+        child: { callSign, color, status },
+        parentThreadId: next.threadId,
+        threadId,
+      });
     }
-    return logs;
-  } finally {
-    await client.close();
   }
+  return logs;
 }
 
 /** Read-only acceptance receipts from the existing host writer, never a renderer SQL capability. */
