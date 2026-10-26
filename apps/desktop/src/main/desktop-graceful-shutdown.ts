@@ -6,8 +6,8 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * needs its replacement renderer and reopens the agent host), renderers before
  * the hosts they call, the agent host's admission fenced before Main's
  * MCP control closes (a host starting after it would be refused), each
- * @parcel/watcher owner (Explorer roots) joining its native subscribes and
- * unsubscribes before Electron frees Main's Node environment (BST-2244), and
+ * `fs.watch` root watcher owner (`root-watchers.ts`, Explorer roots) retiring
+ * its watches before Electron frees Main's Node environment, and
  * `database-drain` last: it stops everything that issues database work. The
  * git cluster, its snapshot maintenance, terminals, command sessions, language
  * servers and shell commands are the agent host's, which retires them with its

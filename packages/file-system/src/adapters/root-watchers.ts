@@ -105,13 +105,13 @@ function watchBackend(platform: NodeJS.Platform = process.platform): WatcherBack
 }
 
 /** A watch owner's failed retirement of an acquired subscription: still owned, and retryable. */
-export class ParcelWatchRetirementError extends AggregateError {
+export class RootWatchRetirementError extends AggregateError {
   readonly retire: () => Promise<void>;
 
   constructor(errors: readonly unknown[], retire: () => Promise<void>) {
     super(errors, 'Root watch retirement failed.');
     this.retire = retire;
-    this.name = 'ParcelWatchRetirementError';
+    this.name = 'RootWatchRetirementError';
   }
 }
 
@@ -131,10 +131,10 @@ export type RootWatchFunction = (
 const watchRecursively: RootWatchFunction = (directory, options, listener) =>
   fs.watch(directory, { encoding: 'utf8', ignore: options.ignore, recursive: true }, listener);
 
-export interface StartParcelWatchOptions {
+export interface StartRootWatchOptions {
   /**
    * E2E seam: awaited before the watch starts, so a test can make it as slow
-   * as a loaded machine (Main's `parcel-subscribe` lifecycle delay).
+   * as a loaded machine (Main's `root-watch-subscribe` lifecycle delay).
    */
   beforeSubscribe?: () => Promise<void>;
   /**
@@ -166,8 +166,8 @@ export interface StartParcelWatchOptions {
   watch?: RootWatchFunction;
 }
 
-export function assertValidParcelWatchFilterOptions(
-  options: Pick<StartParcelWatchOptions, 'ignorePatterns' | 'reportDefaultFilteredChanges'>
+export function assertValidRootWatchFilterOptions(
+  options: Pick<StartRootWatchOptions, 'ignorePatterns' | 'reportDefaultFilteredChanges'>
 ): void {
   if (options.reportDefaultFilteredChanges && options.ignorePatterns !== undefined) {
     throw new Error(
@@ -176,12 +176,12 @@ export function assertValidParcelWatchFilterOptions(
   }
 }
 
-async function startRootWatch(
+async function subscribeRootWatch(
   handle: DirectoryHandle,
   callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
-  options: StartParcelWatchOptions
+  options: StartRootWatchOptions
 ): Promise<() => Promise<void>> {
-  assertValidParcelWatchFilterOptions(options);
+  assertValidRootWatchFilterOptions(options);
   const backend = watchBackend();
   const reportDefaultFilteredChanges = options.reportDefaultFilteredChanges ?? false;
   const ignorePatterns = options.ignorePatterns;
@@ -226,9 +226,8 @@ async function startRootWatch(
   // root deliberately opened INSIDE an excluded tree (a worktree copy as the
   // workspace root — Explorer visibility of worktrees is pinned product
   // behavior) must watch normally; only a nested excluded tree under the root
-  // is silenced. An absolute-path match here would drop EVERY event for such
-  // roots — the silent-total-failure class git-inventory-watcher.ts documents
-  // for a subscription rooted at `.git`.
+  // is silenced. An absolute-path match here would silently drop EVERY event
+  // for such roots.
   const rootInsideExcludedTree = isUnconditionalExcludedNativePath(rootPath);
   type EventDisposition =
     | { boundary: string; kind: 'default-filtered' }
@@ -417,21 +416,21 @@ async function startRootWatch(
 }
 
 /** Starts a root watch; its disposer closes the watch and settles once queued event stats have. */
-export function startJoinedParcelWatch(
+export function startJoinedRootWatch(
   handle: DirectoryHandle,
   callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
-  options: StartParcelWatchOptions = {}
+  options: StartRootWatchOptions = {}
 ): Promise<() => Promise<void>> {
-  return startRootWatch(handle, callback, options);
+  return subscribeRootWatch(handle, callback, options);
 }
 
 /** Preserve the legacy void disposer contract for existing Explorer callers. */
-export async function startParcelWatch(
+export async function startRootWatch(
   handle: DirectoryHandle,
   callback: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void,
-  options: StartParcelWatchOptions = {}
+  options: StartRootWatchOptions = {}
 ): Promise<() => void> {
-  const retire = await startRootWatch(handle, callback, options);
+  const retire = await subscribeRootWatch(handle, callback, options);
   return () => {
     retire().catch((error: unknown) => {
       logger.error('Failed to close root watcher', { error, path: handle.path });

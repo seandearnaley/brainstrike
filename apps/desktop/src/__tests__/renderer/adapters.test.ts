@@ -416,8 +416,8 @@ describe('watcher health capability (BST-568 slice 3)', () => {
   });
 
   it('applies the health snapshot returned with the watch response', async () => {
-    // A watcher that dies during setup (parcel binding-load / subscribe
-    // failure) has main push fs:watch-health BEFORE the fs:watch response
+    // A `fs.watch` root watcher in `root-watchers.ts` that fails during setup
+    // has main push fs:watch-health BEFORE the fs:watch response
     // resolves — at which point this renderer has no watchId registered yet and
     // drops the event as unknown. With no later replay, the failure chip never
     // appears while the root sits silently unwatched. Main therefore returns
