@@ -22,7 +22,7 @@
     "build": "node-gyp rebuild",
     "clean": "node ../../scripts/rimraf.mjs build",
     "install": "node scripts/install.cjs",
-    "test": "node test/ensure-addon.cjs && node --test test/*.test.cjs",
+    "test": "node test/ensure-addon.cjs && node --test --test-timeout=120000 test/*.test.cjs",
     "type-check": "node --check index.cjs"
   },
   "types": "./index.d.ts"
