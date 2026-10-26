@@ -126,31 +126,19 @@ export function HostChildConversations({
     [current, list, threadId]
   );
   const open = useCallback(
-    (childThreadId: string, origin?: HTMLElement) => {
+    async (childThreadId: string, origin?: HTMLElement): Promise<void> => {
       if (origin) {
         rememberHostChildOrigin(childThreadId, threadId, origin);
       }
-      const known = current?.find((child) => child.threadId === childThreadId);
-      if (known) {
-        openHostChildTab(known);
-        return;
+      // The card can read a result before this view's listing catches up. A failed
+      // lookup rejects, and the card shows why.
+      const child =
+        current?.find((candidate) => candidate.threadId === childThreadId) ??
+        (await list?.(threadId))?.find((candidate) => candidate.threadId === childThreadId);
+      if (!child) {
+        throw new Error(UNAVAILABLE);
       }
-      // The card can read a result before this view's listing catches up.
-      list?.(threadId)
-        .then((found) => {
-          const child = found.find((candidate) => candidate.threadId === childThreadId);
-          if (!child) {
-            throw new Error(UNAVAILABLE);
-          }
-          openHostChildTab(child);
-        })
-        .catch((error: unknown) => {
-          logger.error('Host child conversation could not be opened', {
-            childThreadId,
-            error,
-            threadId,
-          });
-        });
+      openHostChildTab(child);
     },
     [current, list, threadId]
   );

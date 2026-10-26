@@ -5,8 +5,9 @@ import {
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import { createContext } from 'react';
 
+/** Opens a child conversation; rejects with the reason it could not, which its card shows. */
 export const SubagentConversationNavigationContext = createContext<
-  ((threadId: string, origin?: HTMLElement) => void) | null
+  ((threadId: string, origin?: HTMLElement) => Promise<void>) | null
 >(null);
 
 export interface SubagentConversationPresentation {

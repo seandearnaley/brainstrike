@@ -23,10 +23,15 @@ export function useSubagentNavigation(
   if (!open) {
     return {};
   }
+  const fail = (error: unknown): void =>
+    setNavigationError(error instanceof Error ? error.message : String(error));
   if (address.kind === 'available') {
     return {
-      onOpenConversation: (event: MouseEvent<HTMLButtonElement>) =>
-        open(address.threadId, event.currentTarget),
+      ...(navigationError ? { navigationError } : {}),
+      onOpenConversation: (event: MouseEvent<HTMLButtonElement>) => {
+        setNavigationError(undefined);
+        open(address.threadId, event.currentTarget).catch(fail);
+      },
     };
   }
   if (!(resolve && invocation.kind === 'available')) {
@@ -40,11 +45,9 @@ export function useSubagentNavigation(
       resolve({
         parentRuntimeRunId: invocation.parentRuntimeRunId,
         parentToolCallId: toolCallId,
-      }).then(
-        (threadId) => open(threadId, origin),
-        (error: unknown) =>
-          setNavigationError(error instanceof Error ? error.message : String(error))
-      );
+      })
+        .then((threadId) => open(threadId, origin))
+        .catch(fail);
     },
   };
 }

@@ -131,7 +131,7 @@ it('opens the exact pending invocation when two turns reuse a native tool-call I
   const resolve = vi.fn(
     async ({ parentRuntimeRunId }: { parentRuntimeRunId: string }) => `child-${parentRuntimeRunId}`
   );
-  const open = vi.fn();
+  const open = vi.fn(async () => undefined);
   render(
     <SubagentConversationNavigationContext value={open}>
       <SubagentInvocationResolverContext value={resolve}>
@@ -177,7 +177,7 @@ it('keeps a rejected pending lookup visible and lets the user retry it', async (
     .fn<({ parentRuntimeRunId }: { parentRuntimeRunId: string }) => Promise<string>>()
     .mockRejectedValueOnce(new Error('The child invocation is not attached yet.'))
     .mockResolvedValueOnce('child-run-one');
-  const open = vi.fn();
+  const open = vi.fn(async () => undefined);
   render(
     <SubagentConversationNavigationContext value={open}>
       <SubagentInvocationResolverContext value={resolve}>
@@ -201,7 +201,7 @@ it('keeps a rejected pending lookup visible and lets the user retry it', async (
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 it('renders a contradictory invocation as a local navigation error without losing the conversation', async () => {
-  const open = vi.fn();
+  const open = vi.fn(async () => undefined);
   const resolve = vi.fn(async () => 'must-not-open');
   render(
     <SubagentConversationNavigationContext value={open}>
@@ -225,7 +225,7 @@ it('renders a contradictory invocation as a local navigation error without losin
 });
 
 it('renders durable sibling names, roles and tasks through the shared tool renderer', async () => {
-  const open = vi.fn();
+  const open = vi.fn(async () => undefined);
   const presentation = vi.fn(async (threadId: string) => ({
     displayName: threadId === 'child-one' ? 'Cedar' : 'Flint',
     markClassName: 'text-emerald-500',
@@ -277,4 +277,46 @@ it('renders durable sibling names, roles and tasks through the shared tool rende
   expect(screen.getAllByText('Worker')).toHaveLength(2);
   await user.click(cedar);
   expect(open).toHaveBeenLastCalledWith('child-one', cedar);
+});
+
+it('shows why an available child conversation could not open, and lets the user retry it', async () => {
+  const open = vi
+    .fn<(threadId: string, origin?: HTMLElement) => Promise<void>>()
+    .mockRejectedValueOnce(new Error('The connection closed before the request was answered.'))
+    .mockResolvedValueOnce(undefined);
+  const settled: ThreadMessageLike = {
+    content: [
+      {
+        args: { prompt: 'Inspect the renderer' },
+        argsText: JSON.stringify({ prompt: 'Inspect the renderer' }),
+        result: { subAgentThreadId: 'child-one', text: 'Completed' },
+        toolCallId: 'child-one',
+        toolName: 'agent-worker',
+        type: 'tool-call',
+      },
+    ],
+    id: 'settled',
+    role: 'assistant',
+  };
+  render(
+    <SubagentChildRunContext
+      value={childRunSource({ 'child-one': { status: 'completed', toolCalls: 1 } })}
+    >
+      <SubagentConversationNavigationContext value={open}>
+        <Harness adapter={adapter} initialMessages={[settled]} />
+      </SubagentConversationNavigationContext>
+    </SubagentChildRunContext>
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByTestId('assistant-activity-summary'));
+  const button = await screen.findByRole('button', { name: 'Open Worker conversation' });
+
+  await user.click(button);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'The connection closed before the request was answered.'
+  );
+
+  await user.click(screen.getByRole('button', { name: 'Open Worker conversation' }));
+  expect(open).toHaveBeenLastCalledWith('child-one', button);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
