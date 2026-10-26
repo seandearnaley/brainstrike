@@ -627,7 +627,6 @@ describe('createWindow', () => {
             reloadReason: 'top-level-navigation',
             reloadSource: 'unknown',
             url: `${DESKTOP_DEV_RENDERER_URL}/#settings/database`,
-            windowRole: 'visible-ui',
           })
         );
       } finally {

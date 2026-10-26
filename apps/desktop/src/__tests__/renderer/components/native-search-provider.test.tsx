@@ -36,48 +36,34 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
 import { NativeSearchProvider } from '../../../renderer/components/native-search-provider';
 import { mountNativeSearchController } from './native-search-controller-fixture';
 
-const MODEL_ID = 'onnx-community/all-MiniLM-L6-v2-ONNX';
-const REVISION = 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f';
-/** Main's saved semantic search: the exact local execution the query plan must match. */
+const MODEL_ID = 'text-embedding-3-small';
+const MODEL_KEY = `openai::${MODEL_ID}`;
+const DIMENSIONS = 1536;
+/** Main's saved semantic search: the hosted model the query plan must name. */
 const SAVED_SEMANTIC: IndexConfig = {
   ...DEFAULT_INDEX_CONFIG,
   mode: 'semantic',
-  model: {
-    dimensions: 384,
-    local: { device: 'webgpu', dtype: 'fp16', revision: REVISION },
-    modelKey: `local::${MODEL_ID}`,
-  },
+  model: { dimensions: DIMENSIONS, modelKey: MODEL_KEY },
 };
 function savedConfig(config: IndexConfig): void {
   useIndexConfigStore.setState({ state: { config, kind: 'ready' }, update: vi.fn() });
 }
 
-const execution = {
-  dimensions: 384,
-  dtype: 'fp16' as const,
-  modelId: MODEL_ID,
-  revision: REVISION,
-};
-/**
- * The index's profile as Main reports a local model: the saved key's provider, the collection's
- * distance and the execution's pins. Main's catalog facts carry no context window, so no token cap.
- */
+/** The index's profile as Main reports a hosted model: the saved key's provider and the collection's distance. */
 const profile = {
-  ...execution,
+  dimensions: DIMENSIONS,
   distance: 'cosine' as const,
-  provider: 'local' as const,
+  modelId: MODEL_ID,
+  provider: 'openai' as const,
 };
 /** Main's query plan names the collection's model key verbatim. */
-const queryPlan = {
-  inferencePlan: { ...execution, device: 'webgpu' as const },
-  modelKey: `local::${MODEL_ID}`,
-};
+const queryPlan = { modelKey: MODEL_KEY };
 const ready = {
   authorizedRootIds: ['root-a'],
   embedding: {
     indexMode: 'vector-configured' as const,
     profile,
-    profileHash: '654bee3466feeb474f0f1827badb57d458a679001b339ef3ab959eadbd2b6443',
+    profileHash: '288c9286093cddf9776cab7ba498f9b313a405ebc28471ffd1e9eba9811b7758',
   },
   kind: 'ready' as const,
   queryPlan,
@@ -85,17 +71,12 @@ const ready = {
   storeId: 'store-a',
 };
 const { queryPlan: _readyPlan, ...readyWithoutPlan } = ready;
-const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<BoundaryResult<number[]>>>();
-const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
+const embedQuery = vi.fn<(...args: unknown[]) => Promise<BoundaryResult<number[]>>>();
 
 beforeEach(() => {
   savedConfig(SAVED_SEMANTIC);
-  queryEmbedding.mockReset();
-  cancelQueryEmbedding.mockReset();
-  Object.defineProperty(window, 'embeddingHost', {
-    configurable: true,
-    value: { cancelQueryEmbedding, queryEmbedding },
-  });
+  embedQuery.mockReset();
+  Object.defineProperty(window, 'indexSearch', { configurable: true, value: { embedQuery } });
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -127,22 +108,12 @@ describe('native search follows Main’s saved choices', () => {
   const hosted = (modelKey: string, dimensions: number): IndexConfig => ({
     ...DEFAULT_INDEX_CONFIG,
     mode: 'semantic',
-    model: { dimensions, local: null, modelKey },
+    model: { dimensions, modelKey },
   });
-  const small = {
-    dimensions: 1536,
-    modelId: 'text-embedding-3-small',
-    provider: 'openai' as const,
-  };
-  const hostedReady: IndexerStatus = {
-    ...ready,
-    embedding: { indexMode: 'vector-configured', profile: small, profileHash: 'c'.repeat(64) },
-    queryPlan: { modelKey: 'openai::text-embedding-3-small' },
-  };
 
   it('serves a hosted model only while the index holds that model’s vectors', async () => {
     savedConfig(hosted('openai::text-embedding-3-large', 3072));
-    const other = mount(hostedReady);
+    const other = mount(ready);
     await waitFor(() =>
       expect(other.result.current?.profileUnavailableReason).toBe(
         'Native search is activating the saved search mode and model.'
@@ -151,35 +122,30 @@ describe('native search follows Main’s saved choices', () => {
     expect(other.result.current?.profile).toBeNull();
     other.unmount();
 
-    savedConfig(hosted('openai::text-embedding-3-small', 1536));
-    const { result } = mount(hostedReady);
-    await waitFor(() => expect(result.current?.profile).toEqual(small));
-    const embedQuery = result.current?.embedQuery;
+    savedConfig(hosted(MODEL_KEY, DIMENSIONS));
+    const { result } = mount(ready);
+    await waitFor(() => expect(result.current?.profile).toEqual(profile));
+    const embedSearchQuery = result.current?.embedQuery;
     // Main saves another model: a query made before the index follows it is refused.
     await act(async () => savedConfig(hosted('openai::text-embedding-3-large', 3072)));
     await expect(
-      embedQuery?.(small, 'needle', { signal: new AbortController().signal })
+      embedSearchQuery?.(profile, 'needle', { signal: new AbortController().signal })
     ).rejects.toThrow(
       'Native query inference no longer matches the explicit saved execution plan.'
     );
-    expect(queryEmbedding).not.toHaveBeenCalled();
+    expect(embedQuery).not.toHaveBeenCalled();
   });
 
   it('serves a model only from the provider whose vectors the index holds', async () => {
-    savedConfig(hosted('ollama::nomic-embed-text', 768));
+    savedConfig(hosted(MODEL_KEY, DIMENSIONS));
     const { result } = mount({
       ...ready,
       embedding: {
         indexMode: 'vector-configured',
-        profile: {
-          dimensions: 768,
-          distance: 'cosine',
-          modelId: 'nomic-embed-text',
-          provider: 'lmstudio',
-        },
+        profile: { ...profile, provider: 'google' },
         profileHash: 'd'.repeat(64),
       },
-      queryPlan: { modelKey: 'lmstudio::nomic-embed-text' },
+      queryPlan: { modelKey: `google::${MODEL_ID}` },
     });
     await waitFor(() =>
       expect(result.current?.profileUnavailableReason).toBe(
@@ -232,32 +198,27 @@ describe('native search follows Main’s index observations', () => {
   });
 });
 
-describe('native query provider cancellation wiring', () => {
-  it('forwards the exact saved inference plan and signal to the visible cancellation bridge', async () => {
+describe('native query provider embedding wiring', () => {
+  it("asks Main to embed the query with the index's saved model and drops an aborted answer", async () => {
     const { result } = mount();
     await waitFor(() => expect(result.current?.profile).toEqual(profile));
     const physical = Promise.withResolvers<number[]>();
-    queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
-    cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+    embedQuery.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
     const controller = new AbortController();
     const reason = new Error('search cancelled');
     const pending = result.current?.embedQuery(profile, 'needle', { signal: controller.signal });
-    await waitFor(() => expect(queryEmbedding).toHaveBeenCalledOnce());
-    const request = queryEmbedding.mock.calls[0];
-    expect(request?.[0]).toEqual({
-      dimensions: 384,
-      inferencePlan: queryPlan.inferencePlan,
-      modelId: profile.modelId,
-      modelKey: queryPlan.modelKey,
-      query: 'needle',
-    });
-    const token = request?.[1] as { requestId: string };
+    await waitFor(() => expect(embedQuery).toHaveBeenCalledOnce());
+    expect(embedQuery.mock.calls[0]).toEqual([
+      {
+        dimensions: DIMENSIONS,
+        modelId: profile.modelId,
+        modelKey: queryPlan.modelKey,
+        query: 'needle',
+      },
+    ]);
     controller.abort(reason);
-    await waitFor(() =>
-      expect(cancelQueryEmbedding).toHaveBeenCalledExactlyOnceWith(token.requestId)
-    );
     const rejected = expect(pending).rejects.toBe(reason);
-    physical.reject(new Error('Serialized main cancellation'));
+    physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
     await rejected;
   });
   it('checks cancellation again after the current status read before admitting inference', async () => {
@@ -271,7 +232,7 @@ describe('native query provider cancellation wiring', () => {
     const rejected = expect(pending).rejects.toBe(controller.signal.reason);
     current.resolve(ready);
     await rejected;
-    expect(queryEmbedding).not.toHaveBeenCalled();
+    expect(embedQuery).not.toHaveBeenCalled();
   });
 });
 
@@ -591,8 +552,7 @@ describe('native provider and search controller observation refresh', () => {
   it('keeps held semantic inference alive across readiness and acknowledged-progress refreshes', async () => {
     vi.useFakeTimers();
     const physical = Promise.withResolvers<number[]>();
-    queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
-    cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+    embedQuery.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
     const mounted = mountController();
     try {
       await waitForOnFakeTimers(() =>
@@ -603,7 +563,7 @@ describe('native provider and search controller observation refresh', () => {
         useWorkspaceSearchStore.getState().setMode('semantic');
         mounted.result.current.controller.runSemanticSearch();
       });
-      await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+      await waitForOnFakeTimers(() => expect(embedQuery).toHaveBeenCalledOnce());
       const generation = useWorkspaceSearchStore.getState().generation;
       const prior = mounted.result.current.dependencies;
       mounted.refresh({
@@ -625,11 +585,10 @@ describe('native provider and search controller observation refresh', () => {
       });
       await act(async () => mounted.publish());
       await waitForOnFakeTimers(() => expect(mounted.result.current.dependencies).not.toBe(prior));
-      expect(cancelQueryEmbedding).not.toHaveBeenCalled();
       expect(useWorkspaceSearchStore.getState().status).toBe('searching');
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       await act(async () => {
-        physical.resolve(Array.from({ length: 384 }, () => 1));
+        physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
       });
       await waitForOnFakeTimers(() =>
         expect(useWorkspaceSearchStore.getState().status).toBe('results')
@@ -638,7 +597,7 @@ describe('native provider and search controller observation refresh', () => {
       expect(useWorkspaceSearchStore.getState().results?.mode).toBe('semantic');
       expect(mounted.capability.search).toHaveBeenCalledTimes(2);
     } finally {
-      physical.resolve(Array.from({ length: 384 }, () => 1));
+      physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
       mounted.unmount();
     }
   });
@@ -646,8 +605,7 @@ describe('native provider and search controller observation refresh', () => {
   it('refreshes partial coverage readiness hints without cancelling the held execution', async () => {
     vi.useFakeTimers();
     const physical = Promise.withResolvers<number[]>();
-    queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
-    cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+    embedQuery.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
     const mounted = mountController();
     try {
       await waitForOnFakeTimers(() =>
@@ -658,7 +616,7 @@ describe('native provider and search controller observation refresh', () => {
         useWorkspaceSearchStore.getState().setMode('semantic');
         mounted.result.current.controller.runSemanticSearch();
       });
-      await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+      await waitForOnFakeTimers(() => expect(embedQuery).toHaveBeenCalledOnce());
       const generation = useWorkspaceSearchStore.getState().generation;
       mounted.refresh({ ...ready, rootReadiness: [{ rootId: 'root-a', scanComplete: false }] });
       await act(async () => mounted.publish());
@@ -668,7 +626,6 @@ describe('native provider and search controller observation refresh', () => {
         )
       );
       expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true);
-      expect(cancelQueryEmbedding).not.toHaveBeenCalled();
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
       mounted.refresh(structuredClone(ready));
       await act(async () => mounted.publish());
@@ -677,15 +634,14 @@ describe('native provider and search controller observation refresh', () => {
       );
       expect(mounted.result.current.controller.semanticAvailability?.available).toBe(true);
       await act(async () => {
-        physical.resolve(Array.from({ length: 384 }, () => 1));
+        physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
       });
       await waitForOnFakeTimers(() =>
         expect(useWorkspaceSearchStore.getState().status).toBe('results')
       );
       expect(useWorkspaceSearchStore.getState().generation).toBe(generation);
-      expect(cancelQueryEmbedding).not.toHaveBeenCalled();
     } finally {
-      physical.resolve(Array.from({ length: 384 }, () => 1));
+      physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
       mounted.unmount();
     }
   });
@@ -709,10 +665,8 @@ describe('native provider and search controller observation refresh', () => {
     },
     ...[
       { change: { dimensions: 768 }, name: 'profile dimensions' },
-      { change: { dtype: 'q8' as const }, name: 'profile dtype' },
       { change: { modelId: 'different-model' }, name: 'profile model' },
-      { change: { revision: 'b'.repeat(40) }, name: 'profile revision' },
-      { change: { tokenCap: 512 }, name: 'profile token cap' },
+      { change: { provider: 'google' as const }, name: 'profile provider' },
     ].map(({ name, change }) => ({
       name,
       next: { ...ready, embedding: { ...ready.embedding, profile: { ...profile, ...change } } },
@@ -721,18 +675,6 @@ describe('native provider and search controller observation refresh', () => {
       name: 'query model key',
       next: { ...ready, queryPlan: { ...queryPlan, modelKey: 'different-key' } },
     },
-    ...[
-      { change: { device: 'wasm' as const }, name: 'query device' },
-      { change: { dtype: 'q8' as const }, name: 'query dtype' },
-      { change: { modelId: 'different-query-model' }, name: 'query model' },
-      { change: { revision: 'b'.repeat(40) }, name: 'query revision' },
-    ].map(({ name, change }) => ({
-      name,
-      next: {
-        ...ready,
-        queryPlan: { ...queryPlan, inferencePlan: { ...queryPlan.inferencePlan, ...change } },
-      },
-    })),
     { name: 'query plan removal', next: readyWithoutPlan },
     { name: 'embedding mode', next: { ...ready, embedding: { indexMode: 'text-only' } } },
     {
@@ -849,12 +791,11 @@ describe('native provider and search controller observation refresh', () => {
   });
 
   it.each(identityChanges)(
-    'cancels held inference on $name and drops its late result',
+    'drops held inference on $name and its late result',
     async ({ next }) => {
       vi.useFakeTimers();
       const physical = Promise.withResolvers<number[]>();
-      queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
-      cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+      embedQuery.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
       // Deliberately reuse nested references: object churn must not be the authority guard.
       const mounted = mountController(false);
       try {
@@ -866,18 +807,16 @@ describe('native provider and search controller observation refresh', () => {
           useWorkspaceSearchStore.getState().setMode('semantic');
           mounted.result.current.controller.runSemanticSearch();
         });
-        await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+        await waitForOnFakeTimers(() => expect(embedQuery).toHaveBeenCalledOnce());
         const generation = useWorkspaceSearchStore.getState().generation;
-        const token = queryEmbedding.mock.calls[0]?.[1] as { requestId: string };
         mounted.refresh(next);
         await act(async () => mounted.publish());
         await waitForOnFakeTimers(() =>
-          expect(cancelQueryEmbedding).toHaveBeenCalledExactlyOnceWith(token.requestId)
+          expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation)
         );
-        expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation);
         expect(useWorkspaceSearchStore.getState().status).toBe('error');
         await act(async () => {
-          physical.resolve(Array.from({ length: 384 }, () => 1));
+          physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
         });
         expect(mounted.capability.search).not.toHaveBeenCalled();
         expect(useWorkspaceSearchStore.getState().results).toBeNull();
@@ -885,19 +824,18 @@ describe('native provider and search controller observation refresh', () => {
           'Native workspace search scope or capability changed.'
         );
       } finally {
-        physical.resolve(Array.from({ length: 384 }, () => 1));
+        physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
         mounted.unmount();
       }
     }
   );
 
   it.each(['capability', 'root binding'] as const)(
-    'cancels held inference on an actual %s replacement',
+    'drops held inference on an actual %s replacement',
     async (change) => {
       vi.useFakeTimers();
       const physical = Promise.withResolvers<number[]>();
-      queryEmbedding.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
-      cancelQueryEmbedding.mockResolvedValue({ cancelled: true });
+      embedQuery.mockReturnValue(physical.promise.then((value) => ({ ok: true, value })));
       const mounted = mountController(false);
       try {
         await waitForOnFakeTimers(() =>
@@ -908,7 +846,7 @@ describe('native provider and search controller observation refresh', () => {
           useWorkspaceSearchStore.getState().setMode('semantic');
           mounted.result.current.controller.runSemanticSearch();
         });
-        await waitForOnFakeTimers(() => expect(queryEmbedding).toHaveBeenCalledOnce());
+        await waitForOnFakeTimers(() => expect(embedQuery).toHaveBeenCalledOnce());
         const generation = useWorkspaceSearchStore.getState().generation;
         if (change === 'capability') {
           mounted.replaceCapability();
@@ -916,10 +854,11 @@ describe('native provider and search controller observation refresh', () => {
           mounted.replaceRootBinding();
         }
         mounted.rerender();
-        await waitForOnFakeTimers(() => expect(cancelQueryEmbedding).toHaveBeenCalledOnce());
-        expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation);
+        await waitForOnFakeTimers(() =>
+          expect(useWorkspaceSearchStore.getState().generation).toBeGreaterThan(generation)
+        );
         await act(async () => {
-          physical.resolve(Array.from({ length: 384 }, () => 1));
+          physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
         });
         expect(mounted.capability.search).not.toHaveBeenCalled();
         expect(useWorkspaceSearchStore.getState().results).toBeNull();
@@ -927,7 +866,7 @@ describe('native provider and search controller observation refresh', () => {
           'Native workspace search scope or capability changed.'
         );
       } finally {
-        physical.resolve(Array.from({ length: 384 }, () => 1));
+        physical.resolve(Array.from({ length: DIMENSIONS }, () => 1));
         mounted.unmount();
       }
     }

@@ -515,7 +515,7 @@ describe('ContextUsageMeter prompt-breakdown rows (inside the popover)', () => {
     );
   });
 
-  it('falls back to the conversation estimate when no breakdown was recorded (local runtime path)', () => {
+  it('falls back to the conversation estimate when no breakdown was recorded', () => {
     render(<ContextUsageMeter {...props} estimatedTokens={4000} />);
     openMeterPopover();
     expect(screen.queryByTestId('context-usage-breakdown-system')).not.toBeInTheDocument();
@@ -635,10 +635,12 @@ describe('ContextUsageMeter OM informational stats (inside the popover)', () => 
     rerender(
       <ContextUsageMeter
         {...props}
-        omSegment={{ kind: 'awaiting-observer', reason: 'no-hosted-chat-provider' }}
+        omSegment={{ kind: 'awaiting-observer', reason: 'no-chat-provider' }}
       />
     );
-    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(/paused for this chat/i);
+    expect(screen.getByTestId('context-usage-om-note')).toHaveTextContent(
+      /needs a chat provider with a saved key/i
+    );
   });
 
   it('renders "OM inactive" (never "0 saved") when OM is disabled', () => {

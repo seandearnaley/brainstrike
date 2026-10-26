@@ -25,9 +25,6 @@ describe('resolveModelReasoningSupport', () => {
       'not-in-catalog/anything',
       { reason: 'openrouter-undeclared', state: 'unknown' },
     ],
-    // Dynamically discovered local-runtime models report no signal.
-    ['ollama', 'llama3.2', { reason: 'discovered-model', state: 'unknown' }],
-    ['lmstudio', 'qwen2.5-7b-instruct', { reason: 'discovered-model', state: 'unknown' }],
     // Embedding-only providers cannot reason.
     ['cohere', 'embed-english-v3.0', { state: 'unsupported' }],
     ['voyage', 'voyage-3', { state: 'unsupported' }],
@@ -35,14 +32,6 @@ describe('resolveModelReasoningSupport', () => {
     ['not-a-provider', 'whatever', { state: 'unsupported' }],
   ] as const)('resolves %s / %s', (provider, model, expected) => {
     expect(resolveModelReasoningSupport(provider, model)).toEqual(expected);
-  });
-
-  // The built-in `local` provider is embeddings-only: no model id resolves to
-  // a reasoning capability there.
-  it('reports every local model id as unsupported', () => {
-    expect(resolveModelReasoningSupport('local', 'not-a-local-model')).toEqual({
-      state: 'unsupported',
-    });
   });
 
   it('normalizes provider id casing', () => {
@@ -286,13 +275,10 @@ describe('resolveReasoningControlsAvailability', () => {
     });
   });
 
-  it('hides controls for discovered runtimes, embedding-only, and unknown providers', () => {
+  it('hides controls for embedding-only and unknown providers', () => {
     for (const [provider, model] of [
-      ['ollama', 'llama3.2'],
-      ['lmstudio', 'qwen2.5-7b-instruct'],
       ['cohere', 'embed-english-v3.0'],
       ['voyage', 'voyage-3'],
-      ['local', 'not-a-local-model'],
       ['not-a-provider', 'whatever'],
     ] as const) {
       expect(resolveReasoningControlsAvailability(provider, model)).toEqual({

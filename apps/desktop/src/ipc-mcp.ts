@@ -110,10 +110,9 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
   mcpSurfacesOpen = true;
   const registry = createDesktopIpcRegistry({ ipcMain });
   attachMcpBridges(registry);
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'mcp',
     mcpPathSelectionContract.selectPath.channel,
-    { roles: mcpPathSelectionContract.selectPath.roles },
     (event, ...raw): Promise<string | null> => {
       mcpPathSelectionContract.selectPath.parseArgs(raw);
       return selectMcpConfigPath(runtime, event.sender.id);

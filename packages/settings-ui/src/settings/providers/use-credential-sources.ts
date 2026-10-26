@@ -71,9 +71,8 @@ export function useCredentialSources(
     if (!listCredentials) {
       return;
     }
-    // Generation guard, matching local-runtime-settings-section: a response
-    // from a superseded read must never overwrite a newer one, and unmount
-    // invalidates every outstanding read.
+    // Generation guard: a response from a superseded read must never overwrite
+    // a newer one, and unmount invalidates every outstanding read.
     const generation = ++requestGeneration.current;
     const isStale = () => generation !== requestGeneration.current;
     listCredentials()

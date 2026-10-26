@@ -177,7 +177,7 @@ describe('workspace-collection-sync-status-store', () => {
       embeddingProgress: {
         chunksProcessed: 4,
         currentChunk: 'export const value = 1;...',
-        modelName: 'Xenova/all-MiniLM-L6-v2',
+        modelName: 'openai/text-embedding-3-small',
         totalChunks: 16,
       },
       pauseReasons: [],
@@ -199,7 +199,7 @@ describe('workspace-collection-sync-status-store', () => {
       embeddingProgress: {
         chunksProcessed: 4,
         currentChunk: 'export const value = 1;...',
-        modelName: 'Xenova/all-MiniLM-L6-v2',
+        modelName: 'openai/text-embedding-3-small',
         totalChunks: 16,
       },
       managedCollectionId: 'set-1',

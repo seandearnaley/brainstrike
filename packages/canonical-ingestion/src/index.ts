@@ -8,14 +8,12 @@ export {
   type NativeCanonicalCatalogScope,
 } from './canonical-catalog.ts';
 export {
-  type CanonicalDocumentEmbeddingsPayload,
   type CanonicalHostedEmbeddings,
   NativeCanonicalInference,
   type NativeCanonicalInferenceDependencies,
   type NativeCanonicalProfile,
   type NativeCanonicalProfileDependencies,
   NativeCanonicalProfileResolver,
-  type NativeCatalogModel,
   resolveNativeCanonicalProfile,
 } from './canonical-profile.ts';
 export {

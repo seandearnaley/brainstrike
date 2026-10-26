@@ -19,9 +19,9 @@ export function memoryCredentialRequiredReason(
     case 'observational-memory':
       return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an observer whose provider has a key, or turn observations off.`;
     case 'semantic-recall':
-      return `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.`;
+      return `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn semantic recall off.`;
     case 'semantic-observation-recall':
-      return `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn vector observation retrieval off.`;
+      return `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn vector observation retrieval off.`;
     default: {
       const exhaustive: never = need;
       return exhaustive;

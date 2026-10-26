@@ -44,7 +44,7 @@ test('a missing memory key is a typed credential refusal with the feature’s ow
     code: MEMORY_FAILURE_CODES.credentialMissing,
     kind: 'refusal',
     message:
-      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.',
+      'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn semantic recall off.',
   });
   // The send gate shows the refusal as it was, with no reference to look up.
   expect(memoryReadinessReason(refused)).toBe((refused as BoundaryFailureError).failure.message);
@@ -64,14 +64,14 @@ test('the send gate names a fault’s reference, logging a local fault’s cause
     fault({
       category: 'availability',
       code: MEMORY_FAILURE_CODES.embedderUnavailable,
-      message: 'The on-device memory embedder cannot be reached from the agent host.',
+      message: 'The memory embedder cannot be reached from the agent host.',
     }),
     { cause: new Error('Recorded readiness cause') }
   );
   const reason = memoryReadinessReason(local);
   const reference = / Reference: ([0-9a-f-]{36})$/u.exec(reason)?.[1];
   expect(reason).toBe(
-    `The on-device memory embedder cannot be reached from the agent host. Reference: ${reference}`
+    `The memory embedder cannot be reached from the agent host. Reference: ${reference}`
   );
   expect(records).toEqual([
     expect.objectContaining({

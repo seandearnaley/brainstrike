@@ -105,7 +105,7 @@ describe('resolveProviderError', () => {
   // key, which read as an app regression for a full day. The visible detail
   // must name the provider, say the credential was rejected, and point at the
   // remedy FOR THAT PROVIDER'S AUTH TYPE (PR #2573 review: an api-key remedy
-  // is wrong for a local-runtime token);
+  // is wrong for an AWS credential);
   // the runError envelope (code/httpStatus — the diagnostics fingerprint and
   // debug-bundle fields) must be byte-identical to before.
   describe('rejected credential (HTTP 401)', () => {
@@ -152,18 +152,6 @@ describe('resolveProviderError', () => {
       expect(resolved.detail).toBe(
         'Amazon Bedrock rejected the AWS credentials (HTTP 401) — they are invalid or expired. Update the Bedrock credential in Settings → Providers, or refresh the AWS profile session (for example `aws sso login`). Provider response: The security token included in the request is invalid.'
       );
-    });
-
-    it('points a keyless local runtime (authType none) at its Local Runtimes token', () => {
-      // ollama/lmstudio carry an OPTIONAL bearer via providerOptions.apiToken,
-      // configured under Local Runtimes — there is no Settings key to update.
-      const resolved = resolveProviderError({ message: 'Unauthorized', statusCode: 401 }, {
-        provider: 'ollama',
-      } as RuntimeData);
-      expect(resolved.detail).toBe(
-        'Ollama (Local Runtime) rejected the request as unauthorized (HTTP 401). Check the runtime’s API token under Settings → Local Runtimes. Provider response: Unauthorized'
-      );
-      expect(resolved.detail).not.toContain('API key');
     });
 
     it('falls back to a neutral credential subject when the provider is unknown', () => {

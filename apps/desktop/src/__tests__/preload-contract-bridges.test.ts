@@ -11,21 +11,28 @@ import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
 import { viewFilterPresetsContract } from '../ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from '../ipc-domains/window-focus.contract';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import {
+  DESKTOP_IPC_CHANNELS,
+  DESKTOP_IPC_INVOKE_CHANNEL,
+  DESKTOP_IPC_PUSH_CHANNEL,
+  type DesktopIpcPush,
+} from '../platform/desktop-ipc-channels';
 
 /**
  * BST-1648: for every contract-derived bridge the preload exposes, the key
  * set is `Object.keys(contract)` BY CONSTRUCTION — this suite loads the real
  * preload under a mocked `electron` and reads the exposed objects back,
  * replacing the per-domain source-regex pins. The same load proves each
- * method routes to its manifest channel and applies the ONE `IpcResult`
- * unwrap.
+ * method rides the one invoke channel under its manifest method name and
+ * applies the ONE `IpcResult` unwrap.
  */
+type PushListener = (event: { ports: readonly unknown[] }, push: DesktopIpcPush) => void;
 const mockExposeInMainWorld = vi.fn<(key: string, api: unknown) => void>();
 const mockInvoke = vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>();
+const mockOn = vi.fn<(channel: string, listener: PushListener) => void>();
 const mockElectron = {
   contextBridge: { exposeInMainWorld: mockExposeInMainWorld },
-  ipcRenderer: { invoke: mockInvoke, on: vi.fn(), removeListener: vi.fn(), send: vi.fn() },
+  ipcRenderer: { invoke: mockInvoke, on: mockOn },
   webUtils: { getPathForFile: vi.fn(() => '') },
 };
 
@@ -53,8 +60,18 @@ function exposedApi(name: string): Record<string, (...args: unknown[]) => unknow
   return call[1] as Record<string, (...args: unknown[]) => unknown>;
 }
 
+/** Delivers one push from Main on the preload's push channel. */
+function pushFromMain(method: string, payload: unknown): void {
+  const listener = mockOn.mock.calls.find(([channel]) => channel === DESKTOP_IPC_PUSH_CHANNEL)?.[1];
+  if (!listener) {
+    throw new Error('Preload did not listen on the push channel.');
+  }
+  listener({ ports: [] }, { method, payload });
+}
+
 describe('preload contract-derived bridges', () => {
   beforeEach(async () => {
+    vi.clearAllMocks();
     vi.resetModules();
     moduleWithLoader._load = function (this: typeof Module, id: string, ...rest: unknown[]) {
       if (id === 'electron') {
@@ -69,126 +86,18 @@ describe('preload contract-derived bridges', () => {
     moduleWithLoader._load = originalLoad;
   });
 
-  it('passes document pins, unchanged texts and a plain cancellation token', async () => {
-    mockInvoke.mockClear();
-    const inferencePlan = {
-      device: 'wasm',
-      dimensions: 384,
-      dtype: 'q8',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-    };
-    const payload = {
-      dimensions: 384,
-      inferencePlan,
-      modelId: inferencePlan.modelId,
-      modelKey: 'native:documents',
-      texts: ['  document\n', 'second'],
-    };
-    await exposedApi('embeddingHost')['documentEmbeddings']?.(payload, {
-      requestId: 'renderer-token',
-    });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddings, {
-      payload,
-      requestId: 'renderer-token',
-    });
-    await exposedApi('embeddingHost')['cancelDocumentEmbeddings']?.('renderer-token');
-    expect(mockInvoke).toHaveBeenLastCalledWith(
-      DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings,
-      'renderer-token'
-    );
-    mockInvoke.mockClear();
-    expect(() =>
-      exposedApi('embeddingHost')['documentEmbeddings']?.(
-        { ...payload, inferencePlan: undefined },
-        { requestId: 'renderer-token' }
-      )
-    ).toThrow();
-    expect(mockInvoke).not.toHaveBeenCalled();
-  });
-
-  it('preserves complete native inference pins across the actual preload transport', async () => {
-    mockInvoke.mockClear();
-    const inferencePlan = {
-      device: 'wasm',
-      dimensions: 384,
-      dtype: 'q8',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-    };
-    const payload = {
-      dimensions: 384,
-      inferencePlan,
-      modelId: inferencePlan.modelId,
-      modelKey: 'native:minilm',
-      query: 'callers',
-    };
-    await exposedApi('embeddingHost')['queryEmbedding']?.(payload);
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
-      payload,
-      requestId: expect.any(String),
-    });
-    await exposedApi('embeddingHost')['queryEmbedding']?.(payload, { requestId: 'search-token' });
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
-      payload,
-      requestId: 'search-token',
-    });
-    await exposedApi('embeddingHost')['cancelQueryEmbedding']?.('search-token');
-    expect(mockInvoke).toHaveBeenLastCalledWith(
-      DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding,
-      'search-token'
-    );
-  });
-  it.each([
-    { dimensions: 384, dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
-    { dimensions: 768, dtype: 'fp32', modelId: 'Xenova/bge-base-en-v1.5' },
-    { dimensions: 768, dtype: 'q4', modelId: 'jinaai/jina-embeddings-v2-base-code' },
-  ])(
-    'preserves original catalog $modelId without invented revision across query and document preload',
-    async (selected) => {
-      const inferencePlan = { ...selected, device: 'wasm' };
-      for (const kind of ['queryEmbedding', 'documentEmbeddings'] as const) {
-        mockInvoke.mockClear();
-        const payload = {
-          dimensions: selected.dimensions,
-          inferencePlan,
-          modelId: selected.modelId,
-          modelKey: `local::${selected.modelId}`,
-          ...(kind === 'queryEmbedding' ? { query: 'callers' } : { texts: ['document'] }),
-        };
-        await exposedApi('embeddingHost')[kind]?.(payload, { requestId: 'catalog-token' });
-        expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost[kind], {
-          payload,
-          requestId: 'catalog-token',
-        });
-      }
-    }
-  );
-  it.each([
-    { device: undefined },
-    { dtype: undefined },
-    { dtype: 'unknown' },
-    { revision: 'main' },
-    { dimensions: 0 },
-    { dimensions: Number.NaN },
-  ])('rejects invalid explicit local plan before IPC: %j', (invalid) => {
-    mockInvoke.mockClear();
-    expect(() =>
-      exposedApi('embeddingHost')['queryEmbedding']?.({
-        dimensions: 768,
-        inferencePlan: {
-          device: 'wasm',
-          dimensions: 768,
-          dtype: 'q8',
-          modelId: 'Xenova/bge-base-en-v1.5',
-          ...invalid,
-        },
-        modelId: 'Xenova/bge-base-en-v1.5',
-        modelKey: 'local::Xenova/bge-base-en-v1.5',
-        query: 'callers',
-      })
-    ).toThrow();
-    expect(mockInvoke).not.toHaveBeenCalled();
+  it('opens one connection: a single push listener, and every call on the invoke channel', async () => {
+    expect(mockOn.mock.calls.map(([channel]) => channel)).toEqual([DESKTOP_IPC_PUSH_CHANNEL]);
+    mockInvoke.mockResolvedValueOnce({ ok: true, value: undefined });
+    await exposedApi('clipboard')['writeText']?.('copied');
+    mockInvoke.mockResolvedValueOnce(['alpha']);
+    await (
+      exposedApi('electronAPI') as unknown as { storage: { getAllKeys: () => unknown } }
+    ).storage.getAllKeys();
+    expect(mockInvoke.mock.calls.map(([channel]) => channel)).toEqual([
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      DESKTOP_IPC_INVOKE_CHANNEL,
+    ]);
   });
 
   it.each(Object.entries(CONTRACT_BRIDGES))(
@@ -213,9 +122,11 @@ describe('preload contract-derived bridges', () => {
     const apps = mcp['apps'] as unknown as Record<string, (...args: unknown[]) => unknown>;
     mockInvoke.mockResolvedValueOnce(undefined);
     await apps['releaseShell']?.({ token: 'shell-1' });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell, {
-      token: 'shell-1',
-    });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell,
+      { token: 'shell-1' }
+    );
   });
 
   it('omits retired SQL bridges and routes reset and profile path to their current owners', async () => {
@@ -227,10 +138,16 @@ describe('preload contract-derived bridges', () => {
     expect(electronApi).not.toHaveProperty('dbLive');
     mockInvoke.mockResolvedValueOnce({ success: true });
     await expect(electronApi.factoryReset.resetLocal()).resolves.toEqual({ success: true });
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.resetLocal);
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      DESKTOP_IPC_CHANNELS.db.resetLocal
+    );
     mockInvoke.mockResolvedValueOnce('/tmp/profile');
     await expect(electronApi.getUserDataPath()).resolves.toBe('/tmp/profile');
-    expect(mockInvoke).toHaveBeenLastCalledWith(databasePathContract.getUserDataPath.channel);
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      databasePathContract.getUserDataPath.channel
+    );
   });
 
   it('routes clipboard.writeText to the manifest channel and transports the result envelope', async () => {
@@ -239,7 +156,11 @@ describe('preload contract-derived bridges', () => {
       ok: true,
       value: undefined,
     });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.clipboard.writeText, 'copied');
+    expect(mockInvoke).toHaveBeenCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      DESKTOP_IPC_CHANNELS.clipboard.writeText,
+      'copied'
+    );
 
     mockInvoke.mockResolvedValueOnce({
       error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
@@ -257,7 +178,10 @@ describe('preload contract-derived bridges', () => {
       ok: true,
       value: true,
     });
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.isFocused);
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      DESKTOP_IPC_CHANNELS.windowFocus.isFocused
+    );
 
     mockInvoke.mockResolvedValueOnce({
       error: {
@@ -273,27 +197,17 @@ describe('preload contract-derived bridges', () => {
     });
   });
 
-  it('subscribes windowFocus.onChange to the push channel and returns its unsubscribe', () => {
+  it('delivers windowFocus.changed pushes to onChange until it unsubscribes', () => {
     const callback = vi.fn();
     const unsubscribe = exposedApi('windowFocus')['onChange']?.(callback) as () => void;
-    expect(mockElectron.ipcRenderer.on).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.windowFocus.changed,
-      expect.any(Function)
-    );
 
-    const listener = vi
-      .mocked(mockElectron.ipcRenderer.on)
-      .mock.calls.find(
-        ([channel]) => channel === DESKTOP_IPC_CHANNELS.windowFocus.changed
-      )?.[1] as (event: unknown, focused: boolean) => void;
-    listener({}, false);
-    expect(callback).toHaveBeenCalledWith(false);
+    pushFromMain(DESKTOP_IPC_CHANNELS.windowFocus.changed, false);
+    pushFromMain(DESKTOP_IPC_CHANNELS.commandPalette.open, true);
+    expect(callback).toHaveBeenCalledExactlyOnceWith(false);
 
     unsubscribe();
-    expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.windowFocus.changed,
-      listener
-    );
+    pushFromMain(DESKTOP_IPC_CHANNELS.windowFocus.changed, true);
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 
   it('omits the retired PostgreSQL integrity owner from the visible preload', () => {
@@ -310,7 +224,10 @@ describe('preload contract-derived bridges', () => {
 
     mockInvoke.mockResolvedValueOnce(['alpha']);
     await expect(electronApi.storage['getAllKeys']?.()).resolves.toEqual(['alpha']);
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.storage.getAllKeys);
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      DESKTOP_IPC_CHANNELS.storage.getAllKeys
+    );
   });
 
   it.each([
@@ -322,26 +239,26 @@ describe('preload contract-derived bridges', () => {
       mockInvoke.mockResolvedValueOnce(result);
 
       await expect(exposedApi(name)[method]?.(...args)).resolves.toBe(result);
-      expect(mockInvoke).toHaveBeenLastCalledWith(channel, ...args);
+      expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_INVOKE_CHANNEL, channel, ...args);
     }
   );
 
   it.each([['windowFocus', 'onChange', DESKTOP_IPC_CHANNELS.windowFocus.changed]] as const)(
-    '%s.%s subscribes and removes the same push listener',
+    '%s.%s keeps each subscription until its own unsubscribe',
     (name, method, channel) => {
-      const callback = vi.fn();
-      const unsubscribe = exposedApi(name)[method]?.(callback) as () => void;
-      const listener = vi
-        .mocked(mockElectron.ipcRenderer.on)
-        .mock.calls.find(([registered]) => registered === channel)?.[1] as (
-        event: unknown,
-        payload: unknown
-      ) => void;
+      const first = vi.fn();
+      const second = vi.fn();
+      const unsubscribeFirst = exposedApi(name)[method]?.(first) as () => void;
+      const unsubscribeSecond = exposedApi(name)[method]?.(second) as () => void;
 
-      listener({}, { marker: name });
-      expect(callback).toHaveBeenCalledWith({ marker: name });
-      unsubscribe();
-      expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(channel, listener);
+      pushFromMain(channel, { marker: name });
+      unsubscribeFirst();
+      pushFromMain(channel, { marker: 'after' });
+      unsubscribeSecond();
+      pushFromMain(channel, { marker: 'gone' });
+
+      expect(first.mock.calls).toEqual([[{ marker: name }]]);
+      expect(second.mock.calls).toEqual([[{ marker: name }], [{ marker: 'after' }]]);
     }
   );
 
@@ -354,6 +271,7 @@ describe('preload contract-derived bridges', () => {
       value: receipt,
     });
     expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
       DESKTOP_IPC_CHANNELS.promptLibrary.request,
       request
     );
@@ -380,18 +298,21 @@ describe('preload contract-derived bridges', () => {
       ok: true,
       value: { marker: name },
     });
-    expect(mockInvoke).toHaveBeenLastCalledWith(channelName);
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_INVOKE_CHANNEL, channelName);
   });
   it('forwards retained diagnostic read filters without exposing SQL', async () => {
     const bridge = exposedApi('desktopDiagnostics');
     mockInvoke.mockResolvedValueOnce([]);
     await expect(bridge['queryEvents']?.({ runId: 'run-1' })).resolves.toEqual([]);
-    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents, {
-      runId: 'run-1',
-    });
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      DESKTOP_IPC_CHANNELS.diagnostics.queryEvents,
+      { runId: 'run-1' }
+    );
     mockInvoke.mockResolvedValueOnce({ count: 2, firstSeenMs: 1, lastSeenMs: 2 });
     await bridge['countByFingerprint']?.('fp-provider', 1);
     expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
       DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint,
       { fingerprint: 'fp-provider', sinceMs: 1 }
     );
@@ -404,6 +325,7 @@ describe('preload contract-derived bridges', () => {
       warningCount: 1,
     });
     expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
       DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts,
       1000
     );

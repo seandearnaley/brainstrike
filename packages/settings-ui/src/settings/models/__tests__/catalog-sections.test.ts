@@ -13,7 +13,7 @@ const providers = [
   makeDbProvider('openai', 'OpenAI', 0),
   makeDbProvider('anthropic', 'Anthropic', 1),
   makeDbProvider('openrouter', 'OpenRouter', 2),
-  makeDbProvider('transformers', 'Transformers.js', 3),
+  makeDbProvider('voyage', 'Voyage AI', 3),
   makeDbProvider('cohere', 'Cohere', 4),
 ];
 
@@ -34,10 +34,10 @@ const rows: CatalogRow[] = [
     providerName: 'OpenRouter',
   }),
   makeCatalogRow({
-    id: 'mini',
-    name: 'MiniLM',
-    providerId: 'transformers',
-    providerName: 'Transformers.js',
+    id: 'voyage-lite',
+    name: 'Voyage Lite',
+    providerId: 'voyage',
+    providerName: 'Voyage AI',
     type: 'embedding',
   }),
   makeCatalogRow({
@@ -60,7 +60,7 @@ describe('buildCatalogView', () => {
       'openai',
       'anthropic',
       'openrouter',
-      'transformers',
+      'voyage',
       UNKNOWN_PROVIDER_SECTION_ID,
     ]);
     expect(view.sections[0]?.rows.map((row) => row.id)).toEqual(['gpt-a', 'gpt-b']);
@@ -89,7 +89,7 @@ describe('buildCatalogView', () => {
       anthropic: 'Hosted',
       openai: 'Hosted',
       openrouter: 'Gateway',
-      transformers: 'On device',
+      voyage: 'Hosted',
     });
   });
 

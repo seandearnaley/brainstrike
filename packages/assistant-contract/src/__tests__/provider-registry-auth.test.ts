@@ -4,21 +4,12 @@ import { getProviderDefinition, listProviders } from '../provider-registry.js';
 
 /**
  * BST-1349: auth metadata is REGISTRY facts, not per-provider UI branches.
- * Keyless-ness derives from `authType === 'none'` everywhere — no hand lists.
  */
 describe('provider auth metadata', () => {
   it('every provider declares an authType', () => {
     for (const provider of listProviders()) {
-      expect(['api_key', 'aws', 'none'], `${provider.id} authType`).toContain(provider.authType);
+      expect(['api_key', 'aws'], `${provider.id} authType`).toContain(provider.authType);
     }
-  });
-
-  it('exactly the local runtimes are keyless (authType none)', () => {
-    const keyless = listProviders()
-      .filter((provider) => provider.authType === 'none')
-      .map((provider) => provider.id)
-      .sort();
-    expect(keyless).toEqual(['lmstudio', 'local', 'ollama']);
   });
 
   it('the hosted/gateway providers all use api_key auth', () => {
@@ -42,17 +33,6 @@ describe('provider auth metadata', () => {
         continue;
       }
       expect(provider.docsUrl, `${provider.id} docsUrl`).toMatch(/^https:\/\//);
-    }
-  });
-
-  it('keyless providers carry no key-entry metadata', () => {
-    for (const provider of listProviders()) {
-      if (provider.authType !== 'none') {
-        continue;
-      }
-      expect(provider.docsUrl, `${provider.id} docsUrl`).toBeUndefined();
-      expect(provider.keyFormatHint, `${provider.id} keyFormatHint`).toBeUndefined();
-      expect(provider.keyNotes, `${provider.id} keyNotes`).toBeUndefined();
     }
   });
 

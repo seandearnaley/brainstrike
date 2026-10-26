@@ -230,21 +230,10 @@ const profileFields = {
   distance: Schema.Literals(['cosine', 'l2', 'ip']),
   modelId: identifier,
 };
-export const vectorProfileSchema: Schema.Codec<VectorProfile> = Schema.Union([
-  Schema.Struct({
-    ...profileFields,
-    dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
-    pooling: Schema.optionalKey(Schema.Literals(['mean', 'cls'])),
-    prompts: Schema.optionalKey(Schema.Struct({ document: Schema.String, query: Schema.String })),
-    provider: Schema.Literals(['local', 'transformers']),
-    revision: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u))),
-    tokenCap: Schema.optional(positive),
-  }),
-  Schema.Struct({
-    ...profileFields,
-    provider: Schema.Literals(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio']),
-  }),
-]);
+export const vectorProfileSchema: Schema.Codec<VectorProfile> = Schema.Struct({
+  ...profileFields,
+  provider: Schema.Literals(['openai', 'google', 'cohere', 'voyage']),
+});
 const bindingFields = {
   embeddingSetId: Schema.NullOr(identifier),
   fileId: identifier,

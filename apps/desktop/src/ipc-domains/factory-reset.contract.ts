@@ -10,6 +10,5 @@ export const factoryResetContract = {
       assertArgCount(raw, 0, 'factory reset');
       return [];
     },
-    roles: ['visible-ui'],
   }),
 } as const satisfies Contract;

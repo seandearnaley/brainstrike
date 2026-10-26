@@ -1,6 +1,5 @@
-import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
+import { describe, expect, it, vi } from 'vitest';
+import { invokeDesktopIpc } from './helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('node:fs', async () => {
   const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
@@ -9,10 +8,6 @@ vi.mock('node:fs', async () => {
 });
 
 const lifecycleHandlers = vi.hoisted(() => new Map<string, () => void>());
-const ipcInvokeState = vi.hoisted(() => ({ event: null as unknown }));
-const registeredIpcHandlers = vi.hoisted(
-  () => new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
-);
 
 // Hoist the Electron mock to avoid factory/temporal dead zone issues
 vi.mock('electron', async () => {
@@ -32,26 +27,7 @@ vi.mock('electron', async () => {
     return app;
   });
   const ipcMain = electronUtils.createIpcMainMock();
-  Object.assign(ipcMain, {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    removeHandler: vi.fn(),
-    removeListener: vi.fn(),
-  });
-  ipcMain.handle.mockImplementation((channel, handler) => {
-    registeredIpcHandlers.set(channel, handler);
-  });
-  const ipcRenderer = electronUtils.createIpcRendererMock();
   const screen = electronUtils.createScreenMock();
-  // Wire renderer invokes to main handlers for convenience
-  const mockInvoke = (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke;
-  mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) => {
-    const handler = registeredIpcHandlers.get(channel);
-    if (!handler) {
-      throw new Error(`No handler for channel: ${channel}`);
-    }
-    return handler(ipcInvokeState.event, ...args);
-  });
   const mockBrowserWindowInstance = {
     getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
     getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
@@ -84,7 +60,6 @@ vi.mock('electron', async () => {
       writeText: vi.fn(),
     },
     ipcMain,
-    ipcRenderer,
     Menu: {
       buildFromTemplate: vi.fn(),
       setApplicationMenu: vi.fn(),
@@ -111,7 +86,7 @@ vi.mock('electron', async () => {
 });
 
 // Import mocked Electron parts for use in assertions
-import { ipcMain, ipcRenderer } from 'electron';
+import { ipcMain } from 'electron';
 
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('@brainstrike/file-system/electron', () => {
@@ -142,20 +117,11 @@ vi.mock('electron-store', () => {
 import '../main';
 
 describe('db:getUserDataPath IPC handler', () => {
-  beforeEach(() => {
-    ipcInvokeState.event = createTrustedInvokeEvent();
-    (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).handle.mockClear();
-    vi.mocked(ipcMain.removeHandler).mockClear();
-    vi.mocked(ipcMain.removeListener).mockClear();
-    (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke.mockClear();
-  });
-
   it('returns the Electron profile path without constructing a PostgreSQL path', async () => {
-    const result = await ipcRenderer.invoke('db:getUserDataPath');
-    expect(result).toBe('/mock/path');
+    await expect(invokeDesktopIpc(ipcMain, 'db:getUserDataPath')).resolves.toBe('/mock/path');
   });
 
-  it('unregisters MCP IPC handlers during will-quit shutdown', async () => {
+  it('stops serving MCP methods during will-quit shutdown', async () => {
     await Promise.resolve();
     const willQuitHandler = lifecycleHandlers.get('will-quit');
     if (typeof willQuitHandler !== 'function') {
@@ -164,6 +130,8 @@ describe('db:getUserDataPath IPC handler', () => {
 
     willQuitHandler();
 
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:selectPath');
+    await expect(invokeDesktopIpc(ipcMain, 'mcp:config:selectPath')).rejects.toThrow(
+      'No desktop IPC handler for mcp:config:selectPath.'
+    );
   });
 });

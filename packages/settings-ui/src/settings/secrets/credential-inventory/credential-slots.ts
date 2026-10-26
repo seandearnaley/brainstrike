@@ -1,17 +1,11 @@
 import {
   listProviders,
+  type ProviderAuthType,
   type ProviderDefinition,
   providerVendorEnvKey,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { TAVILY_VENDOR_ENV_KEY } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { TAVILY_SECRET_PROVIDER } from '../provider-key-types';
-
-/**
- * Auth modes the inventory renders a row for, both edited inline. Only `none`
- * providers — keyless local runtimes — keep their own dedicated surfaces and
- * get no row.
- */
-export type CredentialSlotAuthType = 'api_key' | 'aws';
 
 /**
  * One row of the Credential Inventory. Slots are a SUPERSET of registry
@@ -20,7 +14,7 @@ export type CredentialSlotAuthType = 'api_key' | 'aws';
  * of its own.
  */
 export interface CredentialSlot {
-  readonly authType: CredentialSlotAuthType;
+  readonly authType: ProviderAuthType;
   readonly displayName: string;
   readonly docsUrl: string | null;
   /** Canonical VENDOR env var name shown in the Variable column. */
@@ -41,12 +35,6 @@ const TAVILY_SLOT: CredentialSlot = {
     "The assistant's web search tool sends your query to Tavily, an external service. Without a key, web search reports that it is unavailable.",
 };
 
-function isSlotAuthType(
-  authType: ProviderDefinition['authType']
-): authType is CredentialSlotAuthType {
-  return authType === 'api_key' || authType === 'aws';
-}
-
 /**
  * The vendor env name of a KEY-bearing slot. A keyed provider without a
  * canonical vendor env name is a registry authoring error — surface it, never
@@ -62,12 +50,7 @@ function requireVendorEnvKey(providerId: ProviderDefinition['id']): string {
   return envVar;
 }
 
-function toProviderSlot(definition: ProviderDefinition): CredentialSlot | null {
-  if (!isSlotAuthType(definition.authType)) {
-    // Keyless local runtimes keep their own settings category — deliberately
-    // not inventory rows.
-    return null;
-  }
+function toProviderSlot(definition: ProviderDefinition): CredentialSlot {
   return {
     authType: definition.authType,
     displayName: definition.displayName,
@@ -81,13 +64,5 @@ function toProviderSlot(definition: ProviderDefinition): CredentialSlot | null {
 
 /** All inventory slots in registry order, Tavily last. */
 export function listCredentialSlots(): readonly CredentialSlot[] {
-  const slots: CredentialSlot[] = [];
-  for (const definition of listProviders()) {
-    const slot = toProviderSlot(definition);
-    if (slot) {
-      slots.push(slot);
-    }
-  }
-  slots.push(TAVILY_SLOT);
-  return slots;
+  return [...listProviders().map(toProviderSlot), TAVILY_SLOT];
 }

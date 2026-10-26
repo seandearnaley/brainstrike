@@ -3,26 +3,12 @@ import type { ProviderAuthInput } from '../providers/provider-auth-input';
 import { listProviders, providerAuthType, providerEnvKeys } from '../providers/types';
 import { resolveRuntimeConfiguration } from '../runtime-configuration';
 
-const KEYLESS_PROVIDERS = listProviders()
-  .filter((provider) => provider.authType === 'none')
-  .map((provider) => provider.id);
-
-describe('runtime configuration keyless providers (BST-1349)', () => {
+describe('runtime configuration provider keys (BST-1349)', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it('derives exactly local, ollama, and lmstudio as keyless from the registry', () => {
-    expect([...KEYLESS_PROVIDERS].sort()).toEqual(['lmstudio', 'local', 'ollama']);
-  });
-
-  it.each(KEYLESS_PROVIDERS)('%s resolves with an empty api key', (provider) => {
-    const resolved = resolveRuntimeConfiguration({ provider });
-    expect(resolved.apiKey).toBe('');
-    expect(resolved.provider).toBe(provider);
-  });
-
-  it('still requires an api key for every api_key provider', () => {
+  it('requires an api key for every api_key provider', () => {
     for (const provider of listProviders()) {
       if (providerAuthType(provider.id) !== 'api_key') {
         continue;
@@ -106,11 +92,5 @@ describe('runtime configuration auth input (BST-1352)', () => {
     const resolved = resolveRuntimeConfiguration({ apiKey: 'runtime-key', provider: 'anthropic' });
     expect(resolved.apiKey).toBe('runtime-key');
     expect(resolved.authInput).toEqual({ apiKey: 'runtime-key', kind: 'api_key' });
-  });
-
-  it('keyless providers resolve with no auth input by default', () => {
-    const resolved = resolveRuntimeConfiguration({ provider: 'ollama' });
-    expect(resolved.apiKey).toBe('');
-    expect(resolved.authInput).toBeUndefined();
   });
 });

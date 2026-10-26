@@ -8,7 +8,6 @@ import {
   fault,
   IndexerError,
   type IndexerInfo,
-  identityStateSchema,
   infoSchema,
   optionsSchema,
   requestSchema,
@@ -20,17 +19,12 @@ import {
   stateMessageUpsertResultSchema,
   stateObservationHitSchema,
   stateObservationPlanSchema,
-  stateSearchCoverageResultSchema,
   stateSearchHitSchema,
-  stateSearchPendingRowSchema,
-  stateSearchSimilarHitSchema,
-  stateSearchVectorsResultSchema,
   stateStatsSchema,
 } from './contracts.ts';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.ts';
 import { openDesktopIndexReader } from './desktop-index-connection.ts';
 import { readScopedIdentity } from './index-metadata.ts';
-import { promptVectorReplySchema } from './prompt-vector-contract.ts';
 import { RpcClient } from './rpc-client.ts';
 import { IndexReader } from './store.ts';
 
@@ -235,37 +229,6 @@ export async function runIndexerProcess(
               decoder(Schema.Array(stateSearchHitSchema))
             );
             break;
-          case 'state-search-pending':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(Schema.Array(stateSearchPendingRowSchema))
-            );
-            break;
-          case 'prompt-vectors':
-            work = client.call(request.op, request.payload, decoder(promptVectorReplySchema));
-            break;
-          case 'state-search-vectors':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(stateSearchVectorsResultSchema)
-            );
-            break;
-          case 'state-search-coverage':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(stateSearchCoverageResultSchema)
-            );
-            break;
-          case 'state-search-similar':
-            work = client.call(
-              request.op,
-              request.payload,
-              decoder(Schema.Array(stateSearchSimilarHitSchema))
-            );
-            break;
           case 'state-rebuild':
           case 'state-catch-up-step':
           case 'state-reindex':
@@ -326,12 +289,8 @@ export async function runIndexerProcess(
           case 'search':
             work = connection.search(request.payload);
             break;
-          case 'configure-vector-profile':
-            work = client.call(request.op, request.payload, decoder(identityStateSchema));
-            break;
           case 'commit-scoped-file':
           case 'commit-scoped-text-file':
-          case 'commit-file':
           case 'commit-text-file':
             work = client.call(request.op, request.payload, decoder(commitResultSchema));
             break;

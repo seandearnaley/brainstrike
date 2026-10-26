@@ -11,22 +11,14 @@ export type {
   EmbeddingProviderConfig,
   EmbeddingProviderError,
   EmbeddingProviderType,
-  EmbeddingRuntime,
-  HostedProviderType,
-  LocalProviderType,
   ProviderMetadata,
   Result,
 } from './provider-types.ts';
-export {
-  hostedProviderRequiresApiKey,
-  isLocalProviderType,
-  STANDARD_EMBEDDING_DIMENSION,
-} from './provider-types.ts';
+export { STANDARD_EMBEDDING_DIMENSION } from './provider-types.ts';
 export type { ParsedProviderModel } from './provider-utils.ts';
 export {
   canonicalizeProviderModelKey,
   formatProviderModelKey,
-  isHostedProvider,
   parseProviderModelKey,
 } from './provider-utils.ts';
 export {

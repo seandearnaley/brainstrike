@@ -1,74 +1,72 @@
 import { BrowserWindow, ipcMain } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMainPlatformIpcHandlers } from '../../main-platform-ipc';
 import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
+import { invokeDesktopIpcFrom } from '../helpers/desktop-ipc-sender-test-helpers';
 
-const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
-  getWindowRoleByWebContentsIdMock: vi.fn(),
+const { isAppWindowSenderMock } = vi.hoisted(() => ({
+  isAppWindowSenderMock: vi.fn(),
 }));
 
-type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 type NoteNextWindowReload = NonNullable<
   Parameters<typeof registerMainPlatformIpcHandlers>[0]['noteNextWindowReload']
 >;
 type MainPlatformIpcDependencies = Parameters<typeof registerMainPlatformIpcHandlers>[0];
 
+let unregister: (() => void) | undefined;
+
 function registerPartialMainPlatformIpcHandlers(
   dependencies: Partial<MainPlatformIpcDependencies>
 ): () => void {
-  return registerMainPlatformIpcHandlers(dependencies as unknown as MainPlatformIpcDependencies);
+  unregister = registerMainPlatformIpcHandlers(
+    dependencies as unknown as MainPlatformIpcDependencies
+  );
+  return unregister;
+}
+
+function invoke(event: unknown, method: string, ...args: unknown[]): Promise<unknown> {
+  return invokeDesktopIpcFrom(ipcMain, event, method, ...args);
+}
+
+/** An app window's event; the reload-intent handler reads only its window. */
+function appWindowEvent(sender: object = {}) {
+  return { sender: { id: 100, ...sender }, senderFrame: createAllowlistedSenderFrame() };
 }
 
 vi.mock('electron', () => ({
   BrowserWindow: {
     fromWebContents: vi.fn(),
   },
-  ipcMain: {
-    handle: vi.fn(),
-    on: vi.fn(),
-    removeHandler: vi.fn(),
-    removeListener: vi.fn(),
-  },
+  ipcMain: { handle: vi.fn() },
 }));
 
-vi.mock('../../window-role', () => ({
-  getWindowRoleByWebContentsId: getWindowRoleByWebContentsIdMock,
+vi.mock('../../app-windows', () => ({
+  isAppWindowSender: isAppWindowSenderMock,
 }));
 
 describe('main platform IPC', () => {
-  let handlers: Map<string, RegisteredHandler>;
   let noteNextWindowReload: ReturnType<typeof vi.fn<NoteNextWindowReload>>;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    handlers = new Map();
     noteNextWindowReload = vi.fn<NoteNextWindowReload>();
-    getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
-
-    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
-      handlers.set(channel, handler as RegisteredHandler);
-    });
+    isAppWindowSenderMock.mockReturnValue(true);
   });
 
-  it('registers the reload intent channel through the typed registry', () => {
-    registerPartialMainPlatformIpcHandlers({ noteNextWindowReload });
-
-    expect(ipcMain.handle).toHaveBeenCalledWith(
-      'app:lifecycle:note-reload-intent',
-      expect.any(Function)
-    );
+  afterEach(() => {
+    unregister?.();
+    unregister = undefined;
   });
 
   it('records normalized renderer reload intent for the sender window', async () => {
     const window = { isDestroyed: () => false };
-    const sender = {};
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as BrowserWindow);
 
     registerPartialMainPlatformIpcHandlers({
       noteNextWindowReload,
     });
 
-    await handlers.get('app:lifecycle:note-reload-intent')?.({ sender }, ' factory-reset ');
+    await invoke(appWindowEvent(), 'app:lifecycle:note-reload-intent', ' factory-reset ');
 
     expect(noteNextWindowReload).toHaveBeenCalledWith(window, {
       reason: 'factory-reset',
@@ -82,7 +80,7 @@ describe('main platform IPC', () => {
     });
 
     await expect(
-      handlers.get('app:lifecycle:note-reload-intent')?.({ sender: {} }, '   ')
+      invoke(appWindowEvent(), 'app:lifecycle:note-reload-intent', '   ')
     ).rejects.toThrow('Renderer reload intent reason must be a non-empty string.');
   });
 
@@ -95,7 +93,7 @@ describe('main platform IPC', () => {
     });
 
     await expect(
-      handlers.get('app:lifecycle:note-reload-intent')?.({ sender: {} }, 'factory-reset')
+      invoke(appWindowEvent(), 'app:lifecycle:note-reload-intent', 'factory-reset')
     ).rejects.toThrow('Renderer reload intent must originate from a live BrowserWindow.');
   });
 
@@ -106,8 +104,9 @@ describe('main platform IPC', () => {
     const requestReload = vi.fn();
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as BrowserWindow);
     registerPartialMainPlatformIpcHandlers({ noteNextWindowReload, requestReload });
-    await handlers.get('app:lifecycle:request-reload')?.(
+    await invoke(
       { sender, senderFrame: mainFrame },
+      'app:lifecycle:request-reload',
       ' failed-chunk-recovery '
     );
     expect(requestReload).toHaveBeenCalledWith(window, 'failed-chunk-recovery');
@@ -115,7 +114,7 @@ describe('main platform IPC', () => {
   });
 
   it.each([
-    'hidden host',
+    'untracked sender',
     'untrusted URL',
     'subframe',
     'stale main frame',
@@ -131,29 +130,30 @@ describe('main platform IPC', () => {
         : control === 'subframe' || control === 'stale main frame'
           ? createAllowlistedSenderFrame()
           : mainFrame;
-    if (control === 'hidden host') {
-      getWindowRoleByWebContentsIdMock.mockReturnValue('embedding-host');
+    if (control === 'untracked sender') {
+      isAppWindowSenderMock.mockReturnValue(false);
     }
     const requestReload = vi.fn();
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as BrowserWindow);
     registerPartialMainPlatformIpcHandlers({ noteNextWindowReload, requestReload });
     await expect(
-      handlers.get('app:lifecycle:request-reload')?.(
+      invoke(
         { sender, senderFrame },
+        'app:lifecycle:request-reload',
         control === 'empty reason' ? ' ' : 'reload'
       )
     ).rejects.toThrow();
     expect(requestReload).not.toHaveBeenCalled();
   });
 
-  it('unregisters its channels', () => {
-    const unregister = registerPartialMainPlatformIpcHandlers({
-      noteNextWindowReload,
-    });
+  it('stops serving its methods once unregistered', async () => {
+    registerPartialMainPlatformIpcHandlers({ noteNextWindowReload })();
 
-    unregister();
-
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('app:lifecycle:note-reload-intent');
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('app:lifecycle:request-reload');
+    for (const method of ['app:lifecycle:note-reload-intent', 'app:lifecycle:request-reload']) {
+      await expect(invoke(appWindowEvent(), method, 'reload')).rejects.toThrow(
+        `No desktop IPC handler for ${method}.`
+      );
+    }
+    expect(noteNextWindowReload).not.toHaveBeenCalled();
   });
 });

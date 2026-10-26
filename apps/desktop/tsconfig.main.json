@@ -33,7 +33,6 @@
     "src/main-bootstrap.ts",
     "src/main.ts",
     "src/preload.ts",
-    "src/hidden-preload.ts",
     "src/host-lease-entry.ts",
     "src/host-lease-manager.ts",
     "src/diagnostics/main-watchdog-worker.ts",

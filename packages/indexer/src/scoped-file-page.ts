@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
+import { vectorProfileHash } from './chunks.ts';
 import {
   decoder,
   IndexerError,
@@ -12,7 +13,7 @@ import {
   scopedManifestChunkSchema,
 } from './contracts.ts';
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.ts';
-import { type ScopeAuthority, vectorProfileHash } from './scope-authority.ts';
+import type { ScopeAuthority } from './scope-authority.ts';
 import { validateStoredVectorBytes } from './scoped-vector-validation.ts';
 
 const fileSchema = Schema.Struct({ contentHash: Schema.String, snapshotHash: Schema.String });

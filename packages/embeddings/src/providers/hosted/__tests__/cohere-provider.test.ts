@@ -20,7 +20,6 @@ describe('CohereEmbeddingProvider', () => {
         modelId: mockModelId,
       });
 
-      expect(provider.runtime).toBe('hosted');
       expect(provider.provider).toBe('cohere');
       expect(provider.hasApiKey()).toBe(true);
     });

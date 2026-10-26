@@ -193,17 +193,11 @@ describe('native tool discovery contract', () => {
   });
 
   it('refuses an embeddings-only provider rather than resolving a chat adapter', () => {
-    // The built-in on-device provider declares `capabilities.llm: false`, so
-    // discovery names that as the reason instead of handing back an adapter
-    // nothing can run.
-    expect(resolveToolDiscoveryAdapter({ modelId: 'any-model', provider: 'local' })).toEqual({
+    // Voyage declares `capabilities.llm: false`, so discovery names that as
+    // the reason instead of handing back an adapter nothing can run.
+    expect(resolveToolDiscoveryAdapter({ modelId: 'any-model', provider: 'voyage' })).toEqual({
       adapter: 'unsupported',
       reason: 'provider-has-no-llm',
-      status: 'unsupported',
-    });
-    expect(resolveToolDiscoveryAdapter({ modelId: 'dynamic-model', provider: 'ollama' })).toEqual({
-      adapter: 'unsupported',
-      reason: 'dynamic-model-capability-unknown',
       status: 'unsupported',
     });
   });

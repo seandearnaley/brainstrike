@@ -111,7 +111,7 @@ export interface AssistantThreadDraftRuntime {
   readonly provider?: string;
   readonly providerOptions?: AssistantThreadProviderOptions;
   readonly providerSettings?: Record<string, AssistantProviderSettings>;
-  readonly runtimeKind?: 'browser' | 'gateway' | 'hosted' | 'local';
+  readonly runtimeKind?: 'gateway' | 'hosted';
 }
 
 type PersistedAssistantThreadState = Pick<

@@ -3,16 +3,17 @@ import path from 'node:path';
 import type { EnvBootstrapReport } from '@brainstrike/assistant-contract/env-bootstrap-bridge';
 import { listProviders, providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import type { IpcMainInvokeEvent } from 'electron';
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopEnvLoadFailure } from '../../desktop-env';
 import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
 import {
   createAllowlistedSenderFrame,
   reconfigureTestRendererTargetAfterModuleReset,
 } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
+import { invokeDesktopIpcFrom } from '../helpers/desktop-ipc-sender-test-helpers';
 
-const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
-  getWindowRoleByWebContentsIdMock: vi.fn(),
+const { isAppWindowSenderMock } = vi.hoisted(() => ({
+  isAppWindowSenderMock: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -21,8 +22,8 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('../../window-role', () => ({
-  getWindowRoleByWebContentsId: getWindowRoleByWebContentsIdMock,
+vi.mock('../../app-windows', () => ({
+  isAppWindowSender: isAppWindowSenderMock,
 }));
 
 interface SecretsServiceMock {
@@ -92,7 +93,7 @@ describe('registerSecretsIpcHandlers', () => {
     vi.resetModules();
     await reconfigureTestRendererTargetAfterModuleReset();
     vi.clearAllMocks();
-    getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
+    isAppWindowSenderMock.mockReturnValue(true);
 
     restoreEnvVar('NODE_ENV', ORIGINAL_NODE_ENV);
     restoreEnvVar('ELECTRON_IS_E2E_TEST', ORIGINAL_ELECTRON_E2E);
@@ -129,13 +130,10 @@ describe('registerSecretsIpcHandlers', () => {
       { envFileFailures, readEnvBootstrapReport }
     );
 
-    const handleMock = ipcMain.handle as unknown as Mock<
-      (channel: string, handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void
-    >;
-    const getHandler = (channel: string) => {
-      const entry = handleMock.mock.calls.find(([name]) => name === channel);
-      return entry?.[1] as ((event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) | undefined;
-    };
+    const getHandler =
+      (method: string) =>
+      (event: IpcMainInvokeEvent, ...args: unknown[]): Promise<unknown> =>
+        invokeDesktopIpcFrom(ipcMain, event, method, ...args);
 
     return { getHandler };
   }
@@ -162,9 +160,8 @@ describe('registerSecretsIpcHandlers', () => {
 
     const { getHandler } = await bootstrap(secretsService);
     const listHandler = getHandler('secrets:list');
-    expect(listHandler).toBeDefined();
 
-    const result = await listHandler!(createInvokeEvent());
+    const result = await listHandler(createInvokeEvent());
 
     // Env + stored providers should be merged (with whitespace trimmed)
     expect(result).toEqual([
@@ -199,7 +196,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = await getHandler('secrets:list')!(createInvokeEvent());
+    const result = await getHandler('secrets:list')(createInvokeEvent());
 
     // Only the fingerprint keys are projected; other metadata never crosses
     // the wire, and a credential without a fingerprint yields no metadata.
@@ -231,7 +228,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = await getHandler('secrets:list')!(createInvokeEvent());
+    const result = await getHandler('secrets:list')(createInvokeEvent());
 
     expect(result).toEqual([
       {
@@ -265,7 +262,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = await getHandler('secrets:list')!(createInvokeEvent());
+    const result = await getHandler('secrets:list')(createInvokeEvent());
 
     // No metadata: a profile chain holds no secret to fingerprint.
     expect(result).toEqual([{ authMode: 'profile_chain', provider: 'bedrock', source: 'stored' }]);
@@ -285,7 +282,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = (await getHandler('secrets:list')!(createInvokeEvent())) as unknown[];
+    const result = (await getHandler('secrets:list')(createInvokeEvent())) as unknown[];
 
     expect(result).toContainEqual({
       authMode: 'profile_chain',
@@ -314,7 +311,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = (await getHandler('secrets:list')!(createInvokeEvent())) as {
+    const result = (await getHandler('secrets:list')(createInvokeEvent())) as {
       authMode?: string;
       provider: string;
       source: string;
@@ -339,7 +336,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = await getHandler('secrets:list')!(createInvokeEvent());
+    const result = await getHandler('secrets:list')(createInvokeEvent());
 
     // The entry IS stored — that fact stands. The unreadable credential
     // surfaces through the status probe and every read path; the listing
@@ -363,7 +360,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = await getHandler('secrets:list')!(createInvokeEvent());
+    const result = await getHandler('secrets:list')(createInvokeEvent());
 
     expect(result).toEqual([{ provider: 'anthropic', source: 'stored' }]);
   });
@@ -396,7 +393,7 @@ describe('registerSecretsIpcHandlers', () => {
     };
 
     const { getHandler } = await bootstrap(secretsService);
-    const result = await getHandler('secrets:list')!(createInvokeEvent());
+    const result = await getHandler('secrets:list')(createInvokeEvent());
 
     expect(result).toEqual([
       { provider: 'anthropic', source: 'stored' },
@@ -418,7 +415,7 @@ describe('registerSecretsIpcHandlers', () => {
     const { getHandler } = await bootstrap(secretsService);
     const listHandler = getHandler('secrets:list');
 
-    const result = (await listHandler!(createInvokeEvent())) as Array<{
+    const result = (await listHandler(createInvokeEvent())) as Array<{
       envVar?: string;
       provider: string;
       source: 'env' | 'stored';
@@ -455,9 +452,8 @@ describe('registerSecretsIpcHandlers', () => {
 
     const { getHandler } = await bootstrap(secretsService);
     const listHandler = getHandler('secrets:listStored');
-    expect(listHandler).toBeDefined();
 
-    const result = (await listHandler!(createInvokeEvent())) as string[];
+    const result = (await listHandler(createInvokeEvent())) as string[];
 
     expect(result).toEqual(['anthropic', 'custom']);
     expect(result).not.toContain('openai');
@@ -489,19 +485,15 @@ describe('registerSecretsIpcHandlers', () => {
     const listHandler = getHandler('secrets:list');
     const listStoredHandler = getHandler('secrets:listStored');
 
-    expect(saveHandler).toBeDefined();
-    expect(listHandler).toBeDefined();
-    expect(listStoredHandler).toBeDefined();
-
-    await expect(saveHandler!(createInvokeEvent(), 'anthropic', 'sk-test-anthropic')).resolves.toBe(
+    await expect(saveHandler(createInvokeEvent(), 'anthropic', 'sk-test-anthropic')).resolves.toBe(
       true
     );
     expect(secretsService.saveKey).toHaveBeenCalledWith('anthropic', 'sk-test-anthropic');
     // The store's entries, and no env-configured provider.
-    await expect(listHandler!(createInvokeEvent())).resolves.toEqual([
+    await expect(listHandler(createInvokeEvent())).resolves.toEqual([
       { provider: 'anthropic', source: 'stored' },
     ]);
-    await expect(listStoredHandler!(createInvokeEvent())).resolves.toEqual(['anthropic']);
+    await expect(listStoredHandler(createInvokeEvent())).resolves.toEqual(['anthropic']);
   });
 
   it('rejects credential inspection visibly when environment files failed to load', async () => {
@@ -521,7 +513,7 @@ describe('registerSecretsIpcHandlers', () => {
     const { getHandler } = await bootstrap(secretsService, [failure]);
     const listHandler = getHandler('secrets:list');
 
-    await expect(listHandler!(createInvokeEvent())).rejects.toThrow(
+    await expect(listHandler(createInvokeEvent())).rejects.toThrow(
       'The development local environment file is malformed at line 3.'
     );
     expect(secretsService.listProviders).not.toHaveBeenCalled();
@@ -540,9 +532,8 @@ describe('registerSecretsIpcHandlers', () => {
 
     const { getHandler } = await bootstrap(secretsService);
     const clearHandler = getHandler('secrets:clearAll');
-    expect(clearHandler).toBeDefined();
 
-    const unauthorized = (await clearHandler!(createInvokeEvent())) as {
+    const unauthorized = (await clearHandler(createInvokeEvent())) as {
       success: false;
       message: string;
     };
@@ -553,57 +544,53 @@ describe('registerSecretsIpcHandlers', () => {
     });
     expect(secretsService.clearAll).toHaveBeenCalledTimes(0);
 
-    const success = (await clearHandler!(
-      createInvokeEvent(),
-      SECRETS_CLEAR_CONFIRMATION_TOKEN
-    )) as { success: true };
+    const success = (await clearHandler(createInvokeEvent(), SECRETS_CLEAR_CONFIRMATION_TOKEN)) as {
+      success: true;
+    };
 
     expect(success).toEqual({ success: true });
     expect(secretsService.clearAll).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['chunking-host', 'embedding-host', 'llm-host', undefined])(
-    'rejects every secret operation before dispatch for sender role %s',
-    async (role) => {
-      process.env['NODE_ENV'] = 'production';
-      getWindowRoleByWebContentsIdMock.mockReturnValue(role);
-      const secretsService: SecretsServiceMock = {
-        clearAll: vi.fn().mockResolvedValue(true),
-        deleteKey: vi.fn().mockResolvedValue(true),
-        getCredential: vi.fn().mockResolvedValue({ key: 'secret', type: 'api_key' }),
-        getKey: vi.fn().mockResolvedValue('secret'),
-        listProviders: vi.fn().mockResolvedValue(['openai']),
-        saveKey: vi.fn().mockResolvedValue(true),
-        setCredential: vi.fn().mockResolvedValue(true),
-      };
-      const { getHandler } = await bootstrap(secretsService);
-      const calls: ReadonlyArray<readonly [string, ...unknown[]]> = [
-        ['secrets:save', 'openai', 'secret'],
-        ['secrets:get', 'openai'],
-        ['secrets:saveCredential', 'openai', { key: 'secret', type: 'api_key' }],
-        ['secrets:getCredential', 'openai'],
-        ['secrets:delete', 'openai'],
-        ['secrets:list'],
-        ['secrets:listStored'],
-        ['secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN],
-        ['secrets:envBootstrap'],
-      ];
+  it('rejects every secret operation before dispatch for a sender that is not an app window', async () => {
+    process.env['NODE_ENV'] = 'production';
+    isAppWindowSenderMock.mockReturnValue(false);
+    const secretsService: SecretsServiceMock = {
+      clearAll: vi.fn().mockResolvedValue(true),
+      deleteKey: vi.fn().mockResolvedValue(true),
+      getCredential: vi.fn().mockResolvedValue({ key: 'secret', type: 'api_key' }),
+      getKey: vi.fn().mockResolvedValue('secret'),
+      listProviders: vi.fn().mockResolvedValue(['openai']),
+      saveKey: vi.fn().mockResolvedValue(true),
+      setCredential: vi.fn().mockResolvedValue(true),
+    };
+    const { getHandler } = await bootstrap(secretsService);
+    const calls: ReadonlyArray<readonly [string, ...unknown[]]> = [
+      ['secrets:save', 'openai', 'secret'],
+      ['secrets:get', 'openai'],
+      ['secrets:saveCredential', 'openai', { key: 'secret', type: 'api_key' }],
+      ['secrets:getCredential', 'openai'],
+      ['secrets:delete', 'openai'],
+      ['secrets:list'],
+      ['secrets:listStored'],
+      ['secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN],
+      ['secrets:envBootstrap'],
+    ];
 
-      for (const [channel, ...args] of calls) {
-        await expect(getHandler(channel)?.(createInvokeEvent(), ...args)).rejects.toThrow(
-          `Desktop IPC ${channel} requires sender role visible-ui.`
-        );
-      }
-
-      expect(secretsService.saveKey).not.toHaveBeenCalled();
-      expect(secretsService.getKey).not.toHaveBeenCalled();
-      expect(secretsService.setCredential).not.toHaveBeenCalled();
-      expect(secretsService.getCredential).not.toHaveBeenCalled();
-      expect(secretsService.deleteKey).not.toHaveBeenCalled();
-      expect(secretsService.listProviders).not.toHaveBeenCalled();
-      expect(secretsService.clearAll).not.toHaveBeenCalled();
+    for (const [channel, ...args] of calls) {
+      await expect(getHandler(channel)(createInvokeEvent(), ...args)).rejects.toThrow(
+        `Desktop IPC ${channel} requires an app window sender.`
+      );
     }
-  );
+
+    expect(secretsService.saveKey).not.toHaveBeenCalled();
+    expect(secretsService.getKey).not.toHaveBeenCalled();
+    expect(secretsService.setCredential).not.toHaveBeenCalled();
+    expect(secretsService.getCredential).not.toHaveBeenCalled();
+    expect(secretsService.deleteKey).not.toHaveBeenCalled();
+    expect(secretsService.listProviders).not.toHaveBeenCalled();
+    expect(secretsService.clearAll).not.toHaveBeenCalled();
+  });
 
   describe('env bootstrap projection channel (BST-1363)', () => {
     const devReport: EnvBootstrapReport = {
@@ -631,7 +618,7 @@ describe('registerSecretsIpcHandlers', () => {
       const readEnvBootstrapReport = vi.fn(() => devReport);
       const { getHandler } = await bootstrap(secretsServiceStub(), [], readEnvBootstrapReport);
 
-      const result = await getHandler('secrets:envBootstrap')?.(createInvokeEvent());
+      const result = await getHandler('secrets:envBootstrap')(createInvokeEvent());
 
       expect(result).toEqual(devReport);
       expect(readEnvBootstrapReport).toHaveBeenCalledTimes(1);
@@ -642,8 +629,8 @@ describe('registerSecretsIpcHandlers', () => {
       const readEnvBootstrapReport = vi.fn(() => devReport);
       const { getHandler } = await bootstrap(secretsServiceStub(), [], readEnvBootstrapReport);
 
-      await getHandler('secrets:envBootstrap')?.(createInvokeEvent());
-      await getHandler('secrets:envBootstrap')?.(createInvokeEvent());
+      await getHandler('secrets:envBootstrap')(createInvokeEvent());
+      await getHandler('secrets:envBootstrap')(createInvokeEvent());
 
       expect(readEnvBootstrapReport).toHaveBeenCalledTimes(2);
     });
@@ -668,7 +655,7 @@ describe('registerSecretsIpcHandlers', () => {
 
       // `secrets:list` THROWS on env-file failures by design; this channel is
       // the one that must still answer — it exists to explain the failure.
-      await expect(getHandler('secrets:envBootstrap')?.(createInvokeEvent())).resolves.toEqual(
+      await expect(getHandler('secrets:envBootstrap')(createInvokeEvent())).resolves.toEqual(
         failureReport
       );
     });
@@ -701,11 +688,11 @@ describe('registerSecretsIpcHandlers', () => {
 
         const { getHandler } = await bootstrap(secretsService);
         await expect(
-          getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', credential)
+          getHandler('secrets:saveCredential')(createInvokeEvent(), 'anthropic', credential)
         ).resolves.toBe(true);
         expect(secretsService.setCredential).toHaveBeenCalledWith('anthropic', credential);
         await expect(
-          getHandler('secrets:getCredential')!(createInvokeEvent(), 'anthropic')
+          getHandler('secrets:getCredential')(createInvokeEvent(), 'anthropic')
         ).resolves.toEqual({ credential, ok: true });
         expect(secretsService.getCredential).toHaveBeenCalledWith('anthropic');
       }
@@ -721,12 +708,10 @@ describe('registerSecretsIpcHandlers', () => {
       };
 
       const { getHandler } = await bootstrap(secretsService);
-      await expect(getHandler('secrets:get')!(createInvokeEvent(), 'openai')).resolves.toBe(
+      await expect(getHandler('secrets:get')(createInvokeEvent(), 'openai')).resolves.toBe(
         'sk-raw'
       );
-      await expect(getHandler('secrets:delete')!(createInvokeEvent(), 'openai')).resolves.toBe(
-        true
-      );
+      await expect(getHandler('secrets:delete')(createInvokeEvent(), 'openai')).resolves.toBe(true);
       expect(secretsService.getKey).toHaveBeenCalledWith('openai');
       expect(secretsService.deleteKey).toHaveBeenCalledWith('openai');
     });
@@ -757,9 +742,9 @@ describe('registerSecretsIpcHandlers', () => {
       await expect(save(createInvokeEvent(), 'openai', 'sk-test', 'extra')).rejects.toThrow(
         TypeError
       );
-      await expect(getHandler('secrets:get')!(createInvokeEvent())).rejects.toThrow(TypeError);
+      await expect(getHandler('secrets:get')(createInvokeEvent())).rejects.toThrow(TypeError);
       await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), '', { type: 'api_key' })
+        getHandler('secrets:saveCredential')(createInvokeEvent(), '', { type: 'api_key' })
       ).rejects.toThrow(/secrets IPC provider/u);
       expect(secretsService.saveKey).not.toHaveBeenCalled();
       expect(secretsService.getKey).not.toHaveBeenCalled();
@@ -780,12 +765,12 @@ describe('registerSecretsIpcHandlers', () => {
       const { getHandler } = await bootstrap(secretsService);
 
       await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', awsCredential)
+        getHandler('secrets:saveCredential')(createInvokeEvent(), 'anthropic', awsCredential)
       ).resolves.toBe(true);
       expect(secretsService.setCredential).toHaveBeenCalledWith('anthropic', awsCredential);
 
       await expect(
-        getHandler('secrets:getCredential')!(createInvokeEvent(), 'anthropic')
+        getHandler('secrets:getCredential')(createInvokeEvent(), 'anthropic')
       ).resolves.toEqual({ credential: awsCredential, ok: true });
       expect(secretsService.getCredential).toHaveBeenCalledWith('anthropic');
     });
@@ -808,7 +793,7 @@ describe('registerSecretsIpcHandlers', () => {
       const { getHandler } = await bootstrap(secretsService);
 
       await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', { type: 'aws' })
+        getHandler('secrets:saveCredential')(createInvokeEvent(), 'openai', { type: 'aws' })
       ).resolves.toEqual({ error: 'malformed_credential', ok: false });
       expect(secretsService.setCredential).toHaveBeenCalledWith('openai', { type: 'aws' });
     });
@@ -831,7 +816,7 @@ describe('registerSecretsIpcHandlers', () => {
       const { getHandler } = await bootstrap(secretsService);
 
       await expect(
-        getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
+        getHandler('secrets:getCredential')(createInvokeEvent(), 'openai')
       ).resolves.toEqual({ error: 'malformed_credential', ok: false, provider: 'openai' });
     });
 
@@ -850,9 +835,10 @@ describe('registerSecretsIpcHandlers', () => {
 
       const { getHandler } = await bootstrap(secretsService);
 
-      await expect(getHandler('secrets:save')!(createInvokeEvent(), 'openai', '')).resolves.toEqual(
-        { error: 'malformed_credential', ok: false }
-      );
+      await expect(getHandler('secrets:save')(createInvokeEvent(), 'openai', '')).resolves.toEqual({
+        error: 'malformed_credential',
+        ok: false,
+      });
     });
 
     it('maps encryption_unavailable from setCredential to the structured save error result', async () => {
@@ -868,7 +854,7 @@ describe('registerSecretsIpcHandlers', () => {
       const { getHandler } = await bootstrap(secretsService);
 
       await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', {
+        getHandler('secrets:saveCredential')(createInvokeEvent(), 'openai', {
           key: 'sk',
           type: 'api_key',
         })

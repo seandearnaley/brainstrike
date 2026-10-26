@@ -4,24 +4,16 @@ import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SystemDiagnosticsPanel } from '../diagnostics/system-diagnostics-panel';
 
-vi.mock('@brainstrike/vector-management', () => ({
-  QueueDiagnosticsPanel: () => null,
-}));
-
 describe('SystemDiagnosticsPanel token indexer telemetry', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     window.dispatchEvent(new Event('focus'));
-    (window as Window & { embeddingHost?: unknown }).embeddingHost = {
-      onStatus: vi.fn(() => () => undefined),
-    };
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-    (window as Window & { embeddingHost?: unknown }).embeddingHost = undefined;
   });
 
   it('renders aggregate performance without exposing event identity', async () => {

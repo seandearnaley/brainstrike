@@ -4,7 +4,6 @@ import type {
   PromptItemFilter,
   PromptItemKind,
   PromptItemRepositoryPort,
-  PromptItemSimilarityResult,
   PromptItemUsageAction,
   UpdatePromptItemInput,
 } from '@brainstrike/types/prompt-item';
@@ -23,9 +22,7 @@ import {
 import {
   ArrowUpRight,
   BookOpenText,
-  Check,
   CircleAlert,
-  Clock3,
   FileText,
   Filter,
   Lightbulb,
@@ -35,7 +32,6 @@ import {
   Search,
   Sparkles,
   Star,
-  WandSparkles,
   Zap,
 } from 'lucide-react';
 import {
@@ -68,20 +64,14 @@ export type { PromptWorkbenchModelOption } from './prompt-workbench-shared';
 
 export interface PromptWorkbenchPanelProps {
   readonly activeThreadId?: string;
-  readonly composerContext: string;
   readonly initialItems: readonly PromptItem[];
   readonly modelOptions: readonly PromptWorkbenchModelOption[];
-  readonly onLibraryChanged: () => Promise<void>;
-  readonly onRequestSuggestions: (
-    context: string
-  ) => Promise<readonly PromptItemSimilarityResult[]>;
   readonly onUseItem: (
     item: PromptItem,
     renderedContent: string,
     action: PromptItemUsageAction
   ) => Promise<void>;
   readonly repository: PromptWorkbenchRepository;
-  readonly suggestionsEnabled?: boolean;
   readonly systemError?: string;
 }
 
@@ -129,11 +119,6 @@ function itemMatches(item: PromptItem, search: string, kind: KindFilter): boolea
     .includes(needle);
 }
 
-function promptItemWithoutSimilarity(result: PromptItemSimilarityResult): PromptItem {
-  const { similarity: _similarity, ...item } = result;
-  return item;
-}
-
 function usePromptLibraryItems(
   repository: PromptWorkbenchRepository,
   initialItems: readonly PromptItem[]
@@ -165,79 +150,6 @@ function usePromptLibraryItems(
   return { items, refresh, updateItems };
 }
 
-interface PromptSuggestionState {
-  readonly context: string;
-  readonly error: string | null;
-  readonly refreshKey: number;
-  readonly results: PromptItemSimilarityResult[];
-  readonly status: 'error' | 'ready';
-}
-
-function useContextualPromptSuggestions({
-  composerContext,
-  enabled,
-  onRequestSuggestions,
-  refreshKey,
-}: {
-  readonly composerContext: string;
-  readonly enabled: boolean;
-  readonly onRequestSuggestions: PromptWorkbenchPanelProps['onRequestSuggestions'];
-  readonly refreshKey: number;
-}) {
-  const context = composerContext.trim();
-  const [snapshot, setSnapshot] = useState<PromptSuggestionState>({
-    context: '',
-    error: null,
-    refreshKey: -1,
-    results: [],
-    status: 'ready',
-  });
-
-  useEffect(() => {
-    if (!(enabled && context)) {
-      return;
-    }
-    let current = true;
-    const timeout = setTimeout(() => {
-      void onRequestSuggestions(context)
-        .then((results) => {
-          if (current) {
-            setSnapshot({
-              context,
-              error: null,
-              refreshKey,
-              results: [...results],
-              status: 'ready',
-            });
-          }
-        })
-        .catch((cause) => {
-          if (current) {
-            setSnapshot({
-              context,
-              error: errorMessage(cause),
-              refreshKey,
-              results: [],
-              status: 'error',
-            });
-          }
-        });
-    }, 250);
-    return () => {
-      current = false;
-      clearTimeout(timeout);
-    };
-  }, [context, enabled, onRequestSuggestions, refreshKey]);
-
-  if (!(enabled && context)) {
-    return { error: null, results: [], status: 'idle' as const };
-  }
-  if (snapshot.context !== context || snapshot.refreshKey !== refreshKey) {
-    return { error: null, results: [], status: 'loading' as const };
-  }
-  return { error: snapshot.error, results: snapshot.results, status: snapshot.status };
-}
-
 function PromptKindMark({ kind }: { readonly kind: PromptItemKind }) {
   const Icon = kind === 'prompt' ? BookOpenText : kind === 'snippet' ? FileText : Lightbulb;
   return (
@@ -252,31 +164,6 @@ function PromptKindMark({ kind }: { readonly kind: PromptItemKind }) {
       )}
     >
       <Icon aria-hidden="true" className="size-3.5" />
-    </span>
-  );
-}
-
-function EmbeddingState({ item }: { readonly item: PromptItem }) {
-  if (item.embeddingStatus === 'ready') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] text-success">
-        <Check aria-hidden="true" className="size-2.5" /> Indexed
-      </span>
-    );
-  }
-  if (item.embeddingStatus === 'error') {
-    return (
-      <span
-        className="inline-flex items-center gap-1 text-[10px] text-destructive"
-        title={item.embeddingError ?? undefined}
-      >
-        <CircleAlert aria-hidden="true" className="size-2.5" /> Index failed
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-      <Clock3 aria-hidden="true" className="size-2.5" /> Indexing
     </span>
   );
 }
@@ -369,80 +256,6 @@ function PreparePromptDialog({
   );
 }
 
-function ContextualRecall({
-  activeThreadId,
-  isUsePending,
-  onUse,
-  suggestions,
-}: {
-  readonly activeThreadId: string | undefined;
-  readonly isUsePending: (item: PromptItem, action: PromptItemUsageAction) => boolean;
-  readonly onUse: (item: PromptItem, action: PromptItemUsageAction) => void;
-  readonly suggestions: ReturnType<typeof useContextualPromptSuggestions>;
-}) {
-  return (
-    <div className="border-border/70 border-b bg-muted/20 px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
-          <WandSparkles aria-hidden="true" className="size-3.5 text-sky-500" />
-          <span className="font-semibold text-[10px] uppercase tracking-[0.12em]">
-            Contextual recall
-          </span>
-        </div>
-        {suggestions.status === 'loading' ? (
-          <span className="text-[10px] text-muted-foreground">Reading draft…</span>
-        ) : null}
-      </div>
-      {suggestions.status === 'error' ? (
-        <p className="mt-1.5 text-[10px] text-destructive" role="alert">
-          Vector recall unavailable: {suggestions.error}
-        </p>
-      ) : null}
-      {suggestions.status === 'ready' && suggestions.results.length === 0 ? (
-        <p className="mt-1.5 text-[10px] text-muted-foreground">
-          No indexed clips match this draft yet.
-        </p>
-      ) : null}
-      {suggestions.results.length > 0 ? (
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5">
-          {suggestions.results.slice(0, 4).map((suggestion) => {
-            const suggestedItem = promptItemWithoutSimilarity(suggestion);
-            const action = resolveItemUseAction(suggestedItem);
-            const verb = action === 'compose' ? 'Compose' : 'Insert';
-            return (
-              <div
-                className="w-full @[260px]/prompt-workbench:min-w-48 min-w-0 @[260px]/prompt-workbench:flex-1 flex-none rounded-lg border border-sky-500/20 bg-background/90 p-2 shadow-xs"
-                data-testid={`prompt-context-suggestion-${suggestion.id}`}
-                key={suggestion.id}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium text-[11px]">{suggestion.title}</span>
-                  <span className="shrink-0 font-mono text-[9px] text-info">
-                    {Math.round(suggestion.similarity * 100)}% match
-                  </span>
-                </div>
-                <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground leading-4">
-                  {suggestion.content}
-                </p>
-                <Button
-                  aria-label={`${verb} ${suggestion.title}`}
-                  className="mt-1.5 h-6 px-1.5 text-[10px]"
-                  disabled={!activeThreadId || isUsePending(suggestedItem, action)}
-                  onClick={() => onUse(suggestedItem, action)}
-                  size="xs"
-                  variant="ghost"
-                >
-                  <MessageSquarePlus aria-hidden="true" /> {verb}
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function QuickCapture({
   capture,
   capturing,
@@ -474,7 +287,7 @@ function QuickCapture({
           </div>
           <h2 className="mt-1 font-semibold text-sm tracking-tight">Capture now. Shape later.</h2>
           <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Your working library, recalled against the live draft.
+            Your working library of prompts, snippets and fragments.
           </p>
         </div>
         <Button
@@ -658,7 +471,6 @@ function PromptLibraryList({
                       {item.description || item.content}
                     </p>
                     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <EmbeddingState item={item} />
                       {item.tags.slice(0, 2).map((tag) => (
                         <span className="text-[9px] text-muted-foreground" key={tag}>
                           #{tag}
@@ -722,14 +534,10 @@ function PromptLibraryList({
 
 export function PromptWorkbenchPanel({
   activeThreadId,
-  composerContext,
   initialItems,
   modelOptions,
-  onLibraryChanged,
-  onRequestSuggestions,
   onUseItem,
   repository,
-  suggestionsEnabled = true,
   systemError,
 }: PromptWorkbenchPanelProps) {
   const {
@@ -758,13 +566,6 @@ export function PromptWorkbenchPanel({
   }
   const preparedUsePromises = preparedUsePromisesRef.current;
   const [directUseKeys, setDirectUseKeys] = useState<ReadonlySet<string>>(() => new Set());
-  const [suggestionRefreshKey, setSuggestionRefreshKey] = useState(0);
-  const suggestions = useContextualPromptSuggestions({
-    composerContext,
-    enabled: suggestionsEnabled,
-    onRequestSuggestions,
-    refreshKey: suggestionRefreshKey,
-  });
 
   const filteredItems = useMemo(
     () =>
@@ -775,20 +576,14 @@ export function PromptWorkbenchPanel({
   );
 
   const notifyLibraryChanged = useCallback(async () => {
-    const warnings: string[] = [];
-    try {
-      await onLibraryChanged();
-    } catch (cause) {
-      warnings.push(`Prompt saved, but indexing failed: ${errorMessage(cause)}`);
-    }
     try {
       await refreshItems();
     } catch (cause) {
-      warnings.push(`Prompt saved, but the library could not refresh: ${errorMessage(cause)}`);
+      setLibraryWarning(`Prompt saved, but the library could not refresh: ${errorMessage(cause)}`);
+      return;
     }
-    setLibraryWarning(warnings.length > 0 ? warnings.join(' ') : null);
-    setSuggestionRefreshKey((current) => current + 1);
-  }, [onLibraryChanged, refreshItems]);
+    setLibraryWarning(null);
+  }, [refreshItems]);
 
   const captureClip = useCallback(async () => {
     if (!capture.trim() || capturing) {
@@ -937,15 +732,6 @@ export function PromptWorkbenchPanel({
         onCaptureKeyDown={handleCaptureKeyDown}
         onKindChange={setCaptureKind}
       />
-
-      {composerContext.trim() ? (
-        <ContextualRecall
-          activeThreadId={activeThreadId}
-          isUsePending={isUsePending}
-          onUse={requestUse}
-          suggestions={suggestions}
-        />
-      ) : null}
 
       <PromptLibraryControls
         favoriteOnly={favoriteOnly}

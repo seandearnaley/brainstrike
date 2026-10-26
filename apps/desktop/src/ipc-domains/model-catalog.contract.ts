@@ -41,12 +41,10 @@ export const modelCatalogContract = {
       }
       return [providerId, { kind: 'seed', modelIds: policy['modelIds'].map(identity) }];
     },
-    roles: ['visible-ui'],
   }),
   read: channel<[], Awaited<ReturnType<ModelCatalogCapability['read']>>>({
     channel: DESKTOP_IPC_CHANNELS.modelCatalog.read,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui', 'embedding-host'],
   }),
   setModels: channel<
     Parameters<ModelCatalogCapability['setModels']>,
@@ -60,7 +58,6 @@ export const modelCatalogContract = {
       }
       return [raw[0].map(identity), enabled(raw[1])];
     },
-    roles: ['visible-ui'],
   }),
   setProvider: channel<
     Parameters<ModelCatalogCapability['setProvider']>,
@@ -71,7 +68,6 @@ export const modelCatalogContract = {
       assertArgCount(raw, 2, 'Model provider choice');
       return [identity(raw[0]), enabled(raw[1])];
     },
-    roles: ['visible-ui'],
   }),
 };
 /** @internal Compile-time assertion that the runtime contract matches its public wire types. */

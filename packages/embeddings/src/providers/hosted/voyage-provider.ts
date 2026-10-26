@@ -1,4 +1,4 @@
-import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.ts';
+import type { EmbeddingInput, IEmbeddingProvider } from '../../interfaces/provider.ts';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
@@ -34,8 +34,6 @@ const VOYAGE_MODELS: Record<string, ModelConfig> = {
     id: 'voyage-3',
     name: 'Voyage 3',
     origin: 'Voyage AI',
-    quantized: false,
-    size: 'hosted',
     tags: ['voyage', 'hosted', 'embedding'],
   },
   'voyage-3-lite': {
@@ -44,8 +42,6 @@ const VOYAGE_MODELS: Record<string, ModelConfig> = {
     id: 'voyage-3-lite',
     name: 'Voyage 3 Lite',
     origin: 'Voyage AI',
-    quantized: false,
-    size: 'hosted',
     tags: ['voyage', 'hosted', 'embedding'],
   },
 };
@@ -58,8 +54,7 @@ export interface VoyageEmbeddingProviderOptions {
   readonly modelId: string;
 }
 
-export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
-  readonly runtime = 'hosted' as const;
+export class VoyageEmbeddingProvider implements IEmbeddingProvider {
   readonly provider = 'voyage' as const;
 
   private apiKey: string | null;

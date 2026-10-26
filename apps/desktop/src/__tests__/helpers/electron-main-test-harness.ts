@@ -1,66 +1,21 @@
 import { resolve } from 'node:path';
 import { type Mock, vi } from 'vitest';
-
-type IpcMainHandler = (...args: unknown[]) => unknown;
-type IpcMainListener = (...args: unknown[]) => unknown;
+import { DESKTOP_IPC_PUSH_CHANNEL, type DesktopIpcPush } from '../../platform/desktop-ipc-channels';
 
 const { default: electronTestStub } = await vi.importActual<
   typeof import('../electron-test-stub.mts')
 >('../electron-test-stub.mts');
 
-const ipcMainHandlers = new Map<string, IpcMainHandler>();
-const ipcMainListeners = new Map<string, IpcMainListener[]>();
 const mockAllWebContents: unknown[] = [];
 
-function registerIpcMainHandler(channel: string, handler: IpcMainHandler): void {
-  if (ipcMainHandlers.has(channel)) {
-    throw new Error(`Attempted to register a second handler for '${channel}'`);
-  }
-  ipcMainHandlers.set(channel, handler);
-}
-
-function registerIpcMainListener(channel: string, listener: IpcMainListener): void {
-  const listeners = ipcMainListeners.get(channel) ?? [];
-  listeners.push(listener);
-  ipcMainListeners.set(channel, listeners);
-}
-
-function removeIpcMainHandler(channel: string): void {
-  ipcMainHandlers.delete(channel);
-}
-
-function removeIpcMainListener(channel: string, listener: IpcMainListener): void {
-  const listeners = ipcMainListeners.get(channel);
-  if (!listeners) {
-    return;
-  }
-  const listenerIndex = listeners.indexOf(listener);
-  if (listenerIndex === -1) {
-    return;
-  }
-  listeners.splice(listenerIndex, 1);
-  if (listeners.length === 0) {
-    ipcMainListeners.delete(channel);
-  }
-}
-
-function removeAllIpcMainListeners(channel?: string): void {
-  if (channel === undefined) {
-    ipcMainListeners.clear();
-    return;
-  }
-  ipcMainListeners.delete(channel);
-}
-
+/**
+ * Main's one IPC dispatcher registers here (`desktop-ipc-registry.ts`); find it
+ * and call a method through it with `invokeDesktopIpc` from
+ * `desktop-ipc-sender-test-helpers.ts`.
+ */
 export const mockIpcMain = {
   ...electronTestStub.ipcMain,
-  handle: vi.fn(registerIpcMainHandler),
-  handleOnce: vi.fn(registerIpcMainHandler),
-  on: vi.fn(registerIpcMainListener),
-  once: vi.fn(registerIpcMainListener),
-  removeAllListeners: vi.fn(removeAllIpcMainListeners),
-  removeHandler: vi.fn(removeIpcMainHandler),
-  removeListener: vi.fn(removeIpcMainListener),
+  handle: vi.fn(),
 };
 
 const BrowserWindowMock = Object.assign(vi.fn(), {
@@ -89,7 +44,7 @@ const electronMainMockSurface = {
     showMessageBox: vi.fn(async () => ({ response: 0 })),
   },
   ipcMain: mockIpcMain,
-  ipcRenderer: { ...electronTestStub.ipcRenderer, invoke: vi.fn(), on: vi.fn(), send: vi.fn() },
+  ipcRenderer: { ...electronTestStub.ipcRenderer, invoke: vi.fn(), on: vi.fn() },
   Menu: {
     ...electronTestStub.Menu,
     buildFromTemplate: vi.fn(),
@@ -161,13 +116,6 @@ function resetOwnedMockFunctions(value: unknown, seen = new Set<unknown>()): voi
 }
 
 function restoreOwnedMockImplementations(): void {
-  mockIpcMain.handle.mockImplementation(registerIpcMainHandler);
-  mockIpcMain.handleOnce.mockImplementation(registerIpcMainHandler);
-  mockIpcMain.on.mockImplementation(registerIpcMainListener);
-  mockIpcMain.once.mockImplementation(registerIpcMainListener);
-  mockIpcMain.removeAllListeners.mockImplementation(removeAllIpcMainListeners);
-  mockIpcMain.removeHandler.mockImplementation(removeIpcMainHandler);
-  mockIpcMain.removeListener.mockImplementation(removeIpcMainListener);
   electronMainMock.app.getAppPath.mockImplementation(() => resolve('/mock/app'));
   electronMainMock.app.getName.mockImplementation(() => 'Brainstrike');
   electronMainMock.app.getPath.mockImplementation(() => '/mock/path');
@@ -205,33 +153,8 @@ function restoreOwnedMockImplementations(): void {
   electronMainMock.webContents.getAllWebContents.mockImplementation(() => [...mockAllWebContents]);
 }
 
-export function getRegisteredIpcMainHandler(channel: string): IpcMainHandler {
-  const handler = ipcMainHandlers.get(channel);
-  if (!handler) {
-    throw new Error(`No ipcMain.handle registration found for channel: ${channel}`);
-  }
-  return handler;
-}
-
-export function getRegisteredIpcMainListener(channel: string): IpcMainListener {
-  const listeners = ipcMainListeners.get(channel);
-  if (!listeners || listeners.length === 0) {
-    throw new Error(`No ipcMain.on registration found for channel: ${channel}`);
-  }
-  if (listeners.length > 1) {
-    throw new Error(`Multiple ipcMain.on registrations found for channel: ${channel}`);
-  }
-  const listener = listeners[0];
-  if (!listener) {
-    throw new Error(`No ipcMain.on registration found for channel: ${channel}`);
-  }
-  return listener;
-}
-
 export function resetElectronMainTestHarness(): void {
   resetOwnedMockFunctions(electronMainMock);
-  ipcMainHandlers.clear();
-  ipcMainListeners.clear();
   mockAllWebContents.length = 0;
   restoreOwnedMockImplementations();
 }
@@ -241,20 +164,19 @@ export function setMockWebContents(contents: readonly unknown[]): void {
   mockAllWebContents.push(...contents);
 }
 
-export interface RecordedRendererEvent {
+export interface RecordedRendererEvent extends DesktopIpcPush {
   readonly channel: string;
-  readonly payload: unknown;
 }
 
-type RendererSendMock = Mock<(channel: string, payload?: unknown) => void>;
+type RendererSendMock = Mock<(channel: string, push: DesktopIpcPush) => void>;
 
 export interface RecordingWindow {
   /** Every `webContents.send` this window received, in call order. */
   readonly events: RecordedRendererEvent[];
   readonly id: number;
   isDestroyed(): boolean;
-  /** Payloads delivered on `channel`, in call order. */
-  payloadsFor(channel: string): unknown[];
+  /** Payloads pushed for `method` on the push channel, in call order. */
+  payloadsFor(method: string): unknown[];
   /**
    * Clears BOTH records of the traffic — the `events` log and the mock's own
    * call log. They are two views of the same sends, so clearing one alone
@@ -283,11 +205,8 @@ let nextRecordingWindowId = 1;
  * `BrowserWindow.getAllWindows()` (`ipc-mcp.ts`, `mcp/lifecycle-control.ts`,
  * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-broadcast.ts` and
  * eight sites in `main.ts`), and every one is a `for (const window of …)` loop.
- * That is not every send site in the app (BST-1624). Check the call site
- * rather than the file: `chunking-host-manager.ts` DOES reach
- * `getAllWindows()` despite reading as
- * point-to-point, and `renderer-host-lifecycle.ts` and the mcp bridges iterate
- * the separate `getTrackedWindowsByRole('visible-ui')` registry.
+ * That is not every send site in the app (BST-1624): the mcp bridges iterate
+ * the separate `getAppWindows()` registry.
  * A test that asserts what the renderer was told therefore needs at least one
  * window in that listing: with `getAllWindows: () => []` the loop body never
  * runs, and the assertion — `.not.toHaveBeenCalled()` above all — passes
@@ -312,15 +231,17 @@ export function createRecordingWindow(
   const windowId = options.id ?? nextRecordingWindowId++;
   const webContentsId = options.webContentsId ?? windowId;
   const destroyed = options.destroyed === true;
-  const send: RendererSendMock = vi.fn((channel: string, payload?: unknown) => {
-    events.push({ channel, payload });
+  const send: RendererSendMock = vi.fn((channel: string, push: DesktopIpcPush) => {
+    events.push({ channel, ...push });
   });
   return {
     events,
     id: windowId,
     isDestroyed: () => destroyed,
-    payloadsFor: (channel: string) =>
-      events.filter((event) => event.channel === channel).map((event) => event.payload),
+    payloadsFor: (method: string) =>
+      events
+        .filter((event) => event.channel === DESKTOP_IPC_PUSH_CHANNEL && event.method === method)
+        .map((event) => event.payload),
     reset: () => {
       events.length = 0;
       send.mockClear();

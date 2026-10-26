@@ -1,6 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import path from 'node:path';
-import type { ElectronApplication, Page, TestInfo } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { ElectronProcessExitGuard } from '../utils/electron-process-exit-guard';
 import { loadElectronHelpers } from '../utils/load-electron-helpers';
@@ -18,7 +17,6 @@ export class ElectronHarness {
   private hasProvidedWindow = false;
   private readonly maxRendererRecoveryAttempts = 1;
 
-  private readonly testInfo: TestInfo;
   private readonly debugPort: number | undefined;
   private readonly userDataDir: string | undefined;
   /** Extra environment for every launch of the app, restarts included (never the harness's own). */
@@ -29,14 +27,12 @@ export class ElectronHarness {
   private readonly workspaceRoot: string | undefined;
 
   constructor(
-    testInfo: TestInfo,
     debugPort?: number,
     userDataDir?: string,
     electronEnv?: Readonly<Record<string, string>>,
     modelProvider?: ModelProviderShim,
     workspaceRoot?: string
   ) {
-    this.testInfo = testInfo;
     this.debugPort = debugPort;
     this.userDataDir = userDataDir;
     this.electronEnv = electronEnv;
@@ -243,7 +239,6 @@ export class ElectronHarness {
   ): Promise<ElectronAppContext> {
     const { launchElectronApp } = await loadElectronHelpers();
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
-      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
       onAppAcquired: (app) => {
         this.app = app;
         this.exitGuard.observe(app.process());
@@ -395,8 +390,4 @@ async function reapProcess(process: ChildProcess): Promise<void> {
     process.off('exit', onExit);
     process.off('error', onError);
   }
-}
-
-function shouldDisableExternalLocalRuntimeProbes(testInfo: TestInfo): boolean {
-  return !testInfo.file.endsWith(`${path.sep}local-runtime-probe.desktop.test.ts`);
 }

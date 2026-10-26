@@ -1,6 +1,14 @@
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
+import {
+  DESKTOP_IPC_CHANNELS,
+  DESKTOP_IPC_PUSH_CHANNEL,
+  type DesktopIpcPush,
+} from '../../platform/desktop-ipc-channels';
+import {
+  createAllowlistedSenderFrame,
+  invokeDesktopIpcFrom,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 
 /**
  * BST-1393 Layer 3: argv / macOS `open-file` / `second-instance` all funnel
@@ -20,7 +28,7 @@ import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
  * Attach now requires TWO independent conditions (PR #2682 review):
  * `did-stop-loading` (NOT `did-finish-load`, which is main-frame-only and
  * would miss a subframe-only load) AND an explicit renderer-ready ping over
- * `ipcMain`. Every test that expects a delivery must therefore both let the
+ * the desktop IPC connection. Every test that expects a delivery must therefore both let the
  * window finish loading AND call `sendReadyPing` — see that helper below.
  */
 
@@ -195,10 +203,6 @@ const mockApp = {
 
 const mockIpcMain = {
   handle: vi.fn(),
-  on: vi.fn(),
-  removeAllListeners: vi.fn(),
-  removeHandler: vi.fn(),
-  removeListener: vi.fn(),
 };
 
 vi.mock('electron', () => ({
@@ -211,11 +215,6 @@ vi.mock('electron', () => ({
     setApplicationMenu: vi.fn(),
   },
   powerMonitor: { on: vi.fn() },
-  powerSaveBlocker: {
-    isStarted: vi.fn(() => true),
-    start: vi.fn(() => 1),
-    stop: vi.fn(),
-  },
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
   screen: {
     getAllDisplays: vi.fn(() => [{ workArea: { height: 800, width: 1536, x: 0, y: 0 } }]),
@@ -329,27 +328,20 @@ const OPEN_PATH_CHANNEL = DESKTOP_IPC_CHANNELS.workspace.openPath;
 const OPEN_PATH_READY_CHANNEL = DESKTOP_IPC_CHANNELS.workspace.openPathReady;
 
 /**
- * Fires EVERY registered `openPathReady` handler with `{ sender: win.webContents }`
- * — modeling `ipcMain`'s real dispatch (every listener for the channel runs;
- * `main.ts`'s own `event.sender !== win.webContents` guard is what decides
- * relevance), rather than assuming which registration belongs to `win`. Every
- * `createMainWindow()` call (initial launch, each `activate` recreation)
- * registers its own handler and never removes it until `closed`, so more than
- * one can be live at once.
+ * Sends `win`'s renderer-ready ping through Main's one IPC dispatcher from
+ * `win`'s own webContents, as the renderer would: the dispatcher authorizes
+ * the sender, and `main.ts` routes the ping to that window by
+ * `event.sender.id` rather than by which window registered what. The handler
+ * runs synchronously inside the call; a refused ping rejects, and Vitest
+ * fails the run on that unhandled rejection.
  */
 function sendReadyPing(win: MockWindowInstance): void {
-  const handlers = mockIpcMain.on.mock.calls
-    .filter((args) => args[0] === OPEN_PATH_READY_CHANNEL)
-    .map(
-      (args) =>
-        args[1] as (
-          event: { sender: unknown; senderFrame: unknown },
-          payload: { resetGeneration: null }
-        ) => void
-    );
-  for (const handler of handlers) {
-    handler({ sender: win.webContents, senderFrame: {} }, { resetGeneration: null });
-  }
+  void invokeDesktopIpcFrom(
+    mockIpcMain,
+    { sender: win.webContents, senderFrame: createAllowlistedSenderFrame() },
+    OPEN_PATH_READY_CHANNEL,
+    { resetGeneration: null }
+  );
 }
 
 /**
@@ -435,10 +427,16 @@ describe('main workspace-open lifecycle', () => {
 
     sendReadyPing(latestWindow());
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
-      origin: 'open-file',
-      path: '/Users/dev/repo',
-    });
+    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(
+      DESKTOP_IPC_PUSH_CHANNEL,
+      {
+        method: OPEN_PATH_CHANNEL,
+        payload: {
+          origin: 'open-file',
+          path: '/Users/dev/repo',
+        },
+      }
+    );
   });
 
   it('second-instance argv is enqueued and delivered end to end, not just accepted by arity', async () => {
@@ -476,9 +474,12 @@ describe('main workspace-open lifecycle', () => {
     });
     sendReadyPing(latestWindow());
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-      origin: 'second-instance',
-      path: resolve('/work/second-instance-repo'),
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: OPEN_PATH_CHANNEL,
+      payload: {
+        origin: 'second-instance',
+        path: resolve('/work/second-instance-repo'),
+      },
     });
   });
 
@@ -509,10 +510,16 @@ describe('main workspace-open lifecycle', () => {
     );
     openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/never-granted');
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
-      origin: 'open-file',
-      path: '/Users/dev/never-granted',
-    });
+    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(
+      DESKTOP_IPC_PUSH_CHANNEL,
+      {
+        method: OPEN_PATH_CHANNEL,
+        payload: {
+          origin: 'open-file',
+          path: '/Users/dev/never-granted',
+        },
+      }
+    );
   });
 
   it('does not enqueue or show a second-instance request after renderer shutdown begins', async () => {
@@ -572,10 +579,16 @@ describe('main workspace-open lifecycle', () => {
     });
     sendReadyPing(latestWindow());
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
-      origin: 'argv',
-      path: resolve('/work/argv-repo'),
-    });
+    expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(
+      DESKTOP_IPC_PUSH_CHANNEL,
+      {
+        method: OPEN_PATH_CHANNEL,
+        payload: {
+          origin: 'argv',
+          path: resolve('/work/argv-repo'),
+        },
+      }
+    );
 
     // A later, unrelated MAIN-FRAME reload (did-start-loading +
     // did-start-navigation → did-stop-loading → a fresh ready ping) must not
@@ -592,7 +605,9 @@ describe('main workspace-open lifecycle', () => {
     // `browser:tabsChanged` event through the same `webContents.send` mock —
     // asserting a bare call COUNT here would conflate that with a redelivery.
     const openPathSends = latestWindow().webContents.send.mock.calls.filter(
-      (call) => call[0] === OPEN_PATH_CHANNEL
+      (call) =>
+        call[0] === DESKTOP_IPC_PUSH_CHANNEL &&
+        (call[1] as DesktopIpcPush).method === OPEN_PATH_CHANNEL
     );
     expect(openPathSends).toHaveLength(1);
   });
@@ -619,8 +634,8 @@ describe('main workspace-open lifecycle', () => {
       expect(latestWindow()).toBeDefined();
     });
     expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
-      OPEN_PATH_CHANNEL,
-      expect.anything()
+      DESKTOP_IPC_PUSH_CHANNEL,
+      expect.objectContaining({ method: OPEN_PATH_CHANNEL })
     );
   });
 
@@ -658,24 +673,27 @@ describe('main workspace-open lifecycle', () => {
     // Not delivered while "reloading" — sending now would hit a page with no
     // listener, exactly the loss the review flagged.
     expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
-      OPEN_PATH_CHANNEL,
-      expect.anything()
+      DESKTOP_IPC_PUSH_CHANNEL,
+      expect.objectContaining({ method: OPEN_PATH_CHANNEL })
     );
 
     // The reload's document stops loading — NOT enough on its own, since the
     // reset ready flag has not been re-pinged yet.
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
     expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
-      OPEN_PATH_CHANNEL,
-      expect.anything()
+      DESKTOP_IPC_PUSH_CHANNEL,
+      expect.objectContaining({ method: OPEN_PATH_CHANNEL })
     );
 
     // The reloaded document's WorkspaceConnectHost re-subscribes and re-pings.
     sendReadyPing(latestWindow());
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-      origin: 'open-file',
-      path: '/Users/dev/mid-reload-repo',
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: OPEN_PATH_CHANNEL,
+      payload: {
+        origin: 'open-file',
+        path: '/Users/dev/mid-reload-repo',
+      },
     });
   });
 
@@ -719,8 +737,8 @@ describe('main workspace-open lifecycle', () => {
     );
     openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/subframe-repo');
     expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
-      OPEN_PATH_CHANNEL,
-      expect.anything()
+      DESKTOP_IPC_PUSH_CHANNEL,
+      expect.objectContaining({ method: OPEN_PATH_CHANNEL })
     );
 
     // did-stop-loading DOES fire once Chromium's overall loading state
@@ -729,9 +747,12 @@ describe('main workspace-open lifecycle', () => {
     // this whole cycle, which the guard was supposed to leave intact (§2).
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-      origin: 'open-file',
-      path: '/Users/dev/subframe-repo',
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: OPEN_PATH_CHANNEL,
+      payload: {
+        origin: 'open-file',
+        path: '/Users/dev/subframe-repo',
+      },
     });
   });
 
@@ -751,16 +772,19 @@ describe('main workspace-open lifecycle', () => {
     // Load already finished (via `simulateLoad` inside window creation), but
     // no ready ping yet — must NOT deliver.
     expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
-      OPEN_PATH_CHANNEL,
-      expect.anything()
+      DESKTOP_IPC_PUSH_CHANNEL,
+      expect.objectContaining({ method: OPEN_PATH_CHANNEL })
     );
 
     // The ready ping alone completes the gate (load-finished was already true).
     sendReadyPing(latestWindow());
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-      origin: 'open-file',
-      path: '/Users/dev/ready-gate-repo',
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: OPEN_PATH_CHANNEL,
+      payload: {
+        origin: 'open-file',
+        path: '/Users/dev/ready-gate-repo',
+      },
     });
   });
 
@@ -787,16 +811,19 @@ describe('main workspace-open lifecycle', () => {
 
     // rendererReady is true, but loadFinished is not — must NOT deliver yet.
     expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
-      OPEN_PATH_CHANNEL,
-      expect.anything()
+      DESKTOP_IPC_PUSH_CHANNEL,
+      expect.objectContaining({ method: OPEN_PATH_CHANNEL })
     );
 
     // did-stop-loading completes the gate from the OTHER side.
     fireHandlersRegisteredSoFar(latestWindow().webContents.on, 'did-stop-loading');
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-      origin: 'open-file',
-      path: '/Users/dev/ready-before-stop-repo',
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: OPEN_PATH_CHANNEL,
+      payload: {
+        origin: 'open-file',
+        path: '/Users/dev/ready-before-stop-repo',
+      },
     });
   });
 
@@ -831,8 +858,8 @@ describe('main workspace-open lifecycle', () => {
     // Not delivered into the closed window — it buffers instead of being
     // spliced out and sent into a dying webContents.
     expect(latestWindow().webContents.send).not.toHaveBeenCalledWith(
-      OPEN_PATH_CHANNEL,
-      expect.anything()
+      DESKTOP_IPC_PUSH_CHANNEL,
+      expect.objectContaining({ method: OPEN_PATH_CHANNEL })
     );
   });
 
@@ -870,9 +897,12 @@ describe('main workspace-open lifecycle', () => {
     openFileHandler({ preventDefault: vi.fn() }, '/Users/dev/dock-drop-repo');
     sendReadyPing(latestWindow());
 
-    expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
-      origin: 'open-file',
-      path: '/Users/dev/dock-drop-repo',
+    expect(latestWindow().webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: OPEN_PATH_CHANNEL,
+      payload: {
+        origin: 'open-file',
+        path: '/Users/dev/dock-drop-repo',
+      },
     });
     // Delivery went to the NEW window, never the destroyed one — proves the
     // queue re-attached rather than merely never having been detached.
@@ -946,9 +976,9 @@ describe('main workspace-open lifecycle', () => {
       {} as Electron.KeyboardEvent
     );
 
-    expect(win.webContents.send).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.workspace.openFolderPicker,
-      undefined
-    );
+    expect(win.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: DESKTOP_IPC_CHANNELS.workspace.openFolderPicker,
+      payload: undefined,
+    });
   });
 });

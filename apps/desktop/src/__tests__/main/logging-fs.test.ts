@@ -1,5 +1,5 @@
-import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { invokeDesktopIpc } from '../helpers/desktop-ipc-sender-test-helpers';
 
 // Mock fs
 vi.mock('node:fs', async () => {
@@ -37,18 +37,7 @@ vi.mock('electron', async () => {
   });
   Object.assign(app, { requestSingleInstanceLock: vi.fn(() => true) });
   const ipcMain = electronUtils.createIpcMainMock();
-  Object.assign(ipcMain, {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    removeHandler: vi.fn(),
-  });
-  const ipcRenderer = electronUtils.createIpcRendererMock();
   const screen = electronUtils.createScreenMock();
-  // Wire renderer invokes to main handlers
-  const mockInvoke = (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke;
-  mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) =>
-    (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
-  );
   const mockBrowserWindowInstance = {
     getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
     getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
@@ -88,18 +77,12 @@ vi.mock('electron', async () => {
       showSaveDialog: vi.fn(),
     },
     ipcMain,
-    ipcRenderer,
     Menu: {
       buildFromTemplate: vi.fn(),
       setApplicationMenu: vi.fn(),
     },
     powerMonitor: {
       on: vi.fn(),
-    },
-    powerSaveBlocker: {
-      isStarted: vi.fn(() => true),
-      start: vi.fn(() => 1),
-      stop: vi.fn(),
     },
     protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
     screen,
@@ -124,7 +107,7 @@ import fs from 'node:fs'; // Import mocked fs
 import path from 'node:path';
 import type { LoggingPreferences } from '@brainstrike/logging';
 import { LogLevel } from '@brainstrike/logging';
-import { ipcRenderer } from 'electron';
+import { ipcMain } from 'electron';
 
 // Mock other dependencies
 vi.mock('@brainstrike/file-system/electron', () => {
@@ -168,13 +151,10 @@ import '../../main';
 
 describe('logging IPC handler performance', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Re-setup defaults if needed (mocks are cleared)
-    // Actually mockClear clears usage data, not implementation if we defined it in factory.
-    // But since we used vi.fn() inside factory, we might not have reference to them unless we spy again or trust fs import.
-
-    // However, clearAllMocks() clears the history.
-    // The implementation provided in factory persists unless we override it.
+    // Clears the fs call history only: Main registered its IPC dispatcher on
+    // `ipcMain.handle` once, at import.
+    vi.mocked(fs.statSync).mockClear();
+    vi.mocked(fs.promises.stat).mockClear();
   });
 
   it('uses asynchronous fs.promises.stat (Optimized)', async () => {
@@ -196,7 +176,7 @@ describe('logging IPC handler performance', () => {
     // We need to spy on the imported fs methods to verify calls
     // Since we mocked them with vi.fn(), we can just inspect them.
 
-    await ipcRenderer.invoke('logging:set-preferences', newPreferences);
+    await invokeDesktopIpc(ipcMain, 'logging:set-preferences', newPreferences);
 
     // Optimized assertion: verify that Sync version is NOT called
     expect(fs.statSync).not.toHaveBeenCalled();
@@ -233,7 +213,7 @@ describe('logging IPC handler performance', () => {
       redactPaths: [],
     };
 
-    await ipcRenderer.invoke('logging:set-preferences', newPreferences);
+    await invokeDesktopIpc(ipcMain, 'logging:set-preferences', newPreferences);
 
     const statTargets = statMock.mock.calls.map(([target]) => target);
 

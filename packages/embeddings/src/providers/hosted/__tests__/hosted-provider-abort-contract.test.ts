@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { IHostedEmbeddingProvider } from '../../../interfaces/provider.js';
+import type { IEmbeddingProvider } from '../../../interfaces/provider.js';
 import { CohereEmbeddingProvider } from '../cohere-provider.js';
 import { GoogleEmbeddingProvider } from '../google-provider.js';
 import { OpenAIEmbeddingProvider } from '../openai-provider.js';
@@ -8,7 +8,7 @@ import { VoyageEmbeddingProvider } from '../voyage-provider.js';
 const providers: Array<{
   name: string;
   modelId: string;
-  create: (fetchImpl: typeof fetch) => IHostedEmbeddingProvider;
+  create: (fetchImpl: typeof fetch) => IEmbeddingProvider;
 }> = [
   {
     create: (fetchImpl) =>
@@ -20,28 +20,6 @@ const providers: Array<{
       }),
     modelId: 'text-embedding-3-small',
     name: 'OpenAI',
-  },
-  {
-    create: (fetchImpl) =>
-      new OpenAIEmbeddingProvider({
-        fetch: fetchImpl,
-        modelId: 'nomic-embed-text',
-        provider: 'ollama',
-        targetDimensions: 768,
-      }),
-    modelId: 'nomic-embed-text',
-    name: 'Ollama',
-  },
-  {
-    create: (fetchImpl) =>
-      new OpenAIEmbeddingProvider({
-        fetch: fetchImpl,
-        modelId: 'local-embedding-model',
-        provider: 'lmstudio',
-        targetDimensions: 768,
-      }),
-    modelId: 'local-embedding-model',
-    name: 'LM Studio',
   },
   {
     create: (fetchImpl) =>

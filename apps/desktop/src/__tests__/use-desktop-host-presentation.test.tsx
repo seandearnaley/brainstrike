@@ -91,63 +91,6 @@ const registryRow = (isEnabled: boolean) => ({
   tagline: null,
 });
 const enabledOpenAi = { id: openAiModel.id, providerId: 'openai' };
-const OLLAMA_MODEL = 'lfm2.5-thinking:latest';
-/** The local runtime catalog as the renderer probes it: Ollama available with one chat model. */
-function discoverOllama(): void {
-  const checkedAt = Date.now();
-  const endpoint = 'http://127.0.0.1:11434';
-  const available = { checkedAt, endpoint, latencyMs: 3, state: 'available' } as const;
-  const notRunning = { checkedAt, message: 'Not running', state: 'unavailable' } as const;
-  useAssistantPreferencesStore.setState({
-    getLocalRuntimeModels: async () => ({
-      lmstudio: {
-        availability: notRunning,
-        checkedAt,
-        message: 'Not running',
-        runtime: 'lmstudio',
-        state: 'failed',
-      },
-      ollama: {
-        availability: available,
-        checkedAt,
-        endpoint,
-        freshness: 'live',
-        models: [
-          {
-            capabilities: { embeddings: 'unsupported', llm: true, vision: 'unknown' },
-            capabilitySource: 'inferred',
-            dimensionsKnown: { state: 'not_applicable' },
-            displayName: OLLAMA_MODEL,
-            endpoint,
-            freshness: 'live',
-            modelId: OLLAMA_MODEL,
-            modelKey: OLLAMA_MODEL,
-            providerId: 'ollama',
-            runtime: 'ollama',
-            source: 'ollama_api_tags',
-          },
-        ],
-        runtime: 'ollama',
-        source: 'ollama_api_tags',
-        state: 'loaded_non_empty',
-      },
-    }),
-    getLocalRuntimeStatuses: async () => ({ lmstudio: notRunning, ollama: available }),
-  });
-}
-
-/** No local runtime is running: the probe's answer when a test does not discover one. */
-function noLocalRuntimes(): void {
-  const notRunning = {
-    checkedAt: Date.now(),
-    message: 'Not running',
-    state: 'unavailable',
-  } as const;
-  useAssistantPreferencesStore.setState({
-    getLocalRuntimeStatuses: async () => ({ lmstudio: notRunning, ollama: notRunning }),
-  });
-}
-
 const preferences = useAssistantPreferencesStore.getState();
 const registry = useModelRegistryStore.getState();
 const threads = useAssistantThreadStore.getState();
@@ -156,9 +99,6 @@ beforeEach(() => {
   // Presentation tests vary the authoritative projection independently of the Settings cache.
   useModelRegistryStore.setState({ hasLoaded: true });
   useAssistantPreferencesStore.setState({ selectedModel: `openai::${openAiModel.id}` });
-  // The hook probes the local runtimes on mount: here they answer not running,
-  // never from this machine's own localhost.
-  noLocalRuntimes();
 });
 
 afterEach(() => {
@@ -169,7 +109,6 @@ afterEach(() => {
   useAssistantThreadStore.setState(threads, true);
   configured.current = { discoveryState: 'ready', providers: [] };
   catalog.current = { error: null, loading: false, rows: [] };
-  Reflect.deleteProperty(navigator, 'gpu');
 });
 
 describe("ADR-0019: the host composer's model is the thread's run selection", () => {
@@ -310,30 +249,6 @@ describe('the host composer gates a send on the provider notice', () => {
     expect(
       result.current.pickerModels?.map(({ id, providerId }) => `${providerId}::${id}`)
     ).toEqual([`openai::${openAiModel.id}`]);
-  });
-
-  test('a dynamically discovered Ollama model sends without any catalog row', async () => {
-    configured.current = { discoveryState: 'ready', providers: ['ollama'] };
-    discoverOllama();
-    useAssistantPreferencesStore.setState({ selectedModel: `ollama::${OLLAMA_MODEL}` });
-    const { result } = renderHook(() => present());
-    await waitFor(() => {
-      expect(result.current.pickerModels?.some(({ id }) => id === OLLAMA_MODEL)).toBe(true);
-    });
-    expect(result.current.disabledReason).toBeUndefined();
-    expect(result.current.isComposerDisabled).toBeUndefined();
-  });
-
-  test('a local runtime discovery has not confirmed is named but never gates the send admission accepts', async () => {
-    configured.current = { discoveryState: 'ready', providers: ['openai'] };
-    useAssistantPreferencesStore.setState({ selectedModel: `ollama::${OLLAMA_MODEL}` });
-    const { result } = renderHook(() => present());
-    await waitFor(() =>
-      expect(result.current.disabledReason).toBe(
-        'The selected local runtime is currently unavailable.'
-      )
-    );
-    expect(result.current.isComposerDisabled).toBeUndefined();
   });
 
   test('a catalog still loading names nothing, and a failed catalog read gates the send', async () => {

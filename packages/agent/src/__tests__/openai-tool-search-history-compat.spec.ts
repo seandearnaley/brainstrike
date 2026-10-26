@@ -192,7 +192,7 @@ describe('OpenAIToolSearchHistoryCompat', () => {
       'openai-tool-search-history-compat'
     );
     expect(buildOpenAIToolSearchHistoryCompatInputProcessor('anthropic')).toBeUndefined();
-    expect(buildOpenAIToolSearchHistoryCompatInputProcessor('local')).toBeUndefined();
+    expect(buildOpenAIToolSearchHistoryCompatInputProcessor('google')).toBeUndefined();
   });
 
   // BST-1310 — the seam's removal condition, asserted rather than documented.

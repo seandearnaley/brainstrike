@@ -53,11 +53,11 @@ describe('CostAggregationPanelView', () => {
       rows: [
         {
           inputTokens: 500,
-          model: 'gemma',
+          model: 'vendor/uncatalogued',
           outputTokens: 100,
-          provider: 'local',
-          rootDisplayName: 'local-root',
-          rootId: 'root-local',
+          provider: 'openrouter',
+          rootDisplayName: 'unpriced-root',
+          rootId: 'root-unpriced',
         },
       ],
     });

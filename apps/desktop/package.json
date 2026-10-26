@@ -13,8 +13,7 @@
     "files": [
       "dist/**/*",
       "public/**/*",
-      "package.json",
-      "!**/node_modules/onnxruntime-node{,/**/*}"
+      "package.json"
     ],
     "npmRebuild": false,
     "asarUnpack": [
@@ -114,7 +113,6 @@
     "@brainstrike/canonical-ingestion": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/effect-kit": "workspace:*",
-    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
@@ -125,11 +123,9 @@
     "@brainstrike/host-lease": "workspace:*",
     "@brainstrike/indexer": "workspace:*",
     "@brainstrike/indexing-contract": "workspace:*",
-    "@brainstrike/local-runtime": "workspace:*",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/mcp-app-host-ui": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/queue": "workspace:*",
     "@brainstrike/secure-fs-native": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
     "@brainstrike/sqlite-native": "workspace:*",
@@ -170,7 +166,6 @@
     "lucide-react": "catalog:",
     "minimatch": "catalog:",
     "node-pty": "^1.1.0",
-    "ollama-ai-provider-v2": "catalog:",
     "oxc-parser": "catalog:",
     "pino": "catalog:",
     "react": "^19.3.0",
@@ -245,8 +240,7 @@
     "wait-on": "^9.5.1",
     "xvfb-maybe": "^0.2.1",
     "xxhash-wasm": "catalog:",
-    "zustand": "catalog:",
-    "@brainstrike/vector-management": "workspace:*"
+    "zustand": "catalog:"
   },
   "engines": {
     "node": ">=26.8.2 <27"
@@ -265,7 +259,7 @@
     "dev": "pnpm run dev:runtime",
     "dev:agent-debug": "node scripts/start-agent-devtools-session.mjs",
     "dev:electron": "pnpm dev:main && wait-on http://localhost:38181 && electron . --no-sandbox --brainstrike-desktop-launch-mode=dev-server",
-    "dev:main": "node scripts/build-main.mjs --dev",
+    "dev:main": "node scripts/build-main.mjs",
     "dev:renderer": "vite",
     "dev:runtime": "concurrently --kill-others \"pnpm dev:renderer\" \"pnpm dev:electron\"",
     "dist": "pnpm build && electron-builder",
@@ -273,7 +267,6 @@
     "lint:fix": "biome check . --write",
     "pack": "pnpm build:cached && electron-builder --dir",
     "postinstall": "node scripts/provision-dev-electron.mjs && node scripts/chmod-pty-spawn-helper.mjs && node scripts/sign-dev-electron.mjs",
-    "provision:test-model-cache": "node scripts/provision-test-model-cache.mjs",
     "start": "node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --config vitest.unit.config.mts --exclude \"**/*.integration.test.*\"",
@@ -284,15 +277,14 @@
     "test:integration:routine": "vitest run --config vitest.integration.config.mts src/__tests__/ordinary-app-owned-host src/__tests__/main/host-lease-electron.integration.test.ts src/__tests__/factory-reset-quit.integration.test.ts",
     "test:e2e": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --workers=1 --retries=0",
     "test:e2e:clean": "pnpm clean:db && pnpm test:e2e:main",
-    "test:e2e:qualification:native-retirement": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/embedding-worker-renderer.retirement.desktop.test.ts --project=regression --workers=1 --retries=0",
     "test:e2e:debug": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --debug",
-    "test:e2e:lane:full-regression": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=1800000 --grep-invert=\"@desktop-embedding-|@packaged\" && pnpm run test:e2e:lane:tools-settings-nightly",
-    "test:e2e:lane:full-regression-shard": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=1800000 --grep-invert=\"@desktop-embedding-|@packaged\"",
+    "test:e2e:lane:full-regression": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=1800000 --grep-invert=@packaged && pnpm run test:e2e:lane:tools-settings-nightly",
+    "test:e2e:lane:full-regression-shard": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=1800000 --grep-invert=@packaged",
     "test:e2e:lane:packaged-mcp-apps-bridge": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/mcp-apps-bridge.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=360000",
     "test:e2e:lane:packaged-mcp-tasks": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/mcp-task-restart.packaged.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=360000",
     "test:e2e:lane:packaged-mcp-core": "node ../../scripts/run-env.mjs NO_COLOR= LOG_LEVEL=info -- xvfb-maybe pnpm exec playwright test e2e/mcp-packaged-core.desktop.test.ts e2e/settings-store.packaged.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=840000",
     "test:e2e:lane:packaged-mcp-apps": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/mcp-apps-production-lifecycle.desktop.test.ts --project=regression --workers=1 --retries=0 --max-failures=0 --global-timeout=360000",
-    "test:e2e:lane:smoke": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/add-root-ui.smoke.desktop.test.ts e2e/agent-devtools.desktop.test.ts e2e/app-launch.test.ts e2e/assistant-panel.desktop.test.ts e2e/background-indexing-pause.desktop.test.ts e2e/file-system.test.ts e2e/forge-pr.desktop.test.ts e2e/git-panel.desktop.test.ts e2e/host-thread-catalog.desktop.test.ts e2e/host-thread-unavailable-root-reopen.desktop.test.ts e2e/local-runtime-probe.desktop.test.ts e2e/secrets-settings.test.ts e2e/subagent-persona-availability.desktop.test.ts e2e/terminal-panel.desktop.test.ts e2e/threads-panel-folders.desktop.test.ts e2e/tools-settings.desktop.test.ts e2e/thread-workspace-close.desktop.test.ts e2e/workspace-bar.desktop.test.ts e2e/worktree-map.desktop.test.ts e2e/worktree-mode.desktop.test.ts e2e/workspace-index-bootstrap.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=0 --global-timeout=900000 --grep=\"@smoke\"",
+    "test:e2e:lane:smoke": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/add-root-ui.smoke.desktop.test.ts e2e/agent-devtools.desktop.test.ts e2e/app-launch.test.ts e2e/assistant-panel.desktop.test.ts e2e/background-indexing-pause.desktop.test.ts e2e/file-system.test.ts e2e/forge-pr.desktop.test.ts e2e/git-panel.desktop.test.ts e2e/host-thread-catalog.desktop.test.ts e2e/host-thread-unavailable-root-reopen.desktop.test.ts e2e/secrets-settings.test.ts e2e/subagent-persona-availability.desktop.test.ts e2e/terminal-panel.desktop.test.ts e2e/threads-panel-folders.desktop.test.ts e2e/tools-settings.desktop.test.ts e2e/thread-workspace-close.desktop.test.ts e2e/workspace-bar.desktop.test.ts e2e/worktree-map.desktop.test.ts e2e/worktree-mode.desktop.test.ts e2e/workspace-index-bootstrap.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=0 --global-timeout=900000 --grep=\"@smoke\"",
     "test:e2e:lane:smoke-delegated": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/delegated-child-control.desktop.test.ts e2e/delegated-child-interactive.desktop.test.ts e2e/delegated-worker-write.desktop.test.ts e2e/delegated-workspace-reload.desktop.test.ts e2e/parent-approval-with-parked-workers.desktop.test.ts e2e/workers-after-canvas-approval.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=0 --global-timeout=900000 --grep=\"@smoke\"",
     "test:e2e:lane:tools-settings-nightly": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test e2e/tools-settings.desktop.test.ts --project=smoke --workers=1 --retries=0 --max-failures=0 --global-timeout=120000 --grep=\"@smoke\"",
     "test:e2e:main": "node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn -- xvfb-maybe pnpm exec playwright test",

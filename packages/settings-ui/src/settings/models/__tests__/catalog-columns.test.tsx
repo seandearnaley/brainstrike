@@ -327,29 +327,6 @@ describe('catalog model rows', () => {
     await userEvent.click(disclosure);
     expect(onToggleDetails).toHaveBeenCalledWith('m');
   });
-
-  it('offers a sized download for a local model', async () => {
-    const onDownload = vi.fn();
-    renderRows(
-      [makeCatalogRow({ id: 'gemma', isLocal: true, name: 'Gemma', sizeLabel: '1.2 GB' })],
-      {
-        actions: { onDownload },
-      }
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Download Gemma (1.2 GB)' }));
-    expect(onDownload).toHaveBeenCalledWith('gemma');
-  });
-
-  it('shows download progress, then a downloaded mark', () => {
-    const row = makeCatalogRow({ id: 'gemma', isLocal: true, name: 'Gemma' });
-    const { unmount } = renderRows([row], {
-      actions: { downloadProgress: { gemma: 40 }, isDownloading: { gemma: true } },
-    });
-    expect(screen.getByText('40%')).toBeInTheDocument();
-    unmount();
-    renderRows([row], { actions: { downloadedModels: { gemma: true } } });
-    expect(screen.getByRole('img', { name: 'Gemma downloaded' })).toBeInTheDocument();
-  });
 });
 
 describe('catalog details row', () => {
@@ -474,16 +451,5 @@ describe('catalog details row', () => {
     );
     const label = within(screen.getByTestId('model-details-r')).getByText('Reasoning effort');
     expect(label.nextElementSibling).toHaveTextContent(/^Supported$/);
-  });
-
-  // BST-2241: a model lives in the embedding realm's cache, which has no folder to name.
-  it('names no cache path for a downloaded local model', () => {
-    renderRows([makeCatalogRow({ id: 'gemma', isLocal: true })], {
-      actions: { downloadedModels: { gemma: true } },
-      expandedIds: ['gemma'],
-    });
-    expect(
-      within(screen.getByTestId('model-details-gemma')).queryByText('Cache path')
-    ).not.toBeInTheDocument();
   });
 });

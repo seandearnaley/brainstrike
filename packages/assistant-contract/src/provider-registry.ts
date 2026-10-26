@@ -5,24 +5,10 @@ import type { AnthropicEffort, OpenAiReasoningEffort } from './runtime-data.ts';
 export const STANDARD_EMBEDDING_DIMENSION = 768;
 
 /**
- * Where a provider's inference runs.
- *
- * - `hosted` / `gateway`: a vendor API over the network.
- * - `local`: a local SERVER the user runs (Ollama, LM Studio) — an HTTP
- *   endpoint with a base URL to configure, and a dynamically discovered model
- *   catalog.
- * - `on-device`: in-process on this device, with downloaded weights and no
- *   endpoint and no credential. Only the built-in `local` provider, and only
- *   for EMBEDDINGS — the category was called `browser` while that provider
- *   also offered a chat model, which was a misnomer even then (on desktop it
- *   ran in a hidden Electron renderer, not a browser).
- *
- * `local` and `on-device` stay distinct because the difference is visible:
- * the Model Catalog labels them "Local server" and "On device", and Settings →
- * Providers lists the former (there is a connection to configure) and not the
- * latter (there is nothing).
+ * Where a provider's inference runs: `hosted` is a vendor API, `gateway` a
+ * routing API in front of several vendors.
  */
-export type ProviderRuntime = 'hosted' | 'gateway' | 'local' | 'on-device';
+export type ProviderRuntime = 'hosted' | 'gateway';
 
 export type ProviderModelType = 'llm' | 'embedding';
 
@@ -34,13 +20,10 @@ export interface ProviderCapabilities {
 
 /**
  * Whether a model accepts image (vision) input parts. Drives the composer
- * attachment gate and the picker model metadata. 'unknown' is RESERVED for
- * dynamically discovered local-runtime models whose endpoint reports no
- * capability signal — statically registered models must commit to
- * 'supported' or 'unsupported' (pinned by provider-registry-vision.test.ts)
- * so the attachment gate never guesses.
+ * attachment gate and the picker model metadata. Every registered model
+ * commits to one value so the attachment gate never guesses.
  */
-export type ModelVisionSupport = 'supported' | 'unsupported' | 'unknown';
+export type ModelVisionSupport = 'supported' | 'unsupported';
 export type ModelModality = 'audio' | 'image' | 'text' | 'video';
 
 /**
@@ -186,9 +169,9 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   outputModalities?: readonly ModelModality[];
   /**
    * Approx. USD price per 1,000,000 tokens. Static display estimate only; provider-reported
-   * billed cost remains authoritative. Omit when pricing is unknown or when a local/keyless
-   * model has no billing surface. Explicit zeroes are permitted only when current provider
-   * evidence supports a reviewed free hosted route; they stay distinct from "cost unavailable."
+   * billed cost remains authoritative. Omit when pricing is unknown. Explicit zeroes are
+   * permitted only when current provider evidence supports a reviewed free hosted route;
+   * they stay distinct from "cost unavailable."
    */
   pricing?: {
     /** Published USD per 1M cache-read tokens, including automatic provider caching. */
@@ -281,17 +264,6 @@ export interface LlmModelDefinition extends BaseModelDefinition {
   vision: ModelVisionSupport;
 }
 
-export interface RecommendedLocalExecution {
-  device: 'webgpu' | 'wasm';
-  dtype: 'fp16' | 'fp32' | 'q4' | 'q8';
-  reason: string;
-}
-
-export interface LocalExecutionNotes {
-  wasm?: string;
-  webgpu?: string;
-}
-
 export interface EmbeddingModelDefinition extends BaseModelDefinition {
   /**
    * Known discrete dimensions offered by this model (if fixed).
@@ -305,28 +277,12 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
    * Name of the parameter used to tune embedding dimension. Used by workers.
    */
   dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
-  /** Qualified artifact dtype per device; absence preserves the vendor default. */
-  execution?: Partial<Record<'wasm' | 'webgpu', RecommendedLocalExecution['dtype']>>;
-  /**
-   * A local model's measured cost per catalog execution device, shown with that
-   * execution's plan in Settings (BST-1993).
-   */
-  executionNotes?: LocalExecutionNotes;
-  pooling?: 'mean' | 'cls';
   /**
    * A hosted embedder's list price per million input tokens, from the
    * provider's own pricing page; embeddings bill no output (BST-2226). Absent
    * where no official price was found: its usage then reads "cost unavailable".
    */
   pricing?: { inputPerMTok: number };
-  prompts?: { document: string; query: string };
-  /**
-   * The local execution Settings recommends this model for, and why. Settings
-   * recommends it only when the embedding host's own WebGPU detection matches
-   * `device` (BST-1993).
-   */
-  recommendedExecution?: RecommendedLocalExecution;
-  revision?: string;
   /**
    * Indicates whether the provider exposes a parameter to customise the dimension.
    */
@@ -342,12 +298,9 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
 export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinition;
 
 /**
- * How a provider authenticates. `'none'` marks the keyless local runtimes
- * (their optional bearer token is a transport concern, not an authType).
- * `'aws'` is carried by `bedrock` (BST-1350).
- * Keyless-ness DERIVES from `authType === 'none'` — never hand-listed.
+ * How a provider authenticates. `'aws'` is carried by `bedrock` (BST-1350).
  */
-export type ProviderAuthType = 'api_key' | 'aws' | 'none';
+export type ProviderAuthType = 'api_key' | 'aws';
 
 export interface ProviderDefinition {
   authType: ProviderAuthType;
@@ -401,10 +354,7 @@ export type ProviderId =
   | 'openrouter'
   | 'cohere'
   | 'voyage'
-  | 'bedrock'
-  | 'local'
-  | 'ollama'
-  | 'lmstudio';
+  | 'bedrock';
 
 /**
  * The provider/model catalog, parsed from `provider-catalog.json` at module
@@ -525,7 +475,6 @@ const BRAINSTRIKE_ENV_KEY_PREFIX = 'BRAINSTRIKE_';
  * The app-scoped `BRAINSTRIKE_<PROVIDER>_API_KEY` override name (BST-1361).
  * Role-based, not positional: the override IS the `BRAINSTRIKE_`-prefixed
  * member of the canonical pair (pinned by provider-env-deprecation.test.ts).
- * `undefined` for keyless providers.
  */
 export function getProviderOverrideEnvKey(provider: ProviderId): string | undefined {
   return getProviderEnvKeys(provider).find((name) => name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));
@@ -533,7 +482,7 @@ export function getProviderOverrideEnvKey(provider: ProviderId): string | undefi
 
 /**
  * The vendor-standard env name (e.g. `OPENAI_API_KEY`) — the non-override
- * member of the canonical pair (BST-1361). `undefined` for keyless providers.
+ * member of the canonical pair (BST-1361).
  */
 export function getProviderVendorEnvKey(provider: ProviderId): string | undefined {
   return getProviderEnvKeys(provider).find((name) => !name.startsWith(BRAINSTRIKE_ENV_KEY_PREFIX));

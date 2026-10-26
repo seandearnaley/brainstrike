@@ -20,13 +20,10 @@ const diagnostics = vi.hoisted(() => ({ debug: vi.fn() }));
 vi.mock('@brainstrike/logging', () => ({ createLogger: () => diagnostics }));
 
 const profile: VectorProfile = {
-  dimensions: 384,
+  dimensions: 1536,
   distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  provider: 'local',
-  revision: 'a'.repeat(40),
-  tokenCap: 256,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 };
 const chunker = createNodeChunker({ parser: 'oxc' });
 const hash = (content: string): string => createHash('sha256').update(content).digest('hex');
@@ -252,7 +249,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     async (field) => {
       const selected: VectorProfile =
         field === 'provider'
-          ? { dimensions: 384, distance: 'cosine', modelId: 'saved-hosted', provider: 'openai' }
+          ? { ...profile, modelId: 'embed-v4.0', provider: 'cohere' }
           : { ...profile, distance: 'l2' };
       const f = await fixture(selected);
       await f.host.scan(f.request);
@@ -288,7 +285,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
         return { ...plan, snapshot: { ...plan.snapshot, rootId: 'foreign' } };
       }
       if (kind === 'profile') {
-        return { ...plan, profile: { ...profile, revision: 'b'.repeat(40) } };
+        return { ...plan, profile: { ...profile, distance: 'l2' } };
       }
       if (kind === 'duplicate') {
         return {
@@ -329,7 +326,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
           Reflect.deleteProperty(vectors, 0);
         }
         return {
-          profile: kind === 'profile' ? { ...profile, tokenCap: 512 } : profile,
+          profile: kind === 'profile' ? { ...profile, distance: 'l2' } : profile,
           requestId: kind === 'request' ? 'stale' : input.requestId,
           vectors,
         };
@@ -352,7 +349,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
         ...input,
         vectors: input.chunks.map((chunk) => ({
           chunkId: chunk.chunkId,
-          vector: Array.from({ length: 384 }, () => 1),
+          vector: Array.from({ length: profile.dimensions }, () => 1),
         })),
       };
     });
@@ -454,7 +451,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     vi.mocked(f.catalog.resolveProfile)
       .mockResolvedValueOnce(profile)
       .mockResolvedValueOnce(profile)
-      .mockResolvedValue({ ...profile, revision: 'b'.repeat(40) });
+      .mockResolvedValue({ ...profile, distance: 'l2' });
     await expect(f.host.scan(f.request)).rejects.toThrow('saved vector profile changed');
     expect(f.publication.commitVectorFile).not.toHaveBeenCalled();
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();
@@ -756,7 +753,7 @@ describe('bounded ordered cross-file vector inference', () => {
         expect(commit.embeddings).toEqual(
           commit.plan.embeddingChunkIds.map((chunkId) => ({
             chunkId,
-            vector: Array.from({ length: 384 }, (_, position) =>
+            vector: Array.from({ length: profile.dimensions }, (_, position) =>
               position === 0 ? Number.parseInt(chunkId.slice(0, 6), 16) + 1 : 0
             ),
           }))
@@ -876,7 +873,7 @@ describe('bounded ordered cross-file vector inference', () => {
       const result = await generate(input);
       vi.mocked(f.catalog.resolveProfile).mockResolvedValue({
         ...profile,
-        revision: 'b'.repeat(40),
+        distance: 'l2',
       });
       return result;
     });

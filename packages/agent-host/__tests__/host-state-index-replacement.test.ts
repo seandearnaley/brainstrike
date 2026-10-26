@@ -1,15 +1,14 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract';
 import { createIndexerConnection, type IndexerTransport } from '@brainstrike/indexer/transport';
 import { expect, it, vi } from 'vitest';
-import { HOST_STATE_INDEX_DEADLINES } from '../src/host-state-index.js';
-import { createStateIndexOwner } from '../src/host-state-index-owner.js';
+import { HOST_STATE_INDEX_DEADLINES } from '../src/host-state-index.ts';
+import { createStateIndexOwner } from '../src/host-state-index-owner.ts';
 
 const dbPath = '/state/state-index.sqlite';
 const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/state'] };
 const deadlines = { closeMs: 50 };
 const info = {
   dbPath,
-  embedding: { indexMode: 'text-only' },
   journalMode: 'wal',
   pid: 1,
   readerQueryOnly: 1,

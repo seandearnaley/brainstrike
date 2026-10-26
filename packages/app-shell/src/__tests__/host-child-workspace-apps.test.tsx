@@ -56,7 +56,7 @@ function ChildApp() {
 
 /** The host's availability as `host/status` reports an env-only OpenRouter key. */
 const hostStatus: AssistantAvailabilityStatus = {
-  providers: ['openrouter', 'local'],
+  providers: ['openrouter'],
   state: 'enabled',
 };
 
@@ -155,6 +155,6 @@ it('seeds the child composer with the providers the host status reports, as the 
   const source = await screen.findByRole('status', { name: 'provider source' });
   expect(JSON.parse(source.textContent ?? '')).toEqual({
     kind: 'discovery',
-    seeds: ['openrouter', 'local'],
+    seeds: ['openrouter'],
   });
 });

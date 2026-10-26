@@ -344,7 +344,7 @@ export class NativeWorkspaceSearchExecutor {
       vector.some((value) => !Number.isFinite(value)) ||
       vector.every((value) => value === 0)
     ) {
-      throw new Error('The renderer embedding host returned an invalid query vector.');
+      throw new Error('The query embedder returned an invalid query vector.');
     }
     // Inference can outlive a new scan or text replacement. Recheck before any candidate arm runs.
     const current = await getNativeSemanticAvailability(scope);

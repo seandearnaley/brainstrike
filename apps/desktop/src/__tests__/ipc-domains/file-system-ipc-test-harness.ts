@@ -6,23 +6,18 @@ import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { vi } from 'vitest';
+import { invokeDesktopIpcFrom } from '../helpers/desktop-ipc-sender-test-helpers';
 
 /**
  * Shared seams for the file-system IPC domain suites. Each Vitest file gets its
- * own module instance, so the handler map and mocks below never leak between
- * files — only within a file, which is what the per-suite `beforeEach` resets.
+ * own module instance, so the mocks below never leak between files. Within a
+ * file the IPC methods stay registered until their domain closes, so every
+ * suite closes what it registers.
  */
 
 export type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
 export const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
-
-/** Channels registered by `registerFileSystemIpcHandlers`, keyed by channel name. */
-export const handlers = new Map<string, IpcHandler>();
-
-export const removeHandler = vi.fn((channel: string) => {
-  handlers.delete(channel);
-});
 
 /**
  * Electron stand-in. `vi.mock` factories are hoisted above imports, so consumers
@@ -33,14 +28,7 @@ export const removeHandler = vi.fn((channel: string) => {
  * ```
  */
 export const electronMock = {
-  ipcMain: {
-    handle: vi.fn((channel: string, listener: IpcHandler) => {
-      handlers.set(channel, listener);
-    }),
-    on: vi.fn(),
-    removeHandler,
-    removeListener: vi.fn(),
-  },
+  ipcMain: { handle: vi.fn() },
 };
 
 const roots = new Map<string, WorkspaceRootRecord>();
@@ -125,13 +113,12 @@ export function setE2eFileSystemFixture(fixture: unknown): void {
     fixture;
 }
 
-/** Functional consumer: decode the actual registered Main handler's wire result. */
-export function capabilityHandler(channel: string): IpcHandler {
-  return async (event, ...args) => {
-    const handler = handlers.get(channel);
-    if (!handler) {
-      throw new Error(`Unregistered filesystem channel: ${channel}`);
-    }
-    return readBoundaryResult(await handler(event, ...args));
-  };
+/** `method` as the renderer calls it from `event`'s sender: the raw wire result. */
+export function ipcMethod(method: string): IpcHandler {
+  return (event, ...args) => invokeDesktopIpcFrom(electronMock.ipcMain, event, method, ...args);
+}
+
+/** Functional consumer: decode the actual registered Main method's wire result. */
+export function capabilityHandler(method: string): IpcHandler {
+  return async (event, ...args) => readBoundaryResult(await ipcMethod(method)(event, ...args));
 }

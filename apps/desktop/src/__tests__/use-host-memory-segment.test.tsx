@@ -147,11 +147,10 @@ const LIVE: MemoryRead = {
   admission: { ready: true },
   models: {
     embedder: {
-      dimensions: 384,
+      dimensions: 1536,
       distance: 'cosine',
-      dtype: 'fp16',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      provider: 'local',
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
     },
     observer: 'openai::gpt-5-mini',
   },
@@ -178,7 +177,7 @@ const LIVE: MemoryRead = {
   },
 };
 const NOT_READY: MemoryRead = {
-  admission: { ready: false, reason: 'Semantic recall needs its embedding model downloaded.' },
+  admission: { ready: false, reason: 'Semantic recall requires a configured OpenAI API key.' },
 };
 afterEach(() => {
   cleanup();
@@ -239,11 +238,10 @@ describe('the meter reads the host memory state the next send would admit', () =
     expect(result.current.omSegment?.readAt).toBeGreaterThanOrEqual(before);
     expect(result.current.omSegment?.models).toEqual({
       embedder: {
-        dimensions: 384,
+        dimensions: 1536,
         distance: 'cosine',
-        dtype: 'fp16',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        provider: 'local',
+        modelId: 'text-embedding-3-small',
+        provider: 'openai',
       },
       observer: 'openai::gpt-5-mini',
     });
@@ -252,8 +250,8 @@ describe('the meter reads the host memory state the next send would admit', () =
     const client = memoryClient(async () => {
       throw refusalError(
         'configuration',
-        'memory.embedder-device-unavailable',
-        'The on-device memory embedder has no execution device.'
+        'memory.credential-missing',
+        'Semantic recall requires a configured OpenAI API key.'
       );
     });
     const { result } = renderHook(() =>
@@ -261,10 +259,10 @@ describe('the meter reads the host memory state the next send would admit', () =
     );
     await waitFor(() =>
       expect(result.current.omSegment).toEqual({
-        code: 'memory.embedder-device-unavailable',
+        code: 'memory.credential-missing',
         kind: 'error',
         readAt: expect.any(Number),
-        reason: 'The on-device memory embedder has no execution device.',
+        reason: 'Semantic recall requires a configured OpenAI API key.',
       })
     );
   });
@@ -276,7 +274,7 @@ describe('the meter reads the host memory state the next send would admit', () =
           category: 'availability',
           code: 'memory.embedder-unavailable',
           correlationId,
-          message: 'The on-device memory embedder is not running.',
+          message: 'The memory embedder cannot be reached.',
         })
       );
     });
@@ -288,16 +286,16 @@ describe('the meter reads the host memory state the next send would admit', () =
         code: 'memory.embedder-unavailable',
         kind: 'error',
         readAt: expect.any(Number),
-        reason: `The on-device memory embedder is not running. Reference: ${correlationId}`,
+        reason: `The memory embedder cannot be reached. Reference: ${correlationId}`,
       })
     );
   });
   test('a memory precondition gates the send after any notice that already gates it', () => {
-    const refused = { admissionReason: 'Semantic recall needs its embedding model downloaded.' };
+    const refused = { admissionReason: 'Semantic recall requires a configured OpenAI API key.' };
     const provider = { disabledReason: 'Add an OpenAI key to send', isComposerDisabled: true };
     expect(withMemoryGate(provider, refused)).toEqual(provider);
     expect(withMemoryGate({ disabledReason: 'Model discovery is stale' }, refused)).toEqual({
-      disabledReason: 'Semantic recall needs its embedding model downloaded.',
+      disabledReason: 'Semantic recall requires a configured OpenAI API key.',
       isComposerDisabled: true,
     });
     expect(withMemoryGate({}, { omSegment: { kind: 'empty' } })).toEqual({});
@@ -322,7 +320,7 @@ describe('the meter reads the host memory state the next send would admit', () =
     );
     await waitFor(() =>
       expect(notReady.result.current).toEqual({
-        admissionReason: 'Semantic recall needs its embedding model downloaded.',
+        admissionReason: 'Semantic recall requires a configured OpenAI API key.',
       })
     );
   });

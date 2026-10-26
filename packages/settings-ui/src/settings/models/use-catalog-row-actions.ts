@@ -3,15 +3,11 @@ import { createContext, useContext } from 'react';
 /**
  * Live per-row state the catalog cells read. It lives in context, not in the
  * column closures, so the column definitions stay module-level constants and a
- * busy/download/query change never rebuilds the columns (TreeGrid row-identity
+ * busy/query change never rebuilds the columns (TreeGrid row-identity
  * contract).
  */
 export interface CatalogRowActions {
   readonly busyModelIds: ReadonlySet<string>;
-  readonly downloadedModels: Readonly<Record<string, boolean>>;
-  readonly downloadProgress: Readonly<Record<string, number>>;
-  readonly isDownloading: Readonly<Record<string, boolean>>;
-  readonly onDownload: (modelId: string) => void;
   readonly onToggle: (modelId: string, enabled: boolean) => void;
   readonly onToggleDetails: (modelId: string) => void;
   /** The deferred search query, for highlighting and "id on demand". */

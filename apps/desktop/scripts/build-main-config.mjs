@@ -21,7 +21,7 @@
  * - dist/writer-worker.mjs  the state-store writer worker, self-contained
  * - dist/main-log-transport.js, main-watchdog-worker.js  self-contained ESM,
  *   unpacked beside app.asar, so they cannot share chunks inside it
- * - dist/preload.cjs, hidden-preload.cjs  sandboxed preloads (CommonJS)
+ * - dist/preload.cjs  the sandboxed preload (CommonJS)
  * - dist/windows-command-entry.cjs  self-contained Windows command wrapper
  *
  * Resolving a sibling output from the running module's own path is therefore
@@ -169,13 +169,13 @@ export const UNPACKED_WORKER_BUILD_OPTIONS = {
 };
 
 /**
- * The sandboxed preloads: CommonJS that requires nothing but `electron`
+ * The sandboxed preload: CommonJS that requires nothing but `electron`
  * (preload-bundle-contract.mjs).
  * @type {import('esbuild').BuildOptions}
  */
 export const PRELOAD_BUILD_OPTIONS = {
   ...shared,
-  entryPoints: { 'hidden-preload': 'src/hidden-preload.ts', preload: 'src/preload.ts' },
+  entryPoints: { preload: 'src/preload.ts' },
   format: 'cjs',
   outExtension: { '.js': '.cjs' },
   plugins: [workspaceSourceBundling({ packagesRoot, thirdParty: 'external' })],
@@ -195,8 +195,7 @@ export const WINDOWS_COMMAND_BUILD_OPTIONS = {
 };
 
 /**
- * Every Node-side build, in order. build-main.mjs emits each one, then its
- * inference gate scans all of them (BST-2148); nothing Node loads is emitted later.
+ * Every Node-side build. build-main.mjs emits each one.
  */
 export const NODE_BUILDS = [
   NODE_PROCESS_BUILD_OPTIONS,

@@ -2,40 +2,31 @@ import { describe, expect, it, vi } from 'vitest';
 import { DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL } from '../desktop-platform-diagnostics';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createAllowlistedSenderFrame } from './helpers/desktop-ipc-sender-frame-test-allowlist';
+import { invokeDesktopIpcFrom } from './helpers/desktop-ipc-sender-test-helpers';
 
-const { handlers, ipcMainHandle, ipcMainRemoveHandler } = vi.hoisted(() => {
-  const handlers = new Map<string, (...args: unknown[]) => unknown>();
-  return {
-    handlers,
-    ipcMainHandle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, handler);
-    }),
-    ipcMainRemoveHandler: vi.fn(),
-  };
-});
+const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
 
-const role = vi.hoisted(() => vi.fn(() => 'visible-ui'));
+const isAppWindowSender = vi.hoisted(() => vi.fn(() => true));
 const diagnosticReader = vi.hoisted(() => ({
   countByFingerprint: vi.fn(async () => ({ count: 0, firstSeenMs: null, lastSeenMs: null })),
   getUnseenCounts: vi.fn(async () => ({ errorCount: 2, warningCount: 1 })),
   queryEvents: vi.fn(async () => []),
 }));
-vi.mock('../window-role', () => ({ getWindowRoleByWebContentsId: role }));
+vi.mock('../app-windows', () => ({ isAppWindowSender }));
 vi.mock('../assistant-server/query-diagnostics-tool', () => ({
   mainDiagnosticEventsReader: diagnosticReader,
 }));
 
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: ipcMainHandle,
-    on: vi.fn(),
-    removeHandler: ipcMainRemoveHandler,
-    removeListener: vi.fn(),
-  },
-}));
+vi.mock('electron', () => ({ ipcMain }));
+
+const appWindowEvent = { sender: { id: 42 }, senderFrame: createAllowlistedSenderFrame() };
+
+function invoke(method: string, ...args: unknown[]): Promise<unknown> {
+  return invokeDesktopIpcFrom(ipcMain, appWindowEvent, method, ...args);
+}
 
 describe('desktop diagnostics IPC', () => {
-  it('registers a typed diagnostics snapshot channel through the desktop IPC registry', async () => {
+  it('serves a typed diagnostics snapshot through the desktop IPC connection', async () => {
     const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
     const unregister = registerDesktopDiagnosticsIpcHandlers({
       crashRecovery: {
@@ -52,29 +43,6 @@ describe('desktop diagnostics IPC', () => {
       database: { getDiagnostics: vi.fn(async () => ({ hasDatabaseHandle: true })) },
       databaseIntegrity: {
         getSnapshot: vi.fn(() => ({ revision: 0, state: { kind: 'healthy' } })),
-      },
-      embeddingHost: {
-        getPlatformStatus: vi.fn(() => ({
-          active: false,
-          lastError: null,
-          pendingRequestCount: 0,
-          runtimeId: 'embedding-host:stopped',
-          runtimeKind: 'embedding-host',
-          sourceState: 'stopped',
-          state: 'stopped',
-        })),
-        getTelemetrySnapshot: vi.fn(() => ({
-          batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
-          cache: {
-            entries: [],
-            estimatedGpuBytes: 0,
-            estimatedHeapBytes: 0,
-            memoryEstimateUnavailableCount: 0,
-            residentCount: 0,
-          },
-          lastUpdatedAt: null,
-          peakVectorsInFlight: 0,
-        })),
       },
       logging: {
         getState: vi.fn(() => ({
@@ -101,40 +69,33 @@ describe('desktop diagnostics IPC', () => {
           userDataPath: '/tmp/user-data',
         })),
       },
-      telemetry: { getRuntimeMetrics: vi.fn(() => []) },
     } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
 
-    const handler = handlers.get(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
-    expect(handler).toBeDefined();
-    await expect(handler?.()).resolves.toMatchObject({
+    await expect(invoke(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL)).resolves.toMatchObject({
       ok: true,
       value: {
         database: { hasDatabaseHandle: true },
         databaseIntegrity: { revision: 0, state: { kind: 'healthy' } },
         reset: { userDataPath: '<redacted>' },
         telemetry: {
-          backgroundRuntimeMetrics: [],
-          embedding: { batchTransfer: { totalBytes: 0 }, peakVectorsInFlight: 0 },
           processCounters: { installedAt: '2026-09-15T02:00:00.000Z', samples: [] },
         },
       },
     });
-    const countersHandler = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters);
-    expect(countersHandler).toBeDefined();
-    await expect(countersHandler?.()).resolves.toEqual({
+    await expect(invoke(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters)).resolves.toEqual({
       ok: true,
       value: { installedAt: '2026-09-15T02:00:00.000Z', samples: [] },
     });
 
     unregister();
 
-    expect(ipcMainRemoveHandler).toHaveBeenCalledWith(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
-    expect(ipcMainRemoveHandler).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow
-    );
-    expect(ipcMainRemoveHandler).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters
-    );
+    for (const method of [
+      DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL,
+      DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow,
+      DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters,
+    ]) {
+      await expect(invoke(method)).rejects.toThrow(`No desktop IPC handler for ${method}.`);
+    }
   });
 
   it('returns private diagnostic reader faults as typed data', async () => {
@@ -147,7 +108,7 @@ describe('desktop diagnostics IPC', () => {
       },
     } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
     try {
-      const response = await handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters)?.();
+      const response = await invoke(DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters);
       expect(response).toMatchObject({
         error: { category: 'internal', code: 'boundary.internal', kind: 'fault' },
         ok: false,
@@ -164,34 +125,32 @@ describe('desktop diagnostics IPC', () => {
     const unregister = registerDesktopDiagnosticsIpcHandlers({
       mainLog: { readWindow },
     } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
-    const handler = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow);
-    expect(handler).toBeDefined();
+    const method = DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow;
 
-    await expect(handler?.({}, { since: 'nope', until: 'nope' })).resolves.toMatchObject({
+    await expect(invoke(method, { since: 'nope', until: 'nope' })).resolves.toMatchObject({
       error: { code: 'boundary.internal' },
       ok: false,
     });
     await expect(
-      handler?.({}, { since: '2026-09-15T02:00:00.000Z', until: '2026-09-15T01:00:00.000Z' })
+      invoke(method, { since: '2026-09-15T02:00:00.000Z', until: '2026-09-15T01:00:00.000Z' })
     ).resolves.toMatchObject({ error: { code: 'boundary.internal' }, ok: false });
     expect(readWindow).not.toHaveBeenCalled();
 
     const request = { since: '2026-09-15T02:00:00.000Z', until: '2026-09-15T02:30:00.000Z' };
-    await expect(handler?.({}, request)).resolves.toEqual({ ok: true, value: { lines: [] } });
+    await expect(invoke(method, request)).resolves.toEqual({ ok: true, value: { lines: [] } });
     expect(readWindow).toHaveBeenCalledWith(request);
 
     unregister();
   });
 });
 
-it('validates retained diagnostic filters before I/O and restricts the reader to the visible UI', async () => {
+it('validates retained diagnostic filters before I/O and refuses a non-window sender', async () => {
   const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
   const unregister = registerDesktopDiagnosticsIpcHandlers(
     {} as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]
   );
-  const query = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.queryEvents)!;
-  const count = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint)!;
-  const event = { sender: { id: 42 }, senderFrame: createAllowlistedSenderFrame() };
+  const query = DESKTOP_IPC_CHANNELS.diagnostics.queryEvents;
+  const count = DESKTOP_IPC_CHANNELS.diagnostics.countByFingerprint;
   diagnosticReader.queryEvents.mockClear();
   diagnosticReader.countByFingerprint.mockClear();
   for (const invalid of [
@@ -202,40 +161,46 @@ it('validates retained diagnostic filters before I/O and restricts the reader to
     { severity: 'debug' },
     { sql: 'SELECT secret' },
   ]) {
-    await expect(query(event, invalid)).rejects.toThrow();
+    await expect(invoke(query, invalid)).rejects.toThrow();
   }
-  await expect(count(event, { fingerprint: '', sinceMs: 0 })).rejects.toThrow();
+  await expect(invoke(count, { fingerprint: '', sinceMs: 0 })).rejects.toThrow();
   expect(diagnosticReader.queryEvents).not.toHaveBeenCalled();
   expect(diagnosticReader.countByFingerprint).not.toHaveBeenCalled();
-  await expect(query(event, { limit: 100, runId: 'run-1' })).resolves.toEqual([]);
+  await expect(invoke(query, { limit: 100, runId: 'run-1' })).resolves.toEqual([]);
   expect(diagnosticReader.queryEvents).toHaveBeenCalledWith({ limit: 100, runId: 'run-1' });
-  await count(event, { fingerprint: 'fp-provider', sinceMs: 0 });
+  await invoke(count, { fingerprint: 'fp-provider', sinceMs: 0 });
   expect(diagnosticReader.countByFingerprint).toHaveBeenCalledWith('fp-provider', 0);
-  role.mockReturnValue('embedding-host');
-  await expect(query(event, {})).rejects.toThrow('visible-ui');
-  role.mockReturnValue('visible-ui');
+  isAppWindowSender.mockReturnValue(false);
+  await expect(invoke(query, {})).rejects.toThrow('requires an app window sender');
+  isAppWindowSender.mockReturnValue(true);
   await expect(
-    query({ ...event, senderFrame: { url: 'https://foreign.example/' } }, {})
-  ).rejects.toThrow();
+    invokeDesktopIpcFrom(
+      ipcMain,
+      { ...appWindowEvent, senderFrame: { url: 'https://foreign.example/' } },
+      query,
+      {}
+    )
+  ).rejects.toThrow('rejected an unrecognized sender frame URL');
+  expect(diagnosticReader.queryEvents).toHaveBeenCalledOnce();
   unregister();
 });
 
-it('validates the unseen watermark before retained reads and keeps the visible role fence', async () => {
+it('validates the unseen watermark before retained reads and refuses a non-window sender', async () => {
   const { registerDesktopDiagnosticsIpcHandlers } = await import('../ipc-desktop-diagnostics');
   const unregister = registerDesktopDiagnosticsIpcHandlers(
     {} as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]
   );
-  const read = handlers.get(DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts)!;
-  const event = { sender: { id: 42 }, senderFrame: createAllowlistedSenderFrame() };
+  const read = DESKTOP_IPC_CHANNELS.diagnostics.getUnseenCounts;
   diagnosticReader.getUnseenCounts.mockClear();
   for (const invalid of [-1, Number.NaN, Number.POSITIVE_INFINITY, '1000', {}, null]) {
-    await expect(read(event, invalid)).rejects.toThrow();
+    await expect(invoke(read, invalid)).rejects.toThrow();
   }
   expect(diagnosticReader.getUnseenCounts).not.toHaveBeenCalled();
-  await expect(read(event, 1000)).resolves.toEqual({ errorCount: 2, warningCount: 1 });
+  await expect(invoke(read, 1000)).resolves.toEqual({ errorCount: 2, warningCount: 1 });
   expect(diagnosticReader.getUnseenCounts).toHaveBeenCalledWith(1000);
-  role.mockReturnValue('embedding-host');
-  await expect(read(event, 0)).rejects.toThrow('visible-ui');
-  role.mockReturnValue('visible-ui');
+  isAppWindowSender.mockReturnValue(false);
+  await expect(invoke(read, 0)).rejects.toThrow('requires an app window sender');
+  isAppWindowSender.mockReturnValue(true);
+  expect(diagnosticReader.getUnseenCounts).toHaveBeenCalledOnce();
   unregister();
 });

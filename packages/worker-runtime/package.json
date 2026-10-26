@@ -1,11 +1,6 @@
 {
   "name": "@brainstrike/worker-runtime",
   "version": "0.1.0",
-  "dependencies": {
-    "@brainstrike/logging": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "effect": "catalog:"
-  },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@effect/tsgo": "catalog:",
@@ -15,8 +10,7 @@
     "vitest": "catalog:"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./validation": "./src/validation.ts"
+    ".": "./src/index.ts"
   },
   "private": true,
   "scripts": {

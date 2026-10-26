@@ -32,7 +32,6 @@ export interface ElectronAppContext {
 }
 
 interface LaunchElectronAppOptions {
-  readonly disableExternalLocalRuntimeProbes?: boolean;
   /** Extra environment for this launch, applied BEFORE the harness's own variables so it cannot override them. */
   readonly env?: Readonly<Record<string, string>>;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
@@ -84,11 +83,6 @@ const ignoredElectronOutputPatterns = [
   '🔸 Mocked showMessageBox called with options:',
   '🔸 Mocked showErrorBox called:',
   '🔸 Mocked showCertificateTrustDialog called with args:',
-  'Failed to create WebGPU Context Provider',
-  '[EmbeddingWorker] Initializing deferred local embedding model for claimed work',
-  '[EmbeddingWorker] Stopping embedding worker after fatal local model error',
-  '[EmbeddingHostRuntime] Embedding host worker stopped after fatal local model error',
-  '[EmbeddingWorker] handleBatchFailure: Job(s) failed',
   '"msg":"Lazy-loading database (triggered by IPC usage)"',
   '"msg":"Created database directory:',
   '"msg":"pgvector extension loaded successfully (ESM)"',
@@ -107,9 +101,6 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Loading built renderer file"',
   '"reloadReason":"playwright-reset-renderer"',
   '"reloadReason":"assistant-mock-init-script"',
-  '"reloadReason":"embedding-worker-large-backfill-fixture"',
-  '"reloadReason":"embedding-worker-host-processing-fixture"',
-  '"reloadReason":"embedding-worker-import-backfill-flow"',
   '"reloadReason":"startup-restore-regression"',
   '"msg":"Registering MCP IPC handlers"',
   '"msg":"discoverMcpToolsOnStartup called"',
@@ -131,8 +122,6 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Skipping maximize in desktop E2E mode because Electron shows hidden windows when maximizing"',
   '"msg":"Window startup: did-start-loading"',
   '"msg":"Window startup: renderer-loaded"',
-  '"msg":"powerSaveBlocker started for active embedding host work"',
-  '"msg":"powerSaveBlocker stopped for idle embedding host"',
   '"msg":"Failed to resubscribe live query after pause release"',
   '"msg":"Using environment API key for provider"',
   '"msg":"mastra runtime initialized"',
@@ -262,11 +251,7 @@ export async function launchElectronApp(
   userDataDir?: string,
   options: Pick<
     LaunchElectronAppOptions,
-    | 'disableExternalLocalRuntimeProbes'
-    | 'env'
-    | 'modelProvider'
-    | 'workspaceRoot'
-    | 'onAppAcquired'
+    'env' | 'modelProvider' | 'workspaceRoot' | 'onAppAcquired'
   > = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
@@ -377,7 +362,6 @@ async function launchElectronAppWithBoundary(
       userDataDir,
       launchTimeoutMs,
       launchMode,
-      options.disableExternalLocalRuntimeProbes ?? false,
       options.env ?? {},
       providerEgressEnv,
       options.workspaceRoot
@@ -441,7 +425,6 @@ function createLaunchOptions(
   userDataDir: string | undefined,
   launchTimeoutMs: number | undefined,
   launchMode: 'built' | 'dev-server' | 'test-built',
-  disableExternalLocalRuntimeProbes: boolean,
   extraEnv: Readonly<Record<string, string>>,
   /** Provider egress boundary values; applied over every other source (BST-1931). */
   providerEgressEnv: Readonly<Record<string, string>>,
@@ -450,8 +433,7 @@ function createLaunchOptions(
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
-  const shouldDisableGpuForE2e =
-    process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
+  const shouldDisableGpuForE2e = process.env['CI'] === 'true';
   const entry = desktopEntryLaunchOptions(target, mainPath, launchMode);
   const baseArgs = [
     ...entry.args,
@@ -474,7 +456,6 @@ function createLaunchOptions(
         ]
       : []),
     // Disable GPU features to prevent crashes/hangs in CI.
-    // Allow GPU in specific tests (e.g., WebGPU memory diagnostics) via env var.
     ...(shouldDisableGpuForE2e
       ? ['--disable-gpu', '--disable-gpu-sandbox', '--disable-software-rasterizer']
       : []),
@@ -539,14 +520,6 @@ function createLaunchOptions(
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_IS_E2E_TEST: 'true',
-      ...(disableExternalLocalRuntimeProbes
-        ? {
-            // Regression E2E should not contact developer-local Ollama/LM Studio
-            // daemons unless the test explicitly validates that bridge.
-            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-            BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
-          }
-        : {}),
       ...(launchMode === 'dev-server'
         ? {
             // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase

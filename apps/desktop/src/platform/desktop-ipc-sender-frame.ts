@@ -5,23 +5,21 @@ import {
 } from '../desktop-renderer-target';
 
 /**
- * Second sender factor for `registerAuthorizedInvoke` (BST-1641).
+ * Second sender factor for every desktop IPC call (BST-1641).
  *
  * `event.sender.id` → window role proves WHICH tracked webContents sent a
  * message; `event.senderFrame.url` proves WHAT document that webContents is
  * currently running. Electron's security checklist ("Validate the sender of
  * all IPC messages") validates the frame URL against an allowlist; this
  * module owns that allowlist. It is a pure derivation of the process-wide
- * `DesktopRendererTarget` — the same object `create-window.ts` and
- * `renderer-host-lifecycle.ts` load their document from — so the allowlist
+ * `DesktopRendererTarget` — the same object `create-window.ts` loads its
+ * document from — so the allowlist
  * can never trust a document the loaders do not load, or reject the one they
  * do. It is launch-mode-exact: a built renderer (packaged, `pnpm start`, or
  * the Playwright `--test-mode` harness) accepts ONLY the bundled app-origin
  * document, and the dev-server mode accepts ONLY the configured Vite origin
  * document — so a built app never trusts `http://localhost:38181` or a `file://` page, and
- * dev accepts only its configured document. Hidden inference hosts load
- * the SAME document with `?mode=<role>&runtimeId=…`, so query and fragment
- * are ignored.
+ * dev accepts only its configured document. Query and fragment are ignored.
  *
  * Only the pathname's trailing slash is normalized (`/desktop` ≡ `/desktop/`,
  * which Vite serves interchangeably); the comparison stays equality, so

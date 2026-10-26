@@ -12,7 +12,6 @@ import {
 } from '@brainstrike/app-shell/workspace-terminal-services';
 import type { WorktreesBridge } from '@brainstrike/app-shell/worktrees/availability';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, within } from '@testing-library/react';
 import React from 'react';
@@ -26,45 +25,6 @@ const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
 }));
 const sharedRootLayoutCapture = vi.hoisted(() => ({
   props: null as Record<string, unknown> | null,
-}));
-
-const createQueueStub = (): QueueAdapter => {
-  const result = {
-    id: 'stub',
-    metadata: {
-      batchSize: 1,
-      device: 'webgpu',
-      dimensions: 0,
-      dtype: 'fp16',
-      elapsedMs: 0,
-      fallbackApplied: false,
-      model: 'stub-model',
-      pooling: 'mean',
-    },
-    type: 'result',
-    vectors: [new Float32Array(0)],
-  } satisfies QueueResult;
-  return {
-    add: vi.fn(async () => result),
-    addBulk: vi.fn(async () => [result]),
-    cancel: vi.fn(),
-    drain: vi.fn(async () => {}),
-    isPaused: false,
-    isProcessing: false,
-    onProgress: vi.fn(() => () => {}),
-    pause: vi.fn(),
-    resume: vi.fn(),
-  };
-};
-
-const queueStub = createQueueStub();
-
-const registerDesktopEmbeddingRuntimeConfigMock = vi.hoisted(() => vi.fn());
-
-vi.mock('../../../renderer/create-embedding-queue', () => ({
-  createBrowserEmbeddingQueue: vi.fn(() => queueStub),
-  getEmbeddingQueue: () => queueStub,
-  registerDesktopEmbeddingRuntimeConfig: registerDesktopEmbeddingRuntimeConfigMock,
 }));
 
 // This layout fixture supplies its own child surfaces; actual host/port binding
@@ -257,16 +217,6 @@ vi.mock('../../../renderer/components/settings/page-content', () => ({
   default: MockSettingsPage,
 }));
 
-// Mock vector-management to avoid transitive dependencies
-vi.mock('@brainstrike/vector-management', () => ({
-  EmbeddingJobQueueTracker: () => <div data-testid="embedding-job-queue-tracker" />,
-}));
-
-// Mock embeddings to avoid worker initialization
-vi.mock('@brainstrike/embeddings', () => ({
-  startEmbeddingWorker: vi.fn(async () => ({ stop: vi.fn(async () => {}) })),
-}));
-
 vi.mock('@brainstrike/logging', async () => {
   const actual =
     await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
@@ -284,10 +234,7 @@ vi.mock('@brainstrike/logging', async () => {
 // Mock model registry state to avoid store initialization.
 vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
   useModelRegistryStore: {
-    getState: vi.fn(() => ({
-      setDownloading: vi.fn(),
-      setDownloadProgress: vi.fn(),
-    })),
+    getState: vi.fn(() => ({})),
   },
 }));
 
@@ -357,12 +304,6 @@ describe('RootLayoutContent', () => {
     expect(document.title).toBe('BrainStrike Desktop - Settings');
   });
 
-  it('mounts without a visible-renderer embedding queue', () => {
-    render(<RootLayoutContent />);
-    expect(registerDesktopEmbeddingRuntimeConfigMock).not.toHaveBeenCalled();
-    expect(sharedRootLayoutCapture.props).not.toHaveProperty('loadEmbeddingQueue');
-  });
-
   it('does not configure the removed full-frame prompts route', () => {
     render(<RootLayoutContent />);
     expect(sharedRootLayoutCapture.props).not.toHaveProperty('promptsPageContent');
@@ -420,11 +361,6 @@ describe('RootLayoutContent', () => {
     expect(sharedRootLayoutCapture.props?.['worktreeMapPageContent']).toBeDefined();
     // Settings → Workspace reads the same bridge the Worktrees surface does.
     expect(screen.getByTestId('settings-page-content')).toHaveAttribute('data-worktrees', 'served');
-  });
-
-  it('does not mount an app-specific embedding queue tracker', () => {
-    render(<RootLayoutContent />);
-    expect(screen.queryByTestId('embedding-job-queue-tracker')).not.toBeInTheDocument();
   });
 
   it('keeps heap diagnostics interval stable across tab switches while logging the latest tab', async () => {

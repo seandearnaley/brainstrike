@@ -14,11 +14,10 @@ describe('PROVIDER_MODEL_DEFAULT_POLICIES', () => {
   });
 
   it('is null exactly for providers that cannot have catalog defaults', () => {
-    // Derived, not listed: a provider has catalog defaults only when it is
-    // keyed AND serves LLMs. Keyless runtimes get enablement from discovery;
-    // embedding-only providers have no LLM rows to enable.
+    // Derived, not listed: a provider has catalog defaults only when it serves
+    // LLMs; embedding-only providers have no LLM rows to enable.
     for (const provider of listProviders()) {
-      const expectsNull = provider.authType === 'none' || !provider.capabilities.llm;
+      const expectsNull = !provider.capabilities.llm;
       expect({
         id: provider.id,
         isNull: PROVIDER_MODEL_DEFAULT_POLICIES[provider.id] === null,

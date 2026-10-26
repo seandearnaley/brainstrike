@@ -21,7 +21,6 @@ export const contextFilesContract = {
   scan: channel<[], WorkspaceContextFileStatus[]>({
     channel: DESKTOP_IPC_CHANNELS.contextFiles.scan,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
 } satisfies Contract;
 

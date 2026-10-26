@@ -6,19 +6,10 @@ import { STATE_CATCH_UP_STEP_EVENTS } from '../src/contracts.js';
 import { createIndexerConnection, type IndexerTransport } from '../src/transport.js';
 
 const dbPath = '/state/state-index.sqlite';
-const profile = {
-  dimensions: 384,
-  distance: 'cosine',
-  modelId: 'text-embedding-3-small',
-  provider: 'openai',
-} as const;
 const replies: Readonly<Record<string, unknown>> = {
   'state-gc-check': {},
   'state-rebuild': true,
   'state-search': [],
-  'state-search-coverage': { embedded: 0, errored: 0, rows: 0 },
-  'state-search-pending': [],
-  'state-search-similar': [],
 };
 
 /**
@@ -55,7 +46,6 @@ function worker(steps: number, behind = 0) {
           kind: 'ready',
           value: {
             dbPath,
-            embedding: { indexMode: 'text-only' },
             journalMode: 'wal',
             pid: 1,
             readerQueryOnly: 1,
@@ -105,17 +95,6 @@ const step = (threads: readonly string[]) => ({
 const reads = {
   'state-gc-check': (port) => port.stateBlobCounts(['t1', 't2'], []),
   'state-search': (port) => port.searchState({ limit: 5, query: 'plan', threadIds: ['t1', 't2'] }),
-  'state-search-coverage': (port) => port.searchStateCoverage({ profile, threadIds: ['t1', 't2'] }),
-  'state-search-pending': (port) =>
-    port.searchStatePending({ limit: 5, profile, threadIds: ['t1', 't2'] }),
-  'state-search-similar': (port) =>
-    port.searchStateSimilar({
-      limit: 5,
-      profile,
-      threadIds: ['t1', 't2'],
-      threshold: 0.5,
-      vector: [0.1, 0.2],
-    }),
 } satisfies Record<string, (port: Awaited<ReturnType<typeof worker>['port']>) => Promise<unknown>>;
 
 it.each(Object.entries(reads))(

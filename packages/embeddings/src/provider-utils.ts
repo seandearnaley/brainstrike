@@ -1,7 +1,6 @@
 import {
   canonicalizeEmbeddingProviderModelKey,
   formatEmbeddingProviderModelKey,
-  isHostedProvider,
   type ParsedEmbeddingProviderModel,
   parseEmbeddingProviderModelKey,
 } from '@brainstrike/indexing-contract';
@@ -18,8 +17,6 @@ export function parseProviderModelKey(
 ): ParsedProviderModel | null {
   return parseEmbeddingProviderModelKey(composite);
 }
-
-export { isHostedProvider };
 
 export function canonicalizeProviderModelKey(
   modelKey: string | null | undefined,

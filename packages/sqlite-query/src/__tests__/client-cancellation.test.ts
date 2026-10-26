@@ -63,7 +63,7 @@ const grepRows = (id: number) => ({
   kind: 'grepRows',
   result: {
     columns: ['id'],
-    identity: { embedding: { indexMode: 'text-only' }, storeId: 'a'.repeat(64) },
+    identity: { storeId: 'a'.repeat(64) },
     matchedChunks: 1,
     rows: [[`chunk-${id}`]],
     truncated: false,

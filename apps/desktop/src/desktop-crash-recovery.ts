@@ -2,9 +2,7 @@ export interface DesktopRendererCrashRecoverySnapshot {
   readonly lastRendererCrashAt: string | null;
   readonly lastRendererCrashExitCode: number | null;
   readonly lastRendererCrashReason: string | null;
-  readonly lastRendererCrashWindowRole: string | null;
   readonly lastRendererReloadAt: string | null;
-  readonly lastRendererReloadWindowRole: string | null;
   readonly pendingRendererRecovery: boolean;
   readonly rendererCrashCount: number;
   readonly rendererReloadAttemptCount: number;
@@ -15,20 +13,13 @@ interface RendererCrashRecoveryEvent {
   readonly crashCountInWindow: number;
   readonly exitCode: number;
   readonly reason: string;
-  readonly windowRole: string;
-}
-
-interface RendererReloadRecoveryEvent {
-  readonly windowRole: string;
 }
 
 const INITIAL_SNAPSHOT: DesktopRendererCrashRecoverySnapshot = {
   lastRendererCrashAt: null,
   lastRendererCrashExitCode: null,
   lastRendererCrashReason: null,
-  lastRendererCrashWindowRole: null,
   lastRendererReloadAt: null,
-  lastRendererReloadWindowRole: null,
   pendingRendererRecovery: false,
   rendererCrashCount: 0,
   rendererReloadAttemptCount: 0,
@@ -46,7 +37,6 @@ function recordRendererCrash(event: RendererCrashRecoveryEvent): void {
     lastRendererCrashAt: nowIsoString(),
     lastRendererCrashExitCode: event.exitCode,
     lastRendererCrashReason: event.reason,
-    lastRendererCrashWindowRole: event.windowRole,
     rendererCrashCount: snapshot.rendererCrashCount + 1,
   });
 }
@@ -66,10 +56,9 @@ export function recordRendererCrashLoopSuppressed(event: RendererCrashRecoveryEv
   });
 }
 
-export function recordRendererRecoveryReloadAttempt(event: RendererReloadRecoveryEvent): void {
+export function recordRendererRecoveryReloadAttempt(): void {
   Object.assign(snapshot, {
     lastRendererReloadAt: nowIsoString(),
-    lastRendererReloadWindowRole: event.windowRole,
     pendingRendererRecovery: false,
     rendererReloadAttemptCount: snapshot.rendererReloadAttemptCount + 1,
   });

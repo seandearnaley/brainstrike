@@ -22,19 +22,16 @@ import type {
   CanonicalVectorPublicationPort,
 } from '../src/ports.js';
 
-// This suite drives the built package; the source owns its type.
+// This suite drives the package's public source entry.
 const { CanonicalIngestionHost }: typeof CanonicalIngestion = await import(
   new URL('../src/index.ts', import.meta.url).href
 );
 const { openIndexer } = await import('@brainstrike/indexer');
 const profile: VectorProfile = {
-  dimensions: 384,
+  dimensions: 1536,
   distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  provider: 'local',
-  revision: 'a'.repeat(40),
-  tokenCap: 256,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 };
 const chunker = createNodeChunker({ parser: 'oxc' });
 const deadlines = { closeMs: 5000 };
@@ -199,7 +196,7 @@ it('publishes bounded cross-file VECTOR through public native scoped writer with
       ...input,
       vectors: input.chunks.map((chunk) => ({
         chunkId: chunk.chunkId,
-        vector: Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0)),
+        vector: Array.from({ length: profile.dimensions }, (_, index) => (index === 0 ? 1 : 0)),
       })),
     })),
     join: vi.fn(async () => {}),
@@ -307,7 +304,7 @@ it('publishes bounded cross-file VECTOR through public native scoped writer with
         ...input,
         vectors: input.chunks.map((chunk) => ({
           chunkId: chunk.chunkId,
-          vector: Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0)),
+          vector: Array.from({ length: profile.dimensions }, (_, index) => (index === 0 ? 1 : 0)),
         })),
       };
     });

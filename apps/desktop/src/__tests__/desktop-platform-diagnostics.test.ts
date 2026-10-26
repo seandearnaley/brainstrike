@@ -54,38 +54,6 @@ describe('desktop platform diagnostics', () => {
         },
       ],
     };
-    const runtimeMetrics = [
-      {
-        cpuPercent: '1.0',
-        idleWakeupsPerSecond: '0.0',
-        osProcessId: 123,
-        privateKb: '1000',
-        runtimeKind: 'embedding-host' as const,
-        sharedKb: '200',
-        workingSetKb: '1200',
-      },
-    ];
-    const embeddingHostStatus = {
-      active: false,
-      lastError: null,
-      pendingRequestCount: 0,
-      runtimeId: 'embedding-host:stopped',
-      runtimeKind: 'embedding-host' as const,
-      sourceState: 'stopped' as const,
-      state: 'stopped' as const,
-    };
-    const embeddingTelemetry = {
-      batchTransfer: { batchCount: 2, lastBytes: 12, peakBytes: 24, totalBytes: 36 },
-      cache: {
-        entries: [],
-        estimatedGpuBytes: 0,
-        estimatedHeapBytes: 0,
-        memoryEstimateUnavailableCount: 0,
-        residentCount: 0,
-      },
-      lastUpdatedAt: 1000,
-      peakVectorsInFlight: 3,
-    };
     const loggingState = {
       capabilities: {
         canSelectDestination: true,
@@ -113,10 +81,6 @@ describe('desktop platform diagnostics', () => {
       crashRecovery: { getSnapshot: vi.fn(() => crashRecovery) },
       database: { getDiagnostics: vi.fn(async () => databaseDiagnostics) },
       databaseIntegrity: { getSnapshot: vi.fn(() => databaseIntegrity) },
-      embeddingHost: {
-        getPlatformStatus: vi.fn(() => embeddingHostStatus),
-        getTelemetrySnapshot: vi.fn(() => embeddingTelemetry),
-      },
       logging: { getState: vi.fn(() => loggingState) },
       processCounters: { getSnapshot: vi.fn(() => processCounters) },
       reset: {
@@ -130,7 +94,6 @@ describe('desktop platform diagnostics', () => {
           userDataPath: '/tmp/brainstrike-user-data',
         })),
       },
-      telemetry: { getRuntimeMetrics: vi.fn(() => runtimeMetrics) },
     } as unknown as DesktopPlatformDiagnosticsProviders;
     const snapshot = await collectDesktopPlatformDiagnostics(providers);
 
@@ -138,7 +101,6 @@ describe('desktop platform diagnostics', () => {
       crashRecovery,
       database: databaseDiagnostics,
       databaseIntegrity,
-      embeddingHost: embeddingHostStatus,
       errors: {},
       logging: loggingState,
       migration: {
@@ -153,8 +115,6 @@ describe('desktop platform diagnostics', () => {
         userDataPath: '<redacted>',
       },
       telemetry: {
-        backgroundRuntimeMetrics: runtimeMetrics,
-        embedding: embeddingTelemetry,
         processCounters,
       },
     });
@@ -181,14 +141,6 @@ describe('desktop platform diagnostics', () => {
       databaseIntegrity: {
         getSnapshot: vi.fn(() => ({ revision: 0, state: { kind: 'healthy' as const } })),
       },
-      embeddingHost: {
-        getPlatformStatus: vi.fn(() => {
-          throw new Error('embedding unavailable');
-        }),
-        getTelemetrySnapshot: vi.fn(() => {
-          throw new Error('embedding telemetry unavailable');
-        }),
-      },
       logging: {
         getState: vi.fn(() => {
           throw new Error('logging unavailable');
@@ -207,21 +159,13 @@ describe('desktop platform diagnostics', () => {
           throw new Error('reset unavailable');
         }),
       },
-      telemetry: {
-        getRuntimeMetrics: vi.fn(() => {
-          throw new Error('telemetry unavailable');
-        }),
-      },
     });
 
     expect(snapshot.errors).toMatchObject({
       crashRecovery: 'crash unavailable',
-      embeddingHost: 'embedding unavailable',
-      embeddingTelemetry: 'embedding telemetry unavailable',
       logging: 'logging unavailable',
       processCounters: 'process counters unavailable',
       reset: 'reset unavailable',
-      telemetry: 'telemetry unavailable',
     });
     expect(snapshot.telemetry.processCounters).toEqual({ installedAt: null, samples: [] });
     expect(snapshot.databaseIntegrity).toEqual({ revision: 0, state: { kind: 'healthy' } });

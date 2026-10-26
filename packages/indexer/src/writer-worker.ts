@@ -1,4 +1,3 @@
-import { enableCompileCache } from 'node:module';
 import { parentPort, workerData } from 'node:worker_threads';
 import { Schema } from 'effect';
 import {
@@ -13,10 +12,6 @@ import { loadStateProjection } from './state-projection.ts';
 import { IndexWriter } from './store.ts';
 import { validateIndexerOptions } from './transport.ts';
 
-// A worker does not inherit its parent's compile cache. On before the state
-// producer module loads, the largest graph this thread evaluates.
-// https://nodejs.org/api/module.html#moduleenablecompilecacheoptions
-enableCompileCache();
 const port = parentPort;
 if (!port) {
   throw new Error('Indexer writer requires a worker parent port.');
@@ -76,21 +71,6 @@ try {
         case 'state-search':
           value = writer.requireState().search(request.payload, STATE_CATCH_UP_STEP_EVENTS);
           break;
-        case 'state-search-pending':
-          value = writer.requireState().searchPending(request.payload, STATE_CATCH_UP_STEP_EVENTS);
-          break;
-        case 'prompt-vectors':
-          value = writer.requireState().prompts.execute(request.payload);
-          break;
-        case 'state-search-vectors':
-          value = writer.requireState().putSearchVectors(request.payload);
-          break;
-        case 'state-search-coverage':
-          value = writer.requireState().searchCoverage(request.payload, STATE_CATCH_UP_STEP_EVENTS);
-          break;
-        case 'state-search-similar':
-          value = writer.requireState().searchSimilar(request.payload, STATE_CATCH_UP_STEP_EVENTS);
-          break;
         case 'state-rebuild':
           value = writer.requireState().rebuild(request.payload);
           break;
@@ -117,12 +97,6 @@ try {
           break;
         case 'remove-scoped-file':
           value = writer.scoped.remove(request.payload);
-          break;
-        case 'configure-vector-profile':
-          value = writer.configureVectorProfile(request.payload);
-          break;
-        case 'commit-file':
-          value = writer.commit(request.payload);
           break;
         case 'commit-text-file':
           value = writer.commitText(request.payload);

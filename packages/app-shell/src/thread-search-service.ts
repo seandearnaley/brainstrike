@@ -1,22 +1,13 @@
 /**
  * Thread Search Service
  *
- * Hybrid (lexical + semantic) search over assistant threads, fused with the
- * same generic RRF core (`rrf.ts`) that powers `HybridSearchService`. That
- * service is deliberately bound to `FileChunk` shapes, so this is the
- * thread-native binding of the shared fusion primitive rather than an adapter
- * faking chunk rows. Two fusion levels:
- *
- * 1. MESSAGE level: the FTS arm and (when a query embedding is available)
- *    the vector arm from `ThreadSearchRepository` fuse per message id.
- * 2. THREAD level: threads ranked by their best fused message score fuse with
- *    trigram-ranked title matches, so a thread matching on BOTH content and
- *    title outranks equal content-only peers, and title-only threads still
- *    surface.
- *
- * The semantic arm is opt-in per call (`queryEmbedding: null` = lexical-only)
- * — the CALLER owns surfacing semantic availability to the user; this service
- * never degrades silently (`metadata.semanticArmUsed` is always explicit).
+ * Text search over assistant threads, ranked with the same generic RRF core
+ * (`rrf.ts`) that powers `HybridSearchService`. That service is deliberately
+ * bound to `FileChunk` shapes, so this is the thread-native binding of the
+ * shared fusion primitive rather than an adapter faking chunk rows. Threads
+ * ranked by their best message match fuse with trigram-ranked title matches,
+ * so a thread matching on BOTH content and title outranks equal content-only
+ * peers, and title-only threads still surface.
  */
 
 import { createRankedList, fuseRankedLists, normalizeRRFScores } from '@brainstrike/utils/rrf';
@@ -37,22 +28,6 @@ export interface ThreadMessageFtsMatch {
   threadId: string;
 }
 
-export interface ThreadMessageVectorOptions {
-  limit: number;
-  resourceId: string;
-  /** Minimum cosine similarity (default 0.35). */
-  threshold?: number;
-}
-
-export interface ThreadMessageVectorMatch {
-  messageCreatedAt: Date;
-  messageId: string;
-  role: string;
-  similarity: number;
-  snippet: string;
-  threadId: string;
-}
-
 interface ThreadTitleSearchOptions {
   limit: number;
   resourceId: string;
@@ -64,36 +39,12 @@ export interface ThreadTitleMatch {
   title: string;
 }
 
-/**
- * Honest coverage counters for the search UI: the semantic arm's readiness is
- * always visible, never silently degraded.
- */
-export interface ThreadSearchCoverage {
-  /** Index rows with non-empty extracted text (the embeddable set). */
-  embeddableMessages: number;
-  /** Embeddable rows with a stored vector. */
-  embeddedMessages: number;
-  /** Rows whose embedding attempt recorded an error. */
-  erroredMessages: number;
-  /** Rows present in the index. */
-  indexedMessages: number;
-  /** All mastra messages for the resource (indexed or not). */
-  totalMessages: number;
-}
-
-/** The vector arm's minimum cosine similarity, for every owner's thread search. */
-export const THREAD_SEARCH_VECTOR_THRESHOLD = 0.35;
-
-/** The three repository arms this service fuses (structural, DI-friendly). */
+/** The two repository arms this service fuses (structural, DI-friendly). */
 export interface ThreadSearchServiceRepository {
   fullTextSearch: (
     query: string,
     options: ThreadMessageFtsOptions
   ) => Promise<ThreadMessageFtsMatch[]>;
-  searchSimilar: (
-    queryEmbedding: readonly number[],
-    options: ThreadMessageVectorOptions
-  ) => Promise<ThreadMessageVectorMatch[]>;
   searchThreadTitles: (
     query: string,
     options: ThreadTitleSearchOptions
@@ -115,52 +66,35 @@ interface ThreadSearchArmMessage {
  * repository's, so its content and title lists are peers of ours at thread level.
  */
 export interface ThreadSearchExtraArms {
-  /** Its lexical arm. */
   readonly messages: readonly ThreadSearchArmMessage[];
-  /** Its semantic arm, when the query embedding reached it; fused per message with `messages`. */
-  readonly similarMessages?: readonly ThreadSearchArmMessage[];
   readonly titles: readonly ThreadTitleMatch[];
 }
 
 export interface ThreadSearchQueryOptions {
   /** Another owner's arms, fused in this one pass into the one result list. */
   extraArms?: ThreadSearchExtraArms;
-  /** FTS weight in message-level fusion (default 1.0). */
-  ftsWeight?: number;
   /** Maximum threads in the final result (default 20). */
   limit?: number;
   /** Per-arm message candidate pool size (default 50). */
   messageSourceLimit?: number;
   /** Message matches retained per thread, best first (default 3). */
   perThreadMatchLimit?: number;
-  /**
-   * Query embedding for the semantic arm; `null` runs lexical-only. The
-   * caller owns making semantic unavailability visible to the user.
-   */
-  queryEmbedding: readonly number[] | null;
   resourceId: string;
-  /** RRF k constant for both fusion levels (default 60). */
+  /** RRF k constant (default 60). */
   rrfK?: number;
   /** Title candidate pool size (default 20). */
   titleSourceLimit?: number;
   /** Title-arm weight in thread-level fusion (default 1.0). */
   titleWeight?: number;
-  /** Minimum cosine similarity for the vector arm (default repository's). */
-  vectorThreshold?: number;
-  /** Vector weight in message-level fusion (default 1.0). */
-  vectorWeight?: number;
 }
 
-type ThreadMessageMatchSource = 'fts' | 'vector';
-
 interface ThreadMessageMatchResult {
-  /** `<mark>`-highlighted FTS headline, or the plain vector snippet. */
+  /** `<mark>`-highlighted FTS headline. */
   headline: string | null;
   messageCreatedAt: Date;
   messageId: string;
   role: string;
   rrfScore: number;
-  sources: readonly ThreadMessageMatchSource[];
 }
 
 export interface ThreadSearchResultItem {
@@ -176,10 +110,8 @@ export interface ThreadSearchResultItem {
 
 interface ThreadSearchMetadata {
   ftsResultCount: number;
-  semanticArmUsed: boolean;
   titleResultCount: number;
   totalMs: number;
-  vectorResultCount: number;
 }
 
 export interface ThreadSearchResponse {
@@ -210,17 +142,15 @@ export class ThreadSearchService {
     options: {
       extraArms: ThreadSearchExtraArms | undefined;
       messageSourceLimit: number;
-      queryEmbedding: readonly number[] | null;
       resourceId: string;
       titleSourceLimit: number;
-      vectorOptions: ThreadMessageVectorOptions;
     }
-  ): Promise<[ThreadMessageFtsMatch[], ThreadMessageVectorMatch[], ThreadTitleMatch[]]> {
+  ): Promise<[ThreadMessageFtsMatch[], ThreadTitleMatch[]]> {
     if (!this.repository) {
       if (!options.extraArms) {
         throw new Error('Thread search requires an authoritative source.');
       }
-      return [[], [], []];
+      return [[], []];
     }
     return Promise.all([
       this.repository.fullTextSearch(query, {
@@ -228,9 +158,6 @@ export class ThreadSearchService {
         limit: options.messageSourceLimit,
         resourceId: options.resourceId,
       }),
-      options.queryEmbedding === null
-        ? Promise.resolve([])
-        : this.repository.searchSimilar(options.queryEmbedding, options.vectorOptions),
       this.repository.searchThreadTitles(query, {
         limit: options.titleSourceLimit,
         resourceId: options.resourceId,
@@ -250,102 +177,69 @@ export class ThreadSearchService {
 
     const {
       extraArms,
-      ftsWeight = 1.0,
       limit = DEFAULT_THREAD_LIMIT,
       messageSourceLimit = DEFAULT_MESSAGE_SOURCE_LIMIT,
       perThreadMatchLimit = DEFAULT_PER_THREAD_MATCH_LIMIT,
-      queryEmbedding,
       resourceId,
       rrfK,
       titleSourceLimit = DEFAULT_TITLE_SOURCE_LIMIT,
       titleWeight = 1.0,
-      vectorThreshold,
-      vectorWeight = 1.0,
     } = options;
     requirePositiveInteger(limit, 'limit');
     requirePositiveInteger(messageSourceLimit, 'messageSourceLimit');
     requirePositiveInteger(perThreadMatchLimit, 'perThreadMatchLimit');
     requirePositiveInteger(titleSourceLimit, 'titleSourceLimit');
 
-    const vectorOptions: ThreadMessageVectorOptions = {
-      limit: messageSourceLimit,
-      resourceId,
-    };
-    if (vectorThreshold !== undefined) {
-      vectorOptions.threshold = vectorThreshold;
-    }
-
-    const semanticArmUsed = queryEmbedding !== null;
-    const [ftsResults, vectorResults, titleResults] = await this.readRepositoryArms(trimmed, {
+    const [ftsResults, titleResults] = await this.readRepositoryArms(trimmed, {
       extraArms,
       messageSourceLimit,
-      queryEmbedding,
       resourceId,
       titleSourceLimit,
-      vectorOptions,
     });
 
-    // Level 1: fuse the two message arms per message id.
-    const fusedMessages = fuseRankedLists(
+    const rankedMessages = fuseRankedLists(
       [
         createRankedList(
           ftsResults.map((match) => ({ id: match.messageId, score: match.rank })),
-          'fts',
-          { weight: ftsWeight }
-        ),
-        createRankedList(
-          vectorResults.map((match) => ({ id: match.messageId, score: match.similarity })),
-          'vector',
-          { weight: vectorWeight }
+          'fts'
         ),
       ],
       rrfK === undefined ? {} : { k: rrfK }
     );
 
     const ftsByMessageId = new Map(ftsResults.map((match) => [match.messageId, match]));
-    const vectorByMessageId = new Map(vectorResults.map((match) => [match.messageId, match]));
 
-    // Group fused messages by thread; matches stay in fused order (best first).
+    // Group ranked messages by thread; matches stay in rank order (best first).
     const matchesByThreadId = new Map<string, ThreadMessageMatchResult[]>();
     const bestScoreByThreadId = new Map<string, number>();
-    for (const fused of fusedMessages) {
-      const ftsMatch = ftsByMessageId.get(fused.id);
-      const vectorMatch = vectorByMessageId.get(fused.id);
-      const base = ftsMatch ?? vectorMatch;
-      if (!base) {
+    for (const ranked of rankedMessages) {
+      const ftsMatch = ftsByMessageId.get(ranked.id);
+      if (!ftsMatch) {
         continue;
       }
-      const sources: ThreadMessageMatchSource[] = [];
-      if (ftsMatch) {
-        sources.push('fts');
-      }
-      if (vectorMatch) {
-        sources.push('vector');
-      }
       const match: ThreadMessageMatchResult = {
-        headline: ftsMatch?.headline ?? vectorMatch?.snippet ?? null,
-        messageCreatedAt: base.messageCreatedAt,
-        messageId: fused.id,
-        role: base.role,
-        rrfScore: fused.rrfScore,
-        sources,
+        headline: ftsMatch.headline,
+        messageCreatedAt: ftsMatch.messageCreatedAt,
+        messageId: ranked.id,
+        role: ftsMatch.role,
+        rrfScore: ranked.rrfScore,
       };
-      const existing = matchesByThreadId.get(base.threadId);
+      const existing = matchesByThreadId.get(ftsMatch.threadId);
       if (existing) {
         existing.push(match);
       } else {
-        matchesByThreadId.set(base.threadId, [match]);
-        bestScoreByThreadId.set(base.threadId, fused.rrfScore);
+        matchesByThreadId.set(ftsMatch.threadId, [match]);
+        bestScoreByThreadId.set(ftsMatch.threadId, ranked.rrfScore);
       }
     }
 
-    // The other owner's lexical and semantic arms, fused per message as ours are.
-    const extraContent = groupExtraMessages(extraArms, { ftsWeight, rrfK, vectorWeight });
+    // The other owner's message arm, ranked as ours is.
+    const extraContent = groupExtraMessages(extraArms, rrfK);
     for (const [threadId, matches] of extraContent) {
       matchesByThreadId.set(threadId, matches);
     }
 
-    // Level 2: fuse content-ranked threads with title-ranked threads, each owner a peer.
+    // Fuse content-ranked threads with title-ranked threads, each owner a peer.
     const contentThreadList = [...bestScoreByThreadId.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([threadId, score]) => ({ id: threadId, score }));
@@ -385,55 +279,35 @@ export class ThreadSearchService {
     return {
       metadata: {
         ftsResultCount: ftsResults.length,
-        semanticArmUsed,
         titleResultCount: titleResults.length,
         totalMs: performance.now() - startTime,
-        vectorResultCount: vectorResults.length,
       },
       results,
     };
   }
 }
 
-/**
- * Another owner's two ranked message arms fused per message id, as level 1
- * fuses ours, then grouped by thread in fused order (best first).
- */
+/** Another owner's message arm, ranked as ours is, then grouped by thread in rank order. */
 function groupExtraMessages(
   extraArms: ThreadSearchExtraArms | undefined,
-  options: {
-    readonly ftsWeight: number;
-    readonly rrfK: number | undefined;
-    readonly vectorWeight: number;
-  }
+  rrfK: number | undefined
 ): Map<string, ThreadMessageMatchResult[]> {
   const lexical = extraArms?.messages ?? [];
-  const semantic = extraArms?.similarMessages ?? [];
-  const ranked = (matches: readonly ThreadSearchArmMessage[]) =>
-    matches.map((match, index) => ({ id: match.messageId, score: matches.length - index }));
-  const fused = fuseRankedLists(
+  const ranked = fuseRankedLists(
     [
-      createRankedList(ranked(lexical), 'extra-fts', { weight: options.ftsWeight }),
-      createRankedList(ranked(semantic), 'extra-vector', { weight: options.vectorWeight }),
+      createRankedList(
+        lexical.map((match, index) => ({ id: match.messageId, score: lexical.length - index })),
+        'extra-fts'
+      ),
     ],
-    options.rrfK === undefined ? {} : { k: options.rrfK }
+    rrfK === undefined ? {} : { k: rrfK }
   );
   const lexicalById = new Map(lexical.map((match) => [match.messageId, match]));
-  const semanticById = new Map(semantic.map((match) => [match.messageId, match]));
   const grouped = new Map<string, ThreadMessageMatchResult[]>();
-  for (const { id, rrfScore } of fused) {
-    const lexicalMatch = lexicalById.get(id);
-    const semanticMatch = semanticById.get(id);
-    const match = lexicalMatch ?? semanticMatch;
+  for (const { id, rrfScore } of ranked) {
+    const match = lexicalById.get(id);
     if (!match) {
       continue;
-    }
-    const sources: ThreadMessageMatchSource[] = [];
-    if (lexicalMatch) {
-      sources.push('fts');
-    }
-    if (semanticMatch) {
-      sources.push('vector');
     }
     const result: ThreadMessageMatchResult = {
       headline: match.headline,
@@ -441,7 +315,6 @@ function groupExtraMessages(
       messageId: id,
       role: match.role,
       rrfScore,
-      sources,
     };
     grouped.set(match.threadId, [...(grouped.get(match.threadId) ?? []), result]);
   }

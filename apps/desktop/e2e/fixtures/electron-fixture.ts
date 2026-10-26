@@ -54,7 +54,6 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
       await mkdtemp(path.join(os.tmpdir(), 'brainstrike-e2e-workspace-'))
     );
     const harness = new ElectronHarness(
-      testInfo,
       undefined,
       userDataDir,
       electronEnv,

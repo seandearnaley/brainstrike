@@ -2,7 +2,7 @@
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Page, TestInfo } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { expect, it, onTestFinished, vi } from 'vitest';
 import { ElectronHarness } from '../../e2e/fixtures/electron-harness';
 import { tearDownElectronTest } from '../../e2e/fixtures/electron-teardown';
@@ -56,14 +56,7 @@ it('keeps the persona workspace through failure capture and physical Electron re
       await rm(state.mountedRoot, { force: true, recursive: true });
     }
   });
-  const harness = new ElectronHarness(
-    { file: 'persona.desktop.test.ts' } as TestInfo,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    workspaceRoot
-  );
+  const harness = new ElectronHarness(undefined, undefined, undefined, undefined, workspaceRoot);
   if (!state.run) {
     throw new Error('persona spec was not registered');
   }

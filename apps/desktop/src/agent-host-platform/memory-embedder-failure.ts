@@ -2,7 +2,7 @@ import {
   extractProviderRunError,
   isLocalRunErrorClassification,
 } from '@brainstrike/agent/provider-runtime';
-import type { HostedProviderType } from '@brainstrike/embeddings/provider-core';
+import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import { HostedEmbeddingError, hostedRefusal } from '../hosted-embedding-error';
 
 /**
@@ -13,7 +13,7 @@ import { HostedEmbeddingError, hostedRefusal } from '../hosted-embedding-error';
  * classification, and the memory step reads it as the internal fault.
  */
 export function hostedMemoryEmbedderFailure(
-  provider: HostedProviderType,
+  provider: EmbeddingProviderType,
   cause: unknown
 ): { readonly detail: string; readonly httpStatus?: number } | undefined {
   const evidence = extractProviderRunError(cause);

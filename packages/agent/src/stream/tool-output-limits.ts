@@ -1,8 +1,6 @@
-import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import { SUBAGENT_DELEGATION_TOOL_PREFIX } from '@brainstrike/assistant-contract/personas';
 import {
   findLlmModelDefinition,
-  findProviderDefinition,
   type ProviderId,
 } from '@brainstrike/assistant-contract/provider-registry';
 import { createLogger } from '@brainstrike/logging';
@@ -109,18 +107,13 @@ export const CEILING_SCALED_TOOL_RESULT_BUDGET: ScaledToolResultBudget = Object.
  * best-effort convenience, not a capability the run actually needs, so an
  * unknown provider/model id must never kill a run over it.
  *
- * - Runtime-discovered Ollama/LM Studio model ids are NEVER in the static
- *   catalog by design (they're discovered live from a local server), so
- *   falling back to the existing conservative `DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW`
- *   declaration is expected, routine behavior for those two providers —
- *   not logged, the same way it was not logged before this function existed.
- * - Any OTHER unknown id — notably an OpenRouter metadata-only / auto-profile
- *   model (`mergeOpenRouterAutoProfileModel`, no catalog entry by design) or a
- *   persisted preference from a retired catalog entry — is a genuinely
- *   unexpected miss for a provider whose models are normally catalog-backed,
- *   so it falls back to the 128k ANCHOR (the exact pre-BST-1206 fixed-budget
- *   behavior) WITH a visible log: not a silent fallback, the documented
- *   default, logged so it stays visible.
+ * An unknown id — notably an OpenRouter metadata-only / auto-profile model
+ * (`mergeOpenRouterAutoProfileModel`, no catalog entry by design) or a
+ * persisted preference from a retired catalog entry — is a genuinely
+ * unexpected miss for a provider whose models are catalog-backed, so it falls
+ * back to the 128k ANCHOR (the exact pre-BST-1206 fixed-budget behavior) WITH
+ * a visible log: not a silent fallback, the documented default, logged so it
+ * stays visible.
  *
  * Uses the non-throwing `findLlmModelDefinition` rather than try/catch, so a
  * genuine registry misconfiguration (e.g. a registered entry with a bad
@@ -134,14 +127,6 @@ export function resolveToolResultBudgetForModel(
   const definition = findLlmModelDefinition(providerId, modelId);
   if (definition) {
     return resolveScaledToolResultBudget(definition.contextWindow);
-  }
-  // Guarded lookup: providerId can be an unvalidated persona-pin cast, so an
-  // out-of-registry id must reach the documented warn+anchor fallback below —
-  // never a TypeError (PR #2513 review, finding 1).
-  if (findProviderDefinition(providerId)?.runtime === 'local') {
-    // Local-runtime servers (registry `runtime: 'local'`) discover their
-    // model catalogs dynamically, so no static definition exists.
-    return resolveScaledToolResultBudget(DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW);
   }
   logger.warn('Unknown model id for tool-result budget resolution; using fallback window', {
     code: 'tool_result_budget_unknown_model_fallback',
@@ -565,7 +550,7 @@ function createBoundedPreviewOutput(params: {
  * Resolve a per-tool transport override for the active run. Overrides are
  * ceilings authored deliberately against the (implicit) anchor window, so a
  * resolved budget AT OR ABOVE the anchor never scales them up. A resolved
- * budget BELOW the anchor (e.g. local Ollama/Gemma) scales the override down
+ * budget BELOW the anchor (a small-window model) scales the override down
  * by the same factor, floored at {@link TRANSPORT_TOOL_RESULT_TOKEN_FLOOR} —
  * otherwise a per-tool override like `skill`'s 6000 tokens stays fixed
  * regardless of the model, which on an 8192-token window is ~73% of the

@@ -10,10 +10,8 @@ const {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
-  getWorkerpoolBrowserStubAliases,
   getWorkspaceSourceOptimizeDepsInclude,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
@@ -170,12 +168,6 @@ describe('assistant vite helpers', () => {
     expect(entries.some((entry) => entry.includes('@assistant-ui/react-data-stream'))).toBe(false);
   });
 
-  test('returns heavy runtime optimize-deps exclusions', () => {
-    expect(getHeavyRuntimeOptimizeDepsExclude()).toEqual(
-      expect.arrayContaining(['@huggingface/transformers'])
-    );
-  });
-
   test('returns lazy-surface entry points for the assistant surfaces', () => {
     const appDir = mkdtempSync(path.join(os.tmpdir(), 'brainstrike-app-'));
     writeFileSync(path.join(appDir, 'index.html'), '<!doctype html>');
@@ -320,17 +312,6 @@ describe('fullReloadOnCompilerHotspots', () => {
       expect(send).not.toHaveBeenCalled();
       expect(result).toBeUndefined();
     }
-  });
-});
-
-describe('getWorkerpoolBrowserStubAliases', () => {
-  it('returns explicit browser-safe aliases for workerpool node builtins', () => {
-    const baseDir = '/tmp/brainstrike-app';
-    const stubDir = path.resolve(baseDir, '../../packages/build-utils/src/browser-node-stubs');
-    const aliases = getWorkerpoolBrowserStubAliases(baseDir);
-    expect(aliases['child_process']).toBe(toVitePath(path.resolve(stubDir, 'child-process.ts')));
-    expect(aliases['os']).toBe(toVitePath(path.resolve(stubDir, 'os.ts')));
-    expect(aliases['worker_threads']).toBe(toVitePath(path.resolve(stubDir, 'worker-threads.ts')));
   });
 });
 

@@ -12,13 +12,10 @@ import { NativeAuthorityTransitionError } from '../native-authority-transition';
 
 const scope = { kind: 'workspace' as const, rootId: 'root' };
 const profile: VectorProfile = {
-  dimensions: 384,
+  dimensions: 1536,
   distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  provider: 'local',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 512,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 };
 function vectorFixture(
   inference: CanonicalInferencePort<VectorProfile>
@@ -502,7 +499,7 @@ describe('captured canonical utility capabilities', () => {
           requestId: request.requestId,
           vectors: request.chunks.map((chunk) => ({
             chunkId: chunk.chunkId,
-            vector: new Array<number>(384).fill(1),
+            vector: new Array<number>(profile.dimensions).fill(1),
           })),
         };
       }
@@ -627,7 +624,12 @@ describe('captured canonical utility capabilities', () => {
       async (request: Parameters<CanonicalInferencePort<VectorProfile>['generate']>[0]) => ({
         profile: request.profile,
         requestId: request.requestId,
-        vectors: [{ chunkId: request.chunks[0]!.chunkId, vector: new Array<number>(384).fill(1) }],
+        vectors: [
+          {
+            chunkId: request.chunks[0]!.chunkId,
+            vector: new Array<number>(profile.dimensions).fill(1),
+          },
+        ],
       })
     );
     const cancel = vi.fn(async () => {});

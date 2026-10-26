@@ -2,7 +2,7 @@ import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow } from '../create-window';
 import { configureDesktopRendererTarget } from '../desktop-renderer-target';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { DESKTOP_IPC_CHANNELS, DESKTOP_IPC_PUSH_CHANNEL } from '../platform/desktop-ipc-channels';
 import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const { existsSyncMock, MockBrowserWindow, screenMock } = vi.hoisted(() => ({
@@ -98,7 +98,10 @@ describe('createWindow native focus publisher', () => {
     expect(fake.loadURL).toHaveBeenCalled();
     emitWindowEvent('blur');
 
-    expect(fake.webContents.send).toHaveBeenCalledWith(FOCUS_CHANGED, false);
+    expect(fake.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: FOCUS_CHANGED,
+      payload: false,
+    });
 
     resolveLoad?.();
     await pending;
@@ -113,7 +116,10 @@ describe('createWindow native focus publisher', () => {
     await createWindow();
 
     expect(fake.show).toHaveBeenCalledTimes(1);
-    expect(fake.webContents.send).toHaveBeenCalledWith(FOCUS_CHANGED, true);
+    expect(fake.webContents.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: FOCUS_CHANGED,
+      payload: true,
+    });
   });
 
   it('drops a blur that lands after the renderer is destroyed instead of throwing', async () => {

@@ -105,7 +105,7 @@ describe('OpenAIDuplicateItemCompat', () => {
       'openai-duplicate-item-compat'
     );
     expect(buildOpenAIDuplicateItemCompatInputProcessor('anthropic')).toBeUndefined();
-    expect(buildOpenAIDuplicateItemCompatInputProcessor('local')).toBeUndefined();
+    expect(buildOpenAIDuplicateItemCompatInputProcessor('google')).toBeUndefined();
   });
 
   it('drops the stale copy (and its orphaned tool output), keeping the newest occurrence intact', () => {

@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import type { IpcMainInvokeEvent } from 'electron';
-import { afterEach, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   createAllowlistedSenderFrame,
   reconfigureTestRendererTargetAfterModuleReset,
 } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
+import { invokeDesktopIpcFrom } from '../helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', () => ({
   app: { getPath: () => '/unused-in-this-test' },
@@ -15,8 +16,8 @@ vi.mock('electron', () => ({
   safeStorage: {},
 }));
 
-vi.mock('../../window-role', () => ({
-  getWindowRoleByWebContentsId: () => 'visible-ui',
+vi.mock('../../app-windows', () => ({
+  isAppWindowSender: () => true,
 }));
 
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
@@ -48,16 +49,14 @@ it("a key saved through Settings in test mode is the one the host's credential s
       throw new Error('Not read by a key save');
     },
   });
-  const handle = ipcMain.handle as unknown as Mock<
-    (channel: string, handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void
-  >;
-  const save = handle.mock.calls.find(([channel]) => channel === 'secrets:save')?.[1];
   const event = {
     sender: { id: 7101 },
     senderFrame: createAllowlistedSenderFrame(),
   } as unknown as IpcMainInvokeEvent;
 
-  await expect(save?.(event, 'openrouter', 'sk-or-test-mode-key')).resolves.toBe(true);
+  await expect(
+    invokeDesktopIpcFrom(ipcMain, event, 'secrets:save', 'openrouter', 'sk-or-test-mode-key')
+  ).resolves.toBe(true);
 
   const host = createHostCredentials({ selection: desktopCredentialStoreSelection(profile, true) });
   await expect(host.secrets().getKey('openrouter')).resolves.toBe('sk-or-test-mode-key');

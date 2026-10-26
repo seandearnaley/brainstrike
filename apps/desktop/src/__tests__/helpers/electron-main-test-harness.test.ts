@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DESKTOP_IPC_PUSH_CHANNEL } from '../../platform/desktop-ipc-channels';
+import { pushToRenderer } from '../../platform/desktop-ipc-push';
 import {
   createRecordingWindow,
   electronMainMock,
-  getRegisteredIpcMainHandler,
-  getRegisteredIpcMainListener,
   type RecordingWindow,
   resetElectronMainTestHarness,
   setMockWebContents,
@@ -16,27 +16,6 @@ const { default: electronTestStub } = await vi.importActual<
 describe('electron main test harness', () => {
   beforeEach(() => {
     resetElectronMainTestHarness();
-  });
-
-  it('tracks registered handlers and listeners through cleanup', () => {
-    const handler = vi.fn();
-    const listener = vi.fn();
-
-    electronMainMock.ipcMain.handle('test:handle', handler);
-    electronMainMock.ipcMain.on('test:on', listener);
-
-    expect(getRegisteredIpcMainHandler('test:handle')).toBe(handler);
-    expect(getRegisteredIpcMainListener('test:on')).toBe(listener);
-
-    electronMainMock.ipcMain.removeHandler('test:handle');
-    electronMainMock.ipcMain.removeListener('test:on', listener);
-
-    expect(() => getRegisteredIpcMainHandler('test:handle')).toThrow(
-      'No ipcMain.handle registration found for channel: test:handle'
-    );
-    expect(() => getRegisteredIpcMainListener('test:on')).toThrow(
-      'No ipcMain.on registration found for channel: test:on'
-    );
   });
 
   it('owns and resets the shared WebContents listing', () => {
@@ -74,28 +53,6 @@ describe('electron main test harness', () => {
     expect(electronMainMock.BrowserWindow.getAllWindows()).toEqual([]);
   });
 
-  it('fails visibly when a channel registers a second handler', () => {
-    electronMainMock.ipcMain.handle('test:duplicate', vi.fn());
-
-    expect(() => electronMainMock.ipcMain.handle('test:duplicate', vi.fn())).toThrow(
-      "Attempted to register a second handler for 'test:duplicate'"
-    );
-  });
-
-  it('models multiple listeners without silently selecting the latest one', () => {
-    const firstListener = vi.fn();
-    const secondListener = vi.fn();
-    electronMainMock.ipcMain.on('test:multiple', firstListener);
-    electronMainMock.ipcMain.on('test:multiple', secondListener);
-
-    expect(() => getRegisteredIpcMainListener('test:multiple')).toThrow(
-      'Multiple ipcMain.on registrations found for channel: test:multiple'
-    );
-
-    electronMainMock.ipcMain.removeListener('test:multiple', firstListener);
-    expect(getRegisteredIpcMainListener('test:multiple')).toBe(secondListener);
-  });
-
   it('layers harness controls over the complete inert Electron test stub', () => {
     const harnessKeys = Object.keys(electronMainMock).filter((key) => key !== 'default');
     expect(harnessKeys.sort()).toEqual(Object.keys(electronTestStub).sort());
@@ -109,17 +66,25 @@ describe('electron main test harness', () => {
   // recording window rather than each hand-rolling
   // `{ isDestroyed: () => false, webContents: { send } }`.
   describe('createRecordingWindow', () => {
-    it('records every send in order and reads them back per channel', () => {
+    it('records every push in order and reads them back per method', () => {
       const window = createRecordingWindow();
 
-      window.webContents.send('mcp:config:updated', { servers: [] });
-      window.webContents.send('mcp:tools:updated', {});
-      window.webContents.send('mcp:config:updated', { servers: ['linear'] });
+      pushToRenderer(window.webContents, 'mcp:config:updated', { servers: [] });
+      pushToRenderer(window.webContents, 'mcp:tools:updated', {});
+      pushToRenderer(window.webContents, 'mcp:config:updated', { servers: ['linear'] });
 
       expect(window.events).toEqual([
-        { channel: 'mcp:config:updated', payload: { servers: [] } },
-        { channel: 'mcp:tools:updated', payload: {} },
-        { channel: 'mcp:config:updated', payload: { servers: ['linear'] } },
+        {
+          channel: DESKTOP_IPC_PUSH_CHANNEL,
+          method: 'mcp:config:updated',
+          payload: { servers: [] },
+        },
+        { channel: DESKTOP_IPC_PUSH_CHANNEL, method: 'mcp:tools:updated', payload: {} },
+        {
+          channel: DESKTOP_IPC_PUSH_CHANNEL,
+          method: 'mcp:config:updated',
+          payload: { servers: ['linear'] },
+        },
       ]);
       expect(window.payloadsFor('mcp:config:updated')).toEqual([
         { servers: [] },
@@ -131,10 +96,13 @@ describe('electron main test harness', () => {
     it('exposes the same mock through `send` and `webContents.send`', () => {
       const window = createRecordingWindow();
 
-      window.webContents.send('mcp:tools:updated', {});
+      pushToRenderer(window.webContents, 'mcp:tools:updated', {});
 
       expect(window.send).toBe(window.webContents.send);
-      expect(window.send).toHaveBeenCalledExactlyOnceWith('mcp:tools:updated', {});
+      expect(window.send).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC_PUSH_CHANNEL, {
+        method: 'mcp:tools:updated',
+        payload: {},
+      });
     });
 
     it('is live in the listing the broadcast loops read', () => {
@@ -145,24 +113,20 @@ describe('electron main test harness', () => {
         destroyed,
       ] as unknown as ReturnType<typeof electronMainMock.BrowserWindow.getAllWindows>);
 
-      // The loop shape the getAllWindows()-ITERATING broadcasts run. Not
-      // every listing-routed send is this shape — chunking-host-manager.ts
-      // picks one window out of the listing with .find() rather than looping
-      // (BST-1624). An empty listing hollows out both regardless.
+      // The loop shape the getAllWindows()-ITERATING broadcasts run (BST-1624).
+      // An empty listing hollows it out.
       const listing =
         electronMainMock.BrowserWindow.getAllWindows() as unknown as RecordingWindow[];
       for (const listed of listing) {
         if (listed.isDestroyed()) {
           continue;
         }
-        listed.webContents.send('mcp:status:updated', { state: 'connected' });
+        pushToRenderer(listed.webContents, 'mcp:status:updated', { state: 'connected' });
       }
 
       expect(destroyed.events).toEqual([]);
 
-      expect(window.events).toEqual([
-        { channel: 'mcp:status:updated', payload: { state: 'connected' } },
-      ]);
+      expect(window.payloadsFor('mcp:status:updated')).toEqual([{ state: 'connected' }]);
     });
 
     it('models a destroyed window so `isDestroyed()` skips still work', () => {
@@ -188,7 +152,7 @@ describe('electron main test harness', () => {
     // `toHaveBeenCalledTimes` and `payloadsFor` differently.
     it('reset() clears both the events log and the mock call log', () => {
       const window = createRecordingWindow();
-      window.webContents.send('mcp:tools:updated', {});
+      pushToRenderer(window.webContents, 'mcp:tools:updated', {});
 
       window.reset();
 
@@ -200,20 +164,23 @@ describe('electron main test harness', () => {
     it('reset() clears in place, so an alias taken earlier stays live', () => {
       const window = createRecordingWindow();
       const events = window.events;
-      window.webContents.send('a', 1);
+      pushToRenderer(window.webContents, 'a:one', 1);
 
       window.reset();
-      window.webContents.send('b', 2);
+      pushToRenderer(window.webContents, 'b:two', 2);
 
-      expect(events).toEqual([{ channel: 'b', payload: 2 }]);
-      expect(window.send).toHaveBeenCalledExactlyOnceWith('b', 2);
+      expect(events).toEqual([{ channel: DESKTOP_IPC_PUSH_CHANNEL, method: 'b:two', payload: 2 }]);
+      expect(window.send).toHaveBeenCalledExactlyOnceWith(DESKTOP_IPC_PUSH_CHANNEL, {
+        method: 'b:two',
+        payload: 2,
+      });
     });
 
     it('keeps each window’s recording independent', () => {
       const first = createRecordingWindow();
       const second = createRecordingWindow();
 
-      first.webContents.send('a', 1);
+      pushToRenderer(first.webContents, 'a:one', 1);
 
       expect(first.events).toHaveLength(1);
       expect(second.events).toEqual([]);

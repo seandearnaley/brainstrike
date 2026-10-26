@@ -56,7 +56,6 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
       throw new Error('Dev renderer URL unavailable');
     }
     const context = await launchElectronAppWithOptions({
-      disableExternalLocalRuntimeProbes: true,
       env: { ['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']: rendererUrl },
       launchMode: 'dev-server',
       modelProvider: provider,

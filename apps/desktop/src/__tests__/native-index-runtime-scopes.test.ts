@@ -85,11 +85,9 @@ function fixture(initial: Authority) {
   });
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
-    commitFile: unused,
     commitScopedFile: unused,
     commitScopedTextFile: unused,
     commitTextFile: unused,
-    configureVectorProfile: unused,
     coverage: unused,
     coverageBatch: unused,
     coverageScope: unused,

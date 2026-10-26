@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { poolingIdentity, promptIdentity, sha256, validateSnapshot } from './chunks.ts';
+import { validateSnapshot, vectorProfileHash } from './chunks.ts';
 import {
   decoder,
   fileBindingsSchema,
@@ -13,22 +13,6 @@ import {
   vectorProfileSchema,
 } from './contracts.ts';
 
-export function vectorProfileHash(input: unknown): string {
-  const profile = decoder(vectorProfileSchema)(input);
-  return sha256(
-    JSON.stringify([
-      profile.provider,
-      profile.modelId,
-      profile.dimensions,
-      profile.distance,
-      'revision' in profile ? profile.revision : null,
-      'dtype' in profile ? profile.dtype : null,
-      'tokenCap' in profile ? profile.tokenCap : null,
-      ...poolingIdentity('pooling' in profile ? profile.pooling : undefined),
-      ...promptIdentity('prompts' in profile ? profile.prompts : undefined),
-    ])
-  );
-}
 export function supportedVectorProfile(profile: VectorProfile): void {
   decoder(vectorProfileSchema)(profile);
 }

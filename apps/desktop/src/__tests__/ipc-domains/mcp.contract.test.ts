@@ -14,11 +14,10 @@ describe('MCP IPC contracts', () => {
     );
   });
 
-  it('authorizes every invoke for visible UI and preserves raw replies', () => {
+  it('preserves raw replies for every invoke', () => {
     for (const contract of contracts) {
       for (const spec of Object.values(contract)) {
         if (spec.kind === 'invoke') {
-          expect(spec.roles).toEqual(['visible-ui']);
           expect(spec.envelope).toBe('raw');
         }
       }

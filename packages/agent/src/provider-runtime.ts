@@ -1,6 +1,5 @@
 /**
  * Node host composition borrows the shipped provider/auth/configuration owners.
- * Unlike the root entry, this entry never registers browser-local inference.
  * Credentials remain direct parameters, outside durable runtime configuration.
  */
 
@@ -19,7 +18,6 @@ export {
   isLocalRunErrorClassification,
 } from './provider-error-metadata.ts';
 export { createAwsCredentialChain } from './providers/aws-credential-chain.ts';
-export type { LocalEmbeddingHostClient } from './providers/local/local-host-embedding-model.ts';
 export {
   collectRouterGenerateResult,
   materializeHostProviderModel,
@@ -36,7 +34,6 @@ export {
   type ConcreteLanguageModel,
   createEmbeddingProvider,
   createLanguageModelProvider,
-  createLocalHostMemoryEmbedder,
   createProvider,
   type ProviderModelConfiguration,
 } from './providers/provider-factory.ts';

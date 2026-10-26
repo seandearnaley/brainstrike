@@ -1,17 +1,11 @@
-import {
-  createEmptyEmbeddingTelemetrySnapshot,
-  type EmbeddingTelemetrySnapshot,
-} from '@brainstrike/embedding-worker';
 import { LogLevel } from '@brainstrike/logging';
 import type { DatabaseIntegritySnapshot } from '@brainstrike/types';
-import type { BackgroundRuntimeProcessMetric } from './background-runtime-metrics';
 import type { DesktopRendererCrashRecoverySnapshot } from './desktop-crash-recovery';
 import type { DesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import type { RuntimeHostPlatformStatus } from './platform/runtime-host-state';
 
 export const DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL =
   DESKTOP_IPC_CHANNELS.diagnostics.getSnapshot;
@@ -22,7 +16,6 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   readonly database: unknown;
   /** Main-owned integrity state; the DB host never sees runtime classification. */
   readonly databaseIntegrity: DatabaseIntegritySnapshot | null;
-  readonly embeddingHost: RuntimeHostPlatformStatus<'embedding-host'>;
   readonly errors: Partial<Record<DesktopPlatformDiagnosticsProviderName, string>>;
   readonly logging: LoggingSettingsPayload;
   readonly migration: {
@@ -35,8 +28,6 @@ export interface DesktopPlatformDiagnosticsSnapshot {
   };
   readonly reset: DesktopResetDiagnosticsSnapshot;
   readonly telemetry: {
-    readonly backgroundRuntimeMetrics: readonly BackgroundRuntimeProcessMetric[];
-    readonly embedding: EmbeddingTelemetrySnapshot;
     readonly processCounters: ProcessCounterSnapshot;
   };
 }
@@ -51,10 +42,6 @@ export interface DesktopPlatformDiagnosticsProviders {
   readonly databaseIntegrity: {
     readonly getSnapshot: () => DatabaseIntegritySnapshot;
   } | null;
-  readonly embeddingHost: {
-    readonly getPlatformStatus: () => RuntimeHostPlatformStatus<'embedding-host'>;
-    readonly getTelemetrySnapshot: () => EmbeddingTelemetrySnapshot;
-  };
   readonly logging: {
     readonly getState: () => LoggingSettingsPayload;
   };
@@ -68,20 +55,14 @@ export interface DesktopPlatformDiagnosticsProviders {
   readonly reset: {
     readonly getSnapshot: () => DesktopResetDiagnosticsSnapshot;
   };
-  readonly telemetry: {
-    readonly getRuntimeMetrics: () => readonly BackgroundRuntimeProcessMetric[];
-  };
 }
 
 type DesktopPlatformDiagnosticsProviderName =
   | 'crashRecovery'
   | 'database'
-  | 'embeddingHost'
-  | 'embeddingTelemetry'
   | 'logging'
   | 'processCounters'
-  | 'reset'
-  | 'telemetry';
+  | 'reset';
 
 async function readDiagnosticsProvider<T>(
   errors: Partial<Record<DesktopPlatformDiagnosticsProviderName, string>>,
@@ -155,9 +136,7 @@ export async function collectDesktopPlatformDiagnostics(
         lastRendererCrashAt: null,
         lastRendererCrashExitCode: null,
         lastRendererCrashReason: null,
-        lastRendererCrashWindowRole: null,
         lastRendererReloadAt: null,
-        lastRendererReloadWindowRole: null,
         pendingRendererRecovery: false,
         rendererCrashCount: 0,
         rendererReloadAttemptCount: 0,
@@ -168,20 +147,6 @@ export async function collectDesktopPlatformDiagnostics(
     // In-memory read with no fallback: there is no honest stand-in value, and a
     // fabricated 'healthy' would hide exactly what this field exists to show.
     databaseIntegrity: providers.databaseIntegrity?.getSnapshot() ?? null,
-    embeddingHost: await readDiagnosticsProvider(
-      errors,
-      'embeddingHost',
-      () => providers.embeddingHost.getPlatformStatus(),
-      {
-        active: false,
-        lastError: 'embedding host diagnostics unavailable',
-        pendingRequestCount: 0,
-        runtimeId: 'embedding-host:unavailable',
-        runtimeKind: 'embedding-host',
-        sourceState: 'error',
-        state: 'failed',
-      }
-    ),
     errors,
     logging: await readDiagnosticsProvider(errors, 'logging', () => providers.logging.getState(), {
       capabilities: {
@@ -215,18 +180,6 @@ export async function collectDesktopPlatformDiagnostics(
     },
     reset: { ...reset, userDataPath: '<redacted>' },
     telemetry: {
-      backgroundRuntimeMetrics: await readDiagnosticsProvider(
-        errors,
-        'telemetry',
-        () => providers.telemetry.getRuntimeMetrics(),
-        []
-      ),
-      embedding: await readDiagnosticsProvider(
-        errors,
-        'embeddingTelemetry',
-        () => providers.embeddingHost.getTelemetrySnapshot(),
-        createEmptyEmbeddingTelemetrySnapshot()
-      ),
       processCounters: await readDiagnosticsProvider(
         errors,
         'processCounters',

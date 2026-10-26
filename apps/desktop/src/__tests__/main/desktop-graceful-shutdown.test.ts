@@ -110,12 +110,11 @@ describe('desktop graceful shutdown', () => {
       'native-index',
       'mcp-runtime',
       'file-system',
-      'embedding-host',
       'database-drain',
     ]);
   });
 
-  it('joins filesystem retirement before stopping inference hosts or closing the database', async () => {
+  it('joins filesystem retirement before draining or closing the database', async () => {
     const retirement = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();
     const { events, options } = createHarness({
@@ -131,13 +130,13 @@ describe('desktop graceful shutdown', () => {
     await Promise.race([entered.promise, shutdown]);
 
     expect(events).toContain('step:file-system');
-    expect(events).not.toContain('step:embedding-host');
+    expect(events).not.toContain('step:database-drain');
     expect(events).not.toContain('close:database');
 
     retirement.resolve();
     await shutdown;
 
-    expect(events.indexOf('step:embedding-host')).toBeGreaterThan(
+    expect(events.indexOf('step:database-drain')).toBeGreaterThan(
       events.indexOf('step:file-system')
     );
     expect(events).toContain('close:database');
@@ -145,7 +144,7 @@ describe('desktop graceful shutdown', () => {
 
   it('isolates a failing step and logs every failure once, after the database close and before the sink closes', async () => {
     const { events, logger, options } = createHarness({
-      'embedding-host': () => Promise.reject(new Error('stop failed')),
+      'file-system': () => Promise.reject(new Error('stop failed')),
       'mcp-runtime': () => {
         throw new TypeError('unregister threw');
       },
@@ -162,7 +161,7 @@ describe('desktop graceful shutdown', () => {
           name: 'TypeError',
           step: 'mcp-runtime',
         }),
-        expect.objectContaining({ message: 'stop failed', step: 'embedding-host' }),
+        expect.objectContaining({ message: 'stop failed', step: 'file-system' }),
       ],
       trigger: 'signal',
     });
@@ -173,8 +172,8 @@ describe('desktop graceful shutdown', () => {
       'Graceful shutdown completed',
       expect.objectContaining({
         steps: expect.arrayContaining([
-          { elapsedMs: 0, failed: true, step: 'embedding-host' },
           { elapsedMs: 0, failed: true, step: 'mcp-runtime' },
+          { elapsedMs: 0, failed: true, step: 'file-system' },
         ]),
       })
     );

@@ -25,12 +25,10 @@ const contract = {
   list: rawChannel<[], { readonly ok: boolean }>({
     channel: 'fixture:list',
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   writeText: channel<[text: string], void>({
     channel: 'fixture:write-text',
     parseArgs: ([text]) => [assertString(text, 'fixture writeText requires a string payload')],
-    roles: ['visible-ui'],
   }),
 } satisfies Contract;
 
@@ -40,7 +38,6 @@ describe('IPC contract module', () => {
       channel: 'fixture:write-text',
       envelope: 'ipc-result',
       kind: 'invoke',
-      roles: ['visible-ui'],
     });
     expect(contract.list).toMatchObject({ envelope: 'raw', kind: 'invoke' });
     expect(contract.changed).toEqual({ channel: 'fixture:changed', kind: 'push' });

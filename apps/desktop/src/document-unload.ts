@@ -1,9 +1,9 @@
 import { createLogger } from '@brainstrike/logging';
-import { BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
+import { getAppWindows } from './app-windows';
 import { closeDesktopRenderers, type ShutdownRendererWindow } from './close-desktop-renderers';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { prepareDocumentUnload, type RendererCloseWindow } from './prepare-document-unload';
-import { getWindowRole } from './window-role';
 
 const logger = createLogger('DocumentUnload');
 
@@ -25,15 +25,13 @@ export interface DocumentUnloadOwner<Window extends DocumentWindow> {
   /** Closing the last visible window quits the app (Windows and Linux; macOS stays running). */
   readonly lastWindowQuits: boolean;
   readonly quit: () => void;
-  /** The live visible documents; hidden renderer hosts are never among them. */
+  /** The app's live document windows. */
   readonly visibleWindows: () => readonly Window[];
 }
 
-/** The live visible documents; a hidden renderer host is never one. */
+/** The app's live document windows. */
 export function visibleDocumentWindows(): BrowserWindow[] {
-  return BrowserWindow.getAllWindows().filter(
-    (window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui'
-  );
+  return getAppWindows();
 }
 
 /** Windows whose close Main itself issues after preparing their document. */
@@ -91,7 +89,7 @@ async function closeDocument(
   await flushDocumentBeforeUnload(window, delays);
   admitDocumentClose(window);
   try {
-    await closeDesktopRenderers([window], () => false);
+    await closeDesktopRenderers([window]);
   } catch (error) {
     logger.error('Window did not close after its document unload', { error });
   }

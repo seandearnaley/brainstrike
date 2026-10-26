@@ -15,13 +15,12 @@ import {
 } from '../native-workspace-search';
 
 const profile = {
-  dimensions: 384,
-  dtype: 'fp16' as const,
-  modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-  revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  tokenCap: 256,
+  dimensions: 1536,
+  distance: 'cosine' as const,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai' as const,
 };
-const profileHash = '60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914';
+const profileHash = '288c9286093cddf9776cab7ba498f9b313a405ebc28471ffd1e9eba9811b7758';
 const identity = {
   embedding: { indexMode: 'vector-configured' as const, profile, profileHash },
   storeId: 'store-a',
@@ -193,11 +192,11 @@ describe('native vector availability', () => {
     expect(bridge.status).not.toHaveBeenCalled();
   });
 
-  it('rejects a changed configured revision despite matching dimensions', async () => {
+  it('rejects a changed configured model despite matching dimensions', async () => {
     const bridge = capability();
     const result = await getNativeSemanticAvailability({
       capability: bridge,
-      profile: { ...profile, revision: '0'.repeat(40) },
+      profile: { ...profile, modelId: 'text-embedding-3-large' },
       rootIds: ['root-a'],
     });
     expect(result.available).toBe(false);
@@ -374,7 +373,7 @@ describe('native search consumer boundary', () => {
     const bridge = capability();
     const result = await new NativeWorkspaceSearchExecutor({
       capability: bridge,
-      embedQuery: vi.fn(async () => Array.from({ length: 384 }, () => 1)),
+      embedQuery: vi.fn(async () => Array.from({ length: 1536 }, () => 1)),
       profile,
     }).searchSemantic({ ...request, rootIds: ['root-a', 'worktree'] });
     expect(bridge.coverage).toHaveBeenCalledWith({ rootIds: ['root-a'] });
@@ -441,7 +440,7 @@ describe('native search consumer boundary', () => {
     expect(bridge.search).not.toHaveBeenCalled();
     expect(bridge.grep).not.toHaveBeenCalled();
   });
-  it('rechecks scope coverage after renderer inference and never runs lexical-only semantic search', async () => {
+  it('rechecks scope coverage after query inference and never runs lexical-only semantic search', async () => {
     const bridge = capability();
     bridge.coverage.mockResolvedValueOnce(covered()).mockResolvedValueOnce({
       ...covered(),
@@ -449,7 +448,7 @@ describe('native search consumer boundary', () => {
       totals: { ...counts, missingVectors: 4, vectors: 0 },
       vectorCoverageComplete: false,
     });
-    const embedQuery = vi.fn(async () => Array.from({ length: 384 }, () => 1));
+    const embedQuery = vi.fn(async () => Array.from({ length: 1536 }, () => 1));
     await expect(
       new NativeWorkspaceSearchExecutor({ capability: bridge, embedQuery, profile }).searchSemantic(
         request
@@ -519,7 +518,7 @@ describe('native search consumer boundary', () => {
     bridge.grep.mockResolvedValue(pool([hit('a')]));
     const executor = new NativeWorkspaceSearchExecutor({
       capability: bridge,
-      embedQuery: async () => Array.from({ length: 384 }, () => 1),
+      embedQuery: async () => Array.from({ length: 1536 }, () => 1),
       profile,
     });
     await expect(executor.searchSemantic(request)).rejects.toThrow('Vector reader failed.');
@@ -627,9 +626,9 @@ it('does not admit vector search on a text-only store despite a selected profile
   expect(bridge.coverageBatch).toHaveBeenCalled();
 });
 
-it('surfaces the selected renderer plan refusal without blocking text or substituting a profile', async () => {
+it('surfaces the profile refusal without blocking text or substituting a profile', async () => {
   const bridge = capability();
-  const reason = 'The selected embedding request requires an explicit revision, device and dtype.';
+  const reason = 'Semantic search is off. Choose Semantic in Settings, Search & Indexing.';
   const embedQuery = vi.fn();
   const executor = new NativeWorkspaceSearchExecutor({
     capability: bridge,

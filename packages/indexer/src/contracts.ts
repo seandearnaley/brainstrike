@@ -11,61 +11,21 @@ const nonnegative = Schema.Int.check(
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
 );
 const hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
-/** How a local model's token states become one vector; absent means 'mean' (see `poolingIdentity`). */
-const pooling = Schema.optionalKey(Schema.Literals(['mean', 'cls']));
-/** The model catalog's query/document prompts, none being two empty strings (see `promptIdentity`). */
-const prompts = Schema.optionalKey(
-  Schema.Struct({ document: Schema.String, query: Schema.String })
-);
-export const profileSchema = Schema.Struct({
-  dimensions: positive,
-  dtype: Schema.Literals(['q8', 'fp16', 'fp32']),
+/** The embedder whose vectors a profile partitions: its provider, model, dimensions and distance. */
+export const vectorProfileSchema = Schema.Struct({
+  dimensions: positive.check(Schema.isLessThanOrEqualTo(16_000)),
+  distance: Schema.Literals(['cosine', 'l2', 'ip']),
   modelId: nonblank,
-  pooling,
-  prompts,
-  revision: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
-  tokenCap: positive,
+  provider: Schema.Literals(['openai', 'google', 'cohere', 'voyage']),
 });
-export type EmbeddingProfile = typeof profileSchema.Type;
-export const embeddingStateSchema = Schema.Union([
-  Schema.Struct({ indexMode: Schema.Literal('text-only') }),
-  Schema.Struct({
-    indexMode: Schema.Literal('vector-configured'),
-    profile: profileSchema,
-    profileHash: hash,
-  }),
-]);
-export type EmbeddingState = typeof embeddingStateSchema.Type;
-export const identityStateSchema = Schema.Struct({
-  embedding: embeddingStateSchema,
-  storeId: hash,
-});
+export type VectorProfile = typeof vectorProfileSchema.Type;
+export const identityStateSchema = Schema.Struct({ storeId: hash });
 export type IndexerIdentity = typeof identityStateSchema.Type;
 export const scopeSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('workspace'), rootId: nonblank }),
   Schema.Struct({ embeddingSetId: nonblank, kind: Schema.Literal('collection') }),
 ]);
 export type IndexScope = typeof scopeSchema.Type;
-const vectorProfileFields = {
-  dimensions: positive.check(Schema.isLessThanOrEqualTo(16_000)),
-  distance: Schema.Literals(['cosine', 'l2', 'ip']),
-  modelId: nonblank,
-};
-export const vectorProfileSchema = Schema.Union([
-  Schema.Struct({
-    ...profileSchema.fields,
-    ...vectorProfileFields,
-    dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
-    provider: Schema.Literals(['local', 'transformers']),
-    revision: Schema.optional(profileSchema.fields.revision),
-    tokenCap: Schema.optional(profileSchema.fields.tokenCap),
-  }),
-  Schema.Struct({
-    ...vectorProfileFields,
-    provider: Schema.Literals(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio']),
-  }),
-]);
-export type VectorProfile = typeof vectorProfileSchema.Type;
 const bindingFields = {
   embeddingSetId: Schema.NullOr(nonblank),
   fileId: nonblank,
@@ -95,7 +55,6 @@ export const optionsSchema = Schema.Struct({
   embedding: Schema.Union([
     Schema.Struct({ indexMode: Schema.Literal('text-only') }),
     Schema.Struct({ indexMode: Schema.Literal('open-existing') }),
-    Schema.Struct({ indexMode: Schema.Literal('vector-configured'), profile: profileSchema }),
   ]),
   fileBindings: Schema.optional(fileBindingsSchema),
   rootIds: Schema.Array(nonblank),
@@ -156,82 +115,6 @@ export const stateSearchHitSchema = Schema.Struct({
   threadId: nonblank,
 });
 export type StateSearchHit = typeof stateSearchHitSchema.Type;
-/**
- * The semantic arm: search rows of the requested threads that have no vector
- * under `profile` for their current text, oldest first. The caller embeds
- * `text` and returns each vector with its row's `sourceHash`.
- */
-export const stateSearchPendingSchema = Schema.Struct({
-  limit: positive.check(Schema.isLessThanOrEqualTo(64)),
-  profile: vectorProfileSchema,
-  threadIds: Schema.Array(nonblank),
-});
-export type StateSearchPending = typeof stateSearchPendingSchema.Type;
-export const stateSearchPendingRowSchema = Schema.Struct({
-  seq: positive,
-  /** sha256 of `text`; a vector is stored only while its row still holds that text. */
-  sourceHash: hash,
-  text: nonblank,
-  threadId: nonblank,
-});
-export type StateSearchPendingRow = typeof stateSearchPendingRowSchema.Type;
-/** Each backlog row's vector, or why the caller could not embed it. */
-export const stateSearchVectorBatchSchema = Schema.Struct({
-  profile: vectorProfileSchema,
-  rows: Schema.Array(
-    Schema.Union([
-      Schema.Struct({
-        seq: positive,
-        sourceHash: hash,
-        threadId: nonblank,
-        vector: Schema.Array(Schema.Finite),
-      }),
-      Schema.Struct({ error: nonblank, seq: positive, sourceHash: hash, threadId: nonblank }),
-    ])
-  ),
-});
-export type StateSearchVectorBatch = typeof stateSearchVectorBatchSchema.Type;
-/** `stale` rows changed or disappeared after they were read; nothing was stored for them. */
-export const stateSearchVectorsResultSchema = Schema.Struct({
-  failed: nonnegative,
-  stale: nonnegative,
-  stored: nonnegative,
-});
-export const stateSearchCoverageSchema = Schema.Struct({
-  profile: vectorProfileSchema,
-  threadIds: Schema.Array(nonblank),
-});
-export type StateSearchCoverageRequest = typeof stateSearchCoverageSchema.Type;
-/**
- * The threads' rows, those with a vector under the profile, and those whose
- * last embedding failed within the retry window (legacy's `embedding_error`).
- */
-export const stateSearchCoverageResultSchema = Schema.Struct({
-  embedded: nonnegative,
-  errored: nonnegative,
-  rows: nonnegative,
-});
-export type StateSearchCoverage = typeof stateSearchCoverageResultSchema.Type;
-export type StateSearchVectorsResult = typeof stateSearchVectorsResultSchema.Type;
-export const stateSearchSimilarSchema = Schema.Struct({
-  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
-  profile: vectorProfileSchema,
-  threadIds: Schema.Array(nonblank),
-  /** Minimum cosine similarity, as legacy thread search's vector arm. */
-  threshold: Schema.Finite.check(Schema.isBetween({ maximum: 1, minimum: -1 })),
-  vector: Schema.Array(Schema.Finite),
-});
-export type StateSearchSimilar = typeof stateSearchSimilarSchema.Type;
-export const stateSearchSimilarHitSchema = Schema.Struct({
-  role: Schema.Literals(['user', 'assistant']),
-  runId: nonblank,
-  /** Cosine similarity: higher is a better match. */
-  score: Schema.Finite,
-  seq: positive,
-  text: nonblank,
-  threadId: nonblank,
-});
-export type StateSearchSimilarHit = typeof stateSearchSimilarHitSchema.Type;
 export const stateHealthSchema = Schema.Struct({ indexerErrors: Schema.Array(Schema.String) });
 export const stateCountsSchema = Schema.Record(Schema.String, nonnegative);
 export const stateStatsSchema = Schema.Struct({
@@ -293,15 +176,12 @@ export type FileChunk = typeof chunkSchema.Type;
 export const planSchema = Schema.Struct({
   chunks: Schema.Array(chunkSchema),
   contentHash: hash,
-  embedding: embeddingStateSchema,
-  embeddingChunkIds: Schema.Array(hash),
   previousSnapshotHash: Schema.NullOr(hash),
   snapshot: snapshotSchema,
   storeId: hash,
   unchanged: Schema.Boolean,
 });
 export type FilePlan = typeof planSchema.Type;
-export const vectorSchema = Schema.Array(Schema.Finite).check(Schema.isBetweenLength(384, 384));
 export const symbolSchema = Schema.Struct({
   endLine: positive,
   endOffset: nonnegative,
@@ -327,13 +207,6 @@ const syntaxSchema = Schema.Struct({
   symbols: Schema.Array(symbolSchema),
 });
 export type FileSyntax = typeof syntaxSchema.Type;
-export const commitSchema = Schema.Struct({
-  embeddings: Schema.Array(Schema.Struct({ chunkId: hash, vector: vectorSchema })),
-  plan: planSchema,
-  profile: profileSchema,
-  syntax: Schema.optional(syntaxSchema),
-});
-export type FileCommit = typeof commitSchema.Type;
 export const textCommitSchema = Schema.Struct({
   plan: planSchema,
   syntax: Schema.optional(syntaxSchema),
@@ -342,11 +215,9 @@ export type TextFileCommit = typeof textCommitSchema.Type;
 export const identitySchema = Schema.Struct({ fileId: nonblank, rootId: nonblank });
 export const searchSchema = Schema.Struct({
   limit: positive.check(Schema.isLessThanOrEqualTo(100)),
-  mode: Schema.Literals(['bm25', 'trigram', 'vector']),
-  profile: Schema.optional(profileSchema),
+  mode: Schema.Literals(['bm25', 'trigram']),
   rootIds: Schema.Array(nonblank),
-  text: Schema.optional(Schema.String),
-  vector: Schema.optional(vectorSchema),
+  text: Schema.String,
 });
 export type SearchRequest = typeof searchSchema.Type;
 export const hitSchema = Schema.Struct({
@@ -364,26 +235,26 @@ export const hitSchema = Schema.Struct({
 export const searchResultSchema = Schema.Struct({
   candidateCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   candidatesTruncated: Schema.Boolean,
-  embedding: embeddingStateSchema,
   hits: Schema.Array(hitSchema),
   scanLimited: Schema.Boolean,
   storeId: hash,
   truncated: Schema.Boolean,
 });
 export type SearchResult = typeof searchResultSchema.Type;
-const coverageCounts = {
+const textCoverageCounts = {
   chunks: nonnegative,
   indexedFiles: nonnegative,
+};
+const coverageCounts = {
+  ...textCoverageCounts,
   missingVectors: nonnegative,
   vectors: nonnegative,
 };
 export const coverageRequestSchema = Schema.Struct({ rootIds: Schema.Array(nonblank) });
 export const coverageSchema = Schema.Struct({
-  embedding: embeddingStateSchema,
-  roots: Schema.Array(Schema.Struct({ rootId: nonblank, ...coverageCounts })),
+  roots: Schema.Array(Schema.Struct({ rootId: nonblank, ...textCoverageCounts })),
   storeId: hash,
-  totals: Schema.Struct(coverageCounts),
-  vectorCoverageComplete: Schema.Boolean,
+  totals: Schema.Struct(textCoverageCounts),
 });
 export type IndexerCoverage = typeof coverageSchema.Type;
 export const manifestFileSchema = Schema.Struct({
@@ -416,7 +287,6 @@ export const commitResultSchema = Schema.Struct({
 export type CommitResult = typeof commitResultSchema.Type;
 export const infoSchema = Schema.Struct({
   dbPath: nonblank,
-  embedding: embeddingStateSchema,
   journalMode: Schema.String,
   pid: positive,
   readerQueryOnly: Schema.Int,

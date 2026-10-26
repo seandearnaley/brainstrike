@@ -131,8 +131,6 @@
       "includes": [
         "packages/test-utils/src/**",
         "packages/test-utils/__tests__/**",
-        "packages/queue/src/**",
-        "packages/queue/test/**",
         "packages/pipeline/src/**",
         "packages/pipeline/__tests__/**"
       ],
@@ -163,22 +161,6 @@
     },
     {
       "includes": ["packages/token-cache/src/**"],
-      "linter": {
-        "rules": {
-          "nursery": {
-            "noFloatingPromises": "error",
-            "noMisusedPromises": "error",
-            "useExhaustiveSwitchCases": "error"
-          }
-        }
-      }
-    },
-    {
-      "includes": [
-        "packages/embedding-worker/src/**",
-        "packages/embedding-worker/test/**",
-        "packages/embedding-worker/bench/**/*.spec.*"
-      ],
       "linter": {
         "rules": {
           "nursery": {
@@ -326,10 +308,10 @@
     },
     {
       "includes": [
-        "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*.{ts,tsx,mts,cts,mjs}",
-        "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*/**/*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/{hosted-embeddings,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/{hosted-embeddings,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/{hosted-embeddings,native-index-catalog-observation,native-index-scan-admission}*.{ts,tsx,mts,cts,mjs}",
+        "apps/desktop/src/__tests__/{hosted-embeddings,native-index-catalog-observation,native-index-scan-admission}*/**/*.{ts,tsx,mts,cts,mjs}",
         "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
         "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}"
       ],

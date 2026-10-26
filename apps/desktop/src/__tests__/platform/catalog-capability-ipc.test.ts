@@ -1,23 +1,15 @@
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { registerModelCatalogIpc } from '../../ipc-model-catalog';
 import {
   createTrustedInvokeEvent,
-  trackTestWindowRole,
+  invokeDesktopIpcFrom,
 } from '../helpers/desktop-ipc-sender-test-helpers';
-import { mockIpcMain, resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
+import { mockIpcMain } from '../helpers/electron-main-test-harness';
 
 const sender = 8_910_001;
-beforeEach(() => {
-  resetElectronMainTestHarness();
-  trackTestWindowRole(sender, 'visible-ui');
-});
-function invoke(channel: string, ...args: unknown[]): unknown {
-  const registered = mockIpcMain.handle.mock.calls.find(([name]) => name === channel);
-  if (!registered) {
-    throw new Error(`Missing channel ${channel}`);
-  }
-  return registered[1](createTrustedInvokeEvent('visible-ui', sender), ...args);
+function invoke(method: string, ...args: unknown[]): Promise<unknown> {
+  return invokeDesktopIpcFrom(mockIpcMain, createTrustedInvokeEvent(sender), method, ...args);
 }
 test('model mutations receive exactly the parsed renderer arguments through registered IPC', async () => {
   const snapshot = { models: [], providers: [] };

@@ -5,6 +5,7 @@ import { createLogger } from '@brainstrike/logging';
 import { Effect, Schedule } from 'effect';
 import { app, BrowserWindow } from 'electron';
 import { resolveAgentDevtoolsWindowTitle } from './agent-devtools-config';
+import { trackAppWindow } from './app-windows';
 import {
   recordRendererCrashDeferred,
   recordRendererCrashLoopSuppressed,
@@ -23,7 +24,6 @@ import {
 } from './platform/desktop-ipc-sender-frame';
 import type { DesktopWindowState } from './store-schema';
 import { publishWindowFocus } from './window-focus-ipc';
-import { assignWindowRole, getWindowRole } from './window-role';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
 
 const startupLogger = createLogger('CreateWindow');
@@ -166,8 +166,8 @@ export function noteNextWindowReload(win: BrowserWindow, metadata: WindowReloadM
  */
 /**
  * Loads the document named by the process-wide renderer target (BST-1641):
- * the same object `main.ts` configured, the hidden hosts load from, and the
- * IPC sender-frame allowlist is derived from. Resolving it here — before any
+ * the same object `main.ts` configured and the IPC sender-frame allowlist is
+ * derived from. Resolving it here — before any
  * `loadURL` — makes an unconfigured target a named load-time
  * failure instead of every authorized IPC channel rejecting at first invoke.
  */
@@ -267,7 +267,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     webPreferences: {
       allowRunningInsecureContent: false,
       // Keep Chromium's normal background throttling on the visible UI.
-      // Long-running embedding work belongs in the hidden renderer host.
       backgroundThrottling: true,
       contextIsolation: true,
       experimentalFeatures: false,
@@ -285,7 +284,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         }
       : {}),
   });
-  assignWindowRole(win, 'visible-ui');
+  trackAppWindow(win);
   // The renderer's app-active signal follows THIS window's native focus, not its
   // own `document.hasFocus()` (false while the browser pane or DevTools holds
   // keyboard focus). Attached before `show()` and before the renderer loads: the
@@ -333,7 +332,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       logStartupPhase('did-start-loading', {
         reloadReason: reloadMetadata.reason,
         reloadSource: reloadMetadata.source,
-        windowRole: getWindowRole(win) ?? 'visible-ui',
       });
       return;
     }
@@ -343,14 +341,12 @@ export async function createWindow(options: CreateWindowOptions = {}) {
           reloadReason: 'top-level-navigation',
           reloadSource: 'unknown',
           url: pendingMainFrameNavigation.url,
-          windowRole: getWindowRole(win) ?? 'visible-ui',
         });
       } else {
         startupLogger.trace(
           {
             isInPlaceNavigation: pendingMainFrameNavigation?.isInPlace ?? false,
             url: pendingMainFrameNavigation?.url ?? getCurrentWindowUrl(win),
-            windowRole: getWindowRole(win) ?? 'visible-ui',
           },
           'Ignored did-start-loading without explicit reload intent'
         );
@@ -360,7 +356,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     logStartupPhase('did-start-loading', {
       reloadReason: 'initial-load',
       reloadSource: 'main',
-      windowRole: getWindowRole(win) ?? 'visible-ui',
     });
   });
   win.webContents.on('dom-ready', () => {
@@ -389,7 +384,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     }
   );
 
-  // Safety net for renderer crashes (e.g. SIGTRAP from stale WebGPU handles).
+  // Safety net for renderer crashes.
   // CRITICAL: Reloading a dead renderer while the window is backgrounded causes
   // a permanent main-thread freeze (100% CPU in kernel signal handlers). To avoid
   // this, we defer recovery until the window regains focus.
@@ -403,7 +398,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     pendingRendererRecovery = false;
     startupLogger.info('Executing deferred renderer reload');
     try {
-      recordRendererRecoveryReloadAttempt({ windowRole: getWindowRole(win) ?? 'visible-ui' });
+      recordRendererRecoveryReloadAttempt();
       noteNextWindowReload(win, {
         reason: 'renderer-crash-recovery',
         source: 'main',
@@ -438,10 +433,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
   let unresponsiveSince: number | undefined;
   win.webContents.on('unresponsive', () => {
     unresponsiveSince = Date.now();
-    startupLogger.error(
-      { code: 'renderer_unresponsive', windowRole: getWindowRole(win) ?? 'visible-ui' },
-      'Renderer became unresponsive'
-    );
+    startupLogger.error({ code: 'renderer_unresponsive' }, 'Renderer became unresponsive');
   });
   win.webContents.on('responsive', () => {
     startupLogger.warn(
@@ -449,7 +441,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
         code: 'renderer_responsive_again',
         unresponsiveMs:
           unresponsiveSince === undefined ? undefined : Date.now() - unresponsiveSince,
-        windowRole: getWindowRole(win) ?? 'visible-ui',
       },
       'Renderer responsive again'
     );
@@ -464,7 +455,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
           elapsedMs: Date.now() - startupStartedAt,
           exitCode: details.exitCode,
           reason: details.reason,
-          windowRole: getWindowRole(win) ?? 'visible-ui',
         },
         'Renderer process gone'
       );
@@ -483,7 +473,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
             crashCountInWindow,
             exitCode: details.exitCode,
             reason: details.reason,
-            windowRole: getWindowRole(win) ?? 'visible-ui',
           });
           startupLogger.error(
             {
@@ -509,7 +498,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
             crashCountInWindow,
             exitCode: details.exitCode,
             reason: details.reason,
-            windowRole: getWindowRole(win) ?? 'visible-ui',
           },
           'Renderer crashed; deferring recovery (immediate reload causes main-thread freeze)'
         );
@@ -518,7 +506,6 @@ export async function createWindow(options: CreateWindowOptions = {}) {
           crashCountInWindow,
           exitCode: details.exitCode,
           reason: details.reason,
-          windowRole: getWindowRole(win) ?? 'visible-ui',
         });
 
         // Fallback: if the window already has focus (user is looking at it),

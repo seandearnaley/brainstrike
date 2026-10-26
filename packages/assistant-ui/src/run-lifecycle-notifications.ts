@@ -8,10 +8,7 @@
  *
  * `useRunLifecycleNotifications` is mounted exactly once per panel instance
  * (alongside `AssistantDataRendererRegistration` in `assistant-ui-panel.tsx`),
- * so it only ever runs inside the VISIBLE assistant surface — desktop's
- * hidden embedding/llm hosts never mount `ChatThreadUI` at all, which is
- * what keeps them from ever notifying (verified: neither
- * `embedding-host-app.tsx` nor `llm-host-app.tsx` imports it).
+ * so it only ever runs inside the VISIBLE assistant surface.
  */
 
 import { useAuiState } from '@assistant-ui/react';

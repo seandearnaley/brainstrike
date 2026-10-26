@@ -12,11 +12,10 @@ const BUFFERED_AT = Date.UTC(2026, 9, 18, 21, 31, 0);
 const READ_AT = Date.UTC(2026, 9, 18, 21, 31, 30);
 const MODELS = {
   embedder: {
-    dimensions: 384,
+    dimensions: 1536,
     distance: 'cosine',
-    dtype: 'fp16',
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    provider: 'local',
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
   },
   observer: 'openai::gpt-5-mini',
 } as const;
@@ -99,7 +98,7 @@ describe('the Developer memory panel', () => {
     expect(row('reflect-threshold')).toHaveTextContent('900 / 40,000 observation tokens');
     expect(row('observer')).toHaveTextContent('openai::gpt-5-mini');
     expect(row('embedder')).toHaveTextContent(
-      'local · Xenova/all-MiniLM-L6-v2 · 384 dims · cosine · fp16'
+      'openai · text-embedding-3-small · 1,536 dims · cosine'
     );
     expect(screen.queryByTestId('context-usage-memory-error')).not.toBeInTheDocument();
     // The flags are the record's as of this read.
@@ -132,14 +131,12 @@ describe('the Developer memory panel', () => {
 
   it('shows a read failure’s reason with its code', () => {
     popover({
-      code: 'memory.embedder-device-unavailable',
+      code: 'memory.credential-missing',
       kind: 'error',
-      reason: 'The on-device memory embedder has no execution device.',
+      reason: 'The OpenAI memory embedder has no API key.',
     });
-    expect(row('error')).toHaveTextContent(
-      'The on-device memory embedder has no execution device.'
-    );
-    expect(row('error-code')).toHaveTextContent('memory.embedder-device-unavailable');
+    expect(row('error')).toHaveTextContent('The OpenAI memory embedder has no API key.');
+    expect(row('error-code')).toHaveTextContent('memory.credential-missing');
   });
 
   it('labels what the host did not report rather than inventing it', () => {
@@ -259,6 +256,6 @@ describe('the Developer memory panel', () => {
     unmount();
     popover({ kind: 'inactive', models: { embedder: MODELS.embedder } });
     expect(row('observer')).toHaveTextContent('Off');
-    expect(row('embedder')).toHaveTextContent('local · Xenova/all-MiniLM-L6-v2');
+    expect(row('embedder')).toHaveTextContent('openai · text-embedding-3-small');
   });
 });

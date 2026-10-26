@@ -254,8 +254,6 @@ export async function findRootContextFile(
  * Threshold-hybrid policy (product ruling — no silent drops):
  * - master toggle OFF (`workspaceInstructionsPreference.masterEnabled === false`)
  *   => nothing injected.
- * - built-in local provider => nothing injected (the on-device model's whole
- *   context budget is tiny; mirrors the personas/plan-mode local exclusions).
  * - a file that FITS the per-file budget => injected WHOLE, no note.
  * - an OVERSIZED file => injected TRUNCATED (with an honest note) ONLY when its
  *   root is opted in via `oversizedOptInByRootId[rootId]`; otherwise it is NOT

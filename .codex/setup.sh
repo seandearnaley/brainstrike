@@ -7,22 +7,13 @@ export CODEX_ENV=true
 # Enable pnpm via corepack (Node 20+ already present)
 corepack enable
 
-# Skip ONNX Runtime installation in CI to avoid GPU/WebGPU issues
-export npm_config_onnxruntime_node_install=skip
-
-# Disable GPU features for transformers.js and related packages
-export TRANSFORMERS_OFFLINE=1
-export ONNXJS_ENABLE_WEBGL=false
-export ONNXJS_ENABLE_WEBGPU=false
-
 # Install dependencies with frozen lockfile for reproducible builds
 # Use --ignore-scripts to prevent problematic postinstall scripts
 pnpm install --frozen-lockfile --ignore-scripts
 
-# Re-run essential postinstall scripts manually (excluding onnxruntime-node)
+# Re-run essential postinstall scripts manually
 echo "Running essential postinstall scripts..."
 npx electron postinstall || echo "Electron postinstall failed, continuing..."
-npx sharp install || echo "Sharp install failed, continuing..."
 
 # Install system dependencies for headless Electron testing
 # Xvfb is required for Electron apps in headless environments
@@ -50,4 +41,3 @@ unset DISPLAY  # Ensure no display is set so xvfb-maybe activates
 echo "Setup complete: Playwright ready for Codex with optimized single-worker configuration"
 echo "Headless Electron testing: Xvfb installed and configured"
 echo "Environment: CODEX_ENV=$CODEX_ENV"
-echo "ONNX Runtime: Skipped for CI compatibility"

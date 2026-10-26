@@ -1,7 +1,7 @@
 import type { ProviderVerificationLookup } from '@brainstrike/assistant-contract';
 import { Button, cn } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { AlertTriangle, CheckCircle2, Loader2, MinusCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import {
   formatCheckedAt,
   PROVIDER_VERIFICATION_PRESENTATION,
@@ -10,14 +10,12 @@ import {
 
 const TONE_CLASSES: Record<ProviderVerificationTone, string> = {
   danger: 'text-destructive',
-  neutral: 'text-muted-foreground',
   success: 'text-success',
   warning: 'text-warning',
 };
 
 const TONE_ICONS: Record<ProviderVerificationTone, LucideIcon> = {
   danger: XCircle,
-  neutral: MinusCircle,
   success: CheckCircle2,
   warning: AlertTriangle,
 };

@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { validateSnapshot } from './chunks.ts';
+import { validateSnapshot, vectorProfileHash } from './chunks.ts';
 import {
   decoder,
   IndexerError,
@@ -20,7 +20,7 @@ import {
 import { assertCoverageAuthority } from './coverage-authority.ts';
 import { compareManifest } from './index-manifest.ts';
 import { readScopedIdentity } from './index-metadata.ts';
-import { type ScopeAuthority, vectorProfileHash } from './scope-authority.ts';
+import type { ScopeAuthority } from './scope-authority.ts';
 import { validateScopedStorage } from './scoped-vector-validation.ts';
 
 function scopePredicate(scope: IndexScope): { predicate: string; value: string } {

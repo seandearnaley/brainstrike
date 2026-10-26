@@ -99,7 +99,6 @@ describe('validateDesktopBridgeContract', () => {
             redactPaths: [],
           },
         }),
-        ingestBufferedRecord: () => undefined,
         onPreferencesUpdated: () => undefined,
         openDestination: async () => true,
         selectDestination: async () => null,

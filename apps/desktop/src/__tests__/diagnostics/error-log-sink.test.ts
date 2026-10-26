@@ -71,7 +71,10 @@ describe('createErrorLogSink', () => {
     expect(event?.platform).toBe('darwin-arm64');
   });
 
-  it('derives source from bindings.sourceWindowRole for a non-main record', async () => {
+  it.each([
+    { bindings: { runtime: 'electron-renderer' }, source: 'electron-renderer' },
+    { bindings: {}, source: 'unknown' },
+  ])('derives source $source from runtime bindings', async ({ bindings, source }) => {
     const sink = createErrorLogSink({
       appVersion: '1.2.3',
       filePath,
@@ -79,17 +82,13 @@ describe('createErrorLogSink', () => {
       sessionId: 'session-abc',
     });
 
-    // A distinct role (not the `?? 'hidden-host'` fallback value itself) so
-    // this assertion actually discriminates: an implementation that ignored
-    // `sourceWindowRole` entirely would still produce 'hidden-host' via the
-    // fallback and pass a same-value test undetected.
-    sink.recordLogRecord(createRecord({ bindings: { sourceWindowRole: 'chunking-host' } }));
+    sink.recordLogRecord(createRecord({ bindings }));
     sink.close();
 
     const lines = await readLines(filePath);
     expect(lines).toHaveLength(1);
     const event = parseDiagnosticEventLine(lines[0] ?? '');
-    expect(event?.source).toBe('chunking-host');
+    expect(event?.source).toBe(source);
   });
 
   it('writes nothing for a record below the warn+ severity floor', async () => {

@@ -7,15 +7,12 @@ import {
 } from '@brainstrike/chunking-worker/source-range-validation';
 import {
   decoder,
-  type EmbeddingProfile,
-  type EmbeddingState,
-  embeddingStateSchema,
   type FileChunk,
   type FileSnapshot,
-  profileSchema,
   type ScopedFileSnapshot,
   scopedSnapshotSchema,
   snapshotSchema,
+  vectorProfileSchema,
 } from './contracts.ts';
 
 export function sha256(value: string): string {
@@ -30,62 +27,16 @@ export function float32Bytes(values: ArrayLike<number>): Uint8Array {
   }
   return bytes;
 }
-/** The float32 value at `index` of little-endian `bytes`. */
-export function float32At(bytes: Uint8Array, index: number): number {
-  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat32(index * 4, true);
-}
-/**
- * The one rule for pooling in a profile identity: absent means 'mean', and the
- * default adds nothing, so every mean profile keeps the identity it had before
- * pooling was recorded, while 'cls' vectors get their own (BST-1993).
- */
-export function poolingIdentity(pooling: 'mean' | 'cls' | undefined): readonly 'cls'[] {
-  return pooling === 'cls' ? ['cls'] : [];
-}
-/**
- * A local identity's catalog prompts. A profile that states them (none being
- * two empty strings) appends the pair; a profile without them is one produced
- * before prompts were stated, when the service prepended substring-guessed
- * prompts, and keeps that identity. Its vectors are therefore never mistaken
- * for raw-text ones (BST-1993).
- */
-export function promptIdentity(
-  prompts: { readonly document: string; readonly query: string } | undefined
-): readonly (readonly [string, string])[] {
-  return prompts === undefined ? [] : [[prompts.query, prompts.document]];
-}
-export function embeddingProfileHash(input: unknown): string {
-  const profile = decoder(profileSchema)(input);
+/** A vector profile's identity: vectors are partitioned by it. */
+export function vectorProfileHash(input: unknown): string {
+  const profile = decoder(vectorProfileSchema)(input);
   return sha256(
-    JSON.stringify([
-      profile.modelId,
-      profile.revision,
-      profile.dtype,
-      profile.dimensions,
-      profile.tokenCap,
-      ...poolingIdentity(profile.pooling),
-      ...promptIdentity(profile.prompts),
-    ])
+    JSON.stringify([profile.provider, profile.modelId, profile.dimensions, profile.distance])
   );
 }
-function chunkProfileHash(input: EmbeddingProfile | EmbeddingState): string | null {
-  if (!('indexMode' in input)) {
-    return embeddingProfileHash(input);
-  }
-  const embedding = decoder(embeddingStateSchema)(input);
-  if (embedding.indexMode === 'text-only') {
-    return null;
-  }
-  if (embedding.profileHash !== embeddingProfileHash(embedding.profile)) {
-    throw new TypeError('Chunk embedding profile hash disagrees with its complete profile.');
-  }
-  return embedding.profileHash;
-}
-export function fileChunks(
-  input: unknown,
-  profile: EmbeddingProfile | EmbeddingState
-): readonly FileChunk[] {
-  return buildFileChunks(decoder(snapshotSchema)(input), chunkProfileHash(profile));
+/** A text store's chunks: they carry no embedding identity. */
+export function fileChunks(input: unknown): readonly FileChunk[] {
+  return buildFileChunks(decoder(snapshotSchema)(input), null);
 }
 export function scopedFileChunks(input: unknown, profileHash: string | null): readonly FileChunk[] {
   return buildFileChunks(decoder(scopedSnapshotSchema)(input), profileHash);

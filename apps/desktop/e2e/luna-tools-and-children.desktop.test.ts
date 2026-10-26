@@ -82,7 +82,6 @@ test('Luna loads eager tools, runs an extensionless skill and completes three Ex
       throw new Error('Dev renderer URL unavailable');
     }
     const context = await launchElectronAppWithOptions({
-      disableExternalLocalRuntimeProbes: true,
       env: { ['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']: rendererUrl },
       launchMode: 'dev-server',
       modelProvider: provider,

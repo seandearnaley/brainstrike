@@ -377,20 +377,20 @@ describe('ModelPicker', () => {
     });
   });
 
-  describe('local embedding models (BST-299 regression)', () => {
-    // Two local embedding models beside a hosted one, each with its default dimension
-    const localEmbeddingModels: ModelPickerModel[] = [
+  describe('embedding models across providers (BST-299 regression)', () => {
+    // Two Cohere embedding models beside an OpenAI one, each with its default dimension
+    const embeddingModels: ModelPickerModel[] = [
       {
-        capabilities: { defaultDimension: 384, type: 'embedding' },
-        id: 'Xenova/all-MiniLM-L6-v2',
-        name: 'all-MiniLM-L6-v2',
-        providerId: 'local',
+        capabilities: { defaultDimension: 1024, type: 'embedding' },
+        id: 'cohere::embed-english-v3.0',
+        name: 'Embed English v3',
+        providerId: 'cohere',
       },
       {
-        capabilities: { defaultDimension: 384, type: 'embedding' },
-        id: 'Xenova/bge-small-en-v1.5',
-        name: 'BGE Small',
-        providerId: 'local',
+        capabilities: { defaultDimension: 1024, type: 'embedding' },
+        id: 'cohere::embed-multilingual-v3.0',
+        name: 'Embed Multilingual v3',
+        providerId: 'cohere',
       },
       {
         capabilities: { defaultDimension: 1536, type: 'embedding' },
@@ -400,79 +400,79 @@ describe('ModelPicker', () => {
       },
     ];
 
-    const localProviders: ModelPickerProvider[] = [
-      { id: 'local', name: 'Local' },
+    const embeddingProviders: ModelPickerProvider[] = [
+      { id: 'cohere', name: 'Cohere' },
       { id: 'openai', name: 'OpenAI' },
     ];
 
-    it('shows local embedding models in dropdown when modelType is embedding', () => {
+    it("shows every provider's embedding models in dropdown when modelType is embedding", () => {
       render(
         <ModelPicker
-          models={localEmbeddingModels}
+          models={embeddingModels}
           modelType="embedding"
-          providers={localProviders}
+          providers={embeddingProviders}
         />
       );
       fireEvent.click(screen.getByRole('combobox'));
 
-      // Both local models should be visible
-      expect(screen.getByText('all-MiniLM-L6-v2')).toBeInTheDocument();
-      expect(screen.getByText('BGE Small')).toBeInTheDocument();
+      // Both Cohere models should be visible
+      expect(screen.getByText('Embed English v3')).toBeInTheDocument();
+      expect(screen.getByText('Embed Multilingual v3')).toBeInTheDocument();
       // OpenAI model should also be visible
       expect(screen.getByText('Text Embedding 3 Small')).toBeInTheDocument();
     });
 
-    it('shows Local provider group header when local embedding models exist', () => {
+    it('shows a group header for each provider with embedding models', () => {
       render(
         <ModelPicker
-          models={localEmbeddingModels}
+          models={embeddingModels}
           modelType="embedding"
-          providers={localProviders}
+          providers={embeddingProviders}
         />
       );
       fireEvent.click(screen.getByRole('combobox'));
 
       // Both provider groups should be visible
-      expect(screen.getByText('Local')).toBeInTheDocument();
+      expect(screen.getByText('Cohere')).toBeInTheDocument();
       expect(screen.getByText('OpenAI')).toBeInTheDocument();
     });
 
-    it('correctly selects and displays a local embedding model', () => {
+    it('correctly selects and displays an embedding model', () => {
       const onChange = vi.fn();
       render(
         <ModelPicker
-          models={localEmbeddingModels}
+          models={embeddingModels}
           modelType="embedding"
           onChange={onChange}
-          providers={localProviders}
-          value="Xenova/all-MiniLM-L6-v2"
+          providers={embeddingProviders}
+          value="cohere::embed-english-v3.0"
         />
       );
 
-      // Trigger should show the selected local model
-      expect(screen.getByText('all-MiniLM-L6-v2')).toBeInTheDocument();
+      // Trigger should show the selected model
+      expect(screen.getByText('Embed English v3')).toBeInTheDocument();
 
       // Open dropdown and verify models are visible
       fireEvent.click(screen.getByRole('combobox'));
 
       // All embedding models should be visible
-      expect(screen.getByText('BGE Small')).toBeInTheDocument();
+      expect(screen.getByText('Embed Multilingual v3')).toBeInTheDocument();
       expect(screen.getByText('Text Embedding 3 Small')).toBeInTheDocument();
     });
 
-    it('does not filter out local models when filtering by embedding type', () => {
+    it("does not filter out any provider's models when filtering by embedding type", () => {
       render(
         <ModelPicker
-          models={localEmbeddingModels}
+          models={embeddingModels}
           modelType="embedding"
-          providers={localProviders}
+          providers={embeddingProviders}
         />
       );
       fireEvent.click(screen.getByRole('combobox'));
 
       // Count how many models are visible (should be 3)
-      const localModels = screen.getAllByText(/MiniLM|BGE Small|Text Embedding/);
-      expect(localModels).toHaveLength(3);
+      const visibleModels = screen.getAllByText(/Embed English|Embed Multilingual|Text Embedding/);
+      expect(visibleModels).toHaveLength(3);
     });
   });
 

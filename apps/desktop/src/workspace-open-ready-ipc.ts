@@ -1,21 +1,8 @@
 /**
- * The renderer→main half of the workspace-open ready handshake (BST-1393,
- * PR #2682 re-review): `WorkspaceConnectHost` pings `workspace:open-path-ready`
- * the instant it subscribes to `onOpenPath`, and `createMainWindow` (`main.ts`)
- * uses that ping — together with the window having finished loading — to
- * decide when it is safe to attach `workspace-open-queue.ts` and flush
- * buffered folder-open requests.
- *
- * Registered exactly ONCE, at module scope, via the SAME
- * `createDesktopIpcRegistry` every other IPC domain in this app uses
- * (`runtime-host-boundary.test.ts`'s "keeps main process startup free of ad
- * hoc IPC registration" forbids a raw `ipcMain.on(...)` in `main.ts` itself —
- * this module is that registrar). Because the registry throws on a channel
- * registered twice, and `createMainWindow` runs again on every
- * `app.on('activate')` recreation, per-window routing happens INSIDE this
- * one global handler via `event.sender.id` — the same pattern
- * `logging-ipc.ts`'s `ingestBufferedLog(senderId, record)` already uses —
- * rather than by registering a fresh `ipcMain.on` per window.
+ * The renderer's WorkspaceConnectHost invokes `workspace:open-path-ready`
+ * when it subscribes to open-path pushes. main.ts waits for this ping and
+ * for the window load before flushing queued folder-open requests.
+ * The handler is registered once and routes by `event.sender.id`.
  */
 import { ipcMain } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -62,7 +49,7 @@ const readResetGeneration = (payload: unknown): string | null | undefined => {
 };
 
 /**
- * Registers the `workspace:open-path-ready` event channel. Call ONCE, at
+ * Registers the `workspace:open-path-ready` method. Call ONCE, at
  * module scope in `main.ts` (matching where `workspace-open-queue.ts`'s
  * queue itself is created) — never per-window. Returns an unregister
  * function for symmetry with every other `register*IpcHandlers` factory in
@@ -74,19 +61,11 @@ export function registerWorkspaceOpenReadyIpcHandlers(
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerEvent(
+  registry.handle(
     'workspace',
     DESKTOP_IPC_CHANNELS.workspace.openPathReady,
     (event, payload: unknown) => {
       const senderWebContentsId = event.sender.id;
-      if (!event.senderFrame) {
-        handlers.onOpenPathReady({
-          diagnostic: `Renderer ${senderWebContentsId} readiness acknowledgement has no sender frame`,
-          kind: 'invalid',
-          senderWebContentsId,
-        });
-        return;
-      }
       const resetGeneration = readResetGeneration(payload);
       if (resetGeneration === undefined) {
         handlers.onOpenPathReady({

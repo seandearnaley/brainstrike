@@ -87,7 +87,7 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
   // The reason is the error run/start would fail with, shown before any send.
   await expect(
     reopened.getByText(
-      'Semantic recall requires a configured Google AI Studio API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.'
+      'Semantic recall requires a configured Google AI Studio API key. Configure it in Settings → Providers, choose an embedding model whose provider has a key, or turn semantic recall off.'
     )
   ).toBeVisible({ timeout: 30_000 });
   await expect(reopened.getByRole('textbox', { name: 'Message input' })).toBeDisabled();

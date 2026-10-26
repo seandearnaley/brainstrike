@@ -83,7 +83,6 @@ permissions:
   pull-requests: read
 
 env:
-  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -464,12 +463,9 @@ jobs:
       # the desktop model cache. Every shard gets it, not only the ones that
       # own agent or desktop: shard membership is a filter list in Unit plan, and a
       # dependency that silently stops being installed when a package moves
-      # shards is the failure this step exists to end. It follows Setup
-      # workspace because a desktop package script provisions the model cache.
+      # shards is the failure this step exists to end.
       - name: Provision the Linux desktop test host
         uses: ./.github/actions/linux-desktop-test-host
-        with:
-          model-cache: ${{ matrix.partition == 'desktop' }}
 
       # NO standalone build step (B4). Test lanes resolve workspace imports
       # from SOURCE (the B3 #1651 registry + the app vitest alias maps), so
@@ -1006,8 +1002,8 @@ jobs:
     name: Browser tests
     # Vitest 4 browser-mode suites (real Chromium): packages/db PGlite WASM
     # semantics (BST-64/BST-994 — unskipped after eight months), packages/ui,
-    # packages/assistant-ui assistant browser suites, packages/storage web adapter,
-    # and embedding-worker cache concurrency in real Chromium. Before this job
+    # packages/assistant-ui assistant browser suites and the packages/storage web
+    # adapter in real Chromium. Before this job
     # existed, `test:browser` ran NOWHERE in CI — only in the local `pnpm
     # check` gate — while turbo.jsonc's task comment claimed otherwise.
     if: github.repository == 'seandearnaley/brainstrike' && !inputs.nightly && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
@@ -1052,8 +1048,8 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # `test:browser` dependsOn build, so the pure-TS db/ui/assistant-ui/storage/
-      # embedding-worker closure builds in-job. The remote Turbo cache carries
+      # `test:browser` dependsOn build, so the pure-TS db/ui/assistant-ui/storage
+      # closure builds in-job. The remote Turbo cache carries
       # most of it; this local
       # .turbo layer is the same outage hedge the setup-workspace composite
       # provides (same key scheme — the composite itself can't be used here
@@ -1069,7 +1065,7 @@ jobs:
 
       - name: Install dependencies
         # This container has no C toolchain or sudo; the browser-test packages
-        # (db, ui, assistant-ui, storage, embedding-worker, mcp-app-host) and
+        # (db, ui, assistant-ui, storage, mcp-app-host) and
         # their dependency closures are pure TS, so desktop and the three
         # native addon projects are excluded from install. windows-job-native
         # has compiled on Linux since M3 (#3543) and failed this install with
@@ -1086,7 +1082,7 @@ jobs:
         # scripts/__tests__/browser-lane-filter-contract.test.mjs fails
         # `pnpm test:scripts` (Static job) if a package gains test:browser
         # without being added here.
-        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/canonical-ingestion --filter=@brainstrike/embedding-worker --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui
+        run: pnpm test:browser --filter=@brainstrike/assistant-ui --filter=@brainstrike/canonical-ingestion --filter=@brainstrike/mcp-app-host --filter=@brainstrike/storage --filter=@brainstrike/ui
 
       - name: Upload browser test artifacts
         if: failure()
@@ -1096,13 +1092,11 @@ jobs:
           include-hidden-files: true
           path: |
             packages/assistant-ui/test-results/
-            packages/embedding-worker/test-results/
             packages/ui/test-results/
             packages/storage/test-results/
             packages/mcp-app-host/test-results/
             packages/canonical-ingestion/test-results/
             packages/assistant-ui/.vitest/attachments/failure-screenshots/
-            packages/embedding-worker/.vitest/attachments/failure-screenshots/
             packages/ui/.vitest/attachments/failure-screenshots/
             packages/storage/.vitest/attachments/failure-screenshots/
             packages/mcp-app-host/.vitest/attachments/failure-screenshots/

@@ -6,7 +6,7 @@ import {
 } from '@brainstrike/agent-host/credential-contract';
 import type { ProviderCredential } from '@brainstrike/assistant-contract';
 import {
-  findProviderDefinition,
+  getProviderDefinition,
   isSupportedProvider,
   refusalError,
 } from '@brainstrike/assistant-contract';
@@ -41,15 +41,7 @@ function assertLoginCredential(provider: string, credential: ProviderCredential)
       'Choose a supported provider.'
     );
   }
-  const authType = findProviderDefinition(provider)?.authType;
-  if (authType !== 'api_key' && authType !== 'aws') {
-    throw refusalError(
-      'authorization',
-      'auth.credential-login-unavailable',
-      'This provider does not accept a credential login',
-      'Choose a provider that takes an API key or AWS credential.'
-    );
-  }
+  const { authType } = getProviderDefinition(provider);
   if (credential.type !== authType) {
     throw refusalError(
       'input',

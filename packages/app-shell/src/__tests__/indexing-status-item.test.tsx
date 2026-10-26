@@ -12,11 +12,7 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
-import {
-  BoundaryFailureError,
-  refusal,
-  refusalError,
-} from '@brainstrike/assistant-contract/boundary-failure';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   DEFAULT_INDEX_CONFIG,
   type IndexConfig,
@@ -51,7 +47,7 @@ function semanticConfig(modelKey: string, dimensions: number): IndexConfig {
   return {
     ...DEFAULT_INDEX_CONFIG,
     mode: 'semantic',
-    model: { dimensions, local: null, modelKey },
+    model: { dimensions, modelKey },
   };
 }
 
@@ -335,7 +331,7 @@ describe('IndexingStatusItem', () => {
         chunksProcessed: 7,
         currentChunk:
           'packages/app-shell/src/status-items/a-very-long-current-embedding-chunk-name.ts:40',
-        modelName: 'local:bge-m3',
+        modelName: 'openai::text-embedding-3-small',
         totalChunks: 11,
       },
       managedCollectionId: 'collection-a',
@@ -519,95 +515,6 @@ describe('IndexingStatusItem', () => {
     expect(within(activityRegion).getByText('OpenAI API key not configured.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pause workspace index' })).not.toBeInTheDocument();
     expect(screen.getByTestId('indexing-action-region')).toHaveClass('h-11');
-  });
-
-  describe('an embedding host that stopped responding (BST-2104)', () => {
-    const cause =
-      'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
-    const capability = {
-      coverage: () => Promise.reject(new Error('unused')),
-      coverageBatch: () => Promise.reject(new Error('unused')),
-      grep: () => Promise.reject(new Error('unused')),
-      rebuild: async () => {},
-      search: () => Promise.reject(new Error('unused')),
-      status: async () => ({ kind: 'unavailable' as const, reason: cause }),
-    };
-    function blockOnHost(): void {
-      useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-        blockedReason: 'embedding-host-unresponsive',
-        lastError: cause,
-        state: 'blocked',
-      });
-    }
-
-    it('shows its cause and offers Retry indexing, which restarts the host once per click', async () => {
-      blockOnHost();
-      const retry = Promise.withResolvers<void>();
-      const retryIndexing = vi.fn(() => retry.promise);
-      render(
-        <IndexingStatusItem nativeIndexRetry={{ retryIndexing }} nativeIndexSearch={capability} />
-      );
-      expect(screen.getByTestId('indexing-status-item')).toHaveTextContent(
-        'Workspace IndexBlocked'
-      );
-      await userEvent.click(screen.getByTestId('indexing-status-trigger'));
-      expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(cause);
-      const button = within(screen.getByTestId('indexing-action-region')).getByRole('button', {
-        name: 'Retry indexing',
-      });
-      await userEvent.click(button);
-      expect(retryIndexing).toHaveBeenCalledOnce();
-      expect(button).toBeDisabled();
-      expect(button).toHaveAttribute('aria-busy', 'true');
-      await act(async () => {
-        retry.resolve();
-        await retry.promise;
-      });
-      expect(button).toBeEnabled();
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    });
-
-    it('announces a failed retry as an alert in the owner’s words and leaves Retry available', async () => {
-      blockOnHost();
-      const retryIndexing = vi.fn(async () => {
-        throw new BoundaryFailureError(
-          refusal({
-            category: 'conflict',
-            code: 'native-index.retry-not-needed',
-            message: 'Indexing is not waiting for the embedding model to restart.',
-          })
-        );
-      });
-      render(
-        <IndexingStatusItem nativeIndexRetry={{ retryIndexing }} nativeIndexSearch={capability} />
-      );
-      await userEvent.click(screen.getByTestId('indexing-status-trigger'));
-      await userEvent.click(screen.getByRole('button', { name: 'Retry indexing' }));
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        'Retry indexing failed: Indexing is not waiting for the embedding model to restart.'
-      );
-      expect(screen.getByRole('button', { name: 'Retry indexing' })).toBeEnabled();
-    });
-
-    it('offers no Retry without the capability, or for a block with another cause', async () => {
-      blockOnHost();
-      const { unmount } = render(<IndexingStatusItem nativeIndexSearch={capability} />);
-      await userEvent.click(screen.getByTestId('indexing-status-trigger'));
-      expect(screen.queryByRole('button', { name: 'Retry indexing' })).not.toBeInTheDocument();
-      await userEvent.keyboard('{Escape}');
-      unmount();
-
-      useWorkspaceCollectionSyncStatusStore.getState().setStatus({ blockedReason: null });
-      render(
-        <IndexingStatusItem
-          nativeIndexRetry={{ retryIndexing: vi.fn(async () => {}) }}
-          nativeIndexSearch={capability}
-        />
-      );
-      await userEvent.click(screen.getByTestId('indexing-status-trigger'));
-      expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(cause);
-      expect(screen.queryByRole('button', { name: 'Retry indexing' })).not.toBeInTheDocument();
-    });
   });
 
   it('explains incomplete native setup and opens the matching settings category', async () => {

@@ -1,6 +1,5 @@
 import {
   __resetAssistantPreferencesStoreForTests,
-  AvailableProviderDiscoveryError,
   useAssistantPreferencesStore,
 } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import {
@@ -81,7 +80,7 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('merges Desktop seeds with one shared renderer discovery snapshot', async () => {
-    const getAvailableProviders = setProviderDiscovery(async () => ['anthropic', 'ollama']);
+    const getAvailableProviders = setProviderDiscovery(async () => ['anthropic', 'google']);
     const source: AssistantProviderSource = {
       kind: 'discovery',
       seeds: ['openai', 'anthropic'],
@@ -93,7 +92,7 @@ describe('useConfiguredAssistantProviders', () => {
 
     expect(result.current.providers).toEqual(['openai', 'anthropic']);
     await waitFor(() => {
-      expect(result.current.providers).toEqual(['openai', 'anthropic', 'ollama']);
+      expect(result.current.providers).toEqual(['openai', 'anthropic', 'google']);
     });
     expect(getAvailableProviders).toHaveBeenCalledTimes(1);
   });
@@ -119,7 +118,7 @@ describe('useConfiguredAssistantProviders', () => {
   });
 
   it('treats Hosted Web providers as synchronous authority without discovery', async () => {
-    const getAvailableProviders = setProviderDiscovery(async () => ['ollama']);
+    const getAvailableProviders = setProviderDiscovery(async () => ['google']);
     const source: AssistantProviderSource = {
       kind: 'authoritative',
       providers: ['openai'],
@@ -155,37 +154,6 @@ describe('useConfiguredAssistantProviders', () => {
     expect(getAvailableProviders).toHaveBeenCalledTimes(2);
   });
 
-  it('refreshes discovery only from local-runtime provider settings', async () => {
-    const getAvailableProviders = setProviderDiscovery(
-      vi
-        .fn<() => Promise<SupportedProvider[]>>()
-        .mockResolvedValueOnce(['anthropic'])
-        .mockResolvedValueOnce(['anthropic', 'ollama'])
-    );
-
-    const { result } = renderHook(() => useConfiguredAssistantProviders(), {
-      wrapper: providerSourceWrapper({ kind: 'discovery' }),
-    });
-    await waitFor(() => expect(result.current.providers).toEqual(['anthropic']));
-
-    await act(async () => {
-      useAssistantPreferencesStore
-        .getState()
-        .setProviderSettings('openai', { reasoningEffort: 'high' });
-      await Promise.resolve();
-    });
-    expect(getAvailableProviders).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      useAssistantPreferencesStore
-        .getState()
-        .setProviderSettings('ollama', { localRuntimeEnabled: 'on' });
-    });
-
-    await waitFor(() => expect(result.current.providers).toEqual(['anthropic', 'ollama']));
-    expect(getAvailableProviders).toHaveBeenCalledTimes(2);
-  });
-
   it('preserves the last provider snapshot while a remount revalidates', async () => {
     const revalidation = deferred<SupportedProvider[]>();
     const getAvailableProviders = setProviderDiscovery(
@@ -216,11 +184,11 @@ describe('useConfiguredAssistantProviders', () => {
       providers: ['openrouter'],
     });
 
-    await act(async () => revalidation.resolve(['openrouter', 'ollama']));
+    await act(async () => revalidation.resolve(['openrouter', 'google']));
     await waitFor(() => {
       expect(secondMount.result.current).toEqual({
         discoveryState: 'ready',
-        providers: ['openrouter', 'ollama'],
+        providers: ['openrouter', 'google'],
       });
     });
   });
@@ -261,11 +229,11 @@ describe('useConfiguredAssistantProviders', () => {
     });
     await waitFor(() => expect(getAvailableProviders).toHaveBeenCalledTimes(2));
 
-    await act(async () => second.resolve(['ollama']));
-    await waitFor(() => expect(result.current.providers).toEqual(['anthropic', 'ollama']));
+    await act(async () => second.resolve(['google']));
+    await waitFor(() => expect(result.current.providers).toEqual(['anthropic', 'google']));
 
     await act(async () => first.resolve(['openai']));
-    expect(result.current.providers).toEqual(['anthropic', 'ollama']);
+    expect(result.current.providers).toEqual(['anthropic', 'google']);
   });
 
   it('keeps a prior test request invalid after the external resource is reset', async () => {
@@ -329,7 +297,7 @@ describe('useConfiguredAssistantProviders', () => {
     activeSource = hostedSource;
     rerender();
     expect(result.current.providers).toEqual(['openai']);
-    await act(async () => pending.resolve(['ollama']));
+    await act(async () => pending.resolve(['google']));
     expect(result.current.providers).toEqual(['openai']);
   });
 
@@ -347,27 +315,6 @@ describe('useConfiguredAssistantProviders', () => {
         discoveryError: 'OS keychain is locked',
         discoveryState: 'error',
         providers: ['anthropic'],
-      });
-    });
-  });
-
-  it('surfaces a failed runtime probe while retaining independently discovered providers', async () => {
-    setProviderDiscovery(async () => {
-      throw new AvailableProviderDiscoveryError(
-        [new Error('lmstudio discovery failed: probe crashed')],
-        ['anthropic', 'ollama']
-      );
-    });
-
-    const { result } = renderHook(() => useConfiguredAssistantProviders(), {
-      wrapper: providerSourceWrapper({ kind: 'discovery', seeds: ['openai'] }),
-    });
-
-    await waitFor(() => {
-      expect(result.current).toEqual({
-        discoveryError: 'Provider discovery failed: lmstudio discovery failed: probe crashed',
-        discoveryState: 'error',
-        providers: ['openai', 'anthropic', 'ollama'],
       });
     });
   });

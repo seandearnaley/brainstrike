@@ -28,11 +28,6 @@ cleanupUnusedCatalogs: true
 catalog:
   # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
   ai: 7.0.142
-  # BST-754: Ollama's native /api/chat, the only route that takes a per-request
-  # context size (num_ctx). The library sends temperature/top_p/max tokens at the
-  # top level, which /api/chat ignores, and defaults `think` to false, so every
-  # request passes them in providerOptions.ollama (provider-factory.ts).
-  ollama-ai-provider-v2: 4.0.1
   vscode-jsonrpc: 9.0.3
   '@ai-sdk/amazon-bedrock': 5.0.117
   # BST-2067: the AI SDK's OpenTelemetry GenAI integration. LOCKSTEP with `ai`:
@@ -68,7 +63,6 @@ catalog:
   '@eslint-community/regexpp': 4.12.2
   '@fontsource-variable/geist': ^5.3.0
   '@fontsource-variable/geist-mono': ^5.3.0
-  '@huggingface/transformers': ^4.3.1
   '@mastra/schema-compat': 1.3.15
   # GHSA-6qxp-vccf-f47h / CVE-2026-104850 (HIGH, CVSS 7.5): in 2.0.0-2.1.0 the
   # MCP *server* chose which authorization server received a stored
@@ -151,7 +145,6 @@ catalog:
   electron: ^44.8.0
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.7
-  glob: ^13.0.6
   happy-dom: ^21.0.3
   ignore: 7.0.12
   jsdom: 30.1.3
@@ -190,7 +183,6 @@ catalog:
   vite-plugin-static-copy: ^4.1.1
   vite-plugin-wasm: ^3.6.0
   vitest: ^5.0.5
-  workerpool: ^10.0.3
   xxhash-wasm: ^1.1.0
   yaml: ^2.9.1
   zod: ^4.6.7
@@ -293,15 +285,8 @@ allowBuilds:
   esbuild: false
   lefthook: true
   node-pty: true
-  # BST-2229: DENIED. The package bundles its CPU runtime for every platform;
-  # its postinstall only downloads the optional CUDA 12 provider on Linux x64
-  # from nuget.org, which nothing here uses. It ran in every install that
-  # lacked ONNXRUNTIME_NODE_INSTALL_CUDA=skip, including Vercel's own function
-  # builder install, and failed a web build when nuget.org timed out.
-  onnxruntime-node: false
   oxc-resolver: true
   protobufjs: true
-  sharp: true
   '@parcel/watcher': false
 # Owner decision, 2026-10-16: install selected versions without a release-age delay.
 # Explicit zero overrides pnpm 11's default one-day floor.
@@ -319,7 +304,6 @@ patchedDependencies:
   '@assistant-ui/core@0.3.29': patches/@assistant-ui__core@0.3.29.patch
   app-builder-lib@26.17.0: patches/app-builder-lib@26.17.0.patch
   vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
-  '@huggingface/transformers@4.3.1': patches/@huggingface__transformers@4.3.1.patch
   # CLI-only vendor API migration paired with the argparse 3 override above.
   # Retire both when the legacy YAML owner publishes this migration.
   js-yaml@3.15.2: patches/js-yaml@3.15.2.patch

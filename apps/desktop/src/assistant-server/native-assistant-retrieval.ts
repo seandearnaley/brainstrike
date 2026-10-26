@@ -1,5 +1,4 @@
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { requestedEmbeddingPooling } from '@brainstrike/indexing-contract';
 import type {
   IndexerSearchHit,
   IndexerSearchResult,
@@ -13,14 +12,13 @@ import {
   NATIVE_SEARCH_CANDIDATE_LIMIT,
   NATIVE_SEARCH_FINAL_LIMIT,
 } from '@brainstrike/workspace-search/core';
-import type { EmbeddingHostManager } from '../embedding-host-manager';
+import type { QueryEmbedder } from './retrieval-core';
 import type { EmbeddingSetRow } from './retrieval-store';
 
 interface NativeAssistantRequest {
   admittedWorkspaceRootIds?: readonly string[] | undefined;
   capability: IndexSearchCapability;
   chunkType?: string | undefined;
-  embeddingHostManager: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   embeddingSet: EmbeddingSetRow;
   embeddingSetId: string;
   filePaths?: readonly string[] | undefined;
@@ -28,6 +26,7 @@ interface NativeAssistantRequest {
   limit?: number | undefined;
   mode: 'semantic' | 'hybrid';
   query: string;
+  queryEmbedder: QueryEmbedder | undefined;
   rootId?: string | undefined;
   selectionSnapshotId?: string | undefined;
   signal?: AbortSignal | undefined;
@@ -249,20 +248,19 @@ export async function searchNativeAssistantChunks(request: NativeAssistantReques
     }
   };
   await assertCurrent();
-  const host = request.embeddingHostManager;
-  if (!host) {
-    refuse('Local embedding query host is unavailable.');
+  const embedQuery = request.queryEmbedder;
+  if (!embedQuery) {
+    refuse('Semantic search has no query embedder.');
   }
-  // The manager joins physical settlement on success, cancellation and failure.
-  // Preserve the exact signal and saved scalar plan; queryEmbedding owns query task/prefix.
-  const payload = {
-    dimensions: profile.dimensions,
-    ...(plan.inferencePlan ? { inferencePlan: plan.inferencePlan } : {}),
-    modelId: profile.modelId,
-    modelKey: plan.modelKey,
-    query,
-  };
-  const vector = await host.queryEmbedding(payload, signal ? { signal } : undefined);
+  const vector = await embedQuery(
+    {
+      dimensions: profile.dimensions,
+      modelId: profile.modelId,
+      modelKey: plan.modelKey,
+      query,
+    },
+    signal
+  );
   signal?.throwIfAborted();
   assertNativeVector(vector, profile.dimensions);
   await assertCurrent();
@@ -445,30 +443,10 @@ function assertSelectedQueryIdentity(
     selectedSet.dimensions !== profile.dimensions ||
     (profile.distance !== undefined && profile.distance !== selectedSet.distance) ||
     !['cosine', 'l2', 'ip'].includes(selectedSet.distance ?? '') ||
-    (plan.inferencePlan
-      ? plan.inferencePlan.modelId !== profile.modelId ||
-        plan.inferencePlan.revision !== profile.revision ||
-        plan.inferencePlan.dimensions !== profile.dimensions ||
-        plan.inferencePlan.dtype !== profile.dtype ||
-        requestedEmbeddingPooling(plan.inferencePlan) !== requestedEmbeddingPooling(profile) ||
-        !samePrompts(plan.inferencePlan.prompts, profile.prompts) ||
-        !['wasm', 'webgpu'].includes(plan.inferencePlan.device)
-      : profile.provider === undefined ||
-        profile.provider === 'local' ||
-        profile.provider === 'transformers')
+    profile.provider === undefined
   ) {
     refuse(
-      'Native query inference requires the exact saved model, revision, dimensions, dtype, pooling, prompts, device and distance profile.'
+      'Native query inference requires the exact saved model, dimensions and distance profile.'
     );
   }
-}
-
-/** Two plans state the same catalog prompts (or both predate stated prompts). */
-function samePrompts(
-  left: { readonly document: string; readonly query: string } | undefined,
-  right: { readonly document: string; readonly query: string } | undefined
-): boolean {
-  return left === undefined || right === undefined
-    ? left === right
-    : left.query === right.query && left.document === right.document;
 }

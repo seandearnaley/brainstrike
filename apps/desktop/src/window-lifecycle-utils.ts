@@ -2,7 +2,7 @@ import type { BrowserWindow } from 'electron';
 
 /**
  * Resolves on the window's `closed` event, never on a clock (ADR-0026 R4): a
- * hidden host retired with `destroy()` is joined, since Electron's `destroy()`
+ * window retired with `destroy()` is joined, since Electron's `destroy()`
  * guarantees `closed`. Safe to call on an already-destroyed window.
  *
  * **Important:** Call this BEFORE `window.destroy()`, not after. Electron's

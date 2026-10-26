@@ -8,11 +8,6 @@
  * skills tiers (mounted roots + home dir). The caller strips any
  * client-supplied `workspaceSkills` before this runs — the engine is always
  * server-built, like `hookRunner`.
- *
- * The built-in local provider never gets an engine: the 2B on-device model's
- * context budget cannot afford skill payloads (mirrors the personas /
- * workspace-instructions / plan-mode local exclusions). The agent runtime
- * gates on provider too — this is the belt to that suspenders.
  */
 
 import type {

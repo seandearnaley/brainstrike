@@ -55,7 +55,7 @@ sensitive content while preserving correlated causes, aggregate failures and
 safe actionable errors. Telemetry is an observation, never authority or a second
 persistent fact. Adding a diagnostic store adds a reset obligation.
 
-Long-lived watchers, command sessions, hidden hosts and background tasks own
+Long-lived watchers, command sessions and background tasks own
 explicit lifetimes. Fence admission synchronously, join late and active resources,
 attempt independent cleanup and report every failure. A timeout, cancellation
 notice, closed transport or deleted row does not prove physical work stopped.
@@ -89,7 +89,6 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
 - The agent host is asked to close and its exit joined; after 30 s Main calls
   `kill()` and joins the exit. A content clear is never killed: its deletion
   completes under the lease, whose exit is joined without a rung.
-- Hidden renderer hosts are destroyed and their `closed` joined.
 
 Terminal quit prepares Main's workspace mutations before profile retirement; the
 agent host retires its worktree operations, Git inventory, forge, snapshot
@@ -148,7 +147,7 @@ document it owns, then unloads the document whatever the answer:
 - a user's window close (window-X, Alt+F4, Cmd+W): Main prevents it, prepares the
   document, then closes the window again past the interception. On Windows and
   Linux the last visible window's close is the app's quit instead, and quit prepares
-  and closes it; hidden renderer hosts never count as visible;
+  and closes it;
 - menu Reload, a renderer's `desktopLifecycle.requestReload` (failed-chunk recovery,
   visible-UI main frame only) and the developer database reset, which flushes the
   documents before it clears their profile. A failed flush is logged and the reload
@@ -164,7 +163,7 @@ Outside quit the same write reaches the relaunched host. Any other rejection fai
 the flush, and the negative ACK names each cause, since the context bridge carries
 only an error's message. The latch belongs to that document
 generation; a reloaded document starts a fresh registry. A page never vetoes an
-unload Main owns. Hidden hosts retain their existing retirement order.
+unload Main owns.
 
 These reloads are deliberately not prepared:
 

@@ -72,12 +72,11 @@ function closeRenderer(window: ShutdownRendererWindow): Promise<void> {
 
 /** Stop renderer producers while their IPC dependencies are still available. */
 export async function closeDesktopRenderers<Window extends ShutdownRendererWindow>(
-  windows: readonly Window[],
-  isOwnedHostWindow: (window: Window) => boolean
+  windows: readonly Window[]
 ): Promise<void> {
   const closes: Promise<void>[] = [];
   for (const window of windows) {
-    if (!(window.isDestroyed() || isOwnedHostWindow(window))) {
+    if (!window.isDestroyed()) {
       closes.push(closeRenderer(window));
     }
   }

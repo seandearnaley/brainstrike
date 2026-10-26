@@ -4,15 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
-vi.mock('@brainstrike/settings-ui/components/global-download-indicator', () => ({
-  GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
-}));
-
 vi.mock('@brainstrike/app-state/hooks/use-database-status-sync', () => ({
   useDatabaseStatusSync: () => {},
-}));
-vi.mock('@brainstrike/settings-ui/components/global-download-indicator', () => ({
-  GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
 }));
 vi.mock('@brainstrike/app-state/hooks/use-database-status-sync', () => ({
   useDatabaseStatusSync: () => {},
@@ -142,7 +135,7 @@ describe('AppLayout', () => {
     expect(screen.getByText('Page Content')).toBeInTheDocument();
   });
 
-  it('places the unified indexing surface at the far right after downloads', () => {
+  it('places the unified indexing surface at the far right', () => {
     render(
       <AppLayout config={mockConfig} currentPath="/">
         <div>Page Content</div>
@@ -153,17 +146,8 @@ describe('AppLayout', () => {
     expect(screen.getByTestId('indexing-status-item')).toBeInTheDocument();
     expect(screen.getByTestId('status-bar-center')).toBeEmptyDOMElement();
     expect(screen.getByTestId('status-bar-right')).toContainElement(
-      screen.getByTestId('global-download-indicator')
-    );
-    expect(screen.getByTestId('status-bar-right')).toContainElement(
       screen.getByTestId('indexing-status-item')
     );
-    expect(
-      screen
-        .getByTestId('global-download-indicator')
-        .compareDocumentPosition(screen.getByTestId('indexing-status-item')) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
     expect(screen.queryByTestId('collection-sync-status-item')).not.toBeInTheDocument();
     expect(screen.queryByTestId('queue-status-item')).not.toBeInTheDocument();
   });

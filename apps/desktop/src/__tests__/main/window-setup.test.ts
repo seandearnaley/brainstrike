@@ -72,9 +72,6 @@ vi.mock('electron', () => ({
   },
   ipcMain: {
     handle: vi.fn(),
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    removeHandler: vi.fn(),
   },
   Menu: {
     buildFromTemplate: vi.fn(),
@@ -82,11 +79,6 @@ vi.mock('electron', () => ({
   },
   powerMonitor: {
     on: vi.fn(),
-  },
-  powerSaveBlocker: {
-    isStarted: vi.fn(() => true),
-    start: vi.fn(() => 1),
-    stop: vi.fn(),
   },
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
   screen: {
@@ -283,7 +275,7 @@ describe('window setup', () => {
 
     const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map((call) => call[0]);
     expect(attemptedUrls).toContain(DESKTOP_DEV_RENDERER_URL);
-    for (const url of attemptedUrls.filter((value) => !value.includes('?mode=embedding-host'))) {
+    for (const url of attemptedUrls) {
       expect(url).toBe(DESKTOP_DEV_RENDERER_URL);
     }
     expect(mockBrowserWindowInstance.webContents.openDevTools).not.toHaveBeenCalled();
@@ -307,27 +299,5 @@ describe('window setup', () => {
     // Verify win has the expected mock functions attached
     expect(win.loadURL).toBeDefined();
     expect(win.loadFile).toBeDefined();
-  });
-
-  it('sets disable-features with MacWebContentsOcclusion and SpareRendererForSitePerProcess', async () => {
-    await import('../../main');
-    expect(mockApp.commandLine.appendSwitch).toHaveBeenCalledWith(
-      'disable-features',
-      expect.stringContaining('MacWebContentsOcclusion')
-    );
-    expect(mockApp.commandLine.appendSwitch).toHaveBeenCalledWith(
-      'disable-features',
-      expect.stringContaining('SpareRendererForSitePerProcess')
-    );
-  });
-
-  it('does NOT enable gpu-rasterization or zero-copy flags', async () => {
-    await import('../../main');
-    const calls = mockApp.commandLine.appendSwitch.mock.calls as [string, string][];
-    for (const [key, value] of calls) {
-      const combined = `${key}=${value ?? ''}`;
-      expect(combined).not.toMatch(/enable-gpu-rasterization/);
-      expect(combined).not.toMatch(/enable-zero-copy/);
-    }
   });
 });

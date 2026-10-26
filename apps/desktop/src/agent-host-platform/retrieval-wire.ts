@@ -1,32 +1,12 @@
-import { strictWireSchema } from '@brainstrike/assistant-contract/schema-boundary';
 import { Schema } from 'effect';
 
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 const Count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
-const Dtype = Schema.Literals(['q4', 'q8', 'fp16', 'fp32']);
-const Pooling = Schema.Literals(['mean', 'cls']);
-const Prompts = strictWireSchema(Schema.Struct({ document: Schema.String, query: Schema.String }));
 const EmbeddingProfileSchema = Schema.Struct({
   dimensions: Schema.Int.check(Schema.isGreaterThan(0)),
-  distance: Schema.optionalKey(Schema.Literals(['cosine', 'l2', 'ip'])),
-  dtype: Schema.optionalKey(Dtype),
+  distance: Schema.Literals(['cosine', 'l2', 'ip']),
   modelId: Schema.String,
-  pooling: Schema.optionalKey(Pooling),
-  prompts: Schema.optionalKey(Prompts),
-  provider: Schema.optionalKey(
-    Schema.Literals([
-      'local',
-      'transformers',
-      'openai',
-      'google',
-      'cohere',
-      'voyage',
-      'ollama',
-      'lmstudio',
-    ])
-  ),
-  revision: Schema.optionalKey(Schema.String),
-  tokenCap: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+  provider: Schema.Literals(['openai', 'google', 'cohere', 'voyage']),
 });
 const EmbeddingStateSchema = Schema.Union(
   [
@@ -39,15 +19,6 @@ const EmbeddingStateSchema = Schema.Union(
   ],
   { mode: 'oneOf' }
 );
-export const InferencePlanSchema = Schema.Struct({
-  device: Schema.Literals(['wasm', 'webgpu']),
-  dimensions: Schema.Int.check(Schema.isGreaterThan(0)),
-  dtype: Dtype,
-  modelId: Schema.String,
-  pooling: Schema.optionalKey(Pooling),
-  prompts: Schema.optionalKey(Prompts),
-  revision: Schema.optionalKey(Schema.String),
-});
 const ReadyStatusSchema = Schema.Struct({
   authorizedCollectionIds: Schema.optionalKey(Schema.mutable(Schema.Array(Schema.String))),
   authorizedRootIds: Schema.mutable(Schema.Array(Schema.String)),
@@ -71,12 +42,7 @@ const ReadyStatusSchema = Schema.Struct({
       )
     )
   ),
-  queryPlan: Schema.optionalKey(
-    Schema.Struct({
-      inferencePlan: Schema.optionalKey(InferencePlanSchema),
-      modelKey: Schema.String,
-    })
-  ),
+  queryPlan: Schema.optionalKey(Schema.Struct({ modelKey: Schema.String })),
   rootReadiness: Schema.mutable(
     Schema.Array(Schema.Struct({ rootId: Schema.String, scanComplete: Schema.Boolean }))
   ),
@@ -90,7 +56,6 @@ const NativeIndexRefusalCauseSchema = Schema.Union(
     Schema.Struct({ kind: Schema.Literal('settings-invalid'), message: Schema.String }),
     Schema.Struct({ kind: Schema.Literal('source-failure'), message: Schema.String }),
     Schema.Struct({ kind: Schema.Literal('rebuild-required'), message: Schema.String }),
-    Schema.Struct({ kind: Schema.Literal('embedding-host-unresponsive'), message: Schema.String }),
   ],
   { mode: 'oneOf' }
 );
@@ -222,7 +187,6 @@ export const RefusableOutcomeSchema = Schema.Union(
 );
 export const QueryEmbeddingPayloadSchema = Schema.Struct({
   dimensions: Schema.Int.check(Schema.isGreaterThan(0)),
-  inferencePlan: Schema.optionalKey(InferencePlanSchema),
   modelId: Schema.String,
   modelKey: Schema.String,
   query: Schema.String,

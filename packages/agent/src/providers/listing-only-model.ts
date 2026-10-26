@@ -11,11 +11,9 @@ const LISTING_ONLY_INVARIANT =
  * value to feed the tool-search processor but never runs inference. It was
  * introduced for the retired engine's suspended-run DISCOVERY path, where
  * `listSuspendedRuns()` only read workflow-storage snapshots yet the runtime
- * unconditionally instantiated a language model. Resolving a real provider/model for listing is both wasteful
- * and a live failure mode: a keyless provider with no static default (e.g.
- * `ollama`, whose models are discovered dynamically) throws
- * `No default model configured` at init, before any listing happens (the D1
- * `/assistant/suspended-runs` 500). This stub lets the listing runtime build with
+ * unconditionally instantiated a language model. Resolving a real provider/model for listing is
+ * wasteful, and a provider whose model cannot be resolved throws at init, before any listing
+ * happens. This stub lets the listing runtime build with
  * NO provider/model resolution at all. Every generation method THROWS so a
  * regression that accidentally routes inference here fails loudly instead of
  * silently degrading (no-silent-fallbacks).

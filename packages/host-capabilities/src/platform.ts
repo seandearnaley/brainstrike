@@ -32,7 +32,6 @@ import {
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
-  findProviderDefinition,
   isSupportedProvider,
   NATIVE_TOOL_ID,
   refusalError,
@@ -119,15 +118,6 @@ function selection(modelId: string) {
       'model.selection-invalid',
       'Standalone --model requires an explicit canonical provider::model',
       'Choose a supported provider and model from the canonical catalog.'
-    );
-  }
-  const source = findProviderDefinition(provider);
-  if (source?.runtime === 'on-device' || source?.runtime === 'local') {
-    throw refusalError(
-      'availability',
-      'model.runtime-unavailable',
-      'The selected provider requires an unavailable headless local-runtime capability',
-      'Use the desktop host for local inference, or select a hosted model.'
     );
   }
   const definition = findLlmModelDefinition(provider, model);

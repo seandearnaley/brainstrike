@@ -7,30 +7,20 @@ import {
   decoder,
   IndexerError,
   type StateProjectionStats,
-  type StateSearchCoverage,
   type StateSearchHit,
-  type StateSearchPendingRow,
   type StateSearchRow,
-  type StateSearchSimilarHit,
-  type StateSearchVectorsResult,
   stateCatchUpStepSchema,
   stateEventIdentitySchema,
   stateGcSchema,
   stateMatchSchema,
-  stateSearchCoverageSchema,
   stateSearchHitSchema,
-  stateSearchPendingSchema,
   stateSearchSchema,
-  stateSearchSimilarSchema,
-  stateSearchVectorBatchSchema,
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.ts';
-import { PromptVectors } from './prompt-vectors.ts';
 import { StateMessageVectors } from './state-message-vectors.ts';
 import { StateObservationVectors } from './state-observation-vectors.ts';
 import type { StateProjection } from './state-projection.ts';
-import { StateSearchVectors } from './state-search-vectors.ts';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);
@@ -114,9 +104,6 @@ export class StateEventStore {
       END;
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
       ${searchDefinition}
-      ${StateSearchVectors.definition}
-      ${StateSearchVectors.failureDefinition}
-      ${PromptVectors.definition}
     `);
     StateMessageVectors.initialize(db);
     db.exec(StateMessageVectors.sourcesDefinition);
@@ -173,9 +160,6 @@ export class StateEventStore {
       ['state_search_rows', 'table'],
       ['state_search_thread', 'index'],
       ['state_search_fts', 'table'],
-      ['state_search_vectors', 'table'],
-      ['state_search_vector_failures', 'table'],
-      ['prompt_vectors', 'table'],
       ['state_message_sources', 'table'],
     ];
     const stored = decoder(
@@ -241,10 +225,8 @@ export class StateEventStore {
     }
   }
 
-  readonly prompts: PromptVectors;
   readonly messages: StateMessageVectors;
   readonly observations: StateObservationVectors;
-  private readonly searchVectors: StateSearchVectors;
   private readonly statements: ReturnType<typeof projectionStatements>;
   /** Where the last bounded catch-up over this exact thread list stopped. */
   private resume: { readonly index: number; readonly key: string } | undefined;
@@ -265,8 +247,6 @@ export class StateEventStore {
     this.projection = projection;
     this.messages = new StateMessageVectors(db, this.truth, projection, options);
     this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
-    this.searchVectors = new StateSearchVectors(db);
-    this.prompts = new PromptVectors(db);
     this.statements = projectionStatements(db);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
@@ -448,47 +428,6 @@ export class StateEventStore {
           request.limit
         )
     );
-  }
-
-  /** The semantic arm's backlog: rows of the threads, caught up, with no vector under the profile. */
-  searchPending(
-    input: unknown,
-    budget = Number.POSITIVE_INFINITY
-  ): readonly StateSearchPendingRow[] {
-    const request = decoder(stateSearchPendingSchema)(input);
-    if (request.threadIds.length === 0) {
-      return [];
-    }
-    this.readable(request.threadIds, budget);
-    return this.searchVectors.pending(request);
-  }
-
-  /** Vectors the caller computed for `searchPending` rows; a changed row's vector is not stored. */
-  putSearchVectors(input: unknown): StateSearchVectorsResult {
-    return this.searchVectors.put(decoder(stateSearchVectorBatchSchema)(input));
-  }
-
-  /** The semantic arm's coverage of the threads, caught up first like `search`. */
-  searchCoverage(input: unknown, budget = Number.POSITIVE_INFINITY): StateSearchCoverage {
-    const request = decoder(stateSearchCoverageSchema)(input);
-    if (request.threadIds.length === 0) {
-      return { embedded: 0, errored: 0, rows: 0 };
-    }
-    this.readable(request.threadIds, budget);
-    return this.searchVectors.coverage(request);
-  }
-
-  /** The semantic arm: the threads' rows nearest the query vector, caught up first like `search`. */
-  searchSimilar(
-    input: unknown,
-    budget = Number.POSITIVE_INFINITY
-  ): readonly StateSearchSimilarHit[] {
-    const request = decoder(stateSearchSimilarSchema)(input);
-    if (request.threadIds.length === 0) {
-      return [];
-    }
-    this.readable(request.threadIds, budget);
-    return this.searchVectors.similar(request);
   }
 
   recordFailure(error: unknown): void {

@@ -15,11 +15,8 @@ import { IndexReader, IndexWriter } from '../src/store.js';
 const profile = {
   dimensions: 384,
   distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  provider: 'local',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 512,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 const collection = { embeddingSetId: 'collection', kind: 'collection' } as const;
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
@@ -216,7 +213,7 @@ it.each([
 });
 
 it('keeps distinct-profile validation fatal when other requests share already-validated bindings', async () => {
-  const other = { ...profile, revision: 'b'.repeat(40) };
+  const other = { ...profile, modelId: 'text-embedding-3-large' } as const;
   const { reader, writer } = await fixture(other);
   const reads = bindingReads(reader);
   const requests = [
@@ -333,7 +330,7 @@ it('refuses an older schema unchanged and creates the lookup index only through 
   const rebuilt = new IndexWriter(rebuiltOptions, openDesktopIndex(rebuiltOptions));
   try {
     expect(rebuilt.identity.storeId).not.toBe(storeId);
-    expect(rebuilt.db.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(15);
+    expect(rebuilt.db.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(16);
     expect(rebuilt.db.prepare("PRAGMA index_info('chunks_file_record')").all()).toMatchObject([
       { name: 'file_record_id' },
     ]);
@@ -358,7 +355,10 @@ it('keeps fresh counts and fail-closed scope, profile and coarse-storage validat
     reader.scoped.coverage({ profile, scope: { kind: 'workspace', rootId: 'foreign' } })
   ).toThrow(expect.objectContaining({ code: 'scope-not-authorized' }));
   expect(() =>
-    reader.scoped.coverage({ profile: { ...profile, tokenCap: 256 }, scope: collection })
+    reader.scoped.coverage({
+      profile: { ...profile, modelId: 'text-embedding-3-large' },
+      scope: collection,
+    })
   ).toThrow(expect.objectContaining({ code: 'profile-not-authorized' }));
   const id: unknown = writer.db
     .prepare('SELECT pk FROM scoped_vectors ORDER BY pk LIMIT 1')

@@ -1,13 +1,13 @@
 import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import { createDefaultLoggingPreferences, LogLevel } from '@brainstrike/logging';
-import type { IpcMainEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoggingIpcHandlers } from '../logging-ipc';
 import type { LoggingSettingsPayload } from '../logging-shared';
+import { DESKTOP_IPC_PUSH_CHANNEL } from '../platform/desktop-ipc-channels';
+import { assertBufferedLogRecord } from '../platform/logging-api-contract';
+import { invokeDesktopIpc } from './helpers/desktop-ipc-sender-test-helpers';
 import {
-  getRegisteredIpcMainHandler,
-  getRegisteredIpcMainListener,
   mockIpcMain,
   resetElectronMainTestHarness,
   setMockWebContents,
@@ -50,7 +50,6 @@ function createMockHandlers(overrides?: Partial<LoggingIpcHandlers>): LoggingIpc
   return {
     getBufferedLogs: vi.fn(() => []),
     getState: vi.fn(() => createMockPayload()),
-    ingestBufferedLog: vi.fn(),
     openDestination: vi.fn(async () => true),
     selectDestination: vi.fn(async () => '/tmp/logs'),
     setPreferences: vi.fn(async () => createMockPayload()),
@@ -72,23 +71,23 @@ describe('logging-ipc', () => {
       cleanup?.();
     });
 
-    it('registers all expected IPC channels', () => {
+    it('serves every logging method on the desktop IPC connection', async () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handleChannels = (mockIpcMain.handle.mock.calls as [string, unknown][]).map(
-        ([ch]) => ch
-      );
-
-      expect(handleChannels).toContain('logging:get-preferences');
-      expect(handleChannels).toContain('logging:set-preferences');
-      expect(handleChannels).toContain('logging:select-destination');
-      expect(handleChannels).toContain('logging:open-destination');
-      expect(handleChannels).toContain('logging:get-buffered-logs');
-
-      const onChannels = (mockIpcMain.on.mock.calls as [string, unknown][]).map(([ch]) => ch);
-
-      expect(onChannels).toContain('logging:ingest-buffered-record');
+      for (const method of [
+        'logging:get-preferences',
+        'logging:select-destination',
+        'logging:get-buffered-logs',
+      ]) {
+        await expect(invokeDesktopIpc(mockIpcMain, method)).resolves.toMatchObject({ ok: true });
+      }
+      await expect(
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', createMockPreferences())
+      ).resolves.toMatchObject({ ok: true });
+      await expect(
+        invokeDesktopIpc(mockIpcMain, 'logging:open-destination', '/some/path')
+      ).resolves.toMatchObject({ ok: true });
     });
 
     it('get-preferences handler delegates to getState', async () => {
@@ -98,7 +97,8 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:get-preferences');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:get-preferences', ...args);
       const result = await handler();
 
       expect(handlers.getState).toHaveBeenCalled();
@@ -122,14 +122,18 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
-      const result = await handler({}, prefs);
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
+      const result = await handler(prefs);
 
       expect(handlers.setPreferences).toHaveBeenCalledWith(prefs);
       expect(result).toEqual({ ok: true, value: payload });
       expect(mockContent.send).toHaveBeenCalledWith(
-        'logging:preferences-updated',
-        expect.objectContaining({ consoleEnabled: false })
+        DESKTOP_IPC_PUSH_CHANNEL,
+        expect.objectContaining({
+          method: 'logging:preferences-updated',
+          payload: expect.objectContaining({ consoleEnabled: false }),
+        })
       );
     });
 
@@ -146,11 +150,12 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
 
       // Fire two updates concurrently
-      const first = handler({}, createMockPreferences({ consoleEnabled: true }));
-      const second = handler({}, createMockPreferences({ consoleEnabled: false }));
+      const first = handler(createMockPreferences({ consoleEnabled: true }));
+      const second = handler(createMockPreferences({ consoleEnabled: false }));
 
       await Promise.all([first, second]);
 
@@ -171,16 +176,17 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
 
       // First call rejects
-      await expect(handler({}, createMockPreferences())).resolves.toMatchObject({
+      await expect(handler(createMockPreferences())).resolves.toMatchObject({
         error: INTERNAL_FAULT,
         ok: false,
       });
 
       // Second call should still work (queue recovered)
-      const result = await handler({}, createMockPreferences());
+      const result = await handler(createMockPreferences());
       expect(result).toBeDefined();
     });
 
@@ -198,7 +204,8 @@ describe('logging-ipc', () => {
           },
         })
       );
-      const handler = getRegisteredIpcMainHandler('logging:select-destination');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:select-destination', ...args);
       await expect(handler()).resolves.toEqual({ error: refusal.failure, ok: false });
     });
 
@@ -208,7 +215,8 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:select-destination');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:select-destination', ...args);
       const result = await handler();
 
       expect(handlers.selectDestination).toHaveBeenCalled();
@@ -221,8 +229,9 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:open-destination');
-      const result = await handler({}, '/some/path');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:open-destination', ...args);
+      const result = await handler('/some/path');
 
       expect(handlers.openDestination).toHaveBeenCalledWith('/some/path');
       expect(result).toEqual({ ok: true, value: true });
@@ -235,150 +244,96 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:get-buffered-logs');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:get-buffered-logs', ...args);
       const result = await handler();
 
       expect(handlers.getBufferedLogs).toHaveBeenCalled();
       expect(result).toEqual({ ok: true, value: records });
     });
 
-    it('ingest-buffered-record listener validates and forwards log records', () => {
-      const handlers = createMockHandlers();
-      cleanup = registerLoggingIpcHandlers(handlers);
-
-      const listener = getRegisteredIpcMainListener('logging:ingest-buffered-record');
-      const validRecord = createValidLogRecord();
-      const mockEvent = { sender: { id: 42 } } as unknown as IpcMainEvent;
-
-      listener(mockEvent, validRecord);
-
-      expect(handlers.ingestBufferedLog).toHaveBeenCalledWith(
-        42,
-        expect.objectContaining({
-          args: ['test message'],
-          level: LogLevel.INFO,
-        })
-      );
-    });
-
-    it('ingest-buffered-record listener rejects invalid payloads', () => {
-      const handlers = createMockHandlers();
-      cleanup = registerLoggingIpcHandlers(handlers);
-
-      const listener = getRegisteredIpcMainListener('logging:ingest-buffered-record');
-      const mockEvent = { sender: { id: 1 } } as unknown as IpcMainEvent;
-
-      // null payload
-      expect(() => listener(mockEvent, null)).toThrow('Buffered log record must be an object.');
-
-      // string payload
-      expect(() => listener(mockEvent, 'not-an-object')).toThrow(
-        'Buffered log record must be an object.'
-      );
-
-      // array payload
-      expect(() => listener(mockEvent, [1, 2, 3])).toThrow(
-        'Buffered log record must be an object.'
-      );
-    });
-
-    it('cleanup function removes all handlers and listeners', () => {
+    it('cleanup function removes every logging method', async () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
       cleanup();
 
-      const removeHandlerChannels = (mockIpcMain.removeHandler.mock.calls as [string][]).map(
-        ([ch]) => ch
-      );
-
-      expect(removeHandlerChannels).toContain('logging:get-preferences');
-      expect(removeHandlerChannels).toContain('logging:set-preferences');
-      expect(removeHandlerChannels).toContain('logging:select-destination');
-      expect(removeHandlerChannels).toContain('logging:open-destination');
-      expect(removeHandlerChannels).toContain('logging:get-buffered-logs');
-
-      expect(mockIpcMain.removeListener).toHaveBeenCalledWith(
-        'logging:ingest-buffered-record',
-        expect.any(Function)
-      );
+      for (const method of [
+        'logging:get-preferences',
+        'logging:set-preferences',
+        'logging:select-destination',
+        'logging:open-destination',
+        'logging:get-buffered-logs',
+      ]) {
+        await expect(invokeDesktopIpc(mockIpcMain, method)).rejects.toThrow(
+          `No desktop IPC handler for ${method}.`
+        );
+      }
     });
   });
 
-  // ── assertLogRecord (tested through the ingest listener) ────────────
-  describe('assertLogRecord validation (via ingest-buffered-record)', () => {
-    let cleanup: () => void;
-    let listener: (...args: unknown[]) => unknown;
-    const mockEvent = { sender: { id: 1 } } as unknown as IpcMainEvent;
-
-    beforeEach(() => {
-      const handlers = createMockHandlers();
-      cleanup = registerLoggingIpcHandlers(handlers);
-      listener = getRegisteredIpcMainListener('logging:ingest-buffered-record');
-    });
-
-    afterEach(() => {
-      cleanup?.();
-    });
-
+  // ── assertBufferedLogRecord (the durable push's validation) ─────────
+  describe('assertBufferedLogRecord validation', () => {
     it('rejects record with invalid level', () => {
       const record = { ...createValidLogRecord(), level: 'invalid' };
-      expect(() => listener(mockEvent, record)).toThrow('Buffered log record has invalid level.');
+      expect(() => assertBufferedLogRecord(record)).toThrow(
+        'Buffered log record has invalid level.'
+      );
     });
 
     it('accepts all valid log levels', () => {
       const levels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'] as const;
       for (const level of levels) {
         const record = { ...createValidLogRecord(), level };
-        expect(() => listener(mockEvent, record)).not.toThrow();
+        expect(() => assertBufferedLogRecord(record)).not.toThrow();
       }
     });
 
     it('rejects record with non-numeric timestamp', () => {
       const record = { ...createValidLogRecord(), timestamp: 'not-a-number' };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record must include a finite numeric timestamp.'
       );
     });
 
     it('rejects record with NaN timestamp', () => {
       const record = { ...createValidLogRecord(), timestamp: Number.NaN };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record must include a finite numeric timestamp.'
       );
     });
 
     it('rejects record with Infinity timestamp', () => {
       const record = { ...createValidLogRecord(), timestamp: Number.POSITIVE_INFINITY };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record must include a finite numeric timestamp.'
       );
     });
 
     it('rejects record with missing args array', () => {
       const record = { ...createValidLogRecord(), args: 'not-an-array' };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record must include args array.'
       );
     });
 
     it('rejects record with null bindings', () => {
       const record = { ...createValidLogRecord(), bindings: null };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record must include bindings object.'
       );
     });
 
     it('rejects record with array bindings', () => {
       const record = { ...createValidLogRecord(), bindings: [1, 2] };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record must include bindings object.'
       );
     });
 
     it('rejects record with non-string message', () => {
       const record = { ...createValidLogRecord(), message: 42 };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record message must be a string when present.'
       );
     });
@@ -386,12 +341,12 @@ describe('logging-ipc', () => {
     it('accepts record with undefined message', () => {
       const record = createValidLogRecord();
       (record as unknown as Record<string, unknown>)['message'] = undefined;
-      expect(() => listener(mockEvent, record)).not.toThrow();
+      expect(() => assertBufferedLogRecord(record)).not.toThrow();
     });
 
     it('rejects record with non-string scope', () => {
       const record = { ...createValidLogRecord(), scope: 123 };
-      expect(() => listener(mockEvent, record)).toThrow(
+      expect(() => assertBufferedLogRecord(record)).toThrow(
         'Buffered log record scope must be a string when present.'
       );
     });
@@ -399,7 +354,7 @@ describe('logging-ipc', () => {
     it('accepts record with undefined scope', () => {
       const record = createValidLogRecord();
       (record as unknown as Record<string, unknown>)['scope'] = undefined;
-      expect(() => listener(mockEvent, record)).not.toThrow();
+      expect(() => assertBufferedLogRecord(record)).not.toThrow();
     });
   });
 
@@ -423,13 +378,14 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
-      await handler({}, createMockPreferences());
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
+      await handler(createMockPreferences());
 
-      expect(mockContent.send).toHaveBeenCalledWith(
-        'logging:preferences-updated',
-        expect.any(Object)
-      );
+      expect(mockContent.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+        method: 'logging:preferences-updated',
+        payload: expect.any(Object),
+      });
     });
 
     it('sends preferences to webview-type webContents', async () => {
@@ -444,13 +400,14 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
-      await handler({}, createMockPreferences());
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
+      await handler(createMockPreferences());
 
-      expect(mockContent.send).toHaveBeenCalledWith(
-        'logging:preferences-updated',
-        expect.any(Object)
-      );
+      expect(mockContent.send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+        method: 'logging:preferences-updated',
+        payload: expect.any(Object),
+      });
     });
 
     it('skips destroyed webContents', async () => {
@@ -465,8 +422,9 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
-      await handler({}, createMockPreferences());
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
+      await handler(createMockPreferences());
 
       expect(mockContent.send).not.toHaveBeenCalled();
     });
@@ -483,8 +441,9 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
-      await handler({}, createMockPreferences());
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
+      await handler(createMockPreferences());
 
       expect(mockContent.send).not.toHaveBeenCalled();
     });
@@ -503,10 +462,11 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
 
       // Should not throw even though send() throws
-      await expect(handler({}, createMockPreferences())).resolves.toBeDefined();
+      await expect(handler(createMockPreferences())).resolves.toBeDefined();
     });
 
     it('handles webContents with missing getType method', async () => {
@@ -521,11 +481,12 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
 
       // getType?.() returns undefined, so targetType is neither 'window' nor 'webview'.
       // The code should skip and log debug, not crash.
-      await expect(handler({}, createMockPreferences())).resolves.toBeDefined();
+      await expect(handler(createMockPreferences())).resolves.toBeDefined();
       expect(mockContent.send).not.toHaveBeenCalled();
     });
 
@@ -554,8 +515,9 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
-      await handler({}, createMockPreferences());
+      const handler = (...args: unknown[]) =>
+        invokeDesktopIpc(mockIpcMain, 'logging:set-preferences', ...args);
+      await handler(createMockPreferences());
 
       expect(mockWindow.send).toHaveBeenCalled();
       expect(mockWebview.send).toHaveBeenCalled();

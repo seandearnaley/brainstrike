@@ -14,30 +14,22 @@ import os from 'node:os';
 import path from 'node:path';
 import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
-import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readIndexConfig, updateIndexConfig } from './utils/index-config';
+import { chooseSemanticSearch, HOSTED_INDEX_MODEL, vectorSearch } from './utils/native-index-build';
 import { seedRoot } from './utils/seed-root';
 import { callIndexSearch, nativeStatus } from './utils/text-search-mode';
 
 const MARKER = 'transition-marker-1988';
-const MODEL = 'BGE Small';
-const MODEL_KEY = 'local::Xenova/bge-small-en-v1.5';
+// The Settings model picker's name for HOSTED_INDEX_MODEL.
+const MODEL = 'Text Embedding 3 Small';
 
 async function openSearchSettings(page: Page) {
   await new HomePage(page).openSettings();
   return await new SettingsPage(page).openCategory(/Search & Indexing/i, 'search-indexing');
-}
-
-/** Semantic search with BGE Small on WASM · Q8, saved through Main as Settings saves it. */
-async function chooseSemanticSearch(page: Page): Promise<void> {
-  await updateIndexConfig(page, {
-    mode: 'semantic',
-    model: { dimensions: 384, local: { device: 'wasm', dtype: 'q8' }, modelKey: MODEL_KEY },
-  });
 }
 
 /** The ready index's status; anything else fails with its own reason. */
@@ -110,41 +102,8 @@ async function textHits(page: Page): Promise<{ path: string; set: string | null 
 }
 
 async function semanticFinds(page: Page, phrase: string): Promise<boolean> {
-  const status = await readyStatus(page);
-  if (status.embedding.indexMode !== 'vector-configured' || !status.queryPlan) {
-    throw new Error('The selected collection has no ready semantic query plan');
-  }
-  const { profile } = status.embedding;
-  const queryPlan = status.queryPlan;
-  const vector = await page.evaluate(
-    async (request) => {
-      const bridge = (window as Window & { readonly embeddingHost?: VisibleEmbeddingHostBridge })
-        .embeddingHost;
-      if (!(bridge && 'queryEmbedding' in bridge)) {
-        throw new Error('Native query bridge unavailable');
-      }
-      const response = await bridge.queryEmbedding(request);
-      if (!response.ok) {
-        throw new Error(JSON.stringify(response.error));
-      }
-      return response.value;
-    },
-    {
-      dimensions: profile.dimensions,
-      modelId: profile.modelId,
-      modelKey: queryPlan.modelKey,
-      query: phrase,
-      ...(queryPlan.inferencePlan ? { inferencePlan: queryPlan.inferencePlan } : {}),
-    }
-  );
-  const result = await callIndexSearch(page, 'search', {
-    limit: 5,
-    mode: 'vector',
-    profile,
-    rootIds: status.authorizedRootIds,
-    vector,
-  });
-  return result.hits.some((hit) => hit.content.includes('sourdough starter'));
+  const { hits } = await vectorSearch(page, phrase, 5);
+  return hits.some((hit) => hit.content.includes('sourdough starter'));
 }
 
 function workspaceFolder(): string {
@@ -158,16 +117,9 @@ function workspaceFolder(): string {
 }
 
 test.describe('Text and semantic search transitions (desktop)', () => {
-  test.beforeEach(() => {
-    // The semantic step chooses WASM explicitly, as the visible execution control does.
-    process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = '1';
-  });
-  test.afterEach(() => {
-    delete process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
-  });
-
   test('a text-only workspace moves into the chosen model’s collection', async ({
     electron,
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(480_000);
@@ -181,7 +133,7 @@ test.describe('Text and semantic search transitions (desktop)', () => {
         { path: 'notes.txt', set: null },
       ]);
 
-      await chooseSemanticSearch(page);
+      await chooseSemanticSearch(page, modelProvider);
       await waitForIndex(page, 'vector-configured');
       const collectionId = await servedCollection(page);
       expect(await semanticFinds(page, 'how to keep a bread starter alive')).toBe(true);
@@ -200,6 +152,7 @@ test.describe('Text and semantic search transitions (desktop)', () => {
 
   test('a text-only workspace moves into a model chosen after semantic search', async ({
     electron,
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(480_000);
@@ -213,7 +166,8 @@ test.describe('Text and semantic search transitions (desktop)', () => {
       ]);
 
       // The order a person picks them on the Settings page: semantic search, then
-      // its model, then the model's execution, staged until Apply saves them together.
+      // its model, staged until Apply saves them together.
+      modelProvider.serveEmbeddings(HOSTED_INDEX_MODEL.dimensions);
       const section = await openSearchSettings(page);
       await section
         .getByRole('group', { name: 'Search mode' })
@@ -224,14 +178,11 @@ test.describe('Text and semantic search transitions (desktop)', () => {
       await expect(apply).toBeDisabled();
       await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
       await page.getByRole('option', { name: new RegExp(MODEL) }).click();
-      await expect(apply).toBeDisabled();
-      await section.getByRole('combobox', { exact: true, name: 'Run it on' }).click();
-      await page.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
       await apply.click();
       await expect(pending).toBeHidden({ timeout: 15_000 });
       expect(await readIndexConfig(page)).toMatchObject({
         mode: 'semantic',
-        model: { dimensions: 384, local: { device: 'wasm', dtype: 'q8' }, modelKey: MODEL_KEY },
+        model: HOSTED_INDEX_MODEL,
       });
       await new HomePage(page).leaveSettings();
 
@@ -250,13 +201,14 @@ test.describe('Text and semantic search transitions (desktop)', () => {
 
   test('turning semantic search off keeps the model and its vector space, and text search works', async ({
     electron,
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(480_000);
     const root = workspaceFolder();
     try {
       await seedRoot(page, root, { reloadReason: 'm6-vector-to-text', rootId: randomUUID() });
-      await chooseSemanticSearch(page);
+      await chooseSemanticSearch(page, modelProvider);
       await waitForIndex(page, 'vector-configured');
       const collectionId = await servedCollection(page);
 
@@ -271,7 +223,7 @@ test.describe('Text and semantic search transitions (desktop)', () => {
       await waitForIndex(page, 'text-only');
       expect(await readIndexConfig(page)).toMatchObject({
         mode: 'text',
-        model: { modelKey: MODEL_KEY },
+        model: { modelKey: HOSTED_INDEX_MODEL.modelKey },
       });
       expect(await textHits(page)).toEqual([
         { path: 'bread.md', set: null },

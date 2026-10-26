@@ -4,7 +4,6 @@ import type {
   CreatePromptItemInput,
   PromptItem,
   PromptItemFilter,
-  PromptItemSimilarityResult,
   PromptItemUsageAction,
   UpdatePromptItemInput,
 } from '@brainstrike/types/prompt-item';
@@ -19,11 +18,6 @@ function item(overrides: Partial<PromptItem> = {}): PromptItem {
     content: 'Always cite the exact file and line.',
     createdAt: new Date('2026-07-10T12:00:00Z'),
     description: 'Evidence discipline',
-    embeddingError: null,
-    embeddingProfileId: 'default',
-    embeddingRevision: 1,
-    embeddingStatus: 'ready',
-    embeddingUpdatedAt: new Date('2026-07-10T12:00:00Z'),
     id: 'item-1',
     isFavorite: false,
     kind: 'snippet',
@@ -79,41 +73,26 @@ function createRepository(initialItems: PromptItem[]): PromptWorkbenchRepository
 }
 
 describe('PromptWorkbenchPanel', () => {
-  it('reconciles library rows when the connected source publishes indexing results', async () => {
-    const pending = item({
-      embeddingError: null,
-      embeddingProfileId: null,
-      embeddingRevision: null,
-      embeddingStatus: 'pending',
-      embeddingUpdatedAt: null,
-    });
-    const indexed = item({
-      ...pending,
-      embeddingProfileId: 'default',
-      embeddingRevision: pending.revision,
-      embeddingStatus: 'ready',
-      embeddingUpdatedAt: new Date('2026-07-10T12:01:00Z'),
-    });
+  it('reconciles library rows when the connected source publishes a new snapshot', async () => {
+    const pending = item({ title: 'Draft evidence rule' });
+    const indexed = item({ ...pending, revision: 2, title: 'Published evidence rule' });
     const repository = createRepository([pending]);
     const renderPanel = (initialItems: readonly PromptItem[]) => (
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={initialItems}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
     );
     const view = render(renderPanel([pending]));
 
-    expect(screen.getByText('Indexing')).toBeInTheDocument();
+    expect(screen.getByText('Draft evidence rule')).toBeInTheDocument();
     view.rerender(renderPanel([indexed]));
 
-    expect(await screen.findByText('Indexed')).toBeInTheDocument();
-    expect(screen.queryByText('Indexing')).not.toBeInTheDocument();
+    expect(await screen.findByText('Published evidence rule')).toBeInTheDocument();
+    expect(screen.queryByText('Draft evidence rule')).not.toBeInTheDocument();
   });
 
   it('keeps a save that resolves after a newer authoritative library snapshot', async () => {
@@ -133,11 +112,8 @@ describe('PromptWorkbenchPanel', () => {
     const renderPanel = (initialItems: readonly PromptItem[]) => (
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={initialItems}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -162,11 +138,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -192,11 +165,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={createRepository([])}
       />
@@ -212,11 +182,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={createRepository([])}
       />
@@ -243,22 +210,16 @@ describe('PromptWorkbenchPanel', () => {
     expect(screen.getByTestId('prompt-kind-filters')).not.toHaveClass('overflow-x-auto');
   });
 
-  it('refreshes the saved row after indexing so status does not stay stale', async () => {
+  it('refreshes the saved row from the library after a capture', async () => {
     const user = userEvent.setup();
     const pending = item({
-      embeddingProfileId: null,
-      embeddingRevision: null,
-      embeddingStatus: 'pending',
-      embeddingUpdatedAt: null,
       id: 'created-pending',
       title: 'Freshly captured thought',
     });
     const indexed = item({
       ...pending,
-      embeddingProfileId: 'default',
-      embeddingRevision: 1,
-      embeddingStatus: 'ready',
-      embeddingUpdatedAt: new Date('2026-07-10T12:01:00Z'),
+      revision: 2,
+      title: 'Captured thought, as the library stores it',
     });
     const repository = createRepository([]);
     repository.create.mockResolvedValue(pending);
@@ -267,11 +228,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -281,7 +239,9 @@ describe('PromptWorkbenchPanel', () => {
     await user.type(capture, pending.content);
     fireEvent.keyDown(capture, { key: 'Enter', metaKey: true });
 
-    expect(await screen.findByText('Indexed')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Captured thought, as the library stores it')
+    ).toBeInTheDocument();
     expect(repository.list).toHaveBeenCalled();
   });
 
@@ -292,11 +252,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext="Working draft"
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={onUseItem}
         repository={createRepository([savedItem])}
       />
@@ -324,11 +281,8 @@ describe('PromptWorkbenchPanel', () => {
       render(
         <PromptWorkbenchPanel
           activeThreadId="thread-active"
-          composerContext=""
           initialItems={[savedItem]}
           modelOptions={[]}
-          onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-          onRequestSuggestions={vi.fn().mockResolvedValue([])}
           onUseItem={onUseItem}
           repository={createRepository([savedItem])}
         />
@@ -357,11 +311,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={onUseItem}
         repository={repository}
       />
@@ -386,11 +337,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={onUseItem}
         repository={createRepository([savedItem])}
       />
@@ -419,11 +367,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockRejectedValue(new Error('Requested provider is unavailable.'))}
         repository={createRepository([savedItem])}
       />
@@ -462,11 +407,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={onUseItem}
         repository={createRepository([savedItem])}
       />
@@ -506,11 +448,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={onUseItem}
         repository={createRepository([savedItem])}
       />
@@ -560,11 +499,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn(() => pendingUse)}
         repository={createRepository([savedItem])}
       />
@@ -590,101 +526,6 @@ describe('PromptWorkbenchPanel', () => {
     expect(reopenedTarget).toHaveValue('the indexing loop');
   });
 
-  it('automatically recalls contextual suggestions and keeps insertion explicit', async () => {
-    const user = userEvent.setup();
-    const suggestion = item({ id: 'suggested' });
-    const onRequestSuggestions = vi
-      .fn<(context: string) => Promise<PromptItemSimilarityResult[]>>()
-      .mockResolvedValue([{ ...suggestion, similarity: 0.87 }]);
-    const onUseItem = vi.fn().mockResolvedValue(undefined);
-    render(
-      <PromptWorkbenchPanel
-        activeThreadId="thread-active"
-        composerContext="I need exact evidence for this code review."
-        initialItems={[]}
-        modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={onRequestSuggestions}
-        onUseItem={onUseItem}
-        repository={createRepository([])}
-      />
-    );
-
-    await waitFor(() =>
-      expect(onRequestSuggestions).toHaveBeenCalledWith(
-        'I need exact evidence for this code review.'
-      )
-    );
-    const recalled = await screen.findByTestId('prompt-context-suggestion-suggested');
-    expect(recalled).toHaveTextContent('87% match');
-    expect(recalled).toHaveClass('w-full', 'min-w-0', '@[260px]/prompt-workbench:min-w-48');
-    expect(onUseItem).not.toHaveBeenCalled();
-
-    await user.click(within(recalled).getByRole('button', { name: 'Insert Evidence rule' }));
-    expect(onUseItem).toHaveBeenCalledWith(suggestion, suggestion.content, 'insert');
-  });
-
-  it('labels a recalled runnable prompt as Compose and dispatches the compose action', async () => {
-    const user = userEvent.setup();
-    const suggestion = item({
-      id: 'suggested-prompt',
-      kind: 'prompt',
-      title: 'Adversarial review',
-    });
-    const onRequestSuggestions = vi
-      .fn<(context: string) => Promise<PromptItemSimilarityResult[]>>()
-      .mockResolvedValue([{ ...suggestion, similarity: 0.91 }]);
-    const onUseItem = vi.fn().mockResolvedValue(undefined);
-    render(
-      <PromptWorkbenchPanel
-        activeThreadId="thread-active"
-        composerContext="Review this change adversarially."
-        initialItems={[]}
-        modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={onRequestSuggestions}
-        onUseItem={onUseItem}
-        repository={createRepository([])}
-      />
-    );
-
-    const recalled = await screen.findByTestId('prompt-context-suggestion-suggested-prompt');
-    const composeButton = within(recalled).getByRole('button', {
-      name: 'Compose Adversarial review',
-    });
-    expect(composeButton).toHaveTextContent('Compose');
-
-    await user.click(composeButton);
-    expect(onUseItem).toHaveBeenCalledWith(suggestion, suggestion.content, 'compose');
-  });
-
-  it('does not run contextual recall while the owning sidebar tab is inactive', async () => {
-    const onRequestSuggestions = vi.fn().mockResolvedValue([]);
-    const repository = createRepository([]);
-    const renderPanel = (suggestionsEnabled: boolean) => (
-      <PromptWorkbenchPanel
-        activeThreadId="thread-active"
-        composerContext="Review this live draft."
-        initialItems={[]}
-        modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={onRequestSuggestions}
-        onUseItem={vi.fn().mockResolvedValue(undefined)}
-        repository={repository}
-        suggestionsEnabled={suggestionsEnabled}
-      />
-    );
-    const view = render(renderPanel(false));
-
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(onRequestSuggestions).not.toHaveBeenCalled();
-
-    view.rerender(renderPanel(true));
-    await waitFor(() =>
-      expect(onRequestSuggestions).toHaveBeenCalledWith('Review this live draft.')
-    );
-  });
-
   it('edits thoughtful prompt fields with optimistic revision ownership', async () => {
     const user = userEvent.setup();
     const modelSettings = { maxOutputTokens: 2048, temperature: 0.25 };
@@ -697,11 +538,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[{ key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' }]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -743,11 +581,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[{ key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' }]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -787,11 +622,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -809,42 +641,6 @@ describe('PromptWorkbenchPanel', () => {
     expect(dialog).toBeInTheDocument();
   });
 
-  it('closes the builder after creating a prompt even when indexing fails', async () => {
-    const user = userEvent.setup();
-    const repository = createRepository([]);
-    const onLibraryChanged = vi
-      .fn<() => Promise<void>>()
-      .mockRejectedValue(new Error('Prompt indexing is unavailable.'));
-    render(
-      <PromptWorkbenchPanel
-        activeThreadId="thread-active"
-        composerContext=""
-        initialItems={[]}
-        modelOptions={[]}
-        onLibraryChanged={onLibraryChanged}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
-        onUseItem={vi.fn().mockResolvedValue(undefined)}
-        repository={repository}
-      />
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Build a prompt' }));
-    const dialog = screen.getByRole('dialog', { name: 'Build a prompt' });
-    await user.type(within(dialog).getByRole('textbox', { name: 'Title' }), 'Failure audit');
-    await user.type(
-      within(dialog).getByRole('textbox', { name: 'Prompt text' }),
-      'Audit the failure path before claiming success.'
-    );
-    await user.click(within(dialog).getByRole('button', { name: 'Save prompt' }));
-
-    await waitFor(() => expect(repository.create).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'Build a prompt' })).not.toBeInTheDocument()
-    );
-    expect(screen.getByRole('alert')).toHaveTextContent('Prompt indexing is unavailable.');
-    expect(repository.list).toHaveBeenCalled();
-  });
-
   it('closes the builder after creating a prompt even when the saved library cannot refresh', async () => {
     const user = userEvent.setup();
     const repository = createRepository([]);
@@ -852,11 +648,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -878,22 +671,16 @@ describe('PromptWorkbenchPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Prompt library refresh failed.');
   });
 
-  it('closes the builder after editing a prompt when indexing fails and clears the warning after a later successful edit', async () => {
+  it('closes the builder after editing a prompt when the library cannot refresh and clears the warning after a later successful edit', async () => {
     const user = userEvent.setup();
     const savedItem = item();
     const repository = createRepository([savedItem]);
-    const onLibraryChanged = vi
-      .fn<() => Promise<void>>()
-      .mockRejectedValueOnce(new Error('Prompt indexing is unavailable.'))
-      .mockResolvedValueOnce(undefined);
+    vi.mocked(repository.list).mockRejectedValueOnce(new Error('Prompt library refresh failed.'));
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={onLibraryChanged}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockResolvedValue(undefined)}
         repository={repository}
       />
@@ -907,7 +694,7 @@ describe('PromptWorkbenchPanel', () => {
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Edit Evidence rule' })).not.toBeInTheDocument()
     );
-    expect(screen.getByRole('alert')).toHaveTextContent('Prompt indexing is unavailable.');
+    expect(screen.getByRole('alert')).toHaveTextContent('Prompt library refresh failed.');
     expect(repository.list).toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Edit Evidence rule' }));
@@ -928,11 +715,8 @@ describe('PromptWorkbenchPanel', () => {
     render(
       <PromptWorkbenchPanel
         activeThreadId="thread-active"
-        composerContext=""
         initialItems={[savedItem]}
         modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
         onUseItem={vi.fn().mockRejectedValue(new Error('Provider is unavailable.'))}
         repository={repository}
       />

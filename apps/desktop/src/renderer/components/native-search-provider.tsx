@@ -7,12 +7,7 @@ import {
   BoundaryFailureError,
   describeBoundaryFailure,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import {
-  type IndexConfig,
-  type IndexLocalSelection,
-  type IndexModel,
-  indexModelLocalSelection,
-} from '@brainstrike/assistant-contract/index-config';
+import type { IndexConfig, IndexModel } from '@brainstrike/assistant-contract/index-config';
 import {
   type IndexerEmbeddingProfile,
   type IndexerStatus,
@@ -36,19 +31,6 @@ interface NativeSearchStatus {
   readonly execution: ExecutionStatus;
   readonly status: IndexerStatus;
 }
-function matchesSelection(
-  selection: IndexLocalSelection,
-  plan: NonNullable<NonNullable<ReadyStatus['queryPlan']>['inferencePlan']>
-): boolean {
-  return (
-    selection.modelId === plan.modelId &&
-    selection.revision === plan.revision &&
-    selection.dimensions === plan.dimensions &&
-    selection.dtype === plan.dtype &&
-    selection.device === plan.device
-  );
-}
-
 /**
  * Main's vector space is the collection's model key and dimensions, compared as Main compares
  * them; the query plan names that key verbatim.
@@ -71,14 +53,7 @@ function matchesSavedChoices(status: ReadyStatus, saved: SavedSearch | null): bo
   if (!(saved?.mode === 'semantic' && saved.model !== null)) {
     return false;
   }
-  const selection = indexModelLocalSelection(saved.model);
-  return (
-    holdsModelVectors(status, saved.model) &&
-    status.queryPlan !== undefined &&
-    (status.queryPlan.inferencePlan
-      ? selection !== null && matchesSelection(selection, status.queryPlan.inferencePlan)
-      : selection === null)
-  );
+  return holdsModelVectors(status, saved.model) && status.queryPlan !== undefined;
 }
 
 function unchangedStatus<T>(prior: T, next: T): T {
@@ -138,7 +113,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The main owner resolves the actual saved catalog/profile; query inference stays in its hidden renderer. */
+/** Main resolves the saved catalog/profile and embeds the query with the hosted provider. */
 export function NativeSearchProvider({
   capability,
   children,
@@ -224,7 +199,6 @@ export function NativeSearchProvider({
       return generateDesktopQueryEmbedding(
         {
           dimensions: requested.dimensions,
-          ...(queryPlan.inferencePlan ? { inferencePlan: queryPlan.inferencePlan } : {}),
           modelId: requested.modelId,
           modelKey: queryPlan.modelKey,
           query,

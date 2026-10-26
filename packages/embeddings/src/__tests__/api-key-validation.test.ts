@@ -23,13 +23,6 @@ describe('api-key-validation', () => {
       expect(requiresApiKey('')).toBe(false);
     });
 
-    it('returns false for local providers', () => {
-      expect(requiresApiKey('local::some-model')).toBe(false);
-      expect(requiresApiKey('transformers::some-model')).toBe(false);
-      expect(requiresApiKey('ollama::nomic-embed-text')).toBe(false);
-      expect(requiresApiKey('lmstudio::text-embedding-nomic-embed-text-v1.5')).toBe(false);
-    });
-
     it('returns true for hosted providers', () => {
       expect(requiresApiKey('openai::text-embedding-3-small')).toBe(true);
       expect(requiresApiKey('google::gemini-embedding-001')).toBe(true);
@@ -39,18 +32,13 @@ describe('api-key-validation', () => {
 
     it('returns false for invalid format', () => {
       expect(requiresApiKey('invalid-format')).toBe(false);
-      expect(requiresApiKey('local::')).toBe(false);
+      expect(requiresApiKey('openai::')).toBe(false);
     });
   });
 
   describe('checkApiKeyAvailability', () => {
     it('returns available for null/undefined model key', async () => {
       const result = await checkApiKeyAvailability(null);
-      expect(result.available).toBe(true);
-    });
-
-    it('returns available for local providers', async () => {
-      const result = await checkApiKeyAvailability('local::some-model');
       expect(result.available).toBe(true);
     });
 
@@ -137,18 +125,6 @@ describe('api-key-validation', () => {
       const result = await checkApiKeyAvailability('openai::text-embedding-3-small');
       expect(result.available).toBe(false);
     });
-
-    it('returns available for ollama without requiring an API key', async () => {
-      const result = await checkApiKeyAvailability('ollama::nomic-embed-text');
-      expect(result.available).toBe(true);
-    });
-
-    it('returns available for lmstudio without requiring an API key', async () => {
-      const result = await checkApiKeyAvailability(
-        'lmstudio::text-embedding-nomic-embed-text-v1.5'
-      );
-      expect(result.available).toBe(true);
-    });
   });
 
   describe('getApiKeyConfigInstructions', () => {
@@ -175,16 +151,6 @@ describe('api-key-validation', () => {
       const instructions = getApiKeyConfigInstructions('voyage');
       expect(instructions).toContain('Voyage');
       expect(instructions).toContain('VOYAGE_API_KEY');
-    });
-
-    it('returns no-key instructions for Ollama local runtime', () => {
-      const instructions = getApiKeyConfigInstructions('ollama');
-      expect(instructions).toContain('does not require an API key');
-    });
-
-    it('returns no-key instructions for LM Studio local runtime', () => {
-      const instructions = getApiKeyConfigInstructions('lmstudio');
-      expect(instructions).toContain('does not require an API key');
     });
   });
 });

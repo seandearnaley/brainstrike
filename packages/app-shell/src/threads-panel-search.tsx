@@ -1,6 +1,6 @@
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import { Button } from '@brainstrike/ui';
-import { Loader2, Search, TriangleAlert, X } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
 import { type KeyboardEvent, useMemo, useRef, useState } from 'react';
 import { renderMarkedText } from './thread-search-headline';
 import type { ThreadSearchResultItem } from './thread-search-service';
@@ -91,78 +91,32 @@ function SearchResultRow({
   );
 }
 
-interface SearchStatusNoticesProps {
-  readonly coverage: ReturnType<typeof useThreadSearchStore.getState>['coverage'];
+interface SearchErrorNoticeProps {
   readonly error: string | null;
   readonly onRetry: () => void;
-  readonly pendingEmbeddings: number;
-  readonly semantic: ReturnType<typeof useThreadSearchStore.getState>['semantic'];
-  readonly status: ReturnType<typeof useThreadSearchStore.getState>['status'];
 }
 
-/** Honesty banners: semantic availability, indexing progress, failures. */
-function SearchStatusNotices({
-  coverage,
-  error,
-  onRetry,
-  pendingEmbeddings,
-  semantic,
-  status,
-}: SearchStatusNoticesProps) {
+function SearchErrorNotice({ error, onRetry }: SearchErrorNoticeProps) {
   return (
-    <>
-      {semantic.kind === 'unavailable' ? (
-        <p
-          className="flex items-center gap-1.5 px-2 pb-1 text-[11px] text-muted-foreground"
-          data-testid="thread-search-semantic-unavailable"
-          title={semantic.reason}
-        >
-          <TriangleAlert className="h-3 w-3 shrink-0" />
-          Semantic search unavailable — showing keyword matches only.
-        </p>
-      ) : null}
-      {pendingEmbeddings > 0 && coverage ? (
-        <p
-          className="px-2 pb-1 text-[11px] text-muted-foreground"
-          data-testid="thread-search-indexing-progress"
-        >
-          Indexing message embeddings… {coverage.embeddedMessages} of {coverage.embeddableMessages}
-        </p>
-      ) : null}
-      {coverage && coverage.erroredMessages > 0 ? (
-        <p
-          className="px-2 pb-1 text-[11px] text-muted-foreground"
-          data-testid="thread-search-embedding-errors"
-        >
-          {coverage.erroredMessages} {coverage.erroredMessages === 1 ? 'message' : 'messages'} could
-          not be embedded — keyword search still covers{' '}
-          {coverage.erroredMessages === 1 ? 'it' : 'them'}.
-        </p>
-      ) : null}
-      {status === 'error' ? (
-        <div className="px-2 py-2" data-testid="thread-search-error">
-          <p className="text-[12px] text-destructive">{error}</p>
-          <Button
-            className="mt-1.5 h-7 px-2 text-xs"
-            onClick={onRetry}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            Retry
-          </Button>
-        </div>
-      ) : null}
-    </>
+    <div className="px-2 py-2" data-testid="thread-search-error">
+      <p className="text-[12px] text-destructive">{error}</p>
+      <Button
+        className="mt-1.5 h-7 px-2 text-xs"
+        onClick={onRetry}
+        size="sm"
+        type="button"
+        variant="secondary"
+      >
+        Retry
+      </Button>
+    </div>
   );
 }
 
 /**
  * Search box + results for the Threads panel. Debounce, generation guarding,
- * and the hybrid query live in `useThreadSearchController`; this component
- * only reads the session store and renders honestly: semantic-arm
- * unavailability and embedding-index progress are always visible, never a
- * silent lexical-only downgrade.
+ * and the query live in `useThreadSearchController`; this component only
+ * reads the session store.
  */
 export function ThreadsPanelSearch({
   titlesByThreadId,
@@ -176,8 +130,6 @@ export function ThreadsPanelSearch({
   const status = useThreadSearchStore((state) => state.status);
   const results = useThreadSearchStore((state) => state.results);
   const error = useThreadSearchStore((state) => state.error);
-  const semantic = useThreadSearchStore((state) => state.semantic);
-  const coverage = useThreadSearchStore((state) => state.coverage);
   const setQuery = useThreadSearchStore((state) => state.setQuery);
   const clearSearch = useThreadSearchStore((state) => state.clearSearch);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -202,16 +154,6 @@ export function ThreadsPanelSearch({
     [results]
   );
   const resultCount = visibleResults.length;
-
-  const pendingEmbeddings = useMemo(() => {
-    if (!coverage) {
-      return 0;
-    }
-    return Math.max(
-      0,
-      coverage.embeddableMessages - coverage.embeddedMessages - coverage.erroredMessages
-    );
-  }, [coverage]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') {
@@ -295,14 +237,7 @@ export function ThreadsPanelSearch({
               {navigationError}
             </p>
           ) : null}
-          <SearchStatusNotices
-            coverage={coverage}
-            error={error}
-            onRetry={onRetry}
-            pendingEmbeddings={pendingEmbeddings}
-            semantic={semantic}
-            status={status}
-          />
+          {status === 'error' ? <SearchErrorNotice error={error} onRetry={onRetry} /> : null}
 
           {status === 'results' && resultCount === 0 ? (
             <p

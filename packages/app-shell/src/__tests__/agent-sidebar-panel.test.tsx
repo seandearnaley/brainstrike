@@ -249,45 +249,6 @@ describe('AgentSidebarPanel', () => {
       'contextual clip'
     );
   });
-
-  it('reports actual prompt-tab activity while preserving the mounted prompt surface', async () => {
-    const activity: boolean[] = [];
-    render(
-      <AgentSidebarPanel
-        promptsContent={(isActive) => {
-          activity.push(isActive);
-          return <input aria-label="Activity-aware prompt search" defaultValue="" />;
-        }}
-        threadsContent={<div>Threads content</div>}
-      />
-    );
-
-    // The Prompts panel is behind `TabPanelBoundary` inside `TabsContent
-    // keepMounted`, which mounts children only on first activation, so the
-    // callback has not run yet.
-    expect(activity).toEqual([]);
-    expect(screen.queryByRole('textbox', { name: 'Activity-aware prompt search' })).toBeNull();
-
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Prompts' }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    const searchField = await screen.findByRole('textbox', {
-      name: 'Activity-aware prompt search',
-    });
-    expect(activity.at(-1)).toBe(true);
-    fireEvent.change(searchField, { target: { value: 'preserve this' } });
-
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Threads' }), {
-      button: 0,
-      ctrlKey: false,
-    });
-    await waitFor(() => {
-      expect(activity.at(-1)).toBe(false);
-    });
-    expect(searchField).not.toBeVisible();
-    expect(searchField).toHaveValue('preserve this');
-  });
 });
 
 describe('AgentSidebarPanel crash containment', () => {

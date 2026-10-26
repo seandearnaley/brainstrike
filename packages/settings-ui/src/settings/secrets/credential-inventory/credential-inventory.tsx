@@ -221,12 +221,12 @@ export function CredentialInventory({
     const allowed = new Set(providers);
     return allSlots.filter((slot) => allowed.has(slot.id));
   }, [allSlots, providers]);
-  // The listing may legitimately mention providers the table does not show —
-  // a stored entry for a keyless local runtime (e.g. ollama) simply has no
-  // row. The allowed set is therefore EVERY provider the bridge can emit:
-  // the UNFILTERED registry plus Tavily, independent of slot filtering —
-  // matching assistant-preferences-store's CONFIGURED_KEY_PROVIDER_IDS so the
-  // two strict consumers of the shared parser cannot drift.
+  // The listing may legitimately mention providers the table does not show
+  // (a `providers` filter hides the rest). The allowed set is therefore EVERY
+  // provider the bridge can emit: the UNFILTERED registry plus Tavily,
+  // independent of slot filtering — matching assistant-preferences-store's
+  // CONFIGURED_KEY_PROVIDER_IDS so the two strict consumers of the shared
+  // parser cannot drift.
   const allowedProviderKeyIds = useMemo(() => listAllowedProviderKeyIds(), []);
 
   const [state, dispatch] = useReducer(inventoryReducer, {

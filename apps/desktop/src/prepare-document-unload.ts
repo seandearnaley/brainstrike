@@ -2,7 +2,8 @@ import { createLogger } from '@brainstrike/logging';
 import { MessageChannelMain, type MessagePortMain } from 'electron';
 import { RendererExitedError } from './desktop-shutdown-state';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
-import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { DESKTOP_IPC_CHANNELS, type DesktopIpcPush } from './platform/desktop-ipc-channels';
+import { pushToFrame } from './platform/desktop-ipc-push';
 
 const logger = createLogger('RendererClose');
 
@@ -45,7 +46,7 @@ export interface RendererCloseWindow {
   removeListener(event: 'closed', listener: () => void): unknown;
   readonly webContents: {
     readonly mainFrame: {
-      postMessage(channel: string, message: null, transfer: MessagePortMain[]): void;
+      postMessage(channel: string, push: DesktopIpcPush, transfer: MessagePortMain[]): void;
     };
     once(event: 'render-process-gone' | 'unresponsive', listener: () => void): unknown;
     removeListener(event: 'render-process-gone' | 'unresponsive', listener: () => void): unknown;
@@ -162,7 +163,7 @@ export function prepareDocumentUnload(
     });
     port1.start();
     try {
-      contents.mainFrame.postMessage(DESKTOP_IPC_CHANNELS.agent.prepareClose, null, [port2]);
+      pushToFrame(contents.mainFrame, DESKTOP_IPC_CHANNELS.agent.prepareClose, null, [port2]);
       transferred = true;
     } catch (cause) {
       finish(

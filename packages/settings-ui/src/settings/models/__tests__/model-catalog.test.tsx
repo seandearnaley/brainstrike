@@ -90,13 +90,9 @@ const MODELS = [
 function catalogProps(overrides: Partial<ModelCatalogProps> = {}): ModelCatalogProps {
   return {
     busyModelIds: new Set<string>(),
-    downloadedModels: {},
-    downloadProgress: {},
-    isDownloading: {},
     loaded: true,
     models: MODELS,
     onBulkChange: vi.fn(),
-    onDownload: vi.fn(),
     onRefresh: vi.fn(),
     onToggle: vi.fn(),
     providers: PROVIDERS,
@@ -447,59 +443,41 @@ describe('ModelCatalog / shortcut', () => {
 });
 
 // Ported from the deleted model-list.test.tsx (BST-1805 spec §10 step 3). Its
-// Chat/Embeddings tab and Local/Remote toggle assertions were dropped: those
-// controls no longer exist (the Type segment replaces the tabs; see
-// "keeps Type at All …" above).
+// Chat/Embeddings tab assertions were dropped: the Type segment replaces the
+// tabs (see "keeps Type at All …" above).
 describe('ModelCatalog behaviour ported from ModelList', () => {
-  const LOCAL_PROVIDERS = [
-    makeDbProvider('transformers', 'Transformers', 0),
+  const PORTED_PROVIDERS = [
+    makeDbProvider('voyage', 'Voyage AI', 0),
     makeDbProvider('openai', 'OpenAI', 1),
   ];
-  const LOCAL_MODELS = [
+  const PORTED_MODELS = [
     makeDbModel({
-      capabilities: { defaultDimension: 384, type: 'embedding' },
-      id: 'local-ready',
+      capabilities: { defaultDimension: 512, type: 'embedding' },
+      id: 'voyage-3-lite',
       isEnabled: true,
-      name: 'Local Ready',
-      providerId: 'transformers',
+      name: 'Voyage 3 Lite',
+      providerId: 'voyage',
       sortOrder: 0,
     }),
-    makeDbModel({
-      capabilities: { defaultDimension: 384, type: 'embedding' },
-      id: 'local-downloading',
-      name: 'Local Downloading',
-      providerId: 'transformers',
-      sortOrder: 1,
-    }),
-    makeDbModel({
-      capabilities: { defaultDimension: 384, type: 'embedding' },
-      id: 'transformers-stream',
-      name: 'HF Stream Model',
-      providerId: 'transformers',
-      sortOrder: 2,
-    }),
-    makeDbModel({ id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', providerId: 'openai', sortOrder: 3 }),
+    makeDbModel({ id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', providerId: 'openai', sortOrder: 1 }),
     makeDbModel({
       id: 'mystery-model',
       name: 'Mystery Model',
       providerId: 'missing-provider',
-      sortOrder: 4,
+      sortOrder: 2,
     }),
   ];
 
-  function localProps(overrides: Partial<ModelCatalogProps> = {}): ModelCatalogProps {
+  function portedProps(overrides: Partial<ModelCatalogProps> = {}): ModelCatalogProps {
     return catalogProps({
-      downloadedModels: { 'transformers-stream': true },
-      downloadProgress: { 'local-downloading': 25 },
-      isDownloading: { 'local-downloading': true },
-      models: LOCAL_MODELS,
-      providers: LOCAL_PROVIDERS,
+      models: PORTED_MODELS,
+      providers: PORTED_PROVIDERS,
       ...overrides,
     });
   }
 
   it('keeps a model whose provider row is missing visible under Unknown provider', async () => {
-    render(<ModelCatalog {...localProps()} />);
+    render(<ModelCatalog {...portedProps()} />);
     const unknown = screen.getByTestId('model-catalog-section-__unknown-provider__');
     expect(within(unknown).getByText('Unknown provider')).toBeInTheDocument();
     await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
@@ -507,7 +485,7 @@ describe('ModelCatalog behaviour ported from ModelList', () => {
   });
 
   it('filters rows by search and keeps the settings search-field layout', async () => {
-    render(<ModelCatalog {...localProps()} />);
+    render(<ModelCatalog {...portedProps()} />);
     expect(search().style.paddingLeft).toBe('2.5rem');
     expect(
       search().parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')
@@ -515,38 +493,21 @@ describe('ModelCatalog behaviour ported from ModelList', () => {
     ).toBe('0.75rem');
     await userEvent.type(search(), 'terra');
     expect(await screen.findByTestId('model-row-gpt-5.6-terra')).toBeInTheDocument();
-    expect(screen.queryByTestId('model-row-local-ready')).not.toBeInTheDocument();
-  });
-
-  it('renders download progress, the downloaded state and Download', async () => {
-    const props = localProps();
-    render(<ModelCatalog {...props} />);
-    await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
-
-    const downloadingRow = screen.getByTestId('model-row-local-downloading').closest('tr');
-    expect(downloadingRow).not.toBeNull();
-    expect(within(downloadingRow as HTMLElement).getByText('25%')).toBeInTheDocument();
-
-    expect(screen.getByRole('img', { name: 'HF Stream Model downloaded' })).toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId('model-download-local-ready'));
-    expect(props.onDownload).toHaveBeenCalledWith('local-ready');
-    // A hosted provider's rows never offer a download.
-    expect(screen.queryByTestId('model-download-gpt-5.6-terra')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('model-row-voyage-3-lite')).not.toBeInTheDocument();
   });
 
   it('toggles a model on and an enabled model off', async () => {
-    const props = localProps();
+    const props = portedProps();
     render(<ModelCatalog {...props} />);
     await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
     await userEvent.click(screen.getByTestId('model-toggle-gpt-5.6-terra'));
     expect(props.onToggle).toHaveBeenCalledWith('gpt-5.6-terra', true);
-    await userEvent.click(screen.getByTestId('model-toggle-local-ready'));
-    expect(props.onToggle).toHaveBeenCalledWith('local-ready', false);
+    await userEvent.click(screen.getByTestId('model-toggle-voyage-3-lite'));
+    expect(props.onToggle).toHaveBeenCalledWith('voyage-3-lite', false);
   });
 
   it('disables a model switch while its write is in flight', async () => {
-    const props = localProps({ busyModelIds: new Set(['gpt-5.6-terra']) });
+    const props = portedProps({ busyModelIds: new Set(['gpt-5.6-terra']) });
     render(<ModelCatalog {...props} />);
     await userEvent.click(screen.getByTestId('model-catalog-expand-all'));
     const busySwitch = screen.getByTestId('model-toggle-gpt-5.6-terra');

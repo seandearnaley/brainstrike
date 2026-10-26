@@ -51,7 +51,7 @@ NDJSON backstop sits on the logging choke points.
 ## Consequences
 
 - Pino transports run in a worker thread and see only main-process output, missing
-  every renderer and hidden-host record forwarded over IPC; that is why the sink is
+  every renderer record forwarded over IPC; that is why the sink is
   not a transport.
 - The stores in ADR-0011 (state DB, blobs, derived store, web OPFS) join factory
   reset, and the reset test covers every store.

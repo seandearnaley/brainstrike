@@ -97,10 +97,8 @@ export const OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET = 'auto';
  * model; Haiku, the fast OpenAI mini, Gemini Flash variants, and DeepSeek V4
  * Flash are on their tested list. OpenRouter needs FALLBACKS because its
  * catalog seeds the preferred Gemini targets disabled by default. Every
- * candidate needs a credential: the built-in on-device provider is
- * embeddings-only, so there is no keyless observer to auto-resolve to and a
- * user with no chat key gets a VISIBLY unresolved observer rather than a
- * silently broken one.
+ * candidate needs a credential, so a user with no chat key gets a VISIBLY
+ * unresolved observer rather than a silently broken one.
  */
 const AUTO_OBSERVATIONAL_MEMORY_CANDIDATES_BY_CHAT_PROVIDER: Readonly<
   Record<string, readonly string[]>
@@ -120,8 +118,8 @@ const AUTO_OBSERVATIONAL_MEMORY_CANDIDATES_BY_CHAT_PROVIDER: Readonly<
  *
  * PRIVACY INVARIANT (review ruling on BST-940): auto only ever selects an
  * observer from the SELECTED CHAT PROVIDER — the party already receiving the
- * conversation — never a different keyed provider. A local/keyless/unsupported
- * chat therefore yields no candidates and observational memory WAITS visibly
+ * conversation — never a different keyed provider. An unsupported chat
+ * provider therefore yields no candidates and observational memory WAITS visibly
  * (surfaced in settings and the context popover); it must never disable thread
  * memory as a whole, and it must never create new data egress or charges the
  * user didn't already opt into by picking their chat provider. Callers with a

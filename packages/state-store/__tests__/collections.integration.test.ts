@@ -5,11 +5,11 @@ import { cleanupDirs, freshDir } from './helpers/fs.js';
 afterEach(cleanupDirs);
 const collection = {
   createdAt: '2026-10-13T19:45:00.000Z',
-  dimensions: 384,
+  dimensions: 1536,
   distance: 'cosine' as const,
   id: 'collection-one',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+  modelId: 'text-embedding-3-small',
+  modelKey: 'openai::text-embedding-3-small',
   name: 'Project reference',
 };
 

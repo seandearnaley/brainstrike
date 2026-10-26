@@ -5,7 +5,7 @@ import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
-import { embeddingProfileHash } from '@brainstrike/indexer';
+import { vectorProfileHash } from '@brainstrike/indexer';
 import {
   type IndexerCoverageRequest,
   type IndexerSearchResult,
@@ -14,7 +14,7 @@ import {
   NO_WORKSPACE_FOLDER_MESSAGE,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { Schema } from 'effect';
-import { expect, test, vi } from 'vitest';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { mainPlatformConnection } from '../agent-host-platform/connection';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import type { MainRequest } from '../agent-host-platform/host-retrieval-clients';
@@ -22,35 +22,32 @@ import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
+import { hostedQueryEmbedding } from '../hosted-embeddings';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { UtilityPort } from './fixtures/admitted-host-tools';
 import { mainReads as admissionReads } from './fixtures/desktop-admission-reads';
 
+// Main's hosted query embedding, answered per test.
+vi.mock('../hosted-embeddings', async (original) => ({
+  ...(await original<typeof import('../hosted-embeddings')>()),
+  hostedQueryEmbedding: vi.fn(),
+}));
+
 // The native index and catalog answer the way Main's IndexSearchCapability and
 // PGlite catalog do; only their transport (Main's typed reads) is under test.
 const profile = {
-  dimensions: 384,
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 256,
+  dimensions: 1536,
+  distance: 'cosine',
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
-const queryPlan = {
-  inferencePlan: {
-    device: 'wasm',
-    dimensions: profile.dimensions,
-    dtype: profile.dtype,
-    modelId: profile.modelId,
-    revision: profile.revision,
-  },
-  modelKey: `local::${profile.modelId}`,
-} as const;
+const queryPlan = { modelKey: `openai::${profile.modelId}` } as const;
 const embedding = {
   indexMode: 'vector-configured',
   profile,
   // The indexer's own identity rule, never a copy of its formula.
-  profileHash: embeddingProfileHash(profile),
+  profileHash: vectorProfileHash(profile),
 } as const;
 const status: IndexerStatus = {
   authorizedCollectionIds: ['selected'],
@@ -115,6 +112,9 @@ const space = {
   name: 'Workspace',
 } as const;
 const queryVector = Array.from({ length: profile.dimensions }, () => 0.1);
+beforeEach(() => {
+  vi.mocked(hostedQueryEmbedding).mockReset().mockResolvedValue(queryVector);
+});
 const roots = [{ displayName: 'A', path: '/workspace/a', rootId: 'root-a' }];
 /** A folder open in the app but not in this thread, indexed like A. */
 const otherFolderHit = {
@@ -292,7 +292,7 @@ function tool(tools: Record<string, HostTool>, name: string): HostTool {
   }
   return found;
 }
-/** Only the admission's roots, Main's typed reads and the renderer query embedding are asked for. */
+/** Only the admission's roots, Main's typed reads and Main's query embedding are asked for. */
 function expectOnlyReads(request: ReturnType<typeof mainReads>): void {
   for (const [method] of request.mock.calls) {
     expect(method).toMatch(
@@ -439,10 +439,7 @@ const mainIndex: IndexSearchCapability = {
  * reaches it in the app. JSON-RPC carries an error's message but never its
  * type, so only a refusal Main answers as data can reach the model typed.
  */
-function servedMain(main: {
-  readonly embeddingSpaces?: RetrievalStore['embeddingSpaces'];
-  readonly queryEmbedding?: () => Promise<number[]>;
-}) {
+function servedMain(main: { readonly embeddingSpaces?: RetrievalStore['embeddingSpaces'] }) {
   const channel = new MessageChannel();
   const mainPort = new UtilityPort(channel.port1);
   const hostPort = new UtilityPort(channel.port2);
@@ -458,7 +455,6 @@ function servedMain(main: {
         fileRecords: async () => new Map([[fileRecord.id, fileRecord]]),
       },
     },
-    localEmbedding: { queryEmbedding: main.queryEmbedding ?? (async () => queryVector) },
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
   });
   client.listen();
@@ -505,7 +501,8 @@ test.each([
 ])(
   'Main’s refusal of the query embedding (%s) reaches the model verbatim',
   async (_name, error) => {
-    const main = servedMain({ queryEmbedding: () => Promise.reject(error) });
+    vi.mocked(hostedQueryEmbedding).mockRejectedValueOnce(error);
+    const main = servedMain({});
     try {
       const output = await tool(main.tools, 'brainstrike_queryEmbeddingSpace').execute(
         { embeddingSetId: 'selected', query: 'marker' },
@@ -533,7 +530,8 @@ test.each([
   ],
   ['an unexpected fault', new Error(`ECONNRESET reading ${LEAK}`)],
 ])('Main’s query embedding fault (%s) stays redacted', async (_name, error) => {
-  const main = servedMain({ queryEmbedding: () => Promise.reject(error) });
+  vi.mocked(hostedQueryEmbedding).mockRejectedValueOnce(error);
+  const main = servedMain({});
   try {
     const output = await tool(main.tools, 'brainstrike_queryEmbeddingSpace').execute(
       { embeddingSetId: 'selected', query: 'marker' },

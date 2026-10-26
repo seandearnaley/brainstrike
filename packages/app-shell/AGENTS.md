@@ -13,5 +13,5 @@ second agent runtime or durable storage owner.
 - Keep secrets and raw provider/MCP configuration out of UI, logs and bundles.
   Show actionable safe failures rather than raw internal errors.
 
-Consult `docs/agents/ui-conventions.md`, `assistant-persistence.md`,
-`local-inference.md` or `platform-contracts.md` for the relevant behavior.
+Consult `docs/agents/ui-conventions.md`, `assistant-persistence.md`
+or `platform-contracts.md` for the relevant behavior.

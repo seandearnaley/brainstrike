@@ -2,11 +2,6 @@
  * Host-supplied ports for the transport-independent assistant run service
  * (BST-972 slice B1). This file grows one port per slice; each is a STRUCTURAL
  * surface a host satisfies — never a desktop import.
- *
- * It used to carry an InferenceHostPort as well, proxying built-in local-LLM
- * generation to wherever the host ran inference (desktop: the hidden llm-host
- * renderer). The built-in local provider is embeddings-only now, so there is
- * no chat inference for a host to lend.
  */
 import type { ProviderCredential } from '@brainstrike/assistant-contract';
 

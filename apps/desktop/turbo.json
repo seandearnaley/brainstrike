@@ -6,7 +6,7 @@
       // carries their source hashes into this task's hash; `^build` builds the
       // native add-ons the app loads.
       "dependsOn": ["^build", "topo"],
-      "env": ["VITE_*", "EMBED_QUEUE_ENABLED", "NODE_ENV"],
+      "env": ["VITE_*", "NODE_ENV"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"]
     },
     "dev": {

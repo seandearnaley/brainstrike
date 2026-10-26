@@ -4,35 +4,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { ElectronApplication, Page } from 'playwright';
-import {
-  ensureEmbeddingHostStarted,
-  getEmbeddingHostStatus,
-  getMainBufferedLogs,
-} from './embedding-worker-renderer.shared';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { updateIndexConfig } from './utils/index-config';
+import { getMainBufferedLogs } from './utils/main-logs';
+import { HOSTED_INDEX_MODEL } from './utils/native-index-build';
 
 /**
  * Lifecycle redesign PR D (§6.1): a slow machine never causes a worker error. The E2E seam holds
  * the indexer utility's first request, the first canonical attach and the first workspace-root
- * parcel subscribe past every deadline that used to retire them, and the hidden embedding host's
- * readiness past its old 30 s ready timer. The spec asserts product behaviour only: the folder
- * indexes, the index reaches ready with a VECTOR profile (the paused semantic setup of
- * workspace-index-bootstrap, which needs no model download), the same indexer process serves
- * each configuration (none is retired or killed for being slow), the one embedding host is
- * running, and no lifecycle family logs an error.
+ * parcel subscribe past every deadline that used to retire them. The spec asserts product
+ * behaviour only: the folder indexes, the index reaches ready with a VECTOR profile (the paused
+ * semantic setup of workspace-index-bootstrap, which embeds nothing), the same indexer process
+ * serves each configuration (none is retired or killed for being slow), and no lifecycle family
+ * logs an error.
  */
 test.use({
   electronEnv: {
     BRAINSTRIKE_E2E_LIFECYCLE_DELAYS:
-      'indexer-request:7000,canonical-attach:7000,hidden-host-ready:35000,parcel-subscribe:12000',
+      'indexer-request:7000,canonical-attach:7000,parcel-subscribe:12000',
   },
 });
 
 /** Main's log scopes for the workers and hosts this spec slows down. */
 const LIFECYCLE_SCOPE =
-  /^(IndexerHostManager|NativeIndex|RendererHostLifecycle|EmbeddingHostManager|HostRequestChannel|ParcelWatchers|AgentHostStateIndex|HostLease)/u;
+  /^(IndexerHostManager|NativeIndex|HostRequestChannel|ParcelWatchers|AgentHostStateIndex|HostLease)/u;
 
 interface StatusDigest {
   readonly indexedFiles: number;
@@ -89,16 +85,6 @@ async function indexerPids(app: ElectronApplication): Promise<number[]> {
   );
 }
 
-/** Live hidden embedding host windows. */
-async function embeddingHostWindows(app: ElectronApplication): Promise<number> {
-  return await app.evaluate(
-    ({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows().filter((window) =>
-        window.webContents.getURL().includes('mode=embedding-host')
-      ).length
-  );
-}
-
 test('@desktop-slow-machine-workers slow workers are waited for, never retired or failed', async ({
   electron,
 }) => {
@@ -111,15 +97,6 @@ test('@desktop-slow-machine-workers slow workers are waited for, never retired o
   );
   try {
     const { app, window } = await electron.ensureContext();
-
-    // The hidden embedding host reports ready 35 s late, past its former 30 s ready timer: it is
-    // waited for, in one window. Timing this first start also proves the seam is live.
-    expect(await getEmbeddingHostStatus(window)).toMatchObject({ state: 'stopped' });
-    const hostStart = Date.now();
-    const host = await ensureEmbeddingHostStarted(window);
-    expect(Date.now() - hostStart).toBeGreaterThanOrEqual(35_000);
-    expect(host).toMatchObject({ lastError: null, state: 'running' });
-    expect(await embeddingHostWindows(app)).toBe(1);
 
     // The workspace-root watch subscribes 12 s late: joined, never a subscribe-timeout.
     await app.evaluate((_electron, path) => {
@@ -148,14 +125,7 @@ test('@desktop-slow-machine-workers slow workers are waited for, never retired o
     // Paused semantic setup reaches a VECTOR profile without inference
     // (workspace-index-bootstrap "completes paused semantic setup", smoke45's test).
     await updateIndexConfig(window, { paused: true });
-    await updateIndexConfig(window, {
-      mode: 'semantic',
-      model: {
-        dimensions: 384,
-        local: { device: 'wasm', dtype: 'q8' },
-        modelKey: 'local::Xenova/bge-small-en-v1.5',
-      },
-    });
+    await updateIndexConfig(window, { mode: 'semantic', model: HOSTED_INDEX_MODEL });
     await expect
       .poll(() => readIndexDigest(window).then((digest) => digest.indexMode), {
         intervals: [1000],
@@ -166,17 +136,10 @@ test('@desktop-slow-machine-workers slow workers are waited for, never retired o
     // The semantic configuration's new collection scope opens its own indexer generation: the
     // previous one closed cooperatively, so one indexer process serves now, and none was killed.
     expect(await indexerPids(app)).toHaveLength(1);
-    expect(await getEmbeddingHostStatus(window)).toMatchObject({
-      runtimeId: host.runtimeId,
-      state: 'running',
-    });
-    expect(await embeddingHostWindows(app)).toBe(1);
 
     const logs = await getMainBufferedLogs(window);
     const lifecycleErrors = logs.filter(
-      (record) =>
-        (record as { readonly level?: string }).level === 'error' &&
-        LIFECYCLE_SCOPE.test(record.scope ?? '')
+      (record) => record.level === 'error' && LIFECYCLE_SCOPE.test(record.scope ?? '')
     );
     expect(lifecycleErrors).toEqual([]);
     // No close escalated to a kill (R5(b)) and no worker was slow enough to stall a close.

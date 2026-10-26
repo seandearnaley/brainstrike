@@ -111,7 +111,6 @@ test('hierarchical research uses two supervisors and four Explorer leaves, creat
       throw new Error('Dev renderer URL unavailable');
     }
     const context = await launchElectronAppWithOptions({
-      disableExternalLocalRuntimeProbes: true,
       env: { ['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']: rendererUrl },
       launchMode: 'dev-server',
       modelProvider: provider,

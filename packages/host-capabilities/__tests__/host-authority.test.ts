@@ -24,7 +24,7 @@ test('factory reset drops every stored credential', async () => {
   }
 });
 
-test('Settings writes go through the host authority and a keyless provider login is refused', async () => {
+test('Settings writes go through the host authority', async () => {
   const { auth, credentials, memory } = hostAuthority();
   try {
     await auth.setCredential('openai', { key: 'sk-settings-fixture', type: 'api_key' });
@@ -34,9 +34,6 @@ test('Settings writes go through the host authority and a keyless provider login
     });
     await expect(auth.deleteCredential('openai')).resolves.toBe(true);
     expect(memory.entries.has('openai')).toBe(false);
-    await expect(
-      auth.storeProviderCredential('ollama', { key: 'sk-not-needed', type: 'api_key' })
-    ).rejects.toThrow('does not accept a credential login');
   } finally {
     await credentials.close();
   }

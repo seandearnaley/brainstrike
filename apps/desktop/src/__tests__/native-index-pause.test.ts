@@ -8,7 +8,6 @@ import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalRemoteWorkspaceDependencies } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
-import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
@@ -25,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
   destroy: vi.fn(),
+  /** Main's hosted document embedder (`generateHostedEmbeddings`). */
+  hostedEmbeddings: vi.fn(),
   manager: {
     attachCanonicalWorkspace: vi.fn(),
     retireCanonicalSources: vi.fn(),
@@ -32,6 +33,10 @@ const mocks = vi.hoisted(() => ({
   },
   readyHost: vi.fn(),
   readyPort: vi.fn(),
+}));
+vi.mock('../hosted-embeddings', async (original) => ({
+  ...(await original<typeof import('../hosted-embeddings')>()),
+  generateHostedEmbeddings: mocks.hostedEmbeddings,
 }));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
@@ -68,11 +73,9 @@ const unused = async (): Promise<never> => {
 function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
-    commitFile: unused,
     commitScopedFile: unused,
     commitScopedTextFile: unused,
     commitTextFile: unused,
-    configureVectorProfile: unused,
     coverage: unused,
     coverageAuthority: async () => ({
       authorityEpoch: 'b'.repeat(64),
@@ -88,7 +91,6 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     destroy: unused,
     info: async () => ({
       dbPath: '/owned/profile/index.sqlite',
-      embedding: { indexMode: 'text-only' },
       journalMode: 'wal',
       pid: 1,
       readerQueryOnly: 1,
@@ -145,28 +147,22 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
-  const transport = {
-    destroyAndRestart: vi.fn(unused),
-    documentEmbeddings: vi.fn<EmbeddingHostManager['documentEmbeddings']>(unused),
-  };
   const onReceipt = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: catalogFixture.catalog,
-    embedding: transport,
-    modelCatalog: catalogFixture.modelCatalog,
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     settings,
-    storage: { getItem: unused },
   });
-  return { activation, onReceipt, settings, transport };
+  return { activation, hostedEmbeddings: mocks.hostedEmbeddings, onReceipt, settings };
 }
 beforeEach(() => {
   vi.resetAllMocks();
   catalogFixture.reset();
 
+  mocks.hostedEmbeddings.mockImplementation(unused);
   mocks.acquire.mockResolvedValue(writer());
   mocks.readyHost.mockReturnValue(mocks.manager);
   mocks.readyPort.mockReturnValue(writer());
@@ -222,7 +218,7 @@ it('boots cold paused status, coverage and grep with actual authority and no can
     Promise.all((input as readonly unknown[]).map((request) => native.coverageScope(request)));
   mocks.readyPort.mockReturnValue(native);
   catalogFixture.setRoot();
-  const { activation, settings, transport, onReceipt } = fixture(mountedRoot());
+  const { activation, settings, hostedEmbeddings, onReceipt } = fixture(mountedRoot());
   await savePause(settings, true);
   const grep = vi.fn(async () => ({
     columns: [
@@ -243,7 +239,7 @@ it('boots cold paused status, coverage and grep with actual authority and no can
       'embedding_set_id',
       'source_path',
     ],
-    identity: { embedding: { indexMode: 'text-only' as const }, storeId },
+    identity: { storeId },
     matchedChunks: 0,
     rows: [],
     truncated: false,
@@ -275,7 +271,7 @@ it('boots cold paused status, coverage and grep with actual authority and no can
   ).toMatchObject({ hits: [], scanLimited: true });
   expect(grep).toHaveBeenCalledOnce();
   expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
-  expect(transport.documentEmbeddings).not.toHaveBeenCalled();
+  expect(hostedEmbeddings).not.toHaveBeenCalled();
   expect(onReceipt).not.toHaveBeenCalled();
   await activation.close();
 });
@@ -372,14 +368,10 @@ function vectorPauseFixture() {
   catalogFixture.setRoot();
   const f = fixture(mountedRoot());
   const profile = {
-    dimensions: 384,
+    dimensions: 1536,
     distance: 'cosine',
-    dtype: 'q8',
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    // The catalog row states MiniLM's prompts (none), so the resolved profile carries them.
-    prompts: { document: '', query: '' },
-    provider: 'transformers',
-    revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
   } as const;
   // Collection and model metadata come from the current canonical catalog fixture.
   f.settings.mockResolvedValue(
@@ -387,8 +379,7 @@ function vectorPauseFixture() {
       {
         model: {
           dimensions: profile.dimensions,
-          local: { device: 'wasm', dtype: profile.dtype, revision: profile.revision },
-          modelKey: `local::${profile.modelId}`,
+          modelKey: `${profile.provider}::${profile.modelId}`,
         },
         paused: true,
       },
@@ -398,41 +389,30 @@ function vectorPauseFixture() {
   return { ...f, profile };
 }
 
-it('opens cold paused VECTOR authority with the exact saved query plan and zero document inference', async () => {
-  const { activation, transport, profile } = vectorPauseFixture();
+it('opens cold paused VECTOR authority with the exact saved query model and zero document inference', async () => {
+  const { activation, hostedEmbeddings, profile } = vectorPauseFixture();
   await activation.acquireRead();
   const authority = await activation.getSearchAuthority();
   expect(authority.profile).toEqual(profile);
-  // The saved collection provides no catalog context window; do not invent a token cap.
-  expect(authority.profile).not.toHaveProperty('tokenCap');
   expect(authority).toMatchObject({
     profile,
-    queryPlan: {
-      inferencePlan: {
-        device: 'wasm',
-        dimensions: profile.dimensions,
-        dtype: profile.dtype,
-        modelId: profile.modelId,
-        revision: profile.revision,
-      },
-      modelKey: `transformers::${profile.modelId}`,
-    },
+    queryPlan: { modelKey: `${profile.provider}::${profile.modelId}` },
     readiness: [expect.objectContaining({ scanComplete: false, scope: workspace })],
   });
   expect(mocks.manager.attachCanonicalWorkspace).not.toHaveBeenCalled();
-  expect(transport.documentEmbeddings).not.toHaveBeenCalled();
+  expect(hostedEmbeddings).not.toHaveBeenCalled();
   await activation.close();
 });
 
 it('joins actual document adapter cancellation before Pause acknowledges and keeps VECTOR read authority', async () => {
-  const { activation, settings, transport, profile } = vectorPauseFixture();
+  const { activation, settings, hostedEmbeddings, profile } = vectorPauseFixture();
   await savePause(settings, false);
   const physical = Promise.withResolvers<void>();
   let inferenceSignal: AbortSignal | undefined;
-  transport.documentEmbeddings.mockImplementation(async (_payload, options) => {
-    inferenceSignal = options?.signal;
+  hostedEmbeddings.mockImplementation(async (input: { readonly signal: AbortSignal }) => {
+    inferenceSignal = input.signal;
     await physical.promise;
-    throw options?.signal?.reason;
+    throw input.signal.reason;
   });
   // The folder's first scan embeds its documents; only the actual cancellation ends it.
   mocks.manager.attachCanonicalWorkspace.mockImplementation(
@@ -449,7 +429,7 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
     }
   );
   const starting = activation.acquire().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(transport.documentEmbeddings).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(hostedEmbeddings).toHaveBeenCalledOnce());
   await savePause(settings, true);
   let paused = false;
   const pausing = activation.reconfigure().then(() => {
@@ -471,14 +451,14 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
 });
 
 it('starts exact document cancellation before waiting for an admitted native read on close', async () => {
-  const { activation, settings, transport, profile } = vectorPauseFixture();
+  const { activation, settings, hostedEmbeddings, profile } = vectorPauseFixture();
   await savePause(settings, false);
   const physical = Promise.withResolvers<void>();
   let inferenceSignal: AbortSignal | undefined;
-  transport.documentEmbeddings.mockImplementation(async (_payload, options) => {
-    inferenceSignal = options?.signal;
+  hostedEmbeddings.mockImplementation(async (input: { readonly signal: AbortSignal }) => {
+    inferenceSignal = input.signal;
     await physical.promise;
-    throw options?.signal?.reason;
+    throw input.signal.reason;
   });
   // The folder's first scan embeds its documents; only the actual cancellation ends it.
   mocks.manager.attachCanonicalWorkspace.mockImplementation(
@@ -495,7 +475,7 @@ it('starts exact document cancellation before waiting for an admitted native rea
     }
   );
   const starting = activation.acquire().catch((error: unknown) => error);
-  await vi.waitFor(() => expect(transport.documentEmbeddings).toHaveBeenCalledOnce());
+  await vi.waitFor(() => expect(hostedEmbeddings).toHaveBeenCalledOnce());
   const read = Promise.withResolvers<void>();
   const readEntered = Promise.withResolvers<void>();
   const reading = activation.withRead(async () => {

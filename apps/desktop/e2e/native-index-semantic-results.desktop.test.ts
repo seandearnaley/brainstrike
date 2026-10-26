@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
-import { seedPausedWorkspace } from './utils/foreground-latency-bench';
 import {
   closeIndexingPopover,
   configureNativeIndex,
   openResumeControl,
   readNativeIndexSummary,
+  seedPausedWorkspace,
   waitForReadyIndex,
 } from './utils/native-index-build';
 import {
@@ -19,9 +19,10 @@ import {
 /**
  * After a real native build of a workspace folder in semantic mode, the
  * Workspace Search panel renders semantic results for it (BST-1960). The
- * folder holds enough real files that its vectors take a real backfill. The
- * query paraphrases one prose file with little word overlap, so only its
- * vectors can rank that file into the rendered rows.
+ * folder holds enough real files that its vectors take a real backfill through
+ * the hosted embedder. The query misspells one prose file's words, so no word
+ * of it is in any file and only its vectors can rank that file into the
+ * rendered rows: the shim embeds texts that share spelling close together.
  */
 
 const FILLER_FILE_COUNT = 150;
@@ -47,7 +48,7 @@ test.beforeAll(() => {
     [
       '# Caring for a sourdough starter',
       '',
-      // No word here appears in the query below.
+      // No word of the query below appears here.
       'Feed the starter equal weights of flour and water every day and leave it at room',
       'temperature. Discard half before each feeding, and look for bubbles and a pleasant',
       'sour smell. A neglected starter grows a layer of grey liquid called hooch: pour it',
@@ -61,12 +62,13 @@ test.afterAll(() => {
   rmSync(rootDir, { force: true, recursive: true });
 });
 
-test('@desktop-embedding-native-backfill semantic search renders results for a folder after its native build', async ({
+test('semantic search renders results for a folder after its native build', async ({
+  modelProvider,
   window: page,
 }) => {
   test.setTimeout(8 * 60 * 1000);
-  await seedPausedWorkspace(page, [{ path: rootDir, rootId: ROOT_ID }], 'wasm', 'semantic-seeded');
-  await configureNativeIndex(page, 'wasm');
+  await seedPausedWorkspace(page, [{ path: rootDir, rootId: ROOT_ID }], 'semantic-seeded');
+  await configureNativeIndex(page, modelProvider);
   await waitForReadyIndex(page, 300_000);
   const resume = await openResumeControl(page);
   await resume.click();
@@ -81,7 +83,7 @@ test('@desktop-embedding-native-backfill semantic search renders results for a f
     });
 
   const panel = await openWorkspaceSearchPanel(page);
-  await runWorkspaceSemanticSearch(panel, 'how do I keep my bread yeast culture healthy');
+  await runWorkspaceSemanticSearch(panel, 'sordough startr feding');
   const results = await waitForWorkspaceSemanticSearchResults(panel);
   expect(results.emptyState).toBe(false);
   expect(results.resultFileCount).toBeGreaterThan(0);

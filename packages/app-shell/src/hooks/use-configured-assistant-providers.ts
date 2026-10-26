@@ -1,13 +1,9 @@
-import {
-  AvailableProviderDiscoveryError,
-  useAssistantPreferencesStore,
-} from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { useMemo, useSyncExternalStore } from 'react';
 import { useAssistantProviderSource } from './assistant-provider-source';
 
-type AssistantPreferencesStore = ReturnType<typeof useAssistantPreferencesStore.getState>;
 type SecretsState = ReturnType<typeof useSecretsStore.getState>;
 
 type ProviderDiscoverySnapshot =
@@ -34,7 +30,6 @@ const idleDiscoverySnapshot: ProviderDiscoverySnapshot = {
 
 let discoverySnapshot: ProviderDiscoverySnapshot = idleDiscoverySnapshot;
 let requestGeneration = 0;
-let unsubscribeFromPreferences: (() => void) | undefined;
 let unsubscribeFromSecrets: (() => void) | undefined;
 const discoveryListeners = new Set<() => void>();
 
@@ -42,9 +37,9 @@ const discoveryListeners = new Set<() => void>();
  * Resolve providers without mirroring source props into component state.
  *
  * Hosted Web values are render-time authority. Desktop subscribes to one
- * shared external discovery resource, which refreshes on credential and local
- * runtime setting changes. That keeps the trigger at the stores where the
- * events originate and prevents one runtime probe per mounted thread tab.
+ * shared external discovery resource, which refreshes on credential changes.
+ * That keeps the trigger at the store where the events originate and prevents
+ * one discovery read per mounted thread tab.
  */
 export function useConfiguredAssistantProviders(): ConfiguredAssistantProviders {
   const source = useAssistantProviderSource();
@@ -98,34 +93,17 @@ function subscribeToProviderDiscovery(onStoreChange: () => void): () => void {
 
 function startProviderDiscoverySubscriptions(): void {
   unsubscribeFromSecrets = useSecretsStore.subscribe(handleSecretsStoreChange);
-  unsubscribeFromPreferences = useAssistantPreferencesStore.subscribe(
-    handleAssistantPreferencesStoreChange
-  );
   void refreshProviderDiscovery();
 }
 
 function stopProviderDiscoverySubscriptions(): void {
   requestGeneration += 1;
-  unsubscribeFromPreferences?.();
-  unsubscribeFromPreferences = undefined;
   unsubscribeFromSecrets?.();
   unsubscribeFromSecrets = undefined;
 }
 
 function handleSecretsStoreChange(next: SecretsState, previous: SecretsState): void {
   if (next.secretsVersion !== previous.secretsVersion) {
-    void refreshProviderDiscovery();
-  }
-}
-
-function handleAssistantPreferencesStoreChange(
-  next: AssistantPreferencesStore,
-  previous: AssistantPreferencesStore
-): void {
-  if (
-    next.providerSettings.lmstudio !== previous.providerSettings.lmstudio ||
-    next.providerSettings.ollama !== previous.providerSettings.ollama
-  ) {
     void refreshProviderDiscovery();
   }
 }
@@ -149,10 +127,7 @@ async function refreshProviderDiscovery(): Promise<void> {
     }
     publishProviderDiscovery({
       error: error instanceof Error ? error.message : String(error),
-      providers:
-        error instanceof AvailableProviderDiscoveryError
-          ? error.providers
-          : discoverySnapshot.providers,
+      providers: discoverySnapshot.providers,
       state: 'error',
     });
   }

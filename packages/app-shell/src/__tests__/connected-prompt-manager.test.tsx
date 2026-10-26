@@ -1,10 +1,9 @@
 import '@testing-library/jest-dom/vitest';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { act } from '@brainstrike/test-utils/react-act';
 import type { PromptItem } from '@brainstrike/types/prompt-item';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { type ComponentProps, useMemo } from 'react';
+import { useMemo } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import {
@@ -18,11 +17,6 @@ const testItem: PromptItem = {
   content: 'Use exact evidence.',
   createdAt: new Date('2026-07-10T12:00:00Z'),
   description: null,
-  embeddingError: null,
-  embeddingProfileId: 'default',
-  embeddingRevision: 1,
-  embeddingStatus: 'ready',
-  embeddingUpdatedAt: new Date('2026-07-10T12:00:00Z'),
   id: 'prompt-1',
   isFavorite: false,
   kind: 'snippet',
@@ -39,57 +33,29 @@ const testItem: PromptItem = {
   useCount: 0,
 };
 
-const mocks = vi.hoisted(() => {
-  const embedDocumentWithRecovery = vi.fn();
-  const embedQueryWithRecovery = vi.fn();
-  return {
-    assistantProviderSettings: {
-      google: {
-        googleIncludeThoughts: true,
-        googleThinkingLevel: 'high' as const,
-        maxOutputTokens: 768,
-      } as {
-        googleIncludeThoughts?: boolean;
-        googleThinkingLevel?: 'high';
-        maxOutputTokens?: number;
-      },
+const mocks = vi.hoisted(() => ({
+  assistantProviderSettings: {
+    google: {
+      googleIncludeThoughts: true,
+      googleThinkingLevel: 'high' as const,
+      maxOutputTokens: 768,
+    } as {
+      googleIncludeThoughts?: boolean;
+      googleThinkingLevel?: 'high';
+      maxOutputTokens?: number;
     },
-    createThread: vi.fn(),
-    embedDocumentWithRecovery,
-    embedPendingPromptItems: vi.fn(),
-    embedQueryWithRecovery,
-    getAvailableProviders: vi.fn(),
-    onLibraryError: vi.fn(),
-    onUseError: vi.fn(),
-    panelRenderCount: 0,
-    queryPromptSuggestions: vi.fn(),
-    recallRequest: null as Promise<unknown> | null,
-    recordUsage: vi.fn(),
-    sharedEmbedder: { embedDocumentWithRecovery, embedQueryWithRecovery },
-    useCapabilityRepository: false,
-  };
-});
-
-function PanelRenderCounter() {
-  mocks.panelRenderCount += 1;
-  return null;
-}
+  },
+  createThread: vi.fn(),
+  getAvailableProviders: vi.fn(),
+  onUseError: vi.fn(),
+  recordUsage: vi.fn(),
+  useCapabilityRepository: false,
+}));
 
 const repository = {
   create: vi.fn(),
-  getEmbeddingProfile: vi.fn().mockResolvedValue({
-    dimensions: 384,
-    distance: 'cosine',
-    id: 'default',
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-  }),
   list: vi.fn().mockResolvedValue([]),
-  listNeedingEmbedding: vi.fn().mockResolvedValue([]),
-  markEmbeddingError: vi.fn(),
   recordUsage: mocks.recordUsage,
-  searchSimilar: vi.fn(),
-  storeEmbedding: vi.fn(),
   update: vi.fn(),
 };
 
@@ -103,16 +69,6 @@ vi.mock('../prompt-library-repository', async (importOriginal) => {
       mocks.useCapabilityRepository ? actual.createPromptLibraryRepository(...args) : repository,
   };
 });
-
-vi.mock('../embedding-models', () => ({
-  buildLocalEmbeddingModelConfigMap: () =>
-    new Map([['Xenova/all-MiniLM-L6-v2', { dimensions: 384, id: 'Xenova/all-MiniLM-L6-v2' }]]),
-  resolveEmbeddingSetModelInfo: () => ({
-    dimensions: 384,
-    modelConfig: { dimensions: 384, id: 'Xenova/all-MiniLM-L6-v2' },
-    modelKey: 'Xenova/all-MiniLM-L6-v2',
-  }),
-}));
 
 vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
@@ -148,17 +104,16 @@ const registryState = {
       providerId: 'google',
     },
     {
-      capabilities: { defaultDimension: 384, type: 'embedding' },
-      id: 'Xenova/all-MiniLM-L6-v2',
+      capabilities: { defaultDimension: 1536, type: 'embedding' },
+      id: 'text-embedding-3-small',
       isEnabled: true,
-      name: 'MiniLM',
-      providerId: 'transformers',
+      name: 'Text Embedding 3 Small',
+      providerId: 'openai',
     },
   ],
   providers: [
     { id: 'google', isEnabled: true, name: 'Google' },
     { id: 'openai', isEnabled: true, name: 'OpenAI' },
-    { id: 'transformers', isEnabled: true, name: 'Local' },
   ],
 };
 
@@ -167,49 +122,21 @@ vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
     selector ? selector(registryState) : registryState,
 }));
 
-vi.mock('@brainstrike/vector-management', () => ({
-  useSharedSearchEmbedder: () => mocks.sharedEmbedder,
-}));
-
-vi.mock('../prompt-library-embedding', async () => {
-  const actual = await vi.importActual<typeof import('../prompt-library-embedding')>(
-    '../prompt-library-embedding'
-  );
-  return {
-    ...actual,
-    embedPendingPromptItems: mocks.embedPendingPromptItems,
-    queryPromptSuggestions: (
-      input: Parameters<typeof actual.queryPromptSuggestions>[0]
-    ): ReturnType<typeof actual.queryPromptSuggestions> => {
-      mocks.queryPromptSuggestions(input);
-      return actual.queryPromptSuggestions(input);
-    },
-  };
-});
-
 vi.mock('../prompt-workbench-panel', () => ({
   PromptWorkbenchPanel: (props: {
     activeThreadId?: string;
-    composerContext: string;
     initialItems: readonly PromptItem[];
     modelOptions: Array<{ key: string; label: string }>;
-    onLibraryChanged: () => Promise<void>;
-    onRequestSuggestions: (context: string) => Promise<unknown>;
     onUseItem: (
       item: PromptItem,
       content: string,
       action: 'compose' | 'insert' | 'new-thread'
     ) => Promise<void>;
     systemError?: string;
-    suggestionsEnabled?: boolean;
   }) => (
     <div data-testid="prompt-workbench-panel">
-      <PanelRenderCounter />
       <span data-testid="active-thread-id">{props.activeThreadId}</span>
-      <span data-testid="composer-context">{props.composerContext}</span>
-      <span data-testid="first-item-embedding-status">
-        {props.initialItems[0]?.embeddingStatus}
-      </span>
+      <span data-testid="first-item-title">{props.initialItems[0]?.title}</span>
       <span data-testid="model-options">{JSON.stringify(props.modelOptions)}</span>
       <span data-testid="system-error">{props.systemError}</span>
       <button
@@ -443,24 +370,6 @@ vi.mock('../prompt-workbench-panel', () => ({
       >
         New thread from whitespace prompt
       </button>
-      <button
-        onClick={() => {
-          const request = props.onRequestSuggestions('Live draft');
-          mocks.recallRequest = request;
-          void request.catch(mocks.onLibraryError);
-        }}
-        type="button"
-      >
-        Recall suggestions
-      </button>
-      <button
-        onClick={() => {
-          void props.onLibraryChanged().catch(mocks.onLibraryError);
-        }}
-        type="button"
-      >
-        Retry indexing
-      </button>
     </div>
   ),
 }));
@@ -481,11 +390,11 @@ function defaultHost(): AssistantThreadHostCapability {
 }
 
 /** The manager as the desktop shell mounts it: a host owns the threads. */
-function Manager(props: ComponentProps<typeof ConnectedPromptManager>) {
+function Manager() {
   const host = useMemo(defaultHost, []);
   return (
     <AssistantThreadHostContext.Provider value={host}>
-      <ConnectedPromptManager {...props} />
+      <ConnectedPromptManager />
     </AssistantThreadHostContext.Provider>
   );
 }
@@ -505,11 +414,7 @@ describe('ConnectedPromptManager', () => {
       maxOutputTokens: 768,
     };
     mocks.getAvailableProviders.mockResolvedValue(['google', 'openai']);
-    mocks.embedPendingPromptItems.mockResolvedValue([]);
-    mocks.queryPromptSuggestions.mockResolvedValue([]);
     mocks.recordUsage.mockResolvedValue(testItem);
-    mocks.recallRequest = null;
-    mocks.panelRenderCount = 0;
     repository.list.mockReset().mockResolvedValue([]);
     mocks.createThread.mockImplementation(async (resourceId: string, title = 'New Thread') => ({
       createdAt: new Date('2026-07-10T12:00:00Z'),
@@ -519,7 +424,6 @@ describe('ConnectedPromptManager', () => {
       updatedAt: new Date('2026-07-10T12:00:00Z'),
     }));
     useAssistantComposerCommandStore.getState().reset();
-    useAssistantComposerCommandStore.getState().recordDraft('thread-active', 'Live draft');
     useAssistantThreadStore.setState({
       activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-active' },
       draftRuntimeByThreadId: {},
@@ -540,15 +444,7 @@ describe('ConnectedPromptManager', () => {
     const request = vi.fn(async () => ({
       accepted: true,
       items: [],
-      profile: {
-        dimensions: 384,
-        distance: 'cosine',
-        id: 'default',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-      },
       revisions: [],
-      similarities: [],
     }));
     Object.defineProperty(window, 'promptLibrary', {
       configurable: true,
@@ -561,48 +457,20 @@ describe('ConnectedPromptManager', () => {
     });
     render(<Manager />);
     await screen.findByTestId('prompt-workbench-panel');
-    await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalledOnce());
     expect(request).toHaveBeenCalledWith({ filter: {}, operation: 'list' });
     expect(repository.list).not.toHaveBeenCalled();
   });
 
-  it('loads prompts and projects the active thread, live draft, and enabled LLMs', async () => {
+  it('loads prompts and projects the active thread and enabled LLMs', async () => {
     render(<Manager />);
 
     expect(screen.getByText('Opening Prompt Workbench…')).toBeInTheDocument();
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
     expect(screen.getByTestId('active-thread-id')).toHaveTextContent('thread-active');
-    expect(screen.getByTestId('composer-context')).toHaveTextContent('Live draft');
     expect(JSON.parse(screen.getByTestId('model-options').textContent ?? 'null')).toEqual([
       { key: 'openai::gpt-5.4', label: 'OpenAI · GPT-5.4' },
       { key: 'google::gemini-3.1-pro-preview', label: 'Google · Gemini 3.1 Pro' },
     ]);
-    await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalled());
-  });
-
-  it('does not subscribe the hidden workbench to draft changes when suggestions are disabled', async () => {
-    const { rerender } = render(<Manager suggestionsEnabled={false} />);
-    expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
-    expect(screen.getByTestId('composer-context')).toBeEmptyDOMElement();
-    const hiddenRenderCount = mocks.panelRenderCount;
-
-    act(() => {
-      useAssistantComposerCommandStore.getState().recordDraft('thread-active', 'Hidden update');
-    });
-
-    expect(mocks.panelRenderCount).toBe(hiddenRenderCount);
-    expect(mocks.queryPromptSuggestions).not.toHaveBeenCalled();
-
-    rerender(<Manager suggestionsEnabled={true} />);
-    expect(screen.getByTestId('composer-context')).toHaveTextContent('Hidden update');
-    const visibleRenderCount = mocks.panelRenderCount;
-
-    act(() => {
-      useAssistantComposerCommandStore.getState().recordDraft('thread-active', 'Visible update');
-    });
-
-    expect(screen.getByTestId('composer-context')).toHaveTextContent('Visible update');
-    expect(mocks.panelRenderCount).toBeGreaterThan(visibleRenderCount);
   });
 
   it('ignores obsolete legacy localStorage without surfacing compatibility UI', async () => {
@@ -613,11 +481,9 @@ describe('ConnectedPromptManager', () => {
     render(<Manager />);
 
     expect(await screen.findByTestId('prompt-workbench-panel')).toBeInTheDocument();
-    expect(screen.getByTestId('first-item-embedding-status')).toHaveTextContent('ready');
+    expect(screen.getByTestId('first-item-title')).toHaveTextContent('Evidence rule');
     expect(screen.getByTestId('system-error')).toBeEmptyDOMElement();
     expect(localStorage.getItem('brainstrike-prompt-store')).toBe(malformedLegacyValue);
-    await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalled());
-    expect(screen.getByTestId('system-error')).toBeEmptyDOMElement();
   });
 
   it('surfaces an alert when the prompt library capability is missing', () => {
@@ -637,7 +503,6 @@ describe('ConnectedPromptManager', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Prompt database is unavailable.');
     expect(screen.queryByTestId('prompt-workbench-panel')).not.toBeInTheDocument();
-    expect(mocks.embedPendingPromptItems).not.toHaveBeenCalled();
   });
 
   it('stages insertions into the active thread rather than the selected sidebar thread', async () => {
@@ -1015,7 +880,7 @@ describe('ConnectedPromptManager', () => {
 
   it('refuses to stage a prompt whose requested provider is unavailable', async () => {
     const user = userEvent.setup();
-    mocks.getAvailableProviders.mockResolvedValue(['local']);
+    mocks.getAvailableProviders.mockResolvedValue(['anthropic']);
     render(<Manager />);
     await user.click(await screen.findByRole('button', { name: 'Compose test prompt' }));
 
@@ -1030,168 +895,5 @@ describe('ConnectedPromptManager', () => {
     expect(
       useAssistantThreadStore.getState().draftRuntimeByThreadId['thread-active']
     ).toBeUndefined();
-  });
-
-  it('routes contextual recall through query embeddings without a lexical substitute', async () => {
-    const user = userEvent.setup();
-    render(<Manager />);
-    await user.click(await screen.findByRole('button', { name: 'Recall suggestions' }));
-
-    await waitFor(() =>
-      expect(mocks.queryPromptSuggestions).toHaveBeenCalledWith(
-        expect.objectContaining({
-          context: 'Live draft',
-          repository: expect.objectContaining({ recordUsage: mocks.recordUsage }),
-        })
-      )
-    );
-  });
-
-  it('does not start query inference when recall is disabled while prerequisites load', async () => {
-    const user = userEvent.setup();
-    let resolveProfile!: (profile: unknown) => void;
-    const profileReady = new Promise<unknown>((resolve) => {
-      resolveProfile = resolve;
-    });
-    repository.getEmbeddingProfile.mockReturnValue(profileReady);
-    mocks.embedQueryWithRecovery.mockResolvedValue([0.1, 0.2]);
-    const renderManager = (suggestionsEnabled: boolean) => (
-      <Manager suggestionsEnabled={suggestionsEnabled} />
-    );
-    const view = render(renderManager(true));
-
-    await user.click(await screen.findByRole('button', { name: 'Recall suggestions' }));
-    await waitFor(() => expect(repository.getEmbeddingProfile).toHaveBeenCalledTimes(2));
-    view.rerender(renderManager(false));
-
-    resolveProfile({
-      dimensions: 384,
-      distance: 'cosine',
-      id: 'default',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-    });
-    await mocks.recallRequest?.catch(() => undefined);
-
-    expect(mocks.embedQueryWithRecovery).not.toHaveBeenCalled();
-  });
-
-  it('aborts query inference already in flight when recall becomes disabled', async () => {
-    const user = userEvent.setup();
-    const backendAbort = vi.fn();
-    let backendSignal: AbortSignal | undefined;
-    mocks.embedQueryWithRecovery.mockImplementation((_modelInfo, _context, options) => {
-      backendSignal = options?.signal;
-      if (!backendSignal) {
-        return Promise.resolve([0.1, 0.2]);
-      }
-      return new Promise<number[]>((_resolve, reject) => {
-        backendSignal?.addEventListener(
-          'abort',
-          () => {
-            backendAbort();
-            reject(backendSignal?.reason);
-          },
-          { once: true }
-        );
-      });
-    });
-    const renderManager = (suggestionsEnabled: boolean) => (
-      <Manager suggestionsEnabled={suggestionsEnabled} />
-    );
-    const view = render(renderManager(true));
-
-    await user.click(await screen.findByRole('button', { name: 'Recall suggestions' }));
-    await waitFor(() => expect(mocks.embedQueryWithRecovery).toHaveBeenCalledTimes(1));
-    view.rerender(renderManager(false));
-    await mocks.recallRequest?.catch(() => undefined);
-
-    expect(backendSignal?.aborted).toBe(true);
-    expect(backendAbort).toHaveBeenCalledTimes(1);
-  });
-
-  it('refreshes initially pending items after background indexing finishes', async () => {
-    const pendingItem = {
-      ...testItem,
-      embeddingRevision: null,
-      embeddingStatus: 'pending' as const,
-      embeddingUpdatedAt: null,
-    };
-    repository.list.mockResolvedValueOnce([pendingItem]).mockResolvedValue([testItem]);
-
-    render(<Manager />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('first-item-embedding-status')).toHaveTextContent('ready')
-    );
-    expect(repository.list).toHaveBeenCalledTimes(2);
-  });
-
-  it('serializes overlapping indexing requests', async () => {
-    const user = userEvent.setup();
-    let resolveFirstPass!: (value: readonly never[]) => void;
-    mocks.embedPendingPromptItems
-      .mockImplementationOnce(
-        () =>
-          new Promise<readonly never[]>((resolve) => {
-            resolveFirstPass = resolve;
-          })
-      )
-      .mockResolvedValue([]);
-
-    render(<Manager />);
-    await screen.findByTestId('prompt-workbench-panel');
-    await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalledTimes(1));
-
-    await user.click(screen.getByRole('button', { name: 'Retry indexing' }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(mocks.embedPendingPromptItems).toHaveBeenCalledTimes(1);
-
-    resolveFirstPass([]);
-    await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalledTimes(2));
-  });
-
-  it('surfaces an explicit initialization error when the post-index refresh fails', async () => {
-    repository.list
-      .mockResolvedValueOnce([{ ...testItem, embeddingStatus: 'pending' }])
-      .mockRejectedValueOnce(new Error('Could not refresh indexed prompts.'));
-
-    render(<Manager />);
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Could not refresh indexed prompts.'
-    );
-  });
-
-  it('clears a stale indexing error after a later indexing pass succeeds', async () => {
-    const user = userEvent.setup();
-    mocks.embedPendingPromptItems.mockRejectedValue(new Error('Embedding worker unavailable.'));
-    render(<Manager />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId('system-error')).toHaveTextContent('Embedding worker unavailable.')
-    );
-    mocks.embedPendingPromptItems.mockResolvedValue([]);
-    await user.click(screen.getByRole('button', { name: 'Retry indexing' }));
-
-    await waitFor(() => expect(screen.getByTestId('system-error')).toBeEmptyDOMElement());
-  });
-
-  it('leaves explicit indexing failure ownership to the workbench warning', async () => {
-    const user = userEvent.setup();
-    mocks.embedPendingPromptItems.mockRejectedValue(new Error('Embedding worker unavailable.'));
-    render(<Manager />);
-    await waitFor(() =>
-      expect(screen.getByTestId('system-error')).toHaveTextContent('Embedding worker unavailable.')
-    );
-
-    await user.click(screen.getByRole('button', { name: 'Retry indexing' }));
-
-    await waitFor(() =>
-      expect(mocks.onLibraryError).toHaveBeenCalledWith(
-        expect.objectContaining({ message: 'Embedding worker unavailable.' })
-      )
-    );
-    expect(screen.getByTestId('system-error')).toBeEmptyDOMElement();
   });
 });

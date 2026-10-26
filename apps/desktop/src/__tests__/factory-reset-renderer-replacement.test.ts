@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { BrowserWindow } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { createFactoryResetRendererReplacementCoordinator } from '../factory-reset-renderer-replacement';
+import { DESKTOP_IPC_PUSH_CHANNEL, type DesktopIpcPush } from '../platform/desktop-ipc-channels';
 import type { WorkspaceOpenReadySignal } from '../workspace-open-ready-ipc';
 
 const RESET_GENERATION_CHANNEL = 'workspace:factory-reset-generation';
@@ -9,7 +10,7 @@ const RESET_GENERATION_CHANNEL = 'workspace:factory-reset-generation';
 class TestWebContents extends EventEmitter {
   readonly id: number;
   readonly reload = vi.fn();
-  readonly send = vi.fn();
+  readonly send = vi.fn<(channel: string, push: DesktopIpcPush) => void>();
 
   constructor(id: number) {
     super();
@@ -65,10 +66,11 @@ const startReplacementNavigation = (window: TestWindow): void => {
 
 const readPublishedGeneration = (window: TestWindow): string => {
   const call = window.testWebContents.send.mock.calls.find(
-    ([channel]) => channel === RESET_GENERATION_CHANNEL
+    ([channel, push]) =>
+      channel === DESKTOP_IPC_PUSH_CHANNEL && push.method === RESET_GENERATION_CHANNEL
   );
   expect(call).toBeDefined();
-  const payload = call?.[1];
+  const payload = call?.[1].payload;
   expect(payload).toEqual({ resetGeneration: expect.any(String) });
   return (payload as { resetGeneration: string }).resetGeneration;
 };
@@ -126,18 +128,18 @@ describe('factory reset renderer replacement', () => {
     await expect(replacement).rejects.toThrow('Factory reset renderer 13 closed before readiness');
   });
 
-  it.each([
-    ['frameless', 'Renderer 14 readiness acknowledgement has no sender frame'],
-    ['malformed', 'Renderer 14 readiness acknowledgement has malformed payload'],
-  ])('surfaces a %s acknowledgement immediately', async (_kind, diagnostic) => {
-    const coordinator = createCoordinator();
-    const window = new TestWindow(14);
-    const replacement = coordinator.replace([asBrowserWindow(window)]);
+  it.each([['malformed', 'Renderer 14 readiness acknowledgement has malformed payload']])(
+    'surfaces a %s acknowledgement immediately',
+    async (_kind, diagnostic) => {
+      const coordinator = createCoordinator();
+      const window = new TestWindow(14);
+      const replacement = coordinator.replace([asBrowserWindow(window)]);
 
-    coordinator.handleRendererReady(invalidReady(window, diagnostic));
+      coordinator.handleRendererReady(invalidReady(window, diagnostic));
 
-    await expect(replacement).rejects.toThrow(diagnostic);
-  });
+      await expect(replacement).rejects.toThrow(diagnostic);
+    }
+  );
 
   it('cancels readiness on terminal quit and removes owned listeners', async () => {
     const coordinator = createCoordinator();

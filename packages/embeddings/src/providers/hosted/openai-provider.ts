@@ -1,8 +1,7 @@
-import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.ts';
+import type { EmbeddingInput, IEmbeddingProvider } from '../../interfaces/provider.ts';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
-  HostedProviderType,
   ProviderMetadata,
   Result,
 } from '../../provider-types.ts';
@@ -35,8 +34,6 @@ const OPENAI_MODELS: Record<string, ModelConfig> = {
     id: 'text-embedding-3-large',
     name: 'OpenAI text-embedding-3-large',
     origin: 'OpenAI',
-    quantized: false,
-    size: 'hosted',
     tags: ['openai', 'hosted', 'embedding'],
   },
   'text-embedding-3-small': {
@@ -45,58 +42,35 @@ const OPENAI_MODELS: Record<string, ModelConfig> = {
     id: 'text-embedding-3-small',
     name: 'OpenAI text-embedding-3-small',
     origin: 'OpenAI',
-    quantized: false,
-    size: 'hosted',
     tags: ['openai', 'hosted', 'embedding'],
   },
 };
 
-type OpenAiCompatibleProvider = Extract<HostedProviderType, 'openai' | 'ollama' | 'lmstudio'>;
-
-const OPENAI_COMPATIBLE_ENDPOINTS: Record<OpenAiCompatibleProvider, string> = {
-  lmstudio: 'http://localhost:1234/v1/embeddings',
-  ollama: 'http://127.0.0.1:11434/v1/embeddings',
-  openai: 'https://api.openai.com/v1/embeddings',
-};
-
-const OPENAI_COMPATIBLE_LABELS: Record<OpenAiCompatibleProvider, string> = {
-  lmstudio: 'LM Studio',
-  ollama: 'Ollama',
-  openai: 'OpenAI',
-};
+const OPENAI_EMBEDDINGS_ENDPOINT = 'https://api.openai.com/v1/embeddings';
 
 export interface OpenAIEmbeddingProviderOptions {
   readonly apiKey?: string;
   readonly endpoint?: string;
   readonly fetch?: FetchLike;
-  readonly includeDimensions?: boolean;
   readonly modelId: string;
-  readonly provider?: OpenAiCompatibleProvider;
-  readonly requiresApiKey?: boolean;
   readonly targetDimensions: number;
 }
 
-export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
-  readonly runtime = 'hosted' as const;
-  readonly provider: OpenAiCompatibleProvider;
+export class OpenAIEmbeddingProvider implements IEmbeddingProvider {
+  readonly provider = 'openai' as const;
 
   private apiKey: string | null;
   private readonly modelId: string;
   private readonly targetDimensions: number;
   private readonly fetchImpl: FetchLike;
   private readonly endpoint: string;
-  private readonly requiresApiKey: boolean;
-  private readonly includeDimensions: boolean;
 
   constructor(options: OpenAIEmbeddingProviderOptions) {
-    this.provider = options.provider ?? 'openai';
     this.modelId = options.modelId;
     this.targetDimensions = resolveTargetDimensions(options.targetDimensions);
     this.apiKey = normalizeApiKey(options.apiKey);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
-    this.endpoint = options.endpoint ?? OPENAI_COMPATIBLE_ENDPOINTS[this.provider];
-    this.requiresApiKey = options.requiresApiKey ?? this.provider === 'openai';
-    this.includeDimensions = options.includeDimensions ?? this.provider === 'openai';
+    this.endpoint = options.endpoint ?? OPENAI_EMBEDDINGS_ENDPOINT;
   }
 
   setApiKey(apiKey: string): void {
@@ -104,9 +78,6 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   hasApiKey(): boolean {
-    if (!this.requiresApiKey) {
-      return true;
-    }
     return this.apiKey !== null;
   }
 
@@ -124,16 +95,13 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
       return null;
     }
 
-    const providerLabel = OPENAI_COMPATIBLE_LABELS[this.provider];
     return {
-      description: `${providerLabel} OpenAI-compatible embedding model.`,
+      description: 'Hosted OpenAI embedding model.',
       dimensions: this.targetDimensions,
       id: modelId,
-      name: `${providerLabel} ${modelId}`,
-      origin: providerLabel,
-      quantized: false,
-      size: 'hosted',
-      tags: [this.provider, 'embedding', 'openai-compatible'],
+      name: `OpenAI ${modelId}`,
+      origin: 'OpenAI',
+      tags: ['openai', 'hosted', 'embedding'],
     };
   }
 
@@ -158,7 +126,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
-    if (this.requiresApiKey && !this.apiKey) {
+    if (!this.apiKey) {
       return { error: { provider: this.provider, type: 'missing_api_key' }, ok: false };
     }
     if (!this.fetchImpl) {
@@ -202,22 +170,13 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
       headers['Authorization'] = `Bearer ${this.apiKey}`;
     }
 
-    const body: {
-      model: string;
-      input: string | string[];
-      // biome-ignore lint/style/useNamingConvention: OpenAI-compatible APIs expect snake_case key
-      encoding_format: 'float';
-      dimensions?: number;
-    } = {
-      // biome-ignore lint/style/useNamingConvention: OpenAI-compatible APIs expect snake_case key
+    const body = {
+      dimensions: this.targetDimensions,
+      // biome-ignore lint/style/useNamingConvention: the OpenAI API expects a snake_case key
       encoding_format: 'float',
       input: text,
       model: this.modelId,
     };
-
-    if (this.includeDimensions) {
-      body.dimensions = this.targetDimensions;
-    }
 
     return fetchImpl(this.endpoint, {
       body: JSON.stringify(body),
@@ -245,7 +204,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
     const errorPayload = (await safeJson(response)) as OpenAIEmbeddingResponse | undefined;
     const message =
       errorPayload?.error?.message ??
-      `${OPENAI_COMPATIBLE_LABELS[this.provider]} embeddings request failed with status ${response.status}`;
+      `OpenAI embeddings request failed with status ${response.status}`;
 
     return {
       error: { message, provider: this.provider, statusCode: response.status, type: 'api_error' },
@@ -365,7 +324,7 @@ function resolveTargetDimensions(value: number | undefined): number {
   const targetDimensions = value ?? STANDARD_EMBEDDING_DIMENSION;
   if (!Number.isFinite(targetDimensions) || targetDimensions <= 0) {
     throw new Error(
-      `OpenAI-compatible embedding dimensions must be a positive number. Received: ${String(value)}`
+      `OpenAI embedding dimensions must be a positive number. Received: ${String(value)}`
     );
   }
   return Math.floor(targetDimensions);

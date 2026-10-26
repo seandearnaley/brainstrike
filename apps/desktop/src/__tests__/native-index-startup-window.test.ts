@@ -1,6 +1,8 @@
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  NativeIndexRefusalError,
+  NativeIndexSetupRequiredError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { expect, it, vi } from 'vitest';
-import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import {
   createNativeStartupFailureReporter,
   observeNativeReaderStartup,

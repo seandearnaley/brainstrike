@@ -8,7 +8,6 @@ import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { ContentClearResult } from '@brainstrike/types';
 import type ElectronStore from 'electron-store';
-import type { EmbeddingHostManager } from './embedding-host-manager';
 import { createFileSystemIpcDomain } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
@@ -28,7 +27,6 @@ import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 interface RegisterIpcHandlerOptions {
-  readonly embeddingHostManager?: EmbeddingHostManager;
   readonly getRootsCatalog: () => Promise<WorkspaceRootPort>;
   readonly getUserDataPath?: () => string;
   /** Explicit test-harness seam for synthetic filesystem adapters. */
@@ -37,7 +35,6 @@ interface RegisterIpcHandlerOptions {
   readonly onClearContent?: () => Promise<ContentClearResult>;
   readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
-  readonly onStorageChanged?: (key: string) => void;
   readonly onWorkspaceRootGranted?: (grantedPath: string) => void;
   readonly onWorkspaceRootsChanged?: () => void;
 }
@@ -82,7 +79,6 @@ export function createApplicationIpcDomain(
   const unregisterStoragePreferencesIpcHandlers = registerStoragePreferencesIpcHandlers({
     getStore,
     storage,
-    ...(options?.onStorageChanged ? { onStorageChanged: options.onStorageChanged } : {}),
   });
   const fileSystemDomain = createFileSystemIpcDomain({
     fileSystem,

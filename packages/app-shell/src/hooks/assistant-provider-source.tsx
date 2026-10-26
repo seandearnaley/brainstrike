@@ -8,7 +8,7 @@ export type AssistantProviderSource =
       readonly providers: readonly SupportedProvider[];
     }
   | {
-      /** Desktop seeds are incomplete until renderer-local runtimes are probed. */
+      /** Desktop seeds are merged with the renderer's read of configured provider keys. */
       readonly kind: 'discovery';
       readonly seeds?: readonly SupportedProvider[];
     };

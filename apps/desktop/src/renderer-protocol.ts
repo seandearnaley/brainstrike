@@ -6,7 +6,6 @@ import {
   APP_RENDERER_DOCUMENT_URL,
   APP_RENDERER_SCHEME,
   type DesktopRendererTarget,
-  rendererIsolationHeaders,
 } from './desktop-renderer-target';
 
 export const APP_RENDERER_PROTOCOL_PRIVILEGE = {
@@ -20,8 +19,6 @@ export const APP_RENDERER_PROTOCOL_PRIVILEGE = {
   },
   scheme: APP_RENDERER_SCHEME,
 } as const;
-
-const DOCUMENT_PATHNAME = new URL(APP_RENDERER_DOCUMENT_URL).pathname;
 
 function confined(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
@@ -77,13 +74,8 @@ export function createRendererProtocolHandler(
       const response = await net.fetch(pathToFileURL(actualResource).href, {
         method: request.method,
       });
-      const headers = new Headers(response.headers);
-      const isolation = rendererIsolationHeaders(new URL(request.url), [DOCUMENT_PATHNAME]);
-      for (const [key, value] of Object.entries(isolation)) {
-        headers.set(key, value);
-      }
       return new Response(request.method === 'HEAD' ? null : response.body, {
-        headers,
+        headers: response.headers,
         status: response.status,
         statusText: response.statusText,
       });

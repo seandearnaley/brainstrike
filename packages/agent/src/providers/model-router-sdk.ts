@@ -1,4 +1,4 @@
-import { ModelRouterLanguageModel } from '@mastra/core/llm';
+import type { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { type LanguageModel, wrapLanguageModel } from 'ai';
 import type { ProviderModelConfiguration } from './provider-factory.ts';
 
@@ -206,14 +206,10 @@ export async function collectRouterGenerateResult(
 export function materializeHostProviderModel(
   configuration: ProviderModelConfiguration
 ): ReturnType<typeof wrapLanguageModel> {
-  let model: ModelRouterLanguageModel;
-  if ('gatewayId' in configuration) {
-    model = configuration;
-  } else if ('doStream' in configuration) {
+  if (!('gatewayId' in configuration)) {
     return wrapLanguageModel({ middleware: { specificationVersion: 'v4' }, model: configuration });
-  } else {
-    model = new ModelRouterLanguageModel(configuration);
   }
+  const model: ModelRouterLanguageModel = configuration;
   const facade: SdkV3 = {
     doGenerate: async (options) =>
       collectRouterGenerateResult(

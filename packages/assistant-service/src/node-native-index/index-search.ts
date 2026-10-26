@@ -1,6 +1,8 @@
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import type { IndexerPort } from '@brainstrike/indexer';
 import type {
+  IndexerCoverageCounts,
+  IndexerEmbeddingState,
   IndexerGrepRequest,
   IndexerGrepResult,
   IndexerRootReadiness,
@@ -9,6 +11,15 @@ import type {
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
 import { Schema } from 'effect';
+
+/** The root-list store holds text only: every chunk is without a vector. */
+const TEXT_ONLY: IndexerEmbeddingState = { indexMode: 'text-only' };
+function textCoverage(counts: {
+  readonly chunks: number;
+  readonly indexedFiles: number;
+}): IndexerCoverageCounts {
+  return { ...counts, missingVectors: counts.chunks, vectors: 0 };
+}
 
 interface Dependencies {
   acquireIndexer(): Promise<Pick<IndexerPort, 'info' | 'search' | 'coverage'>>;
@@ -129,6 +140,7 @@ export async function grepSnapshot(
       ...rows.identity,
       candidateCount: rows.matchedChunks,
       candidatesTruncated: rows.truncated,
+      embedding: TEXT_ONLY,
       hits,
       scanLimited: false,
       truncated: rows.truncated,
@@ -164,12 +176,9 @@ export function createNativeIndexSearchCapability(
   };
   const assertIdentity = async (identity: IndexerGrepResult): Promise<void> => {
     const current = await (await dependencies.acquireIndexer()).info();
-    if (
-      identity.storeId !== current.storeId ||
-      JSON.stringify(identity.embedding) !== JSON.stringify(current.embedding)
-    ) {
+    if (identity.storeId !== current.storeId) {
       throw new Error(
-        'Native store or embedding identity changed during search. Retry with its current capability.'
+        'Native store identity changed during search. Retry with its current capability.'
       );
     }
   };
@@ -178,7 +187,13 @@ export function createNativeIndexSearchCapability(
       await authorize(request.rootIds);
       const result = await (await dependencies.acquireIndexer()).coverage(request);
       await authorize(request.rootIds);
-      return result;
+      return {
+        embedding: TEXT_ONLY,
+        roots: result.roots.map(({ rootId, ...counts }) => ({ rootId, ...textCoverage(counts) })),
+        storeId: result.storeId,
+        totals: textCoverage(result.totals),
+        vectorCoverageComplete: false,
+      };
     },
     grep: async (request) => {
       if (request.filePaths !== undefined) {
@@ -195,7 +210,10 @@ export function createNativeIndexSearchCapability(
     },
     search: async (request) => {
       await authorize(request.rootIds);
-      const result = await (await dependencies.acquireIndexer()).search(request);
+      const result = {
+        ...(await (await dependencies.acquireIndexer()).search(request)),
+        embedding: TEXT_ONLY,
+      };
       await authorize(request.rootIds);
       await assertIdentity(result);
       return result;
@@ -220,7 +238,7 @@ export function createNativeIndexSearchCapability(
       }
       return {
         authorizedRootIds,
-        embedding: info.embedding,
+        embedding: TEXT_ONLY,
         kind: 'ready',
         rootReadiness,
         storeId: info.storeId,

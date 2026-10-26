@@ -13,7 +13,7 @@ import {
   PlatformMemorySettingsSchema,
   PlatformModelConfigurationSchema,
 } from './platform-client-configuration';
-import { InferencePlanSchema, QueryEmbeddingPayloadSchema } from './retrieval-wire';
+import { QueryEmbeddingPayloadSchema } from './retrieval-wire';
 
 export {
   PlatformClientConfigurationSchema,
@@ -151,10 +151,8 @@ export const PlatformSelectionSchema = Schema.Struct({
   ),
 });
 /**
- * The one relay to Main's hidden embedding host (ADR-0007): a retrieval tool's
- * query, or an admitted local recall embedder's with its plan. The host's
- * admission decides which; Main answers the vector, or its refusal as data
- * (`RefusableOutcomeSchema`, BST-1996).
+ * A retrieval tool's query, which Main embeds with the index's hosted model; Main
+ * answers the vector, or its refusal as data (`RefusableOutcomeSchema`, BST-1996).
  */
 export const PlatformEmbeddingQuerySchema = Schema.Struct({ request: QueryEmbeddingPayloadSchema });
 /** A worktree an agent created, mounted by Main as a workspace folder (ADR-0028 step 3). */
@@ -187,42 +185,6 @@ export const PlatformCatalogModelSchema = Schema.Struct({ model: Id, provider: I
 export const PlatformCatalogModelResultSchema = Schema.NullOr(
   Schema.Struct({ isEnabled: Schema.Boolean, providerId: Id })
 );
-/**
- * BST-754: what admission asks Main's local runtime catalog about the selected
- * Ollama model (its `/api/show`), at the run configuration's endpoint.
- */
-export const PlatformLocalModelSchema = Schema.Struct({
-  endpoint: Schema.optional(
-    Schema.Struct({
-      apiToken: Schema.optional(Schema.String),
-      baseUrl: Schema.optional(Schema.String),
-    })
-  ),
-  model: Id,
-});
-const ContextTokens = Schema.Int.check(Schema.isGreaterThan(0));
-export const PlatformLocalModelResultSchema = Schema.Union([
-  Schema.Struct({
-    contextLength: Schema.Union([
-      Schema.Struct({
-        key: Schema.String,
-        state: Schema.Literal('reported'),
-        tokens: ContextTokens,
-      }),
-      Schema.Struct({ state: Schema.Literal('unreported') }),
-      Schema.Struct({ detail: Schema.String, state: Schema.Literal('malformed') }),
-    ]),
-    endpoint: Schema.String,
-    state: Schema.Literal('resolved'),
-    thinking: Schema.Boolean,
-  }),
-  Schema.Struct({
-    endpoint: Schema.String,
-    message: Schema.String,
-    state: Schema.Literal('unavailable'),
-  }),
-]);
-export type PlatformLocalModel = (typeof PlatformLocalModelResultSchema)['Type'];
 export const PlatformObserverCandidatesSchema = Schema.Struct({
   candidates: Schema.mutable(Schema.Array(Id)),
 });
@@ -230,12 +192,7 @@ export const PlatformObserverCandidatesResultSchema = Schema.mutable(Schema.Arra
 export const PlatformMemoryVectorsSchema = Schema.Struct({
   settings: PlatformMemorySettingsSchema,
 });
-export const PlatformMemoryVectorsResultSchema = Schema.NullOr(
-  Schema.Struct({
-    local: Schema.optional(Schema.Struct({ modelKey: Id, workerPlan: InferencePlanSchema })),
-    profile: PlatformVectorProfileSchema,
-  })
-);
+export const PlatformMemoryVectorsResultSchema = Schema.NullOr(PlatformVectorProfileSchema);
 export const PlatformWorkspaceLeaseSchema = Schema.Struct({
   leaseId: Schema.String.check(Schema.isUUID()),
 });

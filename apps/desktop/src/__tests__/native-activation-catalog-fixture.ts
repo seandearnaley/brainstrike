@@ -1,4 +1,3 @@
-import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type { NativeCanonicalCatalogRecord } from '@brainstrike/canonical-ingestion';
 import type {
   CollectionPort,
@@ -26,9 +25,6 @@ export function createActivationCatalogFixture() {
     collections: vi.fn<CollectionPort['collections']>(),
     sourceCatalog: vi.fn<SourceCatalogPort['sourceCatalog']>(),
     workspaceRoots: vi.fn<WorkspaceRootPort['workspaceRoots']>(),
-  };
-  const modelCatalog = {
-    read: vi.fn(async () => projectModelCatalog({ models: [], providers: [] })),
   };
   const setRecords = (read: () => readonly NativeCanonicalCatalogRecord[]): void => {
     catalog.sourceCatalog.mockImplementation(async (request) => {
@@ -64,17 +60,16 @@ export function createActivationCatalogFixture() {
       collections: [
         {
           createdAt: '2026-10-13T00:00:00.000Z',
-          dimensions: 384,
+          dimensions: 1536,
           distance: 'cosine',
           id: 'selected',
-          modelId: 'Xenova/all-MiniLM-L6-v2',
-          modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
+          modelId: 'text-embedding-3-small',
+          modelKey: 'openai::text-embedding-3-small',
         },
       ],
     });
     catalog.workspaceRoots.mockResolvedValue({ roots: [] });
-    modelCatalog.read.mockResolvedValue(projectModelCatalog({ models: [], providers: [] }));
     setRecords(() => []);
   };
-  return { catalog, modelCatalog, reset, setRecords, setRoot };
+  return { catalog, reset, setRecords, setRoot };
 }

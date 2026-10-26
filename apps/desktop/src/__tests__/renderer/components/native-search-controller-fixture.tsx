@@ -8,7 +8,6 @@ import type {
   NativeIndexLifecycleObservation,
   NativeIndexObservation,
 } from '@brainstrike/indexing-contract/indexer-client';
-import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import { useNativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -96,13 +95,9 @@ export function mountNativeSearchController(
   let identities = new Map([['adapter-a', 'root-a']]);
   function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <SearchEmbedderProvider>
-        <NativeSearchProvider capability={capability}>
-          <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
-            {children}
-          </RootIdentityProvider>
-        </NativeSearchProvider>
-      </SearchEmbedderProvider>
+      <NativeSearchProvider capability={capability}>
+        <RootIdentityProvider dbRootIdByAdapterRootId={identities}>{children}</RootIdentityProvider>
+      </NativeSearchProvider>
     );
   }
   const mounted = renderHook(

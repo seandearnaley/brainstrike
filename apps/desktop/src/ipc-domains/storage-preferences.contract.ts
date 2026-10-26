@@ -43,27 +43,22 @@ export const storageContract = {
   clear: rawChannel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.storage.clear,
     parseArgs: parseExactNoArgs('storage clear'),
-    roles: ['visible-ui'],
   }),
   getAllKeys: rawChannel<[], string[]>({
     channel: DESKTOP_IPC_CHANNELS.storage.getAllKeys,
     parseArgs: parseExactNoArgs('storage getAllKeys'),
-    roles: ['visible-ui'],
   }),
   getItem: rawChannel<[key: string], string | null>({
     channel: DESKTOP_IPC_CHANNELS.storage.getItem,
     parseArgs: parseExactString('storage getItem'),
-    roles: ['visible-ui'],
   }),
   removeItem: rawChannel<[key: string], void>({
     channel: DESKTOP_IPC_CHANNELS.storage.removeItem,
     parseArgs: parseExactString('storage removeItem'),
-    roles: ['visible-ui'],
   }),
   setItem: rawChannel<[key: string, value: string], void>({
     channel: DESKTOP_IPC_CHANNELS.storage.setItem,
     parseArgs: parseExactStringPair('storage setItem'),
-    roles: ['visible-ui'],
   }),
 } as const satisfies Contract;
 
@@ -71,25 +66,6 @@ export const settingsContract = {
   clearAll: rawChannel<[], { message?: string; success: boolean }>({
     channel: DESKTOP_IPC_CHANNELS.preferences.settingsClearAll,
     parseArgs: parseExactNoArgs('settings clearAll'),
-    roles: ['visible-ui'],
-  }),
-} as const satisfies Contract;
-
-export const vectorPreferencesContract = {
-  clear: rawChannel<[], void>({
-    channel: DESKTOP_IPC_CHANNELS.vectorPreferences.clear,
-    parseArgs: parseExactNoArgs('vector preferences clear'),
-    roles: ['embedding-host'],
-  }),
-  read: rawChannel<[], string | null>({
-    channel: DESKTOP_IPC_CHANNELS.vectorPreferences.read,
-    parseArgs: parseExactNoArgs('vector preferences read'),
-    roles: ['embedding-host'],
-  }),
-  write: rawChannel<[value: string], void>({
-    channel: DESKTOP_IPC_CHANNELS.vectorPreferences.write,
-    parseArgs: parseExactString('vector preferences write'),
-    roles: ['embedding-host'],
   }),
 } as const satisfies Contract;
 

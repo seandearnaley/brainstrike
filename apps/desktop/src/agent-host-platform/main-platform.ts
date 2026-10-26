@@ -7,7 +7,7 @@ import { createLogger, error as logError, fatal as logFatal } from '@brainstrike
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import { Schema } from 'effect';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { hostedQueryEmbedding } from '../hosted-embeddings';
 import type { LifecycleDelaySeam } from '../lifecycle-delay-seam';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
@@ -25,9 +25,6 @@ import {
   PlatformDiagnosticRecordSchema,
   PlatformEmbeddingQuerySchema,
   PlatformIndexRefreshSchema,
-  type PlatformLocalModel,
-  PlatformLocalModelResultSchema,
-  PlatformLocalModelSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformMemoryVectorsSchema,
   PlatformNativeChildSchema,
@@ -60,11 +57,6 @@ export interface DesktopPlatformCapabilities {
   readonly hostTools?: HostToolServiceCapabilities;
   /** Main's E2E delay seam; `platform-ready` delays Main's answer to the host's readiness check. */
   readonly lifecycleDelays?: Pick<LifecycleDelaySeam, 'delay'>;
-  /**
-   * ADR-0007: Main's hidden embedding host, borrowed by an admitted thread's
-   * local recall or retrieval tools through `platform/embedding/query`.
-   */
-  readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
@@ -124,28 +116,6 @@ function serveAdmissionReads(
           )
         )
       )
-  );
-  connection.onRequest<PlatformLocalModel, unknown>(
-    'platform/admission/local-model',
-    (input: unknown, token: CancellationToken) =>
-      execute(token, async (signal) => {
-        const localRuntimeModel = reads.localRuntimeModel;
-        if (!localRuntimeModel) {
-          throw new Error('This desktop serves no local runtime catalog');
-        }
-        return Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(
-          await localRuntimeModel(
-            Schema.decodeUnknownSync(PlatformLocalModelSchema, {
-              errors: 'all',
-              onExcessProperty: 'error',
-            })(input),
-            signal
-          )
-        );
-      })
   );
   connection.onRequest('platform/admission/observers', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) =>
@@ -364,12 +334,7 @@ export function serveDesktopPlatform(
         errors: 'all',
         onExcessProperty: 'error',
       })(input);
-      const embeddings = capabilities.localEmbedding;
-      if (!embeddings) {
-        throw new Error('This desktop has no embedding host for host threads');
-      }
-      // A retrieval tool's query or an admitted local recall embedder's, as the host sent it.
-      return await refusalOutcome(() => embeddings.queryEmbedding(request, { signal }));
+      return await refusalOutcome(() => hostedQueryEmbedding(request, signal));
     })
   );
   serveAdmissionReads(connection, execute, capabilities.admission, leases);

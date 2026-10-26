@@ -26,9 +26,6 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     'gemini-3-flash-preview': 'gemini-3.5-flash',
     'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
   },
-  lmstudio: {},
-  local: {},
-  ollama: {},
   openai: {
     'gpt-3.5-turbo': 'gpt-5.4-mini',
     'gpt-4-turbo': 'gpt-5.4',

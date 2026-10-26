@@ -6,6 +6,7 @@ type IpcHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unkn
 
 interface IpcMainMock {
   __invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+  getHandler(channel: string): IpcHandler | undefined;
   handle: Mock<(channel: string, handler: IpcHandler) => void>;
   removeHandler: Mock<(channel: string) => void>;
 }
@@ -22,6 +23,7 @@ export function createIpcMainMock(): IpcMainMock {
       }
       return handler({} as unknown, ...args);
     },
+    getHandler: (channel: string) => handlers.get(channel),
     handle: vi.fn((channel: string, handler: IpcHandler) => {
       handlers.set(channel, handler);
     }),

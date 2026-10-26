@@ -4,15 +4,17 @@ import path from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { type SeededRoot, seedPausedWorkspace } from './utils/foreground-latency-bench';
+import type { ModelProviderShim } from './utils/model-provider-shim';
 import {
   closeIndexingPopover,
   configureNativeIndex,
   type NativeIndexSummary,
   openResumeControl,
   readNativeIndexSummary,
+  seedPausedWorkspace,
   waitForReadyIndex,
 } from './utils/native-index-build';
+import type { SeededRoot } from './utils/seed-root';
 
 /**
  * With semantic search on, an empty workspace root (a new project folder, or
@@ -45,14 +47,14 @@ test.afterAll(() => {
   rmSync(workspaceDir, { force: true, recursive: true });
 });
 
-/** Seeds the roots paused, chooses BGE Small on WASM, resumes, and polls the native summary. */
+/** Seeds the roots paused, chooses the hosted model, resumes, and polls the native summary. */
 async function indexRoots(
-  page: Page,
+  { modelProvider, page }: { readonly modelProvider: ModelProviderShim; readonly page: Page },
   roots: readonly SeededRoot[],
   expected: Record<string, unknown>
 ): Promise<void> {
-  await seedPausedWorkspace(page, roots, 'wasm', 'empty-root-seeded');
-  await configureNativeIndex(page, 'wasm');
+  await seedPausedWorkspace(page, roots, 'empty-root-seeded');
+  await configureNativeIndex(page, modelProvider);
   await waitForReadyIndex(page, 300_000);
   const resume = await openResumeControl(page);
   await resume.click();
@@ -77,25 +79,33 @@ test.describe('Native Workspace Index with an empty root', () => {
     ['empty', 0],
     ['only-empty-file', 1],
   ] as const) {
-    test(`a ${folder} root completes its semantic scan`, async ({ window: page }) => {
+    test(`a ${folder} root completes its semantic scan`, async ({
+      modelProvider,
+      window: page,
+    }) => {
       test.setTimeout(6 * 60 * 1000);
       const rootId = `empty-root-e2e-${folder}`;
-      await indexRoots(page, [{ path: path.join(workspaceDir, folder), rootId }], {
-        chunkCount: 0,
-        missingVectors: 0,
-        roots: [{ chunks: 0, indexedFiles, rootId, scanComplete: true, vectors: 0 }],
-        status: 'ready',
-        vectorCoverageComplete: true,
-      });
+      await indexRoots(
+        { modelProvider, page },
+        [{ path: path.join(workspaceDir, folder), rootId }],
+        {
+          chunkCount: 0,
+          missingVectors: 0,
+          roots: [{ chunks: 0, indexedFiles, rootId, scanComplete: true, vectors: 0 }],
+          status: 'ready',
+          vectorCoverageComplete: true,
+        }
+      );
     });
   }
 
   test('an empty root beside a real one does not block semantic indexing', async ({
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(8 * 60 * 1000);
     await indexRoots(
-      page,
+      { modelProvider, page },
       [
         { path: path.join(workspaceDir, 'source'), rootId: 'empty-root-e2e-source' },
         { path: path.join(workspaceDir, 'empty'), rootId: 'empty-root-e2e-empty' },

@@ -69,15 +69,6 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
       expect((createProvider('anthropic', auth) as { modelId: string }).modelId).toBeDefined();
       expect((createProvider('google', auth) as { modelId: string }).modelId).toBeDefined();
     });
-
-    it('keeps the lmstudio dummy-key substitution when the api_key is empty', () => {
-      expect(createProvider('lmstudio', { apiKey: '', kind: 'api_key' }, 'qwen2.5')).toEqual({
-        apiKey: 'lmstudio',
-        modelId: 'qwen2.5',
-        providerId: 'lmstudio',
-        url: 'http://127.0.0.1:1234/v1',
-      });
-    });
   });
 
   describe('api_key wire request', () => {
@@ -135,14 +126,7 @@ describe('createProvider ProviderAuthInput seam (BST-1352)', () => {
         kind: 'aws',
         region: 'us-east-1',
       };
-      for (const provider of [
-        'openai',
-        'anthropic',
-        'google',
-        'openrouter',
-        'ollama',
-        'lmstudio',
-      ] as const) {
+      for (const provider of ['openai', 'anthropic', 'google', 'openrouter'] as const) {
         let thrown: unknown;
         try {
           createProvider(provider, auth, 'some-model');

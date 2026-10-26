@@ -56,19 +56,11 @@ export const BrowserWindow = class {
 
 export const ipcMain = {
   handle: makeFn(),
-  handleOnce: makeFn(),
-  on: makeFn(),
-  once: makeFn(),
-  removeAllListeners: makeFn(),
-  removeHandler: makeFn(),
 };
 
 export const ipcRenderer = {
   invoke: () => Promise.resolve(undefined),
   on: makeFn(),
-  once: makeFn(),
-  removeListener: makeFn(),
-  send: makeFn(),
 };
 
 export const contextBridge = {

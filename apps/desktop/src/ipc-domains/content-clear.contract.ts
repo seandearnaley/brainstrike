@@ -13,6 +13,5 @@ export const contentClearContract = {
       }
       return ['CONFIRM_CLEAR_DATABASE'];
     },
-    roles: ['visible-ui'],
   }),
 } as const satisfies Contract;

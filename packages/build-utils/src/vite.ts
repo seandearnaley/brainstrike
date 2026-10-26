@@ -189,8 +189,6 @@ const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
   'zustand/vanilla',
 ] as const;
 
-const HEAVY_RUNTIME_OPTIMIZE_DEPS_EXCLUDE = ['@huggingface/transformers'] as const;
-
 const moduleDir =
   typeof import.meta.dirname === 'string'
     ? import.meta.dirname
@@ -213,10 +211,6 @@ export function getWorkspaceSourceOptimizeDepsInclude(): readonly string[] {
   return WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE;
 }
 
-export function getHeavyRuntimeOptimizeDepsExclude(): readonly string[] {
-  return HEAVY_RUNTIME_OPTIMIZE_DEPS_EXCLUDE;
-}
-
 export function getLazySurfaceOptimizeDepsEntries(
   appRoot: string,
   entryExists: (entry: string) => boolean = existsSync
@@ -236,15 +230,6 @@ export function getLazySurfaceOptimizeDepsEntries(
   }
 
   return entries;
-}
-
-export function getWorkerpoolBrowserStubAliases(baseDir: string): Readonly<Record<string, string>> {
-  const stubDir = path.resolve(baseDir, '../../packages/build-utils/src/browser-node-stubs');
-  return Object.fromEntries([
-    ['child_process', toVitePath(path.resolve(stubDir, 'child-process.ts'))],
-    ['os', toVitePath(path.resolve(stubDir, 'os.ts'))],
-    ['worker_threads', toVitePath(path.resolve(stubDir, 'worker-threads.ts'))],
-  ]);
 }
 
 /**

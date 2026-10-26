@@ -1,12 +1,10 @@
-import { createLogger } from '@brainstrike/logging';
 import type { IEmbeddingProvider } from './interfaces/provider.ts';
 import type {
   EmbeddingProviderConfig,
   EmbeddingProviderError,
-  HostedProviderType,
+  EmbeddingProviderType,
   Result,
 } from './provider-types.ts';
-import { hostedProviderRequiresApiKey, type LocalProviderType } from './provider-types.ts';
 import {
   clearHostedProviderApiKeyCache,
   resolveHostedProviderApiKey,
@@ -15,37 +13,28 @@ import { CohereEmbeddingProvider } from './providers/hosted/cohere-provider.ts';
 import { GoogleEmbeddingProvider } from './providers/hosted/google-provider.ts';
 import { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider.ts';
 import { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider.ts';
-import { TransformersEmbeddingProvider } from './providers/local/transformers-provider.ts';
-
-const logger = createLogger('EmbeddingProviderFactory');
 
 /**
  * Custom error for missing API keys that preserves provider information
  */
 class MissingApiKeyError extends Error {
-  readonly provider: HostedProviderType;
+  readonly provider: EmbeddingProviderType;
   readonly errorType = 'missing_api_key' as const;
 
-  constructor(provider: HostedProviderType) {
+  constructor(provider: EmbeddingProviderType) {
     super(`Missing API key for ${provider} provider`);
     this.provider = provider;
     this.name = 'MissingApiKeyError';
   }
 }
 
-const DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS = {
-  lmstudio: 'http://localhost:1234/v1/embeddings',
-  ollama: 'http://127.0.0.1:11434/v1/embeddings',
-} as const;
-
 /**
  * Factory for creating embedding provider instances
  * Implements Factory pattern to abstract provider creation and lifecycle management
  *
  * Features:
- * - Instance caching to avoid duplicate model loading
+ * - Instance caching per provider, model and configuration variant
  * - Type-safe error handling with Result pattern
- * - Support for both local and hosted providers (hosted providers in Phase 4)
  *
  * Note: Using class with static members is intentional for Factory pattern
  * to maintain private state (instances Map) and provide clear namespace.
@@ -53,7 +42,7 @@ const DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS = {
 export class EmbeddingProviderFactory {
   /**
    * Cache of provider instances keyed by composite ID
-   * Format: "provider:modelId:variant" where variant captures runtime-specific configuration.
+   * Format: "provider:modelId:variant" where variant captures provider-specific configuration.
    */
   private static readonly instances = new Map<string, IEmbeddingProvider>();
 
@@ -65,24 +54,25 @@ export class EmbeddingProviderFactory {
    *
    * @example
    * ```typescript
-   * // Local provider
    * const result = await EmbeddingProviderFactory.createProvider({
-   *   runtime: 'browser',
-   *   provider: 'local',
-   *   modelId: 'jina-code',
+   *   provider: 'openai',
+   *   modelId: 'text-embedding-3-small',
+   *   dimensions: 1536,
    * });
    *
    * if (result.ok) {
-   *   const embedding = await result.value.embed({ text: 'hello', modelId: 'jina-code' });
+   *   const embedding = await result.value.embed({
+   *     text: 'hello',
+   *     modelId: 'text-embedding-3-small',
+   *   });
    * }
    * ```
    */
   static async createProvider(
     config: EmbeddingProviderConfig
   ): Promise<Result<IEmbeddingProvider, EmbeddingProviderError>> {
-    const hostedApiKey =
-      config.runtime === 'hosted' ? await resolveHostedProviderApiKey(config.provider) : null;
-    const key = EmbeddingProviderFactory.composeCacheKey(config, hostedApiKey);
+    const apiKey = await resolveHostedProviderApiKey(config.provider);
+    const key = EmbeddingProviderFactory.composeCacheKey(config);
 
     // Return cached instance if exists
     const cached = EmbeddingProviderFactory.instances.get(key);
@@ -91,7 +81,7 @@ export class EmbeddingProviderFactory {
     }
 
     try {
-      const provider = await EmbeddingProviderFactory.instantiateProvider(config, hostedApiKey);
+      const provider = EmbeddingProviderFactory.instantiateProvider(config, apiKey);
 
       // Cache the instance
       EmbeddingProviderFactory.instances.set(key, provider);
@@ -111,10 +101,9 @@ export class EmbeddingProviderFactory {
 
       return {
         error: {
-          modelId: config.modelId,
-          provider: config.provider as LocalProviderType,
-          reason: error instanceof Error ? error.message : String(error),
-          type: 'model_load_failed',
+          field: 'modelId',
+          message: error instanceof Error ? error.message : String(error),
+          type: 'validation_error',
         },
         ok: false,
       };
@@ -124,56 +113,25 @@ export class EmbeddingProviderFactory {
   /**
    * Instantiate a provider based on configuration (extracted for complexity reduction)
    */
-  private static async instantiateProvider(
+  private static instantiateProvider(
     config: EmbeddingProviderConfig,
-    hostedApiKey: string | null = null
-  ): Promise<IEmbeddingProvider> {
-    switch (config.runtime) {
-      case 'browser':
-        return new TransformersEmbeddingProvider(
-          config.modelId,
-          config.quantization && ['q4', 'q8'].includes(config.quantization) ? 'wasm' : 'webgpu'
-        );
-
-      case 'hosted':
-        return EmbeddingProviderFactory.createHostedProvider(config, hostedApiKey);
-
-      default: {
-        const _exhaustive: never = config;
-        throw new Error(`Unknown runtime: ${(_exhaustive as EmbeddingProviderConfig).runtime}`);
-      }
-    }
-  }
-
-  /**
-   * Create a hosted provider instance (extracted for complexity reduction)
-   */
-  private static async createHostedProvider(
-    config: Extract<EmbeddingProviderConfig, { runtime: 'hosted' }>,
-    hostedApiKey: string | null = null
-  ): Promise<IEmbeddingProvider> {
-    const apiKey = hostedApiKey ?? (await resolveHostedProviderApiKey(config.provider));
-    if (hostedProviderRequiresApiKey(config.provider) && !apiKey) {
+    apiKey: string | undefined
+  ): IEmbeddingProvider {
+    if (!apiKey) {
       throw new MissingApiKeyError(config.provider);
     }
-    const requireApiKey = (provider: HostedProviderType): string => {
-      if (!apiKey) {
-        throw new MissingApiKeyError(provider);
-      }
-      return apiKey;
-    };
 
     switch (config.provider) {
       case 'openai':
         return new OpenAIEmbeddingProvider({
-          apiKey: requireApiKey('openai'),
+          apiKey,
           modelId: config.modelId,
           targetDimensions: config.dimensions,
         });
 
       case 'google': {
         const options: { modelId: string; apiKey: string; outputDimensions?: number } = {
-          apiKey: requireApiKey('google'),
+          apiKey,
           modelId: config.modelId,
         };
         if (config.outputDimensionality !== undefined) {
@@ -188,7 +146,7 @@ export class EmbeddingProviderFactory {
           apiKey: string;
           inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
         } = {
-          apiKey: requireApiKey('cohere'),
+          apiKey,
           modelId: config.modelId,
         };
         if (config.inputType !== undefined) {
@@ -199,7 +157,7 @@ export class EmbeddingProviderFactory {
 
       case 'voyage': {
         const options: { modelId: string; apiKey: string; inputType?: 'document' | 'query' } = {
-          apiKey: requireApiKey('voyage'),
+          apiKey,
           modelId: config.modelId,
         };
         if (config.inputType !== undefined) {
@@ -207,24 +165,10 @@ export class EmbeddingProviderFactory {
         }
         return new VoyageEmbeddingProvider(options);
       }
-      case 'ollama':
-      case 'lmstudio': {
-        const endpoint =
-          config.endpoint ?? DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS[config.provider];
-        return new OpenAIEmbeddingProvider({
-          endpoint,
-          modelId: config.modelId,
-          provider: config.provider,
-          targetDimensions: config.dimensions,
-          ...(apiKey ? { apiKey } : {}),
-          includeDimensions: false,
-          requiresApiKey: false,
-        });
-      }
 
       default: {
         const _exhaustive: never = config;
-        throw new Error(`Unreachable: hosted provider not handled: ${JSON.stringify(_exhaustive)}`);
+        throw new Error(`Unreachable: provider not handled: ${JSON.stringify(_exhaustive)}`);
       }
     }
   }
@@ -234,7 +178,7 @@ export class EmbeddingProviderFactory {
    *
    * @param provider - Provider type
    * @param modelId - Model ID
-   * @param variant - Cache variant identifier (quantization, dimension, etc.)
+   * @param variant - Cache variant identifier (dimensions or input type)
    * @returns Provider instance or undefined if not cached
    */
   static getCachedProvider(
@@ -252,7 +196,7 @@ export class EmbeddingProviderFactory {
    *
    * @param provider - Provider type
    * @param modelId - Model ID
-   * @param variant - Cache variant identifier (quantization, dimension, etc.)
+   * @param variant - Cache variant identifier (dimensions or input type)
    * @returns true if provider was removed, false if not found
    */
   static async removeProvider(
@@ -261,21 +205,6 @@ export class EmbeddingProviderFactory {
     variant?: string
   ): Promise<boolean> {
     const key = `${provider}:${modelId}:${variant ?? 'default'}`;
-    const instance = EmbeddingProviderFactory.instances.get(key);
-
-    if (!instance) {
-      return false;
-    }
-
-    // Dispose if it's a local provider
-    if ('dispose' in instance && typeof instance.dispose === 'function') {
-      try {
-        await instance.dispose();
-      } catch (error) {
-        logger.warn(`Failed to dispose provider ${key}`, { error });
-      }
-    }
-
     return EmbeddingProviderFactory.instances.delete(key);
   }
 
@@ -284,23 +213,6 @@ export class EmbeddingProviderFactory {
    * Useful for cleanup or forcing re-initialization
    */
   static async clearCache(): Promise<void> {
-    const disposePromises: Promise<void>[] = [];
-
-    for (const [key, instance] of EmbeddingProviderFactory.instances.entries()) {
-      // Dispose if it's a local provider
-      if ('dispose' in instance && typeof instance.dispose === 'function') {
-        disposePromises.push(
-          instance.dispose().catch((error: unknown) => {
-            logger.warn(`Failed to dispose provider ${key}`, { error });
-          })
-        );
-      }
-    }
-
-    // Wait for all disposals to complete
-    await Promise.all(disposePromises);
-
-    // Clear the cache
     EmbeddingProviderFactory.instances.clear();
   }
 
@@ -329,9 +241,7 @@ export class EmbeddingProviderFactory {
   /**
    * Clear cached API keys (useful for tests)
    */
-  static clearHostedApiKeyCache(
-    provider?: Exclude<EmbeddingProviderConfig['provider'], LocalProviderType>
-  ) {
+  static clearHostedApiKeyCache(provider?: EmbeddingProviderType) {
     if (provider) {
       clearHostedProviderApiKeyCache(provider);
     } else {
@@ -339,22 +249,12 @@ export class EmbeddingProviderFactory {
     }
   }
 
-  private static composeCacheKey(
-    config: EmbeddingProviderConfig,
-    hostedApiKey: string | null = null
-  ): string {
-    const variant = EmbeddingProviderFactory.resolveVariant(config, hostedApiKey);
+  private static composeCacheKey(config: EmbeddingProviderConfig): string {
+    const variant = EmbeddingProviderFactory.resolveVariant(config);
     return `${config.provider}:${config.modelId}:${variant}`;
   }
 
-  private static resolveVariant(
-    config: EmbeddingProviderConfig,
-    hostedApiKey: string | null = null
-  ): string {
-    if (config.runtime === 'browser') {
-      return config.quantization ?? 'default';
-    }
-
+  private static resolveVariant(config: EmbeddingProviderConfig): string {
     switch (config.provider) {
       case 'openai': {
         return String(config.dimensions ?? 'default');
@@ -368,30 +268,8 @@ export class EmbeddingProviderFactory {
       case 'voyage': {
         return config.inputType ?? 'default';
       }
-      case 'ollama':
-      case 'lmstudio': {
-        const endpoint =
-          config.endpoint ?? DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS[config.provider];
-        const keyHash = hostedApiKey === null ? 'none' : `key_${hashVariantToken(hostedApiKey)}`;
-        const dimensionsVariant =
-          typeof config.dimensions === 'number' &&
-          Number.isFinite(config.dimensions) &&
-          config.dimensions > 0
-            ? String(config.dimensions)
-            : 'auto';
-        return `${dimensionsVariant}:${endpoint}:${keyHash}`;
-      }
       default:
         return 'default';
     }
   }
-}
-
-function hashVariantToken(value: string): string {
-  let hash = 2_166_136_261;
-  for (const character of value) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return (hash >>> 0).toString(16);
 }

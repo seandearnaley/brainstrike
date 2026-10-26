@@ -21,7 +21,5 @@ describe('Prompt Workbench architecture', () => {
     expect(componentSource.split('\n').length).toBeLessThanOrEqual(300);
     expect(source).toContain("from './use-prompt-library-controller'");
     expect(componentSource).toContain('usePromptLibraryController({');
-    expect(source).not.toContain("from './prompt-embedding-model-info'");
-    expect(source).not.toContain("from './prompt-library-embedding'");
   });
 });

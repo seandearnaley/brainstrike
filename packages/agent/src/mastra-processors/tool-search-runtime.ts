@@ -3,10 +3,7 @@ import {
   resolveToolDiscoveryAdapter,
   type ToolDiscoveryAdapter,
 } from '@brainstrike/assistant-contract';
-import {
-  findProviderDefinition,
-  type ProviderId,
-} from '@brainstrike/assistant-contract/provider-registry';
+import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import {
   isNativeToolId,
   isSkillNativeToolId,
@@ -125,27 +122,15 @@ export function resolveToolDiscoverySurface(
   };
 }
 
-function isHostedProviderRuntime(provider: ProviderId): boolean {
-  // Registry-derived (BST-1349) with FAIL-OPEN polarity (PR #2513 review,
-  // finding 4): only the known local runtimes opt out of the hosted path, so
-  // an unknown id or a future runtime value keeps the pre-BST-1349 hosted
-  // default. Guarded lookup: an out-of-registry id must not TypeError.
-  const runtime = findProviderDefinition(provider)?.runtime;
-  return runtime !== 'local' && runtime !== 'on-device';
-}
-
 /**
  * A hosted run's discovery adapter: Mastra catalog search, explicitly
- * requested; none for a local or browser runtime. An unsupported resolution
- * fails the run rather than substituting another strategy.
+ * requested. An unsupported resolution fails the run rather than substituting
+ * another strategy.
  */
 export function resolveHostedToolDiscoveryAdapter(
   provider: ProviderId,
   modelName: string
-): ToolDiscoveryAdapter | undefined {
-  if (!isHostedProviderRuntime(provider)) {
-    return;
-  }
+): ToolDiscoveryAdapter {
   const resolution = resolveToolDiscoveryAdapter({
     modelId: modelName,
     provider,

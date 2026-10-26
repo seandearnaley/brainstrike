@@ -1,6 +1,5 @@
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
-import type { IpcMainInvokeEvent } from 'electron';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createDesktopIpcRegistry,
   registerDomain,
@@ -14,10 +13,10 @@ import {
   pushEvent,
   rawChannel,
 } from '../../platform/ipc-contract';
-import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
-  createTrustedInvokeEvent,
-  trackTestWindowRole,
+  createAllowlistedSenderFrame,
+  invokeDesktopIpc,
+  invokeDesktopIpcFrom,
 } from '../helpers/desktop-ipc-sender-test-helpers';
 
 const contract = {
@@ -25,7 +24,6 @@ const contract = {
   list: rawChannel<[], readonly string[]>({
     channel: 'fixture:list',
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   writeText: channel<[text: string], void>({
     channel: 'fixture:write-text',
@@ -35,109 +33,74 @@ const contract = {
       }
       return [text];
     },
-    roles: ['embedding-host', 'visible-ui'],
   }),
 } satisfies Contract;
 
 function createMockIpcMain() {
-  return {
-    handle:
-      vi.fn<(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => void>(),
-    on: vi.fn(),
-    removeHandler: vi.fn(),
-    removeListener: vi.fn(),
-  };
+  return { handle: vi.fn() };
 }
 
 function createRegistry(ipcMain: ReturnType<typeof createMockIpcMain>) {
-  return createDesktopIpcRegistry({
-    ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
-  });
+  return createDesktopIpcRegistry({ ipcMain: ipcMain as never });
 }
 
-function registeredHandler(ipcMain: ReturnType<typeof createMockIpcMain>, channelName: string) {
-  const call = ipcMain.handle.mock.calls.find(([registered]) => registered === channelName);
-  if (!call) {
-    throw new Error(`Channel not registered: ${channelName}`);
-  }
-  return call[1];
-}
-
-const HIDDEN_SENDER_ID = 7_700_001;
+const UNTRACKED_SENDER_ID = 7_700_001;
 
 describe('registerDomain', () => {
-  afterEach(() => {
-    clearWindowRoleByWebContentsId(HIDDEN_SENDER_ID);
-  });
-
-  it('registers every invoke channel through the authorized verb with the contract roles', () => {
+  it('serves every invoke method of the contract and never a push event', async () => {
     const ipcMain = createMockIpcMain();
     const registry = createRegistry(ipcMain);
-    const authorized = vi.spyOn(registry, 'registerAuthorizedInvoke');
 
     registerDomain(registry, 'clipboard', contract, {
       list: () => ['a'],
       writeText: () => ipcOk(undefined),
     });
 
-    expect(authorized.mock.calls.map(([domain, name, policy]) => [domain, name, policy])).toEqual([
-      ['clipboard', 'fixture:list', { roles: ['visible-ui'] }],
-      ['clipboard', 'fixture:write-text', { roles: ['embedding-host', 'visible-ui'] }],
-    ]);
     expect(registry.getSnapshot()).toEqual([
-      { channel: 'fixture:list', domain: 'clipboard', kind: 'invoke' },
-      { channel: 'fixture:write-text', domain: 'clipboard', kind: 'invoke' },
+      { channel: 'fixture:list', domain: 'clipboard' },
+      { channel: 'fixture:write-text', domain: 'clipboard' },
     ]);
-  });
-
-  it('never registers a push event (main→renderer pushes are webContents.send, not handlers)', () => {
-    const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-
-    registerDomain(registry, 'clipboard', contract, {
-      list: () => [],
-      writeText: () => ipcOk(undefined),
-    });
-
-    expect(ipcMain.handle.mock.calls.map(([name]) => name)).not.toContain('fixture:changed');
-    expect(ipcMain.on).not.toHaveBeenCalled();
+    await expect(invokeDesktopIpc(ipcMain, 'fixture:list')).resolves.toEqual(['a']);
+    await expect(invokeDesktopIpc(ipcMain, 'fixture:changed', { id: 1 })).rejects.toThrow(
+      'No desktop IPC handler for fixture:changed.'
+    );
   });
 
   it('runs parseArgs after authorization and before the handler, and settles malformed input as a boundary fault', async () => {
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
     const writeText = vi.fn(() => ipcOk(undefined));
-    registerDomain(registry, 'clipboard', contract, { list: () => [], writeText });
-    const handler = registeredHandler(ipcMain, 'fixture:write-text');
-    const event = createTrustedInvokeEvent('visible-ui');
+    registerDomain(createRegistry(ipcMain), 'clipboard', contract, { list: () => [], writeText });
 
-    await expect(handler(event, 'hello')).resolves.toEqual({ ok: true, value: undefined });
+    await expect(invokeDesktopIpc(ipcMain, 'fixture:write-text', 'hello')).resolves.toEqual({
+      ok: true,
+      value: undefined,
+    });
     expect(writeText).toHaveBeenCalledWith('hello');
 
-    await expect(handler(event, 42)).resolves.toEqual({
+    await expect(invokeDesktopIpc(ipcMain, 'fixture:write-text', 42)).resolves.toEqual({
       error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
       ok: false,
     });
     expect(writeText).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a sender outside the contract roles before parsing anything', async () => {
+  it('refuses an untracked sender before parsing anything', async () => {
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
     const parseArgs = vi.fn(() => [] as []);
-    const onlyVisible = {
-      list: rawChannel<[], number>({ channel: 'fixture:list', parseArgs, roles: ['visible-ui'] }),
-    } satisfies Contract;
     const list = vi.fn(() => 1);
-    registerDomain(registry, 'clipboard', onlyVisible, { list });
-    trackTestWindowRole(HIDDEN_SENDER_ID, 'embedding-host');
+    registerDomain(
+      createRegistry(ipcMain),
+      'clipboard',
+      { list: rawChannel<[], number>({ channel: 'fixture:list', parseArgs }) },
+      { list }
+    );
     const event = {
-      sender: { id: HIDDEN_SENDER_ID },
-      senderFrame: createTrustedInvokeEvent('visible-ui').senderFrame,
-    } as unknown as IpcMainInvokeEvent;
+      sender: { id: UNTRACKED_SENDER_ID },
+      senderFrame: createAllowlistedSenderFrame(),
+    };
 
-    await expect(registeredHandler(ipcMain, 'fixture:list')(event)).rejects.toThrow(
-      'Desktop IPC fixture:list requires sender role visible-ui.'
+    await expect(invokeDesktopIpcFrom(ipcMain, event, 'fixture:list')).rejects.toThrow(
+      'Desktop IPC fixture:list requires an app window sender.'
     );
     expect(parseArgs).not.toHaveBeenCalled();
     expect(list).not.toHaveBeenCalled();
@@ -145,19 +108,22 @@ describe('registerDomain', () => {
 
   it('fails registration when a contract key has no handler or a handler has no contract key', () => {
     const ipcMain = createMockIpcMain();
+    const missing = createRegistry(ipcMain);
+    const extra = createRegistry(ipcMain);
     expect(() =>
-      registerDomain(createRegistry(ipcMain), 'clipboard', contract, {
+      registerDomain(missing, 'clipboard', contract, {
         list: () => [],
       } as never)
     ).toThrow('Desktop IPC domain clipboard has no handler for contract key "writeText".');
     expect(() =>
-      registerDomain(createRegistry(ipcMain), 'clipboard', contract, {
+      registerDomain(extra, 'clipboard', contract, {
         extra: () => 1,
         list: () => [],
         writeText: () => ipcOk(undefined),
       } as never)
     ).toThrow('Desktop IPC domain clipboard has a handler "extra" with no contract key.');
-    expect(ipcMain.handle).not.toHaveBeenCalled();
+    expect(missing.getSnapshot()).toEqual([]);
+    expect(extra.getSnapshot()).toEqual([]);
   });
 });
 

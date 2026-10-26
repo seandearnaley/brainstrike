@@ -1,7 +1,6 @@
 /**
  * Legacy default dimension for backward compatibility with older embeddings.
  * New code should use model-aware dimensions from the registry.
- * - BGE-M3: 1024
  * - OpenAI text-embedding-3-small: 1536
  * - OpenAI text-embedding-3-large: 3072
  */

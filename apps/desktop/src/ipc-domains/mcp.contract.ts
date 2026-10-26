@@ -13,8 +13,6 @@ import { assertArgCount } from './contract-args';
  * the MCP App shell. Settings, status, control, Tasks cards, server input and
  * content are agent-host methods.
  */
-const VISIBLE_UI = ['visible-ui'] as const;
-
 function oneArg<T>(subject: string): (raw: readonly unknown[]) => [value: T] {
   return (raw) => {
     assertArgCount(raw, 1, subject);
@@ -27,7 +25,6 @@ export const mcpPathSelectionContract = {
   selectPath: rawChannel<[], string | null>({
     channel: DESKTOP_IPC_CHANNELS.mcp.configSelectPath,
     parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
   }),
 } as const satisfies Contract;
 
@@ -35,12 +32,10 @@ export const mcpAppsContract = {
   prepareShell: rawChannel<[request: McpAppShellPrepareRequest], McpAppShellPrepareResult>({
     channel: DESKTOP_IPC_CHANNELS.mcp.appsPrepareShell,
     parseArgs: oneArg('MCP App shell prepare'),
-    roles: VISIBLE_UI,
   }),
   releaseShell: rawChannel<[request: McpAppShellReleaseRequest], void>({
     channel: DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell,
     parseArgs: oneArg('MCP App shell release'),
-    roles: VISIBLE_UI,
   }),
 } as const satisfies Contract;
 

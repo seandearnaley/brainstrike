@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { expect, it } from 'vitest';
+import { vectorProfileHash } from '../src/chunks.js';
 import type { IndexFileBinding, VectorProfile } from '../src/contracts.js';
-import { vectorProfileHash } from '../src/scope-authority.js';
 import { scopeCoverageBatch } from '../src/scoped-proofs.js';
 import { ScopedIndex } from '../src/scoped-store.js';
 import { sqliteVecEngine } from '../src/vector-engine.js';
@@ -9,11 +9,8 @@ import { sqliteVecEngine } from '../src/vector-engine.js';
 const profile = {
   dimensions: 384,
   distance: 'cosine',
-  dtype: 'fp16',
   modelId: 'model-a',
-  provider: 'local',
-  revision: 'a'.repeat(40),
-  tokenCap: 256,
+  provider: 'openai',
 } as const;
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
 const collection = { embeddingSetId: 'collection', kind: 'collection' } as const;
@@ -88,10 +85,7 @@ function fixture(secondProfile: VectorProfile = profile) {
         }
         if (sql.includes('FROM index_metadata')) {
           return {
-            indexMode: 'text-only',
-            profileHash: null,
-            profileJson: null,
-            schemaVersion: 15,
+            schemaVersion: 16,
             storeId: 'a'.repeat(64),
           };
         }
@@ -196,7 +190,7 @@ it('does not reuse successful validation after vector bytes become corrupt', () 
 });
 
 it('validates each distinct complete profile within the same snapshot', () => {
-  const other = { ...profile, revision: 'b'.repeat(40) };
+  const other = { ...profile, modelId: 'model-b' } as const;
   const f = fixture(other);
   const results = f.index.coverageBatch([
     { profile, scope: workspace },
@@ -239,7 +233,7 @@ it('refuses unauthorized scope and profile requests before any snapshot work', (
     f.index.coverageBatch([{ profile, scope: { kind: 'workspace', rootId: 'foreign' } }])
   ).toThrow('not authorized');
   expect(() =>
-    f.index.coverageBatch([{ profile: { ...profile, revision: 'c'.repeat(40) }, scope: workspace }])
+    f.index.coverageBatch([{ profile: { ...profile, modelId: 'model-c' }, scope: workspace }])
   ).toThrow('profile differs');
   expect(f.transactions()).toBe(0);
 });
