@@ -722,7 +722,7 @@ async function startElectron(
       }
       const str = data.toString();
       appendElectronOutput(outputBuffer.stdout, str);
-      printElectronOutput('[Electron Stdout]: ', str, console.log);
+      printElectronOutput(`[Electron Stdout pid=${pid}]: `, str, console.log);
     });
     electronProcess.stderr?.on('data', (data) => {
       if (!stderrReceived) {
@@ -735,7 +735,7 @@ async function startElectron(
       }
       const str = data.toString();
       appendElectronOutput(outputBuffer.stderr, str);
-      printElectronOutput('[Electron Stderr]: ', str, console.error);
+      printElectronOutput(`[Electron Stderr pid=${pid}]: `, str, console.error);
     });
     // #endregion
 
@@ -756,7 +756,7 @@ async function startElectron(
     electronProcess.on('exit', (code, signal) => {
       const elapsed = Date.now() - launchStartTime;
       console.log(
-        `[Electron Process Exit] Code: ${code}, Signal: ${signal}, Elapsed: ${elapsed}ms`
+        `[Electron Process Exit] pid=${pid} Code: ${code}, Signal: ${signal}, Elapsed: ${elapsed}ms`
       );
       // #region Rapid-exit diagnostics
       if (elapsed < 2000) {

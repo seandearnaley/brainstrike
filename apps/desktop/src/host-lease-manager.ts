@@ -160,6 +160,15 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: (code: number) => void)
     exitListener: (code) => {
       child.exitCode = code;
       completion.resolve(code);
+      // A ready host's exit names its process, so a log of several apps' hosts says whose
+      // host it was. A host that exits before ready fails its acquisition instead.
+      if (child.ready && (!child.closing || (code !== 0 && !child.killed))) {
+        logger.warn('The owned agent host exited', {
+          closing: child.closing,
+          code,
+          pid: child.identity?.pid,
+        });
+      }
       if (!child.closing) {
         child.lost = true;
         lost(code);
@@ -311,7 +320,7 @@ async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void>
   // A lost host's exit was reported when it happened, and a kill this owner escalated to was
   // logged then: neither is a failed close.
   if (child.ready && code !== 0 && !(child.lost || child.killed)) {
-    throw new Error(`Owned host utility exited with code ${code}`);
+    throw new Error(`Owned host utility ${child.identity?.pid} exited with code ${code}`);
   }
 }
 function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {

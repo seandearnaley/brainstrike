@@ -260,6 +260,10 @@ export class ElectronHarness {
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
       onAppAcquired: (app) => {
+        // Names the test behind each Main pid, since parallel tests' output interleaves.
+        console.log(
+          `[Electron Launch] pid=${app.process().pid} userData=${this.userDataDir} test=${this.testInfo.titlePath.join(' › ')}`
+        );
         this.app = app;
         this.exitGuard.observe(app.process());
         onAppAcquired?.(app);
