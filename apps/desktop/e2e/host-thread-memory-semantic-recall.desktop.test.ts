@@ -299,3 +299,22 @@ test('a hosted embedder’s rejection is the turn’s recall notice, then the ru
   expect(saveRefusals.length).toBeGreaterThanOrEqual(1);
   expect(saveRefusals.length).toBeLessThanOrEqual(2);
 });
+
+/**
+ * A profile saved before local embedding models were removed (#4420) can still name one for
+ * recall. A new thread names that model and the remedy, never the generic fault.
+ */
+test('a recall model of a removed provider names the model and the remedy', async ({
+  window: page,
+}) => {
+  await enableModel(page);
+  await enableSemanticRecall(page, 'local/onnx-community/granite-embedding-small-english-r2-ONNX');
+  await page.getByTestId('assistant-new-thread-button').click();
+  await expect(
+    page.getByText('Unsupported semantic recall embedding provider "local"').first()
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByText('Choose an embedding model in Settings → Assistant Memory.').first()
+  ).toBeVisible();
+  await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);
+});
