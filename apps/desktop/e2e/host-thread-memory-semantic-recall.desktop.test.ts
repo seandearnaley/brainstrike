@@ -14,10 +14,6 @@ const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
 const MEMORY_SETTINGS_KEY = 'assistant-memory-preferences.v1';
 const MEMORY_SETTINGS_VERSION = 2;
-// The hidden embedding host's saved device for unpinned loads (app-state vector-preferences-store).
-const VECTOR_PREFERENCES_KEY = 'vector-preferences.v1';
-// The catalog's local model recommended without WebGPU (BST-1993).
-const LOCAL_EMBEDDER = 'local/Xenova/bge-small-en-v1.5';
 const GENERIC_FAULT = 'Something went wrong. The details were recorded in the diagnostic log.';
 const PROMPT = 'Remember that the launch venue is the riverside hall in Lisbon.';
 const ANSWER = 'SEMANTIC_RECALL_ANSWER';
@@ -162,7 +158,7 @@ async function finishedOutcomes(page: Page): Promise<readonly unknown[]> {
 
 /**
  * BST-2193: semantic recall with observations on (Auto) answers the first send
- * of a new thread, whether its embedder is hosted or on-device.
+ * of a new thread.
  */
 test('a hosted embedder recalls from the first send, with observations on', async ({
   modelProvider,
@@ -208,34 +204,6 @@ test('a hosted embedder recalls from the first send, with observations on', asyn
       usage: expect.objectContaining({ outputTokens: 0 }),
     })
   );
-  expect(modelProvider.refusals()).toEqual([]);
-});
-
-test('an on-device embedder recalls from the first send, with observations on', async ({
-  modelProvider,
-  window: page,
-}) => {
-  test.setTimeout(300_000);
-  modelProvider.setScript(({ requestBody }) => ({
-    finalText: (requestBody as { stream?: unknown }).stream === true ? ANSWER : 'Lisbon venue',
-  }));
-  // A saved WASM device, so the host resolves the same device with or without WebGPU.
-  await writeStorage(page, VECTOR_PREFERENCES_KEY, {
-    state: {
-      devicePref: 'wasm',
-      devicePrefConfigured: true,
-      reinitEveryN: 200,
-      verboseOrtLogs: false,
-    },
-    version: 3,
-  });
-  await enableModel(page);
-  await enableSemanticRecall(page, LOCAL_EMBEDDER);
-
-  await sendFirstMessage(page);
-  await startNewThread(page);
-  expect(await finishedOutcomes(page)).toEqual(['completed']);
-  // No hosted embedding was requested: the shim serves none here, so one would be refused.
   expect(modelProvider.refusals()).toEqual([]);
 });
 
@@ -329,45 +297,4 @@ test('a hosted embedder’s rejection is the turn’s recall notice, then the ru
   const saveRefusals = refusals.filter(({ requestIndex }) => requestIndex > turn.requestIndex);
   expect(saveRefusals.length).toBeGreaterThanOrEqual(1);
   expect(saveRefusals.length).toBeLessThanOrEqual(2);
-});
-
-test('an on-device embedder with no execution device refuses with its reason, not a fault', async ({
-  electron,
-  modelProvider,
-}) => {
-  test.setTimeout(300_000);
-  // The launcher disables the GPU under CI unless GPU E2E is allowed: no WebGPU adapter,
-  // and no saved device, so the embedding host cannot choose one for an unpinned load.
-  const previous = {
-    allowGpu: process.env['BRAINSTRIKE_E2E_ALLOW_GPU'],
-    ci: process.env['CI'],
-  };
-  process.env['CI'] = 'true';
-  delete process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
-  let page: Page;
-  try {
-    page = await electron.ensureWindow();
-  } finally {
-    if (previous.ci === undefined) {
-      delete process.env['CI'];
-    } else {
-      process.env['CI'] = previous.ci;
-    }
-    if (previous.allowGpu !== undefined) {
-      process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = previous.allowGpu;
-    }
-  }
-  await enableModel(page);
-  await enableSemanticRecall(page, LOCAL_EMBEDDER);
-
-  const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
-  // The reason is the refusal run/start would fail with, shown before any send.
-  const reason = panel.getByText(
-    /^The on-device memory embedder has no execution device: .*WebGPU.* Choose a device in Settings → Assistant Memory → On-device embedding device, choose a hosted embedding model there, or turn off semantic recall and vector observation retrieval\.$/u
-  );
-  await expect(reason.or(page.getByText(GENERIC_FAULT)).first()).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);
-  await expect(reason).toBeVisible();
-  await expect(panel.getByRole('textbox', { name: 'Message input' })).toBeDisabled();
-  expect(modelProvider.refusals()).toEqual([]);
 });

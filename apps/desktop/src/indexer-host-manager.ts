@@ -54,13 +54,7 @@ export class IndexerHostManager {
     entryPath: string,
     lifecycleDelays: (() => LifecycleDelaySeam) | undefined
   ) {
-    const embedding =
-      options.embedding.indexMode === 'vector-configured'
-        ? Object.freeze({
-            ...options.embedding,
-            profile: Object.freeze({ ...options.embedding.profile }),
-          })
-        : Object.freeze({ ...options.embedding });
+    const embedding = Object.freeze({ ...options.embedding });
     this.#options = { ...options, embedding, rootIds: Object.freeze([...options.rootIds]) };
     this.#deadlines = deadlines;
     this.#entryPath = entryPath;

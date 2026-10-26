@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const events = vi.hoisted(() => [] as [string, string][]);
 vi.mock('electron', () => ({
   app: {
-    commandLine: { appendSwitch: (name: string, value: string) => events.push([name, value]) },
+    commandLine: {
+      appendSwitch: (name: string, value: string) => events.push([name, value]),
+      getSwitchValue: () => '',
+    },
     on: vi.fn(),
     setPath: (name: string, value: string) => events.push([name, value]),
   },

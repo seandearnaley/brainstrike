@@ -8,7 +8,7 @@ import { createContext, useContext } from 'react';
 
 export interface NativeWorkspaceSearchDependencies {
   capability: IndexSearchCapability | null;
-  /** Executes through the renderer-owned embedding host with this exact profile. */
+  /** Embeds the query with the host's hosted embedder for this exact profile. */
   embedQuery: (
     profile: IndexerEmbeddingProfile,
     text: string,
@@ -17,7 +17,7 @@ export interface NativeWorkspaceSearchDependencies {
   /** Observed Main lifecycle; absence means this host has no lifecycle subscription. */
   lifecycle?: NativeIndexLifecycleObservation | null;
   profile: IndexerEmbeddingProfile | null;
-  /** Exact refusal from the selected renderer request-plan resolver. */
+  /** Why the host offers no vector profile, shown instead of semantic results. */
   profileUnavailableReason?: string;
   /** Latest read observation; never part of executor identity. */
   status?: IndexerStatus;

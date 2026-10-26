@@ -23,19 +23,13 @@ describe('leaf IPC contracts', () => {
     expect(Object.keys(contract).sort()).toEqual([...required].sort());
   });
 
-  it('binds every channel to its manifest entry with a visible-UI-only role set', () => {
+  it('binds every method to its manifest entry', () => {
     expect(clipboardContract.writeText).toMatchObject({
       channel: DESKTOP_IPC_CHANNELS.clipboard.writeText,
       envelope: 'ipc-result',
-      roles: ['visible-ui'],
     });
     expect(contextFilesContract.scan.channel).toBe(DESKTOP_IPC_CHANNELS.contextFiles.scan);
     expect(userPersonasContract.list.channel).toBe(DESKTOP_IPC_CHANNELS.userPersonas.list);
-    for (const contract of [contextFilesContract, userPersonasContract]) {
-      for (const spec of Object.values(contract)) {
-        expect(spec.roles).toEqual(['visible-ui']);
-      }
-    }
   });
 
   it('parses clipboard.writeText input in main and throws on a non-string payload', () => {
@@ -53,12 +47,11 @@ describe('leaf IPC contracts', () => {
     expect(contextFilesContract.scan.parseArgs([])).toEqual([]);
   });
 
-  it('binds windowFocus to its manifest channels: one visible-UI invoke and one push', () => {
+  it('binds windowFocus to its manifest methods: one invoke and one push', () => {
     expect(windowFocusContract.isFocused).toMatchObject({
       channel: DESKTOP_IPC_CHANNELS.windowFocus.isFocused,
       envelope: 'ipc-result',
       kind: 'invoke',
-      roles: ['visible-ui'],
     });
     expect(windowFocusContract.onChange).toEqual({
       channel: DESKTOP_IPC_CHANNELS.windowFocus.changed,

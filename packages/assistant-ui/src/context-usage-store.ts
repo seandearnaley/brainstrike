@@ -39,7 +39,6 @@ interface ContextUsageState {
    */
   beginLiveRunUsageSettle: (threadId: string) => void;
   breakdownByThread: Record<string, AssistantContextBreakdownState>;
-  clearBreakdown: (threadId: string) => void;
   clearLiveRunUsage: (threadId: string) => void;
   clearThread: (threadId: string) => void;
   /**
@@ -68,20 +67,6 @@ export const useContextUsageStore = create<ContextUsageState>((set) => ({
           }
     ),
   breakdownByThread: {},
-  // Drops a thread's stale breakdown WITHOUT touching its usage. Used when a
-  // turn's transport structurally cannot emit a fresh breakdown (the
-  // in-renderer local runtime, capability-absent by design): without this a
-  // hosted turn's breakdown would keep rendering in the popover next to a
-  // later local turn's freshly updated exact usage — a misleading mix of one
-  // turn's category rows with another turn's totals.
-  clearBreakdown: (threadId) =>
-    set((state) => {
-      if (!(threadId in state.breakdownByThread)) {
-        return state;
-      }
-      const { [threadId]: _removedBreakdown, ...breakdownRest } = state.breakdownByThread;
-      return { breakdownByThread: breakdownRest };
-    }),
   clearLiveRunUsage: (threadId) =>
     set((state) => {
       const wasSettling = threadId in state.settlingRunUsageByThread;

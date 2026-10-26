@@ -1,16 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  assertEmbedWorkerLifetimeError,
-  assertEmbedWorkerRequestControl,
   canonicalizeEmbeddingProviderModelKey,
   formatEmbeddingProviderModelKey,
   getChunkingPreset,
   getChunkingPresetDefinitions,
   getChunkingRoutePreview,
-  hostedProviderRequiresApiKey,
   isChunkingStrategy,
-  isHostedProvider,
-  isLocalProviderType,
   isResolvedChunkingStrategy,
   parseEmbeddingProviderModelKey,
   resolveChunkingStrategyForFile,
@@ -18,36 +13,6 @@ import {
 } from '../index';
 
 describe('@brainstrike/indexing-contract', () => {
-  it('validates graceful workerpool request-control messages', () => {
-    expect(() =>
-      assertEmbedWorkerRequestControl({ id: 'task-1', type: 'cancel-request' })
-    ).not.toThrow();
-    expect(() =>
-      assertEmbedWorkerRequestControl({ id: 'task-1', type: 'clear-request-control' })
-    ).not.toThrow();
-    expect(() => assertEmbedWorkerRequestControl({ id: '', type: 'cancel-request' })).toThrow(
-      'Embedding worker request-control event requires a request id.'
-    );
-  });
-
-  it('validates worker-lifetime errors used for idle pool replacement', () => {
-    expect(() =>
-      assertEmbedWorkerLifetimeError({
-        cause: 'stack',
-        message: 'Worker unhandled rejection: idle rejection',
-        type: 'worker-lifetime-error',
-        workerInstanceId: 'worker-1',
-      })
-    ).not.toThrow();
-    expect(() =>
-      assertEmbedWorkerLifetimeError({
-        message: '',
-        type: 'worker-lifetime-error',
-        workerInstanceId: 'worker-1',
-      })
-    ).toThrow('Embedding worker lifetime-error event requires a message.');
-  });
-
   it('routes auto chunking by file extension', () => {
     expect(resolveChunkingStrategyForFile('src/search/index.ts')).toBe('recursive');
     expect(resolveChunkingStrategyForFile('docs/getting-started.md')).toBe('semantic-markdown');
@@ -112,13 +77,5 @@ describe('@brainstrike/indexing-contract', () => {
       modelId: 'text-embedding-3-small',
       provider: 'openai',
     });
-  });
-
-  it('classifies local and hosted embedding providers', () => {
-    expect(isLocalProviderType('local')).toBe(true);
-    expect(isLocalProviderType('openai')).toBe(false);
-    expect(isHostedProvider('openai')).toBe(true);
-    expect(hostedProviderRequiresApiKey('openai')).toBe(true);
-    expect(hostedProviderRequiresApiKey('ollama')).toBe(false);
   });
 });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { hostBasename } from '@brainstrike/utils/host-path';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { scopedFileChunks, sha256, vectorBlob } from './chunks.ts';
+import { scopedFileChunks, sha256, vectorBlob, vectorProfileHash } from './chunks.ts';
 import {
   type CommitResult,
   decoder,
@@ -27,7 +27,7 @@ import {
   type VectorProfile,
 } from './contracts.ts';
 import { readIndexIdentity, readScopeEpoch } from './index-metadata.ts';
-import { ScopeAuthority, supportedVectorProfile, vectorProfileHash } from './scope-authority.ts';
+import { ScopeAuthority, supportedVectorProfile } from './scope-authority.ts';
 import { readScopedFileChunkBounds, readScopedFilePage } from './scoped-file-page.ts';
 import { scopeCoverage, scopeCoverageBatch, verifyScopedManifest } from './scoped-proofs.ts';
 import {
@@ -69,9 +69,7 @@ type ScopedSearch = typeof scopedSearchSchema.Type;
 const storedChunkSchema = Schema.Struct({
   ...scopedManifestChunkSchema.fields,
   content: Schema.String,
-  embeddingHash: Schema.NullOr(Schema.String),
   fileId: Schema.String,
-  hasVector: Schema.Literals([0, 1]),
   pk: integer,
   rootId: Schema.NullOr(Schema.String),
 });
@@ -326,8 +324,7 @@ export class ScopedIndex {
         plan,
         chunk,
         oldById.get(chunk.chunkId),
-        supplied.get(chunk.chunkId),
-        existing?.scoped === 0
+        supplied.get(chunk.chunkId)
       );
       writtenChunks += result.writtenChunks;
       reusedEmbeddings += result.reusedEmbeddings;
@@ -343,7 +340,7 @@ export class ScopedIndex {
     const old = decoder(Schema.Array(storedChunkSchema))(
       this.db
         .prepare(
-          'SELECT pk,id AS chunkId,root_id AS rootId,file_record_id AS fileId,start_line AS startLine,end_line AS endLine,content,content_hash AS contentHash,embedding_hash AS embeddingHash,has_vector AS hasVector,chunk_index AS chunkIndex,chunk_size AS chunkSize,chunk_type AS chunkType,start_offset AS startOffset,end_offset AS endOffset,token_count AS tokenCount FROM file_chunks WHERE file_record_id=?'
+          'SELECT pk,id AS chunkId,root_id AS rootId,file_record_id AS fileId,start_line AS startLine,end_line AS endLine,content,content_hash AS contentHash,chunk_index AS chunkIndex,chunk_size AS chunkSize,chunk_type AS chunkType,start_offset AS startOffset,end_offset AS endOffset,token_count AS tokenCount FROM file_chunks WHERE file_record_id=?'
         )
         .all(plan.snapshot.fileId)
     );
@@ -355,7 +352,6 @@ export class ScopedIndex {
         this.deleteVectors(chunk.pk);
       }
       if (!keep.has(chunk.chunkId)) {
-        this.db.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(chunk.pk));
         this.db.prepare('DELETE FROM file_chunks WHERE pk=?').run(chunk.pk);
       }
     }
@@ -365,20 +361,13 @@ export class ScopedIndex {
     plan: ScopedFilePlan,
     chunk: ScopedFilePlan['chunks'][number],
     previous: StoredChunk | undefined,
-    emb: Uint8Array | undefined,
-    legacy: boolean
+    emb: Uint8Array | undefined
   ): Pick<CommitResult, 'writtenChunks' | 'reusedEmbeddings'> {
     const snapshot = plan.snapshot;
-    if (previous && legacy) {
-      this.db.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(previous.pk));
-    }
     const equal =
       previous !== undefined &&
-      !legacy &&
       previous.rootId === snapshot.rootId &&
       previous.fileId === snapshot.fileId &&
-      previous.embeddingHash === null &&
-      previous.hasVector === 0 &&
       (
         [
           'chunkId',
@@ -399,7 +388,7 @@ export class ScopedIndex {
       : decoder(Schema.Struct({ pk: integer }))(
           this.db
             .prepare(
-              'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,embedding_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count,has_vector) VALUES(?,?,?,?,?,?,?,NULL,?,?,?,?,?,?,0) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,embedding_hash=NULL,has_vector=0,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk'
+              'INSERT INTO file_chunks(id,root_id,file_record_id,start_line,end_line,content,content_hash,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET start_line=excluded.start_line,end_line=excluded.end_line,content=excluded.content,content_hash=excluded.content_hash,chunk_index=excluded.chunk_index,chunk_size=excluded.chunk_size,chunk_type=excluded.chunk_type,start_offset=excluded.start_offset,end_offset=excluded.end_offset,token_count=excluded.token_count RETURNING pk'
             )
             .get(
               chunk.chunkId,
@@ -476,7 +465,6 @@ export class ScopedIndex {
       );
       for (const row of rows) {
         this.deleteVectors(row.pk);
-        this.db.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(row.pk));
       }
       const removed =
         this.db.prepare('DELETE FROM file_records WHERE id=?').run(request.fileId).changes > 0;

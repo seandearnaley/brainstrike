@@ -1,8 +1,6 @@
 import { type BoundaryFailure, refusal } from '@brainstrike/assistant-contract/boundary-failure';
-import type {
-  EmbeddingProviderError,
-  HostedProviderType,
-} from '@brainstrike/embeddings/provider-core';
+import type { EmbeddingProviderError } from '@brainstrike/embeddings/provider-core';
+import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 
 /** Why a hosted embedding request was refused (BST-1994). */
 export type HostedEmbeddingErrorKind =
@@ -72,7 +70,10 @@ export function hostedEmbeddingFailure(error: unknown): BoundaryFailure | undefi
  * A provider's typed failure as the refusal BST-1996 maps. Only typed facts choose the
  * kind (no message text is parsed), and the message never repeats the provider's body.
  */
-export function hostedRefusal(provider: HostedProviderType, error: EmbeddingProviderError): Error {
+export function hostedRefusal(
+  provider: EmbeddingProviderType,
+  error: EmbeddingProviderError
+): Error {
   switch (error.type) {
     case 'missing_api_key':
       return new HostedEmbeddingError('missing-key', HOSTED_EMBEDDING_MISSING_KEY_MESSAGE, {
@@ -108,9 +109,8 @@ export function hostedRefusal(provider: HostedProviderType, error: EmbeddingProv
         `Embedding provider ${provider} returned ${error.received}-dimensional vectors; ${error.expected} were requested.`,
         { cause: error }
       );
-    // Our own input or a local model: not a hosted provider refusal.
+    // Our own input: not a hosted provider refusal.
     case 'validation_error':
-    case 'model_load_failed':
       return new Error(`Embedding provider ${provider} failed: ${error.type}`, { cause: error });
     default:
       return assertNever(error);

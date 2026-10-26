@@ -8,14 +8,11 @@ import { expect, it } from 'vitest';
 import { providedChunkSchema, refSchema, symbolSchema } from '../src/contracts.js';
 
 const deadlines = { closeMs: 5000 };
-const local = {
+const reduced = {
   dimensions: 384,
   distance: 'cosine',
-  dtype: 'fp16',
-  modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-  provider: 'local',
-  revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  tokenCap: 256,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 const hosted = {
   dimensions: 1536,
@@ -27,7 +24,7 @@ const bindings = [
   {
     embeddingSetId: 'a',
     fileId: 'workspace-file',
-    profile: local,
+    profile: reduced,
     relativePath: 'source.ts',
     rootId: 'root',
     sourcePath: null,
@@ -35,7 +32,7 @@ const bindings = [
   {
     embeddingSetId: 'a',
     fileId: 'import-a',
-    profile: local,
+    profile: reduced,
     relativePath: null,
     rootId: null,
     sourcePath: '/imports/source.ts',
@@ -198,18 +195,12 @@ it('isolates full profiles and real supported dimensions before binary top100 an
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-profile-scopes-'));
   // Deterministic storage probes at production provider dimensions; this does not qualify model inference.
   const outside = [
-    { ...bindings[1]!, embeddingSetId: 'other', fileId: 'other-same-profile', profile: local },
+    { ...bindings[1]!, embeddingSetId: 'other', fileId: 'other-same-profile', profile: reduced },
     {
       ...bindings[1]!,
       embeddingSetId: 'other-profile',
       fileId: 'other-profile',
-      profile: {
-        ...local,
-        dtype: 'q8' as const,
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-        tokenCap: 512,
-      },
+      profile: { ...reduced, modelId: 'text-embedding-3-large' as const },
     },
   ];
   const options = {
@@ -248,7 +239,7 @@ it('isolates full profiles and real supported dimensions before binary top100 an
     const queryA = {
       limit: 10,
       mode: 'vector',
-      profile: local,
+      profile: reduced,
       scopes: [scopes[1]],
       vector: vector(384),
     };
@@ -277,7 +268,7 @@ it('isolates full profiles and real supported dimensions before binary top100 an
     ).toHaveLength(1);
     const { profile: _profile, ...binding } = bindings[1]!;
     const snapshot = { ...binding, chunkLines: 1, content: 'canonical profile content\n' };
-    const unchanged = await port.prepareScopedFile({ profile: local, snapshot });
+    const unchanged = await port.prepareScopedFile({ profile: reduced, snapshot });
     expect(unchanged.embeddingChunkIds).toEqual([]);
     await port.commitScopedTextFile({ plan: await port.prepareScopedFile({ snapshot }) });
     expect((await port.searchScopes(queryA)).hits).toHaveLength(2);
@@ -290,18 +281,18 @@ it('isolates full profiles and real supported dimensions before binary top100 an
       'workspace-file',
     ]);
     await expect(
-      port.commitScopedFile({ embeddings: [], plan: unchanged, profile: local })
+      port.commitScopedFile({ embeddings: [], plan: unchanged, profile: reduced })
     ).rejects.toMatchObject({ code: 'stale-file-plan' });
     await expect(port.searchScopes({ ...queryA, vector: vector(1536) })).rejects.toThrow(
       'dimensions'
     );
     await expect(
-      port.searchScopes({ ...queryA, profile: { ...local, tokenCap: 512 } })
+      port.searchScopes({ ...queryA, profile: { ...reduced, modelId: 'text-embedding-3-large' } })
     ).rejects.toThrow('profile');
     await expect(
-      port.prepareScopedFile({ profile: { ...local, revision: undefined }, snapshot })
+      port.prepareScopedFile({ profile: { ...reduced, distance: undefined }, snapshot })
     ).rejects.toThrow();
-    const alternateMetric = { ...bindings[1]!, profile: { ...local, distance: 'l2' as const } };
+    const alternateMetric = { ...bindings[1]!, profile: { ...reduced, distance: 'l2' as const } };
     await port.replaceFileBindings([alternateMetric]);
     await expect(
       port.prepareScopedFile({ profile: alternateMetric.profile, snapshot })
@@ -311,7 +302,7 @@ it('isolates full profiles and real supported dimensions before binary top100 an
     port = await openIndexer({ ...options, embedding: { indexMode: 'open-existing' } }, deadlines);
     expect((await port.searchScopes(queryB)).hits).toHaveLength(1);
     expect(
-      (await port.prepareScopedFile({ profile: local, snapshot })).embeddingChunkIds
+      (await port.prepareScopedFile({ profile: reduced, snapshot })).embeddingChunkIds
     ).toHaveLength(1);
     expect(await port.removeScopedFile({ fileId: 'import-b', scope: scopes[2] })).toBe(true);
     expect((await port.searchScopes(queryB)).hits).toHaveLength(0);
@@ -440,14 +431,14 @@ it('preserves captured canonical parser chunks and syntax for rootless files and
       })
     ).rejects.toThrow('committed file');
     await port.commitScopedTextFile({ plan, syntax });
-    const vectorPlan = await port.prepareScopedFile({ profile: local, snapshot });
+    const vectorPlan = await port.prepareScopedFile({ profile: reduced, snapshot });
     const vector = Array.from({ length: 384 }, (_, i) => (i === 0 ? 1 : 0));
     await port.commitScopedFile({
       embeddings: vectorPlan.embeddingChunkIds.map((chunkId) => ({ chunkId, vector })),
       plan: vectorPlan,
-      profile: local,
+      profile: reduced,
     });
-    const query = { limit: 10, mode: 'vector', profile: local, scopes: [scopes[1]], vector };
+    const query = { limit: 10, mode: 'vector', profile: reduced, scopes: [scopes[1]], vector };
     const before = await port.searchScopes(query);
     expect(before.hits).toHaveLength(captured.result.chunks.length);
     await port.close();
@@ -528,7 +519,7 @@ it('retains vectors for two explicit profiles on one canonical file across selec
     deadlines
   );
   try {
-    for (const profile of [local, second]) {
+    for (const profile of [reduced, second]) {
       await port.replaceFileBindings([{ ...file, profile }]);
       const plan = await port.prepareScopedFile({ profile, snapshot });
       const vector = Array.from({ length: profile.dimensions }, (_, i) => (i === 0 ? 1 : 0));
@@ -550,10 +541,10 @@ it('retains vectors for two explicit profiles on one canonical file across selec
       ).toHaveLength(1);
     }
     await port.replaceFileBindings([file]);
-    const retained = await port.prepareScopedFile({ profile: local, snapshot });
+    const retained = await port.prepareScopedFile({ profile: reduced, snapshot });
     expect(retained.embeddingChunkIds).toEqual([]);
     expect(
-      (await port.commitScopedFile({ embeddings: [], plan: retained, profile: local }))
+      (await port.commitScopedFile({ embeddings: [], plan: retained, profile: reduced }))
         .reusedEmbeddings
     ).toBe(1);
     await port.commitScopedTextFile({ plan: await port.prepareScopedFile({ snapshot }) });

@@ -28,11 +28,8 @@ const captured = Schema.decodeUnknownSync(
 const profile = {
   dimensions: 384,
   distance: 'cosine',
-  dtype: 'fp16',
-  modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-  provider: 'local',
-  revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  tokenCap: 256,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 const vector = Array.from({ length: 384 }, (_, i) => (i === 0 ? 1 : 0));
 const scope = { embeddingSetId: 'collection', kind: 'collection' } as const;
@@ -100,7 +97,10 @@ it('avoids native UPDATE/FTS triggers for equal rows while backfilling and selec
     const trigramBefore = await port.searchScopes(trigram);
     expect(before.hits.length).toBeGreaterThan(0);
     expect(trigramBefore.hits.length).toBeGreaterThan(0);
-    for (const selectedProfile of [profile, { ...profile, tokenCap: 512 }]) {
+    for (const selectedProfile of [
+      profile,
+      { ...profile, modelId: 'text-embedding-3-large' } as const,
+    ]) {
       await port.replaceFileBindings([{ ...binding, profile: selectedProfile }]);
       const plan = await port.prepareScopedFile({ profile: selectedProfile, snapshot });
       expect(plan.embeddingChunkIds).toHaveLength(captured.result.chunks.length);
@@ -168,12 +168,8 @@ it('updates each different actual native field despite the same file snapshot ha
       ['start_offset', first.startOffset! + 1],
       ['end_offset', first.endOffset! - 1],
       ['token_count', first.tokenCount! + 1],
-      ['embedding_hash', 'd'.repeat(64)],
-      ['has_vector', 1],
     ] as const) {
-      const assignments =
-        column === 'has_vector' ? `has_vector=?,embedding_hash='${'d'.repeat(64)}'` : `${column}=?`;
-      db.prepare(`UPDATE file_chunks SET ${assignments} WHERE id=?`).run(value, first.chunkId);
+      db.prepare(`UPDATE file_chunks SET ${column}=? WHERE id=?`).run(value, first.chunkId);
       db.exec('DELETE FROM chunk_update_audit');
       await port.commitScopedTextFile({ plan: await port.prepareScopedFile({ snapshot }) });
       expect(db.prepare('SELECT pk FROM chunk_update_audit').all()).toHaveLength(1);

@@ -15,10 +15,10 @@ export interface DiagnosticsSettingsCategory {
 export function createSystemDiagnosticsSettingsCategory(): DiagnosticsSettingsCategory {
   return {
     content: createElement(ConnectedSystemDiagnosticsPanel),
-    description: 'Monitor database, queue, and worker health in real-time.',
+    description: 'Monitor database, indexing, and worker health in real-time.',
     icon: Activity,
     id: 'system-diagnostics',
-    keywords: ['diagnostics', 'health', 'status', 'database', 'queue', 'worker', 'monitoring'],
+    keywords: ['diagnostics', 'health', 'status', 'database', 'indexing', 'worker', 'monitoring'],
     title: 'System Diagnostics',
   };
 }

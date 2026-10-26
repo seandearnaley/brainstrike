@@ -1,4 +1,3 @@
-import { embeddingProfileHash } from '@brainstrike/indexer';
 import { decodeIndexIdentityRow } from '@brainstrike/indexer/metadata';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { expect, it, vi } from 'vitest';
@@ -42,79 +41,16 @@ it.each([readIndexIdentity, readIndexSchemaVersion, readScopeEpoch, validateScop
   }
 );
 
-it('retains a profile decoding failure through the real metadata wrapper', () => {
-  const cause = new SyntaxError('Invalid profile JSON.', {
-    cause: new Error('PRIVATE parser detail'),
-  });
-  const parse = vi.spyOn(JSON, 'parse').mockImplementationOnce(() => {
-    throw cause;
-  });
-  try {
-    let failure: unknown;
-    try {
-      decodeIndexIdentityRow({
-        ...row,
-        indexMode: 'vector-configured',
-        profileHash: 'b'.repeat(64),
-        profileJson: '{',
-      });
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(IndexerError);
-    if (!(failure instanceof IndexerError)) {
-      throw new Error('Expected IndexerError');
-    }
-    expect(failure.cause).toBe(cause);
-    expect(fault(failure)).toEqual({
-      code: 'rebuild-required',
-      message:
-        'Existing index metadata is invalid: Invalid profile JSON.; explicitly rebuild in a new index file.',
-    });
-    expect(JSON.stringify(fault(failure))).not.toContain('PRIVATE');
-  } finally {
-    parse.mockRestore();
-  }
-});
-
-const profile = {
-  dimensions: 384,
-  dtype: 'fp16',
-  modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-  revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  tokenCap: 256,
-} as const;
 const row = {
-  indexMode: 'text-only',
-  profileHash: null,
-  profileJson: null,
-  schemaVersion: 15,
+  schemaVersion: 16,
   storeId: 'a'.repeat(64),
 };
-it('decodes raw text and complete configured identity without a SQLite driver', () => {
-  expect(decodeIndexIdentityRow(row)).toEqual({
-    embedding: { indexMode: 'text-only' },
-    storeId: row.storeId,
-  });
-  const configured = {
-    ...row,
-    indexMode: 'vector-configured',
-    profileHash: embeddingProfileHash(profile),
-    profileJson: JSON.stringify(profile),
-  };
-  expect(decodeIndexIdentityRow(configured)).toEqual({
-    embedding: { indexMode: 'vector-configured', profile, profileHash: configured.profileHash },
-    storeId: row.storeId,
-  });
+it('decodes raw store identity without a SQLite driver', () => {
+  expect(decodeIndexIdentityRow(row)).toEqual({ storeId: row.storeId });
   for (const invalid of [
     null,
     { ...row, storeId: 'invalid' },
-    ...[3, 8, 14, 16].map((schemaVersion) => ({ ...row, schemaVersion })),
-    { ...row, profileJson: '{}' },
-    { ...configured, profileHash: 'b'.repeat(64) },
-    { ...configured, profileJson: '{}' },
-    { ...configured, profileJson: JSON.stringify({ ...profile, revision: 'latest' }) },
-    { ...configured, profileHash: null },
+    ...[3, 8, 15, 17].map((schemaVersion) => ({ ...row, schemaVersion })),
   ]) {
     expect(() => decodeIndexIdentityRow(invalid)).toThrow('rebuild');
   }

@@ -81,8 +81,7 @@ function DisconnectRootDialogBody({
  * and the folder can be re-added later (re-adding resumes without
  * re-indexing). The opt-in checkbox (Phase 6) switches to a true cascade
  * delete — the copy changes accordingly, and the opt-in never survives a
- * close/reopen cycle. Mirrors the repo's destructive-confirm Dialog pattern
- * (see delete-embedding-set-dialog.tsx in vector-management).
+ * close/reopen cycle. Follows the repo's destructive-confirm Dialog pattern.
  */
 export const DisconnectRootDialog = ({
   displayName,

@@ -175,9 +175,9 @@ describe('boundRunEventReason', () => {
   });
 
   it('leaves an ordinary compaction failure message intact', () => {
-    expect(boundRunEventReason(new Error('Unknown compaction input budget for ollama/x.'))).toBe(
-      'Unknown compaction input budget for ollama/x.'
-    );
+    expect(
+      boundRunEventReason(new Error('Unknown compaction input budget for openrouter/x.'))
+    ).toBe('Unknown compaction input budget for openrouter/x.');
   });
 
   it.each([

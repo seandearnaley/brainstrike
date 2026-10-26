@@ -8,23 +8,16 @@ export function registerShellIpcHandlers(
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'shell',
     DESKTOP_IPC_CHANNELS.shell.showItemInFolder,
-    { roles: ['visible-ui'] },
     (_event, rawPath: unknown) => handlers.showItemInFolder(rawPath)
   );
-  registry.registerAuthorizedInvoke(
-    'shell',
-    DESKTOP_IPC_CHANNELS.shell.openPath,
-    { roles: ['visible-ui'] },
-    (_event, rawPath: unknown) => handlers.openPath(rawPath)
+  registry.handle('shell', DESKTOP_IPC_CHANNELS.shell.openPath, (_event, rawPath: unknown) =>
+    handlers.openPath(rawPath)
   );
-  registry.registerAuthorizedInvoke(
-    'shell',
-    DESKTOP_IPC_CHANNELS.shell.openExternal,
-    { roles: ['visible-ui'] },
-    (_event, url: unknown) => handlers.openExternal(url)
+  registry.handle('shell', DESKTOP_IPC_CHANNELS.shell.openExternal, (_event, url: unknown) =>
+    handlers.openExternal(url)
   );
 
   return () => {

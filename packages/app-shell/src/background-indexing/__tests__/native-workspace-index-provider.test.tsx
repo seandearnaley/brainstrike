@@ -50,9 +50,8 @@ const SEMANTIC_CONFIG: IndexConfig = {
   ...DEFAULT_INDEX_CONFIG,
   mode: 'semantic',
   model: {
-    dimensions: 384,
-    local: { device: 'wasm', dtype: 'q8' },
-    modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
+    dimensions: 1536,
+    modelKey: 'openai::text-embedding-3-small',
   },
 };
 
@@ -459,11 +458,10 @@ it.each(['roots', 'profile', 'store'] as const)(
         embedding: {
           indexMode: 'vector-configured',
           profile: {
-            dimensions: 384,
+            dimensions: 1536,
             distance: 'cosine',
-            dtype: 'q4',
-            modelId: 'onnx-community/all-MiniLM-L6-v2',
-            provider: 'transformers',
+            modelId: 'text-embedding-3-small',
+            provider: 'openai',
           },
           profileHash: 'profile',
         },
@@ -536,86 +534,6 @@ it.each(['status', 'batch'] as const)(
     );
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
       lastError: reason,
-      state: 'blocked',
-    });
-    mounted.unmount();
-  }
-);
-
-it.each(['status', 'batch'] as const)(
-  'carries an unresponsive embedding host from %s as the blocked reason that offers Retry indexing (BST-2104)',
-  async (source) => {
-    const reason =
-      'The embedding model stopped responding while it was loading. It sent no progress for 1 min (1 min after the batch started).';
-    const cause = { kind: 'embedding-host-unresponsive' as const, message: reason };
-    let unresponsive = true;
-    const index = mainIndex();
-    const capability = {
-      ...savedConfig(SEMANTIC_CONFIG),
-      ...index,
-      coverage: vi.fn(),
-      coverageBatch: vi.fn(
-        async (): Promise<IndexerCoverageBatch> =>
-          unresponsive
-            ? { cause, kind: 'blocked', reason }
-            : {
-                cause: { kind: 'source-failure', message: 'Workspace walk failed.' },
-                kind: 'blocked',
-                reason: 'Workspace walk failed.',
-              }
-      ),
-      grep: vi.fn(),
-      rebuild: vi.fn(),
-      rootsRegistered: vi.fn(async () => {}),
-      search: vi.fn(),
-      status: vi.fn(
-        async (): Promise<IndexerStatus> =>
-          source === 'status'
-            ? unresponsive
-              ? { cause, kind: 'unavailable', phase: 'blocked', reason }
-              : {
-                  cause: { kind: 'source-failure', message: 'Workspace walk failed.' },
-                  kind: 'unavailable',
-                  phase: 'blocked',
-                  reason: 'Workspace walk failed.',
-                }
-            : {
-                authorizedCollectionIds: ['selected'],
-                authorizedRootIds: ['root'],
-                embedding: { indexMode: 'text-only' },
-                kind: 'ready',
-                rootReadiness: [{ rootId: 'root', scanComplete: false }],
-                storeId: 'store',
-              }
-      ),
-    };
-    const mounted = render(
-      <NativeWorkspaceIndexProvider capability={capability}>
-        <span>Workspace</span>
-      </NativeWorkspaceIndexProvider>
-    );
-    await waitFor(() =>
-      expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-        blockedReason: 'embedding-host-unresponsive',
-        lastError: reason,
-        state: 'blocked',
-      })
-    );
-    // A block with any other cause names no remedy.
-    unresponsive = false;
-    const status = await capability.status();
-    index.push(
-      status.kind === 'ready'
-        ? {
-            coverage: await capability.coverageBatch(),
-            kind: 'read',
-            status,
-          }
-        : { kind: 'read', status }
-    );
-    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
-      blockedReason: null,
-      lastError: 'Workspace walk failed.',
       state: 'blocked',
     });
     mounted.unmount();

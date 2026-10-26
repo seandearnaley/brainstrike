@@ -1,13 +1,10 @@
 /**
  * Desktop E2E (gap 10): the Threads panel search finds agent-host threads by
  * their content and by their title, excluding deleted host conversations.
- * The host's semantic arm also answers, once the backlog drain has embedded
- * the host's rows; the search runs after that, so its rows are deterministic.
  */
 import type { Page } from '@playwright/test';
-import { setVectorDevicePreference } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
-import { readHostSearchVectorCounts, withAppHost } from './utils/agent-host-log';
+import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -34,9 +31,7 @@ test('the Threads panel searches only usable host threads by content and title',
   window: page,
 }) => {
   test.setTimeout(300_000);
-  await setVectorDevicePreference(page, 'wasm');
-  const { mockFileSystemOperations, reloadRenderer } = await loadElectronHelpers();
-  await reloadRenderer(page, 'host-thread-panel-search-device');
+  const { mockFileSystemOperations } = await loadElectronHelpers();
   await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
@@ -89,15 +84,8 @@ test('the Threads panel searches only usable host threads by content and title',
 
   await openThreadsPanel(page);
   const search = page.getByRole('combobox', { name: 'Search threads' });
-  // Any search starts the backlog drain, which embeds the surviving host rows. Search for the word only once the host holds a vector for each
-  // of its four messages, so the semantic arm answers from all of them.
-  await search.fill('zinnia');
-  await expect
-    .poll(() => readHostSearchVectorCounts(electron.getUserDataDir()), { timeout: 120_000 })
-    .toEqual({ rows: 4, vectors: 4 });
   await search.fill(WORD);
   const results = page.getByTestId('thread-search-result');
-  await expect(page.getByTestId('thread-search-semantic-unavailable')).toHaveCount(0);
   // A retired history hit must never offer an unusable conversation.
   const historyMatch = results.filter({ hasText: HISTORY_TITLE }).filter({
     hasText: `Water the ${WORD} beds at dawn`,
@@ -110,17 +98,8 @@ test('the Threads panel searches only usable host threads by content and title',
   await expect(contentMatch.locator('mark')).toHaveText([WORD]);
   // The host thread whose title alone holds the word is listed.
   await expect(results.filter({ hasText: TITLE_MATCH }).first()).toBeVisible();
-  // A related query exercises the semantic arm without a lexical/title match.
-  // The real MiniLM profile scores "acknowledged" against "Noted." above the
-  // shipped 0.35 threshold; the unrelated "marigold" query scores below it.
-  await search.fill('acknowledged');
-  const semanticMatch = results.filter({ hasText: CONTENT_TITLE }).filter({ hasText: REPLY });
-  await expect(semanticMatch).toHaveCount(1);
-  await expect(semanticMatch.locator('mark')).toHaveCount(0);
 
-  // A host result opens its thread after returning to the lexical query.
-  await search.fill(WORD);
-  await expect(contentMatch).toHaveCount(1);
+  // A host result opens its thread.
   await contentMatch.click();
   await expect(strip.getByRole('tab', { name: CONTENT_TITLE, selected: true })).toBeVisible({
     timeout: 30_000,

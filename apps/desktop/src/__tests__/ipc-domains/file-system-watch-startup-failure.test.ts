@@ -3,28 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { WatcherHealthTransition } from '@brainstrike/types';
-import type { IpcMainInvokeEvent } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 
-type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
 
-const { registeredHandlers } = vi.hoisted(() => ({
-  registeredHandlers: new Map<string, IpcHandler>(),
-}));
+vi.mock('electron', () => ({ ipcMain }));
 
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, listener: IpcHandler) => {
-      registeredHandlers.set(channel, listener);
-    }),
-    on: vi.fn(),
-    removeHandler: vi.fn((channel: string) => {
-      registeredHandlers.delete(channel);
-    }),
-    removeListener: vi.fn(),
-  },
-}));
-
+import { untrackAppWindow } from '../../app-windows';
 import {
   type FileSystemWatchSubscription,
   liveFileSystemWatcherCountForTest,
@@ -33,23 +18,15 @@ import {
   type StartFileSystemWatch,
 } from '../../ipc-domains/file-system-watch-ipc';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
-import { clearWindowRoleByWebContentsId } from '../../window-role';
+import { invokeDesktopIpcFrom } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   FakeWebContents,
   invokeEventFor,
   toDirectoryHandle,
 } from './file-system-watch-ipc-test-helpers';
 
-async function invoke(
-  owner: FakeWebContents,
-  channel: string,
-  ...args: unknown[]
-): Promise<unknown> {
-  const handler = registeredHandlers.get(channel);
-  if (!handler) {
-    throw new Error(`Watch handler is not registered: ${channel}`);
-  }
-  return await handler(invokeEventFor(owner), ...args);
+function invoke(owner: FakeWebContents, method: string, ...args: unknown[]): Promise<unknown> {
+  return invokeDesktopIpcFrom(ipcMain, invokeEventFor(owner), method, ...args);
 }
 
 describe('shared file-system watch startup failure', () => {
@@ -134,7 +111,7 @@ describe('shared file-system watch startup failure', () => {
         await first;
         await duplicate;
         await unregister();
-        clearWindowRoleByWebContentsId(owner.id);
+        untrackAppWindow(owner.id);
         await fsPromises.rm(directory, { force: true, recursive: true });
       }
     }

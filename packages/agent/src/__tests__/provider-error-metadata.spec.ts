@@ -190,10 +190,8 @@ describe('provider error metadata', () => {
   });
 
   it('classifies exactly the evidence-free local fallback as local', () => {
-    // `local_tool_call_arguments_invalid` was the retired on-device chat
-    // model's malformed-tool-arguments fault; nothing raises it now.
     expect(isLocalRunErrorClassification(LOCAL_RUN_ERROR_FALLBACK_CODE)).toBe(true);
-    expect(isLocalRunErrorClassification('local_tool_call_arguments_invalid')).toBe(false);
+    expect(isLocalRunErrorClassification('local_error')).toBe(false);
     expect(isLocalRunErrorClassification(PROVIDER_RUN_ERROR_FALLBACK_CODE)).toBe(false);
     expect(isLocalRunErrorClassification('context_length_exceeded')).toBe(false);
   });

@@ -1,5 +1,5 @@
 import { ModelRouterLanguageModel } from '@mastra/core/llm';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra-boundary/mastra-agent-error';
 import {
   createEmbeddingProvider,
@@ -90,73 +90,6 @@ describe('provider-factory', () => {
       expect(model.modelId).toBe('z-ai/glm-5.2');
     });
 
-    it('creates an Ollama model on its native chat route (BST-754, ollama-chat-model.spec.ts)', () => {
-      expect(
-        createProvider('ollama', undefined, 'qwen2.5:latest', undefined, {
-          contextWindow: 32_768,
-          thinking: false,
-        })
-      ).toMatchObject({ modelId: 'qwen2.5:latest', specificationVersion: 'v4' });
-    });
-
-    it('creates LM Studio provider with custom model', () => {
-      expect(createProvider('lmstudio', undefined, 'qwen2.5')).toEqual({
-        apiKey: 'lmstudio',
-        modelId: 'qwen2.5',
-        providerId: 'lmstudio',
-        url: 'http://127.0.0.1:1234/v1',
-      });
-    });
-
-    // Mastra 1.78 types the local runtime config as `{ providerId, modelId }`;
-    // its router normalizes that to the same `provider/model` route as the
-    // older `{ id }` shape. Observe the actual routed request, not the shape.
-    describe.each([
-      { model: 'qwen2.5', runtime: 'lmstudio', url: 'http://127.0.0.1:1234/v1' },
-    ] as const)('$runtime model config through the Mastra router', ({ model, runtime, url }) => {
-      afterEach(() => {
-        vi.unstubAllGlobals();
-        vi.unstubAllEnvs();
-      });
-
-      async function route(config: ConstructorParameters<typeof ModelRouterLanguageModel>[0]) {
-        const requests: { authorization: string | null; url: string }[] = [];
-        const captured = new Error('request captured');
-        vi.stubEnv('OPENAI_API_KEY', 'sk-env-key-must-not-leak');
-        vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-          requests.push({
-            authorization: new Headers(init?.headers).get('authorization'),
-            url: String(input),
-          });
-          throw captured;
-        });
-        const router = new ModelRouterLanguageModel(config);
-        await expect(
-          router.doStream({ prompt: [{ content: [{ text: 'hi', type: 'text' }], role: 'user' }] })
-        ).rejects.toBe(captured);
-        return { modelId: router.modelId, provider: router.provider, requests };
-      }
-
-      it('routes to the configured URL with the explicit local key', async () => {
-        const config = createProvider(runtime, undefined, model);
-        if (config instanceof ModelRouterLanguageModel || !('providerId' in config)) {
-          throw new Error('Expected the canonical OpenAI-compatible model config');
-        }
-        const routed = await route(config);
-        expect(routed).toEqual({
-          modelId: model,
-          provider: runtime,
-          requests: [{ authorization: `Bearer ${runtime}`, url: `${url}/chat/completions` }],
-        });
-        // The route the previous `{ id, url, apiKey }` shape produced.
-        expect(await route({ apiKey: runtime, id: `${runtime}/${model}`, url })).toEqual(routed);
-      });
-    });
-
-    it('throws when local runtime provider has no selected model', () => {
-      expect(() => createProvider('ollama')).toThrowError();
-    });
-
     it('throws MastraAgentError for unsupported provider', () => {
       try {
         createProvider('unsupported', { apiKey: 'test-key', kind: 'api_key' });
@@ -173,9 +106,6 @@ describe('provider-factory', () => {
                 'anthropic',
                 'google',
                 'openrouter',
-                'local',
-                'ollama',
-                'lmstudio',
               ]),
             })
           );
@@ -231,8 +161,8 @@ describe('provider-factory', () => {
     });
 
     it('rejects providers outside the persistent-memory model boundary', () => {
-      expect(() => createLanguageModelProvider('ollama', undefined, 'qwen3:latest')).toThrow(
-        /does not support provider: ollama/i
+      expect(() => createLanguageModelProvider('cohere', 'test-key', 'command-r')).toThrow(
+        /does not support provider: cohere/i
       );
     });
   });
@@ -258,8 +188,8 @@ describe('provider-factory', () => {
       expect(() => getDefaultModel('unsupported')).toThrow(/Unsupported provider/);
     });
 
-    it('returns an explicit unset default for a supported dynamic provider', () => {
-      expect(getDefaultModel('ollama')).toBe('');
+    it('returns an explicit unset default for an embeddings-only provider', () => {
+      expect(getDefaultModel('cohere')).toBe('');
     });
   });
 

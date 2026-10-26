@@ -1,4 +1,4 @@
-import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.ts';
+import type { EmbeddingInput, IEmbeddingProvider } from '../../interfaces/provider.ts';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
@@ -33,8 +33,6 @@ const GOOGLE_MODELS: Record<string, GoogleModelConfig> = {
     id: 'gemini-embedding-001',
     name: 'Gemini embedding-001',
     origin: 'Google Gemini',
-    quantized: false,
-    size: 'hosted',
     supportsOutputDimensionality: true,
     tags: ['google', 'hosted', 'embedding'],
   },
@@ -48,8 +46,7 @@ export interface GoogleEmbeddingProviderOptions {
   readonly outputDimensions?: number;
 }
 
-export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
-  readonly runtime = 'hosted' as const;
+export class GoogleEmbeddingProvider implements IEmbeddingProvider {
   readonly provider = 'google' as const;
 
   private apiKey: string | null;

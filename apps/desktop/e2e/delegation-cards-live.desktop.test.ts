@@ -59,7 +59,6 @@ test('open delegation cards follow their background children to the end without 
   let joined = false;
   try {
     const context = await launchElectronAppWithOptions({
-      disableExternalLocalRuntimeProbes: true,
       modelProvider: provider,
       userDataDir: profile,
       workspaceRoot: workspace,

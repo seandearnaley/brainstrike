@@ -18,8 +18,8 @@ let windowServices: WorkspaceTerminalServices | undefined;
 
 /**
  * ADR-0029 stage 3: the Terminal panel's terminals and command sessions live
- * in the agent host. A window without the agent-host capability (hidden hosts)
- * has none of them.
+ * in the agent host. A window without the agent-host capability has none of
+ * them.
  */
 export function resolveDesktopWorkspaceTerminalServices(): WorkspaceTerminalServices {
   if (!window.agentHost) {

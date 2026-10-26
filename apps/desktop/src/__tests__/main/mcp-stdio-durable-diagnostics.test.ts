@@ -77,7 +77,6 @@ describe('MCP stdio durable diagnostics', () => {
           },
           preferences: createDefaultLoggingPreferences(),
         }),
-        ingestBufferedLog: vi.fn(),
         openDestination: vi.fn(async () => true),
         recordDurableLog: (record) => sink.recordLogRecord(record),
         selectDestination: vi.fn(async () => filePath),

@@ -1,16 +1,13 @@
-import { realpathSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import type { ElectronApplication, Page } from 'playwright';
-import { APP_RENDERER_ORIGIN } from '../src/desktop-renderer-origin';
-import type { VisibleEmbeddingHostBridge } from '../src/types/desktop-electron-api';
+import type { Page } from 'playwright';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { readIndexConfig, updateIndexConfig } from './utils/index-config';
+import { HOSTED_INDEX_MODEL, vectorSearch } from './utils/native-index-build';
 
 async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page }): Promise<void> {
   await args.homePage.openSettings();
@@ -18,69 +15,6 @@ async function openSearchIndexingSettings(args: { homePage: HomePage; page: Page
   await expect(args.page.getByTestId('settings-category-search-indexing')).toBeVisible({
     timeout: 15_000,
   });
-}
-
-const ORT_WASM_REQUESTS_KEY = '__brainstrikeE2eOrtWasmRequests' as const;
-
-/**
- * The app's own bundled renderer directory, as a `file://` prefix.
- *
- * `renderer-protocol.ts` fulfils every `brainstrike-app://bundle/...` GET with
- * `net.fetch(pathToFileURL(resource))`, AFTER proving with `realpath` that the
- * resource is confined to this directory. `net.fetch` runs on the session the
- * hook below watches, so the app serving its OWN bundle appears there as a
- * `file://` request to a path inside this directory — which is precisely what
- * BST-2003 requires, not a violation of it. `realpathSync` because the handler
- * resolves the served path the same way.
- *
- * Resolved per call, NOT at module scope: `dist/` is gitignored and absent on a
- * clean checkout, and `playwright test --list` collects specs without running
- * them or the build setup, so a top-level `realpathSync` would fail discovery
- * with ENOENT before any test could be reported. Resolving here still fails by
- * name if the bundle is missing when the hook actually runs.
- */
-function appBundleFileUrlPrefix(): string {
-  return `${pathToFileURL(realpathSync(resolve(import.meta.dirname, '../dist/renderer'))).href}/`;
-}
-
-/**
- * Records every ONNX Runtime WASM request that does NOT come from the app's own
- * bundle, through the session's request hook in Main (BST-2003). The app installs no
- * onBeforeRequest listener of its own, so this observes without replacing one.
- *
- * Two shapes are the app serving itself and are not recorded: the renderer origin,
- * and a `file://` read inside {@link appBundleFileUrlPrefix} (how the renderer
- * protocol fulfils that origin). A CDN fetch, or a `file://` read from outside the
- * bundle, still is.
- */
-async function recordOrtWasmRequests(app: ElectronApplication): Promise<void> {
-  await app.evaluate(
-    ({ session }, { appOrigin, bundlePrefix, key }) => {
-      const seen: string[] = [];
-      Reflect.set(globalThis, key, seen);
-      session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-        const url = new URL(details.url);
-        const fromAppBundle =
-          details.url.startsWith(`${appOrigin}/`) || details.url.startsWith(bundlePrefix);
-        if (!fromAppBundle && /ort-wasm/u.test(url.pathname)) {
-          seen.push(details.url);
-        }
-        callback({});
-      });
-    },
-    {
-      appOrigin: APP_RENDERER_ORIGIN,
-      bundlePrefix: appBundleFileUrlPrefix(),
-      key: ORT_WASM_REQUESTS_KEY,
-    }
-  );
-}
-
-async function readOrtWasmRequests(app: ElectronApplication): Promise<string[]> {
-  return await app.evaluate(
-    (_electron, key) => [...(Reflect.get(globalThis, key) as string[])],
-    ORT_WASM_REQUESTS_KEY
-  );
 }
 
 async function readNativeStatus(
@@ -100,179 +34,112 @@ async function readNativeStatus(
 }
 
 test.describe('Workspace Index first run (desktop)', () => {
-  // Granite is the recommended model; WASM · Q8 is its catalog execution without WebGPU (BST-1993).
-  for (const setup of [
-    { execution: 'WASM · Q8', model: 'BGE Small', modelId: 'Xenova/bge-small-en-v1.5' },
-    {
-      execution: 'WASM · Q8',
-      model: 'Granite Embedding Small R2',
-      modelId: 'onnx-community/granite-embedding-small-english-r2-ONNX',
-    },
-  ]) {
-    test(`starts native semantic indexing using visible setup controls: ${setup.model} ${setup.execution}`, async ({
-      electron,
-    }, testInfo) => {
-      test.setTimeout(300_000);
-      // Keep normal device discovery; this case explicitly selects WASM through the UI.
-      const previousAllowGpu = process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
-      process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = '1';
-      const folder = await mkdtemp(join(tmpdir(), 'brainstrike-index-setup-'));
-      await writeFile(
-        join(folder, 'setup-proof.md'),
-        '# Workspace indexing setup\nThe smoke test creates this document through the filesystem and indexes it through the real desktop UI.\n'
+  test('starts native semantic indexing using visible setup controls', async ({
+    electron,
+    modelProvider,
+  }, testInfo) => {
+    test.setTimeout(300_000);
+    modelProvider.serveEmbeddings(HOSTED_INDEX_MODEL.dimensions);
+    const folder = await mkdtemp(join(tmpdir(), 'brainstrike-index-setup-'));
+    await writeFile(
+      join(folder, 'setup-proof.md'),
+      '# Workspace indexing setup\nThe smoke test creates this document through the filesystem and indexes it through the real desktop UI.\n'
+    );
+    try {
+      const { app, window } = await electron.ensureContext();
+      await app.evaluate((_electron, path) => {
+        process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
+      }, folder);
+      await ensureFileExplorerPanelVisible(window);
+      await window.getByTestId('select-root-button').click();
+      await expect(
+        window.getByRole('treegrid', { name: 'File tree' }).getByText('setup-proof.md')
+      ).toBeVisible({ timeout: 15_000 });
+      await window.getByTestId('indexing-status-trigger').click();
+      await window.getByRole('button', { name: 'Open indexing settings' }).click();
+      await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible({
+        timeout: 15_000,
+      });
+      const section = window.getByTestId('settings-category-search-indexing');
+      await section
+        .getByRole('group', { name: 'Search mode' })
+        .getByRole('button', { name: /^Semantic/ })
+        .click();
+      await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+      // The Settings model picker's name for HOSTED_INDEX_MODEL.
+      await window.getByRole('option', { name: /Text Embedding 3 Small/ }).click();
+      const pending = section.getByRole('status', { name: 'Pending changes' });
+      await pending.getByRole('button', { exact: true, name: 'Apply and re-index' }).click();
+      await expect(pending).toBeHidden({ timeout: 15_000 });
+      await expect
+        .poll(
+          async () =>
+            await window.evaluate(async () => {
+              const capability = (
+                globalThis as typeof globalThis & {
+                  readonly __brainstrikeTestHooks__?: {
+                    readonly indexSearch?: IndexSearchCapability;
+                  };
+                }
+              ).__brainstrikeTestHooks__?.indexSearch;
+              if (!capability) {
+                throw new Error('Native capability missing');
+              }
+              const status = await capability.status();
+              if (status.kind !== 'ready') {
+                return false;
+              }
+              const observation = await capability.coverageBatch([
+                { rootIds: status.authorizedRootIds },
+              ]);
+              if (observation.kind === 'invalidated') {
+                return false;
+              }
+              if (observation.kind === 'blocked') {
+                throw new Error(observation.reason);
+              }
+              const snapshot = observation.status;
+              const coverage = observation.coverage[0];
+              if (!coverage) {
+                throw new Error('Native coverage batch omitted the requested scope');
+              }
+              return (
+                snapshot.rootReadiness.length > 0 &&
+                snapshot.rootReadiness.every((root) => root.scanComplete) &&
+                coverage.totals.indexedFiles === 1 &&
+                coverage.totals.chunks > 0 &&
+                coverage.totals.vectors === coverage.totals.chunks &&
+                coverage.totals.missingVectors === 0
+              );
+            }),
+          { timeout: 180_000 }
+        )
+        .toBe(true);
+      const semanticResult = await vectorSearch(window, 'document created by the smoke test', 5);
+      expect(semanticResult.modelKey).toBe(HOSTED_INDEX_MODEL.modelKey);
+      expect(semanticResult.dimensions).toBe(HOSTED_INDEX_MODEL.dimensions);
+      expect(semanticResult.hits.some((hit) => hit.content.includes('smoke test creates'))).toBe(
+        true
       );
-      try {
-        const { app, window } = await electron.ensureContext();
-        await recordOrtWasmRequests(app);
-        await app.evaluate((_electron, path) => {
-          process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = path;
-        }, folder);
-        await ensureFileExplorerPanelVisible(window);
-        await window.getByTestId('select-root-button').click();
-        await expect(
-          window.getByRole('treegrid', { name: 'File tree' }).getByText('setup-proof.md')
-        ).toBeVisible({ timeout: 15_000 });
-        await window.getByTestId('indexing-status-trigger').click();
-        await window.getByRole('button', { name: 'Open indexing settings' }).click();
-        await expect(window.getByTestId('settings-category-search-indexing')).toBeVisible({
-          timeout: 15_000,
-        });
-        const section = window.getByTestId('settings-category-search-indexing');
-        await section
-          .getByRole('group', { name: 'Search mode' })
-          .getByRole('button', { name: /^Semantic/ })
-          .click();
-        await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-        await window.getByRole('option', { name: new RegExp(setup.model) }).click();
-        await section.getByRole('combobox', { exact: true, name: 'Run it on' }).click();
-        await window.getByRole('option', { exact: true, name: setup.execution }).click();
-        const pending = section.getByRole('status', { name: 'Pending changes' });
-        await pending.getByRole('button', { exact: true, name: 'Apply and re-index' }).click();
-        await expect(pending).toBeHidden({ timeout: 15_000 });
-        await expect
-          .poll(
-            async () =>
-              await window.evaluate(async () => {
-                const capability = (
-                  globalThis as typeof globalThis & {
-                    readonly __brainstrikeTestHooks__?: {
-                      readonly indexSearch?: IndexSearchCapability;
-                    };
-                  }
-                ).__brainstrikeTestHooks__?.indexSearch;
-                if (!capability) {
-                  throw new Error('Native capability missing');
-                }
-                const status = await capability.status();
-                if (status.kind !== 'ready') {
-                  return false;
-                }
-                const observation = await capability.coverageBatch([
-                  { rootIds: status.authorizedRootIds },
-                ]);
-                if (observation.kind === 'invalidated') {
-                  return false;
-                }
-                if (observation.kind === 'blocked') {
-                  throw new Error(observation.reason);
-                }
-                const snapshot = observation.status;
-                const coverage = observation.coverage[0];
-                if (!coverage) {
-                  throw new Error('Native coverage batch omitted the requested scope');
-                }
-                return (
-                  snapshot.rootReadiness.length > 0 &&
-                  snapshot.rootReadiness.every((root) => root.scanComplete) &&
-                  coverage.totals.indexedFiles === 1 &&
-                  coverage.totals.chunks > 0 &&
-                  coverage.totals.vectors === coverage.totals.chunks &&
-                  coverage.totals.missingVectors === 0
-                );
-              }),
-            // Includes the model's first download into the fresh profile.
-            { timeout: 180_000 }
-          )
-          .toBe(true);
-        const semanticResult = await window.evaluate(async () => {
-          const bridges = globalThis as typeof globalThis & {
-            readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
-            readonly embeddingHost?: VisibleEmbeddingHostBridge;
-          };
-          const capability = bridges.__brainstrikeTestHooks__?.indexSearch;
-          const bridge = bridges.embeddingHost;
-          if (!(capability && bridge && 'queryEmbedding' in bridge)) {
-            throw new Error('Native search/query bridge unavailable');
-          }
-          const status = await capability.status();
-          if (
-            status.kind !== 'ready' ||
-            status.embedding.indexMode !== 'vector-configured' ||
-            !status.queryPlan
-          ) {
-            throw new Error('Selected collection has no ready semantic query plan');
-          }
-          const response = await bridge.queryEmbedding({
-            dimensions: status.embedding.profile.dimensions,
-            modelId: status.embedding.profile.modelId,
-            modelKey: status.queryPlan.modelKey,
-            query: 'document created by the smoke test',
-            ...(status.queryPlan.inferencePlan
-              ? { inferencePlan: status.queryPlan.inferencePlan }
-              : {}),
-          });
-          if (!response.ok) {
-            throw new Error(JSON.stringify(response.error));
-          }
-          const vector = response.value;
-          const result = await capability.search({
-            limit: 5,
-            mode: 'vector',
-            profile: status.embedding.profile,
-            rootIds: status.authorizedRootIds,
-            vector,
-          });
-          return {
-            dimensions: vector.length,
-            hits: result.hits,
-            modelKey: status.queryPlan.modelKey,
-          };
-        });
-        expect(semanticResult.modelKey).toBe(`local::${setup.modelId}`);
-        expect(semanticResult.dimensions).toBe(384);
-        expect(semanticResult.hits.some((hit) => hit.content.includes('smoke test creates'))).toBe(
-          true
-        );
-        // BST-2003: ONNX Runtime's WASM comes from the app's own files, never a CDN.
-        // The semantic hits above prove ONNX Runtime ran; the session hook records every
-        // ORT WASM request that did not come from the app's own bundle, so any request it
-        // saw is a failure.
-        expect(await readOrtWasmRequests(app)).toEqual([]);
-        await testInfo.attach('ui-created-index', {
-          body: JSON.stringify(
-            {
-              config: await readIndexConfig(window),
-              status: await readNativeStatus(window),
-            },
-            null,
-            2
-          ),
-          contentType: 'application/json',
-        });
-      } finally {
-        await electron.dispose();
-        await rm(folder, { force: true, recursive: true });
-        if (previousAllowGpu === undefined) {
-          delete process.env['BRAINSTRIKE_E2E_ALLOW_GPU'];
-        } else {
-          process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] = previousAllowGpu;
-        }
-      }
-    });
-  }
+      await testInfo.attach('ui-created-index', {
+        body: JSON.stringify(
+          {
+            config: await readIndexConfig(window),
+            status: await readNativeStatus(window),
+          },
+          null,
+          2
+        ),
+        contentType: 'application/json',
+      });
+    } finally {
+      await electron.dispose();
+      await rm(folder, { force: true, recursive: true });
+    }
+  });
 
   test(
-    'completes paused semantic setup after choosing a local execution',
+    'completes paused semantic setup after choosing a hosted embedding model',
     { tag: '@smoke' },
     async ({ homePage, window }, testInfo) => {
       await openSearchIndexingSettings({ homePage, page: window });
@@ -288,31 +155,24 @@ test.describe('Workspace Index first run (desktop)', () => {
         .poll(() => readIndexConfig(window), { timeout: 15_000 })
         .toMatchObject({ paused: true });
 
-      await updateIndexConfig(window, {
-        mode: 'semantic',
-        model: {
-          dimensions: 384,
-          local: { device: 'wasm', dtype: 'q8' },
-          modelKey: 'local::Xenova/bge-small-en-v1.5',
-        },
-      });
+      await updateIndexConfig(window, { mode: 'semantic', model: HOSTED_INDEX_MODEL });
       expect(await readIndexConfig(window)).toMatchObject({
         mode: 'semantic',
-        model: { local: { device: 'wasm', dtype: 'q8' } },
+        model: HOSTED_INDEX_MODEL,
         paused: true,
       });
-      // Paused read authority needs a real native writer, but no document inference
-      // or model download. Do not resume ingestion to make this assertion pass.
+      // Paused read authority needs a real native writer, but no document embedding.
+      // Do not resume ingestion to make this assertion pass.
       await expect
         .poll(() => readNativeStatus(window), { timeout: 15_000 })
         .toMatchObject({
           authorizedCollectionIds: [expect.any(String)],
           embedding: {
             indexMode: 'vector-configured',
-            profile: { dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
+            profile: { dimensions: 1536, modelId: 'text-embedding-3-small' },
           },
           kind: 'ready',
-          queryPlan: { inferencePlan: { device: 'wasm', dtype: 'q8' } },
+          queryPlan: { modelKey: HOSTED_INDEX_MODEL.modelKey },
         });
       await expect(
         section

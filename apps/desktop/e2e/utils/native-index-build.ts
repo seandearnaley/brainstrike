@@ -1,20 +1,27 @@
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type {
+  IndexerSearchHit,
+  IndexSearchCapability,
+} from '@brainstrike/indexing-contract/indexer-client';
 import { expect, type Locator, type Page } from '@playwright/test';
-import type { BenchDevice } from './foreground-latency-bench';
 import { updateIndexConfig } from './index-config';
+import { embedText } from './model-provider-embeddings';
+import type { ModelProviderShim } from './model-provider-shim';
+import { type SeededRoot, seedRoots } from './seed-root';
+import { callIndexSearch, nativeStatus } from './text-search-mode';
 
 /**
  * Drives and reads a full native Workspace Index build (`NativeWorkspaceIndexProvider`)
- * through the app: the seeded roots open paused, semantic search with BGE Small on
- * the device's execution plan is saved through Main, and Resume starts the build.
- * Counts, scan receipts and the query plan come from the renderer's `indexSearch`
- * capability, the same observation the app itself reads.
+ * through the app: the seeded roots open paused, semantic search with OpenAI
+ * text-embedding-3-small (served by the model-provider shim through
+ * `OPENAI_BASE_URL`) is saved through Main, and Resume starts the build. Counts
+ * and scan receipts come from the renderer's `indexSearch` capability, the same
+ * observation the app itself reads.
  */
 
-/** BGE Small's execution plan for each device. */
-const EXECUTION = {
-  wasm: { device: 'wasm', dtype: 'q8' },
-  webgpu: { device: 'webgpu', dtype: 'fp16' },
+/** The hosted embedding model every semantic index spec chooses. */
+export const HOSTED_INDEX_MODEL = {
+  dimensions: 1536,
+  modelKey: 'openai::text-embedding-3-small',
 } as const;
 
 export interface NativeRootSummary {
@@ -28,13 +35,10 @@ export interface NativeRootSummary {
 }
 
 export interface NativeIndexSummary {
-  /** The native query plan's execution device and dtype; null before the index is ready. */
-  readonly actualDevice: string | null;
   readonly authorizedRootIds: readonly string[];
   readonly chunkCount: number;
   /** The native index publishes whole files: an indexed file is a chunked file. */
   readonly chunkedFileCount: number;
-  readonly dtype: string | null;
   readonly embeddedChunkCount: number;
   readonly fileCount: number;
   readonly missingVectors: number;
@@ -45,7 +49,7 @@ export interface NativeIndexSummary {
   readonly vectorCoverageComplete: boolean;
 }
 
-/** The native index's counts and execution plan for every authorized root. */
+/** The native index's counts and scan receipts for every authorized root. */
 export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSummary> {
   return await page.evaluate(async () => {
     const capability = (
@@ -58,11 +62,9 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
     }
     const status = await capability.status();
     const none = {
-      actualDevice: null,
       authorizedRootIds: [],
       chunkCount: 0,
       chunkedFileCount: 0,
-      dtype: null,
       embeddedChunkCount: 0,
       fileCount: 0,
       missingVectors: 0,
@@ -80,7 +82,7 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
     if (observation.kind === 'invalidated') {
       return { ...none, status: 'invalidated' };
     }
-    // The plan, readiness and roots all come from the coverage's own fenced
+    // The readiness and roots both come from the coverage's own fenced
     // status; when its roots are not the ones requested, the counts answer
     // another authority, so the caller reads again.
     const fenced = observation.status;
@@ -93,15 +95,12 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
     if (!coverage) {
       throw new Error('Native coverage omitted the requested roots.');
     }
-    const plan = fenced.queryPlan?.inferencePlan;
     const { totals } = coverage;
     const readiness = fenced.rootReadiness;
     return {
-      actualDevice: plan?.device ?? null,
       authorizedRootIds: fenced.authorizedRootIds,
       chunkCount: totals.chunks,
       chunkedFileCount: totals.indexedFiles,
-      dtype: plan?.dtype ?? null,
       embeddedChunkCount: totals.vectors,
       fileCount: totals.indexedFiles,
       missingVectors: totals.missingVectors,
@@ -123,22 +122,71 @@ export async function readNativeIndexSummary(page: Page): Promise<NativeIndexSum
   });
 }
 
-/** Saves semantic search with BGE Small on the device's execution plan. */
-export async function chooseSemanticSearch(page: Page, device: BenchDevice): Promise<void> {
-  await updateIndexConfig(page, {
-    mode: 'semantic',
-    model: {
-      dimensions: 384,
-      local: EXECUTION[device],
-      modelKey: 'local::Xenova/bge-small-en-v1.5',
-    },
+/** Opens the roots as the workspace (the first is the open folder), indexing paused. */
+export async function seedPausedWorkspace(
+  page: Page,
+  roots: readonly SeededRoot[],
+  reloadReason: string
+): Promise<void> {
+  // Paused, so nothing indexes until Resume.
+  await updateIndexConfig(page, { paused: true, policy: 'full-root' });
+  await seedRoots(page, roots, { reloadReason });
+  await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused', {
+    timeout: 60_000,
   });
 }
 
+/** Serves the hosted model's embeddings from the shim, and saves semantic search with it. */
+export async function chooseSemanticSearch(
+  page: Page,
+  modelProvider: ModelProviderShim
+): Promise<void> {
+  modelProvider.serveEmbeddings(HOSTED_INDEX_MODEL.dimensions);
+  await updateIndexConfig(page, { mode: 'semantic', model: HOSTED_INDEX_MODEL });
+}
+
 /** {@link chooseSemanticSearch} while the index is paused; it stays paused. */
-export async function configureNativeIndex(page: Page, device: BenchDevice): Promise<void> {
-  await chooseSemanticSearch(page, device);
+export async function configureNativeIndex(
+  page: Page,
+  modelProvider: ModelProviderShim
+): Promise<void> {
+  await chooseSemanticSearch(page, modelProvider);
   await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused');
+}
+
+/**
+ * A vector search of the ready semantic index for `query`, embedded as the shim
+ * embeds documents, with the model key and dimensions the index serves.
+ */
+export async function vectorSearch(
+  page: Page,
+  query: string,
+  limit: number
+): Promise<{
+  readonly dimensions: number;
+  readonly hits: readonly IndexerSearchHit[];
+  readonly modelKey: string;
+}> {
+  const status = await nativeStatus(page);
+  if (status.kind !== 'ready') {
+    throw new Error(status.reason);
+  }
+  if (status.embedding.indexMode !== 'vector-configured' || !status.queryPlan) {
+    throw new Error('The ready index has no semantic query plan');
+  }
+  const { profile } = status.embedding;
+  const result = await callIndexSearch(page, 'search', {
+    limit,
+    mode: 'vector',
+    profile,
+    rootIds: status.authorizedRootIds,
+    vector: embedText(query, profile.dimensions),
+  });
+  return {
+    dimensions: profile.dimensions,
+    hits: result.hits,
+    modelKey: status.queryPlan.modelKey,
+  };
 }
 
 /** Every folder scanned and embedded: one folder holding `indexedFiles` files. */
@@ -153,11 +201,7 @@ export async function waitForEmbeddedFolder(page: Page, indexedFiles: number): P
     });
 }
 
-/**
- * Waits for the paused index to activate: until then its reads refuse as
- * transitioning. Activation embeds on the configured device, so a device too
- * slow for its request deadline fails here.
- */
+/** Waits for the paused index to activate: until then its reads refuse as transitioning. */
 export async function waitForReadyIndex(page: Page, timeoutMs: number): Promise<void> {
   let last = '';
   let lastReadError: unknown;

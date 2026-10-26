@@ -11,6 +11,5 @@ export const clipboardContract = {
   writeText: channel<[text: string], void>({
     channel: DESKTOP_IPC_CHANNELS.clipboard.writeText,
     parseArgs: parseSingleString('clipboard writeText requires a string payload'),
-    roles: ['visible-ui'],
   }),
 } satisfies Contract;

@@ -1,8 +1,12 @@
 /**
  * The model-provider shim's OpenAI embeddings wire (`POST /embeddings` through
  * `OPENAI_BASE_URL`), served only when a spec opts in with the model's
- * dimensions. Each input text maps to the same unit vector on every request,
- * so a recalled message is the nearest match to its own text.
+ * dimensions. Each character trigram of a text's lowercased words has one fixed
+ * pseudo-random direction, and a text embeds as the normalized sum of its
+ * trigrams' directions: the same text embeds the same on every request, so a
+ * recalled message is the nearest match to its own text, and texts that share
+ * spelling lie close, so a misspelled query that shares no word with a file
+ * still ranks it by its vectors alone.
  */
 import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -14,17 +18,37 @@ export interface ModelProviderEmbeddingRequest {
   readonly model: string;
 }
 
-function unitVector(text: string, dimensions: number): number[] {
-  const values: number[] = [];
-  for (let block = 0; values.length < dimensions; block += 1) {
-    const digest = createHash('sha256').update(`${block}:${text}`).digest();
-    for (const byte of digest) {
-      values.push(byte / 255 - 0.5);
+/** The text's character trigrams, word by word; a word of three or fewer characters is one. */
+function trigrams(text: string): string[] {
+  const words = text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const grams = words.flatMap((word) =>
+    word.length <= 3
+      ? [word]
+      : Array.from({ length: word.length - 2 }, (_, start) => word.slice(start, start + 3))
+  );
+  return grams.length > 0 ? grams : [text];
+}
+
+/** `text` as the shim embeds it, so a spec can embed a query exactly as its documents were. */
+export function embedText(text: string, dimensions: number): number[] {
+  const counts = new Map<string, number>();
+  for (const gram of trigrams(text)) {
+    counts.set(gram, (counts.get(gram) ?? 0) + 1);
+  }
+  const sum = new Array<number>(dimensions).fill(0);
+  for (const [gram, count] of counts) {
+    // mulberry32, seeded from the trigram's hash: one fixed direction per trigram.
+    let state = createHash('sha256').update(gram).digest().readUInt32LE(0);
+    for (let index = 0; index < dimensions; index += 1) {
+      state = (state + 0x6d_2b_79_f5) >>> 0;
+      let mixed = Math.imul(state ^ (state >>> 15), state | 1);
+      mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+      const component = ((mixed ^ (mixed >>> 14)) >>> 0) / 4_294_967_296 - 0.5;
+      sum[index] = (sum[index] ?? 0) + count * component;
     }
   }
-  const vector = values.slice(0, dimensions);
-  const norm = Math.hypot(...vector);
-  return vector.map((value) => value / norm);
+  const norm = Math.hypot(...sum);
+  return sum.map((value) => value / norm);
 }
 
 /** Answers one embeddings request as OpenAI does; a malformed body throws. */
@@ -51,7 +75,7 @@ async function answerEmbeddings(
   response.end(
     JSON.stringify({
       data: texts.map((text, index) => ({
-        embedding: unitVector(text, dimensions),
+        embedding: embedText(text, dimensions),
         index,
         object: 'embedding',
       })),

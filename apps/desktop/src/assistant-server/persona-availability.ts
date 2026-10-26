@@ -46,7 +46,7 @@ export async function inspectPersonaAvailability(
         message: `Model ${pin.provider}::${pin.modelId} is not in the host model catalog. Check its exact ID in Models or correct the profile.`,
       });
     }
-    if (definition?.capabilities.llm && definition.authType !== 'none') {
+    if (definition?.capabilities.llm) {
       const issue = await inspectCredential(pin.provider, inputs.readCredential);
       if (issue) {
         blocked = true;

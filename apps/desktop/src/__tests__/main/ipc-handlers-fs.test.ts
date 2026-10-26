@@ -1,40 +1,34 @@
 import path from 'node:path';
-import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ManagedWorktreeAuthorizer } from '../../ipc-domains/workspace-recent-roots';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 
-type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
-const handlers = new Map<string, IpcHandler>();
 const DOCS = path.resolve('/users/test/docs');
 const MANAGED = path.resolve('/managed/app/bright-fox');
 
-vi.mock('electron', () => ({
+vi.mock('electron', async () => ({
+  ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
   app: { getPath: vi.fn(() => '/Users/test/Documents') },
-  ipcMain: {
-    handle: vi.fn((channel: string, listener: IpcHandler) => {
-      handlers.set(channel, async (event, ...args) =>
-        readBoundaryResult(await listener(event, ...args))
-      );
-    }),
-  },
 }));
 
 import { registerIpcHandlers } from '../../ipc-handlers';
-import { getRootsCatalog, resetRootsCatalog } from '../ipc-domains/file-system-ipc-test-harness';
+import {
+  capabilityHandler,
+  getRootsCatalog,
+  resetRootsCatalog,
+} from '../ipc-domains/file-system-ipc-test-harness';
 
 describe('ipc-handlers filesystem composition', () => {
   let fileSystem: ElectronFileSystemAdapter;
   let managedWorktreeAuthorizer: ReturnType<typeof vi.fn<ManagedWorktreeAuthorizer>>;
   let storage: ElectronStorageAdapter;
   let storedValues: Map<string, string>;
+  let close: () => Promise<void>;
 
   beforeEach(() => {
-    handlers.clear();
     resetRootsCatalog();
     vi.clearAllMocks();
     vi.stubEnv('NODE_ENV', 'development');
@@ -63,19 +57,20 @@ describe('ipc-handlers filesystem composition', () => {
       }),
     } as unknown as ElectronStorageAdapter;
     managedWorktreeAuthorizer = vi.fn<ManagedWorktreeAuthorizer>(async () => 'unmanaged');
-    registerIpcHandlers(fileSystem, storage, () => null, {
+    close = registerIpcHandlers(fileSystem, storage, () => null, {
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
       managedWorktreeAuthorizer,
     });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllEnvs();
+    await close();
   });
 
   async function mountRoot(): Promise<DirectoryHandle> {
-    return (await handlers.get('fs:requestDirectoryAccess')?.(
+    return (await capabilityHandler('fs:requestDirectoryAccess')(
       createTrustedInvokeEvent()
     )) as DirectoryHandle;
   }
@@ -95,8 +90,8 @@ describe('ipc-handlers filesystem composition', () => {
     vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
 
     const handle = await mountRoot();
-    const entries = await handlers.get('fs:readDirectory')?.(createTrustedInvokeEvent(), handle);
-    const content = await handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), {
+    const entries = await capabilityHandler('fs:readDirectory')(createTrustedInvokeEvent(), handle);
+    const content = await capabilityHandler('fs:readFile')(createTrustedInvokeEvent(), {
       kind: 'file',
       name: 'file.txt',
       path: path.join(handle.path, 'file.txt'),
@@ -127,13 +122,13 @@ describe('ipc-handlers filesystem composition', () => {
     } satisfies FileHandle;
 
     await expect(
-      handlers.get('fs:readDirectory')?.(createTrustedInvokeEvent(), root)
+      capabilityHandler('fs:readDirectory')(createTrustedInvokeEvent(), root)
     ).resolves.toEqual([]);
-    await expect(handlers.get('fs:readFile')?.(createTrustedInvokeEvent(), file)).resolves.toBe(
+    await expect(capabilityHandler('fs:readFile')(createTrustedInvokeEvent(), file)).resolves.toBe(
       'file content'
     );
     await expect(
-      handlers.get('fs:readFileByPath')?.(createTrustedInvokeEvent(), file.path)
+      capabilityHandler('fs:readFileByPath')(createTrustedInvokeEvent(), file.path)
     ).resolves.toBe('file content');
     expect(fileSystem.readDirectory).toHaveBeenCalledOnce();
     expect(fileSystem.readFile).toHaveBeenCalledTimes(2);
@@ -141,9 +136,9 @@ describe('ipc-handlers filesystem composition', () => {
   });
 
   it('rejects unmounted, escaped, and malformed paths', async () => {
-    const readByPath = handlers.get('fs:readFileByPath');
+    const readByPath = capabilityHandler('fs:readFileByPath');
     await expect(
-      readByPath?.(createTrustedInvokeEvent(), path.join(DOCS, 'file.txt'))
+      readByPath(createTrustedInvokeEvent(), path.join(DOCS, 'file.txt'))
     ).rejects.toMatchObject({
       code: 'workspace.path-outside-root',
       failure: { category: 'authorization', kind: 'refusal' },
@@ -151,13 +146,13 @@ describe('ipc-handlers filesystem composition', () => {
 
     await mountRoot();
     await expect(
-      readByPath?.(createTrustedInvokeEvent(), '/users/test/outside.txt')
+      readByPath(createTrustedInvokeEvent(), '/users/test/outside.txt')
     ).rejects.toMatchObject({
       code: 'workspace.path-outside-root',
       failure: { category: 'authorization', kind: 'refusal' },
     });
     await expect(
-      readByPath?.(createTrustedInvokeEvent(), '/users/test/docs/\0malicious.txt')
+      readByPath(createTrustedInvokeEvent(), '/users/test/docs/\0malicious.txt')
     ).rejects.toMatchObject({
       code: 'workspace.path-invalid',
       failure: { category: 'input', kind: 'refusal' },
@@ -167,16 +162,18 @@ describe('ipc-handlers filesystem composition', () => {
 
   it('retains the existing guarded existence endpoint', async () => {
     await expect(
-      handlers.get('fs:exists')?.(createTrustedInvokeEvent(), '/tmp/\0oops')
+      capabilityHandler('fs:exists')(createTrustedInvokeEvent(), '/tmp/\0oops')
     ).resolves.toBe(false);
-    await expect(handlers.get('fs:exists')?.(createTrustedInvokeEvent(), DOCS)).resolves.toBe(true);
+    await expect(capabilityHandler('fs:exists')(createTrustedInvokeEvent(), DOCS)).resolves.toBe(
+      true
+    );
     expect(fileSystem.exists).toHaveBeenCalledWith(DOCS);
   });
 
   it('threads the managed-worktree authorizer through the filesystem composition root', async () => {
     managedWorktreeAuthorizer.mockResolvedValue('authorized');
 
-    await handlers.get('fs:addRootByPath')?.(createTrustedInvokeEvent(), MANAGED);
+    await capabilityHandler('fs:addRootByPath')(createTrustedInvokeEvent(), MANAGED);
 
     expect(managedWorktreeAuthorizer).toHaveBeenCalledWith(MANAGED);
   });

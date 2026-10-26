@@ -108,11 +108,8 @@ test('paged native Library reads preserve all recorded chunks and refuse foreign
     const profile = {
       dimensions: 384,
       distance: 'cosine',
-      dtype: 'fp16',
-      modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-      provider: 'local',
-      revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-      tokenCap: 256,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
     } as const;
     await port.replaceFileBindings([{ ...binding, profile }]);
     const vectorPlan = await port.prepareScopedFile({

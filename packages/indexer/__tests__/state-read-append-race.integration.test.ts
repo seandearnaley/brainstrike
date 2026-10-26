@@ -12,13 +12,6 @@ import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createIndexerConnection } from '../src/transport.js';
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
-const profile = {
-  dimensions: 4,
-  distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'search-vector-proof',
-  provider: 'local',
-} as const;
 const step = STATE_CATCH_UP_STEP_EVENTS;
 type Port = Awaited<ReturnType<typeof createIndexerConnection>['ready']>;
 
@@ -26,18 +19,6 @@ const reads: Readonly<Record<string, (port: Port) => Promise<unknown>>> = {
   'state-gc-check': (port) => port.stateBlobCounts(['state-gc-check'], ['a'.repeat(64)]),
   'state-search': (port) =>
     port.searchState({ limit: 5, query: 'garden', threadIds: ['state-search'] }),
-  'state-search-coverage': (port) =>
-    port.searchStateCoverage({ profile, threadIds: ['state-search-coverage'] }),
-  'state-search-pending': (port) =>
-    port.searchStatePending({ limit: 5, profile, threadIds: ['state-search-pending'] }),
-  'state-search-similar': (port) =>
-    port.searchStateSimilar({
-      limit: 5,
-      profile,
-      threadIds: ['state-search-similar'],
-      threshold: 0.5,
-      vector: [1, 0, 0, 0],
-    }),
 };
 
 const sent: string[] = [];

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ThreadSearchCoverage, ThreadSearchResultItem } from './thread-search-service';
+import type { ThreadSearchResultItem } from './thread-search-service';
 
 type ThreadSearchStatus = 'idle' | 'searching' | 'results' | 'error';
 
@@ -30,11 +30,6 @@ interface ThreadSearchState {
   clearResults: () => void;
   /** Full dismiss (Esc / clear button): `clearResults` plus the query text. */
   clearSearch: () => void;
-  /**
-   * Coverage is monotonic status info (indexing progress), not run output —
-   * it is deliberately NOT generation-gated.
-   */
-  coverage: ThreadSearchCoverage | null;
   error: string | null;
   /** No-op unless `generation` still matches the current run. */
   failSearch: (message: string, generation: number) => void;
@@ -44,35 +39,16 @@ interface ThreadSearchState {
   navigationRevision: number;
   navigationTarget: ThreadSearchNavigationTarget | null;
   query: string;
-  recordCoverage: (coverage: ThreadSearchCoverage) => void;
   reset: () => void;
   /** No-op unless `generation` still matches the current run. */
-  resolveResults: (
-    results: readonly ThreadSearchResultItem[],
-    semantic: ThreadSearchSemanticState,
-    generation: number
-  ) => void;
+  resolveResults: (results: readonly ThreadSearchResultItem[], generation: number) => void;
   results: readonly ThreadSearchResultItem[] | null;
-  /**
-   * The semantic arm's honest availability for the CURRENT results: either it
-   * ran, or the visible reason it could not (never a silent lexical-only
-   * downgrade).
-   */
-  semantic: ThreadSearchSemanticState;
   setNavigationTarget: (target: ThreadSearchNavigationTarget) => void;
   setQuery: (query: string) => void;
   status: ThreadSearchStatus;
 }
 
-export type ThreadSearchSemanticState =
-  | { readonly kind: 'unused' }
-  | { readonly kind: 'used' }
-  | { readonly kind: 'unavailable'; readonly reason: string };
-
-const SEMANTIC_UNUSED: ThreadSearchSemanticState = { kind: 'unused' };
-
 const initialState = {
-  coverage: null,
   error: null,
   generation: 0,
   navigationError: null,
@@ -80,7 +56,6 @@ const initialState = {
   navigationTarget: null,
   query: '',
   results: null,
-  semantic: SEMANTIC_UNUSED,
   status: 'idle' as const,
 } satisfies Omit<
   ThreadSearchState,
@@ -91,7 +66,6 @@ const initialState = {
   | 'clearResults'
   | 'clearSearch'
   | 'failSearch'
-  | 'recordCoverage'
   | 'reset'
   | 'resolveResults'
   | 'setQuery'
@@ -117,7 +91,6 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
       navigationRevision: state.navigationRevision + 1,
       navigationTarget: null,
       results: null,
-      semantic: SEMANTIC_UNUSED,
       status: 'idle',
     })),
   clearSearch: () =>
@@ -129,7 +102,6 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
       navigationTarget: null,
       query: '',
       results: null,
-      semantic: SEMANTIC_UNUSED,
       status: 'idle',
     })),
   failSearch: (message, generation) =>
@@ -140,7 +112,6 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
         ? { navigationError: error ?? null, navigationTarget: null }
         : {}
     ),
-  recordCoverage: (coverage) => set({ coverage }),
   // Keep `generation` monotonic across resets so a run started before the
   // reset can never match a run started after it.
   reset: () =>
@@ -149,9 +120,9 @@ export const useThreadSearchStore = create<ThreadSearchState>((set, get) => ({
       generation: state.generation + 1,
       navigationRevision: state.navigationRevision + 1,
     })),
-  resolveResults: (results, semantic, generation) =>
+  resolveResults: (results, generation) =>
     set((state) =>
-      state.generation === generation ? { results: [...results], semantic, status: 'results' } : {}
+      state.generation === generation ? { results: [...results], status: 'results' } : {}
     ),
   setNavigationTarget: (target) =>
     set((state) =>

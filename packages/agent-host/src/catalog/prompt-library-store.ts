@@ -23,11 +23,6 @@ const Common = {
 const Item = Schema.Struct({
   ...Common,
   archivedAt: Schema.NullOr(DateString),
-  embeddingError: Schema.NullOr(Schema.String),
-  embeddingProfileId: Schema.NullOr(Schema.String),
-  embeddingRevision: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
-  embeddingStatus: Schema.Literals(['pending', 'ready', 'error']),
-  embeddingUpdatedAt: Schema.NullOr(DateString),
   isFavorite: Schema.Boolean,
   kind: Schema.Literals(['prompt', 'snippet', 'fragment']),
   lastUsedAction: Schema.NullOr(Schema.Literals(['compose', 'insert', 'new-thread'])),
@@ -40,28 +35,9 @@ const Item = Schema.Struct({
   useCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 const Reply = Schema.Struct({
-  accepted: Schema.Boolean,
   items: Schema.mutable(Schema.Array(Item)),
-  profile: Schema.Struct({
-    dimensions: Schema.Literal(384),
-    distance: Schema.Literal('cosine'),
-    id: Schema.Literal('default'),
-    modelId: Schema.Literal('Xenova/all-MiniLM-L6-v2'),
-    modelKey: Schema.Literal('local::Xenova/all-MiniLM-L6-v2'),
-  }),
   revisions: Schema.mutable(
     Schema.Array(Schema.Struct({ ...Common, note: Schema.NullOr(Schema.String), promptItemId: Id }))
-  ),
-  similarities: Schema.mutable(
-    Schema.Array(
-      Schema.Struct({
-        id: Id,
-        revision: Schema.Int.check(Schema.isGreaterThan(0)),
-        similarity: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(-1)).check(
-          Schema.isLessThanOrEqualTo(1)
-        ),
-      })
-    )
   ),
 });
 const METHOD = 'host/prompt-library';

@@ -2,10 +2,14 @@ import path from 'node:path';
 import type { WatcherHealthEvent } from '@brainstrike/types';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import type { FileSystemWatchEventPayload } from '../../ipc-domains/file-system-watch-ipc';
-import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
+import {
+  DESKTOP_IPC_CHANNELS,
+  DESKTOP_IPC_PUSH_CHANNEL,
+  type DesktopIpcPush,
+} from '../../platform/desktop-ipc-channels';
 import {
   createAllowlistedSenderFrame,
-  trackTestWindowRole,
+  trackTestAppWindow,
 } from '../helpers/desktop-ipc-sender-test-helpers';
 
 interface FakeListenerEntry {
@@ -29,12 +33,15 @@ export class FakeWebContents {
     this.id = id;
   }
 
-  send(channel: string, payload: unknown): void {
-    if (channel === DESKTOP_IPC_CHANNELS.files.watchEvent) {
-      this.watchEvents.push(payload as FileSystemWatchEventPayload);
+  send(channel: string, push: DesktopIpcPush): void {
+    if (channel !== DESKTOP_IPC_PUSH_CHANNEL) {
+      return;
     }
-    if (channel === DESKTOP_IPC_CHANNELS.files.watchHealth) {
-      this.healthEvents.push(payload as WatcherHealthEvent);
+    if (push.method === DESKTOP_IPC_CHANNELS.files.watchEvent) {
+      this.watchEvents.push(push.payload as FileSystemWatchEventPayload);
+    }
+    if (push.method === DESKTOP_IPC_CHANNELS.files.watchHealth) {
+      this.healthEvents.push(push.payload as WatcherHealthEvent);
     }
   }
 
@@ -109,10 +116,10 @@ export function totalTeardownListeners(owner: FakeWebContents): number {
 }
 
 export function invokeEventFor(owner: FakeWebContents): IpcMainInvokeEvent {
-  trackTestWindowRole(owner.id, 'visible-ui');
+  trackTestAppWindow(owner.id);
   return {
     sender: owner as unknown as WebContents,
-    senderFrame: createAllowlistedSenderFrame('visible-ui'),
+    senderFrame: createAllowlistedSenderFrame(),
   } as IpcMainInvokeEvent;
 }
 

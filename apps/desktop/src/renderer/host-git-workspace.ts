@@ -22,7 +22,7 @@ let windowServices: WorkspaceGitServices | undefined;
 
 /**
  * ADR-0029 stage 2: the workspace git cluster lives in the agent host. A
- * window without the agent-host capability (hidden hosts) has none of it.
+ * window without the agent-host capability has none of it.
  */
 export function resolveDesktopWorkspaceGitServices(): WorkspaceGitServices {
   if (!window.agentHost) {

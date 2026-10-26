@@ -141,14 +141,6 @@ describe('preload runtime contract', () => {
     );
   });
 
-  it('keeps deterministic E2E local-runtime bridge responses in preload', () => {
-    const preloadSource = readPreloadSource();
-
-    expect(preloadSource).toContain('BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES');
-    expect(preloadSource).toContain('createDisabledLocalRuntimeAvailability');
-    expect(preloadSource).toContain('createDisabledLocalRuntimeCatalog');
-  });
-
   it('keeps the desktop diagnostics bridge on the manifest channel', () => {
     const preloadSource = readPreloadSource();
     const bridge = extractExposedBridgeProperties(preloadSource, 'desktopDiagnostics');

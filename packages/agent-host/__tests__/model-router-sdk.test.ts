@@ -41,104 +41,83 @@ const chunks = [
 
 afterEach(() => vi.unstubAllGlobals());
 
-// Ollama left the router for its native /api/chat (BST-754): its wire is
-// proven in packages/agent/src/__tests__/ollama-chat-model.spec.ts.
-test.each(['openrouter', 'lmstudio'] as const)(
-  'SDK 7 generate and stream preserve the shipped %s router request and actual usage',
-  async (provider) => {
-    const captures: { url: string; body: Record<string, unknown>; authorization: string | null }[] =
-      [];
-    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      expect(url).toBe(
-        provider === 'openrouter'
-          ? 'https://openrouter.ai/api/v1/chat/completions'
-          : `http://owned-${provider}.invalid:9999/v1/chat/completions`
-      );
-      const body: Record<string, unknown> = JSON.parse(String(init?.body));
-      captures.push({ authorization: new Headers(init?.headers).get('authorization'), body, url });
-      return body['stream'] === true
-        ? new Response(
-            `${chunks.map((part) => `data: ${JSON.stringify(part)}\n\n`).join('')}data: [DONE]\n\n`,
-            { headers: { 'content-type': 'text/event-stream' } }
-          )
-        : Response.json(completion);
-    });
-    const modelId = provider === 'openrouter' ? completion.model : 'owned-model';
-    const runtime =
-      provider === 'openrouter'
-        ? undefined
-        : {
-            providerOptions: {
-              [provider]: {
-                apiToken: 'owned-fixture-key',
-                baseUrl: `http://owned-${provider}.invalid:9999`,
-              },
-            },
-          };
-    const model = materializeHostProviderModel(
-      createProvider(provider, apiKeyAuthInput('owned-fixture-key'), modelId, runtime)
+test('SDK 7 generate and stream preserve the shipped openrouter router request and actual usage', async () => {
+  const provider = 'openrouter';
+  const captures: { url: string; body: Record<string, unknown>; authorization: string | null }[] =
+    [];
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    const body: Record<string, unknown> = JSON.parse(String(init?.body));
+    captures.push({ authorization: new Headers(init?.headers).get('authorization'), body, url });
+    return body['stream'] === true
+      ? new Response(
+          `${chunks.map((part) => `data: ${JSON.stringify(part)}\n\n`).join('')}data: [DONE]\n\n`,
+          { headers: { 'content-type': 'text/event-stream' } }
+        )
+      : Response.json(completion);
+  });
+  const modelId = completion.model;
+  const model = materializeHostProviderModel(
+    createProvider(provider, apiKeyAuthInput('owned-fixture-key'), modelId)
+  );
+  expect(model.specificationVersion).toBe('v4');
+  const messages = [
+    {
+      content: [
+        {
+          input: { query: 'foo' },
+          toolCallId: 'call_1',
+          toolName: 'grepSearch',
+          type: 'tool-call' as const,
+        },
+      ],
+      role: 'assistant' as const,
+    },
+    {
+      content: [
+        {
+          output: { type: 'text' as const, value: 'no matches' },
+          toolCallId: 'call_1',
+          toolName: 'grepSearch',
+          type: 'tool-result' as const,
+        },
+      ],
+      role: 'tool' as const,
+    },
+    { content: 'and now?', role: 'user' as const },
+  ];
+  const generated = await generateText({ maxRetries: 0, messages, model, temperature: 0.25 });
+  expect(generated.text).toBe('ok');
+  expect(generated.finishReason).toBe('stop');
+  expect(generated.usage.inputTokens).toBe(3);
+  expect(generated.usage.outputTokens).toBe(2);
+  const streamed = streamText({ maxRetries: 0, messages, model, temperature: 0.25 });
+  expect(await streamed.text).toBe('ok');
+  expect(await streamed.finishReason).toBe('stop');
+  expect((await streamed.usage).inputTokens).toBe(3);
+  expect((await streamed.usage).outputTokens).toBe(2);
+  expect(captures).toHaveLength(2);
+  expect(captures[0]?.body['stream']).not.toBe(true);
+  expect(captures[1]?.body['stream']).toBe(true);
+  for (const capture of captures) {
+    expect(capture.authorization).toBe('Bearer owned-fixture-key');
+    expect(capture.body['model']).toBe(modelId);
+    // The unchanged public router applies its registry's sampling capability,
+    // including known-provider model IDs that the registry does not list.
+    expect(capture.body['temperature']).toBe(
+      modelSupportsTemperature(`${provider}/${modelId}`) === false ? undefined : 0.25
     );
-    expect(model.specificationVersion).toBe('v4');
-    const messages = [
-      {
-        content: [
-          {
-            input: { query: 'foo' },
-            toolCallId: 'call_1',
-            toolName: 'grepSearch',
-            type: 'tool-call' as const,
-          },
-        ],
-        role: 'assistant' as const,
-      },
-      {
-        content: [
-          {
-            output: { type: 'text' as const, value: 'no matches' },
-            toolCallId: 'call_1',
-            toolName: 'grepSearch',
-            type: 'tool-result' as const,
-          },
-        ],
-        role: 'tool' as const,
-      },
-      { content: 'and now?', role: 'user' as const },
-    ];
-    const generated = await generateText({ maxRetries: 0, messages, model, temperature: 0.25 });
-    expect(generated.text).toBe('ok');
-    expect(generated.finishReason).toBe('stop');
-    expect(generated.usage.inputTokens).toBe(3);
-    expect(generated.usage.outputTokens).toBe(2);
-    const streamed = streamText({ maxRetries: 0, messages, model, temperature: 0.25 });
-    expect(await streamed.text).toBe('ok');
-    expect(await streamed.finishReason).toBe('stop');
-    expect((await streamed.usage).inputTokens).toBe(3);
-    expect((await streamed.usage).outputTokens).toBe(2);
-    expect(captures).toHaveLength(2);
-    expect(captures[0]?.body['stream']).not.toBe(true);
-    expect(captures[1]?.body['stream']).toBe(true);
-    for (const capture of captures) {
-      expect(capture.authorization).toBe('Bearer owned-fixture-key');
-      expect(capture.body['model']).toBe(modelId);
-      // The unchanged public router applies its registry's sampling capability,
-      // including known-provider model IDs that the registry does not list.
-      expect(capture.body['temperature']).toBe(
-        modelSupportsTemperature(`${provider}/${modelId}`) === false ? undefined : 0.25
-      );
-      expect(JSON.stringify(capture.body)).not.toContain('owned-fixture-key');
-    }
-    if (provider === 'openrouter') {
-      expect(generated.providerMetadata?.['openrouter']).toMatchObject({ usage: { cost: 0.001 } });
-      expect((await streamed.providerMetadata)?.['openrouter']).toMatchObject({
-        usage: { cost: 0.001 },
-      });
-      expect(captures[0]?.body['messages']).toEqual(
-        expect.arrayContaining([expect.objectContaining({ content: '', role: 'assistant' })])
-      );
-    }
+    expect(JSON.stringify(capture.body)).not.toContain('owned-fixture-key');
   }
-);
+  expect(generated.providerMetadata?.['openrouter']).toMatchObject({ usage: { cost: 0.001 } });
+  expect((await streamed.providerMetadata)?.['openrouter']).toMatchObject({
+    usage: { cost: 0.001 },
+  });
+  expect(captures[0]?.body['messages']).toEqual(
+    expect.arrayContaining([expect.objectContaining({ content: '', role: 'assistant' })])
+  );
+});
 
 type Result = Parameters<typeof collectRouterGenerateResult>[0];
 type Part = Result['stream'] extends ReadableStream<infer Value> ? Value : never;

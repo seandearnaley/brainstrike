@@ -1,4 +1,3 @@
-import { isLocalModelProviderId } from '@brainstrike/app-state/models/local-model-utils';
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   type ModelReasoningSupport,
@@ -35,8 +34,6 @@ export interface CatalogRow {
   readonly dimension: number | null;
   readonly enabled: boolean;
   readonly id: string;
-  /** A downloadable on-device model (`local`, `transformers`). */
-  readonly isLocal: boolean;
   readonly maxOutputTokens: number | null;
   readonly name: string;
   readonly pricing: CatalogPricing | null;
@@ -49,7 +46,6 @@ export interface CatalogRow {
   readonly recommended: boolean;
   /** Whether the static registry has an entry for this exact model. */
   readonly registered: boolean;
-  readonly sizeLabel: string | null;
   readonly tagline: string | null;
   readonly type: CatalogModelType;
   readonly vision: ModelVisionSupport | null;
@@ -86,11 +82,6 @@ function effortLadder(controls: ReasoningControlsAvailability): readonly string[
   }
 }
 
-function resolveSizeLabel(parameters: DbModel['parameters']): string | null {
-  const size = parameters?.['size'];
-  return typeof size === 'string' ? size : null;
-}
-
 export function projectCatalogRow(model: DbModel, providerName: string): CatalogRow {
   const definition = findRegistryModel(model);
   const llm = definition?.type === 'llm' ? definition : undefined;
@@ -107,7 +98,6 @@ export function projectCatalogRow(model: DbModel, providerName: string): Catalog
     dimension: type === 'embedding' ? (model.capabilities.defaultDimension ?? null) : null,
     enabled: model.isEnabled,
     id: model.id,
-    isLocal: isLocalModelProviderId(model.providerId),
     maxOutputTokens: llm?.maxOutputTokens ?? null,
     name: model.name,
     pricing: toPricing(definition),
@@ -120,7 +110,6 @@ export function projectCatalogRow(model: DbModel, providerName: string): Catalog
         : null,
     recommended: definition?.default === true,
     registered: definition !== undefined,
-    sizeLabel: resolveSizeLabel(model.parameters),
     tagline: model.tagline,
     type,
     vision: llm?.vision ?? null,

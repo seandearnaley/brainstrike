@@ -52,15 +52,13 @@ describe('resolveAutoObservationalMemoryModelTarget (privacy: chat provider only
     ).toBe(null);
   });
 
-  it('returns null for local/runtime chat providers (no hosted egress for local chats)', () => {
-    for (const chatProvider of ['local', 'ollama', 'lmstudio']) {
-      expect(
-        resolveAutoObservationalMemoryModelTarget({
-          chatProvider,
-          providersWithKeys: ['google', 'anthropic', 'openai', 'openrouter'],
-        })
-      ).toBe(null);
-    }
+  it('returns null for a chat provider with no observer candidates', () => {
+    expect(
+      resolveAutoObservationalMemoryModelTarget({
+        chatProvider: 'bedrock',
+        providersWithKeys: ['bedrock', 'google', 'anthropic', 'openai', 'openrouter'],
+      })
+    ).toBe(null);
   });
 
   it('returns null with no chat provider selected', () => {

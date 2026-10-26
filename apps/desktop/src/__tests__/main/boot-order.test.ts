@@ -21,59 +21,6 @@ import {
 
 describe('main boot order', () => {
   installMainBootFixture();
-  it.each([false, true])(
-    'starts and retains hidden disposal beside native close with independent failure=%s',
-    async (fail) => {
-      const native = Promise.withResolvers<void>();
-      const physical = Promise.withResolvers<void>();
-      nativeCloseForShutdown.mockReturnValue(native.promise);
-      const { EmbeddingHostManager } = await import('../../embedding-host-manager');
-      const dispose = vi
-        .spyOn(EmbeddingHostManager.prototype, 'dispose')
-        .mockReturnValue(physical.promise);
-      await import('../../main');
-      const plan = shutdownPlanCapture.current?.();
-      if (!plan) {
-        throw new Error('Missing actual Main shutdown plan');
-      }
-      let nativeSettled = false;
-      const nativeStep = Promise.resolve(plan.steps['native-index']()).then(
-        () => {
-          nativeSettled = true;
-          return null;
-        },
-        (error: unknown) => {
-          nativeSettled = true;
-          return error;
-        }
-      );
-      onTestFinished(async () => {
-        native.resolve();
-        physical.resolve();
-        await nativeStep;
-        dispose.mockRestore();
-      });
-      await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
-      await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
-      expect(nativeSettled).toBe(false);
-      const nativeError = new Error('Independent native retirement failure');
-      const embeddingError = new Error('Independent physical embedding retirement failure');
-      if (fail) {
-        native.reject(nativeError);
-        physical.reject(embeddingError);
-      } else {
-        native.resolve();
-        physical.resolve();
-      }
-      expect(await nativeStep).toBe(fail ? nativeError : null);
-      const embeddingStep = Promise.resolve(plan.steps['embedding-host']()).catch(
-        (error: unknown) => error
-      );
-      expect(await embeddingStep).toBe(fail ? embeddingError : undefined);
-      expect(dispose).toHaveBeenCalledOnce();
-    }
-  );
-
   it('joins an accepted reset before quit while an earlier native transition is held', async () => {
     const held = Promise.withResolvers<void>();
     const entered = Promise.withResolvers<void>();

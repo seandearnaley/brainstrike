@@ -4,8 +4,8 @@
  */
 
 import { providerVendorEnvKey } from '@brainstrike/assistant-contract/provider-metadata';
-import { type HostedProviderType, hostedProviderRequiresApiKey } from './provider-types.ts';
-import { isHostedProvider, parseProviderModelKey } from './provider-utils.ts';
+import type { EmbeddingProviderType } from './provider-types.ts';
+import { parseProviderModelKey } from './provider-utils.ts';
 import {
   detectDeprecatedHostedProviderEnvNames,
   HOSTED_PROVIDER_ENV_KEYS,
@@ -21,7 +21,7 @@ export type ApiKeyValidationResult =
   | { available: true }
   | {
       available: false;
-      provider: HostedProviderType;
+      provider: EmbeddingProviderType;
       reason: ApiKeyValidationUnavailableReason;
       message: string;
     };
@@ -29,11 +29,9 @@ export type ApiKeyValidationResult =
 /**
  * User-facing env-name hints, derived from the resolver's ONE name table
  * (BST-1361 review 6 — no second hand-maintained list). The vendor-standard
- * name leads the hint when the provider is registry-keyed
- * (`providerVendorEnvKey`); local runtimes fall through to their transport
- * names unchanged.
+ * name (`providerVendorEnvKey`) leads the hint.
  */
-function providerEnvHints(provider: HostedProviderType): readonly string[] {
+function providerEnvHints(provider: EmbeddingProviderType): readonly string[] {
   const names = HOSTED_PROVIDER_ENV_KEYS[provider] ?? [];
   const vendorName = providerVendorEnvKey(provider);
   if (!(vendorName && names.includes(vendorName))) {
@@ -45,19 +43,16 @@ function providerEnvHints(provider: HostedProviderType): readonly string[] {
 /**
  * Human-readable provider names for error messages
  */
-const PROVIDER_DISPLAY_NAMES: Record<HostedProviderType, string> = {
+const PROVIDER_DISPLAY_NAMES: Record<EmbeddingProviderType, string> = {
   cohere: 'Cohere',
   google: 'Google',
-  lmstudio: 'LM Studio',
-  ollama: 'Ollama',
   openai: 'OpenAI',
   voyage: 'Voyage AI',
 };
 
 /**
- * Check if an API key is available for a given model key.
- * Returns immediately for local models (always available).
- * For hosted models, checks environment variables and Electron secrets.
+ * Check if an API key is available for a given model key: checks environment
+ * variables and Electron secrets.
  *
  * @param modelKey - The composite model key (e.g., "openai::text-embedding-3-small")
  * @returns Result indicating availability and helpful error message if not available
@@ -85,16 +80,6 @@ export async function checkApiKeyAvailability(
 
   const { provider } = parsed;
 
-  // Local providers don't need API keys
-  if (!isHostedProvider(provider)) {
-    return { available: true };
-  }
-
-  if (!hostedProviderRequiresApiKey(provider)) {
-    return { available: true };
-  }
-
-  // Check if API key is available for the hosted provider
   const apiKey = await resolveHostedProviderApiKey(provider);
 
   if (apiKey) {
@@ -130,34 +115,21 @@ export async function checkApiKeyAvailability(
  * Does not actually check if the key is present - use checkApiKeyAvailability for that.
  *
  * @param modelKey - The composite model key
- * @returns true if the model requires an API key (hosted provider)
+ * @returns true if the model key names an embedding provider
  */
 export function requiresApiKey(modelKey: string | null | undefined): boolean {
-  if (!modelKey) {
-    return false;
-  }
-
-  const parsed = parseProviderModelKey(modelKey);
-  if (!parsed) {
-    return false;
-  }
-
-  return isHostedProvider(parsed.provider) && hostedProviderRequiresApiKey(parsed.provider);
+  return parseProviderModelKey(modelKey) !== null;
 }
 
 /**
  * Get a user-friendly message explaining how to configure an API key for a provider.
  *
- * @param provider - The hosted provider type
+ * @param provider - The embedding provider type
  * @returns Configuration instructions for the provider
  */
-export function getApiKeyConfigInstructions(provider: HostedProviderType): string {
+export function getApiKeyConfigInstructions(provider: EmbeddingProviderType): string {
   const displayName = PROVIDER_DISPLAY_NAMES[provider];
   const envHints = providerEnvHints(provider);
-
-  if (!hostedProviderRequiresApiKey(provider)) {
-    return `${displayName} local runtime does not require an API key by default.`;
-  }
 
   const instructions = [
     `To use ${displayName} embeddings, configure your API key:`,

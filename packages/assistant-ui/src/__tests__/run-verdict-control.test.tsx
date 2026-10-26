@@ -56,7 +56,7 @@ describe('selectFinishedRunId', () => {
     ).toBeNull();
   });
 
-  it('returns null for a run.finished event without a runId (web local runtime)', () => {
+  it('returns null for a run.finished event without a runId', () => {
     expect(
       selectFinishedRunId([
         runEventPart({

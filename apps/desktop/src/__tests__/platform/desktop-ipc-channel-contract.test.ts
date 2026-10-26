@@ -1,141 +1,21 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  EMBEDDING_HOST_COMMAND_EVENT,
-  EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CANCEL_EVENT,
-  EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CHANNEL,
-  EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT,
-  EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
-  EMBEDDING_HOST_GET_STATUS_CHANNEL,
-  EMBEDDING_HOST_MODEL_CACHE_STATUS_CHANNEL,
-  EMBEDDING_HOST_MODEL_CACHE_STATUS_REQUEST_EVENT,
-  EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,
-  EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
-  EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
-  EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL,
-  EMBEDDING_HOST_REPORT_MODEL_CACHE_STATUS_RESPONSE_CHANNEL,
-  EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
-  EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
-  EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL,
-  EMBEDDING_HOST_RESET_CHANNEL,
-  EMBEDDING_HOST_STATUS_EVENT,
-  EMBEDDING_HOST_STOP_CHANNEL,
-  EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
-  EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
-} from '../../embedding-host-shared';
-import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
+  DESKTOP_IPC_CHANNELS,
+  DESKTOP_IPC_INVOKE_CHANNEL,
+  DESKTOP_IPC_PUSH_CHANNEL,
+} from '../../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../../platform/logging-api-contract';
 
-const SOURCE_ROOT = path.resolve(process.cwd(), 'src');
-const DIRECT_REGISTRY_CHANNEL_PATTERN =
-  /registry\.register(?:Invoke|Event)\(\s*['"][^'"]+['"]\s*,\s*['"][^'"]+['"]/g;
-const DIRECT_WEB_CONTENTS_SEND_CHANNEL_PATTERN = /webContents\.send\(\s*['"][^'"]+['"]/g;
-
-function listProductionTypeScriptFiles(directory: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(directory)) {
-    const absolutePath = path.join(directory, entry);
-    const stats = statSync(absolutePath);
-    if (stats.isDirectory()) {
-      if (entry === '__tests__' || entry === 'dist') {
-        continue;
-      }
-      files.push(...listProductionTypeScriptFiles(absolutePath));
-      continue;
-    }
-    if (entry.endsWith('.ts') || entry.endsWith('.tsx')) {
-      files.push(absolutePath);
-    }
-  }
-  return files;
-}
-
 describe('desktop IPC channel contract', () => {
-  it('keeps shared platform channel constants owned by the central catalog', () => {
-    const embeddingHostSource = readFileSync(
-      path.join(SOURCE_ROOT, 'embedding-host-shared.ts'),
-      'utf8'
-    );
-    const runtimeSource = readFileSync(path.join(SOURCE_ROOT, 'ipc-runtime.ts'), 'utf8');
-
-    expect(embeddingHostSource).not.toMatch(/EMBEDDING_HOST_[A-Z_]+_(?:CHANNEL|EVENT)\s*=\s*['"]/);
-    expect(runtimeSource).toContain("from './platform/desktop-ipc-channels'");
-    expect(runtimeSource).not.toMatch(/RUNTIME_[A-Z_]+_CHANNEL\s*=\s*['"]/);
-  });
-
-  it('keeps production registry channel names behind named contracts', () => {
-    const violations: string[] = [];
-
-    for (const filePath of listProductionTypeScriptFiles(SOURCE_ROOT)) {
-      const source = readFileSync(filePath, 'utf8');
-      if (!source.includes('registry.register')) {
-        continue;
-      }
-      for (const match of source.matchAll(DIRECT_REGISTRY_CHANNEL_PATTERN)) {
-        const lineNumber = source.slice(0, match.index).split('\n').length;
-        violations.push(`${path.relative(SOURCE_ROOT, filePath)}:${lineNumber}: ${match[0]}`);
-      }
-    }
-
-    expect(violations).toEqual([]);
-  });
-
-  it('keeps production webContents send channel names behind named contracts', () => {
-    const violations: string[] = [];
-
-    for (const filePath of listProductionTypeScriptFiles(SOURCE_ROOT)) {
-      const source = readFileSync(filePath, 'utf8');
-      if (!source.includes('webContents.send')) {
-        continue;
-      }
-      for (const match of source.matchAll(DIRECT_WEB_CONTENTS_SEND_CHANNEL_PATTERN)) {
-        const lineNumber = source.slice(0, match.index).split('\n').length;
-        violations.push(`${path.relative(SOURCE_ROOT, filePath)}:${lineNumber}: ${match[0]}`);
-      }
-    }
-
-    expect(violations).toEqual([]);
-  });
-
-  it('keeps the hidden-host manifest groups in parity with the worker-runtime descriptors', () => {
-    // BST-1648: the pure manifest is what the sandboxed preloads bundle; the
-    // `*-host-shared.ts` descriptors (derived by @brainstrike/worker-runtime,
-    // a bare package a preload cannot require) are what main registers. The
-    // two are pinned equal here so neither can drift from the other.
-    expect(DESKTOP_IPC_CHANNELS.embeddingHost).toEqual({
-      cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
-      cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
-      command: EMBEDDING_HOST_COMMAND_EVENT,
-      documentEmbeddings: EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CHANNEL,
-      documentEmbeddingsCancel: EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CANCEL_EVENT,
-      documentEmbeddingsRequest: EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT,
-      ensureStarted: EMBEDDING_HOST_ENSURE_STARTED_CHANNEL,
-      getStatus: EMBEDDING_HOST_GET_STATUS_CHANNEL,
-      modelCacheStatus: EMBEDDING_HOST_MODEL_CACHE_STATUS_CHANNEL,
-      modelCacheStatusRequest: EMBEDDING_HOST_MODEL_CACHE_STATUS_REQUEST_EVENT,
-      queryEmbedding: EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
-      queryEmbeddingCancel: EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,
-      queryEmbeddingRequest: EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
-      reportDocumentEmbeddingsResponse: EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL,
-      reportModelCacheStatusResponse: EMBEDDING_HOST_REPORT_MODEL_CACHE_STATUS_RESPONSE_CHANNEL,
-      reportQueryEmbeddingResponse: EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
-      reportStatus: EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
-      reportWebgpuAdapterResponse: EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL,
-      reset: EMBEDDING_HOST_RESET_CHANNEL,
-      status: EMBEDDING_HOST_STATUS_EVENT,
-      stop: EMBEDDING_HOST_STOP_CHANNEL,
-      webgpuAdapter: EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
-      webgpuAdapterRequest: EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
-    });
-  });
-
-  it('keeps the logging API channels owned by the manifest', () => {
+  it('keeps the logging API methods owned by the manifest', () => {
     expect(LOGGING_API_CHANNELS).toBe(DESKTOP_IPC_CHANNELS.logging);
   });
 
-  it('keeps every manifest channel unique across groups', () => {
-    const channels = Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) => Object.values(group));
-    expect(new Set(channels).size).toBe(channels.length);
+  it('gives every method one route on the one connection', () => {
+    const methods = Object.values(DESKTOP_IPC_CHANNELS).flatMap((group) => Object.values(group));
+    expect(new Set(methods).size).toBe(methods.length);
+    expect(DESKTOP_IPC_INVOKE_CHANNEL).not.toBe(DESKTOP_IPC_PUSH_CHANNEL);
+    expect(methods).not.toContain(DESKTOP_IPC_INVOKE_CHANNEL);
+    expect(methods).not.toContain(DESKTOP_IPC_PUSH_CHANNEL);
   });
 });

@@ -10,7 +10,6 @@ export const databasePathContract = {
       assertArgCount(raw, 0, 'database getUserDataPath');
       return [];
     },
-    roles: ['visible-ui'],
   }),
 } as const satisfies Contract;
 

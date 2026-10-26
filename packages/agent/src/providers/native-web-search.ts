@@ -7,8 +7,8 @@
  * OpenAI (`openai.tools.webSearch()`, on the Responses surface brainstrike
  * already uses). Google is DEFERRED: its SDK silently drops ALL function tools
  * when a provider tool is combined on pre-Gemini-3 models, which would violate
- * the no-silent-fallbacks rule. Every other provider (openrouter/ollama/
- * lmstudio/local) has no first-party native search.
+ * the no-silent-fallbacks rule. Every other provider (openrouter, bedrock)
+ * has no first-party native search.
  *
  * A provider-native tool is executed inside the provider's own infrastructure —
  * it has NO local `execute`, so Mastra has no suspend point in front of it and

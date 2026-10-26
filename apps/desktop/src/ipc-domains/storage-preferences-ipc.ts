@@ -9,17 +9,11 @@ import {
   isMainOwnedDesktopStorageKey,
   MAIN_OWNED_DESKTOP_STORAGE_KEYS,
 } from '../platform/desktop-storage-authority';
-import { VECTOR_PREFERENCES_STORAGE_KEY } from '../platform/vector-preferences-storage-key';
 import type { DesktopSettingsStoreSchema } from '../store-schema';
-import {
-  settingsContract,
-  storageContract,
-  vectorPreferencesContract,
-} from './storage-preferences.contract';
+import { settingsContract, storageContract } from './storage-preferences.contract';
 
 interface RegisterStoragePreferencesIpcHandlersOptions {
   readonly getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null;
-  readonly onStorageChanged?: (key: string) => void;
   readonly storage: ElectronStorageAdapter;
 }
 
@@ -37,7 +31,6 @@ function getSettingsStoreAccess(
 export function registerStoragePreferencesIpcHandlers({
   getStore,
   storage,
-  onStorageChanged,
 }: RegisterStoragePreferencesIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
@@ -53,13 +46,9 @@ export function registerStoragePreferencesIpcHandlers({
       assertRendererWritableDesktopStorageKey(key);
       return storage.removeItem(key);
     },
-    setItem: async (key, value) => {
+    setItem: (key, value) => {
       assertRendererWritableDesktopStorageKey(key);
-      const previous = await storage.getItem(key);
-      await storage.setItem(key, value);
-      if (previous !== value) {
-        onStorageChanged?.(key);
-      }
+      return storage.setItem(key, value);
     },
   });
 
@@ -67,11 +56,9 @@ export function registerStoragePreferencesIpcHandlers({
     // These channels deliberately remain a conditional adapter instead of a
     // discoverable contract: production must not register them, while the
     // global contract manifest requires every exported invoke unconditionally.
-    const visibleUiPolicy = { roles: ['visible-ui'] } as const;
-    registry.registerAuthorizedInvoke(
+    registry.handle(
       'storage',
       DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
-      visibleUiPolicy,
       async (_event, key: unknown, value: unknown) => {
         if (!isMainOwnedDesktopStorageKey(key)) {
           throw new Error('E2E main-owned storage seed requires a main-owned key.');
@@ -82,24 +69,10 @@ export function registerStoragePreferencesIpcHandlers({
         return storage.setItem(key, value);
       }
     );
-    registry.registerAuthorizedInvoke(
-      'storage',
-      DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
-      visibleUiPolicy,
-      async () => storage.clear()
+    registry.handle('storage', DESKTOP_IPC_CHANNELS.storage.clearAllForE2e, async () =>
+      storage.clear()
     );
   }
-
-  // BST-1380: hidden inference hosts resolve their device preference from the
-  // SAME canonical record the visible UI writes. They receive this scoped
-  // capability instead of the unrestricted `storage` bridge above — the key is
-  // pinned here, never supplied by the renderer, so a hidden host can neither
-  // enumerate keys nor address another persisted store.
-  registerDomain(registry, 'vectorPreferences', vectorPreferencesContract, {
-    clear: () => storage.removeItem(VECTOR_PREFERENCES_STORAGE_KEY),
-    read: () => storage.getItem(VECTOR_PREFERENCES_STORAGE_KEY),
-    write: (value) => storage.setItem(VECTOR_PREFERENCES_STORAGE_KEY, value),
-  });
 
   registerDomain(registry, 'preferences', settingsContract, {
     clearAll: async () => {

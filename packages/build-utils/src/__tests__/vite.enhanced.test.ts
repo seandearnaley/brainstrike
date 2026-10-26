@@ -6,8 +6,6 @@ const {
   isContextActionSystemModule,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getHeavyRuntimeOptimizeDepsExclude,
-  getWorkerpoolBrowserStubAliases,
   getLazySurfaceOptimizeDepsEntries,
 } = await import('../vite.js');
 
@@ -46,28 +44,6 @@ describe('utility getter functions', () => {
   it('getCoreAppOptimizeDepsInclude returns an array containing zod', () => {
     const result = getCoreAppOptimizeDepsInclude();
     expect(result).toContain('zod');
-  });
-
-  it('getHeavyRuntimeOptimizeDepsExclude returns an array containing @huggingface/transformers', () => {
-    const result = getHeavyRuntimeOptimizeDepsExclude();
-    expect(result).toContain('@huggingface/transformers');
-  });
-});
-
-describe('getWorkerpoolBrowserStubAliases', () => {
-  it('returns aliases for child_process, os, and worker_threads', () => {
-    const aliases = getWorkerpoolBrowserStubAliases('/fake/base');
-    expect(aliases).toHaveProperty('child_process');
-    expect(aliases).toHaveProperty('os');
-    expect(aliases).toHaveProperty('worker_threads');
-    expect(Object.keys(aliases)).toHaveLength(3);
-  });
-
-  it('resolves paths relative to baseDir', () => {
-    const aliases = getWorkerpoolBrowserStubAliases('/my/project');
-    for (const aliasPath of Object.values(aliases)) {
-      expect(aliasPath).toContain('browser-node-stubs');
-    }
   });
 });
 

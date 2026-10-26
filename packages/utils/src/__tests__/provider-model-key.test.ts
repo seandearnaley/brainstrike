@@ -20,9 +20,9 @@ describe('provider-model-key', () => {
   });
 
   it('parses legacy provider:model keys', () => {
-    expect(parseProviderModelKey('local:all-MiniLM-L6-v2')).toEqual({
-      modelId: 'all-MiniLM-L6-v2',
-      provider: 'local',
+    expect(parseProviderModelKey('voyage:voyage-3')).toEqual({
+      modelId: 'voyage-3',
+      provider: 'voyage',
     });
   });
 
@@ -43,13 +43,13 @@ describe('provider-model-key', () => {
 
   it('canonicalizes raw model ids using the provider hint or fallback provider', () => {
     expect(
-      canonicalizeProviderModelKey('all-MiniLM-L6-v2', {
-        providerHint: 'local',
+      canonicalizeProviderModelKey('voyage-3', {
+        providerHint: 'voyage',
       })
     ).toEqual({
-      composite: 'local::all-MiniLM-L6-v2',
-      modelId: 'all-MiniLM-L6-v2',
-      provider: 'local',
+      composite: 'voyage::voyage-3',
+      modelId: 'voyage-3',
+      provider: 'voyage',
     });
 
     expect(

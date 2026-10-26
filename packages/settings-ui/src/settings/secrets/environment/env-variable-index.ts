@@ -10,8 +10,7 @@ import { TAVILY_SECRET_PROVIDER } from '../provider-key-types';
 /**
  * Every environment name that configures a given slot. Built from the SLOT
  * list rather than the raw registry so a chip can only ever target a row that
- * actually exists — a keyless local runtime has no inventory row, and a chip
- * pointing at one would scroll to nothing.
+ * actually exists — a chip pointing at a missing row would scroll to nothing.
  *
  * Names are enumerated as complete sets (`providerEnvKeys` plus the retired
  * names), never by positional index: which entry is the override and which is

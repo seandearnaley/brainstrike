@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { describe, expect, it, vi } from 'vitest';
 import { vectorBlob } from '../src/chunks.js';
@@ -67,7 +66,7 @@ describe('stored Float32 vector validation', () => {
     const db = openConnection(':memory:');
     db.exec(`
       CREATE TABLE file_records(id TEXT, root_id TEXT, scoped INTEGER);
-      CREATE TABLE file_chunks(file_record_id TEXT, root_id TEXT, has_vector INTEGER, embedding_hash TEXT);
+      CREATE TABLE file_chunks(file_record_id TEXT, root_id TEXT);
       CREATE TABLE scoped_vectors(dimensions INTEGER, emb BLOB);
       INSERT INTO scoped_vectors VALUES(1, X'0000807F');
     `);
@@ -140,17 +139,6 @@ describe('stored Float32 vector validation', () => {
       outcome(() => historicalValidation(row))
     );
     expect(() => validateStoredVectorBytes(row)).toThrow('finite and nonzero');
-  });
-
-  it('accepts the recorded fused MiniLM Float32 vector', () => {
-    const fixture: { profile: { dimensions: number }; vector: number[] } = JSON.parse(
-      readFileSync(new URL('./fixtures/fused-minilm-384.json', import.meta.url), 'utf8')
-    );
-    const row = { dimensions: fixture.profile.dimensions, emb: vectorBlob(fixture.vector) };
-    expect(outcome(() => validateStoredVectorBytes(row))).toBeNull();
-    expect(outcome(() => validateStoredVectorBytes(row))).toEqual(
-      outcome(() => historicalValidation(row))
-    );
   });
 
   it.each([384, 1536, 3072])(

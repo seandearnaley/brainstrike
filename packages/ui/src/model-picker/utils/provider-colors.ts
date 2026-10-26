@@ -9,8 +9,8 @@ interface ProviderColorPair {
  * Every static registry provider has an explicit entry — pinned at COMPILE
  * time by the `satisfies Record<SupportedProvider, ...>` below (BST-1349,
  * PR #2513 review finding 6): adding a provider to the registry without a
- * color here is a type error. The hash fallback in `getProviderColor` is
- * reserved for dynamically discovered runtime ids.
+ * color here is a type error. The hash fallback in `getProviderColor` covers
+ * catalog provider ids outside the registry.
  */
 export const PROVIDER_COLOR_MAP: Record<string, ProviderColorPair> = {
   anthropic: { dark: 'hsl(25, 70%, 55%)', light: 'hsl(25, 70%, 45%)' },
@@ -20,13 +20,6 @@ export const PROVIDER_COLOR_MAP: Record<string, ProviderColorPair> = {
   bedrock: { dark: 'hsl(36, 95%, 55%)', light: 'hsl(36, 95%, 38%)' },
   cohere: { dark: 'hsl(340, 60%, 55%)', light: 'hsl(340, 60%, 45%)' },
   google: { dark: 'hsl(210, 70%, 55%)', light: 'hsl(210, 70%, 45%)' },
-  // 235° indigo: 45° from openrouter's 280° so the picker dots stay
-  // distinguishable at swatch size (PR #2513 review, finding 10).
-  lmstudio: { dark: 'hsl(235, 60%, 62%)', light: 'hsl(235, 60%, 45%)' },
-  local: { dark: 'hsl(45, 70%, 55%)', light: 'hsl(45, 70%, 35%)' },
-  // A real green hue — a desaturated gray reads as "disabled" in the picker
-  // (PR #2513 review, finding 10).
-  ollama: { dark: 'hsl(120, 45%, 55%)', light: 'hsl(120, 45%, 35%)' },
   openai: { dark: 'hsl(160, 60%, 50%)', light: 'hsl(160, 60%, 35%)' },
   openrouter: { dark: 'hsl(280, 60%, 55%)', light: 'hsl(280, 60%, 45%)' },
   voyage: { dark: 'hsl(180, 60%, 50%)', light: 'hsl(180, 60%, 35%)' },

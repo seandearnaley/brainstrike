@@ -12,7 +12,6 @@ import { resolvePlatformBridge } from '@brainstrike/app-shell/platform-bridge';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { prepareFactoryReset } from '@brainstrike/app-state/factory-reset';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
-import { ensureVectorPreferencesHydrated } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
   McpExtensionEnablement,
   McpHostControlRequest,
@@ -26,8 +25,6 @@ import {
 } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
-import type { LocalExecutionCapability } from '@brainstrike/indexing-contract';
-import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import {
   ModelCatalogHeaderActions,
   ModelSelectionPage,
@@ -51,7 +48,6 @@ import {
   createAssistantMemorySettingsCategory,
   createFactoryResetSettingsCategory,
   createHooksSettingsCategory,
-  createLocalRuntimeSettingsCategory,
   createPermissionSettingsCategory,
   createSearchIndexingSettingsCategory,
   createSubagentPersonasSettingsCategory,
@@ -73,11 +69,6 @@ import {
   resolveDesktopMcpContent,
 } from '../../host-mcp-settings';
 import { createIpcCapability } from '../../ipc-capability';
-import {
-  downloadDesktopEmbeddingModel,
-  readDesktopDownloadedEmbeddingModels,
-  resolveModelDownloadDevice,
-} from '../../settings-model-download';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
 
@@ -100,39 +91,6 @@ const clearContent = {
   },
 };
 
-configureModelRuntimeServices({
-  // BST-2230: the hidden embedding host loads the model's catalog plan on the
-  // device the host's rule picks, into the cache indexing reads (ADR-0007).
-  downloadEmbeddingModel: async (model) => {
-    const execution = visibleLocalExecution();
-    if (!execution) {
-      throw new Error('The embedding host is unavailable.');
-    }
-    const device = await resolveModelDownloadDevice(await ensureVectorPreferencesHydrated(), () =>
-      execution.webgpuAdapter()
-    );
-    await downloadDesktopEmbeddingModel(model, device, new AbortController().signal);
-  },
-  // BST-2241: "downloaded" is what the hidden host's cache holds for the same plan.
-  readDownloadedEmbeddingModels: async (models) => {
-    const bridge = window.embeddingHost;
-    if (!(bridge && 'modelCacheStatus' in bridge)) {
-      throw new Error('The embedding host is unavailable.');
-    }
-    const device = await resolveModelDownloadDevice(await ensureVectorPreferencesHydrated(), () =>
-      bridge.webgpuAdapter()
-    );
-    return await readDesktopDownloadedEmbeddingModels(models, device, (plans) =>
-      bridge.modelCacheStatus(plans)
-    );
-  },
-});
-
-/**
- * Transform the desktop-owned native tools into ToolDisplayMetadata format.
- * Mastra skill tools have their own preferences and are not desktop toggles.
- */
-/** The visible embedding host bridge as Settings' local execution capability (BST-1993). */
 interface HostMcpConfigStatus {
   readonly error?: string | undefined;
   readonly exists: boolean;
@@ -187,11 +145,10 @@ function toMcpConfigWriteResult(result: HostMcpConfigWriteResult): McpConfigWrit
   };
 }
 
-function visibleLocalExecution(): LocalExecutionCapability | undefined {
-  const bridge = window.embeddingHost;
-  return bridge && 'webgpuAdapter' in bridge ? bridge : undefined;
-}
-
+/**
+ * Transform the desktop-owned native tools into ToolDisplayMetadata format.
+ * Mastra skill tools have their own preferences and are not desktop toggles.
+ */
 function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
@@ -531,12 +488,10 @@ export default function SettingsPageContent() {
       createSearchIndexingSettingsCategory(
         window.indexSearch
           ? createIpcCapability(window.indexSearch, indexSearchContract)
-          : undefined,
-        visibleLocalExecution()
+          : undefined
       ),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
-      createLocalRuntimeSettingsCategory(),
       createProvidersSettingsCategory({
         ...apiKeyStatus,
         ...(revealEnvFile ? { onRevealPath: revealEnvFile } : {}),
@@ -545,18 +500,16 @@ export default function SettingsPageContent() {
       }),
       {
         content: <ModelSelectionPage />,
-        description: 'Browse every catalogued model and download on-device models.',
+        description: 'Browse every catalogued model.',
         headerActions: <ModelCatalogHeaderActions />,
         icon: Layers,
         id: 'embedding-models',
-        keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm', 'download', 'cache'],
+        keywords: ['embeddings', 'models', 'catalog', 'vector', 'llm'],
         layout: 'workspace',
         title: 'Model Catalog',
       },
       createAssistantMemorySettingsCategory({
         assistantMemoryBackendAvailable: hasDurableAssistantUsageCapability(),
-        // Main's hidden embedding host runs local recall embedders on the saved device.
-        onDeviceEmbedding: true,
         ...(assistantProviderKeySources ? { providerKeySources: assistantProviderKeySources } : {}),
         ...(hostProviders?.testMemoryEmbedder
           ? { testEmbedder: hostProviders.testMemoryEmbedder }

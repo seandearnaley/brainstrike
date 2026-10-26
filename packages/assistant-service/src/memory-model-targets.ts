@@ -33,10 +33,7 @@ export type DesktopMemoryModelTargetResolution<T extends DesktopMemoryModelTarge
 
 export type RuntimeMemoryOptions = NonNullable<RuntimeData['memory']>['memoryOptions'];
 
-// All four need a key. The built-in on-device provider used to be in this set,
-// resolved to an llm-host proxy chat model with no API key; it is
-// embeddings-only now, so an observer target naming it is rejected HERE —
-// before any credential is resolved.
+// All four need a key.
 const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
   'openai',
   'anthropic',
@@ -46,9 +43,6 @@ const DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS = new Set<SupportedProvider>([
 const DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS = new Set<SupportedProvider>([
   'openai',
   'google',
-  // Built-in local embedders: proxied to the hidden embedding-host renderer
-  // (no API key); requires the embedding host manager.
-  'local',
 ]);
 export function resolveRequestedProvider(
   data: RuntimeData | undefined
@@ -102,7 +96,7 @@ export function parseObservationalMemoryModelTarget(
   return parseModelTarget(modelTarget, {
     allowedProviders: DESKTOP_OBSERVATIONAL_MEMORY_PROVIDERS,
     disallowedProviderMessage: (provider) =>
-      `Desktop observational memory requires a hosted model provider or the built-in local model; received "${provider}" in "${modelTarget}".`,
+      `Desktop observational memory requires a hosted model provider; received "${provider}" in "${modelTarget}".`,
     formatLabel: 'Observational memory model target',
     unsupportedProviderLabel: 'observational memory',
   });
@@ -114,7 +108,7 @@ export function parseSemanticRecallEmbeddingModelTarget(
   return parseModelTarget(modelTarget, {
     allowedProviders: DESKTOP_SEMANTIC_RECALL_EMBEDDING_PROVIDERS,
     disallowedProviderMessage: (provider) =>
-      `Desktop Mastra semantic recall supports hosted OpenAI/Google embedders or the built-in local embedder; received "${provider}" in "${modelTarget}".`,
+      `Desktop Mastra semantic recall supports hosted OpenAI/Google embedders; received "${provider}" in "${modelTarget}".`,
     formatLabel: 'Semantic recall embedding model target',
     unsupportedProviderLabel: 'semantic recall embedding',
   });

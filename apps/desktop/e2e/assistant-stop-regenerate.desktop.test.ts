@@ -108,16 +108,11 @@ test('stops the owned generation, regenerates the prompt and stops a long respon
     longHold.resolve();
     await expect(send).toBeVisible();
 
-    // Only the two stopped turns were aborted; the regenerated one completed.
-    await expect
-      .poll(
-        async () =>
-          (await readCommittedRuns(electron.getUserDataDir(), threadId)).map(
-            ({ status }) => status
-          ),
-        { timeout: 60_000 }
-      )
-      .toEqual(['stopped', 'completed', 'stopped']);
+    // Only the two stopped turns were aborted; the regenerated one completed. Each
+    // Stop button dropped once the host had committed that run's end.
+    expect(
+      (await readCommittedRuns(electron.getUserDataDir(), threadId)).map(({ status }) => status)
+    ).toEqual(['stopped', 'completed', 'stopped']);
     expect(rootRequests()).toHaveLength(3);
     expect(modelProvider.refusals()).toEqual([]);
   } finally {

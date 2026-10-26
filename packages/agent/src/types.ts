@@ -105,9 +105,8 @@ export interface AssistantUiMessage {
  * Agent runtime data. Extends the dependency-light `assistant-contract`
  * `RuntimeData` (the canonical wire/UI contract) and overrides only the two
  * fields that bind to runtime libraries, plus server-only fields. The
- * shared fields — including `provider` (which now inherits `'local'`) — live
- * in the contract; this is what removes the old "keep the two declarations in
- * sync" drift hazard.
+ * shared fields, including `provider`, live in the contract; this is what
+ * removes the old "keep the two declarations in sync" drift hazard.
  */
 export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'providerOptions'> {
   /**
@@ -304,27 +303,11 @@ export interface GoogleProviderOptions extends JSONObject {
   };
 }
 
-/**
- * Per-request transport config for a local runtime (Ollama or LM Studio).
- * `baseUrl` points the factory at a non-default host (e.g. a LAN GPU box) and
- * `apiToken` is sent as `Authorization: Bearer <token>` — used for Ollama
- * Turbo/Cloud and for LM Studio 0.4.0+ servers that opted into token auth.
- * These namespaces are transport-only and must be stripped before Mastra
- * receives per-generation `providerOptions`; otherwise their fields become
- * chat-completions request parameters.
- */
-interface LocalRuntimeProviderOptions extends JSONObject {
-  apiToken?: string;
-  baseUrl?: string;
-}
-
 export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3ProviderOptions) & {
   openai?: OpenAiProviderOptions & JSONObject;
   anthropic?: AnthropicProviderOptions & JSONObject;
   bedrock?: BedrockProviderOptions & JSONObject;
   google?: GoogleProviderOptions & JSONObject;
-  ollama?: LocalRuntimeProviderOptions & JSONObject;
-  lmstudio?: LocalRuntimeProviderOptions & JSONObject;
   openrouter?: OpenRouterProviderOptions & JSONObject;
 };
 

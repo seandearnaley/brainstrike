@@ -37,7 +37,12 @@ const worktree = { displayName: 'alpha-wt', path: '/workspace/alpha-wt', rootId:
 
 const vector = {
   indexMode: 'vector-configured',
-  profile: { dimensions: 384, dtype: 'q8', modelId: 'Xenova/all-MiniLM-L6-v2', tokenCap: 256 },
+  profile: {
+    dimensions: 1536,
+    distance: 'cosine',
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
+  },
   profileHash: 'profile-hash',
 } as const;
 function ready(overrides: Partial<Extract<IndexerStatus, { kind: 'ready' }>> = {}): IndexerStatus {

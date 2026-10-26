@@ -1,5 +1,5 @@
 import { Badge, Button, cn, formatTokenCount, Switch } from '@brainstrike/ui';
-import { Check, ChevronDown, Download, Eye, Loader2, Sun } from 'lucide-react';
+import { ChevronDown, Eye, Sun } from 'lucide-react';
 import { Fragment, type ReactNode } from 'react';
 import { highlightSegments, queryHitsIdOnly } from './catalog-filters';
 import { formatUsd } from './catalog-format';
@@ -244,45 +244,6 @@ export function PriceCell({ row }: { readonly row: CatalogRow }) {
   );
 }
 
-function DownloadControl({ row }: { readonly row: CatalogRow }) {
-  const { downloadedModels, downloadProgress, isDownloading, onDownload } = useCatalogRowActions();
-  if (isDownloading[row.id] === true) {
-    const progress = downloadProgress[row.id];
-    return (
-      <span className="inline-flex items-center gap-1 text-muted-foreground text-xs tabular-nums">
-        <Loader2 aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" />
-        {progress === undefined ? 'Downloading…' : `${progress}%`}
-      </span>
-    );
-  }
-  if (downloadedModels[row.id] === true) {
-    return (
-      <span
-        aria-label={`${row.name} downloaded`}
-        className="inline-flex items-center text-success"
-        role="img"
-        title="Downloaded"
-      >
-        <Check aria-hidden="true" className="size-3.5" />
-      </span>
-    );
-  }
-  const label = row.sizeLabel ? `Download ${row.name} (${row.sizeLabel})` : `Download ${row.name}`;
-  return (
-    <Button
-      aria-label={label}
-      className="size-7"
-      data-testid={`model-download-${row.id}`}
-      onClick={() => onDownload(row.id)}
-      size="icon-xs"
-      title={label}
-      variant="ghost"
-    >
-      <Download aria-hidden="true" className="size-3.5" />
-    </Button>
-  );
-}
-
 export function ActionsCell({
   isExpanded,
   row,
@@ -293,7 +254,6 @@ export function ActionsCell({
   const { onToggleDetails } = useCatalogRowActions();
   return (
     <div className={cn(ROW_LINE, 'justify-end gap-1')}>
-      {row.isLocal ? <DownloadControl row={row} /> : null}
       <Button
         aria-expanded={isExpanded}
         aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${row.name}`}

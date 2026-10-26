@@ -60,28 +60,6 @@ describe('ProviderCatalogSchema', () => {
     ).not.toThrow();
   });
 
-  it('preserves the qualified local embedding profile fields', () => {
-    const model = {
-      defaultDimension: 384,
-      execution: { wasm: 'q8', webgpu: 'fp16' },
-      id: 'onnx-community/granite-embedding-small-english-r2-ONNX',
-      pooling: 'cls',
-      prompts: { document: '', query: '' },
-      revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
-      supportsStandardDimension: false,
-      type: 'embedding',
-    };
-    expect(parseProviderCatalog(catalogWith(model))[0]?.models).toEqual([model]);
-    for (const malformed of [
-      { ...model, pooling: 'guessed' },
-      { ...model, execution: { webgpu: 'unknown' } },
-      { ...model, prompts: { document: '' } },
-      { ...model, prompts: { document: '', guess: true, query: '' } },
-    ]) {
-      expect(() => parseProviderCatalog(catalogWith(malformed))).toThrow();
-    }
-  });
-
   it('rejects an LLM model entry that omits the required vision capability', () => {
     const result = Schema.decodeUnknownResult(ProviderCatalogSchema, { onExcessProperty: 'error' })(
       catalogWith(modelWithout('vision'))
@@ -122,7 +100,7 @@ describe('ProviderCatalogSchema', () => {
       expect(
         SchemaIssue.makeFormatterStandardSchemaV1()(result.failure.issue).issues
       ).toContainEqual({
-        message: 'Expected "supported" | "unsupported" | "unknown"',
+        message: 'Expected "supported" | "unsupported"',
         path: [0, 'models', 0, 'vision'],
       });
     }

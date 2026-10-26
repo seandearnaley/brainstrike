@@ -146,8 +146,6 @@ Known limits. These processes do not hold the Root's flock.
 
 ## Consequences
 
-- ADR-0007 is worded by thread, not process: inference never runs on a thread that
-  serves the UI, the run log or the client protocol.
 - The acceptance suite runs through the protocol: over stdio with no Electron in the
   process tree, and over MessagePort in desktop E2E.
 - The secret store is `@napi-rs/keyring` in both shells. Headless Linux with no Secret

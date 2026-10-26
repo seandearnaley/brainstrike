@@ -73,7 +73,6 @@ it('refuses a reader snapshot from a different authoritative store', async () =>
       },
       info: async () => ({
         dbPath: '/index.sqlite',
-        embedding: { indexMode: 'text-only' },
         journalMode: 'wal',
         pid: 1,
         readerQueryOnly: 1,
@@ -106,7 +105,7 @@ it('refuses a reader snapshot from a different authoritative store', async () =>
           'end_offset',
           'token_count',
         ],
-        identity: { embedding: { indexMode: 'text-only' }, storeId: 'a'.repeat(64) },
+        identity: { storeId: 'a'.repeat(64) },
         matchedChunks: 1,
         rows: [
           [

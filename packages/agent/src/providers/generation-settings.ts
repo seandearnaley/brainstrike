@@ -43,31 +43,3 @@ export function buildModelSettingsOption(runtimeData: RuntimeData | undefined): 
   }
   return modelSettings ? { modelSettings } : {};
 }
-
-/**
- * Keep Brainstrike's local-server transport settings out of Mastra generation
- * options. Mastra namespaces compatible-provider options by the model id's
- * first segment, so forwarding `providerOptions.ollama` or `.lmstudio` would
- * serialize `baseUrl` and `apiToken` into the chat-completions request body.
- */
-export function buildGenerationProviderOptionsOption(runtimeData: RuntimeData | undefined): {
-  providerOptions?: RuntimeData['providerOptions'];
-} {
-  const providerOptions = runtimeData?.providerOptions;
-  if (!providerOptions) {
-    return {};
-  }
-  if (providerOptions.ollama === undefined && providerOptions.lmstudio === undefined) {
-    return { providerOptions };
-  }
-
-  const generationProviderOptions = Object.fromEntries(
-    Object.entries(providerOptions).filter(
-      ([namespace]) => namespace !== 'ollama' && namespace !== 'lmstudio'
-    )
-  ) as NonNullable<RuntimeData['providerOptions']>;
-  if (Object.keys(generationProviderOptions).length === 0) {
-    return {};
-  }
-  return { providerOptions: generationProviderOptions };
-}

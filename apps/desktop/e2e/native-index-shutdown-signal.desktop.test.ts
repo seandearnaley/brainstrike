@@ -7,19 +7,20 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
-import { seedPausedWorkspace } from './utils/foreground-latency-bench';
+import type { ModelProviderShim } from './utils/model-provider-shim';
 import {
   closeIndexingPopover,
   configureNativeIndex,
   openResumeControl,
+  seedPausedWorkspace,
   waitForReadyIndex,
 } from './utils/native-index-build';
 
 /**
  * A SIGTERM right after a native scan completes shuts down with no failed step and no forced
  * exit. To Main's whole process group (BST-2135): a tty Ctrl+C or a tree kill signals every
- * process in the group, so the indexer utility, the embedding host renderer and the visible
- * renderer exit on the signal while Main is still retiring them. To Main alone (BST-2140): every
+ * process in the group, so the indexer utility and the visible renderer exit on the signal
+ * while Main is still retiring them. To Main alone (BST-2140): every
  * helper lives, and the scan Main's shutdown cancels is that cancellation, never a cleanup
  * failure or a level-50 record. The signal arrives twice, as a dev tree delivers it.
  */
@@ -114,12 +115,11 @@ function signal(mainPid: number, target: SignalTarget): void {
  * record fails the spec. A renderer read that meets the exited SQLite query process is logged
  * at info while quitting (BST-2192), so it never reaches this filter.
  */
-function isSignalKilledHelper(record: LogRecord): boolean {
+function isSignalKilledRenderer(record: LogRecord): boolean {
   return (
     record.reason === 'killed' &&
-    ((record.scope === 'CreateWindow' && record.msg === 'Renderer process gone') ||
-      (record.scope === 'EmbeddingHostManager' &&
-        record.msg === 'embedding-host renderer exited (killed, code 15)'))
+    record.scope === 'CreateWindow' &&
+    record.msg === 'Renderer process gone'
   );
 }
 
@@ -141,14 +141,14 @@ test.afterAll(() => {
 
 /** Indexes the root, then signals `target` `delayMs` after the workspace receipt. */
 async function signalAfterScan(
-  electron: ElectronHarness,
+  { electron, modelProvider }: { electron: ElectronHarness; modelProvider: ModelProviderShim },
   page: Page,
   testInfo: TestInfo,
   { delayMs, target }: { readonly delayMs: number; readonly target: SignalTarget }
 ): Promise<void> {
   test.setTimeout(8 * 60 * 1000);
-  await seedPausedWorkspace(page, [{ path: rootDir, rootId: ROOT_ID }], 'wasm', 'shutdown');
-  await configureNativeIndex(page, 'wasm');
+  await seedPausedWorkspace(page, [{ path: rootDir, rootId: ROOT_ID }], 'shutdown');
+  await configureNativeIndex(page, modelProvider);
   await waitForReadyIndex(page, 300_000);
   const main = (await electron.ensureContext()).app.process();
   const pid = main.pid;
@@ -202,7 +202,8 @@ async function signalAfterScan(
   // Signalled alone, Main's helpers stay alive: every level-50 record fails (BST-2140).
   expect(
     after.filter(
-      (record) => (record.level ?? 0) >= 50 && !(target === 'group' && isSignalKilledHelper(record))
+      (record) =>
+        (record.level ?? 0) >= 50 && !(target === 'group' && isSignalKilledRenderer(record))
     )
   ).toEqual([]);
   const reports = after.flatMap((record) =>
@@ -210,7 +211,7 @@ async function signalAfterScan(
   );
   expect(reports).toHaveLength(1);
   expect(reports[0]?.map((step) => step.step)).toEqual(
-    expect.arrayContaining(['renderers', 'native-index', 'embedding-host', 'database-close'])
+    expect.arrayContaining(['renderers', 'native-index', 'database-close'])
   );
   expect(reports[0]?.filter((step) => step.failed)).toEqual([]);
 }
@@ -218,53 +219,81 @@ async function signalAfterScan(
 // At the workspace receipt the collection scan and reverification are still running; by 1 s the
 // index is idle. The ticket's own repro signalled about 0.2 s after the index reported complete.
 // Literal titles: the E2E lane-coverage guard reads them statically.
-test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 0 ms after the native scan completes fails no shutdown step", async ({
+test("a SIGTERM to Main's process group 0 ms after the native scan completes fails no shutdown step", async ({
   electron,
+  modelProvider,
   window: page,
 }, testInfo) => {
-  await signalAfterScan(electron, page, testInfo, { delayMs: 0, target: 'group' });
+  await signalAfterScan({ electron, modelProvider }, page, testInfo, {
+    delayMs: 0,
+    target: 'group',
+  });
 });
 
-test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 300 ms after the native scan completes fails no shutdown step", async ({
+test("a SIGTERM to Main's process group 300 ms after the native scan completes fails no shutdown step", async ({
   electron,
+  modelProvider,
   window: page,
 }, testInfo) => {
-  await signalAfterScan(electron, page, testInfo, { delayMs: 300, target: 'group' });
+  await signalAfterScan({ electron, modelProvider }, page, testInfo, {
+    delayMs: 300,
+    target: 'group',
+  });
 });
 
-test("@desktop-embedding-native-shutdown a SIGTERM to Main's process group 1000 ms after the native scan completes fails no shutdown step", async ({
+test("a SIGTERM to Main's process group 1000 ms after the native scan completes fails no shutdown step", async ({
   electron,
+  modelProvider,
   window: page,
 }, testInfo) => {
-  await signalAfterScan(electron, page, testInfo, { delayMs: 1000, target: 'group' });
+  await signalAfterScan({ electron, modelProvider }, page, testInfo, {
+    delayMs: 1000,
+    target: 'group',
+  });
 });
 
 // BST-2140: signalled alone, Main's own shutdown cancels the scan still running after the
 // workspace receipt (its collection scan and reverification); by about 500 ms the index is idle.
-test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 0 ms after the native scan completes fails no shutdown step', async ({
+test('a SIGTERM to Main alone 0 ms after the native scan completes fails no shutdown step', async ({
   electron,
+  modelProvider,
   window: page,
 }, testInfo) => {
-  await signalAfterScan(electron, page, testInfo, { delayMs: 0, target: 'main' });
+  await signalAfterScan({ electron, modelProvider }, page, testInfo, {
+    delayMs: 0,
+    target: 'main',
+  });
 });
 
-test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 150 ms after the native scan completes fails no shutdown step', async ({
+test('a SIGTERM to Main alone 150 ms after the native scan completes fails no shutdown step', async ({
   electron,
+  modelProvider,
   window: page,
 }, testInfo) => {
-  await signalAfterScan(electron, page, testInfo, { delayMs: 150, target: 'main' });
+  await signalAfterScan({ electron, modelProvider }, page, testInfo, {
+    delayMs: 150,
+    target: 'main',
+  });
 });
 
-test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 300 ms after the native scan completes fails no shutdown step', async ({
+test('a SIGTERM to Main alone 300 ms after the native scan completes fails no shutdown step', async ({
   electron,
+  modelProvider,
   window: page,
 }, testInfo) => {
-  await signalAfterScan(electron, page, testInfo, { delayMs: 300, target: 'main' });
+  await signalAfterScan({ electron, modelProvider }, page, testInfo, {
+    delayMs: 300,
+    target: 'main',
+  });
 });
 
-test('@desktop-embedding-native-shutdown a SIGTERM to Main alone 500 ms after the native scan completes fails no shutdown step', async ({
+test('a SIGTERM to Main alone 500 ms after the native scan completes fails no shutdown step', async ({
   electron,
+  modelProvider,
   window: page,
 }, testInfo) => {
-  await signalAfterScan(electron, page, testInfo, { delayMs: 500, target: 'main' });
+  await signalAfterScan({ electron, modelProvider }, page, testInfo, {
+    delayMs: 500,
+    target: 'main',
+  });
 });

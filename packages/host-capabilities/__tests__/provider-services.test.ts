@@ -39,9 +39,6 @@ describe('host provider services', () => {
       envFileFailures: [],
     });
 
-    // Keyed providers only: the built-in on-device provider is embeddings-only
-    // and must not be advertised as an available chat provider — the renderer's
-    // status validator refuses a provider with no registry default model.
     await expect(services.status()).resolves.toEqual({
       enabled: true,
       providerKeySources: [{ provider: 'openrouter', source: 'stored' }],
@@ -98,6 +95,41 @@ describe('host provider services', () => {
       { authorization: 'Bearer stored-key', url: 'https://openrouter.ai/api/v1/key' },
     ]);
     expect(JSON.stringify(snapshot)).not.toContain('stored-key');
+  });
+});
+
+describe('host provider services: one configured OpenRouter origin', () => {
+  it('sends the model metadata lookup where the key probe goes, from the host env', async () => {
+    // The ambient process env names another origin; the host's own env decides.
+    vi.stubEnv('OPENROUTER_BASE_URL', 'http://127.0.0.1:9/ambient');
+    try {
+      const urls: string[] = [];
+      const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+        urls.push(String(input));
+        return new Response('{}', { status: 401 });
+      });
+      const { credentials } = credentialsWith({
+        openrouter: { key: 'stored-key', type: 'api_key' },
+      });
+      const services = createHostProviderServices({
+        auth: { secrets: credentials.secrets },
+        env: { OPENROUTER_BASE_URL: 'http://127.0.0.1:9/boundary' },
+        envFileFailures: [],
+        fetchImpl: fetchImpl as typeof fetch,
+      });
+
+      await services.verify('openrouter', open);
+      await expect(services.openRouterModel('anthropic/claude-sonnet-4.6', open)).rejects.toThrow(
+        'OpenRouter Models API returned status 401'
+      );
+
+      expect(urls).toEqual([
+        'http://127.0.0.1:9/boundary/key',
+        'http://127.0.0.1:9/boundary/model/anthropic/claude-sonnet-4.6',
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

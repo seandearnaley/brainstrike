@@ -1,17 +1,19 @@
 import { resolve } from 'node:path';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { untrackAppWindow } from '../../app-windows';
 import {
   APP_RENDERER_DOCUMENT_URL,
   configureDesktopRendererTarget,
   createDesktopRendererTarget,
 } from '../../desktop-renderer-target';
+import { DESKTOP_IPC_INVOKE_CHANNEL } from '../../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../../platform/desktop-ipc-registry';
 import { createDesktopIpcSenderFrameAllowlist } from '../../platform/desktop-ipc-sender-frame';
-import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-role';
-
-type MockInvokeHandler = (event: unknown, ...args: unknown[]) => unknown;
-type MockEventHandler = (event: unknown, payload: unknown) => void;
+import {
+  invokeDesktopIpcFrom,
+  trackTestAppWindow,
+} from '../helpers/desktop-ipc-sender-test-helpers';
 
 const BUILT_RENDERER_PATH = resolve('/opt/brainstrike/dist/renderer/index.html');
 const BUILT_RENDERER_URL = APP_RENDERER_DOCUMENT_URL;
@@ -21,33 +23,21 @@ const RENDERER_TARGET = createDesktopRendererTarget({
   launchMode: 'built',
 });
 const SENDER_FRAME_ALLOWLIST = createDesktopIpcSenderFrameAllowlist(RENDERER_TARGET);
-const UNAUTHENTICATED = { reason: 'test registration' } as const;
 
 function createMockIpcMain() {
-  return {
-    handle: vi.fn<(channel: string, handler: MockInvokeHandler) => void>(),
-    on: vi.fn<(channel: string, handler: MockEventHandler) => void>(),
-    removeHandler: vi.fn<(channel: string) => void>(),
-    removeListener: vi.fn<(channel: string, handler: MockEventHandler) => void>(),
-  };
+  return { handle: vi.fn() };
 }
 
 function createRegistry(ipcMain: ReturnType<typeof createMockIpcMain>) {
   return createDesktopIpcRegistry({
-    ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
+    ipcMain: ipcMain as never,
     senderFrameAllowlist: SENDER_FRAME_ALLOWLIST,
   });
 }
 
-function trackWindowRole(webContentsId: number, role: 'embedding-host' | 'visible-ui'): void {
-  assignWindowRole(
-    {
-      isDestroyed: () => false,
-      once: vi.fn(),
-      webContents: { id: webContentsId },
-    } as never,
-    role
-  );
+function appWindowEvent(senderId: number, url: string = BUILT_RENDERER_URL) {
+  trackTestAppWindow(senderId);
+  return { sender: { id: senderId }, senderFrame: { url } };
 }
 
 describe('desktop IPC registry', () => {
@@ -55,244 +45,113 @@ describe('desktop IPC registry', () => {
     configureDesktopRendererTarget(null);
   });
 
-  it('registers invoke and event channels with stable domain metadata', () => {
+  it('serves every method of every registry on one invoke channel per ipcMain', () => {
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-    const invokeHandler = vi.fn();
-    const eventHandler = vi.fn();
+    const shell = createRegistry(ipcMain);
+    const secrets = createRegistry(ipcMain);
 
-    registry.registerUnauthenticatedInvoke(
-      'embeddings',
-      'embedding-host:warmup',
-      UNAUTHENTICATED,
-      invokeHandler
+    shell.handle('shell', 'shell:open-path', vi.fn());
+    shell.handle('shell', 'shell:open-external', vi.fn());
+    secrets.handle('preferences', 'secrets:get', vi.fn());
+
+    expect(ipcMain.handle).toHaveBeenCalledExactlyOnceWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      expect.any(Function)
     );
-    registry.registerEvent('embeddings', 'embedding-host:report-status', eventHandler);
-
-    expect(ipcMain.handle).toHaveBeenCalledWith('embedding-host:warmup', invokeHandler);
-    expect(ipcMain.on).toHaveBeenCalledWith('embedding-host:report-status', eventHandler);
-    expect(registry.getSnapshot()).toEqual([
-      { channel: 'embedding-host:report-status', domain: 'embeddings', kind: 'event' },
-      { channel: 'embedding-host:warmup', domain: 'embeddings', kind: 'invoke' },
+    expect(shell.getSnapshot()).toEqual([
+      { channel: 'shell:open-external', domain: 'shell' },
+      { channel: 'shell:open-path', domain: 'shell' },
     ]);
+    expect(secrets.getSnapshot()).toEqual([{ channel: 'secrets:get', domain: 'preferences' }]);
   });
 
-  it('requires an explicit non-empty reason for an unauthenticated registration', () => {
+  it('dispatches an authorized call to the method handler with its arguments', async () => {
     const ipcMain = createMockIpcMain();
     const registry = createRegistry(ipcMain);
-
-    expect(() =>
-      registry.registerUnauthenticatedInvoke('db', 'db:ping', { reason: '   ' }, vi.fn())
-    ).toThrow('Desktop IPC unauthenticated registration requires a non-empty reason.');
-    expect(ipcMain.handle).not.toHaveBeenCalled();
-  });
-
-  it('rejects duplicate channel registration instead of silently replacing handlers', () => {
-    const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-
-    registry.registerUnauthenticatedInvoke('db', 'db:query', UNAUTHENTICATED, vi.fn());
-
-    expect(() =>
-      registry.registerUnauthenticatedInvoke('diagnostics', 'db:query', UNAUTHENTICATED, vi.fn())
-    ).toThrow('Desktop IPC channel already registered: db:query');
-    expect(ipcMain.handle).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects invalid channel names before registration', () => {
-    const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-
-    expect(() =>
-      registry.registerUnauthenticatedInvoke('db', '  ', UNAUTHENTICATED, vi.fn())
-    ).toThrow('Desktop IPC channel must be a non-empty string.');
-    expect(() =>
-      registry.registerUnauthenticatedInvoke('db', 'db:\0query', UNAUTHENTICATED, vi.fn())
-    ).toThrow('Desktop IPC channel must not contain null bytes.');
-    expect(ipcMain.handle).not.toHaveBeenCalled();
-  });
-
-  it('authorizes a declared sender role with an allowlisted sender frame before dispatching arguments', async () => {
-    const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-    trackWindowRole(8101, 'visible-ui');
     const handler = vi.fn((_event: unknown, payload: string) => `accepted:${payload}`);
-    registry.registerAuthorizedInvoke(
-      'preferences',
-      'secrets:get',
-      { roles: ['visible-ui'] },
-      handler
-    );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
-    const event = { sender: { id: 8101 }, senderFrame: { url: BUILT_RENDERER_URL } };
+    registry.handle('preferences', 'secrets:get', handler);
+    const event = appWindowEvent(8101);
 
-    await expect(registeredHandler?.(event, 'openai')).resolves.toBe('accepted:openai');
-    expect(handler).toHaveBeenCalledWith(event, 'openai');
-    clearWindowRoleByWebContentsId(8101);
+    await expect(invokeDesktopIpcFrom(ipcMain, event, 'secrets:get', 'openai')).resolves.toBe(
+      'accepted:openai'
+    );
+    expect(handler).toHaveBeenCalledExactlyOnceWith(event, 'openai');
+    untrackAppWindow(8101);
   });
 
-  it('accepts a hidden-host sender frame that differs from the visible renderer only by query', async () => {
+  it('refuses an unknown method from an authorized sender', async () => {
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-    trackWindowRole(8104, 'embedding-host');
-    const handler = vi.fn(() => 'ok');
-    registry.registerAuthorizedInvoke(
-      'db',
-      'db:exec',
-      { roles: ['embedding-host', 'visible-ui'] },
-      handler
-    );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+    createRegistry(ipcMain).handle('shell', 'shell:open-path', vi.fn());
 
     await expect(
-      registeredHandler?.({
-        sender: { id: 8104 },
-        senderFrame: { url: `${BUILT_RENDERER_URL}?mode=embedding-host&runtimeId=018f-1` },
-      })
-    ).resolves.toBe('ok');
-    expect(handler).toHaveBeenCalledTimes(1);
-    clearWindowRoleByWebContentsId(8104);
+      invokeDesktopIpcFrom(ipcMain, appWindowEvent(8102), 'shell:format-disk')
+    ).rejects.toThrow('No desktop IPC handler for shell:format-disk.');
+    await expect(invokeDesktopIpcFrom(ipcMain, appWindowEvent(8102), 42 as never)).rejects.toThrow(
+      'Desktop IPC requires a method name.'
+    );
+    untrackAppWindow(8102);
   });
 
-  it.each([
-    ['a hidden sender', 8102, 'embedding-host'],
-    ['an untracked sender', 8103, null],
-  ] as const)(
-    'rejects %s before invoking an authorized handler',
-    async (_label, senderId, role) => {
-      const ipcMain = createMockIpcMain();
-      const registry = createRegistry(ipcMain);
-      if (role) {
-        trackWindowRole(senderId, role);
-      }
-      const handler = vi.fn();
-      registry.registerAuthorizedInvoke(
-        'agent',
-        'agent:host-connect',
-        { roles: ['visible-ui'] },
-        handler
-      );
-      const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+  it('refuses an untracked sender before it learns whether a method exists', async () => {
+    const ipcMain = createMockIpcMain();
+    const shell = vi.fn();
+    const secrets = vi.fn();
+    const registry = createRegistry(ipcMain);
+    registry.handle('shell', 'shell:open-external', shell);
+    registry.handle('preferences', 'secrets:get', secrets);
+    const untracked = { sender: { id: 8103 }, senderFrame: { url: BUILT_RENDERER_URL } };
 
-      await expect(
-        registeredHandler?.({ sender: { id: senderId }, senderFrame: { url: BUILT_RENDERER_URL } })
-      ).rejects.toThrow('Desktop IPC agent:host-connect requires sender role visible-ui.');
-      expect(handler).not.toHaveBeenCalled();
-      clearWindowRoleByWebContentsId(senderId);
+    for (const method of ['shell:open-external', 'secrets:get', 'shell:format-disk']) {
+      await expect(invokeDesktopIpcFrom(ipcMain, untracked, method, 'payload')).rejects.toThrow(
+        `Desktop IPC ${method} requires an app window sender.`
+      );
     }
-  );
+    expect(shell).not.toHaveBeenCalled();
+    expect(secrets).not.toHaveBeenCalled();
+  });
 
   it.each([
     ['a foreign https origin', 'https://evil.example/index.html'],
     ['a sibling file next to the renderer', `${BUILT_RENDERER_URL}.evil.html`],
     ['the dev server while running the built renderer', 'http://localhost:38181/'],
     ['about:blank', 'about:blank'],
-  ])(
-    'rejects a spoofed sender frame (%s) even when sender.id maps to an allowed role',
-    async (_label, url) => {
-      const ipcMain = createMockIpcMain();
-      const registry = createRegistry(ipcMain);
-      trackWindowRole(8105, 'visible-ui');
-      const handler = vi.fn();
-      registry.registerAuthorizedInvoke(
-        'shell',
-        'shell:open-external',
-        { roles: ['visible-ui'] },
-        handler
-      );
-      const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+  ])('refuses a spoofed sender frame (%s) from a tracked app window', async (_label, url) => {
+    const ipcMain = createMockIpcMain();
+    const handler = vi.fn();
+    createRegistry(ipcMain).handle('shell', 'shell:open-external', handler);
 
+    for (const method of ['shell:open-external', 'shell:format-disk']) {
       await expect(
-        registeredHandler?.({ sender: { id: 8105 }, senderFrame: { url } }, { rootId: 'r1' })
-      ).rejects.toThrow(
-        'Desktop IPC shell:open-external rejected an unrecognized sender frame URL.'
-      );
-      expect(handler).not.toHaveBeenCalled();
-      clearWindowRoleByWebContentsId(8105);
+        invokeDesktopIpcFrom(ipcMain, appWindowEvent(8104, url), method, { rootId: 'r1' })
+      ).rejects.toThrow(`Desktop IPC ${method} rejected an unrecognized sender frame URL.`);
     }
-  );
+    expect(handler).not.toHaveBeenCalled();
+    untrackAppWindow(8104);
+  });
 
   it.each([
     ['null', null],
     ['missing', undefined],
   ])('fails closed when senderFrame is %s', async (_label, senderFrame) => {
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-    trackWindowRole(8106, 'visible-ui');
     const handler = vi.fn();
-    registry.registerAuthorizedInvoke(
-      'shell',
-      'shell:open-external',
-      { roles: ['visible-ui'] },
-      handler
-    );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+    createRegistry(ipcMain).handle('shell', 'shell:open-external', handler);
+    trackTestAppWindow(8105);
     const event =
-      senderFrame === undefined ? { sender: { id: 8106 } } : { sender: { id: 8106 }, senderFrame };
-
-    await expect(registeredHandler?.(event, 'https://example.com')).rejects.toThrow(
-      'Desktop IPC shell:open-external requires a live sender frame.'
-    );
-    expect(handler).not.toHaveBeenCalled();
-    clearWindowRoleByWebContentsId(8106);
-  });
-
-  it('fails closed when no allowlist was injected and no renderer target was configured process-wide', async () => {
-    const ipcMain = createMockIpcMain();
-    const registry = createDesktopIpcRegistry({
-      ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
-    });
-    trackWindowRole(8107, 'visible-ui');
-    const handler = vi.fn();
-    registry.registerAuthorizedInvoke(
-      'shell',
-      'shell:open-path',
-      { roles: ['visible-ui'] },
-      handler
-    );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+      senderFrame === undefined ? { sender: { id: 8105 } } : { sender: { id: 8105 }, senderFrame };
 
     await expect(
-      registeredHandler?.({ sender: { id: 8107 }, senderFrame: { url: BUILT_RENDERER_URL } })
-    ).rejects.toThrow('Desktop renderer target is not configured.');
+      invokeDesktopIpcFrom(ipcMain, event, 'shell:open-external', 'https://example.com')
+    ).rejects.toThrow('Desktop IPC shell:open-external requires a live sender frame.');
     expect(handler).not.toHaveBeenCalled();
-    clearWindowRoleByWebContentsId(8107);
-  });
-
-  it('derives the allowlist from the process-wide renderer target when none is injected', async () => {
-    configureDesktopRendererTarget(RENDERER_TARGET);
-    const ipcMain = createMockIpcMain();
-    const registry = createDesktopIpcRegistry({
-      ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
-    });
-    trackWindowRole(8108, 'visible-ui');
-    const handler = vi.fn(() => 'pushed');
-    registry.registerAuthorizedInvoke(
-      'shell',
-      'shell:open-path',
-      { roles: ['visible-ui'] },
-      handler
-    );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
-
-    await expect(
-      registeredHandler?.({ sender: { id: 8108 }, senderFrame: { url: BUILT_RENDERER_URL } })
-    ).resolves.toBe('pushed');
-    clearWindowRoleByWebContentsId(8108);
+    untrackAppWindow(8105);
   });
 
   it('fails closed with the curated error when the sender frame url getter throws (disposed frame)', async () => {
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-    trackWindowRole(8109, 'visible-ui');
     const handler = vi.fn();
-    registry.registerAuthorizedInvoke(
-      'shell',
-      'shell:open-path',
-      { roles: ['visible-ui'] },
-      handler
-    );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+    createRegistry(ipcMain).handle('shell', 'shell:open-path', handler);
+    trackTestAppWindow(8106);
     const disposedFrame = {
       get url(): string {
         throw new Error('Render frame was disposed before WebFrameMain could be accessed');
@@ -300,24 +159,52 @@ describe('desktop IPC registry', () => {
     };
 
     await expect(
-      registeredHandler?.({ sender: { id: 8109 }, senderFrame: disposedFrame })
+      invokeDesktopIpcFrom(
+        ipcMain,
+        { sender: { id: 8106 }, senderFrame: disposedFrame },
+        'shell:open-path'
+      )
     ).rejects.toThrow('Desktop IPC shell:open-path requires a live sender frame.');
     expect(handler).not.toHaveBeenCalled();
-    clearWindowRoleByWebContentsId(8109);
+    untrackAppWindow(8106);
   });
 
-  it('logs a main-process warning naming the channel and the rejected frame URL', async () => {
+  it('fails closed when no allowlist was injected and no renderer target was configured process-wide', async () => {
+    configureDesktopRendererTarget(null);
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-    trackWindowRole(8110, 'visible-ui');
     const handler = vi.fn();
-    registry.registerAuthorizedInvoke(
+    createDesktopIpcRegistry({ ipcMain: ipcMain as never }).handle(
       'shell',
       'shell:open-path',
-      { roles: ['visible-ui'] },
       handler
     );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+
+    await expect(
+      invokeDesktopIpcFrom(ipcMain, appWindowEvent(8107), 'shell:open-path')
+    ).rejects.toThrow('Desktop renderer target is not configured.');
+    expect(handler).not.toHaveBeenCalled();
+    untrackAppWindow(8107);
+  });
+
+  it('derives the allowlist from the process-wide renderer target when none is injected', async () => {
+    configureDesktopRendererTarget(RENDERER_TARGET);
+    const ipcMain = createMockIpcMain();
+    createDesktopIpcRegistry({ ipcMain: ipcMain as never }).handle(
+      'shell',
+      'shell:open-path',
+      vi.fn(() => 'opened')
+    );
+
+    await expect(
+      invokeDesktopIpcFrom(ipcMain, appWindowEvent(8108), 'shell:open-path')
+    ).resolves.toBe('opened');
+    untrackAppWindow(8108);
+  });
+
+  it('logs a main-process warning naming the method and the rejected frame URL', async () => {
+    const ipcMain = createMockIpcMain();
+    const handler = vi.fn();
+    createRegistry(ipcMain).handle('shell', 'shell:open-path', handler);
     const captured: LogRecord[] = [];
     const unsubscribe = addLogListener((record) => {
       captured.push(record);
@@ -325,11 +212,15 @@ describe('desktop IPC registry', () => {
 
     try {
       await expect(
-        registeredHandler?.({ sender: { id: 8110 }, senderFrame: { url: 'https://evil.example/' } })
+        invokeDesktopIpcFrom(
+          ipcMain,
+          appWindowEvent(8109, 'https://evil.example/'),
+          'shell:open-path'
+        )
       ).rejects.toThrow('Desktop IPC shell:open-path rejected an unrecognized sender frame URL.');
     } finally {
       unsubscribe();
-      clearWindowRoleByWebContentsId(8110);
+      untrackAppWindow(8109);
     }
 
     const record = captured.find(
@@ -340,7 +231,7 @@ describe('desktop IPC registry', () => {
           (arg) =>
             typeof arg === 'object' &&
             arg !== null &&
-            (arg as Record<string, unknown>)['channel'] === 'shell:open-path' &&
+            (arg as Record<string, unknown>)['method'] === 'shell:open-path' &&
             (arg as Record<string, unknown>)['senderFrameUrl'] === 'https://evil.example/'
         )
     );
@@ -348,43 +239,64 @@ describe('desktop IPC registry', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('rejects empty and duplicate sender-role policies at registration', () => {
+  it('refuses a method that another registry on the same ipcMain already serves', async () => {
     const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
+    const first = vi.fn(() => 'first');
+    createRegistry(ipcMain).handle('db', 'db:clearAll', first);
 
-    expect(() =>
-      registry.registerAuthorizedInvoke('agent', 'agent:host-connect', { roles: [] }, vi.fn())
-    ).toThrow('Desktop IPC sender policy must allow at least one window role.');
-    expect(() =>
-      registry.registerAuthorizedInvoke(
-        'agent',
-        'agent:host-connect',
-        { roles: ['visible-ui', 'visible-ui'] },
-        vi.fn()
-      )
-    ).toThrow('Desktop IPC sender policy must not contain duplicate window roles.');
-    expect(ipcMain.handle).not.toHaveBeenCalled();
+    expect(() => createRegistry(ipcMain).handle('diagnostics', 'db:clearAll', vi.fn())).toThrow(
+      'Desktop IPC method already registered: db:clearAll'
+    );
+    await expect(invokeDesktopIpcFrom(ipcMain, appWindowEvent(8110), 'db:clearAll')).resolves.toBe(
+      'first'
+    );
+    untrackAppWindow(8110);
   });
 
-  it('unregisters owned invoke and event channels', () => {
-    const ipcMain = createMockIpcMain();
-    const registry = createRegistry(ipcMain);
-    const eventHandler = vi.fn();
+  it('rejects invalid method names before registration', () => {
+    const registry = createRegistry(createMockIpcMain());
 
-    registry.registerUnauthenticatedInvoke(
-      'embeddings',
-      'embedding-host:ensure-started',
-      UNAUTHENTICATED,
-      vi.fn()
+    expect(() => registry.handle('db', '  ', vi.fn())).toThrow(
+      'Desktop IPC method must be a non-empty string without null bytes.'
     );
-    registry.registerEvent('embeddings', 'embedding-host:report-status', eventHandler);
-    registry.unregisterAll();
-
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('embedding-host:ensure-started');
-    expect(ipcMain.removeListener).toHaveBeenCalledWith(
-      'embedding-host:report-status',
-      eventHandler
+    expect(() => registry.handle('db', 'db:\0query', vi.fn())).toThrow(
+      'Desktop IPC method must be a non-empty string without null bytes.'
     );
     expect(registry.getSnapshot()).toEqual([]);
+  });
+
+  it('unregisters only the methods its own registry served', async () => {
+    const ipcMain = createMockIpcMain();
+    const shell = createRegistry(ipcMain);
+    const secrets = createRegistry(ipcMain);
+    shell.handle(
+      'shell',
+      'shell:open-path',
+      vi.fn(() => 'opened')
+    );
+    secrets.handle(
+      'preferences',
+      'secrets:get',
+      vi.fn(() => 'secret')
+    );
+    const event = appWindowEvent(8111);
+
+    shell.unregisterAll();
+
+    expect(shell.getSnapshot()).toEqual([]);
+    await expect(invokeDesktopIpcFrom(ipcMain, event, 'shell:open-path')).rejects.toThrow(
+      'No desktop IPC handler for shell:open-path.'
+    );
+    await expect(invokeDesktopIpcFrom(ipcMain, event, 'secrets:get')).resolves.toBe('secret');
+
+    const replacement = createRegistry(ipcMain);
+    replacement.handle(
+      'shell',
+      'shell:open-path',
+      vi.fn(() => 'reopened')
+    );
+    await expect(invokeDesktopIpcFrom(ipcMain, event, 'shell:open-path')).resolves.toBe('reopened');
+    expect(ipcMain.handle).toHaveBeenCalledTimes(1);
+    untrackAppWindow(8111);
   });
 });

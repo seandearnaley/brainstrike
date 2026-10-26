@@ -49,20 +49,9 @@ const playwrightConfig: PlaywrightTestConfig = {
       name: 'smoke',
     },
     {
-      grepInvert: /@smoke|@perf/,
+      grepInvert: /@smoke/,
       name: 'regression',
     },
-    // Long-running benchmarks and soak assertions run only when explicitly
-    // invoked. test:e2e:stress:foreground-thread and test:e2e:lane:foreground-latency set this
-    // flag; ordinary correctness runs retain the other crash/lifecycle tests.
-    ...(process.env['BRAINSTRIKE_E2E_PERF'] === '1'
-      ? [
-          {
-            grep: /@perf/,
-            name: 'perf',
-          },
-        ]
-      : []),
   ],
 
   // Reporter configuration

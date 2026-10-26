@@ -55,7 +55,7 @@ const NoteSchema = Schema.String;
 const AnthropicEffortSchema = Schema.Literals(['low', 'medium', 'high', 'xhigh', 'max']);
 const OpenAiReasoningEffortSchema = Schema.Literals(OPENAI_REASONING_EFFORT_VALUES);
 const ModelModalitySchema = Schema.Literals(['audio', 'image', 'text', 'video']);
-const ModelVisionSupportSchema = Schema.Literals(['supported', 'unsupported', 'unknown']);
+const ModelVisionSupportSchema = Schema.Literals(['supported', 'unsupported']);
 const TokenizerEncodingSchema = Schema.Literals(['o200k_base']);
 const TokenizerBackedMeasurementSchema = Schema.Struct({
   mode: Schema.Literals(['exact-selected-model', 'declared-compatible-reference']),
@@ -151,32 +151,10 @@ const EmbeddingModelSchema = Schema.Struct({
   dimensionParameter: Schema.optional(
     Schema.Literals(['dimensions', 'output_dimensionality', 'output_dimension'])
   ),
-  execution: Schema.optional(
-    Schema.Struct({
-      wasm: Schema.optional(Schema.Literals(['fp16', 'fp32', 'q4', 'q8'])),
-      webgpu: Schema.optional(Schema.Literals(['fp16', 'fp32', 'q4', 'q8'])),
-    })
-  ),
-  executionNotes: Schema.optional(
-    Schema.Struct({
-      wasm: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
-      webgpu: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
-    })
-  ),
   id: Schema.String,
   label: Schema.optional(Schema.String),
-  pooling: Schema.optional(Schema.Literals(['mean', 'cls'])),
   /** A hosted embedder's list price per million input tokens (BST-2226). */
   pricing: Schema.optional(Schema.Struct({ inputPerMTok: Schema.Finite })),
-  prompts: Schema.optional(Schema.Struct({ document: Schema.String, query: Schema.String })),
-  recommendedExecution: Schema.optional(
-    Schema.Struct({
-      device: Schema.Literals(['webgpu', 'wasm']),
-      dtype: Schema.Literals(['fp16', 'fp32', 'q4', 'q8']),
-      reason: Schema.String.check(Schema.isMinCodePoints(1)),
-    })
-  ),
-  revision: Schema.optional(Schema.String.check(Schema.isMinCodePoints(1))),
   supportsCustomDimensions: Schema.optional(Schema.Boolean),
   supportsStandardDimension: Schema.Boolean,
   type: Schema.Literal('embedding'),
@@ -184,7 +162,7 @@ const EmbeddingModelSchema = Schema.Struct({
 const ProviderModelSchema = Schema.Union([LlmModelSchema, EmbeddingModelSchema], { mode: 'oneOf' });
 const ProviderSchema = Schema.Struct({
   _note: Schema.optional(NoteSchema),
-  authType: Schema.Literals(['api_key', 'aws', 'none']),
+  authType: Schema.Literals(['api_key', 'aws']),
   capabilities: Schema.Struct({
     embeddings: Schema.Boolean,
     llm: Schema.Boolean,
@@ -203,14 +181,11 @@ const ProviderSchema = Schema.Struct({
     'cohere',
     'voyage',
     'bedrock',
-    'local',
-    'ollama',
-    'lmstudio',
   ]),
   keyFormatHint: Schema.optional(Schema.String),
   keyNotes: Schema.optional(Schema.String),
   models: Schema.mutable(Schema.Array(ProviderModelSchema)),
-  runtime: Schema.Literals(['hosted', 'gateway', 'local', 'on-device']),
+  runtime: Schema.Literals(['hosted', 'gateway']),
 });
 export const ProviderCatalogSchema = Schema.mutable(Schema.Array(ProviderSchema));
 export type ParsedProvider = CatalogShape<(typeof ProviderSchema)['Type']>;

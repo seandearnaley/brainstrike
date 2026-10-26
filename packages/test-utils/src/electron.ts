@@ -6,6 +6,7 @@ type IpcHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unkn
 
 interface IpcMainMock {
   __invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+  getHandler(channel: string): IpcHandler | undefined;
   handle: Mock<(channel: string, handler: IpcHandler) => void>;
   removeHandler: Mock<(channel: string) => void>;
 }
@@ -22,6 +23,7 @@ export function createIpcMainMock(): IpcMainMock {
       }
       return handler({} as unknown, ...args);
     },
+    getHandler: (channel: string) => handlers.get(channel),
     handle: vi.fn((channel: string, handler: IpcHandler) => {
       handlers.set(channel, handler);
     }),
@@ -64,7 +66,10 @@ export function createContextBridgeMock(): ContextBridgeMock {
 }
 
 interface AppMock {
-  commandLine: { appendSwitch: Mock<(key: string, value?: string) => void> };
+  commandLine: {
+    appendSwitch: Mock<(key: string, value?: string) => void>;
+    getSwitchValue: Mock<(key: string) => string>;
+  };
   getAppPath: Mock<() => string>;
   getPath: Mock<(key: string) => string>;
   getVersion: Mock<() => string>;
@@ -86,7 +91,7 @@ export function createAppMock(opts?: {
   const documentsPath = opts?.documentsPath ?? '/mock/documents';
 
   return {
-    commandLine: { appendSwitch: vi.fn() },
+    commandLine: { appendSwitch: vi.fn(), getSwitchValue: vi.fn(() => '') },
     getAppPath: vi.fn(() => resolve('/app')),
     getPath: vi.fn((key: string) => (key === 'documents' ? documentsPath : '/mock/path')),
     getVersion: vi.fn(() => '0.0.0-test'),

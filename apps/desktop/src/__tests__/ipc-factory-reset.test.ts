@@ -1,19 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
+import {
+  createAllowlistedSenderFrame,
+  invokeDesktopIpc,
+  invokeDesktopIpcFrom,
+} from './helpers/desktop-ipc-sender-test-helpers';
 
-const { handlers, removeHandler } = vi.hoisted(() => ({
-  handlers: new Map<string, (...args: unknown[]) => unknown>(),
-  removeHandler: vi.fn(),
-}));
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: (channel: string, handler: (...args: unknown[]) => unknown) =>
-      handlers.set(channel, handler),
-    on: vi.fn(),
-    removeHandler,
-    removeListener: vi.fn(),
-  },
-}));
+const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
+vi.mock('electron', () => ({ ipcMain }));
 
 import {
   registerFactoryResetIpcHandlers,
@@ -23,19 +16,18 @@ import {
 const originalPlatform = process.platform;
 afterEach(() => {
   Object.defineProperty(process, 'platform', { value: originalPlatform });
-  handlers.clear();
-  vi.clearAllMocks();
 });
-function invoke(
-  channel: string,
-  role: 'visible-ui' | 'embedding-host' = 'visible-ui',
-  ...args: unknown[]
-) {
-  const handler = handlers.get(channel);
-  if (!handler) {
-    throw new Error('Missing registered operation');
-  }
-  return handler(createTrustedInvokeEvent(role), ...args);
+function invoke(method: string, ...args: unknown[]) {
+  return invokeDesktopIpc(ipcMain, method, ...args);
+}
+/** A sender that is not a tracked app window, on an otherwise trusted frame. */
+function invokeFromUntrackedSender(method: string, ...args: unknown[]) {
+  return invokeDesktopIpcFrom(
+    ipcMain,
+    { sender: { id: 970_404 }, senderFrame: createAllowlistedSenderFrame() },
+    method,
+    ...args
+  );
 }
 describe('current profile reset and path IPC', () => {
   it('awaits the existing reset owner and retains its result without a database owner', async () => {
@@ -49,7 +41,9 @@ describe('current profile reset and path IPC', () => {
     completion.resolve({ message: 'reset refused', success: false });
     await expect(result).resolves.toEqual({ message: 'reset refused', success: false });
     close();
-    expect(removeHandler).toHaveBeenCalledWith('db:resetLocal');
+    await expect(invoke('db:resetLocal')).rejects.toThrow(
+      'No desktop IPC handler for db:resetLocal.'
+    );
   });
   it('preserves Windows reset admission without invoking the owner', async () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
@@ -59,11 +53,13 @@ describe('current profile reset and path IPC', () => {
     expect(reset).not.toHaveBeenCalled();
     close();
   });
-  it('refuses hidden callers and malformed reset arguments before mutation', async () => {
+  it('refuses non-window callers and malformed reset arguments before mutation', async () => {
     const reset = vi.fn(async () => ({ success: true }));
     const close = registerFactoryResetIpcHandlers(reset);
-    await expect(invoke('db:resetLocal', 'embedding-host')).rejects.toThrow();
-    await expect(invoke('db:resetLocal', 'visible-ui', 'extra')).rejects.toThrow();
+    await expect(invokeFromUntrackedSender('db:resetLocal')).rejects.toThrow(
+      'Desktop IPC db:resetLocal requires an app window sender.'
+    );
+    await expect(invoke('db:resetLocal', 'extra')).rejects.toThrow();
     expect(reset).not.toHaveBeenCalled();
     close();
   });
@@ -71,7 +67,9 @@ describe('current profile reset and path IPC', () => {
     const close = registerProfilePathIpcHandlers(() => '/tmp/disposable/current-profile');
     await expect(invoke('db:getUserDataPath')).resolves.toBe('/tmp/disposable/current-profile');
     close();
-    expect(removeHandler).toHaveBeenCalledWith('db:getUserDataPath');
+    await expect(invoke('db:getUserDataPath')).rejects.toThrow(
+      'No desktop IPC handler for db:getUserDataPath.'
+    );
   });
 });
 
@@ -80,12 +78,12 @@ it('content clear uses the existing host owner only after visible confirmation',
   const clear = vi.fn(async () => ({ deletedChunks: null, deletedFiles: 2 }));
   const close = registerContentClearIpcHandlers(clear);
   try {
-    await expect(invoke('db:clearAll', 'visible-ui', 'wrong')).rejects.toThrow();
+    await expect(invoke('db:clearAll', 'wrong')).rejects.toThrow();
     await expect(
-      invoke('db:clearAll', 'embedding-host', 'CONFIRM_CLEAR_DATABASE')
-    ).rejects.toThrow();
+      invokeFromUntrackedSender('db:clearAll', 'CONFIRM_CLEAR_DATABASE')
+    ).rejects.toThrow('Desktop IPC db:clearAll requires an app window sender.');
     expect(clear).not.toHaveBeenCalled();
-    await expect(invoke('db:clearAll', 'visible-ui', 'CONFIRM_CLEAR_DATABASE')).resolves.toEqual({
+    await expect(invoke('db:clearAll', 'CONFIRM_CLEAR_DATABASE')).resolves.toEqual({
       deletedChunks: null,
       deletedFiles: 2,
     });

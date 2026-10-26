@@ -463,15 +463,18 @@ test.describe('Worktree Map (desktop)', () => {
     });
     await expect(page.getByTestId('terminal-panel-clear-target')).toBeVisible();
 
-    // And it is a REAL shell in that directory, not just a label: `pwd` is the
-    // falsifier a header-only assertion cannot provide. Checked against
-    // `worktrees/<name>` rather than the bare basename — the bare basename can
-    // also appear in the shell PROMPT itself (zsh's default prompt shows the
-    // cwd's last segment), so a prompt-only match would satisfy this assertion
-    // even if `pwd`'s own output never printed. The two-segment fragment only
-    // ever appears in the real pwd output line.
+    // And it is a REAL shell in that directory, not just a label: the shell's
+    // own answer is the falsifier a header-only assertion cannot provide. The
+    // shell is the platform's (`$SHELL` on POSIX, `%ComSpec%`, normally
+    // cmd.exe, on Windows), so the command must mean the same in both: `pwd`
+    // does not exist in cmd.exe. `git rev-parse --show-toplevel` does, and it
+    // names the checkout containing the shell's cwd — the parent repo's path
+    // if the shell landed there — always with forward slashes, Windows
+    // included. The forward-slash two-segment fragment therefore appears only
+    // in git's output line: never in the echoed command, nor in a prompt
+    // (zsh shows the last segment; cmd.exe shows the cwd with backslashes).
     await page.getByTestId('terminal-host').click();
-    await page.keyboard.type('pwd\r');
+    await page.keyboard.type('git rev-parse --show-toplevel\r');
     await expect(page.locator('.xterm-rows')).toContainText('worktrees/terminal-nested', {
       timeout: 30_000,
     });

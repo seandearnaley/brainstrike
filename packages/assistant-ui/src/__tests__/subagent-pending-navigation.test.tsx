@@ -9,7 +9,7 @@ import {
   SubagentChildRunContext,
   SubagentConversationNavigationContext,
   SubagentConversationPresentationContext,
-  SubagentInvocationResolverContext,
+  type SubagentInvocationAddress,
   SubagentLiveInvocationContext,
 } from '../subagent-conversation-navigation';
 import { childRunSource, Harness } from './assistant-activity-timeline-fixtures';
@@ -52,6 +52,7 @@ function message(id: string, runs: string[]): ThreadMessageLike {
 afterEach(cleanup);
 it('shows a persisted child callsign and color from an authorized live publication before tool completion', async () => {
   let childThreadId: string | undefined;
+  const open = vi.fn();
   const listeners = new Set<() => void>();
   const source = {
     getThreadId: vi.fn((identity: { parentRuntimeRunId: string; parentToolCallId: string }) => {
@@ -71,16 +72,19 @@ it('shows a persisted child callsign and color from an authorized live publicati
   // The owner has not read the new child's log yet.
   const { container } = render(
     <SubagentChildRunContext value={childRunSource()}>
-      <SubagentLiveInvocationContext value={source}>
-        <SubagentConversationPresentationContext value={presentation}>
-          <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
-        </SubagentConversationPresentationContext>
-      </SubagentLiveInvocationContext>
+      <SubagentConversationNavigationContext value={open}>
+        <SubagentLiveInvocationContext value={source}>
+          <SubagentConversationPresentationContext value={presentation}>
+            <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
+          </SubagentConversationPresentationContext>
+        </SubagentLiveInvocationContext>
+      </SubagentConversationNavigationContext>
     </SubagentChildRunContext>
   );
   const user = userEvent.setup();
   await user.click(await screen.findByTestId('assistant-activity-summary'));
   expect(screen.queryByText('Delegating to Cedar')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^Open .+ conversation$/ })).not.toBeInTheDocument();
   act(() => {
     childThreadId = 'child-run-one';
     for (const listener of listeners) {
@@ -128,22 +132,31 @@ it('keeps a later result address that conflicts with the live invocation visible
   expect(presentation).not.toHaveBeenCalled();
 });
 it('opens the exact pending invocation when two turns reuse a native tool-call ID', async () => {
-  const resolve = vi.fn(
-    async ({ parentRuntimeRunId }: { parentRuntimeRunId: string }) => `child-${parentRuntimeRunId}`
-  );
+  const children = new Map([
+    ['run-one:reused-call', 'child-run-one'],
+    ['run-two:reused-call', 'child-run-two'],
+  ]);
+  const source = {
+    getThreadId: vi.fn(({ parentRuntimeRunId, parentToolCallId }: SubagentInvocationAddress) =>
+      children.get(`${parentRuntimeRunId}:${parentToolCallId}`)
+    ),
+    subscribe: () => () => undefined,
+  };
   const open = vi.fn();
   render(
     <SubagentConversationNavigationContext value={open}>
-      <SubagentInvocationResolverContext value={resolve}>
-        <Harness
-          adapter={adapter}
-          initialMessages={[
-            message('earlier', ['run-one']),
-            { content: 'Continue', id: 'followup', role: 'user' },
-            message('current', ['run-two']),
-          ]}
-        />
-      </SubagentInvocationResolverContext>
+      <SubagentChildRunContext value={childRunSource()}>
+        <SubagentLiveInvocationContext value={source}>
+          <Harness
+            adapter={adapter}
+            initialMessages={[
+              message('earlier', ['run-one']),
+              { content: 'Continue', id: 'followup', role: 'user' },
+              message('current', ['run-two']),
+            ]}
+          />
+        </SubagentLiveInvocationContext>
+      </SubagentChildRunContext>
     </SubagentConversationNavigationContext>
   );
   const user = userEvent.setup();
@@ -160,57 +173,24 @@ it('opens the exact pending invocation when two turns reuse a native tool-call I
     throw new Error('Missing sibling cards');
   }
   await user.click(second);
-  expect(resolve).toHaveBeenLastCalledWith({
+  expect(source.getThreadId).toHaveBeenCalledWith({
     parentRuntimeRunId: 'run-two',
     parentToolCallId: 'reused-call',
   });
   expect(open).toHaveBeenLastCalledWith('child-run-two', second);
   await user.click(first);
-  expect(resolve).toHaveBeenLastCalledWith({
+  expect(source.getThreadId).toHaveBeenCalledWith({
     parentRuntimeRunId: 'run-one',
     parentToolCallId: 'reused-call',
   });
+  expect(open).toHaveBeenLastCalledWith('child-run-one', first);
 });
 
-it('keeps a rejected pending lookup visible and lets the user retry it', async () => {
-  const resolve = vi
-    .fn<({ parentRuntimeRunId }: { parentRuntimeRunId: string }) => Promise<string>>()
-    .mockRejectedValueOnce(new Error('The child invocation is not attached yet.'))
-    .mockResolvedValueOnce('child-run-one');
-  const open = vi.fn();
-  render(
-    <SubagentConversationNavigationContext value={open}>
-      <SubagentInvocationResolverContext value={resolve}>
-        <Harness adapter={adapter} initialMessages={[message('pending', ['run-one'])]} />
-      </SubagentInvocationResolverContext>
-    </SubagentConversationNavigationContext>
-  );
-  const user = userEvent.setup();
-  await user.click(await screen.findByTestId('assistant-activity-summary'));
-  const button = await screen.findByRole('button', { name: 'Open Worker conversation' });
-
-  await user.click(button);
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'The child invocation is not attached yet.'
-  );
-  expect(open).not.toHaveBeenCalled();
-
-  await user.click(screen.getByRole('button', { name: 'Open Worker conversation' }));
-  expect(resolve).toHaveBeenCalledTimes(2);
-  expect(open).toHaveBeenCalledWith('child-run-one', button);
-  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-});
 it('renders a contradictory invocation as a local navigation error without losing the conversation', async () => {
   const open = vi.fn();
-  const resolve = vi.fn(async () => 'must-not-open');
   render(
     <SubagentConversationNavigationContext value={open}>
-      <SubagentInvocationResolverContext value={resolve}>
-        <Harness
-          adapter={adapter}
-          initialMessages={[message('conflict', ['run-one', 'run-two'])]}
-        />
-      </SubagentInvocationResolverContext>
+      <Harness adapter={adapter} initialMessages={[message('conflict', ['run-one', 'run-two'])]} />
     </SubagentConversationNavigationContext>
   );
   const user = userEvent.setup();
@@ -219,7 +199,6 @@ it('renders a contradictory invocation as a local navigation error without losin
   expect(
     screen.queryByRole('button', { name: 'Open Worker conversation' })
   ).not.toBeInTheDocument();
-  expect(resolve).not.toHaveBeenCalled();
   expect(open).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox', { name: 'Message' })).toBeVisible();
 });

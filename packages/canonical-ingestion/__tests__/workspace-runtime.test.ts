@@ -154,13 +154,10 @@ it.each([
 it('consumes explicit VECTOR dependencies and rejects missing full-root coverage without a ready receipt', async () => {
   const dependencies = fixture();
   const profile = {
-    dimensions: 384,
+    dimensions: 1536,
     distance: 'cosine',
-    dtype: 'q8',
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    provider: 'local',
-    revision: 'a'.repeat(40),
-    tokenCap: 256,
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
   } as const;
   const resolveProfile = vi.fn(async () => profile);
   const generate = vi.fn(async () => {

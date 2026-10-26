@@ -7,7 +7,7 @@ import type { ModelPricingResolver } from '../assistant-cross-root-cost.ts';
 
 /**
  * Resolve a model's list price from the static provider registry. Returns
- * undefined for unknown providers/models (keyless/local) — `computeCost` then
+ * undefined for unknown providers/models — `computeCost` then
  * reports `unpriced_model` and the row renders "cost unavailable", never $0.
  * Shared by the cost-aggregation panel and the Task Ledger panel so their
  * honest-cost behavior can never drift.

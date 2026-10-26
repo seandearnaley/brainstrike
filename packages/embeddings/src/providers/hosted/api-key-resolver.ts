@@ -7,32 +7,24 @@ import {
   providerEnvKeys,
   providerVendorEnvKey,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import type { HostedProviderType } from '../../provider-types.ts';
-
-type HostedProvider = HostedProviderType;
+import type { EmbeddingProviderType } from '../../provider-types.ts';
 
 /**
- * Embedding-provider env-var names. Registry-keyed providers derive their
- * names from the shared provider registry (BST-1361) — no hand-maintained
- * copy, so `deprecatedEnvKeys` can never authenticate here. Only the local
- * OpenAI-compatible runtimes (absent from the registry's envKeys because
- * their optional bearer token is a transport concern, not an authType) keep
- * local literals. The RESOLUTION ORDER and error semantics come from the
+ * Embedding-provider env-var names, derived from the shared provider registry
+ * (BST-1361) — no hand-maintained copy, so `deprecatedEnvKeys` can never
+ * authenticate here. The RESOLUTION ORDER and error semantics come from the
  * shared core (BST-979): environment sources are authoritative, the secret
  * store is the fallback. Each name is also checked with a `VITE_` prefix for
  * SSR/renderer builds.
  */
-export const HOSTED_PROVIDER_ENV_KEYS: Record<HostedProvider, readonly string[]> = {
+export const HOSTED_PROVIDER_ENV_KEYS: Record<EmbeddingProviderType, readonly string[]> = {
   cohere: providerEnvKeys('cohere'),
   google: providerEnvKeys('google'),
-  lmstudio: ['LMSTUDIO_API_KEY', 'AI_LMSTUDIO_API_KEY'],
-  // Optional auth for local OpenAI-compatible runtimes.
-  ollama: ['OLLAMA_API_KEY', 'AI_OLLAMA_API_KEY'],
   openai: providerEnvKeys('openai'),
   voyage: providerEnvKeys('voyage'),
 };
 
-function envKeyNamesWithViteVariants(provider: HostedProvider): readonly string[] {
+function envKeyNamesWithViteVariants(provider: EmbeddingProviderType): readonly string[] {
   const names = HOSTED_PROVIDER_ENV_KEYS[provider] ?? [];
   return [...names, ...names.map((name) => `VITE_${name}`)];
 }
@@ -51,7 +43,7 @@ export interface DeprecatedHostedEnvNameHit {
  * resolve a key. Names only — values never leave this function.
  */
 export function detectDeprecatedHostedProviderEnvNames(
-  provider: HostedProvider
+  provider: EmbeddingProviderType
 ): readonly DeprecatedHostedEnvNameHit[] {
   const vendorName = providerVendorEnvKey(provider);
   if (!vendorName) {
@@ -120,7 +112,9 @@ function readImportMetaEnv(): Record<string, string | undefined> | undefined {
   }
 }
 
-async function readWindowSecret(provider: HostedProvider): Promise<string | null | undefined> {
+async function readWindowSecret(
+  provider: EmbeddingProviderType
+): Promise<string | null | undefined> {
   // Bridge absence or failure is a CAPABILITY state in the renderer, not a
   // credential error — the web build has no secrets bridge at all. The
   // desktop retrieval path, which does treat read failures as significant,
@@ -148,7 +142,7 @@ async function readWindowSecret(provider: HostedProvider): Promise<string | null
  * `undefined`, so a key ADDED after the first miss stayed invisible for the
  * process lifetime. Invalidated by the shared secrets-changed DOM event.
  */
-const apiKeyCache = new Map<HostedProvider, string>();
+const apiKeyCache = new Map<EmbeddingProviderType, string>();
 
 // Latch by window IDENTITY, not a boolean: this module's own suite swaps
 // `globalThis.window` per test, and a boolean latch would silently disable
@@ -174,7 +168,7 @@ function wireCacheInvalidation(): void {
 }
 
 export async function resolveHostedProviderApiKey(
-  provider: HostedProvider
+  provider: EmbeddingProviderType
 ): Promise<string | undefined> {
   wireCacheInvalidation();
   const cached = apiKeyCache.get(provider);
@@ -197,7 +191,7 @@ export async function resolveHostedProviderApiKey(
   return resolution.key;
 }
 
-export function clearHostedProviderApiKeyCache(provider?: HostedProvider): void {
+export function clearHostedProviderApiKeyCache(provider?: EmbeddingProviderType): void {
   if (provider) {
     apiKeyCache.delete(provider);
   } else {

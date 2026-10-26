@@ -1,11 +1,8 @@
 /**
  * Workspace Search (Explorer|Search) driving helpers for desktop E2E.
  *
- * These replace the retired Collection Browser semantic-search harness. The
- * browser's hybrid-search box was only ever a convenient way to prove that the
- * embedding host produced embeddings a renderer-side semantic query can
- * retrieve and render; Workspace Search is now the only surface that does that,
- * so the embedding suites drive it instead.
+ * Workspace Search is the surface where a semantic query's results render, so
+ * the semantic index specs drive it.
  *
  * Two contracts from `docs/agents/explorer-search-context-map.md` shape these
  * helpers, and both are load-bearing for any fixture that wants to be visible

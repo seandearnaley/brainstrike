@@ -122,7 +122,7 @@ describe('AssistantChatPanel', () => {
 
   it('shows assistant UI when enabled', async () => {
     useAssistantAvailabilityMock.mockReturnValue({
-      providers: ['openai', 'local'],
+      providers: ['openai', 'anthropic'],
       state: 'enabled',
     });
 
@@ -136,7 +136,7 @@ describe('AssistantChatPanel', () => {
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantProviderSourceProviderMock).toHaveBeenCalledWith({
       kind: 'discovery',
-      seeds: ['openai', 'local'],
+      seeds: ['openai', 'anthropic'],
     });
   });
 

@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
+import { vectorProfileHash } from './chunks.ts';
 import { decoder, IndexerError, vectorProfileSchema } from './contracts.ts';
-import { supportedVectorProfile, vectorProfileHash } from './scope-authority.ts';
+import { supportedVectorProfile } from './scope-authority.ts';
 
 const integer = Schema.Int.check(
   Schema.isGreaterThan(0),
@@ -23,13 +24,13 @@ export function validateScopedStorage(db: Database.Database, profileHash?: strin
     const invalidChunks = decoder(Schema.Int)(
       db
         .prepare(
-          'SELECT count(*) FROM file_chunks c JOIN file_records f ON f.id=c.file_record_id WHERE c.root_id IS NOT f.root_id OR (f.scoped=1 AND (c.has_vector!=0 OR c.embedding_hash IS NOT NULL))'
+          'SELECT count(*) FROM file_chunks c JOIN file_records f ON f.id=c.file_record_id WHERE c.root_id IS NOT f.root_id'
         )
         .pluck()
         .get()
     );
     if (invalidChunks !== 0) {
-      throw new Error('Canonical chunk/root/scoped vector metadata disagree.');
+      throw new Error('Canonical chunk and file roots disagree.');
     }
     validateVectorBytes(db, profileHash);
     const profiles = decoder(

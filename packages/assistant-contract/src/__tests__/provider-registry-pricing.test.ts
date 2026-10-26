@@ -141,12 +141,6 @@ describe('model pricing metadata', () => {
     }
   });
 
-  it('the built-in local provider omits pricing (keyless models must not render $0)', () => {
-    for (const model of listProviderLlmModels('local')) {
-      expect(model.pricing, `local/${model.id}`).toBeUndefined();
-    }
-  });
-
   it('new hosted models carry current base-rate estimates', () => {
     const sol = listProviderLlmModels('openai').find((model) => model.id === 'gpt-5.6-sol');
     const fable = listProviderLlmModels('anthropic').find((model) => model.id === 'claude-fable-5');

@@ -7,7 +7,6 @@ import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
 } from '@brainstrike/app-state/stores/model-registry-store';
-import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { act } from '@brainstrike/test-utils/react-act';
 import { render, screen, within } from '@testing-library/react';
@@ -59,32 +58,6 @@ function seedRegistry(): void {
         capabilities: { streaming: true, type: 'llm' },
         description: null,
         icon: null,
-        id: 'onnx-community/gemma-4-E2B-it-ONNX',
-        isEnabled: true,
-        name: 'Gemma 4 Built-in',
-        parameters: null,
-        providerId: 'transformers',
-        sortOrder: 1,
-        tagline: null,
-      },
-      {
-        bestFor: null,
-        capabilities: { streaming: true, type: 'llm' },
-        description: null,
-        icon: null,
-        id: 'onnx-community/gemma-4-E2B-it-ONNX',
-        isEnabled: true,
-        name: 'Retired Local Chat Model',
-        parameters: null,
-        providerId: 'local',
-        sortOrder: 1,
-        tagline: null,
-      },
-      {
-        bestFor: null,
-        capabilities: { streaming: true, type: 'llm' },
-        description: null,
-        icon: null,
         id: 'openai/gpt-5.2',
         isEnabled: true,
         name: 'GPT-5.2 via OpenRouter',
@@ -121,25 +94,24 @@ function seedRegistry(): void {
       },
       {
         bestFor: null,
-        capabilities: { defaultDimension: 384, type: 'embedding' },
+        capabilities: { defaultDimension: 3072, type: 'embedding' },
         description: null,
         icon: null,
-        id: 'Xenova/all-MiniLM-L6-v2',
+        id: 'gemini-embedding-2',
         isEnabled: true,
-        name: 'MiniLM Local Embedder',
+        name: 'Gemini Embedding 2',
         parameters: null,
-        providerId: 'local',
-        sortOrder: 2,
+        providerId: 'google',
+        sortOrder: 3,
         tagline: null,
       },
     ],
     providers: [
       { icon: null, id: 'openai', isEnabled: true, name: 'OpenAI', sortOrder: 1 },
       { icon: null, id: 'anthropic', isEnabled: true, name: 'Anthropic', sortOrder: 2 },
-      { icon: null, id: 'transformers', isEnabled: true, name: 'Local Models', sortOrder: 3 },
-      { icon: null, id: 'local', isEnabled: true, name: 'Built-in Local', sortOrder: 3 },
       { icon: null, id: 'openrouter', isEnabled: false, name: 'OpenRouter', sortOrder: 4 },
       { icon: null, id: 'cohere', isEnabled: true, name: 'Cohere', sortOrder: 5 },
+      { icon: null, id: 'google', isEnabled: true, name: 'Google', sortOrder: 6 },
     ],
   });
 }
@@ -168,28 +140,24 @@ describe('AssistantMemorySettingsSection', () => {
     seedRegistry();
   });
 
-  it('lists only enabled hosted LLM models for observational memory', () => {
+  it('lists only enabled LLM models for observational memory', () => {
     renderMemorySettings();
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
     expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
     expect(within(select).getByRole('option', { name: /Claude Haiku 4.5/i })).toBeInTheDocument();
-    // A leftover on-device chat row in the DB registry is not an observer:
-    // that provider is embeddings-only now, so there is nothing to run it with.
-    expect(within(select).queryByRole('option', { name: /Retired Local Chat Model/i })).toBeNull();
     expect(within(select).queryByRole('option', { name: /OpenRouter/i })).toBeNull();
   });
 
-  it('filters observer models by key presence, with no keyless option left', () => {
+  it('filters observer models by key presence', () => {
     renderMemorySettings([{ provider: 'openai', source: 'stored' }]);
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
     expect(within(select).getByRole('option', { name: /GPT-5.4 Mini/i })).toBeInTheDocument();
     expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/i })).toBeNull();
-    expect(within(select).queryByRole('option', { name: /Retired Local Chat Model/i })).toBeNull();
   });
 
-  it('does not filter hosted memory models when credential provenance is unavailable', () => {
+  it('does not filter memory models when credential provenance is unavailable', () => {
     render(<AssistantMemorySettingsSection assistantMemoryBackendAvailable={true} />);
 
     expect(
@@ -207,15 +175,13 @@ describe('AssistantMemorySettingsSection', () => {
   });
 
   // Observational memory needs the durable backend to record anything, so with
-  // no backend there is no eligible observer AT ALL — the requirement used to
-  // be applied only to the keyless on-device option.
+  // no backend there is no eligible observer AT ALL.
   it('offers no observer model when the memory backend is unavailable', () => {
     renderMemorySettings(hostedProviderKeySources, false);
 
     const select = screen.getByRole('combobox', { name: /observational memory model/i });
     expect(within(select).queryByRole('option', { name: /GPT-5.4 Mini/i })).toBeNull();
     expect(within(select).queryByRole('option', { name: /Claude Haiku 4.5/i })).toBeNull();
-    expect(within(select).queryByRole('option', { name: /Retired Local Chat Model/i })).toBeNull();
     // The 'auto' sentinel still renders, and the section's own unresolved
     // notice explains the wait: OM is never silently off.
     expect(within(select).getByRole('option', { name: /Auto —/i })).toBeInTheDocument();
@@ -230,7 +196,7 @@ describe('AssistantMemorySettingsSection', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('disables observation activation and alerts when the selected hosted provider has no key', () => {
+  it('disables observation activation and alerts when the selected provider has no key', () => {
     // User turned observations OFF and pinned an explicit model whose provider
     // has no key — re-activation stays blocked until the target is available.
     // (The default 'auto' target never blocks the toggle; see the BST-940 case.)
@@ -261,12 +227,11 @@ describe('AssistantMemorySettingsSection', () => {
     );
     const note = screen.getByTestId('assistant-memory-auto-observer-note');
     // The privacy ruling: auto observes with the ACTIVE CHAT PROVIDER only,
-    // never a different keyed provider, and local chats stay paused.
+    // never a different keyed provider.
     expect(note).toHaveTextContent(/active chat provider only/i);
-    expect(note).toHaveTextContent(/Local chats keep observations paused/i);
   });
 
-  it('keeps the auto note and toggle stable for a keyless profile (waiting, not broken)', () => {
+  it('keeps the auto note and toggle stable for a profile with no keys (waiting, not broken)', () => {
     renderMemorySettings([]);
 
     expect(screen.getByRole('switch', { name: 'Enable observational memory' })).toBeEnabled();
@@ -311,19 +276,17 @@ describe('AssistantMemorySettingsSection', () => {
     ).toBeNull();
   });
 
-  it('filters hosted semantic embedders by key presence while retaining keyless local options', () => {
-    renderMemorySettings([]);
+  it('filters semantic embedders by key presence', () => {
+    renderMemorySettings([{ provider: 'google', source: 'stored' }]);
 
     const select = screen.getByRole('combobox', {
       name: /semantic recall embedding model/i,
     });
     expect(within(select).queryByRole('option', { name: /Text Embedding 3 Small/i })).toBeNull();
-    expect(
-      within(select).getByRole('option', { name: /MiniLM Local Embedder/i })
-    ).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: /Gemini Embedding 2/i })).toBeInTheDocument();
   });
 
-  it('disables semantic recall activation when its selected hosted embedder has no key', () => {
+  it('disables semantic recall activation when its selected embedder has no key', () => {
     renderMemorySettings([]);
 
     expect(screen.getByRole('switch', { name: /enable semantic recall/i })).toBeDisabled();
@@ -338,7 +301,7 @@ describe('AssistantMemorySettingsSection', () => {
     const { unmount } = renderMemorySettings([]);
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Configured semantic recall embedder openai/text-embedding-3-small is not available. Choose an enabled OpenAI, Google, or local embedding model, or turn off semantic recall and semantic observation recall.'
+      'Configured semantic recall embedder openai/text-embedding-3-small is not available. Choose an enabled OpenAI or Google embedding model, or turn off semantic recall and semantic observation recall.'
     );
     unmount();
     useAssistantMemoryPreferencesStore.setState((state) => ({
@@ -348,7 +311,7 @@ describe('AssistantMemorySettingsSection', () => {
     expect(screen.queryByText(/Configured semantic recall embedder/)).toBeNull();
   });
 
-  it('describes what a send does without an embedder, and never a keyless local observer', () => {
+  it('describes what a send does without an embedder', () => {
     useAssistantMemoryPreferencesStore.setState((state) => ({
       observationalMemory: {
         ...state.observationalMemory,
@@ -360,7 +323,6 @@ describe('AssistantMemorySettingsSection', () => {
 
     const section = screen.getByTestId('assistant-memory-settings-section');
     expect(section).not.toHaveTextContent(/assistant startup fails/i);
-    expect(section).not.toHaveTextContent(/local observer/i);
     expect(screen.getByTestId('assistant-memory-retrieval-note')).toHaveTextContent(
       'Semantic observation recall embeds observations with the semantic recall embedding model, even with semantic recall turned off. Until that model is available, the composer stays disabled and says why.'
     );
@@ -419,85 +381,6 @@ describe('AssistantMemorySettingsSection', () => {
       expect(input).not.toHaveAttribute('aria-invalid');
       expect(input).not.toHaveAccessibleDescription();
       expect(useAssistantMemoryPreferencesStore.getState().semanticRecall.topK).toBe(7);
-    });
-  });
-
-  describe('on-device embedding device', () => {
-    beforeEach(() => {
-      useVectorPreferencesStore.setState({
-        devicePref: 'webgpu',
-        devicePrefConfigured: false,
-        hasHydrated: true,
-      });
-    });
-
-    it('is offered only where the host provides on-device recall', () => {
-      renderMemorySettings();
-      expect(screen.queryByRole('combobox', { name: 'On-device embedding device' })).toBeNull();
-    });
-
-    it('shows automatic detection until a device is chosen, and saves the choice to the shared preference', async () => {
-      const user = userEvent.setup();
-      render(
-        <AssistantMemorySettingsSection
-          assistantMemoryBackendAvailable={true}
-          onDeviceEmbedding={true}
-          providerKeySources={hostedProviderKeySources}
-        />
-      );
-
-      const select = screen.getByRole('combobox', { name: 'On-device embedding device' });
-      expect(select).toHaveValue('');
-      expect(within(select).getByRole('option', { name: /Automatic/ })).toBeInTheDocument();
-      await user.selectOptions(select, 'wasm');
-
-      expect(useVectorPreferencesStore.getState()).toMatchObject({
-        devicePref: 'wasm',
-        devicePrefConfigured: true,
-      });
-      expect(select).toHaveValue('wasm');
-    });
-
-    it('returns a chosen device to automatic detection, clearing the saved choice', async () => {
-      const user = userEvent.setup();
-      render(
-        <AssistantMemorySettingsSection
-          assistantMemoryBackendAvailable={true}
-          onDeviceEmbedding={true}
-          providerKeySources={hostedProviderKeySources}
-        />
-      );
-
-      const select = screen.getByRole('combobox', { name: 'On-device embedding device' });
-      await user.selectOptions(select, 'wasm');
-      expect(useVectorPreferencesStore.getState().devicePrefConfigured).toBe(true);
-      await user.selectOptions(select, within(select).getByRole('option', { name: /Automatic/ }));
-
-      // Unconfigured is what the embedding host resolves through detection (BST-2193).
-      expect(useVectorPreferencesStore.getState()).toMatchObject({
-        devicePref: 'webgpu',
-        devicePrefConfigured: false,
-      });
-      expect(select).toHaveValue('');
-      expect(within(select).getByRole('option', { name: /Automatic/ })).toHaveProperty(
-        'selected',
-        true
-      );
-    });
-
-    it('waits for the saved preference before showing one', () => {
-      useVectorPreferencesStore.setState({ hasHydrated: false });
-      render(
-        <AssistantMemorySettingsSection
-          assistantMemoryBackendAvailable={true}
-          onDeviceEmbedding={true}
-          providerKeySources={hostedProviderKeySources}
-        />
-      );
-
-      const select = screen.getByRole('combobox', { name: 'On-device embedding device' });
-      expect(select).toBeDisabled();
-      expect(within(select).getByRole('option', { name: /Loading/ })).toBeInTheDocument();
     });
   });
 
@@ -569,38 +452,26 @@ describe('AssistantMemorySettingsSection', () => {
         /not tied to your chat provider/i
       );
     });
-
-    it('promises no on-device observer, since every observer is hosted', () => {
-      // The built-in on-device chat model that once observed is retired: a
-      // persisted `local/...` target is unavailable, never an egress-free option.
-      chooseObserver('local/onnx-community/gemma-4');
-      renderMemorySettings();
-
-      const note = screen.getByTestId('assistant-memory-manual-observer-note');
-      expect(note).not.toHaveTextContent(/this device/i);
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        'Configured observational memory model local/onnx-community/gemma-4 is not available'
-      );
-    });
   });
 
-  // BST-2227: the host embeds one test text with the selected hosted embedder.
+  // BST-2227: the host embeds one test text with the selected embedder.
   describe('Test embedder', () => {
     const PASSED = { dimensions: 1536, latencyMs: 212, modelId: 'openai::text-embedding-3-small' };
 
     function renderWithTest(
-      testEmbedder: NonNullable<AssistantMemorySettingsSectionProps['testEmbedder']>
+      testEmbedder: NonNullable<AssistantMemorySettingsSectionProps['testEmbedder']>,
+      providerKeySources: AssistantMemorySettingsSectionProps['providerKeySources'] = hostedProviderKeySources
     ) {
       return render(
         <AssistantMemorySettingsSection
           assistantMemoryBackendAvailable={true}
-          providerKeySources={hostedProviderKeySources}
+          providerKeySources={providerKeySources}
           testEmbedder={testEmbedder}
         />
       );
     }
 
-    it('tests the selected hosted embedder with the saved settings and shows its result', async () => {
+    it('tests the selected embedder with the saved settings and shows its result', async () => {
       const user = userEvent.setup();
       const testEmbedder = vi.fn(async () => PASSED);
       renderWithTest(testEmbedder);
@@ -656,13 +527,16 @@ describe('AssistantMemorySettingsSection', () => {
 
     it('hides a result once another embedder is selected', async () => {
       const user = userEvent.setup();
-      renderWithTest(async () => PASSED);
+      renderWithTest(
+        async () => PASSED,
+        [...hostedProviderKeySources, { provider: 'google', source: 'stored' }]
+      );
       await user.click(screen.getByRole('button', { name: 'Test embedder' }));
       await screen.findByTestId('assistant-memory-embedder-test-result');
 
       await user.selectOptions(
         screen.getByRole('combobox', { name: /semantic recall embedding model/i }),
-        'local/Xenova/all-MiniLM-L6-v2'
+        'google/gemini-embedding-2'
       );
 
       expect(screen.queryByTestId('assistant-memory-embedder-test-result')).toBeNull();
@@ -670,28 +544,6 @@ describe('AssistantMemorySettingsSection', () => {
 
     it('never lets a slower answer for an earlier embedder replace a newer result', async () => {
       const user = userEvent.setup();
-      useModelRegistryStore.setState((state) => ({
-        models: [
-          ...state.models,
-          {
-            bestFor: null,
-            capabilities: { defaultDimension: 3072, type: 'embedding' },
-            description: null,
-            icon: null,
-            id: 'gemini-embedding-2',
-            isEnabled: true,
-            name: 'Gemini Embedding 2',
-            parameters: null,
-            providerId: 'google',
-            sortOrder: 3,
-            tagline: null,
-          },
-        ],
-        providers: [
-          ...state.providers,
-          { icon: null, id: 'google', isEnabled: true, name: 'Google', sortOrder: 6 },
-        ],
-      }));
       const earlier = Promise.withResolvers<typeof PASSED>();
       const testEmbedder = vi
         .fn<NonNullable<AssistantMemorySettingsSectionProps['testEmbedder']>>()
@@ -701,16 +553,10 @@ describe('AssistantMemorySettingsSection', () => {
           latencyMs: 90,
           modelId: 'google::gemini-embedding-2',
         });
-      render(
-        <AssistantMemorySettingsSection
-          assistantMemoryBackendAvailable={true}
-          providerKeySources={[
-            ...hostedProviderKeySources,
-            { provider: 'google', source: 'stored' },
-          ]}
-          testEmbedder={testEmbedder}
-        />
-      );
+      renderWithTest(testEmbedder, [
+        ...hostedProviderKeySources,
+        { provider: 'google', source: 'stored' },
+      ]);
       await user.click(screen.getByRole('button', { name: 'Test embedder' }));
       await user.selectOptions(
         screen.getByRole('combobox', { name: /semantic recall embedding model/i }),
@@ -731,18 +577,14 @@ describe('AssistantMemorySettingsSection', () => {
       );
     });
 
-    it('offers no test for an on-device embedder and says why', () => {
+    it('offers no test until an available embedder is selected and says why', () => {
       useAssistantMemoryPreferencesStore
         .getState()
-        .setSemanticRecallEmbeddingModelTarget('local/Xenova/all-MiniLM-L6-v2');
+        .setSemanticRecallEmbeddingModelTarget('cohere/embed-english-v3.0');
       renderWithTest(vi.fn());
 
       expect(screen.getByRole('button', { name: 'Test embedder' })).toBeDisabled();
-      expect(
-        screen.getByText(
-          'Select a hosted embedding model to test it. On-device models are checked when recall first uses them.'
-        )
-      ).toBeInTheDocument();
+      expect(screen.getByText('Select an embedding model to test it.')).toBeInTheDocument();
     });
 
     it('is absent where the host has no embedder test', () => {

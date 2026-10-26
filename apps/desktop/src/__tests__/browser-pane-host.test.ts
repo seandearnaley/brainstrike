@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DESKTOP_IPC_CHANNELS, DESKTOP_IPC_PUSH_CHANNEL } from '../platform/desktop-ipc-channels';
 
 /**
  * Host wiring test for the occlusion-on-reload fix (BST-1174, review P1s):
@@ -166,7 +167,10 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     expect(host.manager.listTabs()).toHaveLength(0);
     expect(attached).toHaveLength(0);
     // The renderer is told the pane is now empty so it re-seeds from nothing.
-    expect(window.webContents.send).toHaveBeenLastCalledWith(expect.any(String), []);
+    expect(window.webContents.send).toHaveBeenLastCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: DESKTOP_IPC_CHANNELS.browser.tabsChanged,
+      payload: [],
+    });
   });
 
   it('ignores same-document and subframe navigations', async () => {

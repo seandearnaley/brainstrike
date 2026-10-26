@@ -4,12 +4,6 @@ import { createGoogle } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModelV2 } from '@ai-sdk/provider';
 import {
-  assertSafeBearerToken,
-  buildRuntimeEndpoint,
-  type LocalRuntimeEndpointConfig,
-  resolveRuntimeBaseUrl,
-} from '@brainstrike/local-runtime';
-import {
   type IdentifiedModelConfig,
   type MastraModelConfig,
   ModelRouterLanguageModel,
@@ -17,10 +11,7 @@ import {
 } from '@mastra/core/llm';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts';
-import type { RuntimeData } from '../types.ts';
 import { resolveBedrockModelId } from './bedrock-model-id.ts';
-import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model.ts';
-import { createOllamaChatModel, type OllamaModelFacts } from './ollama-chat-model.ts';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content.ts';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching.ts';
 import {
@@ -38,7 +29,6 @@ import {
   isSupportedProvider,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
-  providerAuthType,
   type SupportedProvider,
 } from './types.ts';
 
@@ -49,8 +39,7 @@ export type ProviderModelConfiguration =
   | ReturnType<ReturnType<typeof createGoogle>>
   | ReturnType<ReturnType<typeof createAmazonBedrock>>
   | LanguageModelV2
-  | ModelRouterLanguageModel
-  | OpenAICompatibleConfig;
+  | ModelRouterLanguageModel;
 
 /** Preserve the existing Mastra consumer's vendored SDK declaration boundary. */
 function toMastraModelConfiguration(model: ProviderModelConfiguration): MastraModelConfig {
@@ -79,41 +68,6 @@ const PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS = new Set<SupportedProvider>([
   'google',
   'openrouter',
 ]);
-
-function resolveLocalRuntimeBaseUrl(
-  runtime: 'ollama' | 'lmstudio',
-  override: string | undefined
-): string {
-  // Mastra's OpenAI-compatible model config expects a `/v1`-suffixed URL; the
-  // shared resolver returns a canonical origin without `/v1`, so append it here.
-  // `resolveRuntimeBaseUrl` already normalizes the override internally, so we
-  // pass the raw input through without an extra normalization pass.
-  const origin = resolveRuntimeBaseUrl(runtime, override);
-  return buildRuntimeEndpoint(origin, '/v1');
-}
-
-/**
- * Resolve the bearer token for an OpenAI-compatible local runtime client.
- *
- * Both the explicit `apiKey` argument and the runtime-options `apiToken` are
- * routed through `assertSafeBearerToken` so a token containing CR/LF/NUL is
- * rejected at this boundary rather than flowing into Mastra's compatible HTTP
- * adapter (header-injection hardening — keeps parity with
- * `buildRuntimeAuthHeaders`).
- */
-function pickApiKey(
-  explicit: string | undefined,
-  config: LocalRuntimeEndpointConfig | undefined
-): string | undefined {
-  if (explicit && explicit.trim().length > 0) {
-    return assertSafeBearerToken(explicit);
-  }
-  const token = config?.apiToken;
-  if (token && token.trim().length > 0) {
-    return assertSafeBearerToken(token);
-  }
-  return;
-}
 
 /**
  * Build the AI SDK `create*` settings object from projected auth options,
@@ -145,10 +99,7 @@ function listSupportedProviderIds(): readonly SupportedProvider[] {
 export function createProvider(
   provider: SupportedProvider | string,
   auth?: ProviderAuthInput,
-  model?: string,
-  runtime?: Pick<RuntimeData, 'providerOptions'>,
-  /** BST-754: an Ollama model's admitted window and thinking capability; required for Ollama. */
-  ollama?: OllamaModelFacts
+  model?: string
 ): ProviderModelConfiguration {
   // Shape validation (aws region) happens BEFORE provider dispatch so a
   // malformed input fails identically on every provider case.
@@ -162,7 +113,7 @@ export function createProvider(
 
   const validatedProvider = provider;
   // Registry-derived, never a provider-id branch: an EMBEDDINGS-ONLY provider
-  // (the built-in on-device one, cohere, voyage) has no chat model for this
+  // (cohere, voyage) has no chat model for this
   // factory to build. Refusing here names that, instead of falling through to
   // "no default model" or to the unsupported-provider default — both of which
   // read as "misconfigured" for a provider that is configured correctly and
@@ -292,51 +243,6 @@ export function createProvider(
       );
     }
 
-    case 'ollama': {
-      // BST-754: Ollama's native /api/chat, sized to the window its run was
-      // admitted with (ollama-chat-model.ts). Defaults to 127.0.0.1:11434;
-      // `runtime.providerOptions.ollama.baseUrl` reaches a LAN GPU box and
-      // `apiToken` an authenticated server. The token is sent only when the
-      // user configured one; this provider reads no environment key.
-      const ollamaOptions = runtime?.providerOptions?.ollama;
-      const apiToken = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), ollamaOptions);
-      if (!ollama) {
-        throw createMastraAgentError('mastra_agent_runtime_init_failed', {
-          context: { provider: validatedProvider },
-          detail: 'An Ollama model needs the context window its run was admitted with.',
-        });
-      }
-      return createOllamaChatModel({
-        ...(apiToken ? { apiToken } : {}),
-        facts: ollama,
-        modelId: modelName,
-        origin: resolveRuntimeBaseUrl('ollama', ollamaOptions?.baseUrl),
-      });
-    }
-
-    case 'lmstudio': {
-      // LM Studio exposes OpenAI-compatible routes. Defaults to 127.0.0.1:1234
-      // and supports an optional bearer token on 0.4.0+ servers that enabled
-      // `Require API clients to provide a valid API token` in Settings > Server.
-      //
-      // Always pass an explicit `apiKey`. When the user has not configured a
-      // token we substitute the conventional dummy value `'lmstudio'` so the
-      // compatible adapter does NOT fall back to `process.env.OPENAI_API_KEY`.
-      // Without it, a user with `OPENAI_API_KEY` set and a remote `baseUrl`
-      // (LAN GPU box, tunnel) would leak their OpenAI key as a `Bearer` header
-      // to that host. LM Studio ignores the bearer value when auth is
-      // disabled, so the dummy is harmless on the wire.
-      const lmStudioOptions = runtime?.providerOptions?.lmstudio;
-      const url = resolveLocalRuntimeBaseUrl('lmstudio', lmStudioOptions?.baseUrl);
-      const resolvedKey = pickApiKey(bearerApiKeyOnly(auth, validatedProvider), lmStudioOptions);
-      return {
-        apiKey: resolvedKey ?? 'lmstudio',
-        modelId: modelName,
-        providerId: 'lmstudio',
-        url,
-      };
-    }
-
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
         context: { provider, supportedProviders: listSupportedProviderIds() },
@@ -355,8 +261,7 @@ export function createProvider(
 export function createLanguageModelProvider(
   provider: SupportedProvider | string,
   apiKey?: string,
-  model?: string,
-  runtime?: Pick<RuntimeData, 'providerOptions'>
+  model?: string
 ): ConcreteLanguageModel {
   if (
     !(isSupportedProvider(provider) && PERSISTENT_MEMORY_LANGUAGE_MODEL_PROVIDERS.has(provider))
@@ -366,10 +271,7 @@ export function createLanguageModelProvider(
       detail: `Persistent memory does not support provider: ${provider}`,
     });
   }
-  // Registry-derived (PR #2513 review, finding 7), never a provider-id branch:
-  // a keyless provider would skip it, and ollama/lmstudio are excluded from
-  // persistent memory entirely.
-  if (providerAuthType(provider) !== 'none' && !apiKey?.trim()) {
+  if (!apiKey?.trim()) {
     throw createMastraAgentError('mastra_agent_runtime_init_failed', {
       context: { provider },
       detail: `Persistent memory provider "${provider}" requires an explicit API key.`,
@@ -379,17 +281,14 @@ export function createLanguageModelProvider(
   // Persistent memory stays on the resolved-string surface; the ONE
   // string→union adapter wraps it for the factory seam (BST-1352).
   const modelConfig = toMastraModelConfiguration(
-    createProvider(provider, apiKeyAuthInput(apiKey), model, runtime)
+    createProvider(provider, apiKeyAuthInput(apiKey), model)
   );
   if (isConcreteLanguageModel(modelConfig)) {
     return modelConfig;
   }
-  if (isOpenAICompatibleConfig(modelConfig)) {
-    return new ModelRouterLanguageModel(modelConfig);
-  }
   throw createMastraAgentError('mastra_agent_runtime_init_failed', {
     context: { provider },
-    detail: `Persistent memory provider "${provider}" did not produce a concrete language model or an explicit router configuration.`,
+    detail: `Persistent memory provider "${provider}" did not produce a concrete language model.`,
   });
 }
 
@@ -401,17 +300,6 @@ function isConcreteLanguageModel(
     modelConfig !== null &&
     'doGenerate' in modelConfig &&
     'doStream' in modelConfig
-  );
-}
-
-function isOpenAICompatibleConfig(
-  modelConfig: MastraModelConfig
-): modelConfig is OpenAICompatibleConfig {
-  return (
-    typeof modelConfig === 'object' &&
-    modelConfig !== null &&
-    'id' in modelConfig &&
-    typeof modelConfig.id === 'string'
   );
 }
 
@@ -441,28 +329,7 @@ function asSpecV3EmbeddingModel(model: unknown): MastraEmbeddingModel<string> {
   }) as MastraEmbeddingModel<string>;
 }
 
-/**
- * Mastra memory embedder over a local embedding host (desktop: the hidden
- * embedding-host renderer, reached through Main). Mastra types its embedder
- * against an internal copy of the AI SDK v5 types, so the structurally
- * identical public EmbeddingModelV2 needs this one type bridge, as the legacy
- * desktop recall embedder had.
- * https://github.com/mastra-ai/mastra/tree/main/packages/core/src/vector
- * Remove it when Mastra's embedder type accepts `@ai-sdk/provider`'s EmbeddingModelV2.
- */
-export function createLocalHostMemoryEmbedder(
-  options: Parameters<typeof createLocalHostEmbeddingModel>[0]
-): MastraEmbeddingModel<string> {
-  return createLocalHostEmbeddingModel(options) as unknown as MastraEmbeddingModel<string>;
-}
-
-/**
- * Create a hosted embedding model instance for Mastra semantic recall.
- *
- * Local/browser embedders are intentionally excluded here: desktop local
- * embeddings must stay in the renderer host, while this factory runs in the
- * hosted Mastra memory path.
- */
+/** Create a hosted embedding model instance for Mastra semantic recall. */
 export function createEmbeddingProvider(
   provider: SupportedProvider | string,
   apiKey: string | undefined,
@@ -494,9 +361,6 @@ export function createEmbeddingProvider(
     // phase 1 is LLM-only (registry capabilities.embeddings: false) — an
     // explicit throw, never a silent degrade (BST-1350).
     case 'bedrock':
-    case 'ollama':
-    case 'lmstudio':
-    case 'local':
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
         context: { provider, supportedProviders: listSupportedProviderIds() },
         detail: `Mastra semantic recall embedder is not supported for provider: ${provider}`,

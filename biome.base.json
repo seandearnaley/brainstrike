@@ -12,11 +12,8 @@
       "packages/agent/src/__tests__/**/*.{ts,tsx,mts,mjs}",
       "packages/chunking-worker/src/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/token-cache/src/**/*.{ts,tsx,mts,cts,mjs}",
-      "packages/embedding-worker/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
-      "packages/embedding-worker/bench/**/*.spec.{ts,tsx,mts,cts,mjs}",
       "packages/{worker-runtime,file-tree-worker}/src/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/test-utils/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
-      "packages/queue/{src,test}/**/*.{ts,tsx,mts,cts,mjs}",
       "packages/pipeline/{src,__tests__}/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/agent-quality-lint*.{mts,mjs}",
       "packages/web-state-store/src/__tests__/**/*-worker.{ts,mts,cts,mjs}",
@@ -31,10 +28,10 @@
       "packages/host-capabilities/__tests__/file-approval-target.test.ts",
       "apps/desktop/src/__tests__/assistant-server/**/*.{ts,tsx,mts,cts,mjs}",
       "scripts/__tests__/isolated/agent-quality-lint*.{mts,mjs}",
-      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
-      "apps/desktop/src/{embedding-host-manager,hosted-embedding-requests,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
-      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*.{ts,tsx,mts,cts,mjs}",
-      "apps/desktop/src/__tests__/{embedding-host-manager,embedding-host-query-settlement,embedding-host-unresponsive,hosted-embedding-requests,hosted-embeddings,native-index-catalog-observation,native-index-scan-admission,native-index-retry}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/{hosted-embeddings,native-index-catalog-observation}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/{hosted-embeddings,native-index-catalog-observation}*/**/*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{hosted-embeddings,native-index-catalog-observation,native-index-scan-admission}*.{ts,tsx,mts,cts,mjs}",
+      "apps/desktop/src/__tests__/{hosted-embeddings,native-index-catalog-observation,native-index-scan-admission}*/**/*.{ts,tsx,mts,cts,mjs}",
       "apps/desktop/src/__tests__/platform/native-refusal-boundary*.{ts,tsx,mts,cts,mjs}",
       "apps/desktop/src/__tests__/platform/native-refusal-boundary*/**/*.{ts,tsx,mts,cts,mjs}",
       "**/e2e/**/*.{ts,tsx}",
@@ -268,8 +265,7 @@
         "packages/file-explorer-hooks/**",
         "packages/app-shell/**",
         "packages/app-state/**",
-        "packages/settings-ui/**",
-        "packages/vector-management/**"
+        "packages/settings-ui/**"
       ],
       "linter": {
         "rules": {
@@ -408,19 +404,6 @@
     },
     {
       "includes": [
-        "packages/embedding-worker/test/**",
-        "packages/queue/test/**"
-      ],
-      "linter": {
-        "rules": {
-          "style": {
-            "useNamingConvention": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": [
         "apps/desktop/e2e/file-explorer-selection-restore.desktop.test.ts",
         "apps/desktop/e2e/file-explorer-selection.shared.ts",
         "apps/desktop/e2e/utils/electron-helpers.mts",
@@ -448,8 +431,6 @@
         "packages/agent/src/__tests__/mcp-tool-loader.spec.ts",
         "packages/agent/src/__tests__/tool-model-output.spec.ts",
         "packages/agent/src/mastra/agent-streaming.ts",
-        "packages/agent/src/providers/local/__tests__/local-llm-backend.spec.ts",
-        "packages/agent/src/providers/local/gemma4-engine.ts",
         "packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts",
         "packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts",
         "packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-test-support.tsx",
@@ -475,10 +456,6 @@
         "packages/db/__tests__/managed-cache-batch.test.ts",
         "packages/db/src/database-work-scheduler.ts",
         "packages/db/src/queue/job-queue.ts",
-        "packages/embedding-worker/src/embedding.worker.ts",
-        "packages/embedding-worker/test/embedding.worker.runtime.spec.ts",
-        "packages/embeddings/src/__tests__/embedding-worker-batch-optimization.integration.test.ts",
-        "packages/embeddings/src/worker/embedding-worker.ts",
         "packages/file-explorer-hooks/src/__tests__/use-file-system.test.tsx",
         "packages/file-explorer-ui/src/__tests__/file-explorer-panel.test.tsx",
         "packages/file-explorer-ui/src/__tests__/file-explorer-sidebar.test.tsx",
@@ -506,7 +483,6 @@
         "packages/file-system/src/__tests__/web-adapter.test.ts",
         "packages/file-tree-worker/src/bfs-engine.test.ts",
         "packages/file-tree-worker/src/bfs-engine.ts",
-        "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
         "packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx",
         "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
         "packages/assistant-ui/src/__tests__/assistant-ui-panel.test.tsx",

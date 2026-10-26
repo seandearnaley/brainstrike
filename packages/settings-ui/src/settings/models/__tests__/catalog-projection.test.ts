@@ -22,7 +22,6 @@ describe('projectCatalogRow', () => {
     expect(row).toMatchObject({
       contextWindow: 1_050_000,
       enabled: true,
-      isLocal: false,
       maxOutputTokens: 128_000,
       name: 'GPT-5.6 Terra',
       pricing: {
@@ -56,18 +55,17 @@ describe('projectCatalogRow', () => {
   });
 
   it('keeps an unpriced model null, never 0', () => {
-    // An on-device model costs nothing to run, which must project as "no
+    // A model the registry publishes no chat price for must project as "no
     // pricing" rather than a zero price the cost panels would then sum.
     const row = projectCatalogRow(
       makeDbModel({
-        capabilities: { defaultDimension: 384, type: 'embedding' },
-        id: 'Xenova/bge-small-en-v1.5',
-        providerId: 'local',
+        capabilities: { defaultDimension: 1024, type: 'embedding' },
+        id: 'embed-english-v3.0',
+        providerId: 'cohere',
       }),
-      'Local (On device)'
+      'Cohere'
     );
     expect(row.pricing).toBeNull();
-    expect(row.isLocal).toBe(true);
     expect(row.registered).toBe(true);
   });
 
@@ -75,15 +73,14 @@ describe('projectCatalogRow', () => {
     const row = projectCatalogRow(
       makeDbModel({
         capabilities: { defaultDimension: 384, type: 'embedding' },
-        id: 'Xenova/all-MiniLM-L6-v2',
-        providerId: 'transformers',
+        id: 'retired-embedder',
+        providerId: 'openai',
       }),
-      'Transformers.js'
+      'OpenAI'
     );
     expect(row).toMatchObject({
       contextWindow: null,
       dimension: 384,
-      isLocal: true,
       maxOutputTokens: null,
       pricing: null,
       reasoning: null,
@@ -139,17 +136,15 @@ describe('projectCatalogRow', () => {
     });
   });
 
-  it('reads the size label and best-for tags from the DB row', () => {
+  it('reads the best-for tags from the DB row', () => {
     const row = projectCatalogRow(
       makeDbModel({
         bestFor: ['Coding', 'Tool use'],
-        id: 'onnx-community/gemma-4-E2B-it-ONNX',
-        parameters: { size: '1.2 GB' },
-        providerId: 'local',
+        id: 'gpt-5.6-terra',
+        providerId: 'openai',
       }),
-      'Local'
+      'OpenAI'
     );
-    expect(row.sizeLabel).toBe('1.2 GB');
     expect(row.bestFor).toEqual(['Coding', 'Tool use']);
   });
 });

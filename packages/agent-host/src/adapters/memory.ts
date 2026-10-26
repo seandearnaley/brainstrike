@@ -704,11 +704,11 @@ export class HostMemory implements HostRunOwner {
   /**
    * A hosted embedder whose provider reports no tokens (Google's, through the
    * AI SDK) cannot be billed: say so once per model, instead of costing nothing
-   * silently. An on-device embedder has no spend to report.
+   * silently.
    */
   private unreportedEmbedding(): void {
     const modelId = this.capabilities.embedderIdentity?.modelId;
-    if (modelId === undefined || modelId.startsWith('local::')) {
+    if (modelId === undefined) {
       return;
     }
     warnUnbilledEmbedding(

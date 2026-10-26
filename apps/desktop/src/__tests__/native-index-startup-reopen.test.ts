@@ -110,11 +110,9 @@ function startup(syncs: readonly Sync[]) {
   const observed: NativeIndexLifecycleObservation[] = [];
   const activation = createActivation({
     application,
-    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     reopenDelaysMs: [0, 0, 0],
     settings: async () => textSettings(),
-    storage: { getItem: unused },
   });
   const observer = new AbortController();
   void activation

@@ -272,10 +272,8 @@ describe('delegationDescriptionForPersona', () => {
 
 describe('persona instructions demand provenance, not conclusions', () => {
   it('requires every finding to distinguish code from documentation', () => {
-    // An explore child reported FOREGROUND_GATE_REOPEN_MS=250 as a code
-    // constant. It exists only in docs/agents/local-inference.md — the doc
-    // itself says the real constant is named something else. The supervisor
-    // then wrote it into durable memory under "Verified architecture survey".
+    // Findings must distinguish executable code from documentation before
+    // they enter durable memory.
     for (const persona of BUILT_IN_PERSONAS) {
       expect(persona.instructions.toLowerCase()).toContain('documentation');
     }

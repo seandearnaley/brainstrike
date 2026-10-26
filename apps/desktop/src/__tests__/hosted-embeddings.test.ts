@@ -1,27 +1,31 @@
 // @vitest-environment node
 
-import type { HostedProviderType } from '@brainstrike/embeddings/provider-core';
+import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
+import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
-import { createHostedProvider, generateHostedEmbeddings } from '../hosted-embeddings';
+import { generateHostedEmbeddings } from '../hosted-embeddings';
 
-vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => 'test-key' }) }));
+const storedKey = vi.hoisted(() => ({ value: 'test-key' as string | null }));
+vi.mock('../secrets', () => ({
+  getSecretsService: () => ({ getKey: async () => storedKey.value }),
+}));
 const existing = [
   { dimensions: 1536, modelId: 'text-embedding-3-small', provider: 'openai' },
   { dimensions: 3072, modelId: 'gemini-embedding-001', provider: 'google' },
   { dimensions: 1024, modelId: 'embed-english-v3.0', provider: 'cohere' },
   { dimensions: 1024, modelId: 'voyage-2', provider: 'voyage' },
-  { dimensions: 768, modelId: 'nomic-embed-text', provider: 'ollama' },
-  { dimensions: 768, modelId: 'text-embedding-nomic-embed-text-v1.5', provider: 'lmstudio' },
 ] as const satisfies readonly {
-  provider: HostedProviderType;
+  provider: EmbeddingProviderType;
   modelId: string;
   dimensions: number;
 }[];
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  storedKey.value = 'test-key';
   clearHostedProviderApiKeyCache();
 });
 describe.each(existing)('existing $provider dispatch', (selected) => {
@@ -61,12 +65,6 @@ describe.each(existing)('existing $provider dispatch', (selected) => {
       if (selected.provider === 'voyage') {
         expect(body['input_type']).toBe(purpose);
       }
-      if (selected.provider === 'ollama') {
-        expect(String(fetch.mock.calls[0]?.[0])).toBe('http://127.0.0.1:11434/v1/embeddings');
-      }
-      if (selected.provider === 'lmstudio') {
-        expect(String(fetch.mock.calls[0]?.[0])).toBe('http://127.0.0.1:1234/v1/embeddings');
-      }
     }
   );
 });
@@ -83,9 +81,9 @@ it('preserves a provider failure that settles independently after cancellation',
   );
   await expect(
     generateHostedEmbeddings({
-      dimensions: 768,
-      modelId: 'saved-model',
-      provider: 'ollama',
+      dimensions: 1536,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
       purpose: 'query',
       signal: controller.signal,
       texts: ['query'],
@@ -104,56 +102,15 @@ it('preserves the exact owned cancellation after provider settlement', async () 
   );
   await expect(
     generateHostedEmbeddings({
-      dimensions: 768,
-      modelId: 'saved-model',
-      provider: 'ollama',
+      dimensions: 1536,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
       purpose: 'query',
       signal: controller.signal,
       texts: ['query'],
     })
   ).rejects.toBe(reason);
 });
-
-it.each(['ollama', 'lmstudio'] as const)(
-  'uses the same saved %s remote endpoint and token for documents and queries',
-  async (provider) => {
-    const storage = {
-      getItem: vi.fn(async () =>
-        JSON.stringify({
-          state: {
-            providerSettings: {
-              [provider]: { localRuntimeBaseUrl: 'https://gpu.example.test:8443/runtime/' },
-            },
-          },
-        })
-      ),
-    };
-    const fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
-      expect(init?.headers).toMatchObject({ Authorization: 'Bearer test-key' });
-      return new Response(
-        JSON.stringify({ data: [{ embedding: new Array<number>(768).fill(1), index: 0 }] }),
-        { status: 200 }
-      );
-    });
-    vi.stubGlobal('fetch', fetch);
-    for (const purpose of ['document', 'query'] as const) {
-      await generateHostedEmbeddings({
-        dimensions: 768,
-        modelId: 'remote-model',
-        provider,
-        purpose,
-        signal: new AbortController().signal,
-        storage,
-        texts: ['text'],
-      });
-    }
-    expect(storage.getItem).toHaveBeenCalledWith('assistant-preferences.v1');
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
-      'https://gpu.example.test:8443/runtime/v1/embeddings',
-      'https://gpu.example.test:8443/runtime/v1/embeddings',
-    ]);
-  }
-);
 
 // BST-1994: hosted refusals reach BST-1996's mapping as one typed error. The fixture
 // responses are documented shapes, not live recordings: no provider is called.
@@ -217,10 +174,25 @@ describe('typed hosted embedding refusals', () => {
 
   it.each(['google', 'cohere', 'voyage'] as const)(
     'refuses %s without a key as missing-key',
-    (provider) => {
-      expect(() => createHostedProvider(provider, 'model', 768)).toThrow(
-        expect.objectContaining({ kind: 'missing-key', name: 'HostedEmbeddingError' })
-      );
+    async (provider) => {
+      for (const name of providerEnvKeys(provider)) {
+        vi.stubEnv(name, '');
+        vi.stubEnv(`VITE_${name}`, '');
+      }
+      storedKey.value = null;
+      const fetch = vi.fn();
+      vi.stubGlobal('fetch', fetch);
+      await expect(
+        generateHostedEmbeddings({
+          dimensions: 768,
+          modelId: 'model',
+          provider,
+          purpose: 'query',
+          signal: new AbortController().signal,
+          texts: ['query'],
+        })
+      ).rejects.toMatchObject({ kind: 'missing-key', name: 'HostedEmbeddingError' });
+      expect(fetch).not.toHaveBeenCalled();
     }
   );
 });

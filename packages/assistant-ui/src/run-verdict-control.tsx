@@ -16,8 +16,8 @@ import {
  * checkpoint journal, so edit-less runs get a verdict control too. `run.failed`
  * AND `run.cancelled` legs are deliberately excluded in v1 (review #1697):
  * the transport failure / user abort is already an honest ledger status, and
- * a quality verdict on aborted work would conflate the two signals. Web
- * local-runtime events carry no runId and are skipped.
+ * a quality verdict on aborted work would conflate the two signals. Events
+ * without a runId are skipped.
  */
 export function selectFinishedRunId(parts: readonly unknown[]): string | null {
   for (const part of parts) {

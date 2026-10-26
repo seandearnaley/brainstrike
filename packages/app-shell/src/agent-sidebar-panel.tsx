@@ -4,7 +4,7 @@ import { LibraryBig, MessagesSquare } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useState, useTransition } from 'react';
 
 interface AgentSidebarPanelProps {
-  readonly promptsContent: ReactNode | ((isActive: boolean) => ReactNode);
+  readonly promptsContent: ReactNode;
   readonly threadsContent: ReactNode;
 }
 
@@ -33,21 +33,6 @@ function readStoredAgentSidebarTab(key: string): AgentSidebarTab | null {
 
 function readInitialAgentSidebarTab(): AgentSidebarTab {
   return readStoredAgentSidebarTab(AGENT_SIDEBAR_TAB_STORAGE_KEY) ?? 'threads';
-}
-
-/**
- * Invokes the activity-aware Prompts callback while React renders it, inside
- * `TabPanelBoundary`, so a throw during element construction is contained too
- * (same precondition as `workspace-body.tsx`'s `WorkspaceAppContent`).
- */
-function PromptsTabContent({
-  isActive,
-  promptsContent,
-}: {
-  readonly isActive: boolean;
-  readonly promptsContent: AgentSidebarPanelProps['promptsContent'];
-}): ReactNode {
-  return typeof promptsContent === 'function' ? promptsContent(isActive) : promptsContent;
 }
 
 /**
@@ -129,9 +114,7 @@ export function AgentSidebarPanel({
         keepMounted
         value="prompts"
       >
-        <TabPanelBoundary label="Prompts">
-          <PromptsTabContent isActive={activeTab === 'prompts'} promptsContent={promptsContent} />
-        </TabPanelBoundary>
+        <TabPanelBoundary label="Prompts">{promptsContent}</TabPanelBoundary>
       </TabsContent>
     </Tabs>
   );

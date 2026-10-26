@@ -21,7 +21,7 @@ interface ServiceOverrides {
   readonly env?: Record<string, string | undefined>;
   readonly failureTtlMs?: number;
   readonly fetchImpl?: MockedFunction<typeof fetch>;
-  readonly findProvider?: (id: string) => { authType: 'api_key' | 'aws' | 'none' } | undefined;
+  readonly findProvider?: (id: string) => { authType: 'api_key' | 'aws' } | undefined;
   readonly now?: () => number;
   readonly readCredential?: (id: string) => Promise<ProviderCredential | undefined>;
   readonly requestTimeoutMs?: number;
@@ -313,9 +313,9 @@ describe('ProviderVerificationService aws probes', () => {
   });
 
   /**
-   * BST-1353: a profile-chain credential is no longer `not_applicable` —
-   * resolving the chain IS the probe. It never issues an HTTP request of its
-   * own, so `fetchImpl` must stay untouched in every case below.
+   * BST-1353: resolving a profile-chain credential IS the probe. It never
+   * issues an HTTP request of its own, so `fetchImpl` must stay untouched in
+   * every case below.
    */
   describe('aws profile-chain probe (BST-1353)', () => {
     function createChainService(
@@ -678,24 +678,6 @@ describe('ProviderVerificationService failure classification', () => {
 });
 
 describe('ProviderVerificationService routing and caching', () => {
-  it('routes authType none to not_applicable with zero credential reads and zero fetches', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
-    const readCredential = vi.fn<(id: string) => Promise<ProviderCredential | undefined>>();
-    const { service } = createService({ fetchImpl, readCredential });
-
-    await expect(service.verify('ollama')).resolves.toMatchObject({
-      result: { status: 'not_applicable' },
-    });
-    await expect(service.verify('lmstudio')).resolves.toMatchObject({
-      result: { status: 'not_applicable' },
-    });
-    await expect(service.verify('local')).resolves.toMatchObject({
-      result: { status: 'not_applicable' },
-    });
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(readCredential).not.toHaveBeenCalled();
-  });
-
   it('rejects an unknown provider id before any credential read or fetch', async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const readCredential = vi.fn<(id: string) => Promise<ProviderCredential | undefined>>();

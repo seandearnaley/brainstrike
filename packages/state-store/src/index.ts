@@ -3,11 +3,6 @@ export type {
   PromptLibraryCapability,
   PromptLibraryReply,
   PromptLibraryRequest,
-  PromptVectorHit,
-  PromptVectorPort,
-  PromptVectorReply,
-  PromptVectorRequest,
-  PromptVectorState,
 } from '@brainstrike/types/prompt-item';
 export {
   Coalescer,

@@ -30,7 +30,6 @@ export function makeCatalogRow(
     description: null,
     dimension: null,
     enabled: false,
-    isLocal: false,
     maxOutputTokens: 64_000,
     name: overrides.id,
     pricing: {
@@ -45,7 +44,6 @@ export function makeCatalogRow(
     reasoningEfforts: ['low', 'medium', 'high'],
     recommended: false,
     registered: true,
-    sizeLabel: null,
     tagline: null,
     type: 'chat',
     vision: 'supported',

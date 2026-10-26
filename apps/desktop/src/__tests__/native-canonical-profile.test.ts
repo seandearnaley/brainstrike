@@ -1,5 +1,5 @@
-import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type {
+  CanonicalHostedEmbeddings,
   CanonicalOperationContext,
   CanonicalSourceScope,
 } from '@brainstrike/canonical-ingestion';
@@ -8,47 +8,27 @@ import {
   NativeCanonicalProfileResolver,
   resolveNativeCanonicalProfile,
 } from '@brainstrike/canonical-ingestion';
-import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { CollectionPort, CollectionRecord, CollectionReply } from '@brainstrike/state-store';
 import { describe, expect, it, vi } from 'vitest';
-import type { EmbeddingHostDocumentEmbeddingsPayload } from '../embedding-host-shared';
 
 const metadata = {
-  dimensions: 384,
+  dimensions: 1536,
   distance: 'cosine',
   id: 'collection',
-  modelId: 'Xenova/bge-small-en-v1.5',
-  modelKey: 'local::Xenova/bge-small-en-v1.5',
+  modelId: 'text-embedding-3-small',
+  modelKey: 'openai::text-embedding-3-small',
 } as const satisfies Pick<
   CollectionRecord,
   'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'
 >;
-const selection = {
-  device: 'wasm',
-  dimensions: metadata.dimensions,
-  dtype: 'q8',
-  modelId: metadata.modelId,
-} as const satisfies SelectedEmbeddingRequestPlan;
-const { device: _device, ...selectionWithoutDevice } = selection;
-const { dtype: _dtype, ...selectionWithoutDtype } = selection;
-const NONE = { document: '', query: '' };
 const setRow = (change: Partial<CollectionRecord> = {}): CollectionRecord => ({
   ...metadata,
   createdAt: '2026-10-13T00:00:00.000Z',
   ...change,
 });
-const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
-const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
-const graniteRow = setRow({ modelId: GRANITE_ID, modelKey: `local::${GRANITE_ID}` });
-const catalogSnapshot = () => projectModelCatalog({ models: [], providers: [] });
 const scope: CanonicalSourceScope = { kind: 'workspace', rootId: 'root' };
-// The catalog facts the resolver reads with the set: bge states no prompts in this fixture.
-const bgePrompts = catalogSnapshot().models.find((model) => model.id === metadata.modelId)!
-  .capabilities.prompts!;
-const catalogModel = { dimensions: 384, id: metadata.modelId, prompts: bgePrompts };
-const profile = (): VectorProfile =>
-  resolveNativeCanonicalProfile(metadata, selection, catalogModel).profile;
+const profile = (): VectorProfile => resolveNativeCanonicalProfile(metadata).profile;
 const request = (requestId = 'request') => ({
   chunks: [
     { chunkId: 'first', content: ' first content ' },
@@ -57,7 +37,8 @@ const request = (requestId = 'request') => ({
   profile: profile(),
   requestId,
 });
-const vectors = (): number[][] => [new Array<number>(384).fill(1), new Array<number>(384).fill(2)];
+const vector = (fill: number): number[] => new Array<number>(metadata.dimensions).fill(fill);
+const vectors = (): number[][] => [vector(1), vector(2)];
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -71,60 +52,37 @@ function fixture() {
   const collections = vi.fn<CollectionPort['collections']>(async () => ({
     collections: [setRow()],
   }));
-  const readCatalog = vi.fn(async () => catalogSnapshot());
   const resolveEmbeddingSetId = vi.fn(async () => metadata.id);
-  const readLocalSelection = vi.fn(async (): Promise<SelectedEmbeddingRequestPlan> => selection);
   const resolver = new NativeCanonicalProfileResolver({
     collections: { collections },
-    modelCatalog: { read: readCatalog },
-    readLocalSelection,
     resolveEmbeddingSetId,
   });
-  const documentEmbeddings = vi.fn(
-    async (
-      _payload: EmbeddingHostDocumentEmbeddingsPayload,
-      _options?: { signal?: AbortSignal }
-    ): Promise<number[][]> => vectors()
-  );
-  const inference = new NativeCanonicalInference({
-    resolver,
-    scope,
-    transport: { documentEmbeddings },
-  });
-  return {
-    collections,
-    documentEmbeddings,
-    inference,
-    readCatalog,
-    readLocalSelection,
-    resolveEmbeddingSetId,
-    resolver,
-  };
+  const hostedEmbeddings = vi.fn<CanonicalHostedEmbeddings>(async () => vectors());
+  const inference = new NativeCanonicalInference({ hostedEmbeddings, resolver, scope });
+  return { collections, hostedEmbeddings, inference, resolveEmbeddingSetId, resolver };
 }
 
 describe('saved canonical profile identity', () => {
   it('uses actual model key metadata and never display names', () => {
-    expect(resolveNativeCanonicalProfile(metadata, selection)).toEqual({
+    expect(resolveNativeCanonicalProfile(metadata)).toEqual({
       modelKey: metadata.modelKey,
       profile: {
-        dimensions: 384,
+        dimensions: 1536,
         distance: 'cosine',
-        dtype: 'q8',
         modelId: metadata.modelId,
-        provider: 'local',
+        provider: 'openai',
       },
-      workerPlan: selection,
     });
     expect(() =>
-      resolveNativeCanonicalProfile({ ...metadata, modelKey: 'MiniLM (384D)' }, selection)
+      resolveNativeCanonicalProfile({ ...metadata, modelKey: 'text-embedding-3-small (1536D)' })
     ).toThrow(/provider\/model/);
     expect(() =>
-      resolveNativeCanonicalProfile({ ...metadata, modelId: 'MiniLM' }, selection)
+      resolveNativeCanonicalProfile({ ...metadata, modelId: 'text-embedding-3-large' })
     ).toThrow(/modelId/);
   });
 
-  it.each(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'] as const)(
-    'preserves %s provider, dimensions and distance without local qualification',
+  it.each(['openai', 'google', 'cohere', 'voyage'] as const)(
+    'preserves %s provider, dimensions and distance',
     (provider) => {
       const saved = {
         ...metadata,
@@ -136,60 +94,15 @@ describe('saved canonical profile identity', () => {
       expect(resolveNativeCanonicalProfile(saved)).toEqual({
         modelKey: saved.modelKey,
         profile: { dimensions: 1536, distance: 'ip', modelId: 'saved-model', provider },
-        workerPlan: null,
       });
     }
   );
 
-  const unverifiedPins =
-    'Catalog embedding execution requires exact model, dimensions, device, dtype and a valid optional revision.';
-  it.each([
-    [
-      'no local selection',
-      undefined,
-      'In Settings, Search & Indexing, choose a setting for Run it on.',
-    ],
-    ['no device', selectionWithoutDevice, unverifiedPins],
-    ['no dtype', selectionWithoutDtype, unverifiedPins],
-  ])('refuses missing or unverified local pins: %s', (_case, saved, message) => {
-    expect(() => resolveNativeCanonicalProfile(metadata, saved)).toThrow(message);
+  it('never accepts invalid saved dimensions', () => {
+    expect(() => resolveNativeCanonicalProfile({ ...metadata, dimensions: 0 })).toThrow();
   });
 
-  it('preserves existing Jina model dimensions without fabricated pins', () => {
-    const saved = {
-      ...metadata,
-      dimensions: 768,
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
-    };
-    const chosen = {
-      device: 'webgpu' as const,
-      dimensions: saved.dimensions,
-      dtype: 'fp32',
-      modelId: saved.modelId,
-    };
-    expect(resolveNativeCanonicalProfile(saved, chosen).profile).toEqual({
-      dimensions: 768,
-      distance: 'cosine',
-      dtype: 'fp32',
-      modelId: saved.modelId,
-      provider: 'transformers',
-    });
-  });
-
-  it('never replaces saved dimensions or mismatched selected identity', () => {
-    expect(() =>
-      resolveNativeCanonicalProfile({ ...metadata, dimensions: 768 }, selection)
-    ).toThrow(/selection/);
-    expect(() =>
-      resolveNativeCanonicalProfile(metadata, { ...selection, modelId: 'other' })
-    ).toThrow(/selection/);
-    expect(() =>
-      resolveNativeCanonicalProfile({ ...metadata, dimensions: 0 }, selection)
-    ).toThrow();
-  });
-
-  it('reads only the authorized collection and has no side effects on preferences or inference', async () => {
+  it('reads only the authorized collection and has no side effects on inference', async () => {
     const f = fixture();
     const context: CanonicalOperationContext = {
       requestId: 'resolve',
@@ -198,78 +111,8 @@ describe('saved canonical profile identity', () => {
     expect(await f.resolver.resolveProfile({ scope }, context)).toEqual(profile());
     expect(f.resolveEmbeddingSetId).toHaveBeenCalledWith(scope, context);
     expect(f.collections).toHaveBeenCalledWith({ id: metadata.id, operation: 'get' });
-    expect(f.documentEmbeddings).not.toHaveBeenCalled();
-    expect(f.readLocalSelection).toHaveBeenCalledWith(metadata, context);
+    expect(f.hostedEmbeddings).not.toHaveBeenCalled();
     expect(f.collections).toHaveBeenCalledTimes(1);
-  });
-
-  it('takes the granite pooling and pin from its catalog row into the profile and plan (BST-1993)', async () => {
-    const f = fixture();
-    const chosen = {
-      device: 'webgpu' as const,
-      dimensions: 384,
-      dtype: 'fp16',
-      modelId: GRANITE_ID,
-      revision: GRANITE_REVISION,
-    };
-    f.collections.mockResolvedValue({ collections: [graniteRow] });
-    f.readLocalSelection.mockResolvedValue(chosen);
-    const context = { requestId: 'resolve', signal: new AbortController().signal };
-    expect(await f.resolver.resolve(scope, context)).toEqual({
-      modelKey: graniteRow.modelKey,
-      profile: {
-        dimensions: 384,
-        distance: 'cosine',
-        dtype: 'fp16',
-        modelId: GRANITE_ID,
-        pooling: 'cls',
-        prompts: NONE,
-        provider: 'local',
-        revision: GRANITE_REVISION,
-      },
-      workerPlan: { ...chosen, pooling: 'cls', prompts: NONE },
-    });
-    // The bge row states no pooling: its plan carries only its stated prompts (none).
-    f.collections.mockResolvedValue({ collections: [setRow()] });
-    f.readLocalSelection.mockResolvedValue(selection);
-    expect(await f.resolver.resolve(scope, context)).toEqual(
-      resolveNativeCanonicalProfile(metadata, selection, catalogModel)
-    );
-  });
-
-  it("takes a row's stated prompts into the profile and plan (BST-1993)", async () => {
-    const f = fixture();
-    const prompts = {
-      document: '',
-      query: 'Represent this sentence for searching relevant passages: ',
-    };
-    f.readCatalog.mockResolvedValue({
-      ...catalogSnapshot(),
-      models: catalogSnapshot().models.map((model) =>
-        model.id === metadata.modelId
-          ? { ...model, capabilities: { ...model.capabilities, prompts } }
-          : model
-      ),
-    });
-    const context = { requestId: 'resolve', signal: new AbortController().signal };
-    const resolved = await f.resolver.resolve(scope, context);
-    expect(resolved.profile).toMatchObject({ prompts });
-    expect(resolved.workerPlan).toEqual({ ...selection, prompts });
-  });
-
-  it('refuses a granite selection without the catalog pin, and a local model outside the catalog', async () => {
-    const f = fixture();
-    const context = { requestId: 'resolve', signal: new AbortController().signal };
-    f.collections.mockResolvedValueOnce({ collections: [graniteRow] });
-    f.readLocalSelection.mockResolvedValueOnce({
-      device: 'webgpu',
-      dimensions: 384,
-      dtype: 'fp16',
-      modelId: GRANITE_ID,
-    });
-    await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/pinned revision/);
-    f.readCatalog.mockResolvedValueOnce({ models: [], providers: [] });
-    await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/not in the model catalog/);
   });
 
   it('refuses absent, malformed or mismatched collection authority', async () => {
@@ -281,12 +124,12 @@ describe('saved canonical profile identity', () => {
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/authorized/);
     f.collections.mockResolvedValueOnce({ collections: [setRow({ dimensions: Number.NaN })] });
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow();
-    expect(f.documentEmbeddings).not.toHaveBeenCalled();
+    expect(f.hostedEmbeddings).not.toHaveBeenCalled();
   });
 });
 
 describe('canonical inference ownership', () => {
-  it('preserves ordered text, chunk IDs, full profile and exact worker plan', async () => {
+  it('preserves ordered text, chunk IDs, full profile and the hosted document request', async () => {
     const f = fixture();
     const input = request();
     expect(await f.inference.generate(input)).toEqual({
@@ -297,16 +140,14 @@ describe('canonical inference ownership', () => {
         { chunkId: 'second', vector: vectors()[1] },
       ],
     });
-    expect(f.documentEmbeddings).toHaveBeenCalledWith(
-      {
-        dimensions: 384,
-        inferencePlan: { ...selection, prompts: bgePrompts },
-        modelId: metadata.modelId,
-        modelKey: metadata.modelKey,
-        texts: input.chunks.map((chunk) => chunk.content),
-      },
-      { signal: expect.any(AbortSignal) }
-    );
+    expect(f.hostedEmbeddings).toHaveBeenCalledWith({
+      dimensions: metadata.dimensions,
+      modelId: metadata.modelId,
+      provider: 'openai',
+      purpose: 'document',
+      signal: expect.any(AbortSignal),
+      texts: input.chunks.map((chunk) => chunk.content),
+    });
     await f.inference.join(input.requestId);
     await f.inference.close();
   });
@@ -317,7 +158,7 @@ describe('canonical inference ownership', () => {
       chunkId: String(index),
       content: `text ${index}`,
     }));
-    f.documentEmbeddings.mockResolvedValueOnce(chunks.map(() => new Array<number>(384).fill(1)));
+    f.hostedEmbeddings.mockResolvedValueOnce(chunks.map(() => vector(1)));
     const result = await f.inference.generate({ ...request(), chunks });
     expect(result.vectors.map((entry) => entry.chunkId)).toEqual(
       chunks.map((chunk) => chunk.chunkId)
@@ -332,7 +173,7 @@ describe('canonical inference ownership', () => {
         f.inference.generate({ ...request('invalid'), chunks: invalid })
       ).rejects.toThrow();
     }
-    expect(f.documentEmbeddings).toHaveBeenCalledTimes(1);
+    expect(f.hostedEmbeddings).toHaveBeenCalledTimes(1);
     await f.inference.close();
   });
 
@@ -355,15 +196,14 @@ describe('canonical inference ownership', () => {
     async ({ makeChunks }) => {
       const f = fixture();
       const chunks = makeChunks();
-      f.documentEmbeddings.mockResolvedValueOnce(
-        Array.from({ length: chunks.length }, () => new Array<number>(384).fill(1))
+      f.hostedEmbeddings.mockResolvedValueOnce(
+        Array.from({ length: chunks.length }, () => vector(1))
       );
       try {
         await expect(f.inference.generate({ ...request(), chunks })).rejects.toThrow(/sparse/);
         expect(f.resolveEmbeddingSetId).not.toHaveBeenCalled();
         expect(f.collections).not.toHaveBeenCalled();
-        expect(f.readLocalSelection).not.toHaveBeenCalled();
-        expect(f.documentEmbeddings).not.toHaveBeenCalled();
+        expect(f.hostedEmbeddings).not.toHaveBeenCalled();
       } finally {
         await f.inference.close();
       }
@@ -373,33 +213,31 @@ describe('canonical inference ownership', () => {
   it.each([
     { dimensions: 768 },
     { distance: 'ip' },
-    { tokenCap: 256 },
-    { provider: 'transformers' },
-    { revision: 'a'.repeat(40) },
-    { dtype: 'fp32' },
+    { modelId: 'text-embedding-3-large' },
+    { provider: 'google' },
   ])(
     'refuses a requested profile differing from fresh authoritative metadata %#',
     async (change) => {
       const f = fixture();
       const input = { ...request(), profile: { ...profile(), ...change } as VectorProfile };
       await expect(f.inference.generate(input)).rejects.toThrow(/profile/);
-      expect(f.documentEmbeddings).not.toHaveBeenCalled();
+      expect(f.hostedEmbeddings).not.toHaveBeenCalled();
     }
   );
 
   it.each(
     [
       [],
-      [new Array<number>(384).fill(1)],
-      [new Array<number>(383).fill(1), new Array<number>(384).fill(2)],
-      [new Array<number>(384).fill(Number.NaN), new Array<number>(384).fill(2)],
-      [new Array<number>(384).fill(Number.POSITIVE_INFINITY), new Array<number>(384).fill(2)],
-      [new Array<number>(384), new Array<number>(384).fill(2)],
+      [vector(1)],
+      [new Array<number>(metadata.dimensions - 1).fill(1), vector(2)],
+      [vector(Number.NaN), vector(2)],
+      [vector(Number.POSITIVE_INFINITY), vector(2)],
+      [new Array<number>(metadata.dimensions), vector(2)],
       new Array<number[]>(2),
     ].map((output) => ({ output }))
   )('refuses malformed result cardinality, dimensions or numbers %#', async ({ output }) => {
     const f = fixture();
-    f.documentEmbeddings.mockResolvedValueOnce(output);
+    f.hostedEmbeddings.mockResolvedValueOnce(output);
     await expect(f.inference.generate(request())).rejects.toThrow(/response/);
     await expect(f.inference.join('request')).resolves.toBeUndefined();
   });
@@ -414,7 +252,7 @@ describe('canonical inference ownership', () => {
         profile: { ...profile(), distance },
       });
       expect(result.profile.distance).toBe(distance);
-      expect(f.documentEmbeddings).toHaveBeenCalledOnce();
+      expect(f.hostedEmbeddings).toHaveBeenCalledOnce();
       await f.inference.close();
     }
   );
@@ -423,8 +261,8 @@ describe('canonical inference ownership', () => {
     const f = fixture();
     const admitted = deferred<AbortSignal>();
     const held = deferred<number[][]>();
-    f.documentEmbeddings.mockImplementationOnce((_payload, options) => {
-      admitted.resolve(options!.signal!);
+    f.hostedEmbeddings.mockImplementationOnce((input) => {
+      admitted.resolve(input.signal);
       return held.promise;
     });
     const generated = f.inference.generate(request());
@@ -467,7 +305,7 @@ describe('canonical inference ownership', () => {
     expect(retired).not.toHaveBeenCalled();
     held.resolve({ collections: [setRow()] });
     await Promise.all([canceled, rejected]);
-    expect(f.documentEmbeddings).not.toHaveBeenCalled();
+    expect(f.hostedEmbeddings).not.toHaveBeenCalled();
   });
 
   it('registers ownership before admission and snapshots mutable caller identity', async () => {
@@ -485,16 +323,13 @@ describe('canonical inference ownership', () => {
     });
     const canceled = f.inference.cancel('reentrant');
     await Promise.all([rejected, canceled]);
-    expect(f.documentEmbeddings).toHaveBeenCalledTimes(1);
+    expect(f.hostedEmbeddings).toHaveBeenCalledTimes(1);
   });
 
   it('reports an uncancelled generation failure once and releases the settled request', async () => {
     const f = fixture();
-    // Recorded from the dev embedding host (granite-embedding-small-english-r2, WASM, batch 64).
-    const failure = new Error(
-      "failed to call OrtRun(). ERROR_CODE: 2, ERROR_MESSAGE: Non-zero status code returned while running Tile node. Name:'/model/global_attn_mask/Tile' Status Message: Tile output tensor would require more than 4294967295 bytes, which exceeds the supported maximum of 4294967295 bytes."
-    );
-    f.documentEmbeddings.mockRejectedValueOnce(failure);
+    const failure = new Error('Embedding provider openai returned HTTP 500.');
+    f.hostedEmbeddings.mockRejectedValueOnce(failure);
     await expect(f.inference.generate(request())).rejects.toBe(failure);
     // generate delivered the failure; cancel and join only prove physical settlement, so the
     // canonical host neither repeats it as a retirement fault nor keeps the request owned.
@@ -511,7 +346,7 @@ describe('canonical inference ownership', () => {
     const f = fixture();
     const admitted = deferred<void>();
     const held = deferred<number[][]>();
-    f.documentEmbeddings.mockImplementationOnce(() => {
+    f.hostedEmbeddings.mockImplementationOnce(() => {
       admitted.resolve();
       return held.promise;
     });
@@ -543,8 +378,8 @@ describe('canonical inference ownership', () => {
     const f = fixture();
     const admitted = deferred<AbortSignal>();
     const physical = deferred<number[][]>();
-    f.documentEmbeddings.mockImplementationOnce((_payload, options) => {
-      admitted.resolve(options!.signal!);
+    f.hostedEmbeddings.mockImplementationOnce((input) => {
+      admitted.resolve(input.signal);
       return physical.promise;
     });
     const failure = new Error('cancellation delivery failed after joined retirement');
@@ -569,8 +404,8 @@ describe('canonical inference ownership', () => {
     await f.inference.join('old');
     const held = deferred<number[][]>();
     const admitted = deferred<AbortSignal>();
-    f.documentEmbeddings.mockImplementationOnce((_payload, options) => {
-      admitted.resolve(options!.signal!);
+    f.hostedEmbeddings.mockImplementationOnce((input) => {
+      admitted.resolve(input.signal);
       return held.promise;
     });
     const generated = f.inference.generate(request('new'));
@@ -584,7 +419,7 @@ describe('canonical inference ownership', () => {
   });
 });
 
-it.each(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'] as const)(
+it.each(['openai', 'google', 'cohere', 'voyage'] as const)(
   'canonical document inference preserves durable %s identity and ordered batch',
   async (provider) => {
     const saved = {
@@ -595,21 +430,13 @@ it.each(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'] as const)
     };
     const resolver = new NativeCanonicalProfileResolver({
       collections: { collections: async () => ({ collections: [setRow(saved)] }) },
-      modelCatalog: { read: async () => catalogSnapshot() },
-      readLocalSelection: async () => undefined,
       resolveEmbeddingSetId: async () => saved.id,
     });
-    const documentEmbeddings = vi.fn();
     const hostedEmbeddings = vi.fn(async () => [
       new Array<number>(768).fill(1),
       new Array<number>(768).fill(2),
     ]);
-    const inference = new NativeCanonicalInference({
-      hostedEmbeddings,
-      resolver,
-      scope,
-      transport: { documentEmbeddings },
-    });
+    const inference = new NativeCanonicalInference({ hostedEmbeddings, resolver, scope });
     const input = { ...request(), profile: resolveNativeCanonicalProfile(saved).profile };
     const result = await inference.generate(input);
     expect(result.vectors.map((entry) => entry.chunkId)).toEqual(['first', 'second']);
@@ -622,7 +449,6 @@ it.each(['openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'] as const)
       signal: expect.any(AbortSignal),
       texts: input.chunks.map((chunk) => chunk.content),
     });
-    expect(documentEmbeddings).not.toHaveBeenCalled();
     await inference.close();
   }
 );

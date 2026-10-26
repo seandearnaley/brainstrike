@@ -1,9 +1,10 @@
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
-import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
+import type { ipcMain as ElectronIpcMain, IpcMainInvokeEvent } from 'electron';
+import { isAppWindowSender } from '../app-windows';
 import { isExpectedShutdownRefusal } from '../desktop-shutdown-state';
 import { indexConfigCause, nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
-import { type DesktopWindowRole, getWindowRoleByWebContentsId } from '../window-role';
+import { DESKTOP_IPC_INVOKE_CHANNEL } from './desktop-ipc-channels';
 import {
   type DesktopIpcSenderFrameAllowlist,
   isAllowedDesktopIpcSenderFrameUrl,
@@ -21,7 +22,6 @@ export type DesktopIpcDomain =
   | 'contextFiles'
   | 'db'
   | 'diagnostics'
-  | 'embeddings'
   | 'fileExports'
   | 'files'
   | 'hooks'
@@ -34,7 +34,6 @@ export type DesktopIpcDomain =
   | 'storage'
   | 'tools'
   | 'userPersonas'
-  | 'vectorPreferences'
   | 'windowFocus'
   | 'workspace';
 
@@ -42,130 +41,65 @@ export type DesktopIpcDomain =
 // sees a curated error that never echoes its own input). The rejected frame
 // URL is renderer-controlled; it is logged here, where the renderer cannot
 // read it, so allowlist/launch-mode drift and dev-server pathname mismatches
-// are diagnosable instead of silently bricking every authorized channel.
+// are diagnosable instead of silently bricking every authorized method.
 const logger = createLogger('DesktopIpcRegistry');
-
-type DesktopIpcChannelKind = 'event' | 'invoke';
 
 export interface DesktopIpcChannelRegistration {
   readonly channel: string;
   readonly domain: DesktopIpcDomain;
-  readonly kind: DesktopIpcChannelKind;
 }
 
-type DesktopIpcInvokeHandler<
-  Args extends readonly unknown[] = readonly unknown[],
-  Result = unknown,
-> = (event: IpcMainInvokeEvent, ...args: Args) => Promise<Result> | Result;
-
-type DesktopIpcEventHandler<Payload = unknown> = (event: IpcMainEvent, payload: Payload) => void;
+type DesktopIpcHandler<Args extends readonly unknown[] = readonly unknown[], Result = unknown> = (
+  event: IpcMainInvokeEvent,
+  ...args: Args
+) => Promise<Result> | Result;
 
 interface DesktopIpcMainLike {
   readonly handle: typeof ElectronIpcMain.handle;
-  readonly on: typeof ElectronIpcMain.on;
-  readonly removeHandler: typeof ElectronIpcMain.removeHandler;
-  readonly removeListener: typeof ElectronIpcMain.removeListener;
 }
 
 interface DesktopIpcRegistryOptions {
   readonly ipcMain: DesktopIpcMainLike;
   /**
-   * Sender-frame allowlist consulted by `registerAuthorizedInvoke`. Omit in
-   * production so every registry shares the process-wide allowlist that
-   * `main.ts` configures from the resolved launch mode; inject in unit tests
-   * so the second factor is exercised without booting Electron.
+   * Sender-frame allowlist the dispatcher checks. Omit in production so every
+   * call shares the process-wide allowlist that `main.ts` configures from the
+   * resolved launch mode; inject in unit tests so the second factor is
+   * exercised without booting Electron.
    */
   readonly senderFrameAllowlist?: DesktopIpcSenderFrameAllowlist;
 }
 
-interface DesktopIpcSenderPolicy {
-  readonly roles: readonly DesktopWindowRole[];
-}
-
-/**
- * Explicit opt-out from sender authorization. The reason is documentation
- * that survives review: it must say WHY the channel is safe (or tracked) for
- * any renderer that holds the preload, since preload possession is not an
- * authorization boundary (`docs/agents/platform-contracts.md`).
- */
-interface DesktopIpcUnauthenticatedPolicy {
-  readonly reason: string;
-}
-
-interface RegisteredInvokeChannel extends DesktopIpcChannelRegistration {
-  readonly kind: 'invoke';
-}
-
-interface RegisteredEventChannel extends DesktopIpcChannelRegistration {
-  readonly handler: DesktopIpcEventHandler;
-  readonly kind: 'event';
-}
-
-type RegisteredChannel = RegisteredEventChannel | RegisteredInvokeChannel;
-
 export interface DesktopIpcRegistry {
   readonly getSnapshot: () => DesktopIpcChannelRegistration[];
   /**
-   * Registers a sensitive invoke channel with a fail-closed, server-owned
-   * sender policy. Two factors run before the handler receives or parses any
-   * renderer-controlled arguments: `event.sender.id` must map to one of the
-   * declared window roles, and `event.senderFrame.url` must match the
-   * launch-mode allowlist (a null or missing frame is rejected).
+   * Serves one method on the desktop's one IPC connection. Before the handler
+   * receives or parses any renderer-controlled argument, the dispatcher checks
+   * both sender factors: `event.sender.id` must be a tracked app window, and
+   * `event.senderFrame.url` must match the launch-mode allowlist (a null or
+   * missing frame is rejected).
    */
-  readonly registerAuthorizedInvoke: <Args extends readonly unknown[], Result>(
+  readonly handle: <Args extends readonly unknown[], Result>(
     domain: DesktopIpcDomain,
-    channel: string,
-    policy: DesktopIpcSenderPolicy,
-    handler: DesktopIpcInvokeHandler<Args, Result>
-  ) => void;
-  readonly registerEvent: <Payload>(
-    domain: DesktopIpcDomain,
-    channel: string,
-    handler: DesktopIpcEventHandler<Payload>
-  ) => void;
-  /**
-   * Registers an invoke channel WITHOUT sender authorization. The long name
-   * and mandatory reason are deliberate: the safe verb is the short one.
-   */
-  readonly registerUnauthenticatedInvoke: <Args extends readonly unknown[], Result>(
-    domain: DesktopIpcDomain,
-    channel: string,
-    policy: DesktopIpcUnauthenticatedPolicy,
-    handler: DesktopIpcInvokeHandler<Args, Result>
+    method: string,
+    handler: DesktopIpcHandler<Args, Result>
   ) => void;
   readonly unregisterAll: () => void;
 }
 
-function assertNonEmptyChannel(channel: string): void {
-  if (channel.trim().length === 0) {
-    throw new Error('Desktop IPC channel must be a non-empty string.');
-  }
-  if (channel.includes('\0')) {
-    throw new Error('Desktop IPC channel must not contain null bytes.');
-  }
+interface DesktopIpcRoute extends DesktopIpcChannelRegistration {
+  readonly handler: DesktopIpcHandler;
 }
 
-function assertSenderPolicy(policy: DesktopIpcSenderPolicy): void {
-  if (policy.roles.length === 0) {
-    throw new Error('Desktop IPC sender policy must allow at least one window role.');
-  }
-  if (new Set(policy.roles).size !== policy.roles.length) {
-    throw new Error('Desktop IPC sender policy must not contain duplicate window roles.');
-  }
+interface DesktopIpcConnection {
+  readonly routes: Map<string, DesktopIpcRoute>;
+  senderFrameAllowlist: DesktopIpcSenderFrameAllowlist | undefined;
 }
 
-function assertUnauthenticatedPolicy(policy: DesktopIpcUnauthenticatedPolicy): void {
-  if (typeof policy.reason !== 'string' || policy.reason.trim().length === 0) {
-    throw new Error('Desktop IPC unauthenticated registration requires a non-empty reason.');
-  }
-}
-
-function formatRequiredSenderRoles(roles: readonly DesktopWindowRole[]): string {
-  return roles.join(', ');
-}
+/** One dispatcher and route table per Electron `ipcMain`: the app has exactly one. */
+const connections = new WeakMap<DesktopIpcMainLike, DesktopIpcConnection>();
 
 function readSenderFrameUrl(
-  channel: string,
+  method: string,
   senderFrame: NonNullable<IpcMainInvokeEvent['senderFrame']>
 ): string {
   // `WebFrameMain.url` is a getter: once the frame is gone Electron throws
@@ -176,161 +110,119 @@ function readSenderFrameUrl(
     return senderFrame.url;
   } catch (error) {
     logger.warn('Rejected desktop IPC invoke: sender frame was disposed', {
-      channel,
       errorMessage: error instanceof Error ? error.message : String(error),
+      method,
     });
-    throw new Error(`Desktop IPC ${channel} requires a live sender frame.`);
+    throw new Error(`Desktop IPC ${method} requires a live sender frame.`);
   }
 }
 
-function assertAuthorizedSenderFrame(
-  channel: string,
+function assertAuthorizedSender(
+  method: string,
   allowlist: DesktopIpcSenderFrameAllowlist,
-  senderFrame: IpcMainInvokeEvent['senderFrame'] | undefined
+  event: IpcMainInvokeEvent
 ): void {
+  if (!isAppWindowSender(event.sender.id)) {
+    logger.warn('Rejected desktop IPC invoke: sender is not an app window', {
+      method,
+      senderId: event.sender.id,
+    });
+    throw new Error(`Desktop IPC ${method} requires an app window sender.`);
+  }
   // Electron documents `senderFrame` as null once the frame navigated away or
   // was destroyed; an undefined property is an event that never carried one.
   // Both are unverifiable and fail closed.
+  const senderFrame = event.senderFrame;
   if (!senderFrame) {
-    logger.warn('Rejected desktop IPC invoke: no live sender frame', { channel });
-    throw new Error(`Desktop IPC ${channel} requires a live sender frame.`);
+    logger.warn('Rejected desktop IPC invoke: no live sender frame', { method });
+    throw new Error(`Desktop IPC ${method} requires a live sender frame.`);
   }
-  const senderFrameUrl = readSenderFrameUrl(channel, senderFrame);
+  const senderFrameUrl = readSenderFrameUrl(method, senderFrame);
   if (!isAllowedDesktopIpcSenderFrameUrl(allowlist, senderFrameUrl)) {
     logger.warn('Rejected desktop IPC invoke: unrecognized sender frame URL', {
       allowlist,
-      channel,
+      method,
       senderFrameUrl,
     });
     // The URL is renderer-controlled; it is deliberately kept out of the
     // message so the rejection cannot smuggle text into the renderer.
-    throw new Error(`Desktop IPC ${channel} rejected an unrecognized sender frame URL.`);
+    throw new Error(`Desktop IPC ${method} rejected an unrecognized sender frame URL.`);
   }
 }
 
-function sortSnapshot(
-  registrations: Iterable<DesktopIpcChannelRegistration>
-): DesktopIpcChannelRegistration[] {
-  const snapshot = [...registrations].map(({ channel, domain, kind }) => ({
-    channel,
-    domain,
-    kind,
-  }));
-  return snapshot.sort((left, right) => {
-    const channelOrder = left.channel.localeCompare(right.channel);
-    if (channelOrder !== 0) {
-      return channelOrder;
+function openConnection(
+  ipcMain: DesktopIpcMainLike,
+  senderFrameAllowlist: DesktopIpcSenderFrameAllowlist | undefined
+): DesktopIpcConnection {
+  const existing = connections.get(ipcMain);
+  if (existing) {
+    existing.senderFrameAllowlist ??= senderFrameAllowlist;
+    return existing;
+  }
+  const connection: DesktopIpcConnection = { routes: new Map(), senderFrameAllowlist };
+  connections.set(ipcMain, connection);
+  ipcMain.handle(DESKTOP_IPC_INVOKE_CHANNEL, async (event, method: unknown, ...args: unknown[]) => {
+    if (typeof method !== 'string') {
+      throw new Error('Desktop IPC requires a method name.');
     }
-    return left.kind.localeCompare(right.kind);
+    assertAuthorizedSender(
+      method,
+      connection.senderFrameAllowlist ?? resolveDesktopIpcSenderFrameAllowlist(),
+      event
+    );
+    const route = connection.routes.get(method);
+    if (!route) {
+      throw new Error(`No desktop IPC handler for ${method}.`);
+    }
+    return await route.handler(event, ...args);
   });
+  return connection;
 }
 
 export function createDesktopIpcRegistry({
   ipcMain,
   senderFrameAllowlist,
 }: DesktopIpcRegistryOptions): DesktopIpcRegistry {
-  const registrations = new Map<string, RegisteredChannel>();
-  const resolveSenderFrameAllowlist = (): DesktopIpcSenderFrameAllowlist =>
-    senderFrameAllowlist ?? resolveDesktopIpcSenderFrameAllowlist();
-
-  function assertAvailableChannel(channel: string): void {
-    assertNonEmptyChannel(channel);
-    if (!registrations.has(channel)) {
-      return;
-    }
-    throw new Error(`Desktop IPC channel already registered: ${channel}`);
-  }
-
-  function registerInvokeChannel<Args extends readonly unknown[], Result>(
-    domain: DesktopIpcDomain,
-    channel: string,
-    handler: DesktopIpcInvokeHandler<Args, Result>
-  ): void {
-    assertAvailableChannel(channel);
-    ipcMain.handle(channel, handler as DesktopIpcInvokeHandler);
-    registrations.set(channel, { channel, domain, kind: 'invoke' });
-  }
-
-  function registerUnauthenticatedInvoke<Args extends readonly unknown[], Result>(
-    domain: DesktopIpcDomain,
-    channel: string,
-    policy: DesktopIpcUnauthenticatedPolicy,
-    handler: DesktopIpcInvokeHandler<Args, Result>
-  ): void {
-    assertUnauthenticatedPolicy(policy);
-    registerInvokeChannel(domain, channel, handler);
-  }
-
-  function registerEvent<Payload>(
-    domain: DesktopIpcDomain,
-    channel: string,
-    handler: DesktopIpcEventHandler<Payload>
-  ): void {
-    assertAvailableChannel(channel);
-    const eventHandler = handler as DesktopIpcEventHandler;
-    ipcMain.on(channel, eventHandler);
-    registrations.set(channel, { channel, domain, handler: eventHandler, kind: 'event' });
-  }
-
-  function registerAuthorizedInvoke<Args extends readonly unknown[], Result>(
-    domain: DesktopIpcDomain,
-    channel: string,
-    policy: DesktopIpcSenderPolicy,
-    handler: DesktopIpcInvokeHandler<Args, Result>
-  ): void {
-    assertSenderPolicy(policy);
-    const allowedRoles = new Set(policy.roles);
-    registerInvokeChannel(domain, channel, async (event, ...args: Args) => {
-      const senderRole = getWindowRoleByWebContentsId(event.sender.id);
-      if (!(senderRole && allowedRoles.has(senderRole))) {
-        logger.warn('Rejected desktop IPC invoke: sender role not allowed', {
-          allowedRoles: policy.roles,
-          channel,
-          senderId: event.sender.id,
-          senderRole: senderRole ?? null,
-        });
-        throw new Error(
-          `Desktop IPC ${channel} requires sender role ${formatRequiredSenderRoles(policy.roles)}.`
-        );
-      }
-      assertAuthorizedSenderFrame(channel, resolveSenderFrameAllowlist(), event.senderFrame);
-      return await handler(event, ...args);
-    });
-  }
-
-  function unregisterAll(): void {
-    for (const registration of registrations.values()) {
-      if (registration.kind === 'invoke') {
-        ipcMain.removeHandler(registration.channel);
-        continue;
-      }
-      ipcMain.removeListener(registration.channel, registration.handler);
-    }
-    registrations.clear();
-  }
+  const connection = openConnection(ipcMain, senderFrameAllowlist);
+  const owned = new Map<string, DesktopIpcRoute>();
 
   return {
-    getSnapshot: () => sortSnapshot(registrations.values()),
-    registerAuthorizedInvoke,
-    registerEvent,
-    registerUnauthenticatedInvoke,
-    unregisterAll,
+    getSnapshot: () =>
+      [...owned.values()]
+        .map(({ channel, domain }) => ({ channel, domain }))
+        .sort((left, right) => left.channel.localeCompare(right.channel)),
+    handle: (domain, method, handler) => {
+      if (method.trim().length === 0 || method.includes('\0')) {
+        throw new Error('Desktop IPC method must be a non-empty string without null bytes.');
+      }
+      if (connection.routes.has(method)) {
+        throw new Error(`Desktop IPC method already registered: ${method}`);
+      }
+      const route = { channel: method, domain, handler: handler as DesktopIpcHandler };
+      connection.routes.set(method, route);
+      owned.set(method, route);
+    },
+    unregisterAll: () => {
+      for (const [method, route] of owned) {
+        if (connection.routes.get(method) === route) {
+          connection.routes.delete(method);
+        }
+      }
+      owned.clear();
+    },
   };
 }
 
 /**
- * Registers every invoke channel of a pure contract (BST-1648). The ONLY
- * verb a contract domain can reach is the authorized one: `spec.roles` is a
- * non-empty tuple, so a contract channel cannot exist without a sender
- * policy. Per channel, authorization runs first (both factors), then
- * `spec.parseArgs` in main (throws on malformed input), then the handler
- * with the parsed tuple. Push events are never registered here — a
- * main→renderer push is a `webContents.send`, not a handler. A contract key
+ * Registers every invoke method of a pure contract (BST-1648). Per call, the
+ * dispatcher's authorization runs first (both factors), then `spec.parseArgs`
+ * in main (throws on malformed input), then the handler with the parsed tuple. Push events are
+ * never registered here: a main→renderer push is `pushToRenderer`, not a handler. A contract key
  * without a handler, or a handler without a contract key, is a registration
  * error (fail closed, never a silently dead channel).
  */
 export function registerDomain<C extends Contract>(
-  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>,
+  registry: Pick<DesktopIpcRegistry, 'handle'>,
   domain: DesktopIpcDomain,
   contract: C,
   handlers: Handlers<C>
@@ -352,19 +244,14 @@ export function registerDomain<C extends Contract>(
     return { invoke: handler as (...args: unknown[]) => unknown, spec };
   });
   for (const { invoke, spec } of registrations) {
-    registry.registerAuthorizedInvoke(
-      domain,
-      spec.channel,
-      { roles: spec.roles },
-      (_event, ...raw: readonly unknown[]) => {
-        if (spec.envelope === 'raw') {
-          return invoke(...spec.parseArgs(raw));
-        }
-        return settleIpcResult({ category: domain, code: spec.channel }, () =>
-          invoke(...spec.parseArgs(raw))
-        ).then((result) => (result.ok ? result.value : result));
+    registry.handle(domain, spec.channel, (_event, ...raw: readonly unknown[]) => {
+      if (spec.envelope === 'raw') {
+        return invoke(...spec.parseArgs(raw));
       }
-    );
+      return settleIpcResult({ category: domain, code: spec.channel }, () =>
+        invoke(...spec.parseArgs(raw))
+      ).then((result) => (result.ok ? result.value : result));
+    });
   }
 }
 

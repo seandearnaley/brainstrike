@@ -7,7 +7,7 @@
  *    host Main relaunches. Core commits the reply as interrupted, the provider
  *    is never asked for it again, and the thread takes a new send.
  * 2. That host is lost too, before the user reconnects, with a send it never
- *    read (the host is stopped, then killed). The pane waits for Reconnect,
+ *    read (the host is frozen, then killed). The pane waits for Reconnect,
  *    and the send comes back to the composer with "Not sent: the agent host
  *    restarted." Nothing is resent.
  */
@@ -17,13 +17,14 @@ import { readHostProcess, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { suspendProcess } from './utils/suspend-process';
 
 const FIRST_PROMPT = 'Reply until the host is lost';
 const STREAMING = 'RECONNECT_STREAMING_2004';
 const NEVER = 'RECONNECT_NEVER_COMMITTED_2004';
 const SECOND_PROMPT = 'Reply on the new host';
 const SECOND_REPLY = 'RECONNECT_SECOND_REPLY_2004';
-const UNREAD_PROMPT = 'The stopped host never reads this';
+const UNREAD_PROMPT = 'The frozen host never reads this';
 const DISCONNECTED = 'Agent host disconnected. Reconnect to continue.';
 
 async function openHostThread(page: Page): Promise<void> {
@@ -97,11 +98,13 @@ test('the thread pane reconnects to a replaced agent host and never resends', as
     await input.fill(SECOND_PROMPT);
     await input.press('Enter');
     await expect(region.getByText(SECOND_REPLY, { exact: true })).toBeVisible({ timeout: 60_000 });
-    await expect.poll(outcomes, { timeout: 30_000 }).toEqual(['interrupted', 'completed']);
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+    expect(await outcomes()).toEqual(['interrupted', 'completed']);
 
     // 2. A second loss before the user reconnects, with a send the host never read.
     const stopped = await readHostProcess(userDataDir);
-    process.kill(stopped.pid, 'SIGSTOP');
+    await suspendProcess(stopped.pid);
     await input.fill(UNREAD_PROMPT);
     await input.press('Enter');
     // The composer took the draft: the send is dispatched to a host that cannot read it.

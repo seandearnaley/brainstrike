@@ -17,29 +17,11 @@ import type {
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+const { ipcMain } = vi.hoisted(() => ({ ipcMain: { handle: vi.fn() } }));
 
-const { registeredHandlers, removeHandler } = vi.hoisted(() => {
-  const handlers = new Map<string, IpcHandler>();
-  return {
-    registeredHandlers: handlers,
-    removeHandler: vi.fn((channel: string) => {
-      handlers.delete(channel);
-    }),
-  };
-});
+vi.mock('electron', () => ({ ipcMain }));
 
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, listener: IpcHandler) => {
-      registeredHandlers.set(channel, listener);
-    }),
-    on: vi.fn(),
-    removeHandler,
-    removeListener: vi.fn(),
-  },
-}));
-
+import { untrackAppWindow } from '../../app-windows';
 import {
   disposeAllFileSystemWatchers,
   type FileSystemWatchRetryResult,
@@ -51,10 +33,10 @@ import {
   WATCH_RETRY_BACKOFF_MS,
 } from '../../ipc-domains/file-system-watch-ipc';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
-import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createAllowlistedSenderFrame,
-  trackTestWindowRole,
+  invokeDesktopIpcFrom,
+  trackTestAppWindow,
 } from '../helpers/desktop-ipc-sender-test-helpers';
 
 type StartTestNativeWatch = (
@@ -172,45 +154,45 @@ function createWatchHarness(): WatchHarness {
   };
 }
 
+function invokeFrom(
+  event: IpcMainInvokeEvent,
+  method: string,
+  ...args: unknown[]
+): Promise<unknown> {
+  return invokeDesktopIpcFrom(ipcMain, event, method, ...args);
+}
+
 async function invokeWatch(
   owner: FakeWebContents,
   directoryPath: string
 ): Promise<{ health?: WatcherHealthTransition; watchId: string }> {
-  const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.watch);
-  if (!handler) {
-    throw new Error('fs:watch handler is not registered');
-  }
-  return (await handler(invokeEventFor(owner), toDirectoryHandle(directoryPath))) as {
+  return (await invokeFrom(
+    invokeEventFor(owner),
+    DESKTOP_IPC_CHANNELS.files.watch,
+    toDirectoryHandle(directoryPath)
+  )) as {
     health?: WatcherHealthTransition;
     watchId: string;
   };
 }
 
 async function invokeUnwatch(owner: FakeWebContents, watchId: string): Promise<void> {
-  const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.unwatch);
-  if (!handler) {
-    throw new Error('fs:unwatch handler is not registered');
-  }
-  await handler(invokeEventFor(owner), watchId);
+  await invokeFrom(invokeEventFor(owner), DESKTOP_IPC_CHANNELS.files.unwatch, watchId);
 }
 
 async function invokeRetry(
   owner: FakeWebContents,
   watchId: string
 ): Promise<FileSystemWatchRetryResult> {
-  const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.watchRetry);
-  if (!handler) {
-    throw new Error('fs:watch-retry handler is not registered');
-  }
-  return (await handler(invokeEventFor(owner), watchId)) as FileSystemWatchRetryResult;
+  return (await invokeFrom(
+    invokeEventFor(owner),
+    DESKTOP_IPC_CHANNELS.files.watchRetry,
+    watchId
+  )) as FileSystemWatchRetryResult;
 }
 
 async function invokeTelemetry(owner: FakeWebContents): Promise<unknown> {
-  const handler = registeredHandlers.get(DESKTOP_IPC_CHANNELS.files.watchTelemetry);
-  if (!handler) {
-    throw new Error('fs:watch-telemetry handler is not registered');
-  }
-  return await handler(invokeEventFor(owner));
+  return await invokeFrom(invokeEventFor(owner), DESKTOP_IPC_CHANNELS.files.watchTelemetry);
 }
 
 const SAMPLE_CHANGES: FileSystemChange[] = [
@@ -222,7 +204,6 @@ describe('file-system watch IPC domain', () => {
   let unregister: () => Promise<void>;
 
   beforeEach(() => {
-    registeredHandlers.clear();
     vi.clearAllMocks();
     harness = createWatchHarness();
     unregister = registerTestWatchHandlers({ startWatch: harness.startWatch });
@@ -230,7 +211,7 @@ describe('file-system watch IPC domain', () => {
 
   afterEach(async () => {
     for (let id = 0; id <= MAX_FS_WATCHERS_PER_OWNER + 10; id += 1) {
-      clearWindowRoleByWebContentsId(id);
+      untrackAppWindow(id);
     }
     await disposeAllFileSystemWatchers();
     await unregister();
@@ -294,26 +275,6 @@ describe('file-system watch IPC domain', () => {
     expect(liveFileSystemWatcherCountForTest()).toBe(0);
   });
 
-  it('joins native watch disposal even when handler removal throws', async () => {
-    const owner = new FakeWebContents(1);
-    const directory = await makeDir();
-    const stop = vi.fn(async () => undefined);
-    await unregister();
-    unregister = registerTestWatchHandlers({ startWatch: async () => stop });
-    await invokeWatch(owner, directory);
-    const failure = new Error('Watch handler removal failed.');
-    removeHandler.mockImplementationOnce(() => {
-      throw failure;
-    });
-
-    await expect(unregister()).rejects.toMatchObject({
-      errors: expect.arrayContaining([failure]),
-      name: 'AggregateError',
-    });
-    expect(stop).toHaveBeenCalledTimes(1);
-    expect(liveFileSystemWatcherCountForTest()).toBe(0);
-  });
-
   it('joins a late watcher acquisition after the visible renderer is destroyed', async () => {
     const owner = new FakeWebContents(1);
     const directory = await makeDir();
@@ -347,21 +308,19 @@ describe('file-system watch IPC domain', () => {
     DESKTOP_IPC_CHANNELS.files.unwatch,
   ])('%s authorization', (channel) => {
     it.each([
-      ['hidden renderer', 2, 'embedding-host', createAllowlistedSenderFrame('embedding-host')],
-      ['untracked renderer', 3, null, createAllowlistedSenderFrame('visible-ui')],
-      ['off-allowlist visible renderer', 4, 'visible-ui', { url: 'https://attacker.invalid/' }],
-    ] as const)('rejects a %s before parsing input', async (_label, id, role, senderFrame) => {
-      const handler = registeredHandlers.get(channel);
+      ['untracked renderer', 3, false, createAllowlistedSenderFrame()],
+      ['off-allowlist app window', 4, true, { url: 'https://attacker.invalid/' }],
+    ] as const)('rejects a %s before parsing input', async (_label, id, tracked, senderFrame) => {
       const owner = new FakeWebContents(id);
-      if (role) {
-        trackTestWindowRole(owner.id, role);
+      if (tracked) {
+        trackTestAppWindow(owner.id);
       }
       const event = { sender: owner as unknown as WebContents, senderFrame } as IpcMainInvokeEvent;
 
-      await expect(handler?.(event, { malformed: true })).rejects.toThrow(
-        role === 'visible-ui'
+      await expect(invokeFrom(event, channel, { malformed: true })).rejects.toThrow(
+        tracked
           ? `Desktop IPC ${channel} rejected an unrecognized sender frame URL.`
-          : `Desktop IPC ${channel} requires sender role visible-ui.`
+          : `Desktop IPC ${channel} requires an app window sender.`
       );
     });
   });
@@ -369,10 +328,9 @@ describe('file-system watch IPC domain', () => {
   it.each([DESKTOP_IPC_CHANNELS.files.watchRetry, DESKTOP_IPC_CHANNELS.files.unwatch])(
     'rejects malformed %s payloads from an authorized renderer',
     async (channel) => {
-      const handler = registeredHandlers.get(channel);
       const owner = new FakeWebContents(1);
 
-      await expect(handler?.(invokeEventFor(owner), { malformed: true })).rejects.toThrow(
+      await expect(invokeFrom(invokeEventFor(owner), channel, { malformed: true })).rejects.toThrow(
         /requires a string/
       );
     }
@@ -725,17 +683,21 @@ describe('file-system watch IPC domain', () => {
     expect(liveFileSystemWatcherCountForTest()).toBe(MAX_FS_WATCHERS_PER_OWNER);
   });
 
-  it('the registrar disposer reaps every live watcher and unregisters the channels', async () => {
+  it('the registrar disposer reaps every live watcher and unregisters the methods', async () => {
     const owner = new FakeWebContents(1);
     const dir = await makeDir();
-    await invokeWatch(owner, dir);
+    const { watchId } = await invokeWatch(owner, dir);
 
     await unregister();
 
     expect(harness.stops[0]).toHaveBeenCalledOnce();
     expect(liveFileSystemWatcherCountForTest()).toBe(0);
-    expect(removeHandler).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.files.watch);
-    expect(removeHandler).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.files.unwatch);
+    await expect(invokeWatch(owner, dir)).rejects.toThrow(
+      `No desktop IPC handler for ${DESKTOP_IPC_CHANNELS.files.watch}.`
+    );
+    await expect(invokeUnwatch(owner, watchId)).rejects.toThrow(
+      `No desktop IPC handler for ${DESKTOP_IPC_CHANNELS.files.unwatch}.`
+    );
     // Re-register for afterEach symmetry.
     unregister = registerTestWatchHandlers({ startWatch: harness.startWatch });
   });

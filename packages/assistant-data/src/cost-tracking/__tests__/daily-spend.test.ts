@@ -150,8 +150,8 @@ describe('resolveDailySpendSummary', () => {
       [
         makeRow({ billedCostUsd: 0.5 }),
         makeRow({
-          model: 'mystery-local',
-          provider: 'ollama',
+          model: 'some-vendor/unregistered-model',
+          provider: 'openrouter',
           unreportedInputTokens: 9_000_000,
           unreportedOutputTokens: 9_000_000,
         }),
@@ -163,7 +163,7 @@ describe('resolveDailySpendSummary', () => {
     expect(summary.exactUsd).toBe(0.5);
     expect(summary.estimatedUsd).toBe(0);
     expect(summary.totalUsd).toBe(0.5);
-    expect(summary.unpricedModels).toEqual(['ollama::mystery-local']);
+    expect(summary.unpricedModels).toEqual(['openrouter::some-vendor/unregistered-model']);
   });
 
   it('sums a mixed group: exact portion plus priced unreported remainder on one model', () => {

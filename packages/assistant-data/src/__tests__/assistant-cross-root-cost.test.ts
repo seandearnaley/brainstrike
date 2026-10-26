@@ -67,9 +67,9 @@ describe('resolveCrossRootCostRows', () => {
       // unpriced model in the SAME root makes that root's whole cost unavailable.
       {
         inputTokens: 200,
-        model: 'gemma',
+        model: 'some-vendor/unregistered-model',
         outputTokens: 75,
-        provider: 'local',
+        provider: 'openrouter',
         rootDisplayName: 'project-alpha',
         rootId: 'root-a',
       },

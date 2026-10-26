@@ -30,20 +30,21 @@ describe('resolveEffectiveObservationalMemorySettings (BST-940 auto observer)', 
     });
   });
 
-  it('privacy: a LOCAL chat never resolves a hosted observer even with hosted keys stored', () => {
+  it('privacy: a chat provider with no auto observer never borrows another keyed provider', () => {
     const effective = resolveEffectiveObservationalMemorySettings({
       desktopAssistantBackendAvailable: true,
       providerKeySources: [
+        { provider: 'bedrock', source: 'stored' },
         { provider: 'openai', source: 'stored' },
         { provider: 'google', source: 'stored' },
       ],
-      selectedChatProvider: 'local',
+      selectedChatProvider: 'bedrock',
       settings: AUTO_SETTINGS,
     });
     expect(effective.settings.enabled).toBe(false);
     expect(effective.autoResolution).toEqual({
       kind: 'unresolved',
-      reason: 'no-hosted-chat-provider',
+      reason: 'no-chat-provider',
     });
   });
 
@@ -135,7 +136,7 @@ describe('resolveEffectiveObservationalMemorySettings (BST-940 auto observer)', 
     const effective = resolveEffectiveObservationalMemorySettings({
       desktopAssistantBackendAvailable: false,
       providerKeySources: undefined,
-      selectedChatProvider: 'local',
+      selectedChatProvider: 'anthropic',
       settings: explicit,
     });
     expect(effective.settings).toBe(explicit);

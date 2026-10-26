@@ -11,13 +11,6 @@ const { createIndexerConnection }: typeof Transport = await import(
   new URL('../src/transport.ts', import.meta.url).href
 );
 
-const profile = {
-  dimensions: 384,
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 512,
-} as const;
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) {
@@ -48,7 +41,7 @@ async function fixture(killMode: 'real' | 'refuse' | 'throw') {
   const connection = createIndexerConnection(
     {
       dbPath: path.join(directory, 'index.sqlite'),
-      embedding: { indexMode: 'vector-configured', profile },
+      embedding: { indexMode: 'text-only' },
       rootIds: ['root-a'],
     },
     { closeMs: 100 },

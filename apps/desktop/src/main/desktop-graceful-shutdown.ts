@@ -24,7 +24,6 @@ export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'native-index',
   'mcp-runtime',
   'file-system',
-  'embedding-host',
   'database-drain',
 ] as const;
 

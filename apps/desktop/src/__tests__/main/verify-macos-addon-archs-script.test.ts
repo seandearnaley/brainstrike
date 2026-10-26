@@ -49,12 +49,12 @@ describe('verify-macos-addon-archs', () => {
       'node_modules/@napi-rs/keyring-darwin-arm64/keyring.darwin-arm64.node': ['arm64'],
       'node_modules/better-sqlite3/prebuilds/darwin-arm64.node': ['arm64'],
       'node_modules/better-sqlite3/prebuilds/darwin-x64.node': ['x86_64'],
-      'node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node': ['arm64'],
+      'node_modules/native-addon/bin/napi-v6/darwin/arm64/binding.node': ['arm64'],
     });
     expect(verifyAddonArchs(bundle, 'x64', archsOf).failures).toEqual([
       'node_modules/@brainstrike/secure-fs-native/build/Release/secure_fs_native.node is arm64, not x86_64',
       'node_modules/@napi-rs/keyring-darwin-arm64/keyring.darwin-arm64.node is arm64, not x86_64, and node_modules/@napi-rs/keyring-darwin-x64/keyring.darwin-x64.node is missing',
-      'node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node is arm64, not x86_64, and node_modules/onnxruntime-node/bin/napi-v6/darwin/x64/onnxruntime_binding.node is missing',
+      'node_modules/native-addon/bin/napi-v6/darwin/arm64/binding.node is arm64, not x86_64, and node_modules/native-addon/bin/napi-v6/darwin/x64/binding.node is missing',
     ]);
   });
 

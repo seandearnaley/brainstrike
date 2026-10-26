@@ -126,17 +126,6 @@ export function getGoogleThinkingLevels(
     : GOOGLE_FLASH_THINKING_LEVELS;
 }
 
-/**
- * Tri-state activation for local runtime providers (ollama / lmstudio):
- *  - `auto`: follow detection — show the provider only when probing succeeds.
- *  - `on`:   force-enabled regardless of detection (useful for remote
- *            runtimes behind a VPN/tunnel where local probes may flap).
- *  - `off`:  force-disabled — hide entirely even if the server is reachable.
- *
- * Defaults to `auto` when unset. Unused for hosted providers.
- */
-export type LocalRuntimeActivation = 'auto' | 'on' | 'off';
-
 export interface AssistantProviderSettings {
   /** Optional hard cap for request input tokens. Values are normalized to positive integers at runtime. */
   agentInputTokenLimit?: number;
@@ -157,19 +146,6 @@ export interface AssistantProviderSettings {
   bedrockEffort?: BedrockReasoningEffort;
   googleIncludeThoughts?: boolean;
   googleThinkingLevel?: GoogleThinkingLevel;
-  /**
-   * Origin override for local runtime providers (ollama / lmstudio). Empty
-   * or undefined means "use the runtime's default (127.0.0.1 + standard
-   * port)". Stored raw — normalized at the boundary when read by probes
-   * or the provider factory. Unused for hosted providers.
-   */
-  localRuntimeBaseUrl?: string;
-  /**
-   * Tri-state activation for local runtime providers (ollama / lmstudio).
-   * Defaults to `auto` when unset. Unused for hosted providers.
-   */
-  localRuntimeEnabled?: LocalRuntimeActivation;
-  localThinkingEnabled?: boolean;
   maxOutputTokens?: number;
   memoryLastMessages?: number;
   reasoningEffort?: OpenAiReasoningEffort;
@@ -201,9 +177,6 @@ export const assistantProviderSettingKeys = [
   'bedrockEffort',
   'googleIncludeThoughts',
   'googleThinkingLevel',
-  'localRuntimeBaseUrl',
-  'localRuntimeEnabled',
-  'localThinkingEnabled',
   'maxOutputTokens',
   'memoryLastMessages',
   'reasoningEffort',

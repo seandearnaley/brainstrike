@@ -5,8 +5,8 @@
  *
  * - `resolveModelReasoningSupport` answers "does this model think?" for
  *   badges and the thinking disclosure. It is tri-state: an undeclared
- *   OpenRouter model or a dynamically discovered local-runtime model resolves
- *   to a VISIBLE `unknown` ("unverified") — never a silent yes/no guess.
+ *   OpenRouter model resolves to a VISIBLE `unknown` ("unverified") — never a
+ *   silent yes/no guess.
  * - `resolveReasoningControlsAvailability` answers "which reasoning controls
  *   may the UI offer?" for the Effort submenu / Thinking toggle. An
  *   undeclared OpenRouter model still gets the full effort list here (the
@@ -19,7 +19,6 @@
 import { getGoogleThinkingLevels } from '@brainstrike/types';
 import type { OpenRouterModelMetadata } from './openrouter-model-metadata.ts';
 import {
-  getProviderDefinition,
   type LlmModelDefinition,
   listProviderLlmModels,
   listProviders,
@@ -35,7 +34,7 @@ import type {
 export type ModelReasoningSupport =
   | { state: 'supported'; source: 'model' | 'provider-default' }
   | { state: 'unsupported' }
-  | { state: 'unknown'; reason: 'openrouter-undeclared' | 'discovered-model' };
+  | { state: 'unknown'; reason: 'openrouter-undeclared' };
 
 export type ReasoningControlsAvailability =
   | {
@@ -149,13 +148,6 @@ export function resolveModelReasoningSupport(
     return { state: 'unsupported' };
   }
 
-  if (getProviderDefinition(provider).runtime === 'local') {
-    // Local-runtime servers (registry `runtime: 'local'`, PR #2513 review
-    // finding 5): discovered runtime models carry no reasoning signal from
-    // their endpoints — surface "unverified" instead of guessing.
-    return { reason: 'discovered-model', state: 'unknown' };
-  }
-
   const declared = findDeclaredLlmModel(provider, modelId);
   if (declared?.reasoning) {
     return { source: 'model', state: 'supported' };
@@ -266,12 +258,6 @@ export function resolveReasoningControlsAvailability(
     return { available: false, reason: 'no-reasoning-controls' };
   }
 
-  if (getProviderDefinition(provider).runtime === 'local') {
-    // Registry-derived (PR #2513 review, finding 5): local-runtime servers'
-    // discovered models expose no reasoning controls.
-    return { available: false, reason: 'no-reasoning-controls' };
-  }
-
   switch (provider) {
     case 'openai':
       return resolveOpenAiFamilyControls(
@@ -284,14 +270,6 @@ export function resolveReasoningControlsAvailability(
       return resolveAnthropicControls(modelId);
     case 'google':
       return { available: true, family: 'google', levels: getGoogleThinkingLevels(modelId) };
-    case 'local':
-    case 'ollama':
-    case 'lmstudio':
-      // Unreachable at runtime: `ollama`/`lmstudio` are answered by the
-      // registry `runtime: 'local'` early return above, and the built-in
-      // `local` provider serves embeddings only. Retained solely so the switch
-      // keeps its compile-time exhaustiveness pin over ProviderId.
-      return { available: false, reason: 'no-reasoning-controls' };
     case 'cohere':
     case 'voyage':
       return { available: false, reason: 'no-reasoning-controls' };

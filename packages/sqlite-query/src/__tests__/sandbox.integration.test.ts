@@ -4,7 +4,6 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { embeddingProfileHash } from '@brainstrike/indexer';
 import { planGrepTrigramCandidates } from '@brainstrike/utils/grep-trigram-plan';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type * as SqliteQuery from '../index.js';
@@ -255,8 +254,8 @@ describe('grep reader over hand-built index metadata', () => {
   it('runs canonical literal and regex grep over authorized native chunk identities', async () => {
     const grepPath = join(directory, 'grep.sqlite');
     const writer = new DatabaseSync(grepPath);
-    writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
-      INSERT INTO index_metadata VALUES(1,15,'${'a'.repeat(64)}','text-only',NULL,NULL);
+    writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT);
+      INSERT INTO index_metadata VALUES(1,16,'${'a'.repeat(64)}');
       CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
     ${NATIVE_TRIGRAM_SCHEMA}
@@ -281,10 +280,7 @@ describe('grep reader over hand-built index metadata', () => {
         rootIds: ['root-a'],
       });
       expect(literal.rows.map((row) => row[0])).toEqual(['chunk-1']);
-      expect(literal).toHaveProperty('identity', {
-        embedding: { indexMode: 'text-only' },
-        storeId: 'a'.repeat(64),
-      });
+      expect(literal).toHaveProperty('identity', { storeId: 'a'.repeat(64) });
       expect(literal.matchedChunks).toBe(1);
       expect(literal.truncated).toBe(false);
       expect(
@@ -332,7 +328,7 @@ describe('grep reader over hand-built index metadata', () => {
       const metadataWriter = new DatabaseSync(grepPath);
       try {
         // Any schema but the current one is a fatal refusal; derived data is rebuilt.
-        for (const version of [3, 14]) {
+        for (const version of [3, 15]) {
           metadataWriter.prepare('UPDATE index_metadata SET schema_version=?').run(version);
           await expect(
             grepClient.grep({
@@ -344,7 +340,7 @@ describe('grep reader over hand-built index metadata', () => {
             })
           ).rejects.toThrow('Existing index metadata is invalid:');
         }
-        metadataWriter.exec('UPDATE index_metadata SET schema_version=15');
+        metadataWriter.exec('UPDATE index_metadata SET schema_version=16');
         expect(
           await grepClient.grep({
             caseSensitive: false,
@@ -378,63 +374,6 @@ describe('grep reader over hand-built index metadata', () => {
       ).rejects.toThrow();
     } finally {
       await grepClient.close();
-    }
-  });
-
-  it('counts a valid stored vector identity in empty and matching grep responses', async () => {
-    const grepPath = join(directory, 'grep-identity-budget.sqlite');
-    const writer = new DatabaseSync(grepPath);
-    writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
-      CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
-      CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
-    ${NATIVE_TRIGRAM_SCHEMA}
-      INSERT INTO file_records VALUES('file','root','a.ts');
-      INSERT INTO file_chunks VALUES('chunk','root','file','budget match','hash',1,1,0,12,'text',0,12,2);`);
-    const setProfile = (modelId: string): void => {
-      const profile = {
-        dimensions: 384,
-        dtype: 'fp32',
-        modelId,
-        revision: 'a'.repeat(40),
-        tokenCap: 256,
-      };
-      // The indexer's own identity rule, never a copy of its formula.
-      const profileHash = embeddingProfileHash(profile);
-      writer
-        .prepare("INSERT OR REPLACE INTO index_metadata VALUES(1,15,?,'vector-configured',?,?)")
-        .run('b'.repeat(64), JSON.stringify(profile), profileHash);
-    };
-    setProfile('qualified-model');
-    if (!executable) {
-      throw new Error('Qualified integration executable is required.');
-    }
-    const grepClient = await SqliteQueryClient.open({
-      databasePath: grepPath,
-      deadlineMs: 1000,
-      spawn: () => spawnQueryProcess({ environment: { ELECTRON_RUN_AS_NODE: '1' }, executable }),
-      startupDeadlineMs: 5000,
-    });
-    const options = {
-      caseSensitive: false,
-      isRegex: false,
-      maxRows: 1,
-      pattern: 'budget',
-      rootIds: ['root'],
-    };
-    try {
-      expect((await grepClient.grep(options)).rows).toHaveLength(1);
-      setProfile('λ'.repeat(600_000));
-      await expect(grepClient.grep({ ...options, rootIds: ['empty-root'] })).rejects.toThrow(
-        'process-message budget'
-      );
-      await expect(grepClient.grep(options)).rejects.toThrow('process-message budget');
-      setProfile('qualified-model');
-      const recovered = await grepClient.grep(options);
-      expect(recovered.rows).toHaveLength(1);
-      expect(recovered.identity.embedding).toHaveProperty('profile.modelId', 'qualified-model');
-    } finally {
-      await grepClient.close();
-      writer.close();
     }
   });
 });

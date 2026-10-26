@@ -19,7 +19,6 @@ const MATCH = {
   messageId: 'msg-1',
   role: 'assistant',
   rrfScore: 0.5,
-  sources: ['fts'] as const,
 };
 
 const RESULT = {
@@ -70,7 +69,6 @@ describe('ThreadsPanelSearch', () => {
     useThreadSearchStore.setState({
       query: 'hnsw',
       results: [RESULT],
-      semantic: { kind: 'used' },
       status: 'results',
     });
     const { onSelectThread } = renderSearch();
@@ -88,7 +86,6 @@ describe('ThreadsPanelSearch', () => {
     useThreadSearchStore.setState({
       query: 'hnsw',
       results: [RESULT, { ...RESULT, threadId: 'thread-2', title: 'Other' }],
-      semantic: { kind: 'used' },
       status: 'results',
     });
     const { onSelectThread } = renderSearch();
@@ -108,7 +105,6 @@ describe('ThreadsPanelSearch', () => {
           matches: [MATCH, { ...MATCH, headline: 'second hnsw result', messageId: 'msg-2' }],
         },
       ],
-      semantic: { kind: 'used' },
       status: 'results',
     });
     const { onSelectThread } = renderSearch();
@@ -122,7 +118,6 @@ describe('ThreadsPanelSearch', () => {
     useThreadSearchStore.setState({
       query: 'hnsw',
       results: [RESULT],
-      semantic: { kind: 'used' },
       status: 'results',
     });
     renderSearch();
@@ -132,65 +127,10 @@ describe('ThreadsPanelSearch', () => {
     expect(useThreadSearchStore.getState().status).toBe('idle');
   });
 
-  it('shows the semantic-unavailable notice with the reason as a tooltip', () => {
-    useThreadSearchStore.setState({
-      query: 'hnsw',
-      results: [RESULT],
-      semantic: { kind: 'unavailable', reason: 'No embedding queue is registered.' },
-      status: 'results',
-    });
-    renderSearch();
-
-    const notice = screen.getByTestId('thread-search-semantic-unavailable');
-    expect(notice).toHaveTextContent(/keyword matches only/i);
-    expect(notice).toHaveAttribute('title', 'No embedding queue is registered.');
-  });
-
-  it('shows embedding indexing progress from coverage', () => {
-    useThreadSearchStore.setState({
-      coverage: {
-        embeddableMessages: 10,
-        embeddedMessages: 4,
-        erroredMessages: 1,
-        indexedMessages: 12,
-        totalMessages: 12,
-      },
-      query: 'hnsw',
-      results: [RESULT],
-      semantic: { kind: 'used' },
-      status: 'results',
-    });
-    renderSearch();
-
-    expect(screen.getByTestId('thread-search-indexing-progress')).toHaveTextContent('4 of 10');
-  });
-
-  it('surfaces embedding failures instead of silently shrinking coverage', () => {
-    useThreadSearchStore.setState({
-      coverage: {
-        embeddableMessages: 10,
-        embeddedMessages: 7,
-        erroredMessages: 3,
-        indexedMessages: 12,
-        totalMessages: 12,
-      },
-      query: 'hnsw',
-      results: [RESULT],
-      semantic: { kind: 'used' },
-      status: 'results',
-    });
-    renderSearch();
-
-    expect(screen.getByTestId('thread-search-embedding-errors')).toHaveTextContent(
-      '3 messages could not be embedded'
-    );
-  });
-
   it('renders the empty state honestly', () => {
     useThreadSearchStore.setState({
       query: 'zzz',
       results: [],
-      semantic: { kind: 'used' },
       status: 'results',
     });
     renderSearch();

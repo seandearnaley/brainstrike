@@ -1,9 +1,9 @@
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { ResponseError } from 'vscode-jsonrpc';
-import type { HostProviderService } from '../src/ports.js';
-import type { HostMethod } from '../src/protocol.js';
-import { bindHostProviderMethods } from '../src/provider-connection.js';
+import type { HostProviderService } from '../src/ports.ts';
+import type { HostMethod } from '../src/protocol.ts';
+import { bindHostProviderMethods } from '../src/provider-connection.ts';
 
 type Bound = (params: unknown, signal?: AbortSignal) => unknown;
 function bound(providers: HostProviderService | undefined): Map<HostMethod, Bound> {
@@ -22,14 +22,14 @@ describe('host provider methods', () => {
     };
     const providers: HostProviderService = {
       openRouterModel: vi.fn(),
-      status: vi.fn(async () => ({ enabled: true, providers: ['local'] })),
+      status: vi.fn(async () => ({ enabled: true, providers: ['openai'] })),
       verify: vi.fn(async () => snapshot),
     };
     const handlers = bound(providers);
 
     await expect(handlers.get('host/status')?.({})).resolves.toEqual({
       enabled: true,
-      providers: ['local'],
+      providers: ['openai'],
     });
     const { signal } = new AbortController();
     await expect(handlers.get('providers/verify')?.({ provider: 'openai' }, signal)).resolves.toBe(

@@ -1,4 +1,3 @@
-import { projectModelCatalog } from '@brainstrike/assistant-contract';
 // @vitest-environment node
 import { providerEnvKeys } from '@brainstrike/assistant-contract/provider-metadata';
 import {
@@ -42,17 +41,13 @@ it('retires an already physically settled missing-key request after generate del
         collections: [{ ...metadata, createdAt: '2026-10-13T00:00:00.000Z' }],
       }),
     },
-    modelCatalog: { read: async () => projectModelCatalog({ models: [], providers: [] }) },
-    readLocalSelection: async () => undefined,
     resolveEmbeddingSetId: async () => metadata.id,
   });
-  const documentEmbeddings = vi.fn(async () => []);
   // Desktop's composition hands the shared inference its own hosted embeddings.
   const inference = new NativeCanonicalInference({
     hostedEmbeddings: generateHostedEmbeddings,
     resolver,
     scope,
-    transport: { documentEmbeddings },
   });
   const resolved = await resolver.resolve(scope, {
     requestId: 'profile',
@@ -67,7 +62,6 @@ it('retires an already physically settled missing-key request after generate del
   expect(failure).toBeInstanceOf(HostedEmbeddingError);
   expect(failure).toMatchObject({ kind: 'missing-key' });
   expect(fetch).not.toHaveBeenCalled();
-  expect(documentEmbeddings).not.toHaveBeenCalled();
   // generate delivered the failure; join only proves the request physically settled.
   await expect(inference.join('request')).resolves.toBeUndefined();
   await expect(inference.close()).resolves.toBeUndefined();

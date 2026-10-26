@@ -1,8 +1,8 @@
 import path from 'node:path';
 import { RootLock } from '@brainstrike/state-store';
-import { getMainBufferedLogs } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostProcess, waitForAppHost } from './utils/agent-host-log';
+import { getMainBufferedLogs } from './utils/main-logs';
 
 /**
  * Lifecycle redesign §6.1, startup: a machine slow at every startup boundary is
@@ -18,12 +18,6 @@ test.use({
     BRAINSTRIKE_E2E_LIFECYCLE_DELAYS: 'host-ready:5000,platform-ready:3000,record-read:3000',
   },
 });
-
-interface BufferedLogRecord {
-  readonly level?: string;
-  readonly message?: string;
-  readonly scope?: string;
-}
 
 test('a slow machine starts one agent host without errors and quits cleanly', async ({
   electron,
@@ -43,7 +37,7 @@ test('a slow machine starts one agent host without errors and quits cleanly', as
     owner: { pid: host.pid, start: host.start },
   });
 
-  const records = (await getMainBufferedLogs(page)) as readonly BufferedLogRecord[];
+  const records = await getMainBufferedLogs(page);
   const errors = records.filter((record) => record.level === 'error' || record.level === 'fatal');
   expect(errors).toEqual([]);
 

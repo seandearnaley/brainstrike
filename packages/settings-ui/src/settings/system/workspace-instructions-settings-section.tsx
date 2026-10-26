@@ -135,9 +135,7 @@ export function WorkspaceInstructionsSettingsSection() {
             <Label className="font-medium text-sm" htmlFor="context-files-master-toggle">
               Inject workspace instructions
             </Label>
-            <p className="text-muted-foreground text-sm">
-              On by default. Skipped for the built-in local model (its context is too small).
-            </p>
+            <p className="text-muted-foreground text-sm">On by default.</p>
           </div>
           <Switch
             checked={masterEnabled}

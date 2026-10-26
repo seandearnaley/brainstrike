@@ -102,7 +102,6 @@ export function hostMemoryModels(
           embedder: {
             dimensions: profile.dimensions,
             distance: profile.distance,
-            ...('dtype' in profile ? { dtype: profile.dtype } : {}),
             modelId: profile.modelId,
             provider: profile.provider,
           },

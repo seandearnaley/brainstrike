@@ -1,4 +1,5 @@
 import { Minimatch } from 'minimatch';
+import { slashSeparatedPath } from './path-ancestors.ts';
 
 const MAX_REGEX_PATTERN_LENGTH = 256;
 const DANGEROUS_REGEX_PATTERNS = [
@@ -35,8 +36,10 @@ export function processFilter(filter: string): string {
   return `**/${filter}`;
 }
 
+/** A tree path as filters match it: `/`-separated, without a leading `/`. */
 export function normalizePathForMatching(path: string): string {
-  return path.startsWith('/') ? path.slice(1) : path;
+  const separated = slashSeparatedPath(path);
+  return separated.startsWith('/') ? separated.slice(1) : separated;
 }
 
 function testRegex(regex: RegExp, path: string): boolean {

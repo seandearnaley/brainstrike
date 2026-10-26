@@ -3,7 +3,7 @@ import { LIFECYCLE_DELAYS_ENV } from '@brainstrike/host-lease/lifecycle-delays';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { RendererExitedError } from '../desktop-shutdown-state';
 import { createLifecycleDelaySeam } from '../lifecycle-delay-seam';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { DESKTOP_IPC_CHANNELS, DESKTOP_IPC_PUSH_CHANNEL } from '../platform/desktop-ipc-channels';
 import { prepareDocumentUnload, RENDERER_CLOSE_PREPARATION_MS } from '../prepare-document-unload';
 
 const channels = vi.hoisted(() => ({
@@ -68,8 +68,8 @@ test('waits for its private producer ACK before releasing the close owner', asyn
     prepared = true;
   });
   expect(window.webContents.mainFrame.postMessage).toHaveBeenCalledWith(
-    DESKTOP_IPC_CHANNELS.agent.prepareClose,
-    null,
+    DESKTOP_IPC_PUSH_CHANNEL,
+    { method: DESKTOP_IPC_CHANNELS.agent.prepareClose, payload: null },
     [channels.created[0]?.port2]
   );
   await Promise.resolve();

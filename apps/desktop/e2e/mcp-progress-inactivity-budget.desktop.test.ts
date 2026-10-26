@@ -6,12 +6,13 @@
 // silent is cancelled at the window, and the model reads that it went silent.
 // A server configured with its own `toolTimeoutMs` gives a silent tool that
 // window instead; a value past the ten-minute ceiling is refused where it is typed.
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { configureAssistantProvider } from './utils/assistant-mock';
@@ -71,70 +72,73 @@ async function configureServer(window: Page, server: FixtureServer): Promise<voi
 
 /** Configure the slow server, have the model call its tool, and return what the tool told it. */
 async function runSlowTool(
+  harness: ElectronHarness,
   window: Page,
   modelProvider: ModelProviderShim,
   env: Readonly<Record<string, string>>,
   fields: Readonly<Record<string, unknown>> = {}
 ): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'bst-1779-'));
-  try {
-    await ensureMockWorkspaceOpen(window);
-    await configureAssistantProvider(window);
-    const serverId = 'slow-progress';
-    await configureServer(
-      window,
-      fixtureServer(
-        serverId,
-        {
-          BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '9000',
-          BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '500',
-          BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: join(directory, 'state.json'),
-          ...env,
-        },
-        fields
-      )
-    );
-    const finalText = 'Inactivity budget checked.';
-    modelProvider.setScript(({ requestBody }) =>
-      streaming(requestBody)
-        ? {
-            deferredTool: true,
-            finalText,
-            toolCall: { arguments: {}, name: `${serverId}_progress_forever` },
-          }
-        : { finalText: 'Inactivity budget' }
-    );
-    await ensureAssistantShellVisible(window);
-    const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
-    await panel.getByRole('textbox', { name: 'Message input' }).fill('Run the slow tool.');
-    await panel.getByRole('button', { exact: true, name: 'Send' }).click();
-    await expect(panel.getByText(finalText, { exact: true })).toBeVisible({ timeout: 90_000 });
-    // What the tool returned, as the model received it.
-    return JSON.stringify(modelProvider.requests().flatMap(({ messages }) => messages));
-  } finally {
-    await rm(directory, { force: true, recursive: true });
-  }
+  harness.removeAfterClose(directory);
+  await ensureMockWorkspaceOpen(window);
+  await configureAssistantProvider(window);
+  const serverId = 'slow-progress';
+  await configureServer(
+    window,
+    fixtureServer(
+      serverId,
+      {
+        BRAINSTRIKE_STDIO_PROGRESS_FINISH_AFTER_MS: '9000',
+        BRAINSTRIKE_STDIO_PROGRESS_INTERVAL_MS: '500',
+        BRAINSTRIKE_STDIO_PROGRESS_STATE_FILE: join(directory, 'state.json'),
+        ...env,
+      },
+      fields
+    )
+  );
+  const finalText = 'Inactivity budget checked.';
+  modelProvider.setScript(({ requestBody }) =>
+    streaming(requestBody)
+      ? {
+          deferredTool: true,
+          finalText,
+          toolCall: { arguments: {}, name: `${serverId}_progress_forever` },
+        }
+      : { finalText: 'Inactivity budget' }
+  );
+  await ensureAssistantShellVisible(window);
+  const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
+  await panel.getByRole('textbox', { name: 'Message input' }).fill('Run the slow tool.');
+  await panel.getByRole('button', { exact: true, name: 'Send' }).click();
+  await expect(panel.getByText(finalText, { exact: true })).toBeVisible({ timeout: 90_000 });
+  // What the tool returned, as the model received it.
+  return JSON.stringify(modelProvider.requests().flatMap(({ messages }) => messages));
 }
 
 test('a tool that keeps reporting progress runs past its window and finishes (BST-1779)', async ({
+  electronHarness,
   modelProvider,
   window,
 }) => {
   test.setTimeout(240_000);
-  expect(await runSlowTool(window, modelProvider, {})).toContain('finished');
+  expect(await runSlowTool(electronHarness, window, modelProvider, {})).toContain('finished');
 });
 
 test('a silent tool is cancelled at its window, and the model reads why (BST-1779)', async ({
+  electronHarness,
   modelProvider,
   window,
 }) => {
   test.setTimeout(240_000);
   expect(
-    await runSlowTool(window, modelProvider, { BRAINSTRIKE_STDIO_PROGRESS_SILENT: '1' })
+    await runSlowTool(electronHarness, window, modelProvider, {
+      BRAINSTRIKE_STDIO_PROGRESS_SILENT: '1',
+    })
   ).toContain('reported no progress for 3s');
 });
 
 test("a silent tool runs past the host's window on a server configured with a longer one (BST-1779)", async ({
+  electronHarness,
   modelProvider,
   window,
 }) => {
@@ -142,6 +146,7 @@ test("a silent tool runs past the host's window on a server configured with a lo
   // Silent for 5 s: past the host's 3 s window, inside the server's 8 s.
   expect(
     await runSlowTool(
+      electronHarness,
       window,
       modelProvider,
       {

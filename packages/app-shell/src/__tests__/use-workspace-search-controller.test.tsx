@@ -2,7 +2,11 @@ import {
   BoundaryFailureError,
   describeBoundaryError,
 } from '@brainstrike/assistant-contract/boundary-failure';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import {
+  type IndexerEmbeddingProfile,
+  type IndexSearchCapability,
+  indexerEmbeddingProfileValues,
+} from '@brainstrike/indexing-contract/indexer-client';
 import { act } from '@brainstrike/test-utils/react-act';
 import type { NativeWorkspaceSearchDependencies } from '@brainstrike/workspace-search/core';
 import {
@@ -42,21 +46,30 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     selector(explorer),
 }));
 
+/** The native store's profile hash: SHA-256 over the profile's canonical identity values. */
+async function profileHash(profile: IndexerEmbeddingProfile): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify(indexerEmbeddingProfileValues(profile)))
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 describe('native Search boundary presentation', () => {
-  it('retains the recorded GPU-loss remedy without exposing the private cause', async () => {
+  it('retains a fault remedy without exposing the private cause', async () => {
     useWorkspaceSearchStore.getState().reset();
     useWorkspaceSearchStore.getState().setQuery('where is the release signing procedure');
-    // Recorded Main-to-visible envelope from actual hardware loss on 91d27dbeb.
+    // A Main-to-visible fault envelope whose private cause stays in Main's log.
     const failure = new BoundaryFailureError(
       {
         category: 'availability',
-        code: 'EMBEDDING_DEVICE_LOST',
+        code: 'EMBEDDING_PROVIDER_UNAVAILABLE',
         correlationId: '8cb3b33a-70a7-4753-b72b-cbea1c0b5250',
         kind: 'fault',
-        message: 'WebGPU device was lost.',
-        remedy: 'Choose the model again to retry.',
+        message: 'The embedding provider is unavailable.',
+        remedy: 'Check the provider status, then retry.',
       },
-      { cause: new Error('private vendor device stack') }
+      { cause: new Error('private vendor response body') }
     );
     const executor = new NativeWorkspaceSearchExecutor({
       capability: null,
@@ -68,7 +81,7 @@ describe('native Search boundary presentation', () => {
     await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
     // A fault names the reference Main logged its private cause under (BST-2202).
     expect(useWorkspaceSearchStore.getState().error).toBe(
-      'WebGPU device was lost. Choose the model again to retry. Reference: 8cb3b33a-70a7-4753-b72b-cbea1c0b5250'
+      'The embedding provider is unavailable. Check the provider status, then retry. Reference: 8cb3b33a-70a7-4753-b72b-cbea1c0b5250'
     );
     expect(useWorkspaceSearchStore.getState().error).not.toContain('private vendor');
   });
@@ -357,16 +370,15 @@ describe('useWorkspaceSearchController', () => {
     'cancels owned native inference on %s and holds its promise until completion',
     async (action) => {
       const profile = {
-        dimensions: 384,
-        dtype: 'fp16' as const,
-        modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-        revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-        tokenCap: 256,
+        dimensions: 1536,
+        distance: 'cosine' as const,
+        modelId: 'text-embedding-3-small',
+        provider: 'openai' as const,
       };
       const embedding = {
         indexMode: 'vector-configured' as const,
         profile,
-        profileHash: '60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914',
+        profileHash: await profileHash(profile),
       };
       const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
       const capability: IndexSearchCapability = {
@@ -511,11 +523,10 @@ it.each([
   async (error) => {
     useWorkspaceSearchStore.getState().reset();
     const profile = {
-      dimensions: 384,
-      dtype: 'fp16' as const,
-      modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-      revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-      tokenCap: 256,
+      dimensions: 1536,
+      distance: 'cosine' as const,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai' as const,
     };
     const capability: IndexSearchCapability = {
       coverage: vi.fn(),
@@ -610,11 +621,10 @@ describe('Explorer search with an open folder the index leaves out', () => {
     ['A2', 'D2'],
   ]);
   const semanticProfile = {
-    dimensions: 384,
-    dtype: 'fp16' as const,
-    modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-    revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-    tokenCap: 256,
+    dimensions: 1536,
+    distance: 'cosine' as const,
+    modelId: 'text-embedding-3-small',
+    provider: 'openai' as const,
   };
 
   it('searches the indexed folder and names the left-out one', async () => {

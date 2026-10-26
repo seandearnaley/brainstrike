@@ -620,12 +620,12 @@ describe('logger', () => {
         {
           application: 'brainstrike-desktop',
           level: 30,
-          msg: 'Background renderer log forwarding enabled',
+          msg: 'Renderer log forwarding enabled',
           runtime: 'electron-renderer',
           scope: 'DesktopRenderer',
           time: 123,
           version: '0.1.0',
-          windowRole: 'embedding-host',
+          windowRole: 'visible-ui',
         },
         'scope',
         {
@@ -636,7 +636,7 @@ describe('logger', () => {
       );
 
       expect(formattedMessage).toBe(
-        '[DesktopRenderer] Background renderer log forwarding enabled {"windowRole":"embedding-host"}'
+        '[DesktopRenderer] Renderer log forwarding enabled {"windowRole":"visible-ui"}'
       );
     });
 

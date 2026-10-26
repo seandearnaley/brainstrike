@@ -3,7 +3,6 @@ import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   EmbeddingProviderType,
-  LocalProviderType,
   ProviderMetadata,
   Result,
 } from '../provider-types.ts';
@@ -13,8 +12,7 @@ import type { ModelConfig } from '../types.ts';
 export type { EmbeddingInput };
 
 /**
- * Provider interface for embedding generation
- * Supports both local (transformers.js) and hosted (API-based) providers
+ * Provider interface for hosted (API-based) embedding generation
  *
  * Uses Strategy pattern to enable swapping between different embedding backends
  * without changing consumer code.
@@ -48,13 +46,27 @@ export interface IEmbeddingProvider {
   getModelInfo: (modelId: string) => ModelConfig | null;
 
   /**
-   * Check if provider is available and ready to generate embeddings
-   * - Local providers: Check if model is loaded or can be loaded
-   * - Hosted providers: Check API reachability and API key presence
+   * Check if API key is configured
+   */
+  hasApiKey: () => boolean;
+
+  /**
+   * Check if provider is available and ready to generate embeddings:
+   * API reachability and API key presence
    *
    * @returns true if provider is ready or can be initialized
    */
   isAvailable: () => Promise<boolean>;
+
+  readonly provider: EmbeddingProviderType;
+
+  /**
+   * Set API key for the provider
+   * Allows updating credentials without recreating provider instance
+   *
+   * @param apiKey - API key for the provider
+   */
+  setApiKey: (apiKey: string) => void;
 
   /**
    * Validate embedding dimensions match expected value
@@ -68,60 +80,4 @@ export interface IEmbeddingProvider {
     embedding: number[],
     expectedDimensions: number
   ) => Result<void, EmbeddingProviderError>;
-}
-
-/**
- * Extended provider interface for local (transformers.js) providers
- * Adds lifecycle methods specific to browser-based embedding models
- */
-export interface ILocalEmbeddingProvider extends IEmbeddingProvider {
-  /**
-   * Dispose of loaded model and free resources
-   * Important for memory management in browser environments
-   */
-  dispose: () => Promise<void>;
-
-  /**
-   * Get current initialization status
-   */
-  getStatus: () => 'idle' | 'initializing' | 'ready' | 'error';
-
-  /**
-   * Initialize the local model with progress tracking
-   * Only needed for local providers that load models into memory
-   *
-   * @param onProgress - Optional callback for download/initialization progress
-   */
-  initialize: (
-    onProgress?: (progress: { stage: string; progress?: number }) => void
-  ) => Promise<void>;
-  readonly provider: 'local';
-  /**
-   * Provider type discriminator
-   */
-  readonly runtime: 'browser';
-}
-
-/**
- * Extended provider interface for hosted (API-based) providers
- * Adds configuration specific to API-based embedding services
- */
-export interface IHostedEmbeddingProvider extends IEmbeddingProvider {
-  /**
-   * Check if API key is configured
-   */
-  hasApiKey: () => boolean;
-  readonly provider: Exclude<EmbeddingProviderType, LocalProviderType>;
-  /**
-   * Provider type discriminator
-   */
-  readonly runtime: 'hosted';
-
-  /**
-   * Set API key for the provider
-   * Allows updating credentials without recreating provider instance
-   *
-   * @param apiKey - API key for the provider
-   */
-  setApiKey: (apiKey: string) => void;
 }

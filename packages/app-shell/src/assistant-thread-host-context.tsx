@@ -21,18 +21,7 @@ import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/wor
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
 import type { RewindPort } from './changes/rewind-port';
 import { readHostChildWorkspaceTab } from './host-child-workspace-tab';
-import type {
-  HostThreadSearchVectors,
-  ThreadSearchVectorProfile,
-} from './host-thread-search-vectors';
 import type { ThreadSearchExtraArms } from './thread-search-service';
-
-/** The semantic arm of a host search: the query vector, its embedder identity and minimum cosine. */
-export interface AssistantThreadSearchSemantic {
-  readonly profile: ThreadSearchVectorProfile;
-  readonly threshold: number;
-  readonly vector: readonly number[];
-}
 
 /** A host thread's latest committed root run, read as the thread badges read a run row. */
 export interface AssistantThreadHostRun {
@@ -212,15 +201,7 @@ export interface AssistantThreadHostCapability {
    * best first, each match on its thread's committed selected path. History's
    * search fuses them into one list. A host without search omits this.
    */
-  searchThreads?(
-    query: string,
-    semantic?: AssistantThreadSearchSemantic
-  ): Promise<ThreadSearchExtraArms>;
-  /**
-   * The host's semantic-arm backlog, embedded by this renderer's search
-   * embedder. A host without search vectors omits it.
-   */
-  readonly searchVectors?: HostThreadSearchVectors;
+  searchThreads?(query: string): Promise<ThreadSearchExtraArms>;
   /**
    * Called when an owned thread commits a canvas version while a view of it
    * is mounted, so a canvas reader re-reads through `readCanvases`. Omitted by

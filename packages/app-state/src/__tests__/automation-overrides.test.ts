@@ -3,14 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getAccurateRuntimeAvailabilityTestOverride,
   getAssistantConfiguredProvidersTestOverride,
-  getLocalRuntimeStatusTestOverride,
   getModelRegistrySnapshotTestOverride,
-  readLocalRuntimeProbeCountsForTests,
-  recordLocalRuntimeProbeForTests,
-  resetLocalRuntimeProbeCountsForTests,
 } from '../automation-overrides.ts';
 
-const SELECTED_MODEL = 'local::onnx-community/gemma-4-E2B-it-ONNX';
+const SELECTED_MODEL = 'openai::gpt-5.4';
 
 describe('automation-overrides', () => {
   beforeEach(() => {
@@ -18,7 +14,6 @@ describe('automation-overrides', () => {
     window.localStorage.clear();
     window.__brainstrike_e2e_enable_settings_test_api__ = true;
     Reflect.deleteProperty(window, '__brainstrikePendingSettingsTestOverrides__');
-    resetLocalRuntimeProbeCountsForTests();
   });
 
   afterEach(() => {
@@ -28,11 +23,11 @@ describe('automation-overrides', () => {
   it('prefers explicit assistant provider overrides', () => {
     window.__brainstrikePendingSettingsTestOverrides__ = {
       assistant: {
-        configuredProviders: ['local'] satisfies readonly SupportedProvider[],
+        configuredProviders: ['anthropic'] satisfies readonly SupportedProvider[],
       },
     };
 
-    expect(getAssistantConfiguredProvidersTestOverride()).toEqual(['local']);
+    expect(getAssistantConfiguredProvidersTestOverride()).toEqual(['anthropic']);
   });
 
   it('falls back to persisted assistant selected model provider for E2E setup', () => {
@@ -41,7 +36,7 @@ describe('automation-overrides', () => {
       JSON.stringify({ state: { selectedModel: SELECTED_MODEL }, version: 5 })
     );
 
-    expect(getAssistantConfiguredProvidersTestOverride()).toEqual(['local']);
+    expect(getAssistantConfiguredProvidersTestOverride()).toEqual(['openai']);
   });
 
   it('ignores persisted assistant models with unsupported providers', () => {
@@ -57,30 +52,16 @@ describe('automation-overrides', () => {
     window.__brainstrikePendingSettingsTestOverrides__ = {
       modelRegistry: {
         snapshot: {
-          downloadedModels: { [SELECTED_MODEL]: true },
+          models: [],
+          providers: [],
         },
       },
     };
 
     expect(getModelRegistrySnapshotTestOverride()).toEqual({
-      downloadedModels: { [SELECTED_MODEL]: true },
+      models: [],
+      providers: [],
     });
-  });
-
-  it('records local runtime probe counts only when runtime overrides are present', () => {
-    recordLocalRuntimeProbeForTests('ollama');
-    expect(readLocalRuntimeProbeCountsForTests()).toEqual({});
-
-    window.__brainstrikePendingSettingsTestOverrides__ = {
-      localRuntime: {
-        statuses: {},
-      },
-    };
-
-    recordLocalRuntimeProbeForTests('ollama');
-    recordLocalRuntimeProbeForTests('ollama');
-
-    expect(readLocalRuntimeProbeCountsForTests()).toEqual({ ollama: 2 });
   });
 
   describe('in a production build', () => {
@@ -115,15 +96,6 @@ describe('automation-overrides', () => {
       setWebdriver(true);
 
       expect(getAccurateRuntimeAvailabilityTestOverride()).toBe(false);
-    });
-  });
-
-  it('returns deterministic unavailable local runtime status when E2E disables external probes', () => {
-    vi.stubEnv('BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES', '1');
-
-    expect(getLocalRuntimeStatusTestOverride('ollama')).toMatchObject({
-      message: 'External local runtime probing is disabled for deterministic desktop E2E.',
-      state: 'unavailable',
     });
   });
 });

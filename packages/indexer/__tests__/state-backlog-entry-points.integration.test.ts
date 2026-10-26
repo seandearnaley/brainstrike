@@ -31,12 +31,9 @@ const BACKLOG = STATE_CATCH_UP_STEP_EVENTS * 60;
  */
 const REBUILD_BACKLOG = STATE_CATCH_UP_STEP_EVENTS * 20;
 const backlogs: Readonly<Record<string, number>> = {
-  coverage: BACKLOG,
   gc: BACKLOG,
-  pending: BACKLOG,
   rebuild: REBUILD_BACKLOG,
   search: BACKLOG,
-  similar: BACKLOG,
 };
 /**
  * Each case proves its backlog is served in bounded steps (BST-2214) by what
@@ -47,13 +44,6 @@ const backlogs: Readonly<Record<string, number>> = {
  */
 const deadlines = { closeMs: 5000 };
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
-const profile = {
-  dimensions: 4,
-  distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'search-vector-proof',
-  provider: 'local',
-} as const;
 
 let root: string;
 /** The index the calibration and every case open. */
@@ -227,28 +217,6 @@ const entryPoints: readonly [
     'search',
     (port) => port.searchState({ limit: 5, query: 'garden', threadIds: ['search'] }),
     (hits) => expect(hits).toHaveLength(5),
-  ],
-  [
-    'pending',
-    (port) => port.searchStatePending({ limit: 10, profile, threadIds: ['pending'] }),
-    (rows) => expect(rows).toHaveLength(10),
-  ],
-  [
-    'coverage',
-    (port) => port.searchStateCoverage({ profile, threadIds: ['coverage'] }),
-    (coverage) => expect(coverage).toEqual({ embedded: 0, errored: 0, rows: BACKLOG }),
-  ],
-  [
-    'similar',
-    (port) =>
-      port.searchStateSimilar({
-        limit: 5,
-        profile,
-        threadIds: ['similar'],
-        threshold: 0.5,
-        vector: [1, 0, 0, 0],
-      }),
-    (hits) => expect(hits).toEqual([]),
   ],
   [
     'rebuild',

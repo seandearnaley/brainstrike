@@ -85,13 +85,11 @@ export async function mainQueryEmbedding(
     await request('platform/embedding/query', { request: payload }, signal)
   );
 }
-/** The renderer query embedding through Main, for the retrieval tools. */
+/** Main's hosted query embedding, for the retrieval tools. */
 export function hostQueryEmbedding(
   request: MainRequest
-): NonNullable<RetrievalToolDependencies['embeddingHostManager']> {
-  return {
-    queryEmbedding: (payload, options) => mainQueryEmbedding(request, payload, options?.signal),
-  };
+): NonNullable<RetrievalToolDependencies['queryEmbedder']> {
+  return (payload, signal) => mainQueryEmbedding(request, payload, signal);
 }
 /** The retrieval catalog over Main's PGlite; the host has no legacy similarity path. */
 export function hostRetrievalStore(request: MainRequest, threadId: string): RetrievalStore {

@@ -1,5 +1,5 @@
 # Runs on every merge-queue batch (owner decision 2026-10-24), so no change
-# lands without the full desktop regression and the embedding lane.
+# lands without the full desktop regression.
 
 name: Desktop E2E
 
@@ -36,7 +36,6 @@ permissions:
   contents: read
 
 env:
-  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TURBO_CACHE_DIR: .turbo
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -167,74 +166,3 @@ jobs:
             echo "::error::Desktop full regression shards did not all succeed: $SHARD_RESULT"
             exit 1
           fi
-
-  desktop-embedding-e2e:
-    name: Desktop Embedding E2E
-    if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted
-    runs-on: ubicloud-standard-4
-    timeout-minutes: 60
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'true'
-
-      - name: Build desktop
-        run: pnpm run build --filter @brainstrike/desktop
-
-      # Desktop E2E drives the app through Playwright's Electron API
-      # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
-      # binary — NOT a `playwright install chromium` browser. So we only need
-      # the Chromium system libraries (apt), never the browser binary download
-      # from cdn.playwright.dev that was stalling and hanging this job to its
-      # timeout. `install-deps` is apt-only and does not touch the browser CDN.
-
-      # BST-1715: an unused third-party apt source (Google Chrome, added by the
-      # runner image) serving an inconsistent index makes the apt-get update
-      # below exit non-zero and kills this step. Drop the source rather than
-      # relaxing apt's exit status.
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install Chromium system dependencies
-        run: pnpm exec playwright install-deps chromium
-
-      - name: Provision Electron binary
-        uses: ./.github/actions/provision-electron
-
-      # dbus-run-session wraps Electron so Chromium's D-Bus connect attempts
-      # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
-      # The two native-backfill specs embed about 300 real chunks each on WASM:
-      # about 9 minutes on ubuntu-latest, which a regression shard's 30-minute
-      # budget cannot also hold (BST-2090, run 39062126583).
-      - name: Run desktop embedding regression
-        working-directory: apps/desktop
-        run: |
-          unset NO_COLOR
-          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
-            e2e/embedding-worker-renderer.smoke.desktop.test.ts \
-            e2e/embedding-worker-renderer.lifecycle.desktop.test.ts \
-            e2e/mid-session-add-root.desktop.test.ts \
-            e2e/native-index-semantic-results.desktop.test.ts \
-            e2e/native-index-retry-indexing.desktop.test.ts \
-            e2e/native-index-shutdown-signal.desktop.test.ts \
-            --project=regression \
-            --workers=1 \
-            --retries=0 \
-            --max-failures=0 \
-            --global-timeout=3000000 \
-            --grep="@desktop-embedding-"
-
-      - name: Upload desktop embedding traces
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-embedding-e2e-test-results
-          path: |
-            apps/desktop/test-results/
-            apps/desktop/blob-report/
-          retention-days: 1
-          if-no-files-found: warn

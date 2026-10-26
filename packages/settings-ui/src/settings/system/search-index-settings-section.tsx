@@ -11,7 +11,6 @@ import {
   sameIndexChunking,
   sameIndexModel,
 } from '@brainstrike/assistant-contract/index-config';
-import type { LocalExecutionCapability } from '@brainstrike/indexing-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   Button,
@@ -34,7 +33,7 @@ import {
   getBackgroundIndexingPolicyOption,
 } from '@brainstrike/utils';
 import { startTransition, useActionState, useState } from 'react';
-import { modelNeedsExecution, SearchIndexModelCard } from './search-index-model-card';
+import { SearchIndexModelCard } from './search-index-model-card';
 import { SearchIndexStatus } from './search-index-status';
 
 const MODES = [
@@ -44,7 +43,7 @@ const MODES = [
     mode: 'off',
   },
   {
-    description: 'Fast keyword search. No model, nothing to download.',
+    description: 'Fast keyword search. No model.',
     label: 'Text',
     mode: 'text',
   },
@@ -91,17 +90,9 @@ function pendingLines(staged: Staged): readonly string[] {
   ];
 }
 
-/** A pick of the saved model, plan unchosen or the same, keeps the saved model and its plan. */
+/** Picking the saved model again keeps it. */
 function keepsSavedModel(next: IndexModel, saved: IndexModel | null): boolean {
-  if (saved === null) {
-    return false;
-  }
-  return (
-    sameIndexModel(next, saved) ||
-    (next.local === null &&
-      next.modelKey === saved.modelKey &&
-      next.dimensions === saved.dimensions)
-  );
+  return saved !== null && sameIndexModel(next, saved);
 }
 
 /** Why the staged choices cannot be applied yet; null when they can. */
@@ -117,9 +108,6 @@ function applyBlocker(
   if (mode === 'semantic' && model === null) {
     return 'Choose an embedding model first.';
   }
-  if (modelNeedsExecution(model)) {
-    return 'Choose how to run the model first.';
-  }
   if (
     custom &&
     !(inRange(custom.maxTokens, CHUNK_SIZE_TOKENS) && inRange(custom.overlap, CHUNK_OVERLAP_TOKENS))
@@ -130,10 +118,8 @@ function applyBlocker(
 }
 
 export function SearchIndexSettingsSection({
-  localExecution,
   nativeIndex,
 }: {
-  readonly localExecution?: LocalExecutionCapability;
   readonly nativeIndex?: Pick<IndexSearchCapability, 'rebuild'>;
 } = {}) {
   const view = useIndexConfigStore((store) => store.state);
@@ -152,24 +138,15 @@ export function SearchIndexSettingsSection({
       </p>
     );
   }
-  return (
-    <SearchIndexForm
-      config={view.config}
-      localExecution={localExecution}
-      nativeIndex={nativeIndex}
-      update={update}
-    />
-  );
+  return <SearchIndexForm config={view.config} nativeIndex={nativeIndex} update={update} />;
 }
 
 function SearchIndexForm({
   config,
-  localExecution,
   nativeIndex,
   update,
 }: {
   readonly config: IndexConfig;
-  readonly localExecution: LocalExecutionCapability | undefined;
   readonly nativeIndex: Pick<IndexSearchCapability, 'rebuild'> | undefined;
   readonly update: ((patch: IndexConfigPatch) => Promise<IndexConfig>) | null;
 }) {
@@ -249,12 +226,7 @@ function SearchIndexForm({
       />
       <SearchModeCard applying={busy} mode={mode} onChoose={chooseMode} />
       {mode === 'semantic' ? (
-        <SearchIndexModelCard
-          disabled={busy}
-          localExecution={localExecution}
-          model={model}
-          onChange={stageModel}
-        />
+        <SearchIndexModelCard disabled={busy} model={model} onChange={stageModel} />
       ) : null}
       <FoldersCard onPolicy={(policy) => change({ policy })} policy={config.policy} />
       <ChunkingCard

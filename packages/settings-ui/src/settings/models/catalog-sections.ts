@@ -1,4 +1,3 @@
-import { isLocalModelProviderId } from '@brainstrike/app-state/models/local-model-utils';
 import type { DbProvider } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   findProviderDefinition,
@@ -56,18 +55,11 @@ export interface CatalogView {
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   gateway: 'Gateway',
   hosted: 'Hosted',
-  local: 'Local server',
-  'on-device': 'On device',
 };
 
 function resolveRuntimeLabel(providerId: string): string | null {
   const definition = findProviderDefinition(providerId);
-  if (definition) {
-    return RUNTIME_LABELS[definition.runtime];
-  }
-  // DB-only providers (`transformers`) are classified by the canonical local
-  // classifier rather than guessed.
-  return isLocalModelProviderId(providerId) ? 'On device' : null;
+  return definition ? RUNTIME_LABELS[definition.runtime] : null;
 }
 
 function sortValue(row: CatalogRow, column: CatalogSortColumn): number | string | null {

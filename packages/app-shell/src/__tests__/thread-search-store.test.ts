@@ -19,14 +19,13 @@ describe('thread-search-store', () => {
     const staleGeneration = store.beginSearch();
     const freshGeneration = useThreadSearchStore.getState().beginSearch();
 
-    useThreadSearchStore.getState().resolveResults([RESULT], { kind: 'used' }, staleGeneration);
+    useThreadSearchStore.getState().resolveResults([RESULT], staleGeneration);
     expect(useThreadSearchStore.getState().results).toBeNull();
     expect(useThreadSearchStore.getState().status).toBe('searching');
 
-    useThreadSearchStore.getState().resolveResults([RESULT], { kind: 'used' }, freshGeneration);
+    useThreadSearchStore.getState().resolveResults([RESULT], freshGeneration);
     expect(useThreadSearchStore.getState().results).toHaveLength(1);
     expect(useThreadSearchStore.getState().status).toBe('results');
-    expect(useThreadSearchStore.getState().semantic).toEqual({ kind: 'used' });
   });
 
   it('drops a stale failure after a newer run began', () => {
@@ -47,7 +46,7 @@ describe('thread-search-store', () => {
     expect(useThreadSearchStore.getState().status).toBe('idle');
 
     // The pre-clear run can no longer resurrect results.
-    useThreadSearchStore.getState().resolveResults([RESULT], { kind: 'used' }, generation);
+    useThreadSearchStore.getState().resolveResults([RESULT], generation);
     expect(useThreadSearchStore.getState().results).toBeNull();
   });
 
@@ -64,17 +63,5 @@ describe('thread-search-store', () => {
     const beforeReset = useThreadSearchStore.getState().beginSearch();
     resetThreadSearchStore();
     expect(useThreadSearchStore.getState().generation).toBeGreaterThan(beforeReset);
-  });
-
-  it('coverage is recorded independently of run generations', () => {
-    const coverage = {
-      embeddableMessages: 5,
-      embeddedMessages: 2,
-      erroredMessages: 0,
-      indexedMessages: 6,
-      totalMessages: 6,
-    };
-    useThreadSearchStore.getState().recordCoverage(coverage);
-    expect(useThreadSearchStore.getState().coverage).toEqual(coverage);
   });
 });

@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { createLogger } from '@brainstrike/logging';
 import { type BrowserWindow, type WebContents, WebContentsView } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { pushToRenderer } from '../platform/desktop-ipc-push';
 import { type AgentBrowsingRoute, createAgentBrowsingRoute } from './agent-browsing-route';
 import type { BrowserDriver, CdpSession, CdpSessionResolver } from './browser-driver';
 import {
@@ -183,7 +184,7 @@ export function createBrowserPaneHost(
     if (hostWindow.isDestroyed()) {
       return;
     }
-    hostWindow.webContents.send(DESKTOP_IPC_CHANNELS.browser.tabsChanged, tabs);
+    pushToRenderer(hostWindow.webContents, DESKTOP_IPC_CHANNELS.browser.tabsChanged, tabs);
   };
 
   // Registries: the real WebContents (to attach a CDP debugger), one cached

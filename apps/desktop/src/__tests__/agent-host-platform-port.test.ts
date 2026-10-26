@@ -23,9 +23,16 @@ import {
 } from '../agent-host-platform/main-platform';
 import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
 import { HostedEmbeddingError } from '../hosted-embedding-error';
+import { hostedQueryEmbedding } from '../hosted-embeddings';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { mainReads } from './fixtures/desktop-admission-reads';
+
+// Main's hosted query embedding, answered by the test that reaches it.
+vi.mock('../hosted-embeddings', async (original) => ({
+  ...(await original<typeof import('../hosted-embeddings')>()),
+  hostedQueryEmbedding: vi.fn(),
+}));
 
 /** Real Node ports with the Electron utility port's public MessageEvent shape. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -59,8 +66,7 @@ function lending(
 function harness(
   admission: DesktopAdmissionReads,
   closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities'],
-  hostTools?: DesktopPlatformCapabilities['hostTools'],
-  localEmbedding?: DesktopPlatformCapabilities['localEmbedding']
+  hostTools?: DesktopPlatformCapabilities['hostTools']
 ) {
   const channel = new MessageChannel();
   const first = new UtilityPort(channel.port1);
@@ -72,7 +78,6 @@ function harness(
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     ...(hostTools ? { hostTools } : {}),
-    ...(localEmbedding ? { localEmbedding } : {}),
   });
   client.onClose(() => client.dispose());
   client.listen();
@@ -374,26 +379,22 @@ it('serves the workspace index, retrieval catalog and query embedding to the hos
     search: vi.fn(),
     status: vi.fn(async () => status),
   };
-  const set = { dimensions: 384, distance: 'cosine', modelId: 'model', modelKey: 'local::model' };
+  const set = {
+    dimensions: 1536,
+    distance: 'cosine',
+    modelId: 'text-embedding-3-small',
+    modelKey: 'openai::text-embedding-3-small',
+  };
   const retrievalStore = {
     embeddingSet: vi.fn(async () => set),
     embeddingSpaces: vi.fn(async () => []),
     fileRecords: vi.fn(async () => new Map()),
   };
-  const queryEmbedding = vi.fn(async (_payload: unknown, signal: AbortSignal) => {
+  vi.mocked(hostedQueryEmbedding).mockImplementationOnce(async (_payload, signal) => {
     expect(signal).toBeInstanceOf(AbortSignal);
     return [0.5, 0.25];
   });
-  const h = harness(
-    mainReads(),
-    undefined,
-    { indexSearch, retrievalStore },
-    // Main's one embedding host relay serves the retrieval tools' queries too.
-    {
-      queryEmbedding: async (payload, options) =>
-        await queryEmbedding(payload, options?.signal ?? new AbortController().signal),
-    }
-  );
+  const h = harness(mainReads(), undefined, { indexSearch, retrievalStore });
   const statusRead = { request: {}, threadId: 'thread' };
   try {
     await expect(h.client.sendRequest('desktop-read/index/status', statusRead)).resolves.toEqual(
@@ -406,11 +407,16 @@ it('serves the workspace index, retrieval catalog and query embedding to the hos
       })
     ).resolves.toEqual({ ok: true, result: set });
     expect(retrievalStore.embeddingSet).toHaveBeenCalledWith('selected');
-    const payload = { dimensions: 2, modelId: 'model', modelKey: 'local::model', query: 'marker' };
+    const payload = {
+      dimensions: 2,
+      modelId: 'text-embedding-3-small',
+      modelKey: 'openai::text-embedding-3-small',
+      query: 'marker',
+    };
     await expect(
       h.client.sendRequest('platform/embedding/query', { request: payload })
     ).resolves.toEqual({ ok: true, result: [0.5, 0.25] });
-    expect(queryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
+    expect(hostedQueryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
   } finally {
     h.destroy();
   }

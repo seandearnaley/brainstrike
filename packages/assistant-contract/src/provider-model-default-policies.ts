@@ -24,8 +24,7 @@ export type ProviderModelDefaultPolicy =
 
 /**
  * Exhaustive over `SupportedProvider`. `null` means the provider has no catalog
- * defaults at all, which is true exactly when it is keyless (enablement comes
- * from runtime discovery and the downloaded-model set) or serves no LLMs.
+ * defaults at all, which is true exactly when it serves no LLMs.
  *
  * The `satisfies` is load-bearing: a new provider cannot compile without
  * stating a policy or an explicit `null`. Omitting that decision is what left
@@ -38,9 +37,6 @@ export const PROVIDER_MODEL_DEFAULT_POLICIES = {
   bedrock: { kind: 'seed', modelIds: BEDROCK_RECOMMENDED_MODEL_IDS },
   cohere: null,
   google: { kind: 'all' },
-  lmstudio: null,
-  local: null,
-  ollama: null,
   openai: { kind: 'all' },
   openrouter: { kind: 'seed', modelIds: OPENROUTER_RECOMMENDED_CODING_MODEL_IDS },
   voyage: null,

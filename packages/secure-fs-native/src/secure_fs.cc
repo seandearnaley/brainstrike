@@ -860,7 +860,7 @@ bool RemovePrivateTemporary(NativeHandle file, NativeHandle, const std::string&)
 }
 
 bool ReplacePrivateTemporary(NativeHandle file, NativeHandle parent, const std::string&,
-                             const std::string& target, bool posix = false) {
+                             const std::string& target) {
   // Use the NT handle-relative primitive, like traversal. The Win32 wrapper
   // rejects a non-null RootDirectory (ERROR_INVALID_PARAMETER) on SEAN9.
   // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile
@@ -877,19 +877,20 @@ bool ReplacePrivateTemporary(NativeHandle file, NativeHandle parent, const std::
   std::vector<uint8_t> buffer(bytes);
   auto* rename = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
   rename->ReplaceIfExists = TRUE;
-  // M4 Windows release: classic replacement fails for a mapped target. POSIX
-  // replacement retains existing readers while atomically publishing new bytes.
+  // Every replacement uses POSIX semantics (REPLACE_IF_EXISTS | POSIX_SEMANTICS).
+  // Classic replacement fails with ERROR_ACCESS_DENIED while any handle is open
+  // on the target, such as a concurrent reader, a mapping or Defender's scan;
+  // POSIX replacement keeps those readers on the old bytes and publishes the new
+  // ones atomically. A holder that denies delete sharing still blocks it.
   // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information
-  if (posix) {
-    const ULONG flags = 0x00000001 | 0x00000002;
-    std::memcpy(buffer.data(), &flags, sizeof(flags));
-  }
+  const ULONG flags = 0x00000001 | 0x00000002;
+  std::memcpy(buffer.data(), &flags, sizeof(flags));
   rename->RootDirectory = parent;
   rename->FileNameLength = static_cast<DWORD>(wide.size() * sizeof(wchar_t));
   std::memcpy(rename->FileName, wide.data(), rename->FileNameLength);
   IO_STATUS_BLOCK status{};
   const NTSTATUS result = set_information(file, &status, rename, static_cast<ULONG>(bytes),
-                                          static_cast<FILE_INFORMATION_CLASS>(posix ? 65 : 10));
+                                          static_cast<FILE_INFORMATION_CLASS>(65));
   if (result < 0) {
     using TranslateStatusFn = ULONG(WINAPI*)(NTSTATUS);
     const auto translate = reinterpret_cast<TranslateStatusFn>(
@@ -1676,7 +1677,7 @@ Napi::Value ReplaceFileSync(const Napi::CallbackInfo& info) {
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
       FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
   if (parent.Get() == kInvalidHandle) fail(GetLastError());
-  if (!ReplacePrivateTemporary(file.Get(), parent.Get(), "", target.substr(target_split + 1), true)) {
+  if (!ReplacePrivateTemporary(file.Get(), parent.Get(), "", target.substr(target_split + 1))) {
     fail(GetLastError());
   }
   return env.Undefined();

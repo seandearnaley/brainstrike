@@ -4,7 +4,6 @@ import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-nat
 import { IndexerError } from '@brainstrike/indexer';
 import type {
   IndexChunkBoundsCapability,
-  IndexRetryCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -16,14 +15,16 @@ import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { createIpcBridge } from '../platform/ipc-bridge';
 import { createIpcCapability } from '../renderer/ipc-capability';
-import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
+import {
+  createAllowlistedSenderFrame,
+  createTrustedInvokeEvent,
+  invokeDesktopIpc,
+  invokeDesktopIpcFrom,
+} from './helpers/desktop-ipc-sender-test-helpers';
 
 const ipc = vi.hoisted(() => ({
   handle:
     vi.fn<(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => void>(),
-  on: vi.fn(),
-  removeHandler: vi.fn(),
-  removeListener: vi.fn(),
 }));
 vi.mock('electron', () => ({ ipcMain: ipc }));
 const registryError = vi.hoisted(() => vi.fn());
@@ -31,12 +32,7 @@ vi.mock('@brainstrike/logging', async (original) => ({
   ...(await original<typeof import('@brainstrike/logging')>()),
   createLogger: () => ({ debug: vi.fn(), error: registryError, info: vi.fn(), warn: vi.fn() }),
 }));
-const unusedRetry: IndexRetryCapability = {
-  retryIndexing: async () => {
-    throw new Error('Unexpected Retry indexing in this test');
-  },
-};
-const unusedConfig: Parameters<typeof registerIndexSearchIpcHandlers>[3] = {
+const unusedConfig: Parameters<typeof registerIndexSearchIpcHandlers>[2] = {
   read: async () => {
     throw new Error('Unexpected search index settings read in this test');
   },
@@ -44,13 +40,14 @@ const unusedConfig: Parameters<typeof registerIndexSearchIpcHandlers>[3] = {
     throw new Error('Unexpected search index settings change in this test');
   },
 };
-/** The read-only cases register no Retry indexing or settings work of their own. */
-function registerWithoutRetry(
+/** The read-only cases register no settings work of their own. */
+function registerReadOnly(
   cap: Parameters<typeof registerIndexSearchIpcHandlers>[0],
   registration: Parameters<typeof registerIndexSearchIpcHandlers>[1]
 ): () => void {
-  return registerIndexSearchIpcHandlers(cap, registration, unusedRetry, unusedConfig);
+  return registerIndexSearchIpcHandlers(cap, registration, unusedConfig);
 }
+const UNTRACKED_SENDER_ID = 78_123_456;
 const dispose: Array<() => void> = [];
 afterEach(() => {
   for (const fn of dispose.splice(0)) {
@@ -58,14 +55,32 @@ afterEach(() => {
   }
   vi.clearAllMocks();
 });
-function handler(name: keyof typeof indexSearchContract) {
-  const entry = ipc.handle.mock.calls.find(
-    ([channel]) => channel === indexSearchContract[name].channel
+/** Calls one index-search method on the desktop IPC connection from a trusted app window. */
+function invoke(name: keyof typeof indexSearchContract, ...args: unknown[]): Promise<unknown> {
+  return invokeDesktopIpc(ipc, indexSearchContract[name].channel, ...args);
+}
+/** Calls one index-search method from `event`'s sender. */
+function invokeFrom(
+  event: unknown,
+  name: keyof typeof indexSearchContract,
+  ...args: unknown[]
+): Promise<unknown> {
+  return invokeDesktopIpcFrom(ipc, event, indexSearchContract[name].channel, ...args);
+}
+/** The renderer's `window.indexSearch` over the one desktop IPC connection. */
+function rendererIndexSearch() {
+  return createIpcCapability(
+    createIpcBridge(
+      {
+        invoke: <Result>(method: string, ...args: unknown[]) =>
+          invokeDesktopIpc(ipc, method, ...args) as Promise<Result>,
+        on: vi.fn(),
+        removeListener: vi.fn(),
+      },
+      indexSearchContract
+    ),
+    indexSearchContract
   );
-  if (!entry) {
-    throw new Error('Expected registered native index channel.');
-  }
-  return entry[1];
 }
 function capability(): IndexSearchCapability & IndexChunkBoundsCapability {
   return {
@@ -101,29 +116,13 @@ it('preserves invalid observations as data while unrelated failures keep the can
     kind: 'invalidated',
   });
   dispose.push(
-    registerWithoutRetry(cap, {
+    registerReadOnly(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
     })
   );
-  const bridge = createIpcCapability(
-    createIpcBridge(
-      {
-        invoke: (channel, ...args) => {
-          const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
-          if (!entry) {
-            throw new Error('Unknown channel');
-          }
-          return Promise.resolve(entry[1](createTrustedInvokeEvent(), ...args));
-        },
-        on: vi.fn(),
-        removeListener: vi.fn(),
-      },
-      indexSearchContract
-    ),
-    indexSearchContract
-  );
+  const bridge = rendererIndexSearch();
   await expect(bridge.coverageBatch([{ rootIds: ['root'] }])).resolves.toEqual({
     code: 'native-coverage-observation-invalidated',
     kind: 'invalidated',
@@ -133,32 +132,16 @@ it('preserves invalid observations as data while unrelated failures keep the can
     failure: INTERNAL_FAULT,
   });
 });
-it('uses the visible-ui authorized manifest and canonical renderer result/error unwrap', async () => {
+it('serves an app window through the one IPC connection with canonical result/error unwrap', async () => {
   const cap = capability();
   dispose.push(
-    registerWithoutRetry(cap, {
+    registerReadOnly(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
     })
   );
-  const bridge = createIpcCapability(
-    createIpcBridge(
-      {
-        invoke: async (channel, ...args) => {
-          const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
-          if (!entry) {
-            throw new Error('Unknown channel');
-          }
-          return entry[1](createTrustedInvokeEvent(), ...args);
-        },
-        on: vi.fn(),
-        removeListener: vi.fn(),
-      },
-      indexSearchContract
-    ),
-    indexSearchContract
-  );
+  const bridge = rendererIndexSearch();
   await expect(bridge.status()).resolves.toEqual({
     kind: 'unavailable',
     reason: 'No configured index owner.',
@@ -167,31 +150,31 @@ it('uses the visible-ui authorized manifest and canonical renderer result/error 
     failure: INTERNAL_FAULT,
   });
 });
-it('rejects hidden, untracked and foreign-frame senders before payload parsing or capability calls', async () => {
+it('rejects untracked and foreign-frame senders before payload parsing or capability calls', async () => {
   const cap = capability();
   dispose.push(
-    registerWithoutRetry(cap, {
+    registerReadOnly(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
     })
   );
-  const invoke = handler('coverage');
-  await expect(invoke(createTrustedInvokeEvent('embedding-host'), null)).rejects.toThrow();
   await expect(
-    invoke(
-      { sender: { id: 78_123_456 }, senderFrame: createTrustedInvokeEvent().senderFrame },
+    invokeFrom(
+      { sender: { id: UNTRACKED_SENDER_ID }, senderFrame: createAllowlistedSenderFrame() },
+      'coverage',
       null
     )
-  ).rejects.toThrow();
+  ).rejects.toThrow('requires an app window sender');
   await expect(
-    invoke(
+    invokeFrom(
       { ...createTrustedInvokeEvent(), senderFrame: { url: 'https://foreign.example/' } },
+      'coverage',
       null
     )
-  ).rejects.toThrow();
+  ).rejects.toThrow('unrecognized sender frame URL');
   expect(cap.coverage).not.toHaveBeenCalled();
-  await expect(invoke(createTrustedInvokeEvent(), { rootIds: ['r', 'r'] })).resolves.toEqual({
+  await expect(invoke('coverage', { rootIds: ['r', 'r'] })).resolves.toEqual({
     error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
     ok: false,
   });
@@ -218,10 +201,10 @@ it('preserves explicit grep options and refuses incomplete or mixed vector profi
   ).toThrow();
 });
 
-it('parses every batch selector and preserves visible-ui authority and failure propagation', async () => {
+it('parses every batch selector and preserves app-window authority and failure propagation', async () => {
   const cap = capability();
   dispose.push(
-    registerWithoutRetry(cap, {
+    registerReadOnly(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -237,18 +220,22 @@ it('parses every batch selector and preserves visible-ui authority and failure p
     indexSearchContract.coverageBatch.parseArgs([[{ profile: {}, rootIds: ['root'] }]])
   ).toThrow();
   await expect(
-    handler('coverageBatch')(createTrustedInvokeEvent('embedding-host'), requests)
-  ).rejects.toThrow();
+    invokeFrom(
+      { sender: { id: UNTRACKED_SENDER_ID }, senderFrame: createAllowlistedSenderFrame() },
+      'coverageBatch',
+      requests
+    )
+  ).rejects.toThrow('requires an app window sender');
   expect(cap.coverageBatch).not.toHaveBeenCalled();
-  const result = await handler('coverageBatch')(createTrustedInvokeEvent(), requests);
+  const result = await invoke('coverageBatch', requests);
   expect(result).toMatchObject({ ok: false });
   expect(cap.coverageBatch).toHaveBeenCalledExactlyOnceWith(requests);
 });
 
-it('parses file chunk requests strictly and keeps them visible-ui only', async () => {
+it('parses file chunk requests strictly and keeps them app-window only', async () => {
   const cap = capability();
   dispose.push(
-    registerWithoutRetry(cap, {
+    registerReadOnly(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
@@ -266,8 +253,12 @@ it('parses file chunk requests strictly and keeps them visible-ui only', async (
     expect(() => indexSearchContract.fileChunks.parseArgs([invalid])).toThrow();
   }
   await expect(
-    handler('fileChunks')(createTrustedInvokeEvent('embedding-host'), request)
-  ).rejects.toThrow();
+    invokeFrom(
+      { sender: { id: UNTRACKED_SENDER_ID }, senderFrame: createAllowlistedSenderFrame() },
+      'fileChunks',
+      request
+    )
+  ).rejects.toThrow('requires an app window sender');
   expect(cap.fileChunks).not.toHaveBeenCalled();
   vi.mocked(cap.fileChunks).mockResolvedValueOnce({
     files: [
@@ -277,30 +268,18 @@ it('parses file chunk requests strictly and keeps them visible-ui only', async (
     rootId: 'root-1',
     storeId: 'store-1',
   });
-  await expect(handler('fileChunks')(createTrustedInvokeEvent(), request)).resolves.toMatchObject({
+  await expect(invoke('fileChunks', request)).resolves.toMatchObject({
     ok: true,
   });
   expect(cap.fileChunks).toHaveBeenCalledExactlyOnceWith(request);
 });
 
 it.each([
-  {
-    dimensions: 768,
-    distance: 'cosine',
-    dtype: 'q8',
-    modelId: 'Xenova/bge-base-en-v1.5',
-    provider: 'local',
-  },
-  {
-    dimensions: 768,
-    distance: 'l2',
-    dtype: 'q4',
-    modelId: 'jinaai/jina-embeddings-v2-base-code',
-    provider: 'transformers',
-  },
+  { dimensions: 1536, distance: 'cosine', modelId: 'text-embedding-3-small', provider: 'openai' },
   { dimensions: 3072, distance: 'ip', modelId: 'text-embedding-3-large', provider: 'openai' },
   { dimensions: 3072, distance: 'cosine', modelId: 'gemini-embedding-001', provider: 'google' },
-  { dimensions: 10, distance: 'l2', modelId: 'existing-model', provider: 'ollama' },
+  { dimensions: 1024, distance: 'l2', modelId: 'embed-english-v3.0', provider: 'cohere' },
+  { dimensions: 1024, distance: 'ip', modelId: 'voyage-3', provider: 'voyage' },
 ])(
   'preserves the whole $provider $dimensions $distance profile through the actual IPC parser',
   (profile) => {
@@ -324,26 +303,18 @@ it.each([
 );
 
 it.each(['cosine', 'l2', 'ip'] as const)(
-  'rejects providerless legacy profiles carrying an unhashed %s distance',
+  'rejects a providerless profile carrying a %s distance',
   (distance) => {
-    const profile = {
-      dimensions: 384,
-      dtype: 'q8',
-      modelId: 'Xenova/bge-small-en-v1.5',
-      revision: 'a'.repeat(40),
-      tokenCap: 512,
-    };
     const request = {
       limit: 10,
       mode: 'vector',
-      profile,
+      profile: { dimensions: 1536, distance, modelId: 'text-embedding-3-small' },
       rootIds: ['root'],
-      vector: new Array<number>(384).fill(0.5),
+      vector: new Array<number>(1536).fill(0.5),
     };
-    expect(indexSearchContract.search.parseArgs([request])).toEqual([request]);
-    expect(() =>
-      indexSearchContract.search.parseArgs([{ ...request, profile: { ...profile, distance } }])
-    ).toThrow('canonical embedding provider');
+    expect(() => indexSearchContract.search.parseArgs([request])).toThrow(
+      'Native embedding provider is unsupported.'
+    );
   }
 );
 
@@ -365,15 +336,14 @@ it('observes a retained startup failure as stable blocked data without logging a
     },
   });
   dispose.push(
-    registerWithoutRetry(cap, {
+    registerReadOnly(cap, {
       rootsRegistered: async () => {
         throw new Error('Unexpected root registration in read-only test');
       },
     })
   );
-  const event = createTrustedInvokeEvent();
   for (let poll = 0; poll < 3; poll += 1) {
-    await expect(handler('status')(event)).resolves.toMatchObject({
+    await expect(invoke('status')).resolves.toMatchObject({
       ok: true,
       value: {
         kind: 'unavailable',
@@ -381,7 +351,7 @@ it('observes a retained startup failure as stable blocked data without logging a
         reason: expect.stringContaining(original.message),
       },
     });
-    await expect(handler('coverageBatch')(event, [{ rootIds: ['root'] }])).resolves.toMatchObject({
+    await expect(invoke('coverageBatch', [{ rootIds: ['root'] }])).resolves.toMatchObject({
       ok: true,
       value: { kind: 'blocked', reason: expect.stringContaining(original.message) },
     });
@@ -389,7 +359,7 @@ it('observes a retained startup failure as stable blocked data without logging a
   expect(registryError).not.toHaveBeenCalled();
   expect(retained.cause).toBe(original);
   await expect(
-    handler('search')(event, { limit: 10, mode: 'bm25', rootIds: ['root'], text: 'marker' })
+    invoke('search', { limit: 10, mode: 'bm25', rootIds: ['root'], text: 'marker' })
   ).resolves.toMatchObject({ error: { code: 'native-index-source-failure' }, ok: false });
   expect(registryError).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
     cause: original,
@@ -427,19 +397,20 @@ it.each([
 it('accepts only an authorized no-argument registration notification and joins its acknowledgement', async () => {
   const pending = Promise.withResolvers<void>();
   const rootsRegistered = vi.fn(() => pending.promise);
-  dispose.push(registerWithoutRetry(capability(), { rootsRegistered }));
-  const invoke = handler('rootsRegistered');
-  await expect(invoke(createTrustedInvokeEvent('embedding-host'))).rejects.toThrow();
+  dispose.push(registerReadOnly(capability(), { rootsRegistered }));
   await expect(
-    invoke({ sender: { id: 78_123_456 }, senderFrame: createTrustedInvokeEvent().senderFrame })
-  ).rejects.toThrow();
-  await expect(invoke(createTrustedInvokeEvent(), { rootId: 'renderer-claim' })).resolves.toEqual({
+    invokeFrom(
+      { sender: { id: UNTRACKED_SENDER_ID }, senderFrame: createAllowlistedSenderFrame() },
+      'rootsRegistered'
+    )
+  ).rejects.toThrow('requires an app window sender');
+  await expect(invoke('rootsRegistered', { rootId: 'renderer-claim' })).resolves.toEqual({
     error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
     ok: false,
   });
   expect(rootsRegistered).not.toHaveBeenCalled();
   const settled = vi.fn();
-  const response = Promise.resolve(invoke(createTrustedInvokeEvent())).then(settled);
+  const response = invoke('rootsRegistered').then(settled);
   await vi.waitFor(() => expect(rootsRegistered).toHaveBeenCalledExactlyOnceWith());
   expect(settled).not.toHaveBeenCalled();
   pending.resolve();
@@ -450,13 +421,13 @@ it('accepts only an authorized no-argument registration notification and joins i
 it('preserves the canonical failure envelope for registration failures', async () => {
   const failure = new Error('Root registration activation failed');
   dispose.push(
-    registerWithoutRetry(capability(), {
+    registerReadOnly(capability(), {
       rootsRegistered: vi.fn(async () => {
         throw failure;
       }),
     })
   );
-  await expect(handler('rootsRegistered')(createTrustedInvokeEvent())).resolves.toMatchObject({
+  await expect(invoke('rootsRegistered')).resolves.toMatchObject({
     error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
     ok: false,
   });
@@ -467,9 +438,9 @@ it('carries the lifecycle transition tag across IPC without logging a failed ind
   vi.mocked(cap.search).mockRejectedValue(
     new NativeAuthorityTransitionError('Native index is transitioning.')
   );
-  dispose.push(registerWithoutRetry(cap, { rootsRegistered: async () => {} }));
+  dispose.push(registerReadOnly(cap, { rootsRegistered: async () => {} }));
   await expect(
-    handler('search')(createTrustedInvokeEvent(), {
+    invoke('search', {
       limit: 5,
       mode: 'bm25',
       rootIds: ['root'],
@@ -482,32 +453,6 @@ it('carries the lifecycle transition tag across IPC without logging a failed ind
   expect(registryError).not.toHaveBeenCalled();
 });
 
-it('routes Retry indexing to its own capability and keeps its typed refusal (BST-2104)', async () => {
-  const notBlocked = refusalError(
-    'conflict',
-    'native-index.retry-not-needed',
-    'Indexing is not waiting for the embedding model to restart.'
-  );
-  const retryIndexing = vi.fn(async () => {}).mockRejectedValueOnce(notBlocked);
-  dispose.push(
-    registerIndexSearchIpcHandlers(
-      capability(),
-      { rootsRegistered: async () => {} },
-      { retryIndexing },
-      unusedConfig
-    )
-  );
-  await expect(handler('retryIndexing')(createTrustedInvokeEvent())).resolves.toMatchObject({
-    error: notBlocked.failure,
-    ok: false,
-  });
-  await expect(handler('retryIndexing')(createTrustedInvokeEvent())).resolves.toEqual({
-    ok: true,
-    value: undefined,
-  });
-  expect(retryIndexing).toHaveBeenCalledTimes(2);
-});
-
 it("hands the renderer's settings change to Main's config owner undecoded and returns the saved config", async () => {
   const saved = { ...DEFAULT_INDEX_CONFIG, paused: true };
   const config = {
@@ -515,20 +460,15 @@ it("hands the renderer's settings change to Main's config owner undecoded and re
     update: vi.fn(async () => saved),
   };
   dispose.push(
-    registerIndexSearchIpcHandlers(
-      capability(),
-      { rootsRegistered: async () => {} },
-      unusedRetry,
-      config
-    )
+    registerIndexSearchIpcHandlers(capability(), { rootsRegistered: async () => {} }, config)
   );
-  await expect(handler('readConfig')(createTrustedInvokeEvent())).resolves.toEqual({
+  await expect(invoke('readConfig')).resolves.toEqual({
     ok: true,
     value: DEFAULT_INDEX_CONFIG,
   });
   // Main decodes the change; the IPC boundary passes whatever the renderer sent.
   const change = { mode: 'semantic', unexpected: true };
-  await expect(handler('updateConfig')(createTrustedInvokeEvent(), change)).resolves.toEqual({
+  await expect(invoke('updateConfig', change)).resolves.toEqual({
     ok: true,
     value: saved,
   });
@@ -538,40 +478,28 @@ it("hands the renderer's settings change to Main's config owner undecoded and re
 /** The renderer's `window.indexSearch`, over the handlers registered with this owner. */
 function rendererWithConfigOwner(update: (patch: unknown) => Promise<never>) {
   dispose.push(
-    registerIndexSearchIpcHandlers(capability(), { rootsRegistered: async () => {} }, unusedRetry, {
-      read: unusedConfig.read,
-      update,
-    })
-  );
-  return createIpcCapability(
-    createIpcBridge(
+    registerIndexSearchIpcHandlers(
+      capability(),
+      { rootsRegistered: async () => {} },
       {
-        invoke: async (channel, ...args) => {
-          const entry = ipc.handle.mock.calls.find(([name]) => name === channel);
-          if (!entry) {
-            throw new Error('Unknown channel');
-          }
-          return entry[1](createTrustedInvokeEvent(), ...args);
-        },
-        on: vi.fn(),
-        removeListener: vi.fn(),
-      },
-      indexSearchContract
-    ),
-    indexSearchContract
+        read: unusedConfig.read,
+        update,
+      }
+    )
   );
+  return rendererIndexSearch();
 }
 
 it("shows the config owner's refusal sentence in Settings", async () => {
   const renderer = rendererWithConfigOwner(async () => {
-    throw new IndexConfigRefused({ message: 'Choose how to run X on this device first.' });
+    throw new IndexConfigRefused({ message: 'Choose an embedding model first.' });
   });
   await expect(renderer.updateConfig({ mode: 'semantic' })).rejects.toMatchObject({
     failure: {
       category: 'input',
       code: 'index-config.refused',
       kind: 'refusal',
-      message: 'Choose how to run X on this device first.',
+      message: 'Choose an embedding model first.',
     },
   });
   expect(registryError).not.toHaveBeenCalled();

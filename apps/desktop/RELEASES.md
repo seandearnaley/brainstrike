@@ -109,11 +109,3 @@ without merging. The owner accepted (19 Oct 2026) the release's
 `release-manifest.json` asset as the published download surface. A download
 chooser that lands later reads that asset and validates it with its own
 production schema before rendering links.
-
-## Open: x64 macOS and onnxruntime-node (BST-2148)
-
-`onnxruntime-node` 1.30.0, which `@huggingface/transformers` 4.3.1 pins, ships
-no `darwin/x64` binding (1.23.0 shipped one; 1.24.1 and 1.30.0 do not). A
-native x64 install still packages only its `darwin/arm64` binding, so the addon
-gate fails the x64 leg on it until the owner decides how x64 macOS treats that
-package.

@@ -1,6 +1,5 @@
 import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
-  embeddingProfileHash,
   type IndexerPort,
   type IndexFileBinding,
   type IndexScope,
@@ -57,51 +56,15 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
   if (profile === null) {
     return { indexMode: 'text-only' };
   }
-  if (
-    (profile.provider !== 'local' && profile.provider !== 'transformers') ||
-    profile.revision === undefined ||
-    profile.tokenCap === undefined ||
-    profile.dtype === 'q4' ||
-    profile.distance !== 'cosine'
-  ) {
-    return {
-      indexMode: 'vector-configured',
-      profile: {
-        dimensions: profile.dimensions,
-        distance: profile.distance,
-        modelId: profile.modelId,
-        provider: profile.provider,
-        ...('dtype' in profile ? { dtype: profile.dtype } : {}),
-        ...('pooling' in profile && profile.pooling !== undefined
-          ? { pooling: profile.pooling }
-          : {}),
-        ...('prompts' in profile && profile.prompts !== undefined
-          ? { prompts: profile.prompts }
-          : {}),
-        ...('revision' in profile && profile.revision !== undefined
-          ? { revision: profile.revision }
-          : {}),
-        ...('tokenCap' in profile && profile.tokenCap !== undefined
-          ? { tokenCap: profile.tokenCap }
-          : {}),
-      },
-      profileHash: vectorProfileHash(profile),
-    };
-  }
-  const { modelId, revision, dtype, dimensions, tokenCap } = profile;
-  const projection = {
-    dimensions,
-    dtype,
-    modelId,
-    ...(profile.pooling === undefined ? {} : { pooling: profile.pooling }),
-    ...(profile.prompts === undefined ? {} : { prompts: profile.prompts }),
-    revision,
-    tokenCap,
-  };
   return {
     indexMode: 'vector-configured',
-    profile: projection,
-    profileHash: embeddingProfileHash(projection),
+    profile: {
+      dimensions: profile.dimensions,
+      distance: profile.distance,
+      modelId: profile.modelId,
+      provider: profile.provider,
+    },
+    profileHash: vectorProfileHash(profile),
   };
 }
 function fingerprint(authority: NativeSearchAuthority): string {
@@ -523,9 +486,7 @@ export function createNativeScopedSearchCapability(
         if (
           request.mode === 'vector' &&
           (snapshot.embedding.indexMode !== 'vector-configured' ||
-            (request.profile.provider === undefined
-              ? embeddingProfileHash(request.profile)
-              : vectorProfileHash(request.profile)) !== snapshot.embedding.profileHash)
+            vectorProfileHash(request.profile) !== snapshot.embedding.profileHash)
         ) {
           throw new Error('Native query profile differs from the explicitly saved scoped profile.');
         }

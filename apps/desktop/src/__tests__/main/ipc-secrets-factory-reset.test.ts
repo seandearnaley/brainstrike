@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import type { IpcMainInvokeEvent } from 'electron';
-import { afterEach, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   createAllowlistedSenderFrame,
   reconfigureTestRendererTargetAfterModuleReset,
 } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
+import { invokeDesktopIpcFrom } from '../helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', () => ({
   app: { getPath: () => '/unused-in-this-test' },
@@ -15,8 +16,8 @@ vi.mock('electron', () => ({
   safeStorage: {},
 }));
 
-vi.mock('../../window-role', () => ({
-  getWindowRoleByWebContentsId: () => 'visible-ui',
+vi.mock('../../app-windows', () => ({
+  isAppWindowSender: () => true,
 }));
 
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
@@ -59,16 +60,14 @@ it.each([
         throw new Error('Not read by factory reset');
       },
     });
-    const handle = ipcMain.handle as unknown as Mock<
-      (channel: string, handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void
-    >;
-    const clearAll = handle.mock.calls.find(([channel]) => channel === 'secrets:clearAll')?.[1];
     const event = {
       sender: { id: 7101 },
       senderFrame: createAllowlistedSenderFrame(),
     } as unknown as IpcMainInvokeEvent;
 
-    await expect(clearAll?.(event, SECRETS_CLEAR_CONFIRMATION_TOKEN)).resolves.toEqual({
+    await expect(
+      invokeDesktopIpcFrom(ipcMain, event, 'secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN)
+    ).resolves.toEqual({
       success: true,
     });
     expect(await secrets.listProviders()).toEqual([]);

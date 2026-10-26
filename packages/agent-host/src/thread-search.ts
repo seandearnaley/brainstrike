@@ -1,11 +1,6 @@
 /**
- * Gap 10: lexical, semantic and title search over the host's threads, the
- * host half of the Threads panel's one fused list. The derived state index
- * answers which committed conversation rows match, by words or by a query
- * vector the caller embedded. Search covers every branch, so each thread's
- * committed selected path filters the hits at query time; a match on a
- * sibling branch is not shown. Titles come from the committed presentations.
- * BST-1939: the host also fuses the arms into one ranked list of threads.
+ * Search committed messages and titles, fused into one ranked list of root threads.
+ * Each thread's selected path filters message hits; titles use committed presentations.
  */
 import { fuseRankedLists, type RankedList } from '@brainstrike/utils/rrf';
 import { committedRunIdentity } from './committed-identities.ts';
@@ -17,8 +12,6 @@ const MESSAGE_SOURCE_LIMIT = 50;
 const TITLE_SOURCE_LIMIT = 20;
 const THREAD_LIMIT = 20;
 const PER_THREAD_MATCH_LIMIT = 3;
-/** Legacy `ThreadSearchRepository`'s vector snippet length. */
-const SNIPPET_CHARS = 240;
 
 type HostThreadSearchCore = Pick<HostCore, 'listChildren' | 'listThreads' | 'read' | 'threadTimes'>;
 
@@ -41,41 +34,6 @@ export type HostStateSearch = (request: {
   readonly query: string;
   readonly threadIds: readonly string[];
 }) => Promise<readonly HostStateSearchHit[]>;
-
-/** One row the derived state index found nearest a query vector (`searchStateSimilar`). */
-interface HostStateSimilarHit {
-  readonly role: 'assistant' | 'user';
-  readonly runId: string;
-  /** Cosine similarity: higher is a better match. */
-  readonly score: number;
-  readonly seq: number;
-  readonly text: string;
-  readonly threadId: string;
-}
-
-/** The semantic arm's index operations; the profile is the caller's embedder identity. */
-export interface HostStateSearchVectors {
-  coverage(request: {
-    readonly profile: Readonly<Record<string, unknown>>;
-    readonly threadIds: readonly string[];
-  }): Promise<HostResults['thread/search/coverage']>;
-  pending(request: {
-    readonly limit: number;
-    readonly profile: Readonly<Record<string, unknown>>;
-    readonly threadIds: readonly string[];
-  }): Promise<readonly HostResults['thread/search/pending']['rows'][number][]>;
-  put(request: {
-    readonly profile: Readonly<Record<string, unknown>>;
-    readonly rows: HostParams<'thread/search/vectors'>['rows'];
-  }): Promise<HostResults['thread/search/vectors']>;
-  similar(request: {
-    readonly limit: number;
-    readonly profile: Readonly<Record<string, unknown>>;
-    readonly threadIds: readonly string[];
-    readonly threshold: number;
-    readonly vector: readonly number[];
-  }): Promise<readonly HostStateSimilarHit[]>;
-}
 
 /** Every committed thread and the root it is listed under: a child resolves to its root. */
 function ownedThreads(core: HostThreadSearchCore): Map<string, string> {
@@ -278,47 +236,21 @@ function ranked(source: string, ids: readonly string[]): RankedList<string> {
   return { items: ids.map((id) => ({ id })), source };
 }
 
-/**
- * Legacy `ThreadSearchService`'s two-level fusion: each message fuses its
- * lexical and semantic ranks; each root thread then fuses its best message's
- * rank with its title's. Equal weights, k = 60, the lexical headline first.
- */
+/** Root threads fuse their best message's rank with their title's (k = 60). */
 function fuseResults(
   core: HostThreadSearchCore,
-  arms: Pick<HostResults['thread/search'], 'messages' | 'similar' | 'titles'>,
+  arms: Pick<HostResults['thread/search'], 'messages' | 'titles'>,
   limit: number
 ): HostSearchResult[] {
-  const found = new Map<string, HostSearchMessage>();
-  for (const message of [...arms.messages, ...arms.similar]) {
-    if (!found.has(message.messageId)) {
-      found.set(message.messageId, message);
-    }
-  }
-  const lexical = new Set(arms.messages.map(({ messageId }) => messageId));
-  const semantic = new Set(arms.similar.map(({ messageId }) => messageId));
   const matches = new Map<string, HostSearchResult['matches']>();
-  for (const { id, rrfScore } of fuseRankedLists([
-    ranked('lexical', [...lexical]),
-    ranked('semantic', [...semantic]),
-  ])) {
-    const message = found.get(id);
-    if (!message) {
-      continue;
-    }
-    const sources = [
-      ...(lexical.has(id) ? (['lexical'] as const) : []),
-      ...(semantic.has(id) ? (['semantic'] as const) : []),
-    ];
-    matches.set(message.rootThreadId, [
-      ...(matches.get(message.rootThreadId) ?? []),
-      { ...message, score: rrfScore, sources },
-    ]);
+  for (const message of arms.messages) {
+    matches.set(message.rootThreadId, [...(matches.get(message.rootThreadId) ?? []), message]);
   }
   const titled = new Set(arms.titles.map(({ threadId }) => threadId));
   const titles = new Map(
     core.listThreads().flatMap(({ threadId, title }) => (title ? [[threadId, title]] : []))
   );
-  // A thread's first fused message is its best: a Map keeps first insertion order.
+  // Each thread's first message is its best; a Map keeps first insertion order.
   return fuseRankedLists([ranked('content', [...matches.keys()]), ranked('title', [...titled])], {
     limit,
   }).map(({ id, rrfScore }) => {
@@ -334,21 +266,16 @@ function fuseResults(
 }
 
 /**
- * The host's lexical, semantic and title arms for one query, best first in
- * each, and their fused list. When neither lexical arm finds every query word,
- * both answer for any word instead, and the result says so.
+ * Message and title arms, best first, and their fused list. When neither finds
+ * every query word, both answer for any word and the result says so.
  */
 export async function searchHostThreads(
   core: HostThreadSearchCore,
   search: HostStateSearch | undefined,
-  vectors: HostStateSearchVectors | undefined,
   params: HostParams<'thread/search'>
 ): Promise<HostResults['thread/search']> {
   if (!search) {
     throw new Error("Thread search requires the host's state index");
-  }
-  if (params.semantic && !vectors) {
-    throw new Error("Semantic thread search requires the host's state index vectors");
   }
   const window = { since: params.since ?? 0, until: params.until ?? Number.POSITIVE_INFINITY };
   const owned = admittedThreads(core, params.rootId, window);
@@ -366,12 +293,7 @@ export async function searchHostThreads(
       titles: titleMatches(core, owned, params.query, match),
     };
   };
-  const [everyWord, nearest] = await Promise.all([
-    lexicalArms('all'),
-    params.semantic && vectors
-      ? vectors.similar({ ...params.semantic, limit, threadIds })
-      : Promise.resolve([]),
-  ]);
+  const everyWord = await lexicalArms('all');
   const relaxed =
     everyWord.messages.length === 0 && everyWord.titles.length === 0
       ? await lexicalArms('any')
@@ -380,53 +302,10 @@ export async function searchHostThreads(
   const anyWord =
     relaxed !== undefined && (relaxed.messages.length > 0 || relaxed.titles.length > 0);
   const { messages, titles } = relaxed ?? everyWord;
-  const similar = await selectedMessages(
-    core,
-    owned,
-    window,
-    nearest.map((hit) => ({ ...hit, headline: hit.text.slice(0, SNIPPET_CHARS) }))
-  );
   return {
     lexical: anyWord ? 'any-word' : 'all-words',
     messages,
-    results: fuseResults(core, { messages, similar, titles }, Math.min(limit, THREAD_LIMIT)),
-    similar,
+    results: fuseResults(core, { messages, titles }, Math.min(limit, THREAD_LIMIT)),
     titles,
   };
-}
-
-/** The semantic arm's backlog over every host thread, for the caller's embedder. */
-export async function pendingHostSearchVectors(
-  core: HostThreadSearchCore,
-  vectors: HostStateSearchVectors | undefined,
-  params: HostParams<'thread/search/pending'>
-): Promise<HostResults['thread/search/pending']> {
-  if (!vectors) {
-    throw new Error("Semantic thread search requires the host's state index vectors");
-  }
-  const rows = await vectors.pending({ ...params, threadIds: [...ownedThreads(core).keys()] });
-  return { rows: [...rows] };
-}
-
-/** The semantic arm's coverage of every host thread, for the panel's embedding progress. */
-export async function coverageHostSearchVectors(
-  core: HostThreadSearchCore,
-  vectors: HostStateSearchVectors | undefined,
-  params: HostParams<'thread/search/coverage'>
-): Promise<HostResults['thread/search/coverage']> {
-  if (!vectors) {
-    throw new Error("Semantic thread search requires the host's state index vectors");
-  }
-  return await vectors.coverage({ ...params, threadIds: [...ownedThreads(core).keys()] });
-}
-
-/** Stores the caller's vectors for backlog rows; a row that changed since is stale. */
-export async function putHostSearchVectors(
-  vectors: HostStateSearchVectors | undefined,
-  params: HostParams<'thread/search/vectors'>
-): Promise<HostResults['thread/search/vectors']> {
-  if (!vectors) {
-    throw new Error("Semantic thread search requires the host's state index vectors");
-  }
-  return await vectors.put(params);
 }

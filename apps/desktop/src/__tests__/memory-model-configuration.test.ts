@@ -187,7 +187,7 @@ describe('admitted Memory model configuration', () => {
     expect(modelMetadata(memory).modelId).toBe('vendor/observer-fixture');
     expect(observerOptions(memory).retrieval).toBeUndefined();
   });
-  it.each(['auto', 'unknown/fixture', 'local/fixture'])(
+  it.each(['auto', 'unknown/fixture'])(
     'does no auth or model work when OM is disabled (%s)',
     async (target) => {
       const selected = selection(target);
@@ -203,24 +203,18 @@ describe('admitted Memory model configuration', () => {
       expect(factory.mock.calls.length).toBe(0);
     }
   );
-  it.each([
-    'auto',
-    'openai',
-    'openai/',
-    'unknown/fixture',
-    'bedrock/fixture',
-    'ollama/fixture',
-    'lmstudio/fixture',
-    'local/fixture',
-  ])('rejects unavailable target %s before resolving credentials', async (target) => {
-    const resolver = vi.fn(async (): Promise<Auth> => undefined);
-    const factory = vi.spyOn(providerRuntime, 'createProvider');
-    await expect(
-      createDesktopHostMemoryConfiguration(selection(target), resolver)
-    ).rejects.toBeInstanceOf(Error);
-    expect(resolver.mock.calls.length).toBe(0);
-    expect(factory.mock.calls.length).toBe(0);
-  });
+  it.each(['auto', 'openai', 'openai/', 'unknown/fixture', 'bedrock/fixture'])(
+    'rejects unavailable target %s before resolving credentials',
+    async (target) => {
+      const resolver = vi.fn(async (): Promise<Auth> => undefined);
+      const factory = vi.spyOn(providerRuntime, 'createProvider');
+      await expect(
+        createDesktopHostMemoryConfiguration(selection(target), resolver)
+      ).rejects.toBeInstanceOf(Error);
+      expect(resolver.mock.calls.length).toBe(0);
+      expect(factory.mock.calls.length).toBe(0);
+    }
+  );
   it.each(['semanticRecall', 'vector'] as const)(
     'preserves a visible failure for missing %s capability',
     async (feature) => {
@@ -309,19 +303,17 @@ describe('the models thread/memory/read names for an admitted Memory selection',
     const selected = selection('auto');
     selected.memory.settings.observationalMemory.enabled = false;
     selected.memory.vectorProfile = {
-      dimensions: 384,
+      dimensions: 1536,
       distance: 'cosine',
-      dtype: 'q8',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      provider: 'local',
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
     };
     expect(desktopMemoryModels(selected.memory)).toEqual({
       embedder: {
-        dimensions: 384,
+        dimensions: 1536,
         distance: 'cosine',
-        dtype: 'q8',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        provider: 'local',
+        modelId: 'text-embedding-3-small',
+        provider: 'openai',
       },
     });
   });

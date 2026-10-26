@@ -11,11 +11,9 @@ export const agentHostRecoveryContract = {
   restartHost: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.agent.hostRestart,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   showDataFolder: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.agent.showDataFolder,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
 } satisfies Contract;

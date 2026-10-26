@@ -9,6 +9,7 @@ import {
   openAgentHostPortRelay,
 } from './agent-host-port-relay';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { pushToFrame } from './platform/desktop-ipc-push';
 import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
 
 const CONNECT_FAILURE = { category: 'availability', code: 'agent-host-connect-failed' } as const;
@@ -27,77 +28,73 @@ export function registerAgentHostClientIpc(
   const relays = new Set<AgentHostPortRelay>();
   const pending = new Set<Promise<void>>();
   let closing: Promise<void> | undefined;
-  registry.registerAuthorizedInvoke(
-    'agent',
-    DESKTOP_IPC_CHANNELS.agent.hostConnect,
-    { roles: ['visible-ui'] },
-    (event, requestId: unknown) => {
-      const operation = (async (): Promise<void> => {
-        const id = wireDecoder(Schema.String.check(Schema.isUUID()), {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(requestId);
-        if (closing) {
-          throw new Error('Agent client bridge is closing');
-        }
-        const frame = event.senderFrame;
-        if (!frame) {
-          throw new Error('Agent client has no authorized frame');
-        }
-        const attachment = await acquireProfile();
-        if (attachment.record.protocolVersion !== AGENT_HOST_PROTOCOL_VERSION) {
-          throw new Error('The current profile host does not support assistant commands');
-        }
-        const privatePort = openPrivateClientPort();
-        const relay = privatePort
-          ? openAgentHostChildRelay(privatePort)
-          : await openAgentHostPortRelay(attachment.record);
-        relays.add(relay);
-        let clientGone = false;
-        const retire = (): void => {
-          clientGone = true;
-          void relay.close();
-        };
-        event.sender.once('destroyed', retire);
-        event.sender.once('render-process-gone', retire);
-        event.sender.once('did-navigate', retire);
-        void relay.closed.then(() => {
-          relays.delete(relay);
-          event.sender.off('destroyed', retire);
-          event.sender.off('render-process-gone', retire);
-          event.sender.off('did-navigate', retire);
-          if (!(clientGone || event.sender.isDestroyed())) {
-            try {
-              frame.postMessage(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, { requestId: id });
-            } catch {
-              /* A detached frame already lost its transport. */
-            }
+  registry.handle('agent', DESKTOP_IPC_CHANNELS.agent.hostConnect, (event, requestId: unknown) => {
+    const operation = (async (): Promise<void> => {
+      const id = wireDecoder(Schema.String.check(Schema.isUUID()), {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(requestId);
+      if (closing) {
+        throw new Error('Agent client bridge is closing');
+      }
+      const frame = event.senderFrame;
+      if (!frame) {
+        throw new Error('Agent client has no authorized frame');
+      }
+      const attachment = await acquireProfile();
+      if (attachment.record.protocolVersion !== AGENT_HOST_PROTOCOL_VERSION) {
+        throw new Error('The current profile host does not support assistant commands');
+      }
+      const privatePort = openPrivateClientPort();
+      const relay = privatePort
+        ? openAgentHostChildRelay(privatePort)
+        : await openAgentHostPortRelay(attachment.record);
+      relays.add(relay);
+      let clientGone = false;
+      const retire = (): void => {
+        clientGone = true;
+        void relay.close();
+      };
+      event.sender.once('destroyed', retire);
+      event.sender.once('render-process-gone', retire);
+      event.sender.once('did-navigate', retire);
+      void relay.closed.then(() => {
+        relays.delete(relay);
+        event.sender.off('destroyed', retire);
+        event.sender.off('render-process-gone', retire);
+        event.sender.off('did-navigate', retire);
+        if (!(clientGone || event.sender.isDestroyed())) {
+          try {
+            pushToFrame(frame, DESKTOP_IPC_CHANNELS.agent.hostDisconnected, { requestId: id });
+          } catch {
+            /* A detached frame already lost its transport. */
           }
-        });
-        try {
-          if (closing || event.sender.isDestroyed()) {
-            throw new Error('Agent client closed during attach');
-          }
-          frame.postMessage(
-            DESKTOP_IPC_CHANNELS.agent.hostConnected,
-            { record: attachment.record, requestId: id },
-            [relay.port]
-          );
-        } catch (cause) {
-          relay.port.close();
-          await relay.close();
-          throw cause;
         }
-      })();
-      pending.add(operation);
-      operation.then(
-        () => pending.delete(operation),
-        () => pending.delete(operation)
-      );
-      // A refusal (a profile closed for reset or quit) reaches the frame typed.
-      return settleIpcResult(CONNECT_FAILURE, () => operation);
-    }
-  );
+      });
+      try {
+        if (closing || event.sender.isDestroyed()) {
+          throw new Error('Agent client closed during attach');
+        }
+        pushToFrame(
+          frame,
+          DESKTOP_IPC_CHANNELS.agent.hostConnected,
+          { record: attachment.record, requestId: id },
+          [relay.port]
+        );
+      } catch (cause) {
+        relay.port.close();
+        await relay.close();
+        throw cause;
+      }
+    })();
+    pending.add(operation);
+    operation.then(
+      () => pending.delete(operation),
+      () => pending.delete(operation)
+    );
+    // A refusal (a profile closed for reset or quit) reaches the frame typed.
+    return settleIpcResult(CONNECT_FAILURE, () => operation);
+  });
   return {
     close: (): Promise<void> => {
       closing ??= (async () => {

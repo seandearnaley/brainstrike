@@ -138,6 +138,14 @@ test.describe('@destructive', () => {
       expect(catalogs.get(DISABLED)).toContain('search_tools');
       await new HomePage(page).openSettings();
       await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
+      if (process.platform === 'win32') {
+        // Windows Factory Reset is disabled for M3 by owner decision; the delegation above still runs.
+        await expect(page.getByTestId('factory-reset-button')).toBeDisabled();
+        await expect(
+          page.getByText('Factory reset is unavailable on Windows in this version.')
+        ).toBeVisible();
+        return;
+      }
       await expect
         .poll(async () => {
           const tree = await readTree();

@@ -20,13 +20,6 @@ interface Frame {
 }
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
-const profile = {
-  dimensions: 4,
-  distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'search-vector-proof',
-  provider: 'local',
-} as const;
 const budget = STATE_CATCH_UP_STEP_EVENTS;
 
 const owned: (() => Promise<void> | void)[] = [];
@@ -70,17 +63,9 @@ async function writer(threads: readonly string[], events: number) {
 }
 
 const reads = {
-  coverage: (state, budget) => state.searchCoverage({ profile, threadIds: ['coverage'] }, budget),
   gc: (state, budget) => state.gcCheck({ hashes: ['a'.repeat(64)], threads: ['gc'] }, budget),
-  pending: (state, budget) =>
-    state.searchPending({ limit: 5, profile, threadIds: ['pending'] }, budget),
   search: (state, budget) =>
     state.search({ limit: 5, query: 'garden', threadIds: ['search'] }, budget),
-  similar: (state, budget) =>
-    state.searchSimilar(
-      { limit: 5, profile, threadIds: ['similar'], threshold: 0.5, vector: [1, 0, 0, 0] },
-      budget
-    ),
 } satisfies Record<string, (state: Awaited<ReturnType<typeof writer>>, budget?: number) => unknown>;
 
 it.each(Object.entries(reads))(
@@ -116,15 +101,6 @@ it('the worker thread serves every read op with a one-step budget, and a refusal
   const ops = {
     'state-gc-check': { hashes: ['a'.repeat(64)], threads: ['state-gc-check'] },
     'state-search': { limit: 5, query: 'garden', threadIds: ['state-search'] },
-    'state-search-coverage': { profile, threadIds: ['state-search-coverage'] },
-    'state-search-pending': { limit: 5, profile, threadIds: ['state-search-pending'] },
-    'state-search-similar': {
-      limit: 5,
-      profile,
-      threadIds: ['state-search-similar'],
-      threshold: 0.5,
-      vector: [1, 0, 0, 0],
-    },
   };
   const options = await seeded(Object.keys(ops), budget * 2 + 1);
   const worker = new Worker(new URL('../src/writer-worker.ts', import.meta.url), {

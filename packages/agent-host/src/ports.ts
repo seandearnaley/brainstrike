@@ -62,7 +62,7 @@ import type { GIT_WORKSPACE_METHOD_SCHEMAS, GitWorkspaceEvent } from './protocol
 import type { McpPresentationEvent } from './protocol-mcp-presentation.ts';
 import type { McpSettingsEvent } from './protocol-mcp-settings.ts';
 import type { TERMINAL_METHOD_SCHEMAS, TerminalEvent } from './protocol-terminals.ts';
-import type { HostStateSearch, HostStateSearchVectors } from './thread-search.ts';
+import type { HostStateSearch } from './thread-search.ts';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -835,8 +835,6 @@ export interface HostPlatform {
   readonly rewindFiles?: HostRewindFiles | undefined;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
-  /** The semantic arm's index operations, for `thread/search` and its backlog methods. */
-  readonly searchStateVectors?: HostStateSearchVectors;
   /** Read scoped source text from the composing platform's existing native index. */
   searchWorkspace?(
     request: HostParams<'workspace/search'>,

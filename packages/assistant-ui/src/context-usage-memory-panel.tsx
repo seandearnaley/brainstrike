@@ -118,7 +118,6 @@ function embedderValue(models: MemoryModelsDisplay | undefined): string {
     embedder.modelId,
     `${exact(embedder.dimensions)} dims`,
     embedder.distance,
-    ...(embedder.dtype === undefined ? [] : [embedder.dtype]),
   ].join(' · ');
 }
 

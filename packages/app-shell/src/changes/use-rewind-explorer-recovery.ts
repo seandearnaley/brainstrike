@@ -4,7 +4,7 @@
  * THE DEFECT. A rewind that un-creates a scaffolded project unlinks dozens of
  * files in one burst, straight from the main process. That burst is exactly the
  * shape the OS watch backends handle worst: on a coalescing/dropping backend
- * `parcel-watchers.ts` reports a backend error, which the electron renderer
+ * `root-watchers.ts` reports dropped events or an ended watch, which the electron renderer
  * adapter translates into the shared `FileSystemWatchSignal` channel as
  * `overflow` (health `degraded`) or, when the subscription itself dies, as
  * `errored` (health `failed`). The live smoke produced the second one: the

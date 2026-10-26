@@ -55,7 +55,6 @@ test('quitting while the agent host is starting spawns no second host utility', 
     BRAINSTRIKE_DB_PROFILE: 'close-starting',
     BRAINSTRIKE_DB_ROOT_PATH: root,
     BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
-    BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
     BRAINSTRIKE_E2E_USER_DATA_DIR: root,
     ELECTRON_IS_E2E_TEST: 'true',
   });

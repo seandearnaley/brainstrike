@@ -3,7 +3,6 @@ import {
   type NativeIndexLifecycleObservation,
   type NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
-import { findEmbeddingHostUnresponsive } from './embedding-host-unresponsive';
 import {
   type NativeIndexSettings,
   nativeIndexConfigurationIdentity,
@@ -583,13 +582,6 @@ export function nativeIndexFailureRefusal(
 ): Exclude<NativeIndexRefusalCause, { readonly kind: 'transitioning' | 'closed' }> {
   if (cause.kind === 'source-failure' && requiresRebuild(cause.error)) {
     return { kind: 'rebuild-required', message: NATIVE_INDEX_REBUILD_REQUIRED_MESSAGE };
-  }
-  // The embedding host stopped responding: its plain cause leads however retirement and
-  // ingestion wrapped it, and only the person's Retry indexing recovers it (BST-2104).
-  const unresponsive =
-    cause.kind === 'source-failure' ? findEmbeddingHostUnresponsive(cause.error) : undefined;
-  if (unresponsive) {
-    return { kind: 'embedding-host-unresponsive', message: unresponsive.message };
   }
   return { kind: cause.kind, message: describeCause(cause) };
 }

@@ -5,11 +5,7 @@ import type {
   ProviderVerificationLookup,
   ProviderVerificationSnapshot,
 } from '@brainstrike/assistant-contract';
-import type {
-  ProviderAuthType,
-  ProviderRuntime,
-  SupportedProvider,
-} from '@brainstrike/assistant-contract/provider-metadata';
+import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { Badge, Button, Card, cn, getProviderColor, ProviderIcon } from '@brainstrike/ui';
 import { ChevronDown, ExternalLink } from 'lucide-react';
 import type { CSSProperties } from 'react';
@@ -35,14 +31,12 @@ const IDLE_LOOKUP: ProviderVerificationLookup = { state: 'idle' };
 const CONNECTION_LABELS: Record<ProviderConnectionState, string> = {
   connected: 'Connected',
   disconnected: 'Not connected',
-  'not-applicable': 'No credential required',
   unknown: 'Status unknown',
 };
 
 const CONNECTION_DOT_CLASSES: Record<ProviderConnectionState, string> = {
   connected: 'bg-emerald-500',
   disconnected: 'bg-muted-foreground/40',
-  'not-applicable': 'bg-sky-500/70',
   unknown: 'bg-amber-500/70',
 };
 
@@ -50,23 +44,7 @@ const CONNECTION_DOT_CLASSES: Record<ProviderConnectionState, string> = {
 const PRIMARY_ACTION_LABELS: Record<ProviderConnectionState, string> = {
   connected: 'Manage',
   disconnected: 'Connect',
-  'not-applicable': 'View models',
   unknown: 'Manage',
-};
-
-/**
- * Where a keyless provider is actually configured. Branches on RUNTIME, not
- * provider id: a local-runtime provider is a server you point the app at, so
- * sending that user anywhere else is a dead end. `on-device` is listed for
- * exhaustiveness only — that provider is withheld from this page, because it
- * has neither a credential nor a connection (see `providers-settings.tsx`).
- */
-const KEYLESS_NOTES: Record<ProviderRuntime, string> = {
-  gateway: 'This provider needs no credential.',
-  hosted: 'This provider needs no credential.',
-  local: 'This provider needs no credential. Point the app at its server under Local Runtimes.',
-  'on-device':
-    'This provider needs no credential. Its models are chosen under Settings → Embedding.',
 };
 
 export interface ProviderCardProps {
@@ -135,9 +113,6 @@ function ProviderKeySourceBadge({
   readonly sourceState: ProviderSourceState;
 }) {
   const testId = `provider-key-source-${card.definition.id}`;
-  if (card.definition.authType === 'none') {
-    return null;
-  }
   if (sourceState === 'unavailable') {
     // No bridge and no status payload: naming a store would be a guess.
     return (
@@ -364,31 +339,27 @@ export function ProviderCard({
           id={`provider-card-body-${providerId}`}
         >
           <ProviderCredentialSection
-            authType={definition.authType}
             deprecatedEnvVars={statusDeprecatedEnvVars}
             editable={editable}
             highlightedSlotId={highlightedSlotId}
             highlightNonce={highlightNonce}
             providerFilter={providerFilter}
             providerId={providerId}
-            runtime={definition.runtime}
             statusError={statusError}
             statusProviderKeySources={statusProviderKeySources}
           />
 
           <ProviderGuidance docsUrl={definition.docsUrl} providerId={providerId} />
 
-          {definition.authType === 'none' ? null : (
-            <ProviderTestConnection
-              disabled={card.connection !== 'connected'}
-              // A verdict describes a credential. Once that credential is
-              // gone the verdict is stale, so it is dropped rather than left
-              // on screen vouching for a key that no longer exists.
-              lookup={verdict}
-              onVerify={verify}
-              providerId={providerId}
-            />
-          )}
+          <ProviderTestConnection
+            disabled={card.connection !== 'connected'}
+            // A verdict describes a credential. Once that credential is
+            // gone the verdict is stale, so it is dropped rather than left
+            // on screen vouching for a key that no longer exists.
+            lookup={verdict}
+            onVerify={verify}
+            providerId={providerId}
+          />
 
           <ProviderModelSection
             busyModelIds={busyModelIds}
@@ -404,14 +375,12 @@ export function ProviderCard({
 }
 
 interface ProviderCredentialSectionProps {
-  readonly authType: ProviderAuthType;
   readonly deprecatedEnvVars: readonly DeprecatedEnvVarReport[] | undefined;
   readonly editable: boolean;
   readonly highlightedSlotId: string | undefined;
   readonly highlightNonce: number;
   readonly providerFilter: readonly string[];
   readonly providerId: string;
-  readonly runtime: ProviderRuntime;
   readonly statusError: string | undefined;
   readonly statusProviderKeySources: readonly ProviderKeySource<SupportedProvider>[] | undefined;
 }
@@ -423,29 +392,15 @@ interface ProviderCredentialSectionProps {
  * region/profile modes included.
  */
 function ProviderCredentialSection({
-  authType,
   deprecatedEnvVars,
   editable,
   highlightNonce,
   highlightedSlotId,
   providerFilter,
   providerId,
-  runtime,
   statusError,
   statusProviderKeySources,
 }: ProviderCredentialSectionProps) {
-  if (authType === 'none') {
-    // A keyless runtime has no inventory row, so rendering the table here
-    // would show an empty grid of headers. Say what it actually needs instead.
-    return (
-      <p
-        className="text-muted-foreground text-xs"
-        data-testid={`provider-keyless-note-${providerId}`}
-      >
-        {KEYLESS_NOTES[runtime]}
-      </p>
-    );
-  }
   if (!editable) {
     return (
       <p

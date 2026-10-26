@@ -1,11 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import type {
-  LocalEmbeddingHostClient,
-  ProviderAuthInput,
-  RuntimeData,
-} from '@brainstrike/agent/provider-runtime';
+import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   type HostPlatformLaunchOptions,
@@ -52,7 +48,6 @@ import {
 import { createDesktopTerminals } from './desktop-terminals';
 import { desktopWorkspaceDiscovery } from './desktop-workspace-discovery';
 import { forwardHostDiagnostics } from './host-diagnostics';
-import { mainQueryEmbedding } from './host-retrieval-clients';
 import {
   disposeHostTools,
   hostCommandSessionManager,
@@ -68,7 +63,6 @@ import { parentPlatformPort } from './parent-platform-port';
 import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
-  PlatformLocalModelResultSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformWorkspaceAcquireResultSchema,
@@ -115,50 +109,6 @@ function turnEndRoots(
   return roots;
 }
 type PlatformRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
-/**
- * ADR-0007: Node never runs local inference. A thread's admitted recall
- * embedder borrows Main's hidden embedding host; JSON-RPC cancellation carries
- * the caller's signal.
- *
- * It used to lend local GENERATION too, from Main's hidden llm-host, under an
- * admission gate (only this thread's admitted chat model or observer could
- * borrow it). The built-in local provider is embeddings-only now, so there is
- * no generation to lend.
- */
-function borrowedLocalInference(
-  request: PlatformRequest,
-  selected: DesktopRunSelection
-): {
-  readonly embedding: LocalEmbeddingHostClient;
-} {
-  return {
-    embedding: {
-      queryEmbedding: async ({ query }, options) => {
-        const local = selected.localEmbedding;
-        if (!local) {
-          throw refusalError(
-            'configuration',
-            'embedding.not-configured',
-            'Local embedding is not part of this admitted thread selection',
-            'Select a local embedding model in Settings.'
-          );
-        }
-        const { workerPlan } = local;
-        return await mainQueryEmbedding(
-          request,
-          {
-            dimensions: workerPlan.dimensions,
-            inferencePlan: workerPlan,
-            modelId: workerPlan.modelId,
-            modelKey: local.modelKey,
-            query,
-          },
-          options?.signal
-        );
-      },
-    },
-  };
-}
 /**
  * BST-1930 stage e: Main's facts, read over the private connection for the
  * host's run admission. A workspace borrow is Main's until the host releases
@@ -209,20 +159,11 @@ function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionReads {
         errors: 'all',
         onExcessProperty: 'error',
       })(await request('platform/admission/roots', {}, signal)),
-    localRuntimeModel: async (target, signal) =>
-      Schema.decodeUnknownSync(PlatformLocalModelResultSchema, {
+    memoryVectors: async (settings, signal) =>
+      Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
         errors: 'all',
         onExcessProperty: 'error',
-      })(await request('platform/admission/local-model', target, signal)),
-    memoryVectors: async (settings, signal) => {
-      const resolved = Schema.decodeUnknownSync(PlatformMemoryVectorsResultSchema, {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(await request('platform/admission/memory-vectors', { settings }, signal));
-      return resolved
-        ? { profile: resolved.profile, ...(resolved.local ? { local: resolved.local } : {}) }
-        : undefined;
-    },
+      })(await request('platform/admission/memory-vectors', { settings }, signal)) ?? undefined,
   };
 }
 interface DesktopHostConfiguration
@@ -333,14 +274,10 @@ export async function createDesktopHostConfiguration(
   // BST-1930 stage e: each run's admission is composed here, from Main's reads and
   // the policy the user saved, which this host keeps in its StateStore.
   const admissionReads = mainAdmissionReads(request);
-  const runAdmission = createDesktopRunAdmission(
-    admissionReads,
-    async () => {
-      const saved = await readHostPermissionPolicy(startup.store);
-      return saved ? hostPermissionGate(saved) : undefined;
-    },
-    (provider) => host.auth.resolveProviderAuth(provider)
-  );
+  const runAdmission = createDesktopRunAdmission(admissionReads, async () => {
+    const saved = await readHostPermissionPolicy(startup.store);
+    return saved ? hostPermissionGate(saved) : undefined;
+  });
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
     credentials: {
@@ -415,13 +352,9 @@ export async function createDesktopHostConfiguration(
           }
           await selected.close();
         })());
-      const local = borrowedLocalInference(request, selected);
       let memory: ProductionHostRunConfiguration['memory'];
       try {
-        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
-          ...local,
-          signal: admission.signal,
-        });
+        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth);
       } catch (cause) {
         try {
           await closeSelection();
@@ -482,7 +415,6 @@ export async function createDesktopHostConfiguration(
         memory,
         providerRequestContext: {
           inputTokenLimit: selected.inputTokenLimit,
-          ...(selected.localModel ? { localModel: selected.localModel } : {}),
           provider,
           runtimeData: configuration,
         },

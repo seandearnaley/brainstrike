@@ -2,10 +2,9 @@
  * Desktop E2E (BST-1988): text search is the default and needs no embedding
  * model. On a fresh profile, adding a folder makes Explorer Text search read the
  * native text index, and the agent's grepSearch finds the same text on disk
- * (ADR 0026); no model is chosen, no collection is invented and nothing is
- * downloaded.
+ * (ADR 0026); no model is chosen and no collection is invented.
  */
-import { readdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
@@ -44,13 +43,6 @@ async function enableChatModel(page: Page): Promise<void> {
       return result.value;
     });
   }, MODEL);
-}
-
-/** Model weights anywhere in the profile: an embedding model download leaves `.onnx` files. */
-function downloadedModelFiles(userDataDir: string): string[] {
-  return readdirSync(userDataDir, { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.onnx'))
-    .map((entry) => path.join(entry.parentPath, entry.name));
 }
 
 test('a fresh profile text-searches a folder with no embedding model chosen', async ({
@@ -141,19 +133,15 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
         .getByRole('tab', { selected: true })
         .getAttribute('id')) ?? '';
     const threadId = tabId.replace('assistant-thread-tab-', '');
-    await expect
-      .poll(async () => (await readCommittedRuns(electron.getUserDataDir(), threadId))[0]?.status, {
-        timeout: 30_000,
-      })
-      .toBe('completed');
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const [run] = await readCommittedRuns(electron.getUserDataDir(), threadId);
+    expect(run?.status).toBe('completed');
     expect(run?.results[0]?.output).toMatchObject({
       files: [expect.objectContaining({ path: 'notes.txt' })],
       outputMode: 'files',
     });
 
-    // No model was chosen, so none was downloaded.
-    expect(downloadedModelFiles(electron.getUserDataDir())).toEqual([]);
     expect(modelProvider.refusals()).toEqual([]);
   } finally {
     await electron.dispose();

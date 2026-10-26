@@ -3,7 +3,7 @@
  * "Failed to resolve module specifier" when it runs: a browser resolves a bare
  * specifier only through an import map, and no Brainstrike page has one. A
  * `@vite-ignore` import escapes bundling exactly this way and still builds
- * (BST-2230: Settings' model download in both apps).
+ * (BST-2230).
  */
 const DYNAMIC_IMPORT = /\bimport\(\s*(['"`])([^'"`]+)\1\s*\)/gu;
 const URL_SCHEME = /^[a-z][a-z\d+.-]*:/iu;

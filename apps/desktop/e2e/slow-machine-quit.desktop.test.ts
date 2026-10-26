@@ -79,13 +79,7 @@ test('a 12 s renderer flush and a 4 s host exit still quit with exit 0 after eve
   expect(steps.filter((step) => step.failed)).toEqual([]);
   // Every physical native join ran after the slow renderer instead of being skipped.
   expect(steps.map((step) => step.step)).toEqual(
-    expect.arrayContaining([
-      'renderers',
-      'native-index',
-      'file-system',
-      'embedding-host',
-      'database-close',
-    ])
+    expect.arrayContaining(['renderers', 'native-index', 'file-system', 'database-close'])
   );
   const elapsed = (name: string): number =>
     steps.find((step) => step.step === name)?.elapsedMs ?? Number.NaN;

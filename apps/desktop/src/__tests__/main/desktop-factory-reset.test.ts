@@ -146,7 +146,7 @@ describe('resetDesktopApplicationData', () => {
 
   it('does not delete app data when runtime shutdown fails', async () => {
     const stopBackgroundRuntimes = vi.fn(async () => {
-      throw new Error('embedding host refused to stop');
+      throw new Error('background runtime refused to stop');
     });
     const resetDatabaseProfile = vi.fn(async () => undefined);
     const { resetDesktopApplicationData } = await import('../../desktop-factory-reset');
@@ -158,12 +158,12 @@ describe('resetDesktopApplicationData', () => {
         stopBackgroundRuntimes,
         userDataPath: '/mock/userData',
       })
-    ).rejects.toThrow('embedding host refused to stop');
+    ).rejects.toThrow('background runtime refused to stop');
 
     expect(resetDatabaseProfile).not.toHaveBeenCalled();
     expect(fsMocks.rm).not.toHaveBeenCalled();
     expect(getDesktopResetDiagnosticsSnapshot('/mock/userData')).toMatchObject({
-      lastError: 'embedding host refused to stop',
+      lastError: 'background runtime refused to stop',
       status: 'failed',
       userDataPath: '/mock/userData',
     });

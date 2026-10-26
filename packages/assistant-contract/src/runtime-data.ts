@@ -136,17 +136,6 @@ export interface GoogleProviderOptions extends RuntimeJsonObject {
   };
 }
 
-export interface LocalProviderOptions extends RuntimeJsonObject {
-  thinking?: {
-    enabled?: boolean;
-  };
-}
-
-export interface LocalRuntimeProviderOptions extends RuntimeJsonObject {
-  apiToken?: string;
-  baseUrl?: string;
-}
-
 export interface RuntimeModelSettings {
   frequencyPenalty?: number;
   maxOutputTokens?: number;
@@ -159,9 +148,6 @@ export type RuntimeProviderOptions = RuntimeJsonObject & {
   anthropic?: AnthropicProviderOptions;
   bedrock?: BedrockProviderOptions;
   google?: GoogleProviderOptions;
-  lmstudio?: LocalRuntimeProviderOptions;
-  local?: LocalProviderOptions;
-  ollama?: LocalRuntimeProviderOptions;
   openai?: OpenAiProviderOptions;
   openrouter?: OpenRouterProviderOptions;
 };
@@ -326,7 +312,7 @@ export interface RuntimeData {
    */
   planMode?: boolean;
   projectId?: string;
-  provider?: 'anthropic' | 'google' | 'local' | 'openai' | 'openrouter' | string;
+  provider?: 'anthropic' | 'google' | 'openai' | 'openrouter' | string;
   providerOptions?: RuntimeProviderOptions;
   /**
    * The user's explicit reasoning-effort selection. Absent means Auto; this is

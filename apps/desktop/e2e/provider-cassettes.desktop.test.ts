@@ -166,7 +166,6 @@ async function inDesktopApp<S extends CassetteRouteScript, T>(
   const provider = await startModelProviderShim(script);
   let joined = false;
   const context = await launchElectronAppWithOptions({
-    disableExternalLocalRuntimeProbes: true,
     env: { HOME: home },
     modelProvider: provider,
     userDataDir: profile,

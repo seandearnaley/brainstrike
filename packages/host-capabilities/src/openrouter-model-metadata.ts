@@ -37,6 +37,8 @@ class OpenRouterMetadataTimeoutError extends Error {
 }
 
 interface OpenRouterModelMetadataServiceOptions {
+  /** Where `OPENROUTER_BASE_URL` is read; the host passes the same env its probes read. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
   readonly fetchImpl?: typeof fetch;
   readonly maxCacheEntries?: number;
   readonly now?: () => number;
@@ -190,7 +192,7 @@ export function createOpenRouterModelMetadataService(
         throw new Error('OpenRouter API key is required for model metadata');
       }
 
-      const baseUrl = resolveProviderBaseUrl('openrouter');
+      const baseUrl = resolveProviderBaseUrl('openrouter', options.env);
       const cacheKey = JSON.stringify([baseUrl, modelId]);
       const cached = cache.get(cacheKey);
       if (cached && now() - cached.checkedAt < successTtlMs) {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, onTestFinished, vi } from 'vitest';
 import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
 
 /** Main startup uses the native profile and reader owners. */
@@ -40,7 +40,7 @@ function createMockBrowserWindow() {
 type MockBrowserWindow = ReturnType<typeof createMockBrowserWindow>;
 
 const mockApp = {
-  commandLine: { appendSwitch: vi.fn() },
+  commandLine: { appendSwitch: vi.fn(), getSwitchValue: vi.fn(() => '') },
   getAppMetrics: vi.fn(() => []),
   getAppPath: vi.fn(() => '/mock/app'),
   getPath: vi.fn(() => '/tmp/brainstrike-test-logs'),
@@ -59,20 +59,12 @@ const electronServices = {
   clipboard: { writeText: vi.fn() },
   ipcMain: {
     handle: vi.fn(),
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    removeHandler: vi.fn(),
   },
   Menu: {
     buildFromTemplate: vi.fn(),
     setApplicationMenu: vi.fn(),
   },
   powerMonitor: { on: vi.fn() },
-  powerSaveBlocker: {
-    isStarted: vi.fn(() => true),
-    start: vi.fn(() => 1),
-    stop: vi.fn(),
-  },
   protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
   screen: {
     getAllDisplays: vi.fn(() => [{ workArea: { height: 800, width: 1536, x: 0, y: 0 } }]),
@@ -180,6 +172,7 @@ vi.mock('../../ipc-handlers', async () => {
     ...actual,
     createApplicationIpcDomain: (...args: Parameters<typeof actual.createApplicationIpcDomain>) => {
       const domain = actual.createApplicationIpcDomain(...args);
+      onTestFinished(() => domain.close());
       const close = vi.fn(() => domain.close());
       applicationDomainCapture.close = close;
       applicationDomainCapture.options = args[3];
@@ -197,7 +190,6 @@ const {
   nativePrepareForPause,
   nativeRebuild,
   nativeReconfigureForReset,
-  publicEmbeddingStop,
 } = vi.hoisted(() => ({
   nativeAcquire: vi.fn<() => Promise<void>>(async () => undefined),
   nativeAcquireProfile: vi.fn<() => Promise<void>>(() => new Promise(() => undefined)),
@@ -217,9 +209,6 @@ const {
   >(async () => null),
   nativeRebuild: { current: null as null | (() => Promise<void>) },
   nativeReconfigureForReset: { current: null as null | (() => Promise<void>) },
-  publicEmbeddingStop: {
-    current: null as null | import('../../embedding-host-manager').EmbeddingHostManager['stop'],
-  },
 }));
 vi.mock('../../native-index-activation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../native-index-activation')>();
@@ -269,18 +258,6 @@ function requireIndexConfig(): import('../../index-config').DesktopIndexConfigDe
   }
   return indexConfigCapture.current;
 }
-
-vi.mock('../../ipc-embedding-host', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../ipc-embedding-host')>();
-  return {
-    registerEmbeddingHostIpcHandlers: (
-      ...args: Parameters<typeof actual.registerEmbeddingHostIpcHandlers>
-    ) => {
-      publicEmbeddingStop.current = args[1].stop;
-      return actual.registerEmbeddingHostIpcHandlers(...args);
-    },
-  };
-});
 
 const { shutdownPlanCapture } = vi.hoisted(() => ({
   shutdownPlanCapture: {
@@ -347,7 +324,6 @@ export function installMainBootFixture(): void {
     nativeActualPrepareForPause.current = null;
     indexConfigCapture.current = null;
     nativePrepareForPause.mockReset().mockResolvedValue(null);
-    publicEmbeddingStop.current = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(true);
@@ -385,7 +361,6 @@ export {
   nativePrepareForPause,
   nativeRebuild,
   nativeReconfigureForReset,
-  publicEmbeddingStop,
   requireIndexConfig,
   requireMainLogger,
   shutdownPlanCapture,

@@ -51,25 +51,20 @@ import {
 beforeEach(resetActivationFixture);
 afterEach(resetFileSizeConfig);
 
-/** The profile the saved `selected` space resolves to: MiniLM run locally at its pinned revision. */
-const miniLm = {
-  dimensions: 384,
+/** The profile the saved `selected` space resolves to: OpenAI's hosted small embedding model. */
+const hostedProfile = {
+  dimensions: 1536,
   distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  // The catalog row states MiniLM's prompts (none), so the resolved profile carries them.
-  prompts: { document: '', query: '' },
-  provider: 'transformers',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 /** Semantic search saved over the `selected` space with the model its catalog row names. */
 const semanticSettings = () =>
   vectorSettings(
     {
       model: {
-        dimensions: miniLm.dimensions,
-        local: { device: 'wasm', dtype: miniLm.dtype, revision: miniLm.revision },
-        modelKey: `local::${miniLm.modelId}`,
+        dimensions: hostedProfile.dimensions,
+        modelKey: `${hostedProfile.provider}::${hostedProfile.modelId}`,
       },
     },
     'selected'
@@ -115,12 +110,12 @@ it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
       }
     );
     setCatalogRoot();
-    const { activation, onReceipt, transport } = fixture(mountedRoot());
+    const { activation, hostedEmbeddings, onReceipt } = fixture(mountedRoot());
     try {
       await activation.acquire();
       expect(readFile).toHaveBeenCalledExactlyOnceWith('ordinary.txt', maxFileSize);
       expect(onReceipt).toHaveBeenCalledOnce();
-      expect(transport.documentEmbeddings).not.toHaveBeenCalled();
+      expect(hostedEmbeddings).not.toHaveBeenCalled();
     } finally {
       await activation.close();
     }
@@ -210,14 +205,14 @@ it('rebuilds only the derived writer with the saved settings and no inference or
     }
   );
   setCatalogRoot();
-  const { activation, settings, transport, onReceipt } = fixture(mountedRoot());
+  const { activation, settings, hostedEmbeddings, onReceipt } = fixture(mountedRoot());
   await activation.acquire();
   await activation.rebuild();
   expect(modes).toEqual(['TEXT', 'TEXT']);
   expect(close).toHaveBeenCalledOnce();
   expect(mocks.destroy).toHaveBeenCalledOnce();
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
-  expect(transport.documentEmbeddings).not.toHaveBeenCalled();
+  expect(hostedEmbeddings).not.toHaveBeenCalled();
   expect(settings).toHaveBeenCalledTimes(2);
   expect(
     mocks.catalog.sourceCatalog.mock.calls.every(([request]) =>
@@ -526,8 +521,8 @@ it('finishes folder VECTOR startup with its verified receipt and no missing-vect
     contentHash: record.contentHash,
     embeddingChunkIds: [],
     previousSnapshotHash: null,
-    profile: miniLm,
-    profileHash: vectorProfileHash(miniLm),
+    profile: hostedProfile,
+    profileHash: vectorProfileHash(hostedProfile),
     snapshot: { ...identity, content: 'canonical', providedChunks },
     storeId,
   };
@@ -552,14 +547,14 @@ it('finishes folder VECTOR startup with its verified receipt and no missing-vect
     const prepared = await publication.prepareVectorFile({
       file: identity,
       payload: { content: 'canonical', fileId: identity.fileId, providedChunks },
-      profile: miniLm,
+      profile: hostedProfile,
       ticket,
     });
     await publication.commitVectorFile({
       embeddings: [],
       file: identity,
       plan: prepared,
-      profile: miniLm,
+      profile: hostedProfile,
       ticket,
     });
     return publication.finishScan({
@@ -580,17 +575,14 @@ it('finishes folder VECTOR startup with its verified receipt and no missing-vect
       return { close: async () => {}, trigger: unused };
     }
   );
-  const documentEmbeddings = vi.fn(unused);
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { destroyAndRestart: vi.fn(), documentEmbeddings },
     onError: vi.fn(),
     settings: async () => semanticSettings(),
-    storage: { getItem: unused },
   });
   await activation.acquire();
   expect(activation.getReadiness()).toMatchObject([{ scanComplete: true, scope: workspace }]);
-  expect(documentEmbeddings).not.toHaveBeenCalled();
+  expect(mocks.hostedEmbeddings).not.toHaveBeenCalled();
   expect(native.commitScopedFile).toHaveBeenCalledOnce();
   // The opened writer lists the stored rows of its folder and of its vector space once
   // each (no files declared, BST-1988/BST-2011), then the folder's scan proves its file.
@@ -634,7 +626,7 @@ it('joins physical grep disposal before retiring read authority during a genuine
           'embedding_set_id',
           'source_path',
         ],
-        identity: { embedding: { indexMode: 'text-only' as const }, storeId },
+        identity: { storeId },
         matchedChunks: 0,
         rows: [],
         truncated: false,

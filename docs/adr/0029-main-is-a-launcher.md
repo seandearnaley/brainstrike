@@ -6,8 +6,7 @@
 - **Amends:** [ADR-0017](0017-cli-first-agent-host.md) (what "provider of platform
   capabilities" covers) and [ADR-0027](0027-canonical-electron-quit.md) decision 3 (the
   native-thread join on Main retires once no native work runs there)
-- **Follows:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md),
-  [ADR-0007](0007-local-inference-placement.md)
+- **Follows:** [ADR-0026](0026-lifecycle-readiness-liveness-joined-quit.md)
 
 ## Context
 
@@ -43,7 +42,7 @@ close lifecycle that the CLI would not share.
 
 1. **Main does only what needs Electron.** Main keeps:
    - windows, menus, dialogs, clipboard, `shell`, privileged protocols and power;
-   - hidden renderer hosts (ADR-0007) and the browser pane (`WebContentsView`, CDP);
+   - the browser pane (`WebContentsView`, CDP);
    - the credential store (`safeStorage`), lent to the host as it is today;
    - starting utility processes (`utilityProcess.fork`) and joining their exits;
    - the renderer flush and shutdown-time exit labelling (ADR-0027).
