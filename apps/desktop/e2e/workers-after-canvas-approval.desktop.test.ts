@@ -112,6 +112,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
   let canvasLoaded = false;
   let canvasCreated = false;
   let workersDispatched = false;
+  let workersStartedAnswered = false;
   const provider = await startModelProviderShim(({ messages, toolNames }) => {
     if (toolNames.length === 0) {
       return { finalText: CANVAS_TITLE };
@@ -199,7 +200,13 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
           })),
         };
       }
-      return { finalText: 'ROOT_WORKERS_STARTED' };
+      // The turn after the dispatch answers once; any later wake (the Workers'
+      // results) answers apart from it, so the assertion below names one message.
+      if (!workersStartedAnswered) {
+        workersStartedAnswered = true;
+        return { finalText: 'ROOT_WORKERS_STARTED' };
+      }
+      return { finalText: 'ROOT_WORKERS_SETTLED' };
     }
     expect(toolNames).toContain('agent-explore');
     return {
