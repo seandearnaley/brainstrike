@@ -280,8 +280,13 @@ export async function attachHostThroughWindow(page: Page): Promise<HostClient> {
 export async function readHostProcess(
   userDataDir: string
 ): Promise<{ readonly pid: number; readonly start: string }> {
-  const client = await sharedAppHost(userDataDir);
-  return { pid: client.host.pid, start: client.host.start };
+  // A fresh client: its initialize reply names the host running now, even after a restart.
+  const client = await attachAppHost(userDataDir);
+  try {
+    return { pid: client.host.pid, start: client.host.start };
+  } finally {
+    await client.close();
+  }
 }
 /** The host Root: the directory of the app's state store under its user data. */
 async function hostRootPath(userDataDir: string): Promise<string> {
