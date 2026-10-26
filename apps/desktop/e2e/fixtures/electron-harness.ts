@@ -149,14 +149,18 @@ export class ElectronHarness {
    * rethrown, because the fixture's teardown finds nothing to close once the context is forgotten.
    * If that SIGTERM cannot be confirmed either, the context is kept for the teardown to close, and
    * both errors are thrown together. Afterwards the next `ensureContext()`/`restart()` launches a fresh process on the same userData.
+   * `killSignal`: `end` kills the process with it (a simulated crash), so that exit is intended.
    */
-  async endOutOfBand(end: (mainProcess: ChildProcess) => Promise<void>): Promise<void> {
+  async endOutOfBand(
+    end: (mainProcess: ChildProcess) => Promise<void>,
+    killSignal?: NodeJS.Signals
+  ): Promise<void> {
     const context = this.context;
     if (!context) {
       throw new Error('Electron harness has no running app to end.');
     }
     const mainProcess = context.app.process();
-    this.exitGuard.beginIntentionalClose(mainProcess);
+    this.exitGuard.beginIntentionalClose(mainProcess, killSignal);
     try {
       await end(mainProcess);
       if (!hasExited(mainProcess)) {

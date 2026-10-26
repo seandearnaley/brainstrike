@@ -67,6 +67,20 @@ describe('ElectronProcessExitGuard', () => {
     );
   });
 
+  it('accepts only the kill signal an intentional kill names', () => {
+    const killed = new FakeElectronProcess();
+    const crashed = new FakeElectronProcess();
+    const guard = new ElectronProcessExitGuard();
+    guard.observe(killed);
+    guard.beginIntentionalClose(killed, 'SIGKILL');
+    killed.exit(null, 'SIGKILL');
+    expect(() => guard.assertHealthy()).not.toThrow();
+    guard.observe(crashed);
+    guard.beginIntentionalClose(crashed, 'SIGKILL');
+    crashed.exit(null, 'SIGSEGV');
+    expect(() => guard.assertHealthy()).toThrow('signal=SIGSEGV');
+  });
+
   it.each([
     [1, null],
     [null, 'SIGSEGV'],

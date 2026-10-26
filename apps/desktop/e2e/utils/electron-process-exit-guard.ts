@@ -9,6 +9,8 @@ interface ElectronProcessLike {
 
 interface ObservedProcessState {
   intentionalCloseStarted: boolean;
+  /** The signal an intentional close ends the process with, when it is not a clean exit. */
+  killSignal?: NodeJS.Signals;
 }
 
 function formatUnexpectedExit(
@@ -38,14 +40,18 @@ export class ElectronProcessExitGuard {
       if (this.unexpectedExit) {
         return;
       }
-      if (state.intentionalCloseStarted && code === 0 && signal === null) {
+      if (
+        state.intentionalCloseStarted &&
+        ((code === 0 && signal === null) || (signal !== null && signal === state.killSignal))
+      ) {
         return;
       }
       this.unexpectedExit = formatUnexpectedExit(code, signal, state.intentionalCloseStarted);
     });
   }
 
-  beginIntentionalClose(process: ElectronProcessLike): void {
+  /** `killSignal`: the close kills the process with it, so that exit is intentional too. */
+  beginIntentionalClose(process: ElectronProcessLike, killSignal?: NodeJS.Signals): void {
     const state = this.observedProcesses.get(process);
     if (!state) {
       throw new Error('Electron process exit guard cannot close an unobserved process');
@@ -55,6 +61,9 @@ export class ElectronProcessExitGuard {
       return;
     }
     state.intentionalCloseStarted = true;
+    if (killSignal !== undefined) {
+      state.killSignal = killSignal;
+    }
   }
 
   assertHealthy(): void {
