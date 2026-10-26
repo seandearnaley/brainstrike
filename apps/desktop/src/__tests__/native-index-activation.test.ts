@@ -127,7 +127,8 @@ it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
   }
 );
 
-it('joins real late source cancellation before closing the native engine and profile owner', async () => {
+// ADR-0031: quit retires no source through the utility; a held request does not hold it up.
+it('closes the native engine and profile owner for quit while a real source request is held', async () => {
   const request = Promise.withResolvers<object>();
   const cancelled = Promise.withResolvers<object>();
   const parent = new CanonicalUtilityParent(
@@ -160,20 +161,12 @@ it('joins real late source cancellation before closing the native engine and pro
     )
   );
   const initial = activation.acquire().catch((error: unknown) => error);
-  const held = await request.promise;
-  const retirement = activation.close();
-  const notice = await cancelled.promise;
-  expect(mocks.close).not.toHaveBeenCalled();
-  expect(mocks.closeProfile).not.toHaveBeenCalled();
-  parent.receive(held);
-  parent.receive(notice);
-  await retirement;
-  await initial;
-  expect(child.channel.pendingCount).toBe(0);
-  expect(parent.channel.pendingCount).toBe(0);
+  await request.promise;
+  await activation.close();
   expect(mocks.close).toHaveBeenCalledOnce();
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
-  await parent.close();
+  expect(mocks.manager.retireCanonicalSources).not.toHaveBeenCalled();
+  void initial;
 });
 
 it('rebuilds only the derived writer with the saved settings and no inference or application deletion', async () => {
@@ -641,4 +634,25 @@ it('answers a boot acquisition a newer generation superseded with the typed tran
   expect(error).toBeInstanceOf(NativeIndexRefusalError);
   expect((error as NativeIndexRefusalError).refusal).toEqual({ kind: 'transitioning' });
   await activation.close();
+});
+
+// ADR-0031: quit retires no source through the indexer utility. It fences them and kills.
+it('closes for quit by killing the engine while source retirement through the utility never answers', async () => {
+  const never = Promise.withResolvers<void>().promise;
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(
+    (dependencies: CanonicalRemoteWorkspaceDependencies) =>
+      emptyWorkspace(dependencies, () => never)
+  );
+  mocks.manager.retireCanonicalSources.mockReturnValue(never);
+  setCatalogRoot();
+  const { activation } = fixture(mountedRoot());
+  await activation.acquire();
+
+  const closed = vi.fn();
+  void activation.close().then(closed);
+
+  await vi.waitFor(() => expect(closed).toHaveBeenCalled());
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  await expect(activation.acquireRead()).rejects.toThrow('closed');
 });

@@ -311,72 +311,41 @@ it('fences late profile acquisition before physical retirement while window star
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
-it.each([false, true])(
-  'fences admission synchronously during blocked source reconfiguration and retains cleanup failure=%s',
-  async (fail) => {
-    const entered = Promise.withResolvers<void>();
-    const canceled = Promise.withResolvers<void>();
-    const joined = Promise.withResolvers<void>();
-    const failure = new Error('Independent source retirement failure');
-    // The folder's close joins its running first scan, which ends only once `joined` resolves.
-    const closeSource = vi.fn(async () => {
-      canceled.resolve();
-      await joined.promise;
-      if (fail) {
-        throw failure;
-      }
-    });
-    mocks.manager.attachCanonicalWorkspace.mockImplementation(async () => {
-      entered.resolve();
-      return { close: closeSource, trigger: unused };
-    });
-    catalogFixture.setRoot();
-    const { activation, settings } = fixture(mountedRoot());
-    settings.mockResolvedValue(textSettings({ paused: true }));
-    await activation.acquire();
-    settings.mockResolvedValue(textSettings());
-    const reconfiguration = activation.reconfigure().catch((error: unknown) => error);
-    onTestFinished(async () => {
-      canceled.resolve();
-      joined.resolve();
-      await reconfiguration;
-      closeSource.mockResolvedValue(undefined);
-      await activation.close();
-    });
-    await entered.promise;
-    let fenced = false;
-    const fence = Promise.resolve(activation.fenceTerminal()).then(() => {
-      fenced = true;
-    });
-    await Promise.resolve();
-    expect(fenced).toBe(true);
-    await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
-    expect(closeSource).not.toHaveBeenCalled();
-    let retired = false;
-    const retirement = activation.close().then(
-      () => {
-        retired = true;
-        return;
-      },
-      (error: unknown) => {
-        retired = true;
-        return error;
-      }
-    );
-    await canceled.promise;
-    expect(closeSource).toHaveBeenCalledOnce();
-    expect(retired).toBe(false);
-    expect(mocks.closeProfile).not.toHaveBeenCalled();
+// ADR-0031: quit fences at once and kills; it joins no folder close the utility owes.
+it('fences admission synchronously during blocked source reconfiguration, and quit closes without joining its folder', async () => {
+  const entered = Promise.withResolvers<void>();
+  const joined = Promise.withResolvers<void>();
+  // The folder's close would join its running first scan, which ends only once `joined` resolves.
+  const closeSource = vi.fn(async () => {
+    await joined.promise;
+  });
+  mocks.manager.attachCanonicalWorkspace.mockImplementation(async () => {
+    entered.resolve();
+    return { close: closeSource, trigger: unused };
+  });
+  catalogFixture.setRoot();
+  const { activation, settings } = fixture(mountedRoot());
+  settings.mockResolvedValue(textSettings({ paused: true }));
+  await activation.acquire();
+  settings.mockResolvedValue(textSettings());
+  const reconfiguration = activation.reconfigure().catch((error: unknown) => error);
+  onTestFinished(async () => {
     joined.resolve();
-    const outcome = await retirement;
-    if (fail) {
-      expect(outcome).toMatchObject({ errors: [failure] });
-      expect(mocks.closeProfile).not.toHaveBeenCalled();
-    } else {
-      expect(outcome).toBeUndefined();
-      expect(mocks.closeProfile).toHaveBeenCalledOnce();
-    }
-    await fence;
-    expect(await reconfiguration).toBeInstanceOf(Error);
-  }
-);
+    await reconfiguration;
+  });
+  await entered.promise;
+  let fenced = false;
+  const fence = Promise.resolve(activation.fenceTerminal()).then(() => {
+    fenced = true;
+  });
+  await Promise.resolve();
+  expect(fenced).toBe(true);
+  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+
+  await activation.close();
+
+  expect(closeSource).not.toHaveBeenCalled();
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  await fence;
+});

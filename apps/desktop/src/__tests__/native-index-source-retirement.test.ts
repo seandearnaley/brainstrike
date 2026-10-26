@@ -275,7 +275,8 @@ it.each([
     triggered = true;
     await attachment.trigger();
     await requestEntered.promise;
-    const retired = activation.close();
+    // Stop-sources (folder deletion) keeps the joined retirement; quit's close kills instead.
+    const retired = activation.stopSources();
     const settled = retired.then(
       () => ({ ok: true }),
       (error: unknown) => ({ error, ok: false })
@@ -311,7 +312,7 @@ it.each([
       expect(outcome).toMatchObject({ ok: false });
       expect(mocks.close).not.toHaveBeenCalled();
       expect(mocks.closeProfile).not.toHaveBeenCalled();
-      await activation.close();
+      await activation.stopSources();
     } else {
       expect(outcome).toEqual({ ok: true });
     }
@@ -321,6 +322,8 @@ it.each([
     expect(retire).toHaveBeenCalled();
     expect(child.channel.pendingCount).toBe(0);
     expect(parent.channel.pendingCount).toBe(0);
+    expect(mocks.close).not.toHaveBeenCalled();
+    await activation.close();
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.closeProfile).toHaveBeenCalledOnce();
     await parent.close();

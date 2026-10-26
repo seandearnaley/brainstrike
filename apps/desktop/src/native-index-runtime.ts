@@ -180,6 +180,8 @@ export function createNativeIndexRuntime<Attachment>(
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
   let cleanup: Promise<void> | undefined;
+  /** Quit's kill, which a later close joins instead of the joined close; cleared by resume. */
+  let terminated: Promise<void> | undefined;
 
   const acquireProfile = async (
     options?: {
@@ -377,6 +379,9 @@ export function createNativeIndexRuntime<Attachment>(
     return ready;
   };
   const closeIndex = (destroy = false): Promise<void> => {
+    if (terminated && !destroy) {
+      return terminated;
+    }
     closed = true;
     readsClosed = true;
     const kind = destroy ? 'destroy' : 'close';
@@ -448,17 +453,8 @@ export function createNativeIndexRuntime<Attachment>(
     acknowledgedPort = undefined;
     bindingRemovalPending = false;
     authorityMutation = undefined;
-    const terminated = Promise.all([closeQueries(), owner?.close()]).then(() => undefined);
-    // A later close or profile retirement joins this kill, not an earlier joining close.
-    closing = terminated;
-    closingKind = 'close';
-    const settled = (): void => {
-      if (closing === terminated) {
-        closing = undefined;
-        closingKind = undefined;
-      }
-    };
-    terminated.then(settled, settled);
+    // A later close, such as profile retirement's, joins this kill, never a joining close.
+    terminated = Promise.all([closeQueries(), owner?.close()]).then(() => undefined);
     return terminated;
   };
   const cleanupOwned = (requested: NativeIndexAuthority): Promise<void> => {
@@ -593,6 +589,7 @@ export function createNativeIndexRuntime<Attachment>(
         throw new Error('Previous native ownership must retire before reset resumes.');
       }
       closed = false;
+      terminated = undefined;
       readsClosed = false;
       profileRetired = false;
       await acquireProfile(undefined, signal);

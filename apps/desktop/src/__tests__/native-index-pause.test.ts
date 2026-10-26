@@ -471,7 +471,8 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
   await activation.close();
 });
 
-it('starts exact document cancellation before waiting for an admitted native read on close', async () => {
+// ADR-0031: quit sends the cancellation and joins neither the read nor the embedding.
+it('cancels exact documents on quit, and closes without an admitted native read or the embedding settling', async () => {
   const { activation, settings, transport, profile } = vectorPauseFixture();
   await savePause(settings, false);
   const physical = Promise.withResolvers<void>();
@@ -513,15 +514,8 @@ it('starts exact document cancellation before waiting for an admitted native rea
     physical.resolve();
     await Promise.allSettled([reading, pausing, starting]);
   });
-  await vi.waitFor(() => expect(inferenceSignal?.aborted).toBe(true));
-  expect(paused).toBe(false);
-  expect(mocks.close).not.toHaveBeenCalled();
-  physical.resolve();
-  expect(paused).toBe(false);
-  read.resolve();
-  await reading;
-  await pausing;
-  expect(await starting).toBeInstanceOf(Error);
+  await vi.waitFor(() => expect(paused).toBe(true));
+  expect(inferenceSignal?.aborted).toBe(true);
   expect(mocks.close).toHaveBeenCalledOnce();
 });
 

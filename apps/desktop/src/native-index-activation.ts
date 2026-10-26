@@ -538,6 +538,32 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     graph = undefined;
   };
+  /**
+   * Quit's terminal close (ADR-0031): fences every source, sends its inference cancellations and
+   * retires Main's folder borrows, then kills the indexer and query processes. It retires no
+   * source through the utility and joins no startup, reply or exit: every write committed when it
+   * was made (WAL). Pause and stop-sources keep their joined retirement.
+   */
+  const terminateOwned = async (): Promise<void> => {
+    const current = graph;
+    graph = undefined;
+    current?.controller.abort(new TransitionError('Native owner terminal retirement requested.'));
+    const sources = current?.sources;
+    sources?.controller.abort(new TransitionError('Native ingestion paused.'));
+    fenceIndexerCanonicalSources();
+    const report = (error: unknown): void => dependencies.onError('quit retirement', error);
+    // Each cancels at once; its settlement is not joined.
+    for (const inference of sources?.inference ?? []) {
+      inference.close().catch(report);
+    }
+    for (const lease of [
+      ...(sources?.leases.values() ?? []),
+      ...(current?.leases.values() ?? []),
+    ]) {
+      lease.retire().catch(report);
+    }
+    await runtime.terminateIndex();
+  };
   const applySources = async (settings: NativeIndexSettings): Promise<void> => {
     const current = graph;
     if (!current) {
@@ -568,6 +594,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           }
           case 'close': {
             const state = await (await lifecycle).state();
+            // Quit: profile retirement is the terminal close only `close` dispatches. Folder
+            // deletion and a released host keep the joined close, which file deletion needs.
+            if (state.kind === 'closed' && state.reason === 'profile-retired') {
+              await terminateOwned();
+              return;
+            }
             if (state.kind === 'unconfigured') {
               graph?.controller.abort(unconfiguredReason(state));
             }
