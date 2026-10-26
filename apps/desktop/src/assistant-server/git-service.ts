@@ -1014,7 +1014,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
       }
     },
 
-
     /**
      * Push to the upstream remote (network op, longer timeout).
      *
