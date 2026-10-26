@@ -7,22 +7,14 @@ import { openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { expect, it } from 'vitest';
 
-const profile = {
-  dimensions: 384,
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 512,
-} as const;
 const deadlines = { closeMs: 5000 };
-const vector = Array.from({ length: 384 }, (_, index) => (index === 0 ? 1 : 0));
 
-it('explicit text commits need no inference, preserve valid vectors and permit strict later backfill', async () => {
+it('explicit text commits need no inference and replace changed rows', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-text-index-'));
   const port = await openIndexer(
     {
       dbPath: path.join(directory, 'index.sqlite'),
-      embedding: { indexMode: 'vector-configured', profile },
+      embedding: { indexMode: 'text-only' },
       rootIds: ['r'],
     },
     deadlines
@@ -34,52 +26,36 @@ it('explicit text commits need no inference, preserve valid vectors and permit s
     relativePath: 'f.ts',
     rootId: 'r',
   };
-  const query = { limit: 100, mode: 'vector', profile, rootIds: ['r'], vector };
   try {
     const plan = await port.prepareFile(snapshot);
-    await expect(port.commitFile({ embeddings: [], plan, profile })).rejects.toThrow();
     await port.commitTextFile({ plan });
     expect(
       (await port.search({ limit: 100, mode: 'bm25', rootIds: ['r'], text: 'alpha' })).hits
     ).toHaveLength(1);
-    expect((await port.search(query)).hits).toHaveLength(0);
-    const backfill = await port.prepareFile(snapshot);
-    expect(backfill.unchanged).toBe(true);
-    expect(backfill.embeddingChunkIds).toHaveLength(2);
-    await expect(port.commitFile({ embeddings: [], plan: backfill, profile })).rejects.toThrow();
-    await expect(
-      port.commitFile({ embeddings: [], plan: { ...backfill, embeddingChunkIds: [] }, profile })
-    ).rejects.toThrow();
-    await port.commitFile({
-      embeddings: backfill.embeddingChunkIds.map((chunkId) => ({ chunkId, vector })),
-      plan: backfill,
-      profile,
-    });
-    expect((await port.search(query)).hits).toHaveLength(2);
+    expect((await port.prepareFile(snapshot)).unchanged).toBe(true);
     const changed = await port.prepareFile({
       ...snapshot,
       content: 'alpha first\ngamma changed\n',
     });
     await expect(port.commitTextFile({ embeddings: [], plan: changed })).rejects.toThrow();
     await port.commitTextFile({ plan: changed });
-    expect((await port.search(query)).hits).toHaveLength(1);
-    const missing = await port.prepareFile({
-      ...snapshot,
-      content: 'alpha first\ngamma changed\n',
-    });
-    expect(missing.embeddingChunkIds).toHaveLength(1);
+    expect(
+      (await port.search({ limit: 100, mode: 'bm25', rootIds: ['r'], text: 'beta' })).hits
+    ).toHaveLength(0);
     expect(
       (await port.search({ limit: 100, mode: 'bm25', rootIds: ['r'], text: 'gamma' })).hits
     ).toHaveLength(1);
     await port.removeFile({ fileId: 'f', rootId: 'r' });
-    expect((await port.search(query)).hits).toHaveLength(0);
+    expect(
+      (await port.search({ limit: 100, mode: 'bm25', rootIds: ['r'], text: 'alpha' })).hits
+    ).toHaveLength(0);
   } finally {
     await port.close();
     await rm(directory, { force: true, recursive: true });
   }
 });
 
-it('retains captured canonical symbols and refs during unchanged vector backfill and text reopen', async () => {
+it('retains captured canonical symbols and refs during an unchanged recommit and text reopen', async () => {
   const captured = JSON.parse(
     readFileSync(
       new URL(
@@ -136,20 +112,13 @@ it('retains captured canonical symbols and refs during unchanged vector backfill
     const symbols = before.prepare('SELECT * FROM file_symbols ORDER BY seq').all();
     const refs = before.prepare('SELECT * FROM file_symbol_refs ORDER BY seq').all();
     before.close();
-    await port.configureVectorProfile(profile);
-    const after = openConnection(dbPath, { readonly: true });
-    expect(after.prepare('SELECT * FROM file_symbols ORDER BY seq').all()).toEqual(symbols);
-    expect(after.prepare('SELECT * FROM file_symbol_refs ORDER BY seq').all()).toEqual(refs);
-    after.close();
-    const backfill = await port.prepareFile(snapshot);
-    const result = await port.commitFile({
-      embeddings: backfill.embeddingChunkIds.map((chunkId) => ({ chunkId, vector })),
-      plan: backfill,
-      profile,
-    });
+    const recommit = await port.prepareFile(snapshot);
+    const result = await port.commitTextFile({ plan: recommit });
     expect(result.syntaxStatus).toBe('retained');
     const db = openConnection(dbPath, { readonly: true });
     try {
+      expect(db.prepare('SELECT * FROM file_symbols ORDER BY seq').all()).toEqual(symbols);
+      expect(db.prepare('SELECT * FROM file_symbol_refs ORDER BY seq').all()).toEqual(refs);
       expect(db.prepare('SELECT count(*) AS n FROM file_symbols').get()).toEqual({
         n: captured.result.symbols.length,
       });
@@ -159,20 +128,6 @@ it('retains captured canonical symbols and refs during unchanged vector backfill
     } finally {
       db.close();
     }
-    await port.close();
-    const corrupt = openConnection(dbPath);
-    try {
-      const id = corrupt.prepare('SELECT pk FROM file_chunks LIMIT 1').pluck().get();
-      if (typeof id !== 'number') {
-        throw new TypeError('Expected real persisted chunk id.');
-      }
-      corrupt.prepare('DELETE FROM vec_chunks WHERE id=?').run(BigInt(id));
-    } finally {
-      corrupt.close();
-    }
-    await expect(
-      openIndexer({ ...options, embedding: { indexMode: 'open-existing' } }, deadlines)
-    ).rejects.toThrow('Derived chunk/vector counts disagree');
   } finally {
     await port.close();
     await rm(directory, { force: true, recursive: true });

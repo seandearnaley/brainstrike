@@ -62,8 +62,6 @@ survive later Electron upgrades.
 - The derived SQLite index has its own process and lifecycle. Desktop has no
   PGlite engine or renderer SQL/live-query bridge. PGlite still exists in web and
   explicit test consumers.
-- Embeddings and local model generation run in hidden renderer hosts. Their
-  lifetime is managed separately from the visible UI.
 - Preference storage is distinct from the canonical host catalog and derived
   indexes. Clear Database retains configuration/credentials; Factory Reset also
   clears them. See the [reset contract](../../docs/agents/platform-contracts.md)

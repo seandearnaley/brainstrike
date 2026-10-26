@@ -178,23 +178,8 @@ export class StreamStalledError extends Error {
   }
 }
 
-/**
- * The user-visible stall text. Local runtimes keep their runner-specific
- * remedy; every other provider gets a message that names WHICH silence fired.
- */
-export function describeStreamStall(
-  error: StreamStalledError,
-  runtime: {
-    readonly model?: string | undefined;
-    readonly provider?: string | undefined;
-  }
-): string {
-  const provider = runtime.provider?.trim().toLowerCase();
-  const localRuntimeName =
-    provider === 'ollama' ? 'Ollama' : provider === 'lmstudio' ? 'LM Studio' : null;
-  if (localRuntimeName && runtime.model) {
-    return `${localRuntimeName} model "${runtime.model}" produced no stream output for ${error.inactivityMs}ms. Verify the ${localRuntimeName} server and model runner, then retry.`;
-  }
+/** The user-visible stall text, naming WHICH silence fired. */
+export function describeStreamStall(error: StreamStalledError): string {
   if (error.phase === 'awaiting-output') {
     return `The model produced no output within ${error.inactivityMs}ms of the request starting.`;
   }

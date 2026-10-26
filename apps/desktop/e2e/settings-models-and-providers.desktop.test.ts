@@ -8,7 +8,6 @@ import { SettingsPage } from './page-objects/settings-page';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 const MODEL_REGISTRY_SNAPSHOT = {
-  downloadedModels: {},
   models: [
     {
       bestFor: ['tests'],
@@ -18,11 +17,11 @@ const MODEL_REGISTRY_SNAPSHOT = {
       },
       description: 'Deterministic E2E chat model',
       icon: null,
-      id: 'local:test-chat-model',
+      id: 'test-chat-model',
       isEnabled: true,
       name: 'Test Chat Model',
       parameters: null,
-      providerId: 'local',
+      providerId: 'openai',
       sortOrder: 1,
       tagline: null,
     },
@@ -30,9 +29,9 @@ const MODEL_REGISTRY_SNAPSHOT = {
   providers: [
     {
       icon: null,
-      id: 'local',
+      id: 'openai',
       isEnabled: true,
-      name: 'Local',
+      name: 'OpenAI',
       sortOrder: 1,
     },
   ],

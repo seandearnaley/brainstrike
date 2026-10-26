@@ -13,7 +13,7 @@ import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-con
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import type { EmbeddingHostManager } from '../embedding-host-manager';
+import type { QueryEmbeddingRequest } from '../ipc-domains/index-search.contract';
 import {
   resolveAdmittedRetrievalRoots,
   resolveNativeAssistantCollection,
@@ -59,7 +59,6 @@ const RETRIEVAL_ERROR_MESSAGES = {
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
   invalidSelectionFilePaths: 'Selection file paths are invalid.',
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
-  localEmbeddingHostUnavailable: 'Local embedding query host is unavailable.',
   missingApiKey: 'No API key configured for the embedding provider.',
   missingQueryEmbeddingSpace: 'Select an embedding space before querying semantic context.',
   missingSourceRange:
@@ -71,7 +70,11 @@ const RETRIEVAL_ERROR_MESSAGES = {
 
 type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 
-type QueryEmbeddingHost = Pick<EmbeddingHostManager, 'queryEmbedding'>;
+/** Embeds one search query with the index's hosted model. */
+export type QueryEmbedder = (
+  request: QueryEmbeddingRequest,
+  signal?: AbortSignal
+) => Promise<number[]>;
 
 interface SkippedSourceRangeChunk {
   chunkId: string;
@@ -86,8 +89,8 @@ interface ContextChunkConversionResult {
 
 export interface RetrievalToolDependencies {
   admittedWorkspaceRootIds?: readonly string[] | undefined;
-  embeddingHostManager?: QueryEmbeddingHost | null | undefined;
   nativeIndexSearch?: IndexSearchCapability | undefined;
+  queryEmbedder?: QueryEmbedder | undefined;
 }
 
 interface RetrievalToolResult {
@@ -334,11 +337,11 @@ async function runRetrieval(
     ...input,
     admittedWorkspaceRootIds: admittedRootIds,
     capability: nativeIndexSearch,
-    embeddingHostManager: dependencies.embeddingHostManager,
     embeddingSet,
     embeddingSetId,
     mode: 'semantic',
     query,
+    queryEmbedder: dependencies.queryEmbedder,
     rootId,
     signal,
     threshold: input.threshold ?? DEFAULT_THRESHOLD,

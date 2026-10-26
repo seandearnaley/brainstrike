@@ -1,9 +1,9 @@
 import { expect, test } from 'vitest';
-import { StateStoreMemoryVector } from '../src/adapters/state-store-memory-vector.js';
+import { StateStoreMemoryVector } from '../src/adapters/state-store-memory-vector.ts';
 import {
   RECORDED_VECTOR_PROFILE,
   recordedMemoryVectorPort,
-} from './fixtures/recorded-memory-vector-port.js';
+} from './fixtures/recorded-memory-vector-port.ts';
 
 function fixture() {
   const recorded = recordedMemoryVectorPort();
@@ -17,14 +17,14 @@ function fixture() {
   });
   return { controller, recorded, scope, vector };
 }
-const dense = Array.from({ length: 384 }, (_value, index) => (index === 0 ? 1 : 0));
+const dense = Array.from({ length: 1536 }, (_value, index) => (index === 0 ? 1 : 0));
 
 test('native segments reuse one committed ID and the pre-inference owner plan', async () => {
   const { recorded, vector } = fixture();
   const identity = { messageId: 'committed-message', seq: 4 };
   await vector.withPreparedMessages([identity], async () => {
     recorded.events.push('embedding');
-    await vector.createIndex({ dimension: 384, indexName: 'native-memory' });
+    await vector.createIndex({ dimension: 1536, indexName: 'native-memory' });
     const metadata = {
       message_id: identity.messageId,
       resource_id: 'resource',
@@ -54,7 +54,7 @@ test.each(['thread', 'resource'] as const)(
     const { recorded, vector } = fixture();
     const threadId = mode === 'thread' ? 'thread' : 'other-durable-member';
     recorded.setHits([{ messageId: 'canonical', score: 1, segmentOrdinal: 0, seq: 8, threadId }]);
-    await vector.createIndex({ dimension: 384, indexName: 'native-memory' });
+    await vector.createIndex({ dimension: 1536, indexName: 'native-memory' });
     expect(
       await vector.query({
         filter: mode === 'thread' ? { thread_id: 'thread' } : { resource_id: 'resource' },
@@ -81,7 +81,7 @@ test.each(['thread', 'resource'] as const)(
 
 test('foreign/unsupported filters fail before the borrowed query port', async () => {
   const { recorded, vector } = fixture();
-  await vector.createIndex({ dimension: 384, indexName: 'native-memory' });
+  await vector.createIndex({ dimension: 1536, indexName: 'native-memory' });
   for (const filter of [
     { resource_id: 'foreign' },
     { thread_id: 'foreign' },
@@ -96,7 +96,7 @@ test('foreign/unsupported filters fail before the borrowed query port', async ()
 
 test('a foreign committed metadata claim cannot enter an admitted write', async () => {
   const { recorded, vector } = fixture();
-  await vector.createIndex({ dimension: 384, indexName: 'native-memory' });
+  await vector.createIndex({ dimension: 1536, indexName: 'native-memory' });
   await expect(
     vector.withPreparedMessages([{ messageId: 'canonical', seq: 4 }], async () => {
       await vector.upsert({
@@ -126,7 +126,7 @@ test('captured run authority and cancellation survive caller DTO mutation', asyn
   scope.resourceId = 'changed';
   vector.assertOwner('resource', 'thread', controller.signal);
   expect(() => vector.assertOwner('changed', 'thread', controller.signal)).toThrow(/authority/);
-  await vector.createIndex({ dimension: 384, indexName: 'native-memory' });
+  await vector.createIndex({ dimension: 1536, indexName: 'native-memory' });
   const reason = new Error('run stopped');
   controller.abort(reason);
   await expect(

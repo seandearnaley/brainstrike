@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
 import type {
   CanonicalOperationContext,
   CanonicalScanReceipt,
@@ -18,14 +17,11 @@ import type {
   SourceCatalogPort,
   WorkspaceRootPort,
 } from '@brainstrike/state-store';
-import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
-import type { EmbeddingHostManager } from './embedding-host-manager';
 import type { ApplicationIpcDomain } from './ipc-handlers';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { vectorCollectionId } from './native-index-partition';
 import type { NativeIndexSettings } from './native-index-settings';
-import { desktopSetupRequired } from './native-index-setup-required';
 import type { NativeIndexSources } from './native-index-source-retirement';
 
 export interface NativeIndexActivationGraph {
@@ -53,14 +49,10 @@ export const nativeGraphContext = (
 export function createNativeGraphProfileResolver(
   current: NativeIndexActivationGraph,
   assertCurrent: (current: NativeIndexActivationGraph) => void,
-  ports: Pick<NativeCanonicalProfileDependencies, 'collections' | 'modelCatalog'>
+  ports: Pick<NativeCanonicalProfileDependencies, 'collections'>
 ): NativeCanonicalProfileResolver {
   return new NativeCanonicalProfileResolver({
     ...ports,
-    readLocalSelection: async () => {
-      assertCurrent(current);
-      return current.settings.selection ?? undefined;
-    },
     resolveEmbeddingSetId: async (scope) => {
       assertCurrent(current);
       const collectionId = vectorCollectionId(current.settings);
@@ -69,7 +61,6 @@ export function createNativeGraphProfileResolver(
       }
       return collectionId;
     },
-    setupRequired: desktopSetupRequired,
   });
 }
 
@@ -89,10 +80,8 @@ export async function loadNativeGraphRecords(
 export interface NativeIndexActivationDependencies {
   readonly application: ApplicationIpcDomain;
   readonly catalog: SourceCatalogPort & WorkspaceRootPort & CollectionPort;
-  readonly embedding: Pick<EmbeddingHostManager, 'destroyAndRestart' | 'documentEmbeddings'>;
   /** Main's E2E delay seam accessor for the indexer host, read at its boundaries; absent, none. */
   readonly lifecycleDelays?: () => LifecycleDelaySeam;
-  readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;
   readonly profile: DesktopProfileRuntime<HostAttachment>;
@@ -100,5 +89,4 @@ export interface NativeIndexActivationDependencies {
   readonly reopenDelaysMs?: readonly number[];
   /** Main's search index config, as the native index runs it. */
   readonly settings: () => Promise<NativeIndexSettings>;
-  readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;
 }

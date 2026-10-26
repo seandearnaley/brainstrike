@@ -3,7 +3,7 @@ import { type ReactElement, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The gate and the recovery wiring have their own suites in app-shell; here they are
-// stubs, so main.tsx's own orchestration (order, build id, which windows) stays in focus.
+// stubs, so main.tsx's own orchestration (order, build id) stays in focus.
 const {
   startAppReloadRecoveryMock,
   stopAppReloadRecoveryMock,
@@ -58,10 +58,6 @@ vi.mock('../../renderer/components/settings/page-content', () => ({
 
 vi.mock('../../renderer/components/root-layout-content', () => ({
   default: () => <div>RootLayout</div>,
-}));
-
-vi.mock('../../renderer/components/embedding-host-app', () => ({
-  EmbeddingHostApp: () => <div>EmbeddingHostApp</div>,
 }));
 
 vi.mock('../../renderer/log-buffer', () => ({}));
@@ -155,7 +151,6 @@ describe('renderer main entry', () => {
           redactPaths: [],
         },
       })),
-      ingestBufferedRecord: vi.fn(),
       onPreferencesUpdated: vi.fn(),
       openDestination: vi.fn(),
       selectDestination: vi.fn(),
@@ -236,156 +231,6 @@ describe('renderer main entry', () => {
       mockRender.mock.invocationCallOrder[0] as number
     );
   }, 30_000);
-
-  it.each(['embedding-host'])(
-    'leaves the hidden %s window without chunk recovery, which has no UI to offer a reload',
-    async (mode) => {
-      vi.stubGlobal('agentHost', undefined);
-      window.history.replaceState({}, '', `/?mode=${mode}&runtimeId=${mode}:test`);
-
-      await import('../../renderer/main.tsx');
-
-      expect(startAppReloadRecoveryMock).not.toHaveBeenCalled();
-      expect(onPrepareCloseMock).not.toHaveBeenCalled();
-    },
-    30_000
-  );
-
-  it('renders the embedding host app in embedding-host mode', async () => {
-    window.history.replaceState({}, '', '/?mode=embedding-host&runtimeId=embedding-host:test');
-
-    await import('../../renderer/main.tsx');
-
-    const renderArg = mockRender.mock.calls[0]?.[0];
-    expect(isReactElement(renderArg)).toBe(true);
-    if (!isReactElement(renderArg)) {
-      throw new Error('Expected embedding host render element');
-    }
-    expect(renderArg.type).toBeDefined();
-  });
-
-  it('forwards redacted, cycle-safe log graphs from a hidden renderer', async () => {
-    window.history.replaceState({}, '', '/?mode=embedding-host&runtimeId=embedding-host:test');
-    await import('../../renderer/main.tsx');
-    const { logRecordToDiagnosticEvent } = await import('@brainstrike/utils/diagnostics');
-    const { configureLogger, createLogger } = await import('@brainstrike/logging');
-    const ingestBufferedRecord = window.logging?.ingestBufferedRecord;
-    if (!ingestBufferedRecord) {
-      throw new Error('Expected the buffered-log ingestion capability');
-    }
-    const ingestMock = vi.mocked(ingestBufferedRecord);
-    ingestMock.mockClear();
-
-    const rootCause = Object.assign(new Error('upstream rejected the request'), {
-      code: 'E_UPSTREAM',
-      token: 'provider-secret',
-    });
-    const providerError = new Error('provider request failed', { cause: rootCause });
-    createLogger('HiddenProvider').error('Hidden provider failure', providerError);
-
-    expect(ingestMock).toHaveBeenCalledTimes(1);
-    expect(ingestMock.mock.calls[0]?.[0].args[1]).toEqual({
-      cause: expect.objectContaining({
-        code: 'E_UPSTREAM',
-        message: 'upstream rejected the request',
-        name: 'Error',
-        token: '[REDACTED]',
-      }),
-      message: 'provider request failed',
-      name: 'Error',
-      stack: expect.any(String),
-    });
-    const providerRecord = ingestMock.mock.calls[0]?.[0];
-    if (!providerRecord) {
-      throw new Error('Expected the provider failure to be forwarded');
-    }
-    expect(
-      logRecordToDiagnosticEvent(providerRecord, {
-        appVersion: 'test',
-        makeId: () => 'diagnostic-test',
-        platform: 'test',
-        sessionId: 'session-test',
-        source: 'embedding-host',
-      })?.causeChain?.[0]
-    ).toMatchObject({
-      code: 'E_UPSTREAM',
-      message: 'upstream rejected the request',
-      name: 'Error',
-    });
-
-    ingestMock.mockClear();
-    const cyclicError = new Error('cyclic provider failure');
-    cyclicError.cause = cyclicError;
-    createLogger('HiddenProvider').error('Cyclic hidden provider failure', cyclicError);
-
-    expect(ingestMock).toHaveBeenCalledTimes(1);
-    const forwardedError = ingestMock.mock.calls[0]?.[0].args[1];
-    if (typeof forwardedError !== 'object' || forwardedError === null) {
-      throw new Error('Expected a structured forwarded Error');
-    }
-    expect((forwardedError as Record<string, unknown>)['cause']).toBe(forwardedError);
-
-    const cyclicRecord = ingestMock.mock.calls[0]?.[0];
-    if (!cyclicRecord) {
-      throw new Error('Expected the cyclic provider failure to be forwarded');
-    }
-    const clonedRecord = structuredClone(cyclicRecord);
-    const clonedError = clonedRecord.args[1];
-    if (typeof clonedError !== 'object' || clonedError === null) {
-      throw new Error('Expected structuredClone to preserve the forwarded Error');
-    }
-    expect((clonedError as Record<string, unknown>)['cause']).toBe(clonedError);
-    const cyclicEvent = logRecordToDiagnosticEvent(cyclicRecord, {
-      appVersion: 'test',
-      makeId: () => 'diagnostic-cyclic-test',
-      platform: 'test',
-      sessionId: 'session-test',
-      source: 'embedding-host',
-    });
-    expect(cyclicEvent?.causeChain).toEqual([
-      { message: 'cyclic provider failure', name: 'Error' },
-      { message: '[Circular]', name: '[Circular]' },
-    ]);
-
-    ingestMock.mockClear();
-    const cyclicMetadata: Record<string, unknown> = { operation: 'provider-request' };
-    cyclicMetadata['self'] = cyclicMetadata;
-    createLogger('HiddenProvider').warn('Cyclic provider metadata', cyclicMetadata);
-
-    expect(ingestMock).toHaveBeenCalledTimes(1);
-    const cyclicMetadataRecord = ingestMock.mock.calls[0]?.[0];
-    if (!cyclicMetadataRecord) {
-      throw new Error('Expected the cyclic provider metadata to be forwarded');
-    }
-    expect(
-      logRecordToDiagnosticEvent(cyclicMetadataRecord, {
-        appVersion: 'test',
-        makeId: () => 'diagnostic-metadata-test',
-        platform: 'test',
-        sessionId: 'session-test',
-        source: 'embedding-host',
-      })?.context
-    ).toEqual({
-      operation: 'provider-request',
-      self: {
-        operation: 'provider-request',
-        self: '[Circular]',
-      },
-    });
-
-    ingestMock.mockClear();
-    const cyclicBinding: Record<string, unknown> = {};
-    cyclicBinding['self'] = cyclicBinding;
-    configureLogger({ baseBindings: { cyclicBinding } });
-    createLogger('HiddenProvider').error('Cyclic binding failure');
-
-    expect(ingestMock).toHaveBeenCalledTimes(1);
-    const forwardedBinding = ingestMock.mock.calls[0]?.[0].bindings['cyclicBinding'];
-    if (typeof forwardedBinding !== 'object' || forwardedBinding === null) {
-      throw new Error('Expected a structured forwarded binding');
-    }
-    expect((forwardedBinding as Record<string, unknown>)['self']).toBe(forwardedBinding);
-  });
 
   it('reuses an existing desktop react root when present', async () => {
     const existingRoot = { render: vi.fn() };

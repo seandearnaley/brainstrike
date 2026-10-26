@@ -14,9 +14,8 @@ implemented; the original foundation-stage “cutover pending” notes are histo
 
 The public shapes live in [`contracts.ts`](src/contracts.ts) and
 [`index.ts`](src/index.ts). Opening specifies the owned database path, authorized
-roots/scopes and an explicit embedding mode: `text-only`, `vector-configured` or
-`open-existing`. The last mode requires an existing index. Text-only acquisition
-loads no model. The owner supplies the close window, `closeMs`: from the close request
+roots/scopes and an explicit mode: `text-only` creates the index and
+`open-existing` requires an existing one. The owner supplies the close window, `closeMs`: from the close request
 to the exit, after which the process is killed and its exit still joined. Startup
 and requests have no deadline: the process is retired only on its exit or a transport
 or protocol fault, never because it is slow.
@@ -28,19 +27,17 @@ metadata through `prepareFile`/`prepareScopedFile`; do not reparse or split them
 The standalone line-chunk preparation API has an explicit caller line policy and
 does not prove a tokenizer limit.
 
-A prepared plan captures the previous snapshot. `commitFile` or scoped publication
-validates that authority and commits text, vectors and syntax together.
-`commitTextFile` accepts no embeddings and requires no inference; it retains valid
-unchanged vectors and removes stale ones. Publication acknowledgements, source
+A prepared plan captures the previous snapshot. `commitTextFile` commits a
+root-list file's text and syntax; scoped publication validates that authority and
+commits text, vectors and syntax together. Publication acknowledgements, source
 scan completion and coverage are different facts.
 
-The root-list API uses its qualified 384-dimensional `EmbeddingProfile`; the
-scoped desktop API carries the full `VectorProfile` for each binding/request,
-including provider, model, dimensions, distance and applicable local model facts.
-Vector reuse requires matching text and profile identity. Do not infer one API's
-profile limits from the other.
+The root-list API is text-only. The scoped desktop API carries the full
+`VectorProfile` (provider, model, dimensions and distance) for each
+binding/request, and vectors are partitioned by its `vectorProfileHash`. Vector
+reuse requires matching text and profile identity.
 
-BM25/trigram reads need text; vector reads need the admitted profile and vector.
+BM25/trigram reads need text; scoped vector reads need the admitted profile and vector.
 Authorize the roots/scopes before ranking, retain canonical hit metadata and exact
 rescoring, and expose incomplete coverage honestly. Hybrid fusion belongs to the
 consumer's explicit retrieval policy. State-message/observation projections are

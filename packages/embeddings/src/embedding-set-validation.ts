@@ -22,7 +22,7 @@ export interface EmbeddingSetCreateParams {
   };
   /** Model identifier (e.g., 'text-embedding-3-small', 'voyage-3') */
   modelId: string;
-  /** Provider identifier (e.g., 'openai', 'voyage', 'local') */
+  /** Provider identifier (e.g., 'openai', 'voyage') */
   modelKey: string;
 }
 

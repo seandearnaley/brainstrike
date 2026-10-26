@@ -3,7 +3,7 @@ import type { StateTruthReader } from '@brainstrike/state-store/state-truth-read
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
 import { checkedTruncateCheckpoint } from './checked-checkpoint.ts';
-import { float32Bytes, sha256 } from './chunks.ts';
+import { float32Bytes, sha256, vectorProfileHash } from './chunks.ts';
 import {
   authorize,
   decoder,
@@ -25,7 +25,6 @@ import {
   vectorProfileSchema,
 } from './contracts.ts';
 import { readIndexIdentity } from './index-metadata.ts';
-import { vectorProfileHash } from './scope-authority.ts';
 import { validateStoredVectorBytes } from './scoped-vector-validation.ts';
 import type { StateMessageEvent, StateProjection } from './state-projection.ts';
 
@@ -129,8 +128,7 @@ function sourceRows(canonical: CanonicalMessages, message: StateMessageSource): 
 }
 
 /**
- * The workspace index's one profile rule (`vectorProfileHash`: local dtype
- * required, revision and token cap optional, every field hashed). Memory ranks
+ * The workspace index's one profile rule (`vectorProfileHash`). Memory ranks
  * by cosine, so that is the only additional requirement.
  */
 export function profileHash(profile: VectorProfile): string {

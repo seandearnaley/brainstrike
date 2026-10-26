@@ -99,10 +99,8 @@ const REJECTED_CREDENTIAL_HTTP_STATUS = 401;
  * The remedy half of the 401 copy, keyed by the provider's registry
  * `authType` (PR #2573 review). The remedy MUST match how that provider
  * actually authenticates — an "update the API key" instruction is a dead end
- * for Bedrock (`aws`; bearer key OR an AWS profile
- * chain whose SSO session can expire) and for a local runtime (`none`; the
- * optional bearer is `providerOptions.apiToken`, configured under Local
- * Runtimes — there is no Settings key to edit). Settings surface names are the
+ * for Bedrock (`aws`; bearer key OR an AWS profile chain whose SSO session can
+ * expire). Settings surface names are the
  * CURRENT category titles ("Providers" replaced "API Keys" in #2529).
  */
 function rejectedCredentialRemedy(authType: ProviderAuthType, subject: string): string {
@@ -111,8 +109,6 @@ function rejectedCredentialRemedy(authType: ProviderAuthType, subject: string): 
       return `${subject} rejected the API key (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — it is invalid or was revoked. Update the key in Settings → Providers, or verify it in the provider dashboard.`;
     case 'aws':
       return `${subject} rejected the AWS credentials (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}) — they are invalid or expired. Update the Bedrock credential in Settings → Providers, or refresh the AWS profile session (for example \`aws sso login\`).`;
-    case 'none':
-      return `${subject} rejected the request as unauthorized (HTTP ${REJECTED_CREDENTIAL_HTTP_STATUS}). Check the runtime’s API token under Settings → Local Runtimes.`;
     default: {
       // Exhaustive: a new registry authType must choose its remedy here.
       const exhaustive: never = authType;

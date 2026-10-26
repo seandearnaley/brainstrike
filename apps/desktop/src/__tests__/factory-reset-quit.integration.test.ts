@@ -71,7 +71,6 @@ test.for(Object.keys(QUIT_POINTS) as (keyof typeof QUIT_POINTS)[])(
       BRAINSTRIKE_DB_PROFILE: 'reset-quit',
       BRAINSTRIKE_DB_ROOT_PATH: root,
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
-      BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
       BRAINSTRIKE_E2E_USER_DATA_DIR: root,
       ELECTRON_IS_E2E_TEST: 'true',
       LOG_LEVEL: 'info',

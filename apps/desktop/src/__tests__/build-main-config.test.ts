@@ -54,12 +54,10 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
  * Contract for the bundled Node-side build. The runtime resolves its outputs by
  * exact path from the running bundle's own location (bundled-sibling-path), so
  * every output stays flat in dist/: package.json "main" -> dist/main.js, the
- * preloads -> dist/preload.cjs and dist/hidden-preload.cjs, utilityProcess.fork
- * targets -> dist/*-entry.js.
+ * preload -> dist/preload.cjs, utilityProcess.fork targets -> dist/*-entry.js.
  */
 describe('Node-side bundle config', () => {
-  it('emits every Node entry from build-main.mjs, so its inference gate scans them all', () => {
-    // BST-2148: a step after build-main.mjs would emit an entry the gate never sees.
+  it('emits every Node entry from build-main.mjs into the flat dist/', () => {
     expect(NODE_BUILDS).toEqual([
       NODE_PROCESS_BUILD_OPTIONS,
       STATE_STORE_WRITER_BUILD_OPTIONS,

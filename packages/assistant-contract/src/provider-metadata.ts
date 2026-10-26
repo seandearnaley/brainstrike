@@ -135,7 +135,7 @@ export function providerOverrideEnvKey(provider: SupportedProvider): string | un
 
 /**
  * The vendor-standard env name (e.g. `OPENAI_API_KEY`) — the non-override
- * member of the canonical pair (BST-1361). `undefined` for keyless providers.
+ * member of the canonical pair (BST-1361).
  */
 export function providerVendorEnvKey(provider: SupportedProvider): string | undefined {
   return getProviderVendorEnvKey(provider);
@@ -150,10 +150,7 @@ export {
   detectDeprecatedProviderEnvVars,
 } from './provider-env-deprecation.ts';
 
-/**
- * Registry-derived auth mode. Keyless-ness is `authType === 'none'` —
- * callers must never hand-list the keyless providers (BST-1349).
- */
+/** Registry-derived auth mode (BST-1349). */
 export function providerAuthType(provider: SupportedProvider): ProviderAuthType {
   return getProviderDefinition(provider).authType;
 }

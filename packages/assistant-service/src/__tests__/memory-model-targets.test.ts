@@ -36,7 +36,7 @@ describe('parseObservationalMemoryModelTarget', () => {
       'Unsupported observational memory provider "unknown"'
     );
     expect(() => parseObservationalMemoryModelTarget('cohere/command-r')).toThrow(
-      'requires a hosted model provider or the built-in local model'
+      'requires a hosted model provider;'
     );
   });
 });
@@ -45,14 +45,13 @@ describe('parseSemanticRecallEmbeddingModelTarget', () => {
   it.each([
     ['openai/text-embedding-3-small', { model: 'text-embedding-3-small', provider: 'openai' }],
     ['GOOGLE/gemini-embedding-001', { model: 'gemini-embedding-001', provider: 'google' }],
-    ['local/default', { model: 'default', provider: 'local' }],
   ])('parses supported embedding target %s', (target, expected) => {
     expect(parseSemanticRecallEmbeddingModelTarget(target)).toEqual(expected);
   });
 
   it('rejects a supported provider that is not an allowed desktop embedder', () => {
     expect(() => parseSemanticRecallEmbeddingModelTarget('anthropic/claude-haiku-4-5')).toThrow(
-      'supports hosted OpenAI/Google embedders or the built-in local embedder'
+      'supports hosted OpenAI/Google embedders;'
     );
   });
 });

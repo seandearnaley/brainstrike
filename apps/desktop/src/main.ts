@@ -22,17 +22,16 @@ import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
-import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
+import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { createCatalogRetrievalStore } from './assistant-server/retrieval-store-catalog';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
 import { hasHostRunInWorktree } from './assistant-server/worktree-host-activity';
 import { createWorktreeLedger } from './assistant-server/worktree-ledger';
-import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
 import {
   clearActiveBrowserPaneHost,
@@ -101,7 +100,6 @@ import {
   visibleDocumentWindows,
 } from './document-unload';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
-import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createWorkspaceRootResolver } from './git-ipc-handlers';
@@ -112,7 +110,6 @@ import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
-import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
 import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { createApplicationIpcDomain, registerIpcHandlers } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
@@ -126,7 +123,6 @@ import {
 } from './ipc-mcp';
 import { registerModelCatalogIpc } from './ipc-model-catalog';
 import { registerPromptLibraryIpc } from './ipc-prompt-library';
-import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
@@ -165,8 +161,7 @@ import { createNativeRootDataDeletion } from './native-root-data-deletion';
 import { createNativeRootRegistration } from './native-root-registration';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
-import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
+import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
 import { createDesktopSettingsSecrets } from './secrets';
@@ -174,7 +169,6 @@ import { setupSecurity } from './setup-security';
 import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
-import { getWindowRole, resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 import { enqueueFolderCandidates, filterDirectoryOpenCandidates } from './workspace-open-queue';
 import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
@@ -238,9 +232,6 @@ function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
   }
   return _settingsStore;
 }
-
-// Note: Embedding worker configuration stays renderer-only via the hidden embedding host window.
-// Main process owns host lifecycle/IPC, but it must not execute local WASM/WebGPU embeddings.
 
 const logger = createLogger('DesktopMain');
 // Preference STATE lives in main/logging-preferences.ts (BST-1648 step 4);
@@ -326,7 +317,7 @@ const ipcDisposers = createDisposerStack();
 // previous binding before the next one is added.
 let browserIpcDisposer: DisposerHandle | null = null;
 // Flight Recorder P2a Task 3: the durable NDJSON backstop for warn+ records
-// from main AND from renderers/hidden hosts over IPC (see
+// from main AND from the renderer over IPC (see
 // registerLoggingIpcHandlers' recordDurableLog below). Constructed at
 // app-ready when file logging isn't disabled; closed as the last graceful-
 // shutdown step so it captures failures from every earlier step.
@@ -364,15 +355,6 @@ let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<v
 // `main/desktop-graceful-shutdown.ts`'s
 // `DESKTOP_SHUTDOWN_STEP_ORDER`, which is where a new step is ordered.
 function planDesktopShutdownRun(): DesktopShutdownRunPlan {
-  let embeddingRetirement: Promise<void> | undefined;
-  const retireEmbeddings = (): Promise<void> => {
-    if (!embeddingRetirement) {
-      embeddingRetirement = embeddingHostManager.dispose();
-      // The later named step reports this same retained outcome.
-      embeddingRetirement.catch(() => undefined);
-    }
-    return embeddingRetirement;
-  };
   return {
     // `desktop-graceful-shutdown.ts` runs it after every ordered step settled.
     // `database-drain` has already stopped what issues database work, so this
@@ -398,7 +380,6 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'database-drain': () => {
         processCounterSampler.stop();
       },
-      'embedding-host': () => retireEmbeddings(),
       // Finish accepted deletion; terminal quit cancels replacement startup.
       'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
@@ -410,15 +391,12 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await agentHostMainClient.close();
         // Fence profile admission before joining the renderer's in-flight host connect:
         // a host start that fails during shutdown is then never retried as a second host.
-        const nativeRetirement = nativeIndexActivation.close();
-        void retireEmbeddings();
-        await nativeRetirement;
+        await nativeIndexActivation.close();
         await agentHostClientIpc.close();
       },
       // before-quit postpones Electron's own window close. Join the renderer
       // producers first, while their DB/chunking/assistant dependencies still
-      // live. Hidden renderer hosts must retain command listeners until their
-      // own stop. Every window is joined to `closed`: a renderer that cannot
+      // live. Every window is joined to `closed`: a renderer that cannot
       // answer is destroyed by its own ladder, never abandoned (ADR-0026).
       renderers: async () => {
         // The admitted reset has joined. Fence new profile work while an
@@ -428,16 +406,14 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         const windows = BrowserWindow.getAllWindows();
         const preparations = await Promise.allSettled(
           windows
-            .filter((window) => !window.isDestroyed() && getWindowRole(window) === 'visible-ui')
+            .filter((window) => !window.isDestroyed() && isAppWindowSender(window.webContents.id))
             .map((window) => prepareDocumentUnload(window, lifecycleDelaySeam()))
         );
         // Prepared or not, quit closes them: past the user-close interception.
         for (const window of windows) {
           admitDocumentClose(window);
         }
-        const closes = await Promise.allSettled([
-          closeDesktopRenderers(windows, (window) => embeddingHostManager.isHostWindow(window)),
-        ]);
+        const closes = await Promise.allSettled([closeDesktopRenderers(windows)]);
         const rejections = [...preparations, ...closes].flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
         );
@@ -528,11 +504,6 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
   }
 };
 
-const embeddingHostManager = new EmbeddingHostManager({
-  lifecycleDelays: lifecycleDelaySeam,
-  storage,
-});
-
 const profileReset = createDesktopProfileResetOwner({
   profilePath: () => {
     const location = resolveDesktopDatabaseLocation();
@@ -585,7 +556,6 @@ const handleResetLocal = createDesktopFactoryResetHandler({
       },
       stopForContent: suspendMcpSurfacesForContentClear,
     },
-    { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
     // In-memory diagnostics ring: a factory reset must not carry the previous
     // profile's process samples into the next one.
     {
@@ -629,17 +599,6 @@ ipcDisposers.add(
   registerLoggingIpcHandlers({
     getBufferedLogs: () => mainLogBuffer.getRecords(),
     getState: loggingPreferences.getSettingsPayload,
-    ingestBufferedLog: (senderId, record) => {
-      mainLogBuffer.push({
-        ...record,
-        bindings: {
-          ...record.bindings,
-          forwardedFrom: 'renderer',
-          sourceWebContentsId: senderId,
-          sourceWindowRole: resolveSourceWindowRole(senderId),
-        },
-      });
-    },
     openDestination: loggingPreferences.openDestination,
     recordDurableLog: (record) => errorLogSink?.recordLogRecord(record),
     selectDestination: loggingPreferences.selectDestination,
@@ -653,7 +612,6 @@ const workspaceRootCatalog = createDesktopWorkspaceRootCatalog(() =>
 );
 const modelCatalog = createDesktopModelCatalog(workspaceRootCatalog);
 const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
-  embeddingHostManager,
   getRootsCatalog: async () => workspaceRootCatalog,
   getUserDataPath: () => app.getPath('userData'),
   // The host owns the worktree ledger and settings: it says whether a folder is a managed worktree.
@@ -673,15 +631,6 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   },
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
   onResetLocal: () => handleResetLocal.reset(),
-  onStorageChanged: (key) => {
-    if (!app.isReady() || isDesktopShuttingDown()) {
-      return;
-    }
-    if (key === VECTOR_PREFERENCES_STORAGE_KEY) {
-      // Recall's unpinned device follows the preference; the worker keeps its own until restart.
-      embeddingHostManager.resolveDevice();
-    }
-  },
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
   },
@@ -719,16 +668,13 @@ const agentHostPrivateClients = desktopBootstrap.privateClients;
 const nativeIndexActivation = createNativeIndexActivation({
   application: applicationIpcDomain,
   catalog: workspaceRootCatalog,
-  embedding: embeddingHostManager,
   lifecycleDelays: lifecycleDelaySeam,
-  modelCatalog,
   onError: (operation, error) =>
     reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
   onReceipt: (receipt) =>
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
   profile: desktopBootstrap.profile,
   settings: () => indexConfig.nativeSettings(),
-  storage,
 });
 const indexConfig = createDesktopIndexConfig({
   assertModel: assertRegisteredEmbeddingModel,
@@ -736,7 +682,7 @@ const indexConfig = createDesktopIndexConfig({
   publish: (config) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
-        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.configChanged, config);
+        pushToRenderer(window.webContents, DESKTOP_IPC_CHANNELS.indexSearch.configChanged, config);
       }
     }
   },
@@ -841,7 +787,11 @@ observeNativeIndex({
   publish: (observation) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
-        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged, observation);
+        pushToRenderer(
+          window.webContents,
+          DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged,
+          observation
+        );
       }
     }
   },
@@ -857,15 +807,7 @@ ipcDisposers.add('native-index-lifecycle', () =>
 );
 ipcDisposers.add(
   'index-search',
-  registerIndexSearchIpcHandlers(
-    nativeIndexSearch,
-    nativeRootRegistration,
-    {
-      retryIndexing: () =>
-        nativeRootDataDeletion.transition(() => nativeIndexActivation.retryIndexing()),
-    },
-    indexConfig
-  )
+  registerIndexSearchIpcHandlers(nativeIndexSearch, nativeRootRegistration, indexConfig)
 );
 ipcDisposers.add('main', () => {
   // The graceful filesystem step joins physical retirement. This late ledger
@@ -875,52 +817,6 @@ ipcDisposers.add('main', () => {
   });
 });
 ipcDisposers.add(
-  'embedding-host',
-  registerEmbeddingHostIpcHandlers(embeddingHostManager, {
-    stop: async () => {
-      const admitted = Promise.withResolvers<{
-        paused: boolean;
-        stop: ReturnType<EmbeddingHostManager['stop']>;
-      }>();
-      const completion = nativeRootDataDeletion.prepareTransition(
-        async () => {
-          try {
-            const pause = await nativeIndexActivation.prepareSavedPause();
-            // The native caller's cancellation must precede host Stop. Start physical
-            // Stop here: the earlier FIFO entry may itself be waiting for inference.
-            const stop = embeddingHostManager.stop();
-            stop.catch(() => undefined);
-            admitted.resolve({ paused: pause !== null, stop });
-            return { pause, stop };
-          } catch (error) {
-            admitted.reject(error);
-            throw error;
-          }
-        },
-        async ({ pause, stop }) => {
-          const [native, host] = await Promise.allSettled([pause?.complete(), stop]);
-          if (native.status === 'rejected' && host.status === 'rejected') {
-            throw new AggregateError(
-              [native.reason, host.reason],
-              'Saved native Pause and embedding Stop did not settle.'
-            );
-          }
-          if (native.status === 'rejected') {
-            throw native.reason;
-          }
-          if (host.status === 'rejected') {
-            throw host.reason;
-          }
-          return host.value;
-        }
-      );
-      completion.catch(admitted.reject);
-      const ready = await admitted.promise;
-      return ready.paused ? completion : ready.stop;
-    },
-  })
-);
-ipcDisposers.add(
   'desktop-diagnostics',
   registerDesktopDiagnosticsIpcHandlers({
     crashRecovery: {
@@ -928,7 +824,6 @@ ipcDisposers.add(
     },
     database: { getDiagnostics: () => agentHostMainClient.request('host/status', {}) },
     databaseIntegrity: null,
-    embeddingHost: embeddingHostManager,
     logging: {
       getState: loggingPreferences.getSettingsPayload,
     },
@@ -949,9 +844,6 @@ ipcDisposers.add(
     },
     reset: {
       getSnapshot: () => getDesktopResetDiagnosticsSnapshot(app.getPath('userData')),
-    },
-    telemetry: {
-      getRuntimeMetrics: collectBackgroundRuntimeMetrics,
     },
   })
 );
@@ -1031,7 +923,7 @@ if (singleInstanceLockAcquired) {
       }
       workspaceOpenQueue.attach({
         isDestroyed: () => contents.isDestroyed(),
-        send: (channel, payload) => contents.send(channel, payload),
+        send: (method, payload) => pushToRenderer(contents, method, payload),
       });
     };
 
@@ -1086,16 +978,11 @@ if (singleInstanceLockAcquired) {
   );
 
   completeFactoryResetRendererReplacement = async (signal) => {
-    const visibleWindows = BrowserWindow.getAllWindows().filter(
-      (window) => !embeddingHostManager.isHostWindow(window)
-    );
-    await factoryResetRendererReplacement.replace(visibleWindows, signal);
+    await factoryResetRendererReplacement.replace(BrowserWindow.getAllWindows(), signal);
   };
 
   desktopBootstrap.bindSecondInstanceFocus(() => {
-    const existingWindow =
-      BrowserWindow.getAllWindows().find((window) => !embeddingHostManager.isHostWindow(window)) ??
-      null;
+    const existingWindow = BrowserWindow.getAllWindows()[0] ?? null;
     if (!existingWindow) {
       return;
     }
@@ -1123,11 +1010,10 @@ if (singleInstanceLockAcquired) {
       });
       logger.debug('Resolved desktop launch mode', { launchMode });
 
-      // The ONE renderer target for this process (BST-1641). The visible
-      // window (`create-window.ts`) and the hidden hosts
-      // (`renderer-host-lifecycle.ts`) load the document it names, and the
-      // IPC sender-frame allowlist that every `registerAuthorizedInvoke`
-      // channel checks `event.senderFrame.url` against is derived from this
+      // The ONE renderer target for this process (BST-1641). The window
+      // (`create-window.ts`) loads the document it names, and the
+      // IPC sender-frame allowlist that every desktop IPC call is checked
+      // against (`event.senderFrame.url`) is derived from this
       // same object — there is no second launch-mode derivation to drift.
       // Configured here, after the launch mode is known and before any
       // BrowserWindow exists: a loader that ran first would throw
@@ -1275,15 +1161,10 @@ if (singleInstanceLockAcquired) {
         })
       );
       ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getMainMcpHostControl() }));
-      ipcDisposers.add('runtime', registerRuntimeIpcHandlers());
       logger.debug('Ready-dependent IPC handlers registered successfully');
       // Setup security before creating windows
       setupSecurity();
       logger.debug('Security setup complete');
-
-      // NOTE: Embedding worker is started in renderer process, not here in main process.
-      // Main process cannot run transformers.js with Web Workers (they don't exist in Node.js).
-      // See apps/desktop/src/renderer/main.tsx for renderer-side worker initialization.
 
       // Application menu with developer utilities
       const menuTemplate: Electron.MenuItemConstructorOptions[] = [
@@ -1310,8 +1191,7 @@ if (singleInstanceLockAcquired) {
               accelerator: process.platform === 'darwin' ? 'Cmd+K' : 'Ctrl+K',
               click: (_menuItem, browserWindow) => {
                 // Route to the FOCUSED window only, so the palette opens where
-                // the user is looking. Hidden host windows are never focused and
-                // never register the renderer listener, so this is a no-op there.
+                // the user is looking.
                 const targetWindow =
                   browserWindow instanceof BrowserWindow
                     ? browserWindow
@@ -1319,7 +1199,7 @@ if (singleInstanceLockAcquired) {
                 if (!targetWindow || targetWindow.isDestroyed()) {
                   return;
                 }
-                targetWindow.webContents.send(DESKTOP_IPC_CHANNELS.commandPalette.open);
+                pushToRenderer(targetWindow.webContents, DESKTOP_IPC_CHANNELS.commandPalette.open);
               },
               label: 'Command Palette…',
             },
@@ -1401,7 +1281,6 @@ if (singleInstanceLockAcquired) {
                     }
                     await nativeIndexActivation.resume();
                   });
-                  // The hidden hosts reload with the visible documents after a reset.
                   replaced = BrowserWindow.getAllWindows();
                   await dialog.showMessageBox({
                     buttons: ['OK'],
@@ -1457,7 +1336,7 @@ if (singleInstanceLockAcquired) {
         if (!targetWindow || targetWindow.isDestroyed()) {
           return;
         }
-        targetWindow.webContents.send(channel, payload);
+        pushToRenderer(targetWindow.webContents, channel, payload);
       };
 
       let applicationMenuRebuildScheduled = false;
@@ -1519,7 +1398,6 @@ if (singleInstanceLockAcquired) {
       ipcDisposers.add(
         'main-platform',
         registerMainPlatformIpcHandlers({
-          getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
           noteNextWindowReload,
           requestReload: (window, reason) => reloadVisibleDocument(window, reason, 'renderer'),
         })
@@ -1569,30 +1447,6 @@ if (singleInstanceLockAcquired) {
         return win;
       };
 
-      const broadcastPowerState = (state: 'resume' | 'suspend') => {
-        for (const window of BrowserWindow.getAllWindows()) {
-          if (window.isDestroyed()) {
-            continue;
-          }
-          window.webContents.send(DESKTOP_IPC_CHANNELS.runtime.powerState, state);
-        }
-      };
-      let pendingPowerResumeTimer: ReturnType<typeof setTimeout> | null = null;
-      const clearPendingPowerResume = () => {
-        if (pendingPowerResumeTimer === null) {
-          return;
-        }
-        clearTimeout(pendingPowerResumeTimer);
-        pendingPowerResumeTimer = null;
-      };
-      const schedulePowerResume = () => {
-        clearPendingPowerResume();
-        pendingPowerResumeTimer = setTimeout(() => {
-          pendingPowerResumeTimer = null;
-          broadcastPowerState('resume');
-        }, 2000);
-      };
-
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
       // Logs UNCONDITIONALLY so the absence of entries = freeze detected.
@@ -1629,7 +1483,6 @@ if (singleInstanceLockAcquired) {
 
           void processCounterSampler.sample(mem);
           const payload = {
-            backgroundRuntimeMetrics: collectBackgroundRuntimeMetrics(),
             backgroundTasks: processCounterRing.list().at(-1)?.backgroundTasks ?? null,
             cpuPercent: (cpuPercent * 100).toFixed(1),
             handles,
@@ -1747,37 +1600,16 @@ if (singleInstanceLockAcquired) {
         'argv'
       );
 
-      // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
+      // The watchdog stands down across sleep, so a suspended Main is not reported frozen.
       powerMonitor.on('suspend', () => {
         runMainWatchdogPowerTransition(mainWatchdogRuntime, 'suspend', () => {
           logger.info('power:suspend');
-          clearPendingPowerResume();
-          broadcastPowerState('suspend');
         });
       });
-
       powerMonitor.on('resume', () => {
         runMainWatchdogPowerTransition(mainWatchdogRuntime, 'resume', () => {
           logger.info('power:resume');
-          // Delay to let OS settle (GPU re-init, network reconnect)
-          schedulePowerResume();
         });
-      });
-
-      // Lock-screen invalidates GPU contexts on macOS (WindowServer reclaims
-      // Metal contexts for the login window). Broadcast the same power state
-      // events as suspend/resume so renderers can pause GPU keep-alive timers
-      // and avoid submitting commands to stale devices.
-      powerMonitor.on('lock-screen', () => {
-        logger.info('power:lock-screen');
-        clearPendingPowerResume();
-        broadcastPowerState('suspend');
-      });
-      powerMonitor.on('unlock-screen', () => {
-        logger.info('power:unlock-screen');
-        // Delay to let GPU contexts re-initialize after WindowServer hands
-        // back the display, matching the resume delay.
-        schedulePowerResume();
       });
 
       // Window focus/blur: throttle IPC traffic when backgrounded
@@ -1792,10 +1624,7 @@ if (singleInstanceLockAcquired) {
         if (isDesktopShuttingDown()) {
           return;
         }
-        const hasVisibleWindow = BrowserWindow.getAllWindows().some(
-          (window) => !embeddingHostManager.isHostWindow(window)
-        );
-        if (!hasVisibleWindow) {
+        if (BrowserWindow.getAllWindows().length === 0) {
           await createMainWindow();
         }
       });
@@ -1813,7 +1642,7 @@ if (singleInstanceLockAcquired) {
 
 // Quit on the last visible window's close is decided where that close is intercepted, so the
 // quit prepares the window first (`installDocumentUnload`). Subscribing still matters: without a
-// listener Electron itself quits whenever every window, hidden hosts included, has closed.
+// listener Electron itself quits whenever every window has closed.
 app.on('window-all-closed', () => undefined);
 
 // Clean shutdown
@@ -1888,16 +1717,13 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
   return bindDesktopPlatformPort(platformPort, {
     ...productionDesktopCapabilities(
       {
-        embeddingHostManager,
         modelCatalog,
         nativeIndexSearch,
         retrievalStore: createCatalogRetrievalStore(workspaceRootCatalog),
         workspaceRoots: workspaceRootCatalog,
       },
       undefined,
-      workspace,
-      // Local recall loads as the embedding host's unpinned query did (BST-1929).
-      (signal) => readEmbeddingHostDevice(embeddingHostManager, signal)
+      workspace
     ),
     // BST-1977: app-owned host/stop released Root with the native writer live.
     // Retiring the profile here would wait on this same Core close request.

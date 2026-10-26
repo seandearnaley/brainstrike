@@ -3,7 +3,7 @@ import {
   createAwsCredentialChain,
   type ProviderAuthInput,
 } from '@brainstrike/agent/provider-runtime';
-import { findProviderDefinition, isSupportedProvider } from '@brainstrike/assistant-contract';
+import { isSupportedProvider } from '@brainstrike/assistant-contract';
 import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import type { HostCredentials } from './credentials.ts';
 import { createProviderCredentialReader } from './provider-credentials.ts';
@@ -43,9 +43,6 @@ export function createHostProviderAuth(
     }
     const credential = await readCredential(provider);
     if (!credential) {
-      if (findProviderDefinition(provider)?.authType === 'none') {
-        return;
-      }
       throw new ProviderCredentialMissingError(provider);
     }
     // BST-1353: resolve once per admission so typed chain errors survive SDK

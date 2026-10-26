@@ -2,6 +2,7 @@ import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { BrowserWindow, type IpcMainInvokeEvent, ipcMain, type WebContents } from 'electron';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { pushToRenderer } from './platform/desktop-ipc-push';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { type IpcResult, ipcFailure, ipcOk } from './platform/ipc-contract';
 
@@ -29,7 +30,7 @@ export function publishWindowFocus(win: BrowserWindow): void {
     if (webContents.isDestroyed()) {
       return;
     }
-    webContents.send(DESKTOP_IPC_CHANNELS.windowFocus.changed, focused);
+    pushToRenderer(webContents, DESKTOP_IPC_CHANNELS.windowFocus.changed, focused);
   };
   win.on('focus', () => {
     publish(true);
@@ -61,10 +62,9 @@ function readSenderWindowFocus(sender: WebContents): IpcResult<boolean> {
  */
 export function registerWindowFocusIpcHandlers(): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'windowFocus',
     windowFocusContract.isFocused.channel,
-    { roles: windowFocusContract.isFocused.roles },
     (event: IpcMainInvokeEvent, ...raw: readonly unknown[]) => {
       windowFocusContract.isFocused.parseArgs(raw);
       return readSenderWindowFocus(event.sender);

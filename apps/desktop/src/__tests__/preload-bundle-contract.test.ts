@@ -1,10 +1,10 @@
 // @vitest-environment node
 /**
- * BST-1648: the two preload bundles run inside sandboxed renderers, where
+ * BST-1648: the preload bundle runs inside a sandboxed renderer, where
  * `require` resolves nothing but `electron`. The production build
  * (`scripts/build-main.mjs`) refuses to emit a preload bundle that requires
  * anything else; this suite pins that assertion on synthetic sources and on
- * a real (write:false) esbuild bundle of the real preload entry points, so
+ * a real (write:false) esbuild bundle of the real preload entry point, so
  * the guard cannot silently pass against a stale `dist/`.
  */
 import path from 'node:path';
@@ -44,18 +44,18 @@ describe('preload bundle contract', () => {
 
   it('throws a named error for a bundle that requires beyond electron', () => {
     expect(() =>
-      assertPreloadBundleRequires('hidden-preload.js', 'require("electron"); require("node:os");')
+      assertPreloadBundleRequires('preload.js', 'require("electron"); require("node:os");')
     ).toThrow(
-      'hidden-preload.js requires modules a sandboxed preload cannot resolve: node:os (only electron is allowed).'
+      'preload.js requires modules a sandboxed preload cannot resolve: node:os (only electron is allowed).'
     );
     expect(() =>
       assertPreloadBundleRequires('preload.js', 'var e = require("electron");')
     ).not.toThrow();
   });
 
-  it('bundles the real preload entry points with no require beyond electron', async () => {
+  it('bundles the real preload entry point with no require beyond electron', async () => {
     const outputs = await bundlePreloadEntries();
-    expect(Object.keys(outputs).sort()).toEqual(['hidden-preload.cjs', 'preload.cjs']);
+    expect(Object.keys(outputs)).toEqual(['preload.cjs']);
     for (const [fileName, source] of Object.entries(outputs)) {
       expect({ fileName, violations: findPreloadBundleRequireViolations(source) }).toEqual({
         fileName,

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { ElectronApplication, TestInfo } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
@@ -54,8 +54,7 @@ const { ElectronHarness } = await import('../../e2e/fixtures/electron-harness');
 
 describe('ElectronHarness dispose', () => {
   it('resolves only once the main process has exited', async () => {
-    const testInfo = { file: '/repo/apps/desktop/e2e/dispose.desktop.test.ts' } as TestInfo;
-    const harness = new ElectronHarness(testInfo, undefined, '/tmp/brainstrike-harness-dispose');
+    const harness = new ElectronHarness(undefined, '/tmp/brainstrike-harness-dispose');
     await harness.ensureContext();
 
     await harness.dispose();
@@ -74,11 +73,7 @@ it('owns an acquired app even when its first window never opens', async () => {
   closeElectronApp.mockClear();
   const failure = new Error('firstWindow timed out');
   launchFailure = failure;
-  const harness = new ElectronHarness(
-    { file: '/repo/apps/desktop/e2e/failed-launch.desktop.test.ts' } as TestInfo,
-    undefined,
-    '/tmp/brainstrike-failed-launch'
-  );
+  const harness = new ElectronHarness(undefined, '/tmp/brainstrike-failed-launch');
   const observeLaunch = vi.fn();
   try {
     await expect(harness.restart(observeLaunch)).rejects.toBe(failure);
@@ -96,11 +91,7 @@ it('keeps its app after failed disposal so teardown can join the same process', 
   electronProcess.exitCode = null;
   electronProcess.signalCode = null;
   closeElectronApp.mockClear();
-  const harness = new ElectronHarness(
-    { file: '/repo/apps/desktop/e2e/failed-close.desktop.test.ts' } as TestInfo,
-    undefined,
-    '/tmp/brainstrike-failed-close'
-  );
+  const harness = new ElectronHarness(undefined, '/tmp/brainstrike-failed-close');
   await harness.ensureContext();
   closeElectronApp.mockRejectedValueOnce(new Error('retirement failed'));
   await expect(harness.dispose()).rejects.toThrow('retirement failed');

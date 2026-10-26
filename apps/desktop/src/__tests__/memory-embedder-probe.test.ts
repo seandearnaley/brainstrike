@@ -42,7 +42,7 @@ async function refusal(work: Promise<unknown>) {
 }
 
 test('a hosted target resolves through Main with recall treated as on, as the run’s embedder', async () => {
-  const readMemoryVectors = vi.fn(async () => ({ profile: PROFILE }));
+  const readMemoryVectors = vi.fn(async () => PROFILE);
   const resolveProviderAuth = vi.fn(apiKey);
   // Recall is off in these settings: the probe still tests the selection.
   expect(settings(HOSTED).semanticRecall.enabled).toBe(false);
@@ -80,7 +80,7 @@ test('a provider rejection reads with the hosted classification indexing uses', 
   );
   const target = await resolveDesktopMemoryEmbedderProbe(
     settings(HOSTED),
-    async () => ({ profile: PROFILE }),
+    async () => PROFILE,
     apiKey,
     new AbortController().signal
   );
@@ -99,27 +99,6 @@ test('a provider rejection reads with the hosted classification indexing uses', 
   });
 });
 
-test('an on-device target is refused before Main loads a model', async () => {
-  const readMemoryVectors = vi.fn();
-
-  const failure = await refusal(
-    resolveDesktopMemoryEmbedderProbe(
-      settings('local/Xenova/bge-small-en-v1.5'),
-      readMemoryVectors,
-      apiKey,
-      new AbortController().signal
-    )
-  );
-
-  expect(failure).toMatchObject({
-    category: 'input',
-    kind: 'refusal',
-    message:
-      'Test embedder checks hosted embedding models. An on-device model is checked when recall first uses it.',
-  });
-  expect(readMemoryVectors).not.toHaveBeenCalled();
-});
-
 test('no selected target is the selection refusal, with its remedy', async () => {
   const failure = await refusal(
     resolveDesktopMemoryEmbedderProbe(settings(null), vi.fn(), apiKey, new AbortController().signal)
@@ -136,7 +115,7 @@ test('a provider with no key is the run’s credential refusal', async () => {
   const failure = await refusal(
     resolveDesktopMemoryEmbedderProbe(
       settings(HOSTED),
-      async () => ({ profile: PROFILE }),
+      async () => PROFILE,
       async () => undefined,
       new AbortController().signal
     )

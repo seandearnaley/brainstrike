@@ -144,7 +144,7 @@ it('a current schema store retains searchable committed rows through physical cl
   );
   const reopened = openConnection(f.options.dbPath, { readonly: true });
   try {
-    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(15);
+    expect(reopened.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(16);
   } finally {
     reopened.close();
   }

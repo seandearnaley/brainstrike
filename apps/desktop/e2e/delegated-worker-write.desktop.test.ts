@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Locator, TestInfo } from '@playwright/test';
@@ -9,6 +9,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   ensureActivityExpanded,
   ensureAssistantShellVisible,
@@ -154,6 +155,7 @@ async function assertWorkerWrite(
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-worker-write-'));
+  electron.removeAfterClose(workspace);
   const outputPath = path.join(workspace, 'worker-output.txt');
   const content = 'WORKER_DISPOSABLE_DELIVERABLE_1721\n';
   const childResult = `WORKER_${decision.toUpperCase()}_RESULT_1721`;
@@ -342,7 +344,7 @@ async function assertWorkerWrite(
           root = window.getByRole('region', { exact: true, name: 'Assistant' });
           child = window.getByRole('region', { exact: true, name: childName });
         } else {
-          await window.reload();
+          await reloadRenderer(window, 'delegated-worker-write: reloaded leaf approval');
         }
         await configureAssistantProvider(window, {
           compositeModelKey: 'openrouter::openai/gpt-5.4',
@@ -406,13 +408,15 @@ async function assertWorkerWrite(
         await expect(
           root.getByText('PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723', { exact: true })
         ).toBeVisible();
+        // Send returns in place of Stop once the host has committed the run's end.
         await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
         // The user's turn carries no second delivery of the stopped child.
-        await expect
-          .poll(() => rootRuns(electron.getUserDataDir()))
-          .toEqual([...stoppedRuns, { outcome: 'completed', states: [], via: 'command' }]);
+        expect(await rootRuns(electron.getUserDataDir())).toEqual([
+          ...stoppedRuns,
+          { outcome: 'completed', states: [], via: 'command' },
+        ]);
         const afterStop = modelCalls();
-        await window.reload();
+        await reloadRenderer(window, 'delegated-worker-write: reload after child stop');
         await ensureAssistantShellVisible(window);
         await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
         const reopen = root.getByRole('button', { name: /Open .* conversation/ }).first();
@@ -500,7 +504,7 @@ async function assertWorkerWrite(
           .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
           .click();
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-        await window.reload();
+        await reloadRenderer(window, 'delegated-worker-write: reload after child tab close');
         await ensureAssistantShellVisible(window);
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
         expect(modelCalls()).toBe(completedRequests);
@@ -572,7 +576,10 @@ async function assertWorkerWrite(
             .last()
             .click();
           await expect(selectedTab).toHaveText(secondName);
-          await window.reload();
+          await reloadRenderer(
+            window,
+            'delegated-worker-write: reload with a sibling child selected'
+          );
           await ensureAssistantShellVisible(window);
           await expect(selectedTab).toHaveText(secondName);
           await expect(
@@ -595,7 +602,7 @@ async function assertWorkerWrite(
           await expect(child.getByTestId('checkpoint-reverted')).toBeVisible();
           await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
           expect(await readFile(userPath, 'utf8')).toBe('Independent user edit\n');
-          await window.reload();
+          await reloadRenderer(window, 'delegated-worker-write: reload after checkpoint revert');
           await ensureAssistantShellVisible(window);
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
           await ensureActivityExpanded(child);
@@ -665,7 +672,6 @@ async function assertWorkerWrite(
           }
         }
       },
-      async () => rm(workspace, { force: true, recursive: true }),
     ]) {
       try {
         await cleanup();

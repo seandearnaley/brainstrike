@@ -55,8 +55,7 @@ belongs to `@brainstrike/settings-ui`. New persistent state participates in rese
 Reuse TreeTable, TabStrip and context actions. Preserve accessible keyboard/focus
 behavior and keep secrets out of UI, logs and serialized preferences. Relevant
 contracts: [UI](../../docs/agents/ui-conventions.md),
-[persistence](../../docs/agents/assistant-persistence.md),
-[inference](../../docs/agents/local-inference.md) and
+[persistence](../../docs/agents/assistant-persistence.md) and
 [reset](../../docs/agents/platform-contracts.md).
 
 ## Development

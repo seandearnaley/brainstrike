@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createServer } from 'vite';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
@@ -71,20 +70,8 @@ test('Luna loads eager tools, runs an extensionless skill and completes three Ex
     };
   });
   let joined = false;
-  const server = await createServer({
-    configFile: path.resolve('vite.config.mts'),
-    server: { host: '127.0.0.1', port: 0 },
-  });
   try {
-    await server.listen();
-    const rendererUrl = server.resolvedUrls?.local[0];
-    if (!rendererUrl) {
-      throw new Error('Dev renderer URL unavailable');
-    }
     const context = await launchElectronAppWithOptions({
-      disableExternalLocalRuntimeProbes: true,
-      env: { ['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']: rendererUrl },
-      launchMode: 'dev-server',
       modelProvider: provider,
       userDataDir: profile,
       workspaceRoot: workspace,
@@ -125,16 +112,16 @@ test('Luna loads eager tools, runs an extensionless skill and completes three Ex
         .toEqual(['completed', 'completed', 'completed']);
       await approve.click();
       await expect(region.getByText(reply, { exact: true }).first()).toBeVisible();
-      await expect
-        .poll(async () =>
-          (await readHostThreadTree(profile))
-            .filter(({ parentThreadId }) => parentThreadId === undefined)
-            .flatMap(({ rows }) =>
-              rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
-            )
-        )
-        .toContain('completed');
+      // The pane leaves the running state once the host has committed the run's end.
+      await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
       const tree = await readHostThreadTree(profile);
+      expect(
+        tree
+          .filter(({ parentThreadId }) => parentThreadId === undefined)
+          .flatMap(({ rows }) =>
+            rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
+          )
+      ).toContain('completed');
       expect(JSON.stringify(tree)).toContain('SKILL_CONTEXT_OK');
       expect(JSON.stringify(tree)).not.toContain('"outcome":"failed"');
       const requests = JSON.stringify(provider.requests());
@@ -167,7 +154,6 @@ test('Luna loads eager tools, runs an extensionless skill and completes three Ex
       expect(child.exitCode).toBe(0);
     }
   } finally {
-    await server.close();
     await provider.close();
     if (joined) {
       await rm(profile, { force: true, recursive: true });

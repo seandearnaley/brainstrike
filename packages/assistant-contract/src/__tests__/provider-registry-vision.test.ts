@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { getLlmModelDefinition, listProviders } from '../provider-registry.js';
 
 describe('vision (image input) metadata', () => {
-  it('every static LLM model declares vision explicitly, never as unknown', () => {
-    // 'unknown' is reserved for dynamically discovered local-runtime models;
-    // statically registered models are researched facts and must commit to
-    // 'supported' or 'unsupported' so the composer gate never guesses.
+  it('every static LLM model declares vision explicitly', () => {
+    // Registered models are researched facts and commit to 'supported' or
+    // 'unsupported' so the composer gate never guesses.
     for (const provider of listProviders()) {
       for (const model of provider.models) {
         if (model.type === 'llm') {

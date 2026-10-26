@@ -27,11 +27,8 @@ const recording = Schema.decodeUnknownSync(
 const profile = {
   dimensions: 384,
   distance: 'cosine',
-  dtype: 'fp16',
-  modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
-  provider: 'local',
-  revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
-  tokenCap: 256,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 const binding = {
   embeddingSetId: 'collection',
@@ -52,16 +49,13 @@ const chunks = scopedFileChunks(canonicalSnapshot, null);
 
 function writer(
   change: Record<string, unknown> = {},
-  legacy = false,
   missingVectors = false,
   source: ScopedFileSnapshot = canonicalSnapshot
 ) {
   const storedChunks = scopedFileChunks(source, null);
   const rows = storedChunks.map((chunk, index) => ({
     ...chunk,
-    embeddingHash: null,
     fileId: binding.fileId,
-    hasVector: 0,
     id: chunk.chunkId,
     pk: index + 1,
     rootId: source.rootId,
@@ -70,7 +64,6 @@ function writer(
   const chunkWrites = vi.fn();
   const vectorWrites = vi.fn();
   const coarseWrites = vi.fn();
-  const legacyDeletes = vi.fn();
   const syntax = {
     replace: vi.fn(() => ({
       syntaxStatus: 'retained' as const,
@@ -110,10 +103,7 @@ function writer(
         }
         if (sql.includes('FROM index_metadata')) {
           return {
-            indexMode: 'text-only',
-            profileHash: null,
-            profileJson: null,
-            schemaVersion: 15,
+            schemaVersion: 16,
             storeId: 'b'.repeat(64),
           };
         }
@@ -122,7 +112,7 @@ function writer(
             contentHash: sha256(source.content),
             embeddingSetId: binding.embeddingSetId,
             rootId: source.rootId,
-            scoped: legacy ? 0 : 1,
+            scoped: 1,
             snapshotHash: sha256(JSON.stringify(source)),
           };
         }
@@ -138,9 +128,7 @@ function writer(
       },
       pluck: () => statement,
       run: (...args: unknown[]): void => {
-        if (sql.startsWith('DELETE FROM vec_chunks')) {
-          legacyDeletes(...args);
-        } else if (sql.startsWith('INSERT INTO scope_vec_')) {
+        if (sql.startsWith('INSERT INTO scope_vec_')) {
           coarseWrites(...args);
         } else if (
           !(
@@ -179,7 +167,7 @@ function writer(
     sqliteVecEngine,
     syntax
   );
-  return { chunkWrites, coarseWrites, index, legacyDeletes, syntax, vectorWrites };
+  return { chunkWrites, coarseWrites, index, syntax, vectorWrites };
 }
 
 describe('scoped chunk write admission through the real commit path', () => {
@@ -203,20 +191,11 @@ describe('scoped chunk write admission through the real commit path', () => {
     { startOffset: 1 },
     { endOffset: 201 },
     { tokenCount: 40 },
-    { embeddingHash: 'd'.repeat(64) },
-    { hasVector: 1 },
     { rootId: null },
   ])('updates a row differing in %j even with the same snapshot hash', (change) => {
     const { index, chunkWrites } = writer(change);
     index.commitText({ plan: index.prepare({ snapshot: canonicalSnapshot }) });
     expect(chunkWrites).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not skip legacy adoption', () => {
-    const { index, chunkWrites, legacyDeletes } = writer({}, true);
-    index.commitText({ plan: index.prepare({ snapshot: canonicalSnapshot }) });
-    expect(chunkWrites).toHaveBeenCalledTimes(chunks.length);
-    expect(legacyDeletes).toHaveBeenCalledTimes(chunks.length);
   });
 
   it('compares nullable root and line-policy metadata exactly', () => {
@@ -228,13 +207,13 @@ describe('scoped chunk write admission through the real commit path', () => {
       rootId: null,
       sourcePath: '/imports/source.ts',
     };
-    const { index, chunkWrites } = writer({}, false, false, rootless);
+    const { index, chunkWrites } = writer({}, false, rootless);
     index.commitText({ plan: index.prepare({ snapshot: rootless }) });
     expect(chunkWrites).not.toHaveBeenCalled();
   });
 
   it('inserts every missing current-profile vector using unchanged chunk PKs', () => {
-    const { index, chunkWrites, vectorWrites, coarseWrites } = writer({}, false, true);
+    const { index, chunkWrites, vectorWrites, coarseWrites } = writer({}, true);
     const plan = index.prepare({ profile, snapshot: canonicalSnapshot });
     index.commitVector({
       embeddings: plan.embeddingChunkIds.map((chunkId) => ({

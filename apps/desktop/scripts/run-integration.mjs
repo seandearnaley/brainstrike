@@ -7,12 +7,8 @@
 //    reader (packages/sqlite-query/test/run-integration.mjs is the same shape).
 // In a native desktop shard (DESKTOP_TEST_SHARD) Vitest shards the Node pass,
 // and the last shard runs the whole Electron pass (electronPassEnvironment).
-// The ordinary vector-search proof copies its model from a dedicated,
-// repo-ignored cache (test-cache/transformers-cache/<origin>), never a user
-// profile; without one it fails and says so. Other arguments go to both
-// passes, and either pass failing fails the lane.
+// Other arguments go to both passes, and either pass failing fails the lane.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import { join } from 'node:path';
@@ -28,24 +24,6 @@ const vitest = fileURLToPath(new URL('../../../node_modules/vitest/vitest.mjs', 
 const workers =
   process.env.VITEST_MAX_WORKERS ?? String(Math.max(2, Math.floor(os.availableParallelism() / 2)));
 const parallelism = [`--maxWorkers=${workers}`];
-
-/** The dedicated cache's single storage origin, if one was provisioned. */
-function dedicatedTransformersCache() {
-  const root = join(desktop, 'test-cache', 'transformers-cache');
-  const origins = existsSync(root)
-    ? readdirSync(root).filter((origin) => /^[a-f0-9]{40}$/u.test(origin))
-    : [];
-  if (origins.length > 1) {
-    throw new Error(`${root} must hold one storage origin; found ${origins.length}.`);
-  }
-  if (origins.length === 0) {
-    console.warn(
-      `No dedicated transformers cache in ${root}: the ordinary vector-search proof fails until \`pnpm --filter @brainstrike/desktop provision:test-model-cache\` provisions it.`
-    );
-    return;
-  }
-  return join(root, origins[0]);
-}
 
 /**
  * The Electron pass's environment for the lane's `environment`, or undefined
@@ -104,8 +82,6 @@ if (import.meta.main) {
   const args = process.argv.slice(2);
   const coverage = args.includes('--coverage');
   const passthrough = args.filter((arg) => arg !== '--coverage');
-  const cache =
-    process.env.BRAINSTRIKE_M3_TRANSFORMERS_CACHE_ORIGIN ?? dedicatedTransformersCache();
   const nodeStatus = run(
     process.execPath,
     coverage
@@ -116,7 +92,7 @@ if (import.meta.main) {
           '--coverage.reporter=text',
         ]
       : ['--config', 'vitest.integration.config.mts'],
-    { ...process.env, ...(cache ? { BRAINSTRIKE_M3_TRANSFORMERS_CACHE_ORIGIN: cache } : {}) },
+    process.env,
     passthrough
   );
   if (electronEnvironment) {

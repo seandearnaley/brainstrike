@@ -155,7 +155,7 @@ describe('TaskLedgerPanelView', () => {
   it('renders "cost unavailable" (never a fabricated $0) for an unpriced model', () => {
     renderPanel({
       ledger: {
-        rows: [makeRun({ model: 'gemma', provider: 'local', runId: 'run-1' })],
+        rows: [makeRun({ model: 'vendor/uncatalogued', provider: 'openrouter', runId: 'run-1' })],
       },
     });
 
@@ -291,7 +291,7 @@ describe('TaskLedgerPanelView', () => {
           makeRun({ billedCostUsd: 0.1, runId: 'run-under' }),
           // Unpriced model (no exact cost, no registry price) → NEVER badged
           // on a fabricated number.
-          makeRun({ model: 'gemma', provider: 'local', runId: 'run-unpriced' }),
+          makeRun({ model: 'vendor/uncatalogued', provider: 'openrouter', runId: 'run-unpriced' }),
         ],
       },
       perRunCapUsd: 1,
@@ -329,9 +329,12 @@ describe('isRunOverCap', () => {
   });
 
   it('never flags unpriced or zero-usage runs (no fabricated verdicts)', () => {
-    expect(isRunOverCap(makeRun({ model: 'gemma', provider: 'local', runId: 'r' }), 0.0001)).toBe(
-      false
-    );
+    expect(
+      isRunOverCap(
+        makeRun({ model: 'vendor/uncatalogued', provider: 'openrouter', runId: 'r' }),
+        0.0001
+      )
+    ).toBe(false);
     expect(isRunOverCap(makeRun({ inputTokens: 0, outputTokens: 0, runId: 'r' }), 0.0001)).toBe(
       false
     );

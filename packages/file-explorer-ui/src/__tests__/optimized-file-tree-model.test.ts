@@ -1,3 +1,4 @@
+import { win32 } from 'node:path';
 import { memoizedFileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { FlattenedNode } from '@brainstrike/file-tree-worker';
@@ -307,6 +308,66 @@ describe('optimized file tree model selected descendant resolution', () => {
         selectionModel,
       })
     ).toEqual(['/src/restored.ts']);
+  });
+
+  it('resolves the descendants of a checked Windows folder so clicking it deselects them', () => {
+    // A desktop tree on Windows is keyed by native paths: `C:\mock\root\hooks`.
+    const rootPath = win32.resolve('C:\\mock', 'root');
+    const hooksPath = win32.join(rootPath, 'hooks');
+    const hooksFiles = [
+      win32.join(hooksPath, 'package.json'),
+      win32.join(hooksPath, 'src', 'index.ts'),
+    ];
+    const siblingPath = win32.join(rootPath, 'hooks-extra', 'a.ts');
+    const rootId = 'root-id';
+
+    expect(
+      getSelectedDescendantPathsForDirectory({
+        directoryPath: hooksPath,
+        folderId: rootId,
+        querySelectionManifest: null,
+        selectedFilePaths: new Set(
+          [...hooksFiles, siblingPath].map((filePath) => encodeFileSelection(rootId, filePath))
+        ),
+        selectionModel: workspaceSelectionModel,
+      }).sort()
+    ).toEqual(hooksFiles);
+
+    const manifestPaths = [...hooksFiles, siblingPath];
+    expect(
+      getSelectedDescendantPathsForDirectory({
+        directoryPath: hooksPath,
+        folderId: rootId,
+        querySelectionManifest: {
+          directoryCounts: new Map([[hooksPath, 2]]),
+          errorMessage: null,
+          filePaths: manifestPaths,
+          fingerprint: 'fp-win',
+          pathSet: new Set(manifestPaths),
+          snapshotId: 'snap-win',
+          status: 'ready',
+        },
+        selectedFilePaths: new Set<string>(),
+        selectionModel: {
+          ...createEmptySelectionModel(),
+          mode: 'query',
+          queryDescriptor: {
+            coveredDirectoryPaths: [rootPath],
+            excludedPaths: [],
+            excludeFilters: [],
+            folderId: rootId,
+            includedPaths: [],
+            includeFilters: [],
+            kind: 'recursive-folder',
+            manifestFingerprint: 'fp-win',
+            manifestSnapshotId: 'snap-win',
+            rootPath,
+            totalSelectedCount: manifestPaths.length,
+            useRegex: false,
+          },
+        },
+      }).sort()
+    ).toEqual(hooksFiles);
   });
 });
 

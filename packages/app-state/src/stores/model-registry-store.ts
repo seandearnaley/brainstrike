@@ -31,24 +31,6 @@ function registrySnapshot(snapshot: ModelCatalogSnapshot): {
 }
 
 interface ModelRegistryState {
-  /**
-   * Applies a model cache read that began when `downloadSequence` was
-   * `readStartedAt` (BST-2241): `downloadedModels` becomes the realm's answer
-   * plus every download completed since the read began, which that answer may
-   * predate. A read that failed is an empty answer, so no earlier answer stands.
-   */
-  applyDownloadedModelsRead: (modelIds: readonly string[], readStartedAt: number) => void;
-  /** Each completed download's place in `downloadSequence`, so a slower read keeps it. */
-  completedDownloads: Record<string, number>;
-  /**
-   * Local models whose download plans are fully in the embedding realm's model
-   * cache, as that realm last reported (BST-2241), plus downloads completed since.
-   * Never persisted: only the realm's cache says what is downloaded.
-   */
-  downloadedModels: Record<string, boolean>;
-  downloadProgress: Record<string, number>; // modelId -> progress %
-  /** Counts completed downloads; a cache read notes it when it begins. */
-  downloadSequence: number;
   ensureRegistry: (db: ModelRegistrySource) => Promise<void>;
   error: string | null;
 
@@ -60,13 +42,10 @@ interface ModelRegistryState {
     providerId: string,
     policy: ProviderModelDefaultPolicy
   ) => Promise<'initialized' | 'preserved'>;
-  isDownloading: Record<string, boolean>; // modelId -> boolean
   isLoading: boolean;
 
   models: DbModel[];
   providers: DbProvider[];
-  setDownloading: (modelId: string, isDownloading: boolean) => void;
-  setDownloadProgress: (modelId: string, progress: number) => void;
   /**
    * Enables or disables many models in ONE atomic statement (BST-1805) and
    * resolves with each id's PRIOR enabled state, for Undo.
@@ -89,13 +68,8 @@ interface ModelRegistryState {
 }
 
 const initialState = {
-  completedDownloads: {} as Record<string, number>,
-  downloadedModels: {} as Record<string, boolean>,
-  downloadProgress: {} as Record<string, number>,
-  downloadSequence: 0,
   error: null as string | null,
   hasLoaded: false,
-  isDownloading: {} as Record<string, boolean>,
   isLoading: false,
   models: [] as DbModel[],
   providers: [] as DbProvider[],
@@ -103,17 +77,6 @@ const initialState = {
 
 export const useModelRegistryStore = create<ModelRegistryState>()((set, get) => ({
   ...initialState,
-
-  applyDownloadedModelsRead: (modelIds: readonly string[], readStartedAt: number) => {
-    set((state) => ({
-      downloadedModels: Object.fromEntries([
-        ...modelIds.map((id) => [id, true] as const),
-        ...Object.entries(state.completedDownloads).flatMap(([id, completedAt]) =>
-          completedAt > readStartedAt ? [[id, true] as const] : []
-        ),
-      ]),
-    }));
-  },
 
   ensureRegistry: (db: ModelRegistrySource) => {
     const { error, hasLoaded, isLoading } = get();
@@ -156,7 +119,6 @@ export const useModelRegistryStore = create<ModelRegistryState>()((set, get) => 
       const snapshotOverride = getModelRegistrySnapshotTestOverride();
       if (snapshotOverride) {
         set({
-          downloadedModels: snapshotOverride.downloadedModels ?? {},
           error: null,
           hasLoaded: true,
           isLoading: false,
@@ -183,40 +145,6 @@ export const useModelRegistryStore = create<ModelRegistryState>()((set, get) => 
     const result = await db.initializeProviderDefaults(providerId, policy);
     set(registrySnapshot(result.snapshot));
     return result.outcome;
-  },
-
-  setDownloading: (modelId: string, isDownloading: boolean) => {
-    set((state) => ({
-      isDownloading: { ...state.isDownloading, [modelId]: isDownloading },
-    }));
-  },
-
-  setDownloadProgress: (modelId: string, progress: number) => {
-    const roundedProgress = Math.min(100, Math.max(0, Math.round(progress)));
-    const currentState = get();
-    const completesDownload =
-      roundedProgress === 100 && currentState.downloadedModels[modelId] !== true;
-    if (currentState.downloadProgress[modelId] === roundedProgress && !completesDownload) {
-      return;
-    }
-    set((state) => ({
-      ...(completesDownload
-        ? {
-            completedDownloads: {
-              ...state.completedDownloads,
-              [modelId]: state.downloadSequence + 1,
-            },
-            downloadSequence: state.downloadSequence + 1,
-          }
-        : {}),
-      downloadedModels: completesDownload
-        ? { ...state.downloadedModels, [modelId]: true }
-        : state.downloadedModels,
-      downloadProgress: {
-        ...state.downloadProgress,
-        [modelId]: roundedProgress,
-      },
-    }));
   },
 
   setModelsEnabled: async (

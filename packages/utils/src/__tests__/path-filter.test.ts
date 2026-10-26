@@ -1,6 +1,5 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { FileFilterOptions } from '@brainstrike/types';
-import { Minimatch } from 'minimatch';
 import { describe, expect, it, vi } from 'vitest';
 import { buildIgnorePatternRegex, fileFilter, literalFilterPattern } from '../path-filter.js';
 
@@ -636,11 +635,25 @@ describe('literalFilterPattern', () => {
     expect(fileFilter.matchWildcard('/work/src/b.ts', pattern)).toBe(false);
   });
 
-  it('writes a Windows path with forward slashes, which minimatch matches on Windows', () => {
+  it('keeps exactly its file in a Windows tree, wherever the matcher runs', () => {
+    // A renderer has no `process`, so minimatch there splits paths on `/` alone.
     const pattern = literalFilterPattern('C:\\work\\src\\a[1].ts');
     expect(pattern).toBe('**/C:/work/src/a\\[1\\].ts');
-    const onWindows = new Minimatch(pattern, { dot: true, platform: 'win32' });
-    expect(onWindows.match('C:\\work\\src\\a[1].ts')).toBe(true);
-    expect(onWindows.match('C:\\work\\src\\b.ts')).toBe(false);
+    const src = createDirectoryNode({
+      children: [
+        createFileNode({ name: 'a[1].ts', path: 'C:\\work\\src\\a[1].ts' }),
+        createFileNode({ name: 'b.ts', path: 'C:\\work\\src\\b.ts' }),
+      ],
+      name: 'src',
+      path: 'C:\\work\\src',
+    });
+
+    const filtered = fileFilter.filterNode(src, {
+      excludeFilters: [],
+      includeFilters: [pattern],
+      useRegex: false,
+    });
+
+    expect(filtered?.children?.map((node) => node.name)).toEqual(['a[1].ts']);
   });
 });

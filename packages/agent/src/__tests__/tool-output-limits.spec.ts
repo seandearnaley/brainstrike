@@ -80,18 +80,6 @@ describe('resolveScaledToolResultBudget', () => {
     expect(resolveScaledToolResultBudget(contextWindow)).toEqual(expected);
   });
 
-  it('uses the shared conservative context window for a dynamic Ollama model', () => {
-    let result: ReturnType<typeof resolveToolResultBudgetForModel> | undefined;
-    const fallbackLogs = collectFallbackWarnLog(() => {
-      result = resolveToolResultBudgetForModel('ollama', 'runtime-only-model');
-    });
-    expect(result).toEqual(resolveScaledToolResultBudget(32_768));
-    // A dynamic Ollama/LM Studio fallback is the documented, always-expected
-    // path for runtime-discovered ids — it does not warn (unlike the
-    // catalog-absent case below, which is the genuinely unexpected one).
-    expect(fallbackLogs).toHaveLength(0);
-  });
-
   it('resolves an unknown OpenRouter (or any other) model id to the ANCHOR tier, visibly logged, instead of throwing', () => {
     // OpenRouter's metadata-only / auto-profile models (app-shell's
     // mergeOpenRouterAutoProfileModel) and stale persisted preferences from a

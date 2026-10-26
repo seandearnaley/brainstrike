@@ -1,4 +1,4 @@
-import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider.ts';
+import type { EmbeddingInput, IEmbeddingProvider } from '../../interfaces/provider.ts';
 import type {
   EmbeddingOutput,
   EmbeddingProviderError,
@@ -34,8 +34,6 @@ const COHERE_MODELS: Record<string, ModelConfig> = {
     id: 'embed-english-v3.0',
     name: 'Cohere Embed English v3',
     origin: 'Cohere',
-    quantized: false,
-    size: 'hosted',
     tags: ['cohere', 'hosted', 'embedding'],
   },
   'embed-multilingual-v3.0': {
@@ -44,8 +42,6 @@ const COHERE_MODELS: Record<string, ModelConfig> = {
     id: 'embed-multilingual-v3.0',
     name: 'Cohere Embed Multilingual v3',
     origin: 'Cohere',
-    quantized: false,
-    size: 'hosted',
     tags: ['cohere', 'hosted', 'embedding'],
   },
 };
@@ -58,8 +54,7 @@ export interface CohereEmbeddingProviderOptions {
   readonly modelId: string;
 }
 
-export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
-  readonly runtime = 'hosted' as const;
+export class CohereEmbeddingProvider implements IEmbeddingProvider {
   readonly provider = 'cohere' as const;
 
   private apiKey: string | null;

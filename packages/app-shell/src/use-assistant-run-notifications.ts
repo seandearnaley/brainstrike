@@ -9,9 +9,7 @@
  * reads (BST-1864), so a completion is either seen or alerted, never both.
  *
  * Mounted ONLY by visible assistant surfaces: `AssistantUiPanelWrapper` and
- * desktop's committed agent-host thread view. Desktop's hidden embedding/llm
- * hosts render neither — they mount `EmbeddingHostApp`/`LlmHostApp` — so this
- * hook can never run there and can never notify on their behalf.
+ * desktop's committed agent-host thread view.
  */
 
 import { getNotificationPermissionState } from '@brainstrike/app-state/notifications/notification-permission';
@@ -61,10 +59,9 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
         dispatcher.dispatch(event);
       },
       onRunFailed: (event) => {
-        // Hosted turns carry a `runId`; web local-runtime events
-        // (`createLocalRunEvent`) carry only a per-event `id`. The event `id`
-        // is a stable, unique coalescing key — an honest fallback, never a
-        // fabricated runId that could collide across runs.
+        // An event without a `runId` coalesces on its per-event `id`, a
+        // stable, unique key — an honest fallback, never a fabricated runId
+        // that could collide across runs.
         dispatcher.dispatch({ kind: 'runFailed', runId: event.runId ?? event.id });
       },
       onRunFinished: (event) => {

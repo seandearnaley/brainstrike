@@ -1,4 +1,3 @@
-import { projectModelCatalog } from '@brainstrike/assistant-contract';
 import type {
   CanonicalWorkspaceLease,
   NativeCanonicalCatalogRecord,
@@ -34,6 +33,8 @@ const mocks = vi.hoisted(() => ({
   closeReaders: vi.fn(),
   createProfileOwner: vi.fn(),
   destroy: vi.fn(),
+  /** Main's hosted document embedder; a TEXT index never calls it. */
+  hostedEmbeddings: vi.fn(),
   /** The current profile owner's `lost`: its ready host exited without Main asking. */
   loseHost: vi.fn(),
   manager: {
@@ -41,7 +42,6 @@ const mocks = vi.hoisted(() => ({
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
   },
-  modelCatalog: { read: vi.fn() },
   readyPort: vi.fn(),
 }));
 
@@ -49,21 +49,21 @@ export { mocks };
 
 /** Load the product constructor through the module that owns these hoisted mocks. */
 export function createActivation(
-  options: Omit<
-    Parameters<typeof createNativeIndexActivation>[0],
-    'profile' | 'catalog' | 'modelCatalog'
-  >
+  options: Omit<Parameters<typeof createNativeIndexActivation>[0], 'profile' | 'catalog'>
 ): ReturnType<typeof createNativeIndexActivation> {
   return createNativeIndexActivation({
     ...options,
     catalog: mocks.catalog,
-    modelCatalog: mocks.modelCatalog,
     profile: createDesktopProfileRuntime((lost) => {
       mocks.loseHost.mockImplementation(lost);
       return createDesktopHostLease({ root: '/owned/profile' });
     }),
   });
 }
+vi.mock('../hosted-embeddings', async (original) => ({
+  ...(await original<typeof import('../hosted-embeddings')>()),
+  generateHostedEmbeddings: mocks.hostedEmbeddings,
+}));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
@@ -123,11 +123,9 @@ export function requestedScope(input: unknown): IndexScope {
 export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
-    commitFile: unused,
     commitScopedFile: unused,
     commitScopedTextFile: unused,
     commitTextFile: unused,
-    configureVectorProfile: unused,
     coverage: unused,
     coverageAuthority: async () => ({
       authorityEpoch: 'b'.repeat(64),
@@ -143,7 +141,6 @@ export function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPor
     destroy: unused,
     info: async () => ({
       dbPath: '/owned/profile/index.sqlite',
-      embedding: { indexMode: 'text-only' },
       journalMode: 'wal',
       pid: 1,
       readerQueryOnly: 1,
@@ -180,14 +177,11 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
-  const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const onError = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: mocks.catalog,
-    embedding: transport,
-    modelCatalog: mocks.modelCatalog,
     onError,
     onReceipt,
     profile: createDesktopProfileRuntime((lost) => {
@@ -195,9 +189,8 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
       return createDesktopHostLease({ root: '/owned/profile' });
     }),
     settings,
-    storage: { getItem: unused },
   });
-  return { activation, onError, onReceipt, settings, transport };
+  return { activation, hostedEmbeddings: mocks.hostedEmbeddings, onError, onReceipt, settings };
 }
 export function resetActivationFixture(): void {
   vi.resetAllMocks();
@@ -205,17 +198,17 @@ export function resetActivationFixture(): void {
     collections: [
       {
         createdAt: '2026-10-13T00:00:00.000Z',
-        dimensions: 384,
+        dimensions: 1536,
         distance: 'cosine',
         id: 'selected',
-        modelId: 'Xenova/all-MiniLM-L6-v2',
-        modelKey: 'transformers::Xenova/all-MiniLM-L6-v2',
+        modelId: 'text-embedding-3-small',
+        modelKey: 'openai::text-embedding-3-small',
       },
     ],
   });
   mocks.catalog.workspaceRoots.mockResolvedValue({ roots: [] });
-  mocks.modelCatalog.read.mockResolvedValue(projectModelCatalog({ models: [], providers: [] }));
   setCatalogRecords(() => []);
+  mocks.hostedEmbeddings.mockImplementation(unused);
   mocks.acquire.mockResolvedValue(writer());
   mocks.acquireProfile.mockResolvedValue(undefined);
   mocks.readyPort.mockReturnValue(writer());

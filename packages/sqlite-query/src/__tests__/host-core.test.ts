@@ -16,7 +16,7 @@ vi.mock('../sandbox.js', () => ({
 
 beforeEach(() => grepMock.mockReset());
 
-const identity = { embedding: { indexMode: 'text-only' as const }, storeId: 'a'.repeat(64) };
+const identity = { storeId: 'a'.repeat(64) };
 const grep = (id: number) => ({
   caseSensitive: false,
   id,

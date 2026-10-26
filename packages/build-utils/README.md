@@ -3,14 +3,7 @@
 Node-side build helpers and Vite plugins shared by app configurations. Import
 these from build/config code, not renderer runtime code.
 
-## Qualified assets and module graphs
-
-`resolveTransformersOnnxRuntimeWasmFiles` resolves the installed Transformers/ONNX
-Runtime assets from explicit consumer package directories.
-`transformersOnnxRuntimeWasmUrlsPlugin` publishes the existing virtual module used
-by `@brainstrike/embedding-worker/vite`, emitting the actual module/binary assets
-for both dev and production serving. Missing or ambiguous assets refuse rather
-than selecting an arbitrary version or CDN.
+## Module graphs
 
 `fullReloadOnCompilerHotspots()` invalidates affected modules **and their importer
 graph** before suppressing normal HMR and sending a full reload. Preserve that

@@ -20,9 +20,9 @@ when needed. Package `AGENTS.md` files contain only additional local constraints
   across reopen, recovery, deletion and reset. Do not build legacy-data migrations
   or credential imports. Never access or reset Sean's protected profile; use
   disposable profiles and fake credentials for automation.
-- Local inference belongs in hidden renderer hosts, never Electron main.
-  Shared code uses capabilities, not platform guesses. New durable state belongs
-  in the existing reset lifecycle. See ADRs 0007, 0008 and 0015.
+- Brainstrike runs no local models: chat and embeddings come from hosted
+  providers. Shared code uses capabilities, not platform guesses. New durable
+  state belongs in the existing reset lifecycle. See ADRs 0008 and 0015.
 - The host owns the AI SDK run loop; Mastra is a memory library, not another
   server, permission system or persistence owner. Keep Node-only dependencies out
   of browser bundles. See ADRs 0011, 0012 and 0017.
@@ -95,5 +95,5 @@ partial run as a full pass.
 | Host, storage and indexing | [State store](docs/agents/state-store.md), [host lease](docs/agents/host-lease.md), [indexer](docs/agents/indexer.md); ADRs 0011, 0017, 0018 |
 | Assistant runs, persistence, providers and MCP | [Runtime](docs/agents/assistant-runtime.md), [persistence](docs/agents/assistant-persistence.md), [providers](docs/agents/assistant-providers.md), [provider cassettes](docs/agents/provider-cassettes.md), [MCP](docs/agents/mcp-conformance.md) |
 | UI and workspace behavior | [UI conventions](docs/agents/ui-conventions.md), [workspace context](docs/agents/workspace-context.md), [explorer, search and context map](docs/agents/explorer-search-context-map.md); ADR 0021 |
-| Inference, execution and reset | [Local inference](docs/agents/local-inference.md), [code execution](docs/agents/code-execution.md), [platform contracts](docs/agents/platform-contracts.md) |
+| Execution and reset | [Code execution](docs/agents/code-execution.md), [platform contracts](docs/agents/platform-contracts.md) |
 | Product tickets | [Issue tracker](docs/agents/issue-tracker.md); Linear is the product tracker |

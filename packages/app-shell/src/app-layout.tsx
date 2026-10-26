@@ -1,7 +1,6 @@
 import { useDatabaseStatusSync } from '@brainstrike/app-state/hooks/use-database-status-sync';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerProvider, FileSystemProvider } from '@brainstrike/file-explorer-ui/shell';
-import { GlobalDownloadIndicator } from '@brainstrike/settings-ui/components/global-download-indicator';
 import {
   NavigationSidebar,
   StatusBar,
@@ -26,7 +25,6 @@ export function AppLayout({
   currentPath,
   onNavigationClick,
   onOpenSettings,
-  nativeIndexRetry,
   nativeIndexSearch,
   stateHealth,
 }: AppLayoutProps) {
@@ -78,12 +76,8 @@ export function AppLayout({
                 }
                 rightContent={
                   <>
-                    <GlobalDownloadIndicator />
                     <DiagnosticsStatusItem />
-                    <IndexingStatusItem
-                      nativeIndexRetry={nativeIndexRetry ?? null}
-                      nativeIndexSearch={nativeIndexSearch ?? null}
-                    />
+                    <IndexingStatusItem nativeIndexSearch={nativeIndexSearch ?? null} />
                   </>
                 }
               />

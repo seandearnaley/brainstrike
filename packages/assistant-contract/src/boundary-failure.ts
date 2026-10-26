@@ -23,7 +23,6 @@ export type BoundaryFailureCategory = (typeof BOUNDARY_FAILURE_CATEGORIES)[numbe
 const BoundaryFailureCode = Schema.Union([
   Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/)),
   Schema.Literals([
-    'EMBEDDING_DEVICE_LOST',
     'native-index-transitioning',
     'native-index-closed',
     'native-index-off',
@@ -31,18 +30,11 @@ const BoundaryFailureCode = Schema.Union([
     'native-index-settings-invalid',
     'native-index-source-failure',
     'native-index-rebuild-required',
-    'native-index-embedding-host-unresponsive',
   ]),
 ]);
 /** The facts of a lost child process; none of them is a path or a message. */
 const ProcessLostFacts = Schema.Struct({
-  child: Schema.Literals([
-    'agent-host',
-    'db-host',
-    'index-utility',
-    'index-query',
-    'embedding-host',
-  ]),
+  child: Schema.Literals(['agent-host', 'db-host', 'index-utility', 'index-query']),
   exitCode: Schema.optional(Schema.Int),
   reason: Schema.optional(
     Schema.String.check(Schema.isMinCodePoints(1)).check(Schema.isMaxCodePoints(64))
@@ -122,7 +114,6 @@ export function fault(
 const CHILD_NAMES: Readonly<Record<BoundaryChild, string>> = {
   'agent-host': 'The agent host',
   'db-host': 'The database host',
-  'embedding-host': 'The embedding host',
   'index-query': 'The index query process',
   'index-utility': 'The index process',
 };

@@ -1,6 +1,5 @@
 import {
   createProvider,
-  type LocalEmbeddingHostClient,
   type ProviderAuthInput,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
@@ -15,18 +14,7 @@ import { requireMemoryApiKey } from './memory-readiness';
 import { createDesktopHostMemoryVectorConfiguration } from './memory-vector-configuration';
 import type { PlatformSelectionSchema } from './platform-wire';
 
-/** ADR-0007: Main's hidden embedding host, borrowed for one admitted thread. */
-export interface DesktopHostLocalInference {
-  readonly embedding: LocalEmbeddingHostClient;
-  readonly signal: AbortSignal;
-}
-
-/**
- * The observer model. Every observer is a hosted provider now: the branch that
- * borrowed Main's llm-host for a `local` target went with the built-in local
- * chat model, and an observer target naming that provider refuses in
- * `requireMemoryApiKey`/`createProvider` rather than resolving to nothing.
- */
+/** The observer model, a hosted provider's, built with that provider's credential. */
 async function createObserverModel(
   target: ReturnType<typeof parseObservationalMemoryModelTarget>,
   resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>
@@ -41,12 +29,7 @@ async function createObserverModel(
     auth
   );
   return materializeHostProviderModel(
-    createProvider(
-      configuration.provider,
-      configuration.authInput,
-      configuration.runtime.model,
-      configuration.runtime
-    )
+    createProvider(configuration.provider, configuration.authInput, configuration.runtime.model)
   );
 }
 
@@ -77,14 +60,12 @@ export function desktopMemoryModels(
 /** Materialize public Memory options from the admitted, non-secret selection. */
 export async function createDesktopHostMemoryConfiguration(
   selection: Pick<(typeof PlatformSelectionSchema)['Type'], 'memory' | 'resourceId'>,
-  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
-  local?: DesktopHostLocalInference
+  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>
 ): Promise<ProductionHostRunConfiguration['memory']> {
   const { observationalMemory: observation } = selection.memory.settings;
   const vectorConfiguration = await createDesktopHostMemoryVectorConfiguration(
     selection,
-    resolveProviderAuth,
-    local?.embedding
+    resolveProviderAuth
   );
 
   let observationalMemory: NonNullable<
@@ -107,7 +88,6 @@ export async function createDesktopHostMemoryConfiguration(
     };
   }
 
-  local?.signal.throwIfAborted();
   return {
     native: {
       options: {

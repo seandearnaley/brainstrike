@@ -3,8 +3,8 @@
  * (BST-1174) — one view per tab, all attached to the visible window's
  * `contentView`, exactly one shown at a time.
  *
- * WHY A SEPARATE REGISTRY (not `window-role.ts`): a `WebContentsView` is not a
- * `BrowserWindow`; `window-role` is keyed on window `webContents` and tracks
+ * WHY A SEPARATE REGISTRY (not `app-windows.ts`): a `WebContentsView` is not a
+ * `BrowserWindow`; `app-windows` is keyed on window `webContents` and tracks
  * top-level windows. Browser tabs are child views of the ONE visible window,
  * so they get their own lifecycle store here.
  *

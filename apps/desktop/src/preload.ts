@@ -15,7 +15,8 @@ import type { IpcResult } from './platform/ipc-contract';
 // or a PURE relative module that `scripts/build-main-config.mjs` inlines into
 // dist/preload.js (BST-1648). preload-sandbox-imports.test.ts walks that
 // graph, and build-main.mjs refuses a bundle that requires anything else.
-const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const electron = require('electron');
+const { contextBridge, webUtils } = electron;
 
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
@@ -31,10 +32,15 @@ import { userPersonasContract } from './ipc-domains/user-personas.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
-import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
-import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
+import {
+  createBridgeExposer,
+  createDesktopIpcTransport,
+  createIpcBridge,
+} from './platform/ipc-bridge';
 
 type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
+// The preload's ONE connection to Main: every call and push below rides it by method name.
+const ipcRenderer = createDesktopIpcTransport(electron.ipcRenderer);
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
@@ -89,45 +95,18 @@ ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, pa
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
-import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
 import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
 import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
-import type {
-  EmbeddingHostModelCacheRequest,
-  EmbeddingHostModelCacheResponseReport,
-} from './embedding-host-model-cache';
-import type {
-  EmbeddingHostCommand,
-  EmbeddingHostDocumentEmbeddingsCancel,
-  EmbeddingHostDocumentEmbeddingsPayload,
-  EmbeddingHostDocumentEmbeddingsRequest,
-  EmbeddingHostDocumentEmbeddingsResponseReport,
-  EmbeddingHostQueryCancellationResult,
-  EmbeddingHostQueryEmbeddingCancel,
-  EmbeddingHostQueryEmbeddingPayload,
-  EmbeddingHostQueryEmbeddingRequest,
-  EmbeddingHostQueryEmbeddingResponseReport,
-  EmbeddingHostStatus,
-} from './embedding-host-shared';
-import type {
-  EmbeddingHostWebGpuAdapterRequest,
-  EmbeddingHostWebGpuAdapterResponseReport,
-} from './embedding-host-webgpu-adapter';
 import type { LoggingSettingsPayload } from './logging-shared';
 import {
   assertDesktopElectronApiKeyParity,
   type VisibleDesktopElectronApi,
-  type VisibleEmbeddingHostBridge,
 } from './types/desktop-electron-api';
 
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
-const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED =
-  DESKTOP_TEST_MODE && process.env['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES'] === '1';
-const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE =
-  'External local runtime probing is disabled for deterministic desktop E2E.';
 
 if (DESKTOP_TEST_MODE) {
   contextBridge.exposeInMainWorld('__brainstrike_e2e_expose_file_explorer_store__', true);
@@ -151,103 +130,6 @@ const disabledBridgeNames = disabledPreloadBridges();
 
 function shouldExposeBridge(name: string): boolean {
   return !disabledBridgeNames.has(name);
-}
-
-function assertPreloadNonEmptyString(value: unknown, message: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(message);
-  }
-  return value;
-}
-
-function assertPreloadPositiveInteger(value: unknown, message: string): number {
-  if (!Number.isInteger(value) || (value as number) <= 0) {
-    throw new Error(message);
-  }
-  return value as number;
-}
-
-function assertEmbeddingHostQueryEmbeddingPayload(
-  value: unknown
-): EmbeddingHostQueryEmbeddingPayload {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    throw new Error('Embedding host query embedding payload must be an object.');
-  }
-  const payload = value as Record<string, unknown>;
-  const inferencePlan = Object.hasOwn(payload, 'inferencePlan')
-    ? decodeNativeEmbeddingWorkerPlan(payload['inferencePlan'])
-    : undefined;
-  const validated = {
-    ...(inferencePlan ? { inferencePlan } : {}),
-    dimensions: assertPreloadPositiveInteger(
-      payload['dimensions'],
-      'Embedding host query embedding payload.dimensions must be a positive integer.'
-    ),
-    modelId: assertPreloadNonEmptyString(
-      payload['modelId'],
-      'Embedding host query embedding payload.modelId must be a non-empty string.'
-    ),
-    modelKey: assertPreloadNonEmptyString(
-      payload['modelKey'],
-      'Embedding host query embedding payload.modelKey must be a non-empty string.'
-    ),
-    query: assertPreloadNonEmptyString(
-      payload['query'],
-      'Embedding host query embedding payload.query must be a non-empty string.'
-    ),
-  };
-  if (
-    inferencePlan &&
-    (inferencePlan.modelId !== validated.modelId ||
-      inferencePlan.dimensions !== validated.dimensions)
-  ) {
-    throw new Error('Query inferencePlan must match model and dimensions.');
-  }
-  return validated;
-}
-
-function assertPreloadDocumentPayload(
-  value: EmbeddingHostDocumentEmbeddingsPayload
-): EmbeddingHostDocumentEmbeddingsPayload {
-  const inferencePlan = decodeNativeEmbeddingWorkerPlan(value.inferencePlan);
-  if (inferencePlan.modelId !== value.modelId || inferencePlan.dimensions !== value.dimensions) {
-    throw new Error('Document inferencePlan must match model and dimensions.');
-  }
-  if (
-    !(
-      Array.isArray(value.texts) &&
-      value.texts.length > 0 &&
-      value.texts.length <= 64 &&
-      value.texts.every((text) => typeof text === 'string' && text.trim().length > 0)
-    )
-  ) {
-    throw new Error('Document embeddings require 1 to 64 non-empty texts.');
-  }
-  return {
-    dimensions: value.dimensions,
-    inferencePlan,
-    modelId: value.modelId,
-    modelKey: assertPreloadNonEmptyString(value.modelKey, 'Document modelKey must be non-empty.'),
-    texts: [...value.texts],
-  };
-}
-
-function createDisabledLocalRuntimeAvailability() {
-  return {
-    checkedAt: Date.now(),
-    message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
-    state: 'unavailable' as const,
-  };
-}
-
-function createDisabledLocalRuntimeCatalog(runtimeId: string) {
-  return {
-    availability: createDisabledLocalRuntimeAvailability(),
-    checkedAt: Date.now(),
-    message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
-    runtime: runtimeId,
-    state: 'failed' as const,
-  };
 }
 
 // Expose storage APIs to renderer
@@ -281,7 +163,7 @@ if (shouldExposeBridge('electronAPI')) {
           : storageBridge.setItem(key, value),
     },
   } satisfies VisibleDesktopElectronApi;
-  assertDesktopElectronApiKeyParity('visible-ui', electronAPI);
+  assertDesktopElectronApiKeyParity(electronAPI);
   contextBridge.exposeInMainWorld('electronAPI', electronAPI);
 }
 
@@ -335,66 +217,12 @@ contextBridge.exposeInMainWorld('mcp', {
   apps: mcpAppsBridge satisfies McpAppShellBridge,
 });
 
-// Main-process bridge for local-runtime probes. See ipc-runtime.ts for the
-// rationale: Chromium's CORS enforcement inside the renderer blocks fetches
-// to Ollama/LM Studio by default (the daemons' OLLAMA_ORIGINS / CORS config
-// doesn't list an Electron renderer origin). The main process isn't subject
-// to that policy, so we run probe + catalog fetch there and pass the
-// typed result back over IPC.
-if (shouldExposeBridge('runtime')) {
-  contextBridge.exposeInMainWorld(
-    'runtime',
-    EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED
-      ? {
-          listModels: (runtimeId: string) =>
-            Promise.resolve(createDisabledLocalRuntimeCatalog(runtimeId)),
-          probe: () => Promise.resolve(createDisabledLocalRuntimeAvailability()),
-          resolveOllamaCapabilities: (modelId: string) =>
-            Promise.resolve({
-              checkedAt: Date.now(),
-              endpoint: 'disabled-by-e2e',
-              message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
-              modelId,
-              state: 'unavailable' as const,
-            }),
-          verifyEmbeddingDimensions: () =>
-            Promise.resolve({
-              checkedAt: Date.now(),
-              message: EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED_MESSAGE,
-              state: 'failed' as const,
-            }),
-        }
-      : {
-          listModels: (runtimeId: string, options: unknown) =>
-            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.listModels, runtimeId, options),
-          probe: (runtimeId: string, options: unknown) =>
-            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.probe, runtimeId, options),
-          resolveOllamaCapabilities: (modelId: string, options: unknown) =>
-            ipcRenderer.invoke(
-              DESKTOP_IPC_CHANNELS.runtime.resolveOllamaCapabilities,
-              modelId,
-              options
-            ),
-          verifyEmbeddingDimensions: (runtimeId: string, modelId: string, options: unknown) =>
-            ipcRenderer.invoke(
-              DESKTOP_IPC_CHANNELS.runtime.verifyEmbeddingDimensions,
-              runtimeId,
-              modelId,
-              options
-            ),
-        }
-  );
-}
-
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
     getBufferedLogs: (): Promise<IpcResult<LogRecord[]>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getBufferedLogs),
     getPreferences: (): Promise<IpcResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getPreferences),
-    ingestBufferedRecord: (record: LogRecord): void => {
-      ipcRenderer.send(DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord, record);
-    },
     onDurableRecord: (listener: (record: LogRecord) => void) => {
       const ipcListener = (_event: unknown, record: LogRecord) => listener(record);
       ipcRenderer.on(DESKTOP_IPC_CHANNELS.logging.durableRecord, ipcListener);
@@ -445,21 +273,8 @@ if (shouldExposeBridge('desktopDiagnostics')) {
   });
 }
 
-// Power state events (suspend/resume awareness for GPU keep-alive, etc.)
-contextBridge.exposeInMainWorld('power', {
-  getSnapshot: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.runtime.powerSnapshot),
-  onPowerState: (callback: (state: 'suspend' | 'resume') => void) => {
-    const listener = (_event: unknown, state: 'suspend' | 'resume') => callback(state);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.runtime.powerState, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.runtime.powerState, listener);
-    };
-  },
-});
-
 // ⌘K command palette: the app menu's Cmd+K accelerator pushes this event to the
-// focused window so the renderer (visible-UI root) can open the palette. Mirrors
-// the other one-way main→renderer `on*` bridges (e.g. power.onPowerState).
+// focused window so the renderer can open the palette.
 contextBridge.exposeInMainWorld('commandPalette', {
   onOpen: (callback: () => void) => {
     const listener = () => callback();
@@ -496,12 +311,12 @@ if (shouldExposeBridge('workspace')) {
         return '';
       }
     },
-    // The one renderer→main member of this bridge: fire-and-forget, no
-    // response expected. `WorkspaceConnectHost` calls this the instant it
+    // The one renderer→main member of this bridge; a refusal surfaces as an
+    // unhandled rejection. `WorkspaceConnectHost` calls this the instant it
     // subscribes to `onOpenPath`, so main can gate delivery on the renderer
     // actually being ready to receive rather than merely having loaded.
     notifyOpenPathReady: (): void => {
-      ipcRenderer.send(
+      void ipcRenderer.invoke(
         DESKTOP_IPC_CHANNELS.workspace.openPathReady,
         workspaceResetGenerationPayload
       );
@@ -522,141 +337,6 @@ if (shouldExposeBridge('workspace')) {
     },
   });
 }
-
-const embeddingHost = {
-  cancelDocumentEmbeddings: (requestId: string): Promise<void> =>
-    ipcRenderer.invoke(
-      DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings,
-      assertPreloadNonEmptyString(requestId, 'Document cancellation requestId must be non-empty.')
-    ),
-  cancelQueryEmbedding: (requestId: string): Promise<EmbeddingHostQueryCancellationResult> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding, requestId),
-  documentEmbeddings: (
-    payload: EmbeddingHostDocumentEmbeddingsPayload,
-    options: { requestId: string }
-  ): Promise<number[][]> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddings, {
-      payload: assertPreloadDocumentPayload(payload),
-      requestId: assertPreloadNonEmptyString(
-        options.requestId,
-        'Document requestId must be non-empty.'
-      ),
-    }),
-  ensureStarted: (): Promise<EmbeddingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.ensureStarted),
-  getStatus: (): Promise<EmbeddingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.getStatus),
-  modelCacheStatus: (plans: readonly ModelCachePlan[]): Promise<readonly boolean[]> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.modelCacheStatus, plans),
-  onCommand: (callback: (command: EmbeddingHostCommand) => void) => {
-    const listener = (_event: unknown, command: EmbeddingHostCommand) => callback(command);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.command, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.command, listener);
-    };
-  },
-  onDocumentEmbeddingsCancel: (
-    callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
-  ) => {
-    const listener = (_event: unknown, notice: EmbeddingHostDocumentEmbeddingsCancel) =>
-      callback(notice);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsCancel, listener);
-    return () =>
-      ipcRenderer.removeListener(
-        DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsCancel,
-        listener
-      );
-  },
-  onDocumentEmbeddingsRequest: (
-    callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
-  ) => {
-    const listener = (_event: unknown, request: EmbeddingHostDocumentEmbeddingsRequest) =>
-      callback(request);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsRequest, listener);
-    return () => {
-      ipcRenderer.removeListener(
-        DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsRequest,
-        listener
-      );
-    };
-  },
-  onModelCacheStatusRequest: (callback: (request: EmbeddingHostModelCacheRequest) => void) => {
-    const listener = (_event: unknown, request: EmbeddingHostModelCacheRequest) =>
-      callback(request);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.modelCacheStatusRequest, listener);
-    return () => {
-      ipcRenderer.removeListener(
-        DESKTOP_IPC_CHANNELS.embeddingHost.modelCacheStatusRequest,
-        listener
-      );
-    };
-  },
-  onQueryEmbeddingCancel: (callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void) => {
-    const listener = (_event: unknown, notice: EmbeddingHostQueryEmbeddingCancel) =>
-      callback(notice);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, listener);
-    return () =>
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, listener);
-  },
-  onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) => {
-    const listener = (_event: unknown, request: EmbeddingHostQueryEmbeddingRequest) =>
-      callback(request);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest, listener);
-    return () => {
-      ipcRenderer.removeListener(
-        DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest,
-        listener
-      );
-    };
-  },
-  onStatus: (callback: (status: EmbeddingHostStatus) => void) => {
-    const listener = (_event: unknown, status: EmbeddingHostStatus) => callback(status);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.status, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.status, listener);
-    };
-  },
-  onWebgpuAdapterRequest: (callback: (request: EmbeddingHostWebGpuAdapterRequest) => void) => {
-    const listener = (_event: unknown, request: EmbeddingHostWebGpuAdapterRequest) =>
-      callback(request);
-    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapterRequest, listener);
-    return () => {
-      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapterRequest, listener);
-    };
-  },
-  queryEmbedding: (
-    payload: EmbeddingHostQueryEmbeddingPayload,
-    options?: { readonly requestId: string }
-  ): Promise<IpcResult<number[]>> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
-      payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
-      requestId: options?.requestId ?? crypto.randomUUID(),
-    }),
-  reportDocumentEmbeddingsResponse: (
-    response: EmbeddingHostDocumentEmbeddingsResponseReport
-  ): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportDocumentEmbeddingsResponse, response);
-  },
-  reportModelCacheStatusResponse: (response: EmbeddingHostModelCacheResponseReport): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportModelCacheStatusResponse, response);
-  },
-  reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, response);
-  },
-  reportStatus: (status: EmbeddingHostStatus): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportStatus, status);
-  },
-  reportWebgpuAdapterResponse: (response: EmbeddingHostWebGpuAdapterResponseReport): void => {
-    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportWebgpuAdapterResponse, response);
-  },
-  reset: (): Promise<EmbeddingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.reset),
-  stop: (): Promise<EmbeddingHostStatus> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.stop),
-  webgpuAdapter: (): Promise<WebGpuAdapterAvailability> =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapter),
-} satisfies VisibleEmbeddingHostBridge;
-contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
 
 // System Clipboard helper (renderer-friendly). Writes go through main over
 // IPC: sandboxed preloads cannot require Electron's clipboard module, so a

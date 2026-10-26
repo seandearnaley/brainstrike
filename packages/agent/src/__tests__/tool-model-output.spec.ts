@@ -198,8 +198,8 @@ describe('applyToolModelOutputProjections', () => {
   );
 
   it.each([
-    { contextWindow: 8192, label: 'local (Gemma)' },
-    { contextWindow: 32_768, label: 'ollama / lmstudio' },
+    { contextWindow: 8192, label: '8K window' },
+    { contextWindow: 32_768, label: '32K window' },
   ])(
     'BST-1219: uses the unfloored resolved budget for a FRESH domain projection — $label',
     ({ contextWindow }) => {
@@ -216,7 +216,11 @@ describe('applyToolModelOutputProjections', () => {
       };
       expect(decodedTextModelOutputChars(midRangeOutput.value)).toBe(4000);
       expect(() =>
-        assertDomainProjectionWithinBudget('local.ollama-tool', midRangeOutput, freshDefaultBudget)
+        assertDomainProjectionWithinBudget(
+          'brainstrike.small-window-tool',
+          midRangeOutput,
+          freshDefaultBudget
+        )
       ).toThrow(/exceeds the 2000-character budget/);
 
       const anchorSizedOutput = {
@@ -228,7 +232,7 @@ describe('applyToolModelOutputProjections', () => {
       );
       expect(() =>
         assertDomainProjectionWithinBudget(
-          'local.ollama-tool',
+          'brainstrike.small-window-tool',
           anchorSizedOutput,
           freshDefaultBudget
         )

@@ -46,8 +46,8 @@ export function isAllowedProviderEnvVar(provider: string, envVar: string): boole
 /**
  * Every provider id the bridge may legitimately mention. Deliberately the
  * UNFILTERED registry plus Tavily — a listing may name a provider the calling
- * surface does not render (a stored entry for a keyless local runtime), and
- * that is not a malformed payload.
+ * surface does not render (a filtered provider card), and that is not a
+ * malformed payload.
  */
 export function allowedProviderKeyIds(): ReadonlySet<string> {
   return new Set<string>([

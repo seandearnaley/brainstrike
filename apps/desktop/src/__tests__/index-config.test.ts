@@ -11,16 +11,8 @@ import {
   type DesktopIndexConfigDependencies,
 } from '../index-config';
 
-const MODEL = {
-  dimensions: 384,
-  local: { device: 'wasm', dtype: 'q8' },
-  modelKey: 'local::Xenova/bge-small-en-v1.5',
-} as const;
-const OTHER = {
-  dimensions: 1536,
-  local: null,
-  modelKey: 'openai::text-embedding-3-small',
-} as const;
+const MODEL = { dimensions: 1536, modelKey: 'openai::text-embedding-3-small' } as const;
+const OTHER = { dimensions: 3072, modelKey: 'openai::text-embedding-3-large' } as const;
 
 function harness(saved: IndexConfig | null, spaces: CollectionRecord[] = []) {
   let config = saved;
@@ -237,18 +229,8 @@ describe('Main search index config', () => {
 
   it.each([
     {
-      message: 'Choose how to run Xenova/bge-small-en-v1.5 on this device first.',
-      model: { ...MODEL, local: null },
-      name: 'an on-device model with no way to run it',
-    },
-    {
-      message: 'text-embedding-3-small runs through OpenAI, not on this device.',
-      model: { ...OTHER, local: MODEL.local },
-      name: 'a hosted model with an on-device plan',
-    },
-    {
-      message: 'Search index model provider "transformers" is not registered.',
-      model: { ...MODEL, modelKey: 'transformers::Xenova/bge-small-en-v1.5' },
+      message: 'Search index model provider "acme" is not registered.',
+      model: { ...MODEL, modelKey: 'acme::text-embedding-3-small' },
       name: 'a model from an unregistered provider',
     },
   ])('refuses $name and saves nothing', async ({ message, model }) => {

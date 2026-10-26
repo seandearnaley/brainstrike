@@ -33,7 +33,7 @@ type TestState =
   | { readonly failure: BoundaryFailure; readonly kind: 'failed'; readonly target: string };
 
 export interface MemoryEmbedderTestProps {
-  /** The selected hosted embedder's target; absent when none is selected. */
+  /** The selected embedder's target; absent when none is selected. */
   readonly target: string | undefined;
   readonly testEmbedder: TestMemoryEmbedder;
 }
@@ -105,10 +105,7 @@ export function MemoryEmbedderTest({ target, testEmbedder }: MemoryEmbedderTestP
         Test embedder
       </Button>
       {target === undefined && (
-        <p className="text-muted-foreground text-xs">
-          Select a hosted embedding model to test it. On-device models are checked when recall first
-          uses them.
-        </p>
+        <p className="text-muted-foreground text-xs">Select an embedding model to test it.</p>
       )}
       {current?.kind === 'passed' && (
         <p

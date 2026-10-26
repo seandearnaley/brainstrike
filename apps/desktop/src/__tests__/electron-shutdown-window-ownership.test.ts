@@ -2,7 +2,7 @@ import { EventEmitter, once } from 'node:events';
 import { afterEach, expect, it, vi } from 'vitest';
 import { closeElectronApp, type ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
 
-it('keeps hidden renderer command listeners alive until application-owned shutdown', async () => {
+it("keeps the window's command listeners alive until application-owned shutdown", async () => {
   const exit = Object.assign(new EventEmitter(), {
     exitCode: null as number | null,
     killed: false,

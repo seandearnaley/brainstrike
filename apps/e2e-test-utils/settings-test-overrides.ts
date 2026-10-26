@@ -1,81 +1,24 @@
 import type { Page } from '@playwright/test';
 
-type LocalRuntimeId = 'ollama' | 'lmstudio';
-
-type LocalRuntimeAvailabilityState =
-  | {
-      readonly checkedAt: number;
-      readonly endpoint: string;
-      readonly latencyMs: number;
-      readonly state: 'available';
-    }
-  | {
-      readonly checkedAt: number;
-      readonly detail?: string;
-      readonly hint?: string;
-      readonly message?: string;
-      readonly state: 'unavailable';
-    }
-  | {
-      readonly checkedAt: number;
-      readonly message: string;
-      readonly state: 'blocked_web';
-    }
-  | {
-      readonly checkedAt: number;
-      readonly endpoint: string;
-      readonly state: 'auth_required';
-      readonly status: 401 | 403;
-    }
-  | {
-      readonly checkedAt: number;
-      readonly endpoint: string;
-      readonly message: string;
-      readonly state: 'incompatible';
-    }
-  | {
-      readonly checkedAt: number;
-      readonly endpoint: string;
-      readonly lastSuccessfulAt: number;
-      readonly message?: string;
-      readonly reason: 'unavailable' | 'blocked_web' | 'auth_required' | 'incompatible';
-      readonly state: 'stale';
-    };
-
-interface LocalRuntimeProbeOverride {
-  statuses?: Partial<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
-}
-
 interface SerializableSettingsTestOverrides {
   accurateRuntimeAvailable?: boolean | null;
-  localRuntime?: Omit<LocalRuntimeProbeOverride, 'onProbe'> & {
-    trackProbeCounts?: boolean;
-  };
   modelRegistry?: {
     fetchErrorMessage?: string | null;
     snapshot?: {
-      downloadedModels?: Record<string, boolean>;
       models?: unknown[];
       providers?: unknown[];
     };
   };
 }
 
-type BrowserSettingsTestOverrides = Omit<SerializableSettingsTestOverrides, 'localRuntime'> & {
-  localRuntime?: LocalRuntimeProbeOverride;
-};
-
 interface BrowserOverrideWindow {
   // biome-ignore lint/style/useNamingConvention: E2E browser test hook key intentionally uses double underscores.
   __brainstrike_e2e_enable_settings_test_api__?: boolean;
-  __brainstrikeLocalRuntimeProbeCounts__?: Partial<Record<LocalRuntimeId, number>>;
-  __brainstrikePendingSettingsTestOverrides__?: BrowserSettingsTestOverrides;
+  __brainstrikePendingSettingsTestOverrides__?: SerializableSettingsTestOverrides;
   __brainstrikeSettingsTestHooks__?: {
-    readLocalRuntimeProbeCounts: () => Partial<Record<LocalRuntimeId, number>>;
-    resetLocalRuntimeProbeCounts: () => void;
     resetSettingsTestOverrides: () => void;
-    setSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => void;
-    updateSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => void;
+    setSettingsTestOverrides: (overrides: SerializableSettingsTestOverrides) => void;
+    updateSettingsTestOverrides: (overrides: SerializableSettingsTestOverrides) => void;
   };
 }
 
@@ -126,24 +69,6 @@ export async function updateSettingsTestOverrides(
   }, overrides);
 }
 
-export async function readLocalRuntimeProbeCounts(
-  page: Page
-): Promise<Partial<Record<LocalRuntimeId, number>>> {
-  await ensureSettingsTestHooksInstalled(page);
-  return await page.evaluate(() => {
-    const browserWindow = window as unknown as BrowserOverrideWindow;
-    return browserWindow.__brainstrikeSettingsTestHooks__?.readLocalRuntimeProbeCounts() ?? {};
-  });
-}
-
-export async function resetLocalRuntimeProbeCounts(page: Page): Promise<void> {
-  await ensureSettingsTestHooksInstalled(page);
-  await page.evaluate(() => {
-    const browserWindow = window as unknown as BrowserOverrideWindow;
-    browserWindow.__brainstrikeSettingsTestHooks__?.resetLocalRuntimeProbeCounts();
-  });
-}
-
 function installSettingsTestHooksOnWindow(): void {
   type HookApi = NonNullable<BrowserOverrideWindow['__brainstrikeSettingsTestHooks__']>;
 
@@ -152,28 +77,16 @@ function installSettingsTestHooksOnWindow(): void {
     return;
   }
 
-  const resetProbeCounts = (): void => {
-    browserWindow.__brainstrikeLocalRuntimeProbeCounts__ = {};
-  };
-
   // This function is serialized into Playwright's browser context, so keep the
   // merge explicit and cover every retained/updated field in the unit test.
   const mergeOverrides = (
-    current: BrowserSettingsTestOverrides | undefined,
-    updates: BrowserSettingsTestOverrides
-  ): BrowserSettingsTestOverrides => ({
+    current: SerializableSettingsTestOverrides | undefined,
+    updates: SerializableSettingsTestOverrides
+  ): SerializableSettingsTestOverrides => ({
     ...(current ?? {}),
     ...(updates.accurateRuntimeAvailable === undefined
       ? {}
       : { accurateRuntimeAvailable: updates.accurateRuntimeAvailable }),
-    ...(updates.localRuntime
-      ? {
-          localRuntime: {
-            ...(current?.localRuntime ?? {}),
-            ...updates.localRuntime,
-          },
-        }
-      : {}),
     ...(updates.modelRegistry
       ? {
           modelRegistry: {
@@ -185,19 +98,13 @@ function installSettingsTestHooksOnWindow(): void {
   });
 
   const hooks: HookApi = {
-    readLocalRuntimeProbeCounts: () => browserWindow.__brainstrikeLocalRuntimeProbeCounts__ ?? {},
-    resetLocalRuntimeProbeCounts: () => {
-      resetProbeCounts();
-    },
     resetSettingsTestOverrides: () => {
       Reflect.deleteProperty(browserWindow, '__brainstrikePendingSettingsTestOverrides__');
-      resetProbeCounts();
     },
-    setSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => {
+    setSettingsTestOverrides: (overrides: SerializableSettingsTestOverrides) => {
       browserWindow.__brainstrikePendingSettingsTestOverrides__ = overrides;
-      resetProbeCounts();
     },
-    updateSettingsTestOverrides: (overrides: BrowserSettingsTestOverrides) => {
+    updateSettingsTestOverrides: (overrides: SerializableSettingsTestOverrides) => {
       browserWindow.__brainstrikePendingSettingsTestOverrides__ = mergeOverrides(
         browserWindow.__brainstrikePendingSettingsTestOverrides__,
         overrides

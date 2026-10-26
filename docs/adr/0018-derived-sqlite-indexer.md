@@ -22,7 +22,7 @@ Persist a stable random store identity independently of vector identity. New tex
 stores explicitly acquire `embedding: {indexMode: 'text-only'}` without loading a
 model. Vector opt-in explicitly configures the complete embedding profile (model
 ID, immutable revision, dtype, dimensions, token cap) and its hash. The initial
-vector schema qualifies 384-dimensional MiniLM profiles. This first configuration
+vector schema qualifies hosted embedding profiles. This first configuration
 is one writer transaction that retains text, canonical graph metadata and store
 identity; failure leaves the previous state intact. A configured profile cannot
 be replaced by another profile. Explicit `open-existing` acquisition validates

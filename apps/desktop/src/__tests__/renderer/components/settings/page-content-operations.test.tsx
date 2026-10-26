@@ -45,7 +45,7 @@ const assistantAvailability = vi.hoisted(
           providerKeySources: readonly [
             { envVar: 'OPENAI_API_KEY'; provider: 'openai'; source: 'env' },
           ];
-          providers: readonly ['openai', 'local'];
+          providers: readonly ['openai', 'anthropic'];
           state: 'enabled';
         };
   } => ({
@@ -207,10 +207,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     selector(fileExplorerMockState.current),
 }));
 
-vi.mock('@brainstrike/settings-ui/settings/models/model-runtime-services', () => ({
-  configureModelRuntimeServices: vi.fn(),
-}));
-
 vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
   ModelCatalogHeaderActions: vi.fn(() => null),
   ModelSelectionPage: modelSelectionPageMock,
@@ -278,11 +274,6 @@ vi.mock('@brainstrike/settings-ui/settings-category-factories', () => ({
     id: 'hooks',
     title: 'Hooks',
   })),
-  createLocalRuntimeSettingsCategory: () => ({
-    content: <div data-testid="local-runtime-category" />,
-    id: 'local-runtime',
-    title: 'Local Runtime',
-  }),
   createPermissionSettingsCategory: () => ({
     content: <div data-testid="permissions-category" />,
     id: 'permissions',
@@ -788,7 +779,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     getDesktopWindow().agentHost = { connect: async () => undefined };
     assistantAvailability.current = {
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
-      providers: ['openai', 'local'],
+      providers: ['openai', 'anthropic'],
       state: 'enabled',
     };
     const { default: SettingsPageContent } = await import(
@@ -797,10 +788,8 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     render(<SettingsPageContent />);
 
-    // Desktop runs local recall embedders in its embedding host, so its device is offered.
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenCalledWith({
       assistantMemoryBackendAvailable: true,
-      onDeviceEmbedding: true,
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
     });
     // The Model Catalog page no longer carries the memory settings.
@@ -816,7 +805,6 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     expect(createAssistantMemorySettingsCategoryMock).toHaveBeenLastCalledWith({
       assistantMemoryBackendAvailable: expect.any(Boolean),
-      onDeviceEmbedding: true,
     });
   });
 

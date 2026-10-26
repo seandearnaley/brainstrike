@@ -38,35 +38,29 @@ describe('computeDiagnosticFingerprint', () => {
 });
 
 describe('deriveDiagnosticRecordSource', () => {
-  // Single shared implementation (FIX 5, error-observability P2a review): both
-  // the desktop main-process durable NDJSON sink (error-log-sink.ts) and the
-  // renderer DiagnosticSinkBridge's forwarded-record path previously carried
-  // byte-identical copies of this logic — these cases pin the contract that
-  // makes a grep hit in the NDJSON file and a DB row resolve to the same
-  // `source`.
-  it('resolves electron-main from bindings.runtime, regardless of sourceWindowRole', () => {
+  it('resolves electron-main from bindings.runtime', () => {
     expect(
       deriveDiagnosticRecordSource({
         args: [],
-        bindings: { runtime: 'electron-main', sourceWindowRole: 'visible-ui' },
+        bindings: { runtime: 'electron-main' },
         level: LogLevel.ERROR,
         timestamp: 1,
       })
     ).toBe('electron-main');
   });
 
-  it('resolves bindings.sourceWindowRole when runtime is not electron-main', () => {
+  it('resolves electron-renderer from bindings.runtime', () => {
     expect(
       deriveDiagnosticRecordSource({
         args: [],
-        bindings: { sourceWindowRole: 'chunking-host' },
+        bindings: { runtime: 'electron-renderer' },
         level: LogLevel.ERROR,
         timestamp: 1,
       })
-    ).toBe('chunking-host');
+    ).toBe('electron-renderer');
   });
 
-  it('falls back to hidden-host when neither binding is present', () => {
+  it('returns unknown when runtime is absent', () => {
     expect(
       deriveDiagnosticRecordSource({
         args: [],
@@ -74,7 +68,7 @@ describe('deriveDiagnosticRecordSource', () => {
         level: LogLevel.ERROR,
         timestamp: 1,
       })
-    ).toBe('hidden-host');
+    ).toBe('unknown');
   });
 });
 

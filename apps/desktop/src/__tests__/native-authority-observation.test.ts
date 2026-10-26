@@ -14,12 +14,9 @@ import { createNativeIndexActivation } from '../native-index-activation';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
-import { assignWindowRole, clearWindowRoleByWebContentsId } from '../window-role';
-import { createAllowlistedSenderFrame } from './helpers/desktop-ipc-sender-frame-test-allowlist';
-import {
-  getRegisteredIpcMainHandler,
-  resetElectronMainTestHarness,
-} from './helpers/electron-main-test-harness';
+import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { invokeDesktopIpc } from './helpers/desktop-ipc-sender-test-helpers';
+import { mockIpcMain, resetElectronMainTestHarness } from './helpers/electron-main-test-harness';
 import { textSettings, unreadableSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
 
@@ -33,12 +30,18 @@ const mocks = vi.hoisted(() => ({
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
   destroy: vi.fn(),
+  /** Main's hosted document embedder; a TEXT index never calls it. */
+  hostedEmbeddings: vi.fn(),
   manager: {
     attachCanonicalWorkspace: vi.fn(),
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
   },
   readyPort: vi.fn(),
+}));
+vi.mock('../hosted-embeddings', async (original) => ({
+  ...(await original<typeof import('../hosted-embeddings')>()),
+  generateHostedEmbeddings: mocks.hostedEmbeddings,
 }));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
@@ -75,11 +78,9 @@ const unused = async (): Promise<never> => {
 function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
-    commitFile: unused,
     commitScopedFile: unused,
     commitScopedTextFile: unused,
     commitTextFile: unused,
-    configureVectorProfile: unused,
     coverage: unused,
     coverageAuthority: async () => ({
       authorityEpoch: 'b'.repeat(64),
@@ -95,7 +96,6 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     destroy: unused,
     info: async () => ({
       dbPath: '/owned/profile/index.sqlite',
-      embedding: { indexMode: 'text-only' },
       journalMode: 'wal',
       pid: 1,
       readerQueryOnly: 1,
@@ -152,25 +152,22 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
-  const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: catalogFixture.catalog,
-    embedding: transport,
-    modelCatalog: catalogFixture.modelCatalog,
     onError: vi.fn(),
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     settings,
-    storage: { getItem: unused },
   });
-  return { activation, onReceipt, settings, transport };
+  return { activation, hostedEmbeddings: mocks.hostedEmbeddings, onReceipt, settings };
 }
 beforeEach(() => {
   vi.resetAllMocks();
   catalogFixture.reset();
 
+  mocks.hostedEmbeddings.mockImplementation(unused);
   mocks.acquire.mockResolvedValue(writer());
   mocks.acquireProfile.mockResolvedValue(undefined);
   mocks.readyPort.mockReturnValue(writer());
@@ -224,7 +221,7 @@ it.each(['reconfigure', 'rebuild', 'resume'] as const)(
         kind: 'ready',
       });
       expect(mocks.acquire).toHaveBeenCalledOnce();
-      expect(f.transport.documentEmbeddings).not.toHaveBeenCalled();
+      expect(f.hostedEmbeddings).not.toHaveBeenCalled();
       expect(observation).toMatchObject({ kind: 'unavailable' });
     } finally {
       release.resolve();
@@ -273,19 +270,8 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
         throw new Error('Unexpected root registration in read-only test');
       },
     },
-    {
-      retryIndexing: async () => {
-        throw new Error('Unexpected Retry indexing in read-only test');
-      },
-    },
     { read: unused, update: unused }
   );
-  const senderId = 9498;
-  assignWindowRole(
-    { isDestroyed: () => false, once: vi.fn(), webContents: { id: senderId } } as never,
-    'visible-ui'
-  );
-  const event = { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
   let changing: Promise<void> | undefined;
   try {
     await expect(f.activation.acquire()).rejects.toBe(unreadable);
@@ -296,8 +282,10 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
     await entered.promise;
     expect(events.indexOf('readers-joined')).toBeLessThan(events.indexOf('profile-acquire'));
     expect(mocks.acquire).not.toHaveBeenCalled();
-    const status = getRegisteredIpcMainHandler('index-search:status');
-    const observation = await status(event);
+    const observation = await invokeDesktopIpc(
+      mockIpcMain,
+      DESKTOP_IPC_CHANNELS.indexSearch.status
+    );
     release.resolve();
     await changing;
     expect(await capability.status()).toMatchObject({
@@ -305,14 +293,13 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
       kind: 'ready',
     });
     expect(mocks.acquire).toHaveBeenCalledOnce();
-    expect(f.transport.documentEmbeddings).not.toHaveBeenCalled();
+    expect(f.hostedEmbeddings).not.toHaveBeenCalled();
     expect(observation).toMatchObject({ ok: true, value: { kind: 'unavailable' } });
   } finally {
     release.resolve();
     await changing?.catch(() => undefined);
     await f.activation.close();
     unregisterSearch();
-    clearWindowRoleByWebContentsId(senderId);
   }
 });
 

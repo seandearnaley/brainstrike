@@ -51,7 +51,7 @@ it('verifies exact authorized native manifests instead of equal file counts and 
     expect(verified).toEqual({
       complete: true,
       rootId: 'a',
-      ...(await port.info().then(({ embedding, storeId }) => ({ embedding, storeId }))),
+      ...(await port.info().then(({ storeId }) => ({ storeId }))),
       changed: [],
       missing: [],
       unexpected: [],

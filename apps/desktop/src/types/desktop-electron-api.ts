@@ -1,7 +1,4 @@
-import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/stores/vector-preferences-store';
-import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { ModelCachePlan, WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type {
   ContentClearCapability,
   FileSystemWatchEvent,
@@ -11,27 +8,6 @@ import type {
   WatcherHealthEvent,
   WatcherHealthTransition,
 } from '@brainstrike/types';
-import type {
-  EmbeddingHostModelCacheRequest,
-  EmbeddingHostModelCacheResponseReport,
-} from '../embedding-host-model-cache';
-import type {
-  EmbeddingHostCommand,
-  EmbeddingHostDocumentEmbeddingsCancel,
-  EmbeddingHostDocumentEmbeddingsPayload,
-  EmbeddingHostDocumentEmbeddingsRequest,
-  EmbeddingHostDocumentEmbeddingsResponseReport,
-  EmbeddingHostQueryCancellationResult,
-  EmbeddingHostQueryEmbeddingCancel,
-  EmbeddingHostQueryEmbeddingPayload,
-  EmbeddingHostQueryEmbeddingRequest,
-  EmbeddingHostQueryEmbeddingResponseReport,
-  EmbeddingHostStatus,
-} from '../embedding-host-shared';
-import type {
-  EmbeddingHostWebGpuAdapterRequest,
-  EmbeddingHostWebGpuAdapterResponseReport,
-} from '../embedding-host-webgpu-adapter';
 import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
 export interface DesktopStorageBridge {
@@ -103,91 +79,6 @@ export interface VisibleDesktopElectronApi {
   storage: DesktopStorageBridge;
 }
 
-/** The exact `electronAPI` surface exposed to the hidden embedding renderer. */
-export interface EmbeddingHostElectronApi {
-  vectorPreferences: ElectronVectorPreferencesBridge;
-}
-
-export interface VisibleEmbeddingHostBridge {
-  cancelDocumentEmbeddings: (requestId: string) => Promise<void>;
-  cancelQueryEmbedding: (requestId: string) => Promise<EmbeddingHostQueryCancellationResult>;
-  documentEmbeddings: (
-    payload: EmbeddingHostDocumentEmbeddingsPayload,
-    options: { requestId: string }
-  ) => Promise<number[][]>;
-  ensureStarted: () => Promise<EmbeddingHostStatus>;
-  getStatus: () => Promise<EmbeddingHostStatus>;
-  /** Which download plans are fully in the host's model cache, in order (BST-2241). */
-  modelCacheStatus: (plans: readonly ModelCachePlan[]) => Promise<readonly boolean[]>;
-  onCommand: (callback: (command: EmbeddingHostCommand) => void) => () => void;
-  onDocumentEmbeddingsCancel: (
-    callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
-  ) => () => void;
-  onDocumentEmbeddingsRequest: (
-    callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
-  ) => () => void;
-  /** The hidden host answers Main's model cache request (BST-2241). */
-  onModelCacheStatusRequest: (
-    callback: (request: EmbeddingHostModelCacheRequest) => void
-  ) => () => void;
-  onQueryEmbeddingCancel: (
-    callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
-  ) => () => void;
-  onQueryEmbeddingRequest: (
-    callback: (request: EmbeddingHostQueryEmbeddingRequest) => void
-  ) => () => void;
-  onStatus: (callback: (status: EmbeddingHostStatus) => void) => () => void;
-  /** The hidden host answers Main's WebGPU adapter request (BST-1993). */
-  onWebgpuAdapterRequest: (
-    callback: (request: EmbeddingHostWebGpuAdapterRequest) => void
-  ) => () => void;
-  queryEmbedding: (
-    payload: EmbeddingHostQueryEmbeddingPayload,
-    options?: { readonly requestId: string }
-  ) => Promise<BoundaryResult<number[]>>;
-  reportDocumentEmbeddingsResponse: (
-    response: EmbeddingHostDocumentEmbeddingsResponseReport
-  ) => void;
-  reportModelCacheStatusResponse: (response: EmbeddingHostModelCacheResponseReport) => void;
-  reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
-  reportStatus: (status: EmbeddingHostStatus) => void;
-  reportWebgpuAdapterResponse: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
-  reset: () => Promise<EmbeddingHostStatus>;
-  stop: () => Promise<EmbeddingHostStatus>;
-  /** The host's WebGPU detection; starts it without loading a model (BST-1993). */
-  webgpuAdapter: () => Promise<WebGpuAdapterAvailability>;
-}
-
-export type EmbeddingHostRuntimeBridge = Pick<
-  VisibleEmbeddingHostBridge,
-  | 'onCommand'
-  | 'onDocumentEmbeddingsRequest'
-  | 'onDocumentEmbeddingsCancel'
-  | 'reportDocumentEmbeddingsResponse'
-  | 'onQueryEmbeddingRequest'
-  | 'onQueryEmbeddingCancel'
-  | 'reportQueryEmbeddingResponse'
-  | 'reportStatus'
-  | 'onWebgpuAdapterRequest'
-  | 'reportWebgpuAdapterResponse'
-  | 'onModelCacheStatusRequest'
-  | 'reportModelCacheStatusResponse'
->;
-
-interface VisibleDesktopCapabilities {
-  electronAPI: VisibleDesktopElectronApi;
-  embeddingHost: VisibleEmbeddingHostBridge;
-}
-
-interface EmbeddingHostCapabilities {
-  electronAPI: EmbeddingHostElectronApi;
-  embeddingHost: EmbeddingHostRuntimeBridge;
-}
-
-/** Every role that actually exposes `electronAPI`; the hidden LLM host does not. */
-type DesktopRendererCapabilities = EmbeddingHostCapabilities | VisibleDesktopCapabilities;
-export type DesktopElectronApi = DesktopRendererCapabilities['electronAPI'];
-
 type ExactKeyList<Shape, Keys extends readonly (keyof Shape)[]> =
   Exclude<keyof Shape, Keys[number]> extends never ? Keys : never;
 
@@ -206,17 +97,6 @@ const FACTORY_RESET_KEYS = defineExactKeys<DesktopFactoryResetBridge>()([
   'resetLocal',
   'unavailableReason',
 ]);
-const EMBEDDING_ELECTRON_API_KEYS = defineExactKeys<EmbeddingHostElectronApi>()([
-  'vectorPreferences',
-]);
-const VECTOR_PREFERENCES_KEYS = defineExactKeys<ElectronVectorPreferencesBridge>()([
-  'clear',
-  'read',
-  'write',
-]);
-
-export type DesktopElectronApiRole = 'embedding-host' | 'visible-ui';
-
 function assertExactKeys(label: string, value: object, expectedKeys: readonly PropertyKey[]): void {
   const actual = Object.keys(value).sort();
   const expected = [...expectedKeys].map(String).sort();
@@ -227,34 +107,8 @@ function assertExactKeys(label: string, value: object, expectedKeys: readonly Pr
   }
 }
 
-/** Fail preload startup when a role's runtime bridge drifts from its exact type contract. */
-export function assertDesktopElectronApiKeyParity(
-  role: 'visible-ui',
-  api: VisibleDesktopElectronApi
-): void;
-export function assertDesktopElectronApiKeyParity(
-  role: 'embedding-host',
-  api: EmbeddingHostElectronApi
-): void;
-export function assertDesktopElectronApiKeyParity(
-  role: DesktopElectronApiRole,
-  api: DesktopElectronApi
-): void {
-  if (role === 'visible-ui') {
-    const visibleApi = api as VisibleDesktopElectronApi;
-    assertExactKeys('visible-ui electronAPI', visibleApi, VISIBLE_ELECTRON_API_KEYS);
-    assertExactKeys(
-      'visible-ui electronAPI.factoryReset',
-      visibleApi.factoryReset,
-      FACTORY_RESET_KEYS
-    );
-    return;
-  }
-  const embeddingApi = api as EmbeddingHostElectronApi;
-  assertExactKeys('embedding-host electronAPI', embeddingApi, EMBEDDING_ELECTRON_API_KEYS);
-  assertExactKeys(
-    'embedding-host electronAPI.vectorPreferences',
-    embeddingApi.vectorPreferences,
-    VECTOR_PREFERENCES_KEYS
-  );
+/** Fail preload startup when the runtime bridge drifts from its exact type contract. */
+export function assertDesktopElectronApiKeyParity(api: VisibleDesktopElectronApi): void {
+  assertExactKeys('electronAPI', api, VISIBLE_ELECTRON_API_KEYS);
+  assertExactKeys('electronAPI.factoryReset', api.factoryReset, FACTORY_RESET_KEYS);
 }

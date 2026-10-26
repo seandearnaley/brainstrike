@@ -1,24 +1,11 @@
+import type { DistanceMetric, EmbeddingProviderType } from './index.ts';
+
 /** Browser-safe DTOs only. Native process ownership belongs to @brainstrike/indexer. */
 export interface IndexerEmbeddingProfile {
   readonly dimensions: number;
-  readonly distance?: 'cosine' | 'l2' | 'ip';
-  readonly dtype?: 'q4' | 'q8' | 'fp16' | 'fp32';
+  readonly distance: DistanceMetric;
   readonly modelId: string;
-  /** A local model's pooling (BST-1993); absent means 'mean'. */
-  readonly pooling?: 'mean' | 'cls';
-  /** A local model's catalog prompts (BST-1993); none is two empty strings. */
-  readonly prompts?: { readonly document: string; readonly query: string };
-  readonly provider?:
-    | 'local'
-    | 'transformers'
-    | 'openai'
-    | 'google'
-    | 'cohere'
-    | 'voyage'
-    | 'ollama'
-    | 'lmstudio';
-  readonly revision?: string;
-  readonly tokenCap?: number;
+  readonly provider: EmbeddingProviderType;
 }
 export type IndexerEmbeddingState =
   | { readonly indexMode: 'text-only' }
@@ -39,7 +26,7 @@ export interface IndexerPublicationProgress {
   readonly authorityRevision: number;
   readonly mutationRevision: number;
   readonly ownerGeneration: number;
-  /** Same complete local-profile hash as status.embedding, after native producer-profile validation. */
+  /** Same complete profile hash as status.embedding, after native producer-profile validation. */
   readonly profileHash: string | null;
   readonly requestId: string;
   readonly scanGeneration: number;
@@ -50,9 +37,6 @@ export interface IndexerPublicationProgress {
  * Typed lifecycle refusal; no native objects or failure stacks cross the renderer boundary.
  * `rebuild-required`: the store refused to open its file (damaged, or a layout it does not
  * support), so only an explicit rebuild serves again (BST-1878).
- * `embedding-host-unresponsive`: the embedding host stopped responding to a document batch, so
- * only the person's Retry indexing (which restarts it) serves again; never retried automatically
- * (BST-2104).
  * `off`: the saved choice turned search off, so no index is open; turning it on serves again.
  */
 export type NativeIndexRefusalCause =
@@ -64,8 +48,7 @@ export type NativeIndexRefusalCause =
         | 'setup-required'
         | 'settings-invalid'
         | 'source-failure'
-        | 'rebuild-required'
-        | 'embedding-host-unresponsive';
+        | 'rebuild-required';
       readonly message: string;
     };
 
@@ -167,20 +150,7 @@ export type IndexerStatus =
       readonly sourceObservation?: IndexerSourceObservation;
       readonly authorizedRootIds: readonly string[];
       readonly authorizedCollectionIds?: readonly string[];
-      readonly queryPlan?: {
-        readonly modelKey: string;
-        readonly inferencePlan?: {
-          readonly modelId: string;
-          readonly revision?: string;
-          readonly dimensions: number;
-          readonly dtype: 'q4' | 'q8' | 'fp16' | 'fp32';
-          readonly device: 'wasm' | 'webgpu';
-          /** The catalog model's pooling (BST-1993); absent means 'mean'. */
-          readonly pooling?: 'mean' | 'cls';
-          /** The catalog model's prompts (BST-1993); absent means none. */
-          readonly prompts?: { readonly document: string; readonly query: string };
-        };
-      };
+      readonly queryPlan?: { readonly modelKey: string };
       readonly rootReadiness: readonly IndexerRootReadiness[];
     };
 export interface IndexerCoverageRequest {
@@ -327,15 +297,6 @@ export interface IndexRootRegistrationCapability {
   rootsRegistered(): Promise<void>;
 }
 
-/**
- * The remedy for the `embedding-host-unresponsive` refusal: restarts the embedding host through
- * its owner, then re-opens the failed generation so its pending indexing work is admitted again.
- * Refuses any other state, `rebuild-required` included; never runs automatically.
- */
-export interface IndexRetryCapability {
-  retryIndexing(): Promise<void>;
-}
-
 export interface IndexSearchCapability {
   coverage(request: IndexerCoverageRequest): Promise<IndexerCoverage>;
   coverageBatch(requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch>;
@@ -347,88 +308,23 @@ export interface IndexSearchCapability {
   status(): Promise<IndexerStatus>;
 }
 
-/**
- * Same canonical profile identity used by native scoped storage; legacy foundation stays unchanged.
- * Mirrors the native rules: the default 'mean' pooling adds nothing and 'cls' is appended; a
- * profile that states catalog prompts (none being two empty strings) appends the pair.
- */
+/** Same canonical profile identity used by native scoped storage. */
 export function indexerEmbeddingProfileValues(
   profile: IndexerEmbeddingProfile
 ): readonly unknown[] {
-  const pooling = [
-    ...(profile.pooling === 'cls' ? ['cls'] : []),
-    ...(profile.prompts ? [[profile.prompts.query, profile.prompts.document]] : []),
-  ];
-  return profile.provider === undefined
-    ? [
-        profile.modelId,
-        profile.revision ?? null,
-        profile.dtype ?? null,
-        profile.dimensions,
-        profile.tokenCap ?? null,
-        ...pooling,
-      ]
-    : [
-        profile.provider,
-        profile.modelId,
-        profile.dimensions,
-        profile.distance ?? null,
-        profile.revision ?? null,
-        profile.dtype ?? null,
-        profile.tokenCap ?? null,
-        ...pooling,
-      ];
+  return [profile.provider, profile.modelId, profile.dimensions, profile.distance];
 }
+
+const EMBEDDING_PROVIDERS: readonly string[] = ['openai', 'google', 'cohere', 'voyage'];
+const DISTANCE_METRICS: readonly string[] = ['cosine', 'l2', 'ip'];
+
 export function validIndexerEmbeddingProfile(profile: IndexerEmbeddingProfile): boolean {
-  if (
-    !(
-      profile.modelId.trim() &&
-      Number.isSafeInteger(profile.dimensions) &&
-      profile.dimensions > 0 &&
-      profile.dimensions <= 16_000
-    )
-  ) {
-    return false;
-  }
-  if (
-    profile.provider !== undefined &&
-    ![
-      'local',
-      'transformers',
-      'openai',
-      'google',
-      'cohere',
-      'voyage',
-      'ollama',
-      'lmstudio',
-    ].includes(profile.provider)
-  ) {
-    return false;
-  }
-  const local =
-    profile.provider === undefined ||
-    profile.provider === 'local' ||
-    profile.provider === 'transformers';
-  if (!local) {
-    return (
-      ['cosine', 'l2', 'ip'].includes(profile.distance ?? '') &&
-      profile.dtype === undefined &&
-      profile.pooling === undefined &&
-      profile.prompts === undefined &&
-      profile.revision === undefined &&
-      profile.tokenCap === undefined
-    );
-  }
   return (
-    (profile.pooling === undefined || profile.pooling === 'mean' || profile.pooling === 'cls') &&
-    (profile.prompts === undefined ||
-      (typeof profile.prompts.query === 'string' &&
-        typeof profile.prompts.document === 'string')) &&
-    (profile.provider === undefined || ['cosine', 'l2', 'ip'].includes(profile.distance ?? '')) &&
-    profile.dtype !== undefined &&
-    ['q4', 'q8', 'fp16', 'fp32'].includes(profile.dtype) &&
-    (profile.revision === undefined || /^[a-f0-9]{40}$/u.test(profile.revision)) &&
-    (profile.tokenCap === undefined ||
-      (Number.isSafeInteger(profile.tokenCap) && profile.tokenCap > 0))
+    profile.modelId.trim().length > 0 &&
+    Number.isSafeInteger(profile.dimensions) &&
+    profile.dimensions > 0 &&
+    profile.dimensions <= 16_000 &&
+    EMBEDDING_PROVIDERS.includes(profile.provider) &&
+    DISTANCE_METRICS.includes(profile.distance)
   );
 }

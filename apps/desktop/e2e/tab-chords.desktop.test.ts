@@ -31,7 +31,7 @@ function readApplicationMenu(app: ElectronApplication): Promise<readonly MenuIte
   });
 }
 
-/** Live windows in main, hidden host renderers included (E2E may run unshown). */
+/** Live windows in main (E2E may run unshown). */
 function liveWindowCount(app: ElectronApplication): Promise<number> {
   return app.evaluate(
     ({ BrowserWindow }) =>

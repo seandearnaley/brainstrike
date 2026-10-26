@@ -5,141 +5,68 @@ import {
 } from '@brainstrike/assistant-contract/boundary-failure';
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { HOSTED_EMBEDDING_REFUSALS } from '../../hosted-embedding-error';
 import { generateDesktopQueryEmbedding } from '../../renderer/query-embeddings';
 
-const payload = {
-  dimensions: 2,
-  modelId: 'model-a',
-  modelKey: 'local:model-a',
+const request = {
+  dimensions: 1536,
+  modelId: 'text-embedding-3-small',
+  modelKey: 'openai::text-embedding-3-small',
   query: 'held query',
 };
-const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<BoundaryResult<number[]>>>();
-const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
+const embedQuery = vi.fn<(...args: unknown[]) => Promise<BoundaryResult<number[]>>>();
 beforeEach(() => {
-  queryEmbedding.mockReset();
-  cancelQueryEmbedding.mockReset();
-  Object.defineProperty(window, 'embeddingHost', {
+  embedQuery.mockReset();
+  Object.defineProperty(window, 'indexSearch', {
     configurable: true,
-    value: { cancelQueryEmbedding, queryEmbedding },
+    value: { embedQuery },
   });
 });
-describe('visible query signal adapter', () => {
-  it('reconstructs a device loss after the context bridge returns plain data', async () => {
-    queryEmbedding.mockResolvedValue({
-      error: {
-        category: 'availability',
-        code: 'EMBEDDING_DEVICE_LOST',
-        kind: 'fault',
-        message: 'WebGPU device was lost.',
-        remedy: 'Choose the model again to retry.',
-      },
-      ok: false,
-    } as never);
+describe('visible query embedding adapter', () => {
+  it("returns Main's embedding of the query with the index's hosted model", async () => {
+    embedQuery.mockResolvedValue({ ok: true, value: [0.1, 0.2] });
     await expect(
-      generateDesktopQueryEmbedding(payload, { signal: new AbortController().signal })
+      generateDesktopQueryEmbedding(request, { signal: new AbortController().signal })
+    ).resolves.toEqual([0.1, 0.2]);
+    expect(embedQuery).toHaveBeenCalledExactlyOnceWith(request);
+  });
+  it('reconstructs a provider refusal after the context bridge returns plain data', async () => {
+    embedQuery.mockResolvedValue({ error: HOSTED_EMBEDDING_REFUSALS['missing-key'], ok: false });
+    await expect(
+      generateDesktopQueryEmbedding(request, { signal: new AbortController().signal })
     ).rejects.toMatchObject({
-      code: 'EMBEDDING_DEVICE_LOST',
-      failure: { remedy: 'Choose the model again to retry.' },
+      code: 'embedding.missing-key',
+      failure: { remedy: HOSTED_EMBEDDING_REFUSALS['missing-key'].remedy },
     });
   });
-  it('joins failed cancellation delivery with the physical query and preserves both failures', async () => {
-    const physical = Promise.withResolvers<BoundaryResult<number[]>>();
-    const deliveryFailure = new Error('Cancellation IPC failed');
-    const queryFailure = new Error('Independent query failed');
-    queryEmbedding.mockReturnValue(physical.promise);
-    cancelQueryEmbedding.mockRejectedValue(deliveryFailure);
-    const controller = new AbortController();
-    const settled = vi.fn();
-    const result = generateDesktopQueryEmbedding(payload, { signal: controller.signal }).catch(
-      (error: unknown) => {
-        settled();
-        return error;
-      }
-    );
-    controller.abort(new Error('caller stopped'));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(settled).not.toHaveBeenCalled();
-    const token = queryEmbedding.mock.calls[0]?.[1] as { requestId: string };
-    expect(cancelQueryEmbedding).toHaveBeenCalledExactlyOnceWith(token.requestId);
-    physical.reject(queryFailure);
-    await expect(result).resolves.toEqual(
-      expect.objectContaining({
-        errors: [expect.objectContaining({ failure: INTERNAL_FAULT }), deliveryFailure],
-      })
-    );
+  it('reports a failed transport as an internal fault, never Electron prose', async () => {
+    embedQuery.mockRejectedValue(new Error("Error invoking remote method 'brainstrike:invoke'"));
+    const result = generateDesktopQueryEmbedding(request, {
+      signal: new AbortController().signal,
+    });
+    await expect(result).rejects.toBeInstanceOf(BoundaryFailureError);
+    await expect(result).rejects.toMatchObject({ failure: INTERNAL_FAULT });
   });
-  it('does not mask an independent AbortError when the exact main cancellation outcome is false', async () => {
-    const physical = Promise.withResolvers<BoundaryResult<number[]>>();
-    queryEmbedding.mockReturnValue(physical.promise);
-    cancelQueryEmbedding.mockResolvedValue({ cancelled: false });
-    const controller = new AbortController();
-    const failure = new Error('independent backend fault');
-    failure.name = 'AbortError';
-    const result = generateDesktopQueryEmbedding(payload, { signal: controller.signal });
-    const rejected = expect(result).rejects.toBeInstanceOf(BoundaryFailureError);
-    controller.abort();
-    physical.reject(failure);
-    await rejected;
-  });
-  it('joins a racing cancellation delivery before rejecting a physically completed result', async () => {
-    const physical = Promise.withResolvers<BoundaryResult<number[]>>();
-    const delivery = Promise.withResolvers<{ cancelled: boolean }>();
-    queryEmbedding.mockReturnValue(physical.promise);
-    cancelQueryEmbedding.mockReturnValue(delivery.promise);
+  it('drops the answer of a search aborted while Main embedded it', async () => {
+    const answer = Promise.withResolvers<BoundaryResult<number[]>>();
+    embedQuery.mockReturnValue(answer.promise);
     const controller = new AbortController();
     const reason = new Error('superseded');
-    const settled = vi.fn();
-    const result = generateDesktopQueryEmbedding(payload, { signal: controller.signal }).catch(
-      (error: unknown) => {
-        settled();
-        return error;
-      }
-    );
+    const result = generateDesktopQueryEmbedding(request, { signal: controller.signal });
     controller.abort(reason);
-    physical.resolve({ ok: true, value: [0.1, 0.2] });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(settled).not.toHaveBeenCalled();
-    delivery.resolve({ cancelled: false });
-    await expect(result).resolves.toBe(reason);
+    answer.resolve({ ok: true, value: [0.1, 0.2] });
+    await expect(result).rejects.toBe(reason);
   });
-  it('refuses missing cancellation and pre-aborted work before admission', async () => {
+  it('refuses pre-aborted work and a missing capability before calling Main', async () => {
     const controller = new AbortController();
     controller.abort();
     await expect(
-      generateDesktopQueryEmbedding(payload, { signal: controller.signal })
+      generateDesktopQueryEmbedding(request, { signal: controller.signal })
     ).rejects.toBe(controller.signal.reason);
-    Object.defineProperty(window, 'embeddingHost', {
-      configurable: true,
-      value: { queryEmbedding },
-    });
+    Object.defineProperty(window, 'indexSearch', { configurable: true, value: undefined });
     await expect(
-      generateDesktopQueryEmbedding(payload, { signal: new AbortController().signal })
+      generateDesktopQueryEmbedding(request, { signal: new AbortController().signal })
     ).rejects.toThrow('capability is unavailable');
-    expect(queryEmbedding).not.toHaveBeenCalled();
-  });
-  it('rejects a missing cancellation outcome after joining physical completion', async () => {
-    const physical = Promise.withResolvers<BoundaryResult<number[]>>();
-    queryEmbedding.mockReturnValue(physical.promise);
-    cancelQueryEmbedding.mockResolvedValue(undefined as never);
-    const controller = new AbortController();
-    const settled = vi.fn();
-    const result = generateDesktopQueryEmbedding(payload, { signal: controller.signal }).catch(
-      (error: unknown) => {
-        settled();
-        return error;
-      }
-    );
-    controller.abort(new Error('caller stopped'));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(settled).not.toHaveBeenCalled();
-    physical.resolve({ ok: true, value: [0.1, 0.2] });
-    await expect(result).resolves.toEqual(
-      expect.objectContaining({
-        message: 'Query cancellation returned an invalid settlement outcome.',
-      })
-    );
+    expect(embedQuery).not.toHaveBeenCalled();
   });
 });

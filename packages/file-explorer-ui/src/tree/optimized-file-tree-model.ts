@@ -1122,7 +1122,10 @@ export function getSelectedDescendantPathsForDirectory({
   selectedFilePaths,
   selectionModel,
 }: SelectedDirectoryPathsInput): string[] {
-  const directoryPrefix = `${directoryPath}/`;
+  // Tree paths are the host's native paths, so a Windows directory's
+  // descendants are separated by `\`: match on the path's own grammar.
+  const isSameOrDescendant = (path: string): boolean =>
+    path === directoryPath || isDescendantPath(path, directoryPath);
 
   if (selectionModel.mode === 'query' && selectionModel.queryDescriptor) {
     const relativePaths =
@@ -1130,9 +1133,7 @@ export function getSelectedDescendantPathsForDirectory({
         ? resolveQuerySelection(selectionModel.queryDescriptor, querySelectionManifest).filePaths
         : Array.from(selectionModel.materializedPaths ?? []);
 
-    return relativePaths.filter(
-      (path) => path === directoryPath || path.startsWith(directoryPrefix)
-    );
+    return relativePaths.filter(isSameOrDescendant);
   }
 
   const folderPrefix = `${folderId}|@|`;
@@ -1144,8 +1145,7 @@ export function getSelectedDescendantPathsForDirectory({
     }
     const path = compositeKey.slice(folderPrefix.length);
     if (
-      path === directoryPath ||
-      path.startsWith(directoryPrefix) ||
+      isSameOrDescendant(path) ||
       directoryPathCandidates.some((candidatePath) =>
         isSameOrDescendantSelectionPath(path, candidatePath)
       )

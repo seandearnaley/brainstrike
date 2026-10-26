@@ -10,8 +10,6 @@ import type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { attachMcpAppShellBridge } from './apps-shell-bridge';
 import { getMcpAppShellRegistry } from './apps-shell-protocol';
 
-export function attachMcpBridges(
-  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>
-): void {
+export function attachMcpBridges(registry: Pick<DesktopIpcRegistry, 'handle'>): void {
   attachMcpAppShellBridge(getMcpAppShellRegistry(), registry);
 }

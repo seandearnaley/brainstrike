@@ -57,11 +57,7 @@ const refused = (error: { readonly message: string }) =>
 const sameModel = (space: CollectionRecord, model: IndexModel): boolean =>
   space.modelKey === model.modelKey && space.dimensions === model.dimensions;
 
-/**
- * A registered provider's embedding model that runs as saved: an on-device model carries its
- * execution plan and no other model does. Runtime-discovered local-server models verify at
- * inference.
- */
+/** The search index model must be a registered embedding model. */
 export function assertRegisteredEmbeddingModel(model: IndexModel): void {
   const providerId = model.modelKey.slice(0, model.modelKey.indexOf('::'));
   const provider = findProviderDefinition(providerId);
@@ -70,18 +66,8 @@ export function assertRegisteredEmbeddingModel(model: IndexModel): void {
   }
   const modelId = indexModelId(model);
   const definition = provider.models.find((candidate) => candidate.id === modelId);
-  if (
-    !(provider.runtime === 'local' && provider.authType === 'none') &&
-    definition?.type !== 'embedding'
-  ) {
+  if (definition?.type !== 'embedding') {
     throw new Error('Search index model must be a registered embedding model.');
-  }
-  const onDevice = provider.runtime === 'on-device';
-  if (onDevice && model.local === null) {
-    throw new Error(`Choose how to run ${modelId} on this device first.`);
-  }
-  if (!onDevice && model.local !== null) {
-    throw new Error(`${modelId} runs through ${provider.displayName}, not on this device.`);
   }
 }
 

@@ -13,8 +13,6 @@ import {
   createFileSystem,
   createStorage,
   getRootsCatalog,
-  handlers,
-  removeHandler,
   resetRootsCatalog,
   setE2eFileSystemFixture,
 } from './file-system-ipc-test-harness';
@@ -41,7 +39,7 @@ function registerFixture(overrides: Record<string, unknown> = {}): void {
 }
 
 function readFixtureDirectory(): Promise<unknown> {
-  return capabilityHandler('fs:readDirectory')?.(
+  return capabilityHandler('fs:readDirectory')(
     createTrustedInvokeEvent(),
     ROOT_HANDLE
   ) as Promise<unknown>;
@@ -57,20 +55,20 @@ function readFixtureDirectory(): Promise<unknown> {
 describe('fs:readDirectory fixture read delay', () => {
   let fileSystem: ElectronFileSystemAdapter;
   let storage: ElectronStorageAdapter;
+  let close: () => Promise<void>;
 
   beforeEach(() => {
     resetRootsCatalog();
-    handlers.clear();
-    removeHandler.mockClear();
     clearE2eFileSystemFixture();
     fileSystem = createFileSystem();
     storage = createStorage();
-    registerFileSystemIpcHandlers({ fileSystem, getRootsCatalog, storage });
+    close = registerFileSystemIpcHandlers({ fileSystem, getRootsCatalog, storage });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
     clearE2eFileSystemFixture();
+    await close();
   });
 
   it('holds the read for the opted-in delay before serving fixture entries', async () => {

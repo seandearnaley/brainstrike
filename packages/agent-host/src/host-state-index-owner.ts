@@ -262,20 +262,15 @@ export function createStateIndexOwner(options: {
       use((live) => live.prepareStateMessageVectors(request)),
     prepareStateObservationVectors: (request) =>
       use((live) => live.prepareStateObservationVectors(request)),
-    promptVectors: (request) => use((live) => live.promptVectors(request)),
     purgeStateMessageVectors: (request) => use((live) => live.purgeStateMessageVectors(request)),
     purgeStateObservationVectors: (request) =>
       use((live) => live.purgeStateObservationVectors(request)),
-    putStateSearchVectors: (request) => use((live) => live.putStateSearchVectors(request)),
     queryStateMessageVectors: (request) => use((live) => live.queryStateMessageVectors(request)),
     queryStateObservationVectors: (request) =>
       use((live) => live.queryStateObservationVectors(request)),
     rebuildState: (threadId) => use((live) => live.rebuildState(threadId)),
     reindexState: (threadId, seq) => use((live) => live.reindexState(threadId, seq)),
     searchState: (request) => use((live) => live.searchState(request)),
-    searchStateCoverage: (request) => use((live) => live.searchStateCoverage(request)),
-    searchStatePending: (request) => use((live) => live.searchStatePending(request)),
-    searchStateSimilar: (request) => use((live) => live.searchStateSimilar(request)),
     stateBlobCounts: (threads, hashes) => use((live) => live.stateBlobCounts(threads, hashes)),
     stateHealth: () => use((live) => live.stateHealth()),
     stateStats: (threadId) => use((live) => live.stateStats(threadId)),

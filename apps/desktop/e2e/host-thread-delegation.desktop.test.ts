@@ -87,31 +87,31 @@ test('a host thread delegates to a background persona child, wakes with its resu
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   await input.fill('Ask Explorer what the notes say');
   await window.getByRole('button', { exact: true, name: 'Send' }).click();
-
-  // The committed host log first: the parent's turn, its one background
-  // Explorer child, and exactly one wake that delivered the child's return.
-  await expect
-    .poll(async () => committedTree(await readHostThreadTree(electron.getUserDataDir())), {
-      timeout: E2E_TIMEOUTS.messageVisibility,
-    })
-    .toEqual([
-      {
-        child: false,
-        origin: null,
-        runs: [
-          { delivered: [], detail: null, outcome: 'completed', via: 'command' },
-          { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
-        ],
-      },
-      {
-        child: true,
-        origin: { background: true, depth: 1, persona: 'explore' },
-        runs: [{ delivered: [], detail: null, outcome: 'completed', via: 'command' }],
-      },
-    ]);
-  await expect(window.getByText('Parent read the child.').first()).toBeVisible({
+  const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+  await expect(root.getByText('Parent read the child.').first()).toBeVisible({
     timeout: E2E_TIMEOUTS.messageVisibility,
   });
+  // The wake's reply shows before the host commits the wake's end; the pane
+  // leaves the running state once it has.
+  await expect(root.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+
+  // The committed host log: the parent's turn, its one background Explorer
+  // child, and exactly one wake that delivered the child's return.
+  expect(committedTree(await readHostThreadTree(electron.getUserDataDir()))).toEqual([
+    {
+      child: false,
+      origin: null,
+      runs: [
+        { delivered: [], detail: null, outcome: 'completed', via: 'command' },
+        { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
+      ],
+    },
+    {
+      child: true,
+      origin: { background: true, depth: 1, persona: 'explore' },
+      runs: [{ delivered: [], detail: null, outcome: 'completed', via: 'command' }],
+    },
+  ]);
   // The wake's ledger is the model's input, never a message the user sent.
   await expect(window.getByText(LEDGER)).toHaveCount(0);
 
@@ -142,7 +142,6 @@ test('a host thread delegates to a background persona child, wakes with its resu
   expect(JSON.stringify(wakes[0]?.messages)).toContain('Child finding 5A.');
 
   // The card opens the child's own host thread in a workspace tab.
-  const root = window.getByRole('region', { exact: true, name: 'Assistant' });
   await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
   // The child presents its shipped call sign on the card, its tab and its view.
   await root.getByRole('button', { name: CALL_SIGN_CONVERSATION }).click();
@@ -165,29 +164,27 @@ test('a host thread delegates to a background persona child, wakes with its resu
   await expect(root.getByText('Parent read the follow-up.', { exact: true })).toBeVisible({
     timeout: E2E_TIMEOUTS.messageVisibility,
   });
-  await expect
-    .poll(async () => committedTree(await readHostThreadTree(electron.getUserDataDir())), {
-      timeout: E2E_TIMEOUTS.messageVisibility,
-    })
-    .toEqual([
-      {
-        child: false,
-        origin: null,
-        runs: [
-          { delivered: [], detail: null, outcome: 'completed', via: 'command' },
-          { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
-          { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
-        ],
-      },
-      {
-        child: true,
-        origin: { background: true, depth: 1, persona: 'explore' },
-        runs: [
-          { delivered: [], detail: null, outcome: 'completed', via: 'command' },
-          { delivered: [], detail: null, outcome: 'completed', via: 'command' },
-        ],
-      },
-    ]);
+  await expect(childView.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+  await expect(root.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+  expect(committedTree(await readHostThreadTree(electron.getUserDataDir()))).toEqual([
+    {
+      child: false,
+      origin: null,
+      runs: [
+        { delivered: [], detail: null, outcome: 'completed', via: 'command' },
+        { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
+        { delivered: ['returned'], detail: null, outcome: 'completed', via: 'wake' },
+      ],
+    },
+    {
+      child: true,
+      origin: { background: true, depth: 1, persona: 'explore' },
+      runs: [
+        { delivered: [], detail: null, outcome: 'completed', via: 'command' },
+        { delivered: [], detail: null, outcome: 'completed', via: 'command' },
+      ],
+    },
+  ]);
   const continued = modelProvider
     .requests()
     .filter(

@@ -56,9 +56,9 @@ describe('createDesktopFactoryResetHandler', () => {
     expect(invocationOrder).toEqual(['application-data', 'main-storage', 'renderer-replacement']);
   });
 
-  it('stops every hidden/background runtime and requires the profile lease before deletion', async () => {
+  it('stops every background runtime and requires the profile lease before deletion', async () => {
     const resetLocalDatabase = vi.fn(async () => undefined);
-    const embeddingHostStop = vi.fn(async () => undefined);
+    const nativeIndexSourcesStop = vi.fn(async () => undefined);
     const chunkingHostStop = vi.fn(async () => undefined);
     const parserHostStop = vi.fn(async () => undefined);
 
@@ -71,8 +71,8 @@ describe('createDesktopFactoryResetHandler', () => {
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runTransition: (work) => work(),
       runtimes: [
-        { name: 'embedding-host', stop: embeddingHostStop },
-        { name: 'chunking-host', stop: chunkingHostStop },
+        { name: 'native-index-sources', stop: nativeIndexSourcesStop },
+        { name: 'indexer', stop: chunkingHostStop },
         { name: 'parser-host', stop: parserHostStop },
       ],
 
@@ -103,7 +103,7 @@ describe('createDesktopFactoryResetHandler', () => {
     }
 
     await resetOptions.stopBackgroundRuntimes();
-    expect(embeddingHostStop).toHaveBeenCalledTimes(1);
+    expect(nativeIndexSourcesStop).toHaveBeenCalledTimes(1);
     expect(chunkingHostStop).toHaveBeenCalledTimes(1);
     expect(parserHostStop).toHaveBeenCalledTimes(1);
 
@@ -375,10 +375,10 @@ describe('createDesktopFactoryResetHandler', () => {
         return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
       }
     );
-    const stopFailure = new Error('embedding stop failed');
+    const stopFailure = new Error('native index sources stop failed');
     const secondStopFailure = new Error('chunking stop failed');
     const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn() };
-    const embeddingHostStop = vi.fn(async () => {
+    const nativeIndexSourcesStop = vi.fn(async () => {
       throw stopFailure;
     });
     const chunkingHostStop = vi.fn(async () => {
@@ -394,8 +394,8 @@ describe('createDesktopFactoryResetHandler', () => {
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       runTransition: (work) => work(),
       runtimes: [
-        { name: 'embedding-host', stop: embeddingHostStop },
-        { name: 'chunking-host', stop: chunkingHostStop },
+        { name: 'native-index-sources', stop: nativeIndexSourcesStop },
+        { name: 'indexer', stop: chunkingHostStop },
       ],
 
       sessionDataPath: '/mock/userData/session-data',
@@ -403,10 +403,10 @@ describe('createDesktopFactoryResetHandler', () => {
     });
 
     await expect(handleReset.reset()).resolves.toEqual({
-      message: 'Failed to stop desktop reset runtimes: embedding-host, chunking-host',
+      message: 'Failed to stop desktop reset runtimes: native-index-sources, indexer',
       success: false,
     });
-    expect(embeddingHostStop).toHaveBeenCalledTimes(1);
+    expect(nativeIndexSourcesStop).toHaveBeenCalledTimes(1);
     expect(chunkingHostStop).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledWith(
       'Failed to reset desktop application data:',

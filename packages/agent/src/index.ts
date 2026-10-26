@@ -226,11 +226,6 @@ export type {
   AwsCredentialIdentityProvider,
 } from './providers/aws-credential-identity.ts';
 export {
-  createLocalHostEmbeddingModel,
-  type LocalEmbeddingHostClient,
-  type LocalEmbeddingHostQuery,
-} from './providers/local/local-host-embedding-model.ts';
-export {
   applyProviderNativeWebSearch,
   createProviderNativeWebSearchTool,
   type NativeWebSearchProvider,

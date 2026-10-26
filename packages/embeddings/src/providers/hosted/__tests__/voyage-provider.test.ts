@@ -20,7 +20,6 @@ describe('VoyageEmbeddingProvider', () => {
         modelId: mockModelId,
       });
 
-      expect(provider.runtime).toBe('hosted');
       expect(provider.provider).toBe('voyage');
       expect(provider.hasApiKey()).toBe(true);
     });

@@ -1,13 +1,6 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import type { EmbeddingPrompts } from './catalog-embedding-model.ts';
-import type { EmbeddingDimensionParameter, EmbeddingPooling } from './embedding-worker-protocol.ts';
 
-export * from './catalog-embedding-model.ts';
 export * from './embedding-input-hash.ts';
-export * from './embedding-worker-protocol.ts';
-export type * from './local-execution.ts';
-export * from './model-cache-status.ts';
-export * from './onnx-wasm-paths.ts';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
@@ -315,25 +308,14 @@ export function getChunkingRoutePreview(
   }));
 }
 
-export type EmbeddingProviderType =
-  | 'local'
-  | 'transformers'
-  | 'openai'
-  | 'google'
-  | 'cohere'
-  | 'voyage'
-  | 'ollama'
-  | 'lmstudio';
-
-export type LocalProviderType = 'local' | 'transformers';
-
-export type HostedProviderType = Exclude<EmbeddingProviderType, LocalProviderType>;
-
-export type EmbeddingRuntime = 'browser' | 'hosted';
+export type EmbeddingProviderType = 'openai' | 'google' | 'cohere' | 'voyage';
 
 export type DistanceMetric = 'cosine' | 'l2' | 'ip';
 
-export type ProviderDimensionParameter = EmbeddingDimensionParameter;
+export type EmbeddingDimensionParameter =
+  | 'dimensions'
+  | 'output_dimensionality'
+  | 'output_dimension';
 
 export interface EmbeddingModelConfig {
   contextWindow?: number;
@@ -342,15 +324,7 @@ export interface EmbeddingModelConfig {
   id: string;
   name: string;
   origin?: string;
-  /** The catalog row's pooling (BST-1993); absent asks the worker for 'mean'. */
-  pooling?: EmbeddingPooling;
   pricePer1MTokens?: number;
-  /** The catalog row's query/document prompts (BST-1993); absent embeds raw text. */
-  prompts?: EmbeddingPrompts;
-  quantized?: boolean;
-  /** Canonical catalog revision carried by decoded model facts. */
-  revision?: string;
-  size?: string;
   supportedDimensions?: number[] | string;
   tags: string[];
 }
@@ -384,7 +358,6 @@ export interface EmbeddingProviderDefinition {
   envKeys?: readonly string[];
   id: EmbeddingProviderType;
   models: readonly EmbeddingModelDefinition[];
-  runtime: EmbeddingRuntime;
 }
 
 export interface ParsedEmbeddingProviderModel {
@@ -395,30 +368,7 @@ export interface ParsedEmbeddingProviderModel {
 const PROVIDER_SEPARATOR = '::';
 const LEGACY_PROVIDER_SEPARATOR = ':';
 
-/**
- * Keyless hosted runtimes. MIRROR-CONTRACT-TESTED (BST-1361): this package
- * cannot depend on `@brainstrike/assistant-contract`, so
- * `scripts/__tests__/provider-env-keys-mirror-contract.test.mjs` pins this
- * set to the registry's `authType: 'none'` hosted providers.
- */
-const NO_API_KEY_HOSTED_PROVIDERS: ReadonlySet<HostedProviderType> = new Set([
-  'ollama',
-  'lmstudio',
-]);
-
 const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
-  {
-    displayName: 'Local (On device)',
-    id: 'local',
-    models: [],
-    runtime: 'browser',
-  },
-  {
-    displayName: 'Transformers.js',
-    id: 'transformers',
-    models: [],
-    runtime: 'browser',
-  },
   {
     displayName: 'OpenAI',
     // MIRROR-CONTRACT-TESTED (BST-1361): every envKeys list below must equal
@@ -447,7 +397,6 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
         type: 'embedding',
       },
     ],
-    runtime: 'hosted',
   },
   {
     displayName: 'Google AI Studio',
@@ -464,7 +413,6 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
         type: 'embedding',
       },
     ],
-    runtime: 'hosted',
   },
   {
     displayName: 'Cohere',
@@ -487,7 +435,6 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
         type: 'embedding',
       },
     ],
-    runtime: 'hosted',
   },
   {
     displayName: 'Voyage AI',
@@ -510,39 +457,12 @@ const EMBEDDING_PROVIDER_DEFINITIONS: readonly EmbeddingProviderDefinition[] = [
         type: 'embedding',
       },
     ],
-    runtime: 'hosted',
-  },
-  {
-    displayName: 'Ollama (Local Runtime)',
-    id: 'ollama',
-    models: [],
-    runtime: 'hosted',
-  },
-  {
-    displayName: 'LM Studio (Local Runtime)',
-    id: 'lmstudio',
-    models: [],
-    runtime: 'hosted',
   },
 ];
 
 const EMBEDDING_PROVIDER_BY_ID = Object.fromEntries(
   EMBEDDING_PROVIDER_DEFINITIONS.map((definition) => [definition.id, definition])
 ) as Record<EmbeddingProviderType, EmbeddingProviderDefinition>;
-
-export function isLocalProviderType(
-  provider: EmbeddingProviderType
-): provider is LocalProviderType {
-  return provider === 'local' || provider === 'transformers';
-}
-
-export function isHostedProvider(provider: EmbeddingProviderType): provider is HostedProviderType {
-  return !isLocalProviderType(provider);
-}
-
-export function hostedProviderRequiresApiKey(provider: HostedProviderType): boolean {
-  return !NO_API_KEY_HOSTED_PROVIDERS.has(provider);
-}
 
 export function formatEmbeddingProviderModelKey(
   provider: EmbeddingProviderType,
@@ -592,7 +512,10 @@ export function canonicalizeEmbeddingProviderModelKey(
   providerHint?: EmbeddingProviderType
 ): { provider: EmbeddingProviderType; modelId: string; composite: string } | null {
   const parsed = parseEmbeddingProviderModelKey(modelKey);
-  const provider = parsed?.provider ?? providerHint ?? 'local';
+  const provider = parsed?.provider ?? providerHint;
+  if (!provider) {
+    return null;
+  }
   const rawModelId = parsed?.modelId ?? modelKey?.trim() ?? '';
   if (!rawModelId) {
     return null;

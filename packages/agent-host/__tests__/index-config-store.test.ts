@@ -12,7 +12,7 @@ import {
   INDEX_CONFIG_SETTING,
   type IndexConfigSettings,
   serveIndexConfigStore,
-} from '../src/catalog/index-config-store.js';
+} from '../src/catalog/index-config-store.ts';
 
 function settings(): IndexConfigSettings & { readonly values: Map<string, string> } {
   const values = new Map<string, string>();
@@ -61,9 +61,8 @@ test('a profile has no saved index config until Main writes one, then reads it b
       chunking: { _tag: 'Custom', maxTokens: 768, overlap: 64 },
       mode: 'semantic',
       model: {
-        dimensions: 384,
-        local: { device: 'wasm', dtype: 'q8' },
-        modelKey: 'transformers::Xenova/bge-small-en-v1.5',
+        dimensions: 1536,
+        modelKey: 'openai::text-embedding-3-small',
       },
     } as const;
     await client.indexConfig({ config: semantic, operation: 'write' });

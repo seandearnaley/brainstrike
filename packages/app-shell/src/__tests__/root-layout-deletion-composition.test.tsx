@@ -7,7 +7,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import type { PanelLayoutState } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import type React from 'react';
-import { useLayoutEffect, useState } from 'react';
+import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
 import { RootLayoutContent } from '../root-layout-content';
@@ -141,9 +141,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/vector-management', () => ({
+vi.mock('../background-indexing/indexing-activity-coordinator', () => ({
   IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
-  SearchEmbedderProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
@@ -179,34 +178,21 @@ vi.mock('../agent-sidebar-panel', () => ({
     promptsContent,
   }: {
     threadsContent: React.ReactNode;
-    promptsContent: React.ReactNode | ((isActive: boolean) => React.ReactNode);
-  }) => {
-    const [promptsActive, setPromptsActive] = useState(false);
-    return (
-      <div data-testid="agent-sidebar-shell">
-        <button onClick={() => setPromptsActive(true)} type="button">
-          Select Prompts tab
-        </button>
-        <div data-testid="threads-tab-content">{threadsContent}</div>
-        <div data-testid="prompts-tab-content">
-          {typeof promptsContent === 'function' ? promptsContent(promptsActive) : promptsContent}
-        </div>
-      </div>
-    );
-  },
+    promptsContent: React.ReactNode;
+  }) => (
+    <div data-testid="agent-sidebar-shell">
+      <div data-testid="threads-tab-content">{threadsContent}</div>
+      <div data-testid="prompts-tab-content">{promptsContent}</div>
+    </div>
+  ),
 }));
 
 vi.mock('../connected-prompt-manager-lazy', () => ({
-  ConnectedPromptManagerLazy: ({ suggestionsEnabled }: { suggestionsEnabled?: boolean }) => {
+  ConnectedPromptManagerLazy: () => {
     if (mockHandlers.promptManagerSuspended) {
       throw mockHandlers.promptManagerSuspense;
     }
-    return (
-      <div
-        data-suggestions-enabled={suggestionsEnabled ? 'true' : 'false'}
-        data-testid="connected-prompt-manager"
-      />
-    );
+    return <div data-testid="connected-prompt-manager" />;
   },
 }));
 
@@ -227,9 +213,6 @@ vi.mock('../status-items/diagnostics-status-item', () => ({ DiagnosticsStatusIte
 vi.mock('../status-items/indexing-status-item', () => ({ IndexingStatusItem: () => null }));
 vi.mock('../status-items/workspace-root-status-item', () => ({
   WorkspaceRootStatusItem: () => null,
-}));
-vi.mock('@brainstrike/settings-ui/components/global-download-indicator', () => ({
-  GlobalDownloadIndicator: () => null,
 }));
 
 const consumers = new Map<string, ReturnType<typeof useFileSystem>>();

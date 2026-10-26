@@ -1,9 +1,9 @@
 /**
  * Per-million-token pricing for a single model (USD). Mirrors the
  * `pricing` field on the static provider registry's LLM model definitions.
- * Omit / pass `undefined` for unknown pricing and local/keyless models with no
- * billing surface. Explicit zeroes are reserved for reviewed hosted routes that
- * current provider evidence identifies as free; unknown stays "cost unavailable."
+ * Omit / pass `undefined` for unknown pricing. Explicit zeroes are reserved
+ * for reviewed hosted routes that current provider evidence identifies as free;
+ * unknown stays "cost unavailable."
  */
 /**
  * A gateway long-context surcharge band (BST-1708): the upstream

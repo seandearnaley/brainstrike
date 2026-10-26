@@ -10,6 +10,7 @@ import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ESM_REQUIRE_BANNER } from '../../../scripts/build-main-config.mjs';
 
 const resultSchema = Schema.Struct({
   message: Schema.optional(Schema.String),
@@ -32,16 +33,15 @@ beforeAll(async () => {
   directory = await mkdtemp(join(resolve('dist'), 'desktop-reset-proof-'));
   await build({
     absWorkingDir: resolve('.'),
+    banner: ESM_REQUIRE_BANNER,
     bundle: true,
     entryPoints: {
       driver: 'src/__tests__/fixtures/desktop-reset-lease-electron.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',
     },
-    format: 'cjs',
+    format: 'esm',
     nodePaths: [resolve('node_modules')],
     outdir: directory,
-    // apps/desktop is `type: module`; CommonJS output needs `.cjs`.
-    outExtension: { '.js': '.cjs' },
     packages: 'external',
     platform: 'node',
     target: 'node24',
@@ -66,9 +66,9 @@ async function run(mode: string) {
   };
   Reflect.deleteProperty(env, 'ELECTRON_RUN_AS_NODE');
   const args = [
-    join(directory, 'driver.cjs'),
+    join(directory, 'driver.js'),
     userData,
-    join(directory, 'host-lease-entry.cjs'),
+    join(directory, 'host-lease-entry.js'),
     mode,
   ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {

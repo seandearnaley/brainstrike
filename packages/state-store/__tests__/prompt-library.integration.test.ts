@@ -8,7 +8,7 @@ test('prompt catalog retains canonical identity, revisions and usage with stale 
   const root = freshDir('prompt-owner');
   let store = await StateStore.open(root);
   try {
-    const created = await store.promptCatalog({
+    const created = await store.promptLibrary({
       input: {
         content: 'Review {{path}} carefully.',
         id: 'prompt-item-canonical',
@@ -44,22 +44,22 @@ test('prompt catalog retains canonical identity, revisions and usage with stale 
       tags: first.tags,
       title: 'Review safely',
     };
-    const changed = await store.promptCatalog({ input: edit, operation: 'update' });
+    const changed = await store.promptLibrary({ input: edit, operation: 'update' });
     expect(changed.items[0]).toMatchObject({
       content: edit.content,
       id: first.id,
       isFavorite: true,
       revision: 2,
     });
-    await expect(store.promptCatalog({ input: edit, operation: 'update' })).rejects.toThrow();
-    const revisions = await store.promptCatalog({ id: first.id, operation: 'revisions' });
+    await expect(store.promptLibrary({ input: edit, operation: 'update' })).rejects.toThrow();
+    const revisions = await store.promptLibrary({ id: first.id, operation: 'revisions' });
     expect(revisions.revisions).toHaveLength(1);
     expect(revisions.revisions[0]).toMatchObject({
       content: first.content,
       promptItemId: first.id,
       revision: 1,
     });
-    const used = await store.promptCatalog({
+    const used = await store.promptLibrary({
       action: 'new-thread',
       id: first.id,
       operation: 'usage',
@@ -67,12 +67,12 @@ test('prompt catalog retains canonical identity, revisions and usage with stale 
     expect(used.items[0]).toMatchObject({ lastUsedAction: 'new-thread', useCount: 1 });
     await store.close();
     store = await StateStore.open(root);
-    expect(await store.promptCatalog({ id: first.id, operation: 'get' })).toEqual(used);
-    await store.promptCatalog({ id: first.id, operation: 'delete' });
+    expect(await store.promptLibrary({ id: first.id, operation: 'get' })).toEqual(used);
+    await store.promptLibrary({ id: first.id, operation: 'delete' });
     expect(
-      (await store.promptCatalog({ filter: { includeArchived: true }, operation: 'list' })).items
+      (await store.promptLibrary({ filter: { includeArchived: true }, operation: 'list' })).items
     ).toEqual([]);
-    expect((await store.promptCatalog({ id: first.id, operation: 'revisions' })).revisions).toEqual(
+    expect((await store.promptLibrary({ id: first.id, operation: 'revisions' })).revisions).toEqual(
       []
     );
   } finally {

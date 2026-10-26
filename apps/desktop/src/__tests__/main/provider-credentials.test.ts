@@ -21,7 +21,7 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
   return {
     ...actual,
-    isSupportedProvider: (value: string) => ['openai', 'anthropic', 'ollama'].includes(value),
+    isSupportedProvider: (value: string) => ['openai', 'anthropic'].includes(value),
   };
 });
 

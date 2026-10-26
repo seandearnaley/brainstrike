@@ -167,9 +167,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/vector-management', () => ({
+vi.mock('../background-indexing/indexing-activity-coordinator', () => ({
   IndexingActivityCoordinator: () => <div data-testid="indexing-activity-coordinator" />,
-  SearchEmbedderProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('../background-indexing/workspace-collection-sync-provider', () => ({
@@ -205,34 +204,21 @@ vi.mock('../agent-sidebar-panel', () => ({
     promptsContent,
   }: {
     threadsContent: React.ReactNode;
-    promptsContent: React.ReactNode | ((isActive: boolean) => React.ReactNode);
-  }) => {
-    const [promptsActive, setPromptsActive] = useState(false);
-    return (
-      <div data-testid="agent-sidebar-shell">
-        <button onClick={() => setPromptsActive(true)} type="button">
-          Select Prompts tab
-        </button>
-        <div data-testid="threads-tab-content">{threadsContent}</div>
-        <div data-testid="prompts-tab-content">
-          {typeof promptsContent === 'function' ? promptsContent(promptsActive) : promptsContent}
-        </div>
-      </div>
-    );
-  },
+    promptsContent: React.ReactNode;
+  }) => (
+    <div data-testid="agent-sidebar-shell">
+      <div data-testid="threads-tab-content">{threadsContent}</div>
+      <div data-testid="prompts-tab-content">{promptsContent}</div>
+    </div>
+  ),
 }));
 
 vi.mock('../connected-prompt-manager-lazy', () => ({
-  ConnectedPromptManagerLazy: ({ suggestionsEnabled }: { suggestionsEnabled?: boolean }) => {
+  ConnectedPromptManagerLazy: () => {
     if (mockHandlers.promptManagerSuspended) {
       throw mockHandlers.promptManagerSuspense;
     }
-    return (
-      <div
-        data-suggestions-enabled={suggestionsEnabled ? 'true' : 'false'}
-        data-testid="connected-prompt-manager"
-      />
-    );
+    return <div data-testid="connected-prompt-manager" />;
   },
 }));
 
@@ -298,10 +284,6 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('connected-prompt-manager')).toBeInTheDocument();
     expect(screen.getByTestId('connected-prompt-manager')).toBe(
       screen.getByTestId('prompts-tab-content').firstElementChild
-    );
-    expect(screen.getByTestId('connected-prompt-manager')).toHaveAttribute(
-      'data-suggestions-enabled',
-      'false'
     );
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
@@ -479,15 +461,12 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
-  it('disables prompt suggestions on every hidden outer route without unmounting prompts', async () => {
-    const user = userEvent.setup();
+  it('keeps prompts mounted on every hidden outer route', () => {
     renderComponent({
       gitPageContent: <div>Git</div>,
     });
 
-    await user.click(screen.getByRole('button', { name: 'Select Prompts tab' }));
     const promptManager = screen.getByTestId('connected-prompt-manager');
-    expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
 
     for (const path of ['/git']) {
       act(() => {
@@ -496,7 +475,6 @@ describe('RootLayoutContent', () => {
 
       expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
       expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
-      expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'false');
 
       act(() => {
         mockHandlers.onNavigationClick('/');
@@ -504,7 +482,6 @@ describe('RootLayoutContent', () => {
 
       expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
       expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
-      expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
     }
   });
 

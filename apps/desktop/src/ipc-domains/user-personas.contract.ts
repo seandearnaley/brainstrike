@@ -20,7 +20,6 @@ export const userPersonasContract = {
   list: channel<[], AssistantPersonasListResult>({
     channel: DESKTOP_IPC_CHANNELS.userPersonas.list,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
 } satisfies Contract;
 

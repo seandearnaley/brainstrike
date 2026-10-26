@@ -12,7 +12,7 @@ import {
 describe('provider registry metadata', () => {
   it('lists all supported providers with display names', () => {
     const providers = listProviders();
-    expect(providers).toHaveLength(10);
+    expect(providers).toHaveLength(7);
 
     for (const provider of providers) {
       expect(typeof provider.displayName).toBe('string');

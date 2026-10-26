@@ -5,20 +5,17 @@ import { CHILD_SIGNAL_GRACE_MS, canonicalRoot } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import {
   commitResultSchema,
-  commitSchema,
   coverageRequestSchema,
   coverageSchema,
   decoder,
   fileBindingsSchema,
   IndexerError,
   identitySchema,
-  identityStateSchema,
   infoSchema,
   manifestRequestSchema,
   manifestResultSchema,
   type optionsSchema,
   planSchema,
-  profileSchema,
   STATE_CATCH_UP_STEP_EVENTS,
   scopedCommitSchema,
   scopedCoverageBatchRequestSchema,
@@ -58,16 +55,8 @@ import {
   stateObservationPurgeSchema,
   stateObservationQuerySchema,
   stateObservationUpsertSchema,
-  stateSearchCoverageResultSchema,
-  stateSearchCoverageSchema,
   stateSearchHitSchema,
-  stateSearchPendingRowSchema,
-  stateSearchPendingSchema,
   stateSearchSchema,
-  stateSearchSimilarHitSchema,
-  stateSearchSimilarSchema,
-  stateSearchVectorBatchSchema,
-  stateSearchVectorsResultSchema,
   stateStatsSchema,
   stateThreadsSchema,
   textCommitSchema,
@@ -82,7 +71,6 @@ import type {
   StateObservationVectorPort,
 } from './index.ts';
 import { decodeIndexerOptions } from './options.ts';
-import { promptVectorReplySchema, promptVectorRequestSchema } from './prompt-vector-contract.ts';
 import { RpcClient } from './rpc-client.ts';
 import { validateStateModule } from './state-projection.ts';
 
@@ -365,8 +353,6 @@ export function createIndexerConnection(
         decoder(Schema.Boolean)
       ),
     close,
-    commitFile: async (commit) =>
-      call('commit-file', decoder(commitSchema)(commit), decoder(commitResultSchema)),
     commitScopedFile: async (request) =>
       call('commit-scoped-file', decoder(scopedCommitSchema)(request), decoder(commitResultSchema)),
     commitScopedTextFile: async (request) =>
@@ -377,12 +363,6 @@ export function createIndexerConnection(
       ),
     commitTextFile: async (commit) =>
       call('commit-text-file', decoder(textCommitSchema)(commit), decoder(commitResultSchema)),
-    configureVectorProfile: async (profile) =>
-      call(
-        'configure-vector-profile',
-        decoder(profileSchema)(profile),
-        decoder(identityStateSchema)
-      ),
     coverage: async (request) =>
       call('coverage', decoder(coverageRequestSchema)(request), decoder(coverageSchema)),
     coverageAuthority: () => call('coverage-authority', null, decoder(coverageAuthoritySchema)),
@@ -433,12 +413,6 @@ export function createIndexerConnection(
         decoder(stateObservationPrepareSchema)(request),
         decoder(stateObservationPlanSchema)
       ),
-    promptVectors: (request) =>
-      call(
-        'prompt-vectors',
-        decoder(promptVectorRequestSchema)(request),
-        decoder(promptVectorReplySchema)
-      ),
     purgeFile: async (identity) =>
       call('purge-file', decoder(identitySchema)(identity), decoder(Schema.Boolean)),
     purgeStateMessageVectors: async (request) =>
@@ -452,12 +426,6 @@ export function createIndexerConnection(
         'state-observation-purge',
         decoder(stateObservationPurgeSchema)(request),
         decoder(Schema.Boolean)
-      ),
-    putStateSearchVectors: (request) =>
-      call(
-        'state-search-vectors',
-        decoder(stateSearchVectorBatchSchema)(request),
-        decoder(stateSearchVectorsResultSchema)
       ),
     queryStateMessageVectors: async (request) =>
       call(
@@ -521,24 +489,6 @@ export function createIndexerConnection(
       const request = decoder(stateSearchSchema)(input);
       return read(request.threadIds, () =>
         call('state-search', request, decoder(Schema.Array(stateSearchHitSchema)))
-      );
-    },
-    searchStateCoverage: async (input) => {
-      const request = decoder(stateSearchCoverageSchema)(input);
-      return read(request.threadIds, () =>
-        call('state-search-coverage', request, decoder(stateSearchCoverageResultSchema))
-      );
-    },
-    searchStatePending: async (input) => {
-      const request = decoder(stateSearchPendingSchema)(input);
-      return read(request.threadIds, () =>
-        call('state-search-pending', request, decoder(Schema.Array(stateSearchPendingRowSchema)))
-      );
-    },
-    searchStateSimilar: async (input) => {
-      const request = decoder(stateSearchSimilarSchema)(input);
-      return read(request.threadIds, () =>
-        call('state-search-similar', request, decoder(Schema.Array(stateSearchSimilarHitSchema)))
       );
     },
     stateBlobCounts: async (threads, hashes) => {

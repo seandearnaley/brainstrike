@@ -88,7 +88,6 @@ it('mixed versions catch up and rebuild using current shapes without rewriting t
     });
     expect(found.hits.map((hit) => hit.fileId)).toEqual(['kept']);
     expect(found.storeId).toBe(identity.storeId);
-    expect(found.embedding).toEqual(identity.embedding);
     expect(await f.indexer.health()).toEqual({ indexerErrors: [] });
   } finally {
     await f.close();

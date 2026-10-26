@@ -40,7 +40,7 @@ describe('file-system IPC contracts', () => {
     ]);
   });
 
-  it('maps each transport envelope and visible-UI authorization', () => {
+  it('maps each transport envelope', () => {
     const expectedChannels = new Set<string>(Object.values(DESKTOP_IPC_CHANNELS.files));
     const specs = [...Object.values(fileSystemContract), ...Object.values(fileSystemWatchContract)];
     for (const spec of specs) {
@@ -51,7 +51,6 @@ describe('file-system IPC contracts', () => {
             ? 'ipc-result'
             : 'raw'
         );
-        expect(spec.roles).toEqual(['visible-ui']);
       }
     }
     expect(fileSystemWatchContract.onWatchEvent.channel).toBe(

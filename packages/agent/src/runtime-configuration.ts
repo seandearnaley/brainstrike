@@ -11,7 +11,6 @@ import {
   assertValidProviderAuthInput,
   type ProviderAuthInput,
 } from './providers/provider-auth-input.ts';
-import { providerAuthType } from './providers/types.ts';
 import type { RuntimeData } from './types.ts';
 
 const logger = createLogger('MastraAgentRuntimeConfig');
@@ -76,19 +75,9 @@ export function resolveRuntimeConfiguration(
     ? { ...runtimeData, provider: normalizedProvider }
     : { provider: normalizedProvider };
 
-  // Malformed auth inputs (aws without a region) fail HERE, before any keyless
-  // or missing-key decision — a shape error must never read as a key error.
+  // Malformed auth inputs (aws without a region) fail HERE, before any
+  // missing-key decision — a shape error must never read as a key error.
   assertValidProviderAuthInput(authInput);
-
-  // Keyless providers (registry `authType: 'none'`) do not require API keys.
-  if (providerAuthType(normalizedProvider) === 'none') {
-    return {
-      apiKey: '',
-      ...(authInput ? { authInput } : {}),
-      provider: normalizedProvider,
-      runtime: sanitizedRuntime,
-    };
-  }
 
   if (authInput) {
     // A threaded auth input is AUTHORITATIVE: no fallback into runtime/env

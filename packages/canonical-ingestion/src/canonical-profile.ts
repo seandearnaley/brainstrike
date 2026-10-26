@@ -1,20 +1,10 @@
-// A collection's vector profile and the inference that produces its vectors: desktop's native index embeds
-// through these owners.
-import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+// A collection's vector profile and the hosted provider that produces its vectors: desktop's native
+// index embeds through these owners.
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
-import {
-  type CatalogEmbeddingWorkerPlan,
-  type CatalogModelFacts,
-  resolveCatalogEmbeddingPlan,
-  type SelectedEmbeddingRequestPlan,
-} from '@brainstrike/embeddings/inference-plan';
-import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
+import { parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { vectorProfileHash } from '@brainstrike/indexer';
-import {
-  decodeCatalogEmbeddingModel,
-  type HostedProviderType,
-} from '@brainstrike/indexing-contract';
+import type { EmbeddingProviderType } from '@brainstrike/indexing-contract';
 import type { CollectionPort } from '@brainstrike/state-store';
 import type { CollectionRecord } from '@brainstrike/types';
 import { Schema } from 'effect';
@@ -39,20 +29,11 @@ type ProfileMetadata = Pick<
   'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'
 >;
 
-/** A local model's document embeddings, as the host's inference worker computes them. */
-export interface CanonicalDocumentEmbeddingsPayload {
-  readonly dimensions: number;
-  readonly inferencePlan: CatalogEmbeddingWorkerPlan;
-  readonly modelId: string;
-  readonly modelKey: string;
-  readonly texts: string[];
-}
-
 /** A hosted provider's document embeddings, as the host reaches its provider. */
 export type CanonicalHostedEmbeddings = (input: {
   readonly dimensions: number;
   readonly modelId: string;
-  readonly provider: HostedProviderType;
+  readonly provider: EmbeddingProviderType;
   readonly purpose: 'document';
   readonly signal: AbortSignal;
   readonly texts: string[];
@@ -61,22 +42,10 @@ export type CanonicalHostedEmbeddings = (input: {
 export interface NativeCanonicalProfile {
   readonly modelKey: string;
   readonly profile: VectorProfile;
-  readonly workerPlan: CatalogEmbeddingWorkerPlan | null;
 }
 
-/** The catalog facts a local plan takes from the model's `models` row (BST-1993). */
-export type NativeCatalogModel = CatalogModelFacts;
-
-/**
- * Pure resolution. Reading a profile neither enables vectors nor changes saved choices. `setupRequired`
- * makes the host's own refusal when a local model has no execution chosen yet.
- */
-export function resolveNativeCanonicalProfile(
-  input: ProfileMetadata,
-  selection?: SelectedEmbeddingRequestPlan,
-  model?: NativeCatalogModel,
-  setupRequired: (message: string) => Error = (message) => new Error(message)
-): NativeCanonicalProfile {
+/** Pure resolution. Reading a profile neither enables vectors nor changes saved choices. */
+export function resolveNativeCanonicalProfile(input: ProfileMetadata): NativeCanonicalProfile {
   const metadata = decodeMetadata(input);
   const parsed = parseProviderModelKey(metadata.modelKey);
   if (!parsed) {
@@ -85,54 +54,24 @@ export function resolveNativeCanonicalProfile(
   if (parsed.modelId !== metadata.modelId) {
     throw new Error('Canonical profile modelId disagrees with the saved provider/model key.');
   }
-  const base = {
-    dimensions: metadata.dimensions,
-    distance: metadata.distance,
-    modelId: metadata.modelId,
-    provider: parsed.provider,
-  };
-  if (base.provider !== 'local' && base.provider !== 'transformers') {
-    return {
-      modelKey: metadata.modelKey,
-      profile: { ...base, provider: base.provider },
-      workerPlan: null,
-    };
-  }
-  if (!selection) {
-    throw setupRequired('In Settings, Search & Indexing, choose a setting for Run it on.');
-  }
-  if (selection.modelId !== metadata.modelId || selection.dimensions !== metadata.dimensions) {
-    throw new Error('Canonical local selection disagrees with saved model or dimensions.');
-  }
-  const plan = resolveCatalogEmbeddingPlan(
-    selection,
-    model ?? { dimensions: metadata.dimensions, id: metadata.modelId }
-  );
-  if (plan.kind === 'unavailable') {
-    throw new Error(plan.reason);
-  }
   return {
     modelKey: metadata.modelKey,
-    profile: { ...plan.profile, distance: metadata.distance, provider: base.provider },
-    workerPlan: plan.workerPlan,
+    profile: {
+      dimensions: metadata.dimensions,
+      distance: metadata.distance,
+      modelId: metadata.modelId,
+      provider: parsed.provider,
+    },
   };
 }
 
 export interface NativeCanonicalProfileDependencies {
   readonly collections: CollectionPort;
-  readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
-  /** Read the existing explicit preference/plan source. Never derive pins from names or defaults. */
-  readonly readLocalSelection: (
-    metadata: ProfileMetadata,
-    context: CanonicalOperationContext
-  ) => Promise<SelectedEmbeddingRequestPlan | undefined>;
   /** Existing catalog authority resolves a workspace's membership, without creation. */
   readonly resolveEmbeddingSetId: (
     scope: CanonicalSourceScope,
     context: CanonicalOperationContext
   ) => Promise<string>;
-  /** The host's own refusal when a local model has no execution chosen yet. */
-  readonly setupRequired?: (message: string) => Error;
 }
 
 export class NativeCanonicalProfileResolver {
@@ -175,53 +114,18 @@ export class NativeCanonicalProfileResolver {
     if (metadata.id !== id) {
       throw new Error('Canonical profile query returned an unauthorized embedding set.');
     }
-    const parsed = parseProviderModelKey(metadata.modelKey);
-    if (!(parsed?.provider === 'local' || parsed?.provider === 'transformers')) {
-      return resolveNativeCanonicalProfile(metadata);
-    }
-    const model = (await this.dependencies.modelCatalog.read()).models.find(
-      (candidate) => candidate.id === metadata.modelId && candidate.providerId === 'local'
-    );
-    context.signal.throwIfAborted();
-    if (!model) {
-      throw new Error(`Local embedding model ${metadata.modelId} is not in the model catalog.`);
-    }
-    const catalog = decodeCatalogEmbeddingModel(model);
-    const selection = await this.dependencies.readLocalSelection(metadata, context);
-    context.signal.throwIfAborted();
-    // The collection keeps its own dimensions (a local model may be truncated to fewer).
-    return resolveNativeCanonicalProfile(
-      metadata,
-      selection,
-      {
-        dimensions: metadata.dimensions,
-        id: metadata.modelId,
-        ...(catalog.pooling === undefined ? {} : { pooling: catalog.pooling }),
-        ...(catalog.prompts === undefined ? {} : { prompts: catalog.prompts }),
-        ...(catalog.revision === undefined ? {} : { revision: catalog.revision }),
-      },
-      this.dependencies.setupRequired
-    );
+    return resolveNativeCanonicalProfile(metadata);
   }
 }
 
 export interface NativeCanonicalInferenceDependencies {
-  /** A hosted provider's embeddings; without it, only local models embed. */
-  readonly hostedEmbeddings?: CanonicalHostedEmbeddings;
+  /**
+   * A hosted provider's document embeddings. Settlement proves the request ended, abort included;
+   * a successful cancellation rejects with the supplied signal.reason, other failures stay visible.
+   */
+  readonly hostedEmbeddings: CanonicalHostedEmbeddings;
   readonly resolver: Pick<NativeCanonicalProfileResolver, 'resolve'>;
   readonly scope: CanonicalSourceScope;
-  /**
-   * REQUIRED: promise settlement proves physical renderer completion or joined host retirement,
-   * including abort, timeout and failed cancellation delivery. An early local rejection is unsafe.
-   * A successful cancellation rejects with the supplied signal.reason; other failures stay visible.
-   * The uncorrected HostRequestChannel document relay does not meet this contract.
-   */
-  readonly transport: {
-    readonly documentEmbeddings: (
-      payload: CanonicalDocumentEmbeddingsPayload,
-      options?: { signal?: AbortSignal }
-    ) => Promise<number[][]>;
-  };
 }
 
 type InferencePort = CanonicalInferencePort<VectorProfile>;
@@ -330,31 +234,14 @@ export class NativeCanonicalInference implements InferencePort {
     if (requestedHash !== vectorProfileHash(resolved.profile)) {
       throw new Error('Canonical inference profile differs from current saved selection.');
     }
-    const vectors = resolved.workerPlan
-      ? await this.dependencies.transport.documentEmbeddings(
-          {
-            dimensions: profile.dimensions,
-            inferencePlan: resolved.workerPlan,
-            modelId: profile.modelId,
-            modelKey: resolved.modelKey,
-            texts: chunks.map((chunk) => chunk.content),
-          },
-          { signal: context.signal }
-        )
-      : isHostedProvider(profile.provider) && this.dependencies.hostedEmbeddings
-        ? await this.dependencies.hostedEmbeddings({
-            dimensions: profile.dimensions,
-            modelId: profile.modelId,
-            provider: profile.provider,
-            purpose: 'document',
-            signal: context.signal,
-            texts: chunks.map((chunk) => chunk.content),
-          })
-        : (() => {
-            throw new Error(
-              `Canonical inference execution is unsupported for provider ${profile.provider}.`
-            );
-          })();
+    const vectors = await this.dependencies.hostedEmbeddings({
+      dimensions: profile.dimensions,
+      modelId: profile.modelId,
+      provider: profile.provider,
+      purpose: 'document',
+      signal: context.signal,
+      texts: chunks.map((chunk) => chunk.content),
+    });
     context.signal.throwIfAborted();
     if (
       !Array.isArray(vectors) ||

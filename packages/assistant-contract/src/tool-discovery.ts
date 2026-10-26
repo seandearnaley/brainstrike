@@ -69,7 +69,6 @@ export const TOOL_DISCOVERY_FAILURE_CODES = [
 export type ToolDiscoveryFailureCode = (typeof TOOL_DISCOVERY_FAILURE_CODES)[number];
 
 export type ToolDiscoveryAdapterUnsupportedReason =
-  | 'dynamic-model-capability-unknown'
   | 'model-lacks-requested-native-search'
   | 'provider-has-no-llm'
   | 'requested-adapter-not-supported'
@@ -153,9 +152,6 @@ export function resolveToolDiscoveryAdapter(
 
   const model = listProviderLlmModels(input.provider).find(({ id }) => id === input.modelId);
   if (!model) {
-    if (provider.runtime === 'local') {
-      return unsupportedAdapter('dynamic-model-capability-unknown', input.requestedAdapter);
-    }
     return unsupportedAdapter('unknown-model', input.requestedAdapter);
   }
 

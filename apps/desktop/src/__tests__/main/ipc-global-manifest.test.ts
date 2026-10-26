@@ -1,34 +1,21 @@
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
+import {
+  DESKTOP_IPC_CHANNELS,
+  DESKTOP_IPC_PUSH_CHANNEL,
+} from '../../platform/desktop-ipc-channels';
 import type {
   DesktopIpcChannelRegistration,
   DesktopIpcRegistry,
 } from '../../platform/desktop-ipc-registry';
-import type { Contract } from '../../platform/ipc-contract';
-import { MANUAL_PRODUCTION_REGISTRATIONS } from '../helpers/manual-ipc-inventory';
 
 /**
- * BST-1648 step 5 — the GLOBAL IPC manifest test. `createDesktopIpcRegistry`
- * guards duplicate channels per INSTANCE only; production composes ~38
- * per-domain instances (no global singleton, by ruling), so two domains
- * registering the same channel would only collide at `ipcMain.handle` time
- * in a live app. This harness boots the real `main.ts` — module-scope
- * registrations AND the `app.whenReady()` block through window creation
- * (mcp → main-platform → browser is the last registration) — under the
- * `workspace-open-lifecycle.test.ts` mock shape, wraps the registry factory
- * so every instance is captured, and asserts over `union(getSnapshot())`,
- * the snapshot's first production-shaped consumer:
- *   1. no channel is registered by two instances (the restored global guard);
- *   2. every invoke spec of every `ipc-domains/*.contract.ts` (discovered by
- *      glob, so a migrated domain is covered without editing this file) is
- *      registered, and no push spec ever is;
- *   3. every registered channel is a `DESKTOP_IPC_CHANNELS` manifest literal.
- * RED-proven against a duplicate second-instance registration, a contract
- * domain main.ts never registers, and a non-manifest channel literal.
+ * Boots main.ts to capture its module-scope and ready-time IPC registries.
+ * Checks that host profile startup precedes renderer creation without blocking it.
+ * Verifies preload invokes are registered and native focus changes reach the renderer.
  */
 const registryCapture = vi.hoisted(() => ({
-  instances: [] as { getSnapshot: () => readonly DesktopIpcChannelRegistration[] }[],
+  instances: [] as DesktopIpcRegistry[],
 }));
 const profileStartup = vi.hoisted(() => ({
   acquire: vi.fn<() => Promise<never>>(),
@@ -139,7 +126,7 @@ Object.assign(mockBrowserWindow, {
 });
 
 const mockApp = {
-  commandLine: { appendSwitch: vi.fn() },
+  commandLine: { appendSwitch: vi.fn(), getSwitchValue: vi.fn(() => '') },
   getAppMetrics: vi.fn(() => []),
   getAppPath: vi.fn(() => path.resolve('/mock/app')),
   getPath: vi.fn(() => '/tmp/brainstrike-test-logs'),
@@ -227,62 +214,6 @@ vi.mock('electron-store', () => {
   return { default: MockElectronStore };
 });
 
-// ---- contract + manifest discovery ----
-
-const CONTRACT_MODULES = import.meta.glob<Record<string, unknown>>(
-  '../../ipc-domains/*.contract.ts',
-  { eager: true }
-);
-
-interface DiscoveredContract {
-  readonly contract: Contract;
-  readonly exportName: string;
-  readonly file: string;
-}
-
-function isContract(value: unknown): value is Contract {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const specs = Object.values(value);
-  return (
-    specs.length > 0 &&
-    specs.every(
-      (spec) =>
-        typeof spec === 'object' &&
-        spec !== null &&
-        typeof (spec as { channel?: unknown }).channel === 'string' &&
-        ((spec as { kind?: unknown }).kind === 'invoke' ||
-          (spec as { kind?: unknown }).kind === 'push')
-    )
-  );
-}
-
-function discoverContracts(): DiscoveredContract[] {
-  const discovered: DiscoveredContract[] = [];
-  for (const [file, module] of Object.entries(CONTRACT_MODULES)) {
-    for (const [exportName, value] of Object.entries(module)) {
-      if (isContract(value)) {
-        discovered.push({ contract: value, exportName, file: path.basename(file) });
-      }
-    }
-  }
-  return discovered.sort((left, right) => left.file.localeCompare(right.file));
-}
-
-function flattenManifest(value: unknown, out = new Set<string>()): Set<string> {
-  if (typeof value === 'string') {
-    out.add(value);
-    return out;
-  }
-  if (typeof value === 'object' && value !== null) {
-    for (const nested of Object.values(value)) {
-      flattenManifest(nested, out);
-    }
-  }
-  return out;
-}
-
 const REAL_PROCESS_ARGV = process.argv;
 
 describe('global desktop IPC manifest (BST-1648 step 5)', () => {
@@ -314,11 +245,14 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
   });
 
   afterEach(() => {
+    for (const registry of registryCapture.instances) {
+      registry.unregisterAll();
+    }
     process.argv = REAL_PROCESS_ARGV;
   });
 
   it('boots the full per-domain registry set (module scope + app.whenReady())', () => {
-    expect(registryCapture.instances.length).toBeGreaterThanOrEqual(30);
+    expect(registryCapture.instances).toHaveLength(27);
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.clipboard.writeText,
@@ -336,124 +270,28 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     expect(profileStartup.events).toContain('window');
   });
 
-  it('registers every channel on exactly one registry instance (the global duplicate guard)', () => {
-    const counts = new Map<string, number>();
-    for (const registration of union) {
-      counts.set(registration.channel, (counts.get(registration.channel) ?? 0) + 1);
-    }
-    const duplicates = [...counts.entries()].filter(([, count]) => count > 1);
-    expect(duplicates).toEqual([]);
-  });
-
-  it('does not register retired SQL, queue or integrity invokes', () => {
-    const retired = new Set<string>([
-      // The retired desktop PGlite bridge (BST-2068): its channels left the catalog too.
-      'db:query',
-      'db:exec',
-      'db:live-query:start',
-      'db:live-query:stop',
-      'db:integrity:state',
-      // The retired embedding backfill bridge (BST-2023): neither side may return.
-      'embedding-host:enqueue-backfill',
-      'embedding-host:cancel-backfill',
-      'embedding-host:cancel-all-backfills',
-      'embedding-host:get-backfills-in-flight',
-    ]);
-    expect(union.filter((entry) => retired.has(entry.channel))).toEqual([]);
-  });
-
   it('exposes no preload channel that main does not handle (BST-2023)', async () => {
-    // A bridge method over an unregistered channel rejects "No handler registered" only
-    // when a renderer calls it; this keeps every preload invoke and send backed by Main.
     const { readFileSync } = await vi.importActual<typeof import('node:fs')>('node:fs');
-    const groups = DESKTOP_IPC_CHANNELS as unknown as Record<string, Record<string, unknown>>;
-    const expected = ['preload.ts', 'hidden-preload.ts'].flatMap((file) =>
-      [
-        ...readFileSync(path.resolve(import.meta.dirname, '../..', file), 'utf8').matchAll(
-          /ipcRenderer\.(invoke|send)\(\s*DESKTOP_IPC_CHANNELS\.(\w+)\.(\w+)/g
-        ),
-      ].map(([, method, group = '', name = '']) => ({
-        channel: String(groups[group]?.[name] ?? `${group}.${name}`),
-        file,
-        kind: method === 'invoke' ? 'invoke' : 'event',
-      }))
-    );
-    expect(expected.length).toBeGreaterThan(50);
-    // Preload and Main both gate these on E2E test mode, which this boot is not.
-    const e2eOnly = new Set<string>([
+    const groups: Record<string, Record<string, string>> = DESKTOP_IPC_CHANNELS;
+    const preload = readFileSync(path.resolve(import.meta.dirname, '../../preload.ts'), 'utf8');
+    const expected = [
+      ...preload.matchAll(
+        /ipcRenderer\.invoke(?:<[^>]*>)?\(\s*DESKTOP_IPC_CHANNELS\.(\w+)\.(\w+)/g
+      ),
+    ].map(([, group = '', name = '']) => {
+      const channel = groups[group]?.[name];
+      expect(channel, `${group}.${name}`).toBeDefined();
+      return channel;
+    });
+    expect(expected.length).toBeGreaterThanOrEqual(30);
+    const registered = new Set<string>([
+      ...union.map(({ channel }) => channel),
       DESKTOP_IPC_CHANNELS.storage.clearAllForE2e,
       DESKTOP_IPC_CHANNELS.storage.seedMainOwnedForE2e,
     ]);
-    const registered = new Set([
-      ...union.map(({ channel, kind }) => `${kind} ${channel}`),
-      ...[...e2eOnly].map((channel) => `invoke ${channel}`),
-    ]);
-    expect(expected.filter(({ channel, kind }) => !registered.has(`${kind} ${channel}`))).toEqual(
+    expect(expected.filter((channel) => channel === undefined || !registered.has(channel))).toEqual(
       []
     );
-  });
-
-  it('registers every contract invoke channel exactly once, as an invoke, and never a push event', () => {
-    const contracts = discoverContracts();
-    expect([...new Set(contracts.map(({ file }) => file))]).toEqual([
-      'agent-host-recovery.contract.ts',
-      'clipboard.contract.ts',
-      'content-clear.contract.ts',
-      'context-files.contract.ts',
-      'database.contract.ts',
-      'factory-reset.contract.ts',
-      'file-system.contract.ts',
-      'index-search.contract.ts',
-      'mcp.contract.ts',
-      'model-catalog.contract.ts',
-      'prompt-library.contract.ts',
-      'storage-preferences.contract.ts',
-      'thread-groups.contract.ts',
-      'user-personas.contract.ts',
-      'view-filter-presets.contract.ts',
-      'window-focus.contract.ts',
-    ]);
-    expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(1);
-    expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);
-    expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(2);
-    expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(
-      3
-    );
-    const registeredInvokes = new Map(
-      union.filter((entry) => entry.kind === 'invoke').map((entry) => [entry.channel, entry])
-    );
-    for (const { contract, exportName } of contracts) {
-      for (const [key, spec] of Object.entries(contract)) {
-        if (spec.kind === 'push') {
-          expect(
-            union.map((entry) => entry.channel),
-            `${exportName}.${key}`
-          ).not.toContain(spec.channel);
-          continue;
-        }
-        expect(registeredInvokes.get(spec.channel), `${exportName}.${key}`).toBeDefined();
-      }
-    }
-  });
-
-  it('matches the contract registry plus the explicit manual production inventory exactly', () => {
-    const contractRegistrations = [
-      ...new Map(
-        discoverContracts()
-          .flatMap(({ contract }) => Object.values(contract))
-          .filter((spec) => spec.kind === 'invoke')
-          .map((spec) => [spec.channel, { channel: spec.channel, kind: 'invoke' as const }])
-      ).values(),
-    ];
-    const expected = [...contractRegistrations, ...MANUAL_PRODUCTION_REGISTRATIONS]
-      .map(({ channel, kind }) => ({ channel, kind }))
-      .sort((left, right) => left.channel.localeCompare(right.channel));
-    const actual = union
-      .map(({ channel, kind }) => ({ channel, kind }))
-      .sort((left, right) => left.channel.localeCompare(right.channel));
-
-    expect(new Set(expected.map(({ channel }) => channel)).size).toBe(expected.length);
-    expect(actual).toEqual(expected);
   });
 
   it("publishes the main window's native focus and blur to its renderer on the window-focus push channel (BST-1864)", () => {
@@ -469,16 +307,14 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     send.mockClear();
 
     fireHandlersRegisteredSoFar(mainWindow.on, 'blur');
-    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.changed, false);
+    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: DESKTOP_IPC_CHANNELS.windowFocus.changed,
+      payload: false,
+    });
     fireHandlersRegisteredSoFar(mainWindow.on, 'focus');
-    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.changed, true);
-  });
-
-  it('registers only DESKTOP_IPC_CHANNELS manifest literals', () => {
-    const manifest = flattenManifest(DESKTOP_IPC_CHANNELS);
-    const offManifest = union
-      .map((entry) => entry.channel)
-      .filter((channelName) => !manifest.has(channelName));
-    expect(offManifest).toEqual([]);
+    expect(send).toHaveBeenCalledWith(DESKTOP_IPC_PUSH_CHANNEL, {
+      method: DESKTOP_IPC_CHANNELS.windowFocus.changed,
+      payload: true,
+    });
   });
 });

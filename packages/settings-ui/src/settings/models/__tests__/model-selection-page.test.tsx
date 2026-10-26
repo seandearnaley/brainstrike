@@ -1,8 +1,8 @@
 /**
  * BST-1805: the Model Catalog page is about models. Assistant Memory and the
  * subagent budgets moved to their own settings categories, so the page must
- * not render them. The cache directory and registry refresh moved into the
- * category header (`ModelCatalogHeaderActions`); the body is the catalog.
+ * not render them. The registry refresh lives in the category header
+ * (`ModelCatalogHeaderActions`); the body is the catalog.
  */
 
 import '@testing-library/jest-dom/vitest';
@@ -15,26 +15,16 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ModelCatalogProps } from '../model-catalog';
-import {
-  configureModelRuntimeServices,
-  type ModelRuntimeServices,
-} from '../model-runtime-services';
 import { ModelCatalogHeaderActions, ModelSelectionPage } from '../model-selection-page';
 import { installCatalogDomStubs } from './catalog-dom-harness';
 
 const catalogProps = vi.hoisted(() => ({ current: null as ModelCatalogProps | null }));
 const toggleMany = vi.hoisted(() => vi.fn());
 const toast = vi.hoisted(() => vi.fn());
-const logError = vi.hoisted(() => vi.fn());
 
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   useToast: () => ({ toast }),
-}));
-
-vi.mock('@brainstrike/logging', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
-  createLogger: () => ({ debug: vi.fn(), error: logError, info: vi.fn(), warn: vi.fn() }),
 }));
 
 const DATABASE_NOT_READY_TOAST = {
@@ -78,7 +68,6 @@ beforeEach(() => {
   vi.mocked(useModelRegistrySource).mockReturnValue(null);
   toggleMany.mockReset();
   toast.mockReset();
-  logError.mockReset();
   toggleMany.mockResolvedValue({ committed: false });
 });
 afterEach(() => {
@@ -86,13 +75,11 @@ afterEach(() => {
 });
 
 describe('ModelSelectionPage', () => {
-  it('renders the catalog, and no cache form, memory or subagent settings', () => {
+  it('renders the catalog, and no memory or subagent settings', () => {
     render(<ModelSelectionPage />);
 
     expect(screen.getByTestId('model-catalog-mock')).toBeInTheDocument();
     expect(catalogProps.current?.loaded).toBe(false);
-    expect(screen.queryByTestId('model-cache-dir-trigger')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('model-cache-dir-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('model-registry-refresh')).not.toBeInTheDocument();
     expect(screen.queryByTestId('assistant-memory-settings-section-mock')).not.toBeInTheDocument();
     expect(screen.queryByTestId('subagent-settings-section-mock')).not.toBeInTheDocument();
@@ -108,18 +95,6 @@ describe('ModelSelectionPage', () => {
       });
     });
     expect(toggleMany).toHaveBeenCalledWith(['a', 'b'], false);
-  });
-
-  it('keeps onDownload identity-stable while download state changes', () => {
-    render(<ModelSelectionPage />);
-    const first = catalogProps.current?.onDownload;
-    act(() => {
-      useModelRegistryStore.setState({
-        downloadProgress: { a: 10 },
-        isDownloading: { a: true },
-      });
-    });
-    expect(catalogProps.current?.onDownload).toBe(first);
   });
 
   it('retries the registry fetch against the database', () => {
@@ -158,82 +133,6 @@ describe('ModelSelectionPage', () => {
     expect(toast).toHaveBeenCalledWith(DATABASE_NOT_READY_TOAST);
   });
 
-  it('onDownload for a model missing from the catalog logs and raises a destructive toast', () => {
-    render(<ModelSelectionPage />);
-    act(() => {
-      catalogProps.current?.onDownload('ghost-model');
-    });
-    expect(logError).toHaveBeenCalledWith(
-      'Download requested for a model not in the catalog',
-      expect.objectContaining({ modelId: 'ghost-model' })
-    );
-    expect(toast).toHaveBeenCalledWith({
-      description: 'ghost-model is not in the model catalog.',
-      title: 'Could not download model',
-      variant: 'destructive',
-    });
-  });
-
-  it('downloads the decoded catalog row and claims no percentage the realm cannot report', async () => {
-    const downloadEmbeddingModel = vi.fn<ModelRuntimeServices['downloadEmbeddingModel']>();
-    const settle = Promise.withResolvers<void>();
-    downloadEmbeddingModel.mockReturnValue(settle.promise);
-    configureModelRuntimeServices({
-      downloadEmbeddingModel,
-      readDownloadedEmbeddingModels: async () => [],
-    });
-    act(() => {
-      useModelRegistryStore.setState({
-        models: [
-          {
-            bestFor: null,
-            capabilities: {
-              defaultDimension: 384,
-              pooling: 'cls',
-              prompts: { document: '', query: '' },
-              type: 'embedding',
-            },
-            description: null,
-            icon: null,
-            id: 'granite',
-            isEnabled: true,
-            name: 'Granite',
-            parameters: {
-              execution: { wasm: 'q8', webgpu: 'fp16' },
-              revision: '0123456789abcdef0123456789abcdef01234567',
-            },
-            providerId: 'local',
-            sortOrder: 1,
-            tagline: null,
-          },
-        ],
-      });
-    });
-    render(<ModelSelectionPage />);
-
-    act(() => {
-      catalogProps.current?.onDownload('granite');
-    });
-
-    expect(downloadEmbeddingModel).toHaveBeenCalledWith({
-      dimensions: 384,
-      execution: { wasm: 'q8', webgpu: 'fp16' },
-      id: 'granite',
-      pooling: 'cls',
-      prompts: { document: '', query: '' },
-      revision: '0123456789abcdef0123456789abcdef01234567',
-    });
-    expect(useModelRegistryStore.getState().isDownloading['granite']).toBe(true);
-    // No realm reports byte progress, so the row stays indeterminate, never "0%".
-    expect(useModelRegistryStore.getState().downloadProgress['granite']).toBeUndefined();
-    await act(async () => {
-      settle.resolve();
-      await settle.promise;
-    });
-    expect(useModelRegistryStore.getState().downloadedModels['granite']).toBe(true);
-    configureModelRuntimeServices(null);
-  });
-
   it('shows the registry error with Retry instead of the catalog', () => {
     act(() => {
       useModelRegistryStore.setState({ error: 'boom' });
@@ -247,11 +146,9 @@ describe('ModelSelectionPage', () => {
 });
 
 describe('ModelCatalogHeaderActions', () => {
-  // BST-2241: models live in the embedding realm's cache, which has no folder to choose.
-  it('holds the registry refresh and no cache directory control', () => {
+  it('holds the registry refresh', () => {
     render(<ModelCatalogHeaderActions />);
 
-    expect(screen.queryByTestId('model-cache-dir-trigger')).not.toBeInTheDocument();
     const refresh = screen.getByTestId('model-registry-refresh');
     expect(refresh).toHaveAccessibleName('Refresh model registry');
     expect(refresh).toBeEnabled();

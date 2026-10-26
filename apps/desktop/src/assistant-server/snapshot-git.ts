@@ -17,6 +17,8 @@
  * `invokeGitHookFree` wrapper so `core.fsmonitor`, `core.hooksPath`, and
  * config-managed `hook.*.command` hooks are disabled at command scope on
  * every spawn (the probe inside that helper is the one documented exception).
+ * An operation that runs several commands (a snapshot, initialization) reads
+ * that probe once and gives each of its commands the same flags.
  *
  * RUNNER CONTRACT EXTENSION (deliberate, minimal): {@link SnapshotGitCommandParams}
  * is `git-service.ts`'s `GitCommandRunner` params plus an optional `env` of
@@ -52,6 +54,7 @@ import {
   describeFailure,
   type GitCommandRun,
   invokeGitHookFree,
+  readGitHookFreeFlags,
   stripLineEnding,
 } from './git-service';
 import { STRUCTURED_DIFF_CONTENT_CAP_BYTES } from './git-structured-diff';
@@ -159,6 +162,28 @@ export function snapshotRefForThread(threadId: string): string {
 /** Shipped `info/exclude` backstop for non-git roots (plan global constraint 3). */
 const SHADOW_INFO_EXCLUDE = 'node_modules/\n.DS_Store\n';
 
+/**
+ * The shadow repo's pinned config (plan global constraint 2 + deterministic
+ * commit identity for `commit-tree`), appended to the config `git init` wrote
+ * in one file write rather than one `git config` process per key. A key
+ * `git init` already wrote (`core.filemode`) is overridden: git reads the last
+ * value of a single-valued key.
+ */
+const SHADOW_PINNED_CONFIG = [
+  '[core]',
+  '\tautocrlf = false',
+  '\tfilemode = false',
+  '\tuntrackedCache = true',
+  '[commit]',
+  '\tgpgsign = false',
+  '[advice]',
+  '\taddEmbeddedRepo = false',
+  '[user]',
+  '\tname = BrainStrike Snapshots',
+  '\temail = snapshots@brainstrike.local',
+  '',
+].join('\n');
+
 /** Env-var record for a private index (env-var names are not camelCase). */
 function gitIndexFileEnv(indexPath: string): Readonly<Record<string, string>> {
   const env: Record<string, string> = {};
@@ -184,6 +209,16 @@ export type ShadowBlobRead =
 export interface ShadowGitInvokeOptions {
   readonly binaryStdout?: boolean | undefined;
   readonly env?: Readonly<Record<string, string>> | undefined;
+}
+
+/**
+ * One operation's shadow commands. Each is hook-free under the flags of a
+ * single probe read when the operation began, instead of a probe per command.
+ */
+export interface ShadowGitCommands {
+  invoke(args: readonly string[], options?: ShadowGitInvokeOptions): Promise<GitCommandRun>;
+  resolveRefOrNull(ref: string): Promise<string | null>;
+  runOrThrow(args: readonly string[], options?: ShadowGitInvokeOptions): Promise<GitCommandRun>;
 }
 
 export interface ShadowGitPlumbingOptions {
@@ -212,31 +247,76 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
     });
   }
 
-  /** Hook-free invocation (house pattern) with the operation's env threaded through. */
-  async function invoke(
-    args: readonly string[],
-    options?: ShadowGitInvokeOptions
-  ): Promise<GitCommandRun> {
-    return await invokeGitHookFree(
-      (hookFreeArgs) => invokeRaw(hookFreeArgs, options),
-      args,
-      SNAPSHOT_GIT_TIMEOUT_MS
-    );
-  }
+  /** Commands over one hook-free invocation: a probe per command, or one shared probe. */
+  function commandsOver(
+    invoke: (args: readonly string[], options?: ShadowGitInvokeOptions) => Promise<GitCommandRun>
+  ): ShadowGitCommands {
+    /** Invoke and throw a typed error on any non-clean exit. */
+    async function runOrThrow(
+      args: readonly string[],
+      options?: ShadowGitInvokeOptions
+    ): Promise<GitCommandRun> {
+      const run = await invoke(args, options);
+      if (run.exitCode !== 0 || run.failureReason !== undefined) {
+        throw new SnapshotGitError(
+          'git-command-failed',
+          `git ${args[0] ?? ''} failed for shadow repo at ${gitDir}: ${describeFailure(run)}`
+        );
+      }
+      return run;
+    }
 
-  /** Invoke and throw a typed error on any non-clean exit. */
-  async function runOrThrow(
-    args: readonly string[],
-    options?: ShadowGitInvokeOptions
-  ): Promise<GitCommandRun> {
-    const run = await invoke(args, options);
-    if (run.exitCode !== 0 || run.failureReason !== undefined) {
+    /**
+     * Resolve a ref to its commit oid, or null when the ref does not exist.
+     * Any other failure (corrupt repo, bad ref syntax) throws — absence is the
+     * ONLY quiet outcome, and it is an explicit null, not a fallback.
+     */
+    async function resolveRefOrNull(ref: string): Promise<string | null> {
+      const run = await invoke(['rev-parse', '--quiet', '--verify', ref]);
+      if (run.exitCode === 0 && run.failureReason === undefined) {
+        const oid = stripLineEnding(run.stdout);
+        assertValidOid(oid, `resolved ref ${ref}`);
+        return oid;
+      }
+      if (run.exitCode === 1 && run.failureReason === undefined) {
+        return null;
+      }
       throw new SnapshotGitError(
         'git-command-failed',
-        `git ${args[0] ?? ''} failed for shadow repo at ${gitDir}: ${describeFailure(run)}`
+        `git rev-parse --verify ${ref} failed: ${describeFailure(run)}`
       );
     }
-    return run;
+
+    return { invoke, resolveRefOrNull, runOrThrow };
+  }
+
+  /** Hook-free invocation (house pattern), probing before each command. */
+  const { invoke, resolveRefOrNull, runOrThrow } = commandsOver(
+    async (args, options) =>
+      await invokeGitHookFree(
+        (hookFreeArgs) => invokeRaw(hookFreeArgs, options),
+        args,
+        SNAPSHOT_GIT_TIMEOUT_MS
+      )
+  );
+
+  /**
+   * One operation's commands under a single hook probe, read now. Every
+   * command still carries the same command-scope flags `invokeGitHookFree`
+   * gives it; only the probe is shared, so a hook configured before the
+   * operation starts never runs. A probe failure fails the operation.
+   */
+  async function hookFreeCommands(): Promise<ShadowGitCommands> {
+    const probe = await readGitHookFreeFlags((args) => invokeRaw(args));
+    if (!probe.ok) {
+      throw new SnapshotGitError(
+        'git-command-failed',
+        `git config hook probe failed for shadow repo at ${gitDir}: ${describeFailure(probe.run)}`
+      );
+    }
+    return commandsOver(
+      async (args, options) => await invokeRaw([...probe.flags, ...args], options)
+    );
   }
 
   /**
@@ -263,9 +343,9 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
    * sentinel passed via `GIT_INDEX_FILE`. A runner that ignores `env` would
    * silently share one index across operations — refuse it up front.
    */
-  async function verifyRunnerHonorsEnv(): Promise<void> {
+  async function verifyRunnerHonorsEnv(scoped: ShadowGitCommands): Promise<void> {
     const sentinel = path.join(gitDir, 'runner-env-probe-index');
-    const run = await runOrThrow(['rev-parse', '--git-path', 'index'], {
+    const run = await scoped.runOrThrow(['rev-parse', '--git-path', 'index'], {
       env: gitIndexFileEnv(sentinel),
     });
     if (stripLineEnding(run.stdout) !== sentinel) {
@@ -280,9 +360,9 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
   /**
    * Initialize the shadow git dir if absent: `git init` (HEAD stays unborn —
    * snapshots use their own ref namespaces, never a branch), the pinned
-   * config (plan global constraint 2 + deterministic commit identity for
-   * `commit-tree`), and the `info/exclude` backstop. Idempotent: an existing
-   * repo (HEAD present) is left as-is.
+   * config, and the `info/exclude` backstop. Idempotent: an existing repo
+   * (HEAD present) is left as-is. One hook probe covers its commands: the
+   * config it writes adds no hooks.
    */
   async function ensureInitialized(): Promise<void> {
     const headPath = path.join(gitDir, 'HEAD');
@@ -290,46 +370,15 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
       () => true,
       () => false
     );
+    const scoped = await hookFreeCommands();
     if (!headExists) {
       await fsPromises.mkdir(path.dirname(gitDir), { recursive: true });
-      await runOrThrow(['init', '-q']);
-      const pinnedConfig: readonly (readonly [string, string])[] = [
-        ['core.autocrlf', 'false'],
-        ['core.filemode', 'false'],
-        ['core.untrackedCache', 'true'],
-        ['commit.gpgsign', 'false'],
-        ['advice.addEmbeddedRepo', 'false'],
-        ['user.name', 'BrainStrike Snapshots'],
-        ['user.email', 'snapshots@brainstrike.local'],
-      ];
-      for (const [key, value] of pinnedConfig) {
-        await runOrThrow(['config', key, value]);
-      }
+      await scoped.runOrThrow(['init', '-q']);
+      await fsPromises.appendFile(path.join(gitDir, 'config'), SHADOW_PINNED_CONFIG, 'utf8');
       await fsPromises.mkdir(path.join(gitDir, 'info'), { recursive: true });
       await fsPromises.writeFile(path.join(gitDir, 'info', 'exclude'), SHADOW_INFO_EXCLUDE, 'utf8');
     }
-    await verifyRunnerHonorsEnv();
-  }
-
-  /**
-   * Resolve a ref to its commit oid, or null when the ref does not exist.
-   * Any other failure (corrupt repo, bad ref syntax) throws — absence is the
-   * ONLY quiet outcome, and it is an explicit null, not a fallback.
-   */
-  async function resolveRefOrNull(ref: string): Promise<string | null> {
-    const run = await invoke(['rev-parse', '--quiet', '--verify', ref]);
-    if (run.exitCode === 0 && run.failureReason === undefined) {
-      const oid = stripLineEnding(run.stdout);
-      assertValidOid(oid, `resolved ref ${ref}`);
-      return oid;
-    }
-    if (run.exitCode === 1 && run.failureReason === undefined) {
-      return null;
-    }
-    throw new SnapshotGitError(
-      'git-command-failed',
-      `git rev-parse --verify ${ref} failed: ${describeFailure(run)}`
-    );
+    await verifyRunnerHonorsEnv(scoped);
   }
 
   /**
@@ -388,6 +437,7 @@ export function createShadowGitPlumbing({ gitDir, rootPath, runner }: ShadowGitP
 
   return {
     ensureInitialized,
+    hookFreeCommands,
     invoke,
     readBlobSized,
     resolveRefOrNull,

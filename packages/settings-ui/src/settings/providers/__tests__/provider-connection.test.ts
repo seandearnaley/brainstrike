@@ -26,58 +26,39 @@ function sourcesOf(
 const NO_SOURCES: ReadonlyMap<string, ProviderKeySource<string>> = new Map();
 
 describe('resolveProviderConnection', () => {
-  it('reports a keyless runtime provider as not-applicable, never as disconnected', () => {
-    // ollama/lmstudio/local need NO credential — calling them "disconnected"
-    // would invent a problem the user cannot fix on this surface.
+  it('reports a provider with any source as connected', () => {
     expect(
-      resolveProviderConnection({ authType: 'none', source: undefined, sourceState: 'ready' })
-    ).toBe('not-applicable');
-  });
-
-  it('reports a keyed provider with any source as connected', () => {
-    expect(
-      resolveProviderConnection({
-        authType: 'api_key',
-        source: storedSource('openai'),
-        sourceState: 'ready',
-      })
+      resolveProviderConnection({ source: storedSource('openai'), sourceState: 'ready' })
     ).toBe('connected');
     expect(
       resolveProviderConnection({
-        authType: 'api_key',
         source: envSource('openai', 'OPENAI_API_KEY'),
         sourceState: 'ready',
       })
     ).toBe('connected');
   });
 
-  it('reports a keyed provider with no source as disconnected once the listing is ready', () => {
-    expect(
-      resolveProviderConnection({ authType: 'api_key', source: undefined, sourceState: 'ready' })
-    ).toBe('disconnected');
+  it('reports a provider with no source as disconnected once the listing is ready', () => {
+    expect(resolveProviderConnection({ source: undefined, sourceState: 'ready' })).toBe(
+      'disconnected'
+    );
   });
 
   it('reports unknown when the credential listing itself is unavailable', () => {
     // Web has no secrets bridge and no status payload: "we cannot read this"
     // must never render as "you have not set this".
-    expect(
-      resolveProviderConnection({
-        authType: 'api_key',
-        source: undefined,
-        sourceState: 'unavailable',
-      })
-    ).toBe('unknown');
+    expect(resolveProviderConnection({ source: undefined, sourceState: 'unavailable' })).toBe(
+      'unknown'
+    );
   });
 
   it('reports unknown — never disconnected — while the listing is loading or failed', () => {
     // NO SILENT FALLBACKS: a failed listing cannot support the claim
     // "you have not set this key".
-    expect(
-      resolveProviderConnection({ authType: 'api_key', source: undefined, sourceState: 'loading' })
-    ).toBe('unknown');
-    expect(
-      resolveProviderConnection({ authType: 'aws', source: undefined, sourceState: 'error' })
-    ).toBe('unknown');
+    expect(resolveProviderConnection({ source: undefined, sourceState: 'loading' })).toBe(
+      'unknown'
+    );
+    expect(resolveProviderConnection({ source: undefined, sourceState: 'error' })).toBe('unknown');
   });
 });
 
@@ -89,14 +70,9 @@ describe('buildProviderRuntimeGroups', () => {
       sourcesBySlotId: NO_SOURCES,
     });
 
-    expect(groups.map((group) => group.runtime)).toEqual([
-      'hosted',
-      'gateway',
-      'local',
-      'on-device',
-    ]);
-    expect(groups.map((group) => group.label)).toEqual(['Hosted', 'Gateway', 'Local', 'On device']);
-    expect(PROVIDER_RUNTIME_ORDER).toEqual(['hosted', 'gateway', 'local', 'on-device']);
+    expect(groups.map((group) => group.runtime)).toEqual(['hosted', 'gateway']);
+    expect(groups.map((group) => group.label)).toEqual(['Hosted', 'Gateway']);
+    expect(PROVIDER_RUNTIME_ORDER).toEqual(['hosted', 'gateway']);
   });
 
   it('sorts connected providers first, then registry order within a runtime group', () => {
@@ -145,7 +121,7 @@ describe('buildProviderRuntimeGroups', () => {
 });
 
 describe('listRecommendedProviders', () => {
-  it('recommends the first three unconnected credentialed providers in registry order', () => {
+  it('recommends the first three unconnected providers in registry order', () => {
     const groups = buildProviderRuntimeGroups({
       definitions: listProviders(),
       sourceState: 'ready',
@@ -157,18 +133,6 @@ describe('listRecommendedProviders', () => {
       'anthropic',
       'google',
     ]);
-  });
-
-  it('never recommends a keyless provider — there is nothing to connect', () => {
-    const groups = buildProviderRuntimeGroups({
-      definitions: listProviders(),
-      sourceState: 'ready',
-      sourcesBySlotId: NO_SOURCES,
-    });
-
-    const recommendedIds = listRecommendedProviders(groups).map((card) => card.definition.id);
-    expect(recommendedIds).not.toContain('ollama');
-    expect(recommendedIds).not.toContain('local');
   });
 
   it('skips providers that are already connected', () => {

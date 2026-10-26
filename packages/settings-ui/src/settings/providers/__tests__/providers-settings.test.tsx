@@ -159,26 +159,9 @@ describe('ProvidersSettings — card state', () => {
 
     await screen.findByTestId('provider-group-hosted');
     expect(screen.getByTestId('provider-group-gateway')).toBeInTheDocument();
-    expect(screen.getByTestId('provider-group-local')).toBeInTheDocument();
   });
 
-  // The built-in on-device provider is keyless and embeddings-only: there is no
-  // credential and no connection to configure here, and its models are chosen
-  // in Settings → Embedding. The group id is the registry runtime verbatim
-  // (`provider-group-${runtime}`), so this names `on-device` — the category the
-  // provider actually carries. Asserting the retired `browser` spelling would
-  // pass against a rendered group.
-  it('never offers an on-device provider group', async () => {
-    installSecretsBridge(() => Promise.resolve([]));
-
-    render(<ProvidersSettings verifyProvider={idleVerifier} />);
-
-    await screen.findByTestId('provider-group-hosted');
-    expect(screen.queryByTestId('provider-group-on-device')).not.toBeInTheDocument();
-    expect(screen.getByTestId('provider-group-local')).toBeInTheDocument();
-  });
-
-  it('names the credential store on the card and reports keyless runtimes distinctly', async () => {
+  it('names the credential store on the card', async () => {
     installSecretsBridge(() =>
       Promise.resolve([{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }])
     );
@@ -189,13 +172,6 @@ describe('ProvidersSettings — card state', () => {
       expect(screen.getByTestId('provider-key-source-openai')).toHaveTextContent(
         'Env (OPENAI_API_KEY)'
       )
-    );
-    // A keyless local runtime has no credential to name and must not be
-    // reported as "Not set".
-    expect(screen.queryByTestId('provider-key-source-ollama')).not.toBeInTheDocument();
-    expect(screen.getByTestId('provider-connection-ollama')).toHaveAttribute(
-      'data-connection',
-      'not-applicable'
     );
   });
 

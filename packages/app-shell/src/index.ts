@@ -13,19 +13,17 @@ export {
   buildDraftRuntimeForProvider,
   buildModelSettings,
   buildProviderOptionsWhenReady,
-  getRuntimeProviderLlmModels,
+  getProviderLlmModelDefinitions,
   type LlmProviderModelDefinition,
+  resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
-  toRuntimeProviderModels,
 } from './assistant-ui-panel-wrapper-runtime';
 export * from './connected-prompt-manager';
 export * from './connected-prompt-manager-lazy';
 export * from './diagnostics';
 export * from './hooks/use-assistant-availability';
-export { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 export { useAssistantModelChange } from './hooks/use-assistant-model-change';
 export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
-export { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
 export { useAssistantToolMenu } from './hooks/use-assistant-tool-menu';
 export { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';

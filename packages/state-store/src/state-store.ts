@@ -36,8 +36,7 @@ import type {
   ModelChoiceResult,
   ModelChoiceSnapshot,
 } from './model-choice-types.ts';
-import type { PromptCatalogReply, PromptCatalogRequest } from './prompt-catalog-types.ts';
-import { executePromptLibrary } from './prompt-library.ts';
+import type { PromptCatalogReply } from './prompt-catalog-types.ts';
 import { withSeq } from './run-log-format.mjs';
 import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
 import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.ts';
@@ -546,26 +545,14 @@ export class StateStore implements MemoryDomainPort {
     return request.operation === 'get' ? execute() : this.run(execute);
   }
 
-  /** Internal metadata port and public library operations share the same writer chain. */
-  private async promptMetadata(request: PromptCatalogRequest): Promise<PromptCatalogReply> {
-    const reply = await this.call({ op: 'prompt-catalog', request });
-    return {
-      items: reply['items'] as PromptCatalogReply['items'],
-      revisions: reply['revisions'] as PromptCatalogReply['revisions'],
-    };
-  }
-  promptCatalog(request: PromptCatalogRequest): Promise<PromptCatalogReply> {
-    return this.run(() => this.promptMetadata(request));
-  }
+  /** Prompt Library operations, on the writer chain. */
   promptLibrary(request: PromptLibraryRequest): Promise<PromptLibraryReply> {
-    return this.run(() => {
-      const indexer = this.requireIndexer('Prompt Library');
-      if (!indexer.promptVectors) {
-        throw new Error('Prompt Library requires the acquired native prompt vector owner');
-      }
-      return executePromptLibrary(request, (operation) => this.promptMetadata(operation), {
-        promptVectors: indexer.promptVectors.bind(indexer),
-      });
+    return this.run(async () => {
+      const reply = await this.call({ op: 'prompt-catalog', request });
+      return {
+        items: reply['items'] as PromptCatalogReply['items'],
+        revisions: reply['revisions'] as PromptCatalogReply['revisions'],
+      };
     });
   }
 

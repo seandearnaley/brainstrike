@@ -17,7 +17,6 @@ import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
-  addLogListener,
   applyLoggingPreferences,
   createLogger,
   initializeLogging,
@@ -25,11 +24,9 @@ import {
   installRendererErrorHooks,
   type LoggingPreferences,
   LogLevel,
-  redactSensitiveLogValue,
 } from '@brainstrike/logging';
 import { createWriteBehindStorageAdapter } from '@brainstrike/storage';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
-import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
@@ -40,26 +37,20 @@ import {
   isElectronRendererUserAgent,
   validateDesktopBridgeContract,
 } from './desktop-bridge-contract';
-import { resolveDesktopRendererRole } from './desktop-renderer-role';
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
 import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
 import './styles.css';
-import { EmbeddingHostApp } from './components/embedding-host-app';
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
 import { installDesktopRendererClose } from './desktop-renderer-close';
 
-const desktopRendererRole = resolveDesktopRendererRole(window.location.search);
-const bridgeValidation =
-  desktopRendererRole === 'visible-ui'
-    ? validateDesktopBridgeContract(window)
-    : ({ ok: true } as const);
+const bridgeValidation = validateDesktopBridgeContract(window);
 
 // Broken preloads must reach the explicit startup screen. Valid UI frames
 // register their close fence before persistence can admit producer work.
-if (desktopRendererRole === 'visible-ui' && bridgeValidation.ok) {
+if (bridgeValidation.ok) {
   installDesktopRendererClose();
 }
 
@@ -83,7 +74,7 @@ const STORAGE_WRITE_BEHIND_MS = 100;
 const storageAdapter = createWriteBehindStorageAdapter(new ElectronRendererStorageAdapter(), {
   delayMs: STORAGE_WRITE_BEHIND_MS,
 });
-if (desktopRendererRole === 'visible-ui' && bridgeValidation.ok) {
+if (bridgeValidation.ok) {
   const unregisterStorageFlush = registerDurableFlush(storageAdapter.flush);
   // Under HMR this module re-executes with a new adapter; the old registration goes with it.
   import.meta.hot?.dispose(() => {
@@ -95,10 +86,6 @@ if (desktopRendererRole === 'visible-ui' && bridgeValidation.ok) {
 const rendererLevel = LogLevel.INFO;
 const rendererConsoleLevel = LogLevel.WARN;
 const rendererLogger = createLogger('DesktopRenderer');
-let removeHiddenHostLogForwarder: (() => void) | null = null;
-
-const rendererRuntimeId = new URLSearchParams(window.location.search).get('runtimeId');
-const rendererRuntimeKind = desktopRendererRole === 'embedding-host' ? desktopRendererRole : null;
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
@@ -111,14 +98,6 @@ initializeLogging({
   baseBindings: {
     mode: import.meta.env.MODE,
     userAgent: window.navigator.userAgent,
-    windowRole: desktopRendererRole,
-    ...(rendererRuntimeKind && rendererRuntimeId
-      ? createRuntimeLogBindings({
-          runtimeId: rendererRuntimeId,
-          runtimeKind: rendererRuntimeKind,
-          windowRole: desktopRendererRole,
-        })
-      : {}),
   },
   consoleLevel: rendererConsoleLevel,
   level: rendererLevel,
@@ -154,97 +133,6 @@ void syncLoggingPreferencesFromMain();
 
 applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
 
-function sanitizeLogValue(
-  value: unknown,
-  seen: WeakMap<object, unknown> = new WeakMap<object, unknown>()
-): unknown {
-  if (
-    value === null ||
-    value === undefined ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  ) {
-    return value;
-  }
-  if (value instanceof Error) {
-    const existing = seen.get(value);
-    if (existing !== undefined) {
-      return existing;
-    }
-    // Log listeners normally receive already-redacted plain records. Keep the
-    // same privacy boundary if a raw Error reaches this transport seam instead
-    // of duplicating the logger's non-enumerable cause and sensitive-key rules.
-    // The redactor returns a detached plain graph and closes its own cycles, so
-    // recursion cannot revisit this raw Error before it is safe to memoize.
-    const result = sanitizeLogValue(redactSensitiveLogValue(value), seen);
-    seen.set(value, result);
-    return result;
-  }
-  if (value instanceof URL) {
-    return value.toString();
-  }
-  if (Array.isArray(value)) {
-    const existing = seen.get(value);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const result: unknown[] = [];
-    seen.set(value, result);
-    for (const entry of value) {
-      result.push(sanitizeLogValue(entry, seen));
-    }
-    return result;
-  }
-  if (typeof value === 'object') {
-    const existing = seen.get(value);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const result: Record<string, unknown> = {};
-    seen.set(value, result);
-    for (const [key, entry] of Object.entries(value)) {
-      result[key] = sanitizeLogValue(entry, seen);
-    }
-    return result;
-  }
-  return String(value);
-}
-
-if (desktopRendererRole !== 'visible-ui') {
-  removeHiddenHostLogForwarder = addLogListener((record) => {
-    const runtimeAwareRecord =
-      rendererRuntimeKind && rendererRuntimeId
-        ? bindRuntimeLogRecord(record, {
-            runtimeId: rendererRuntimeId,
-            runtimeKind: rendererRuntimeKind,
-            windowRole: desktopRendererRole,
-          })
-        : record;
-
-    window.logging?.ingestBufferedRecord?.({
-      ...runtimeAwareRecord,
-      args: runtimeAwareRecord.args.map((arg) => sanitizeLogValue(arg)),
-      bindings: Object.fromEntries(
-        Object.entries(runtimeAwareRecord.bindings).map(([key, value]) => [
-          key,
-          sanitizeLogValue(value),
-        ])
-      ),
-    });
-  });
-  rendererLogger.info('Background renderer log forwarding enabled', {
-    windowRole: desktopRendererRole,
-    ...(rendererRuntimeKind && rendererRuntimeId
-      ? createRuntimeLogBindings({
-          runtimeId: rendererRuntimeId,
-          runtimeKind: rendererRuntimeKind,
-          windowRole: desktopRendererRole,
-        })
-      : {}),
-  });
-}
-
 const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
   applyLoggingPreferences(state.preferences, 'electron-renderer');
 });
@@ -256,8 +144,6 @@ const unsubscribeLoggingEvents =
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    removeHiddenHostLogForwarder?.();
-    removeHiddenHostLogForwarder = null;
     unsubscribeLoggingPreferences();
     unsubscribeLoggingEvents?.();
     removeRendererErrorHooks();
@@ -393,10 +279,6 @@ function DesktopRendererOutsideElectron() {
   );
 }
 
-function isEmbeddingHostMode(): boolean {
-  return new URLSearchParams(window.location.search).get('mode') === 'embedding-host';
-}
-
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
@@ -430,25 +312,18 @@ if (!bridgeValidation.ok) {
   }
 }
 
-// Only the window that renders the shell can offer a reload; the hidden hosts have no UI.
 // Before the first render, so a marker the last reload left has already flagged the
 // notice. Under HMR this module re-executes: the uninstall keeps one listener.
-if (desktopRendererRole === 'visible-ui') {
-  const stopAppReloadRecovery = startAppReloadRecovery({ buildId: __BRAINSTRIKE_BUILD_ID__ });
-  if (import.meta.hot) {
-    import.meta.hot.dispose(stopAppReloadRecovery);
-  }
+const stopAppReloadRecovery = startAppReloadRecovery({ buildId: __BRAINSTRIKE_BUILD_ID__ });
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAppReloadRecovery);
 }
 
 root.render(
   bridgeValidation.ok ? (
-    isEmbeddingHostMode() ? (
-      <EmbeddingHostApp />
-    ) : (
-      <StrictMode>
-        <App />
-      </StrictMode>
-    )
+    <StrictMode>
+      <App />
+    </StrictMode>
   ) : runningInElectron ? (
     <DesktopStartupFailure validation={bridgeValidation} />
   ) : (

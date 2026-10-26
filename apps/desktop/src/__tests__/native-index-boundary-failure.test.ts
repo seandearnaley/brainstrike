@@ -70,11 +70,9 @@ describe('native missing-key outcome (BST-2008)', () => {
         resolve: async () => ({
           modelKey: 'cohere::embed-english-v3.0',
           profile,
-          workerPlan: null,
         }),
       },
       scope: { kind: 'workspace', rootId: 'recorded-root' },
-      transport: { documentEmbeddings: vi.fn() },
     });
     const generationFailure = await inference
       .generate({
@@ -180,11 +178,9 @@ it.each([
         resolve: async () => ({
           modelKey: 'openai::text-embedding-3-small',
           profile,
-          workerPlan: null,
         }),
       },
       scope: { kind: 'workspace', rootId: 'recorded-root' },
-      transport: { documentEmbeddings: vi.fn() },
     });
     const generated: unknown = await inference
       .generate({

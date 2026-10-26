@@ -60,7 +60,7 @@ describe('useProviderModelDefaults', () => {
   });
 
   it('dispatches nothing for a provider with no catalog defaults', () => {
-    renderHook(() => useProviderModelDefaults(['ollama', 'voyage'], db, 1, true));
+    renderHook(() => useProviderModelDefaults(['cohere', 'voyage'], db, 1, true));
 
     expect(initializeProviderModelDefaults).not.toHaveBeenCalled();
   });

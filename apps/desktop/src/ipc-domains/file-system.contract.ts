@@ -46,12 +46,10 @@ export const fileSystemContract = {
   addRoot: channel<InvokeArgs<'addRoot'>, InvokeResult<'addRoot'>>({
     channel: DESKTOP_IPC_CHANNELS.files.addRoot,
     parseArgs: (raw) => parseNoArguments(raw, 'file system addRoot'),
-    roles: ['visible-ui'],
   }),
   addRootByPath: channel<InvokeArgs<'addRootByPath'>, InvokeResult<'addRootByPath'>>({
     channel: DESKTOP_IPC_CHANNELS.files.addRootByPath,
     parseArgs: (raw) => parseString(raw, 'file system addRootByPath'),
-    roles: ['visible-ui'],
   }),
   deleteRootData: channel<InvokeArgs<'deleteRootData'>, InvokeResult<'deleteRootData'>>({
     channel: DESKTOP_IPC_CHANNELS.files.deleteRootData,
@@ -62,28 +60,23 @@ export const fileSystemContract = {
       }
       return [rootId];
     },
-    roles: ['visible-ui'],
   }),
   exists: channel<InvokeArgs<'exists'>, InvokeResult<'exists'>>({
     channel: DESKTOP_IPC_CHANNELS.files.exists,
     parseArgs: (raw) => parseString(raw, 'file system exists'),
-    roles: ['visible-ui'],
   }),
   listRecentRoots: channel<InvokeArgs<'listRecentRoots'>, InvokeResult<'listRecentRoots'>>({
     channel: DESKTOP_IPC_CHANNELS.files.listRecentRoots,
     parseArgs: (raw) => parseNoArguments(raw, 'file system listRecentRoots'),
-    roles: ['visible-ui'],
   }),
   readDirectory: channel<InvokeArgs<'readDirectory'>, InvokeResult<'readDirectory'>>({
     channel: DESKTOP_IPC_CHANNELS.files.readDirectory,
     parseArgs: (raw) =>
       parseHandle<InvokeArgs<'readDirectory'>[0]>(raw, 'file system readDirectory'),
-    roles: ['visible-ui'],
   }),
   readFile: channel<InvokeArgs<'readFile'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFile,
     parseArgs: (raw) => parseHandle<InvokeArgs<'readFile'>[0]>(raw, 'file system readFile'),
-    roles: ['visible-ui'],
   }),
   readFileByAbsolutePath: channel<InvokeArgs<'readFileByAbsolutePath'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFileByAbsolutePath,
@@ -93,17 +86,14 @@ export const fileSystemContract = {
       // bounded audit record. Preserve that path rather than rejecting here.
       return raw as unknown as InvokeArgs<'readFileByAbsolutePath'>;
     },
-    roles: ['visible-ui'],
   }),
   readFileByPath: channel<InvokeArgs<'readFileByPath'>, FileReadWireResult>({
     channel: DESKTOP_IPC_CHANNELS.files.readFileByPath,
     parseArgs: (raw) => parseString(raw, 'file system readFileByPath'),
-    roles: ['visible-ui'],
   }),
   removeRoot: channel<InvokeArgs<'removeRoot'>, InvokeResult<'removeRoot'>>({
     channel: DESKTOP_IPC_CHANNELS.files.removeRoot,
     parseArgs: (raw) => parseString(raw, 'file system removeRoot'),
-    roles: ['visible-ui'],
   }),
   requestDirectoryAccess: channel<
     InvokeArgs<'requestDirectoryAccess'>,
@@ -111,22 +101,18 @@ export const fileSystemContract = {
   >({
     channel: DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess,
     parseArgs: (raw) => parseNoArguments(raw, 'file system requestDirectoryAccess'),
-    roles: ['visible-ui'],
   }),
   restoreLastFolder: channel<InvokeArgs<'restoreLastFolder'>, InvokeResult<'restoreLastFolder'>>({
     channel: DESKTOP_IPC_CHANNELS.files.restoreLastFolder,
     parseArgs: (raw) => parseNoArguments(raw, 'file system restoreLastFolder'),
-    roles: ['visible-ui'],
   }),
   restoreRoots: channel<InvokeArgs<'restoreRoots'>, InvokeResult<'restoreRoots'>>({
     channel: DESKTOP_IPC_CHANNELS.files.restoreRoots,
     parseArgs: (raw) => parseNoArguments(raw, 'file system restoreRoots'),
-    roles: ['visible-ui'],
   }),
   saveLastFolder: channel<InvokeArgs<'saveLastFolder'>, InvokeResult<'saveLastFolder'>>({
     channel: DESKTOP_IPC_CHANNELS.files.saveLastFolder,
     parseArgs: (raw) => parseString(raw, 'file system saveLastFolder'),
-    roles: ['visible-ui'],
   }),
 } as const satisfies Contract;
 
@@ -137,7 +123,6 @@ export const fileSystemWatchContract = {
   >({
     channel: DESKTOP_IPC_CHANNELS.files.watchTelemetry,
     parseArgs: (raw) => parseNoArguments(raw, 'file system getWatcherTelemetry'),
-    roles: ['visible-ui'],
   }),
   onWatchEvent: pushEvent<Parameters<Parameters<DesktopFileSystemBridge['onWatchEvent']>[0]>[0]>({
     channel: DESKTOP_IPC_CHANNELS.files.watchEvent,
@@ -148,18 +133,15 @@ export const fileSystemWatchContract = {
   retryWatch: rawChannel<InvokeArgs<'retryWatch'>, InvokeResult<'retryWatch'>>({
     channel: DESKTOP_IPC_CHANNELS.files.watchRetry,
     parseArgs: (raw) => parseString(raw, 'file system retryWatch'),
-    roles: ['visible-ui'],
   }),
   unwatchDirectory: rawChannel<InvokeArgs<'unwatchDirectory'>, InvokeResult<'unwatchDirectory'>>({
     channel: DESKTOP_IPC_CHANNELS.files.unwatch,
     parseArgs: (raw) => parseString(raw, 'file system unwatchDirectory'),
-    roles: ['visible-ui'],
   }),
   watchDirectory: rawChannel<InvokeArgs<'watchDirectory'>, InvokeResult<'watchDirectory'>>({
     channel: DESKTOP_IPC_CHANNELS.files.watch,
     parseArgs: (raw) =>
       parseHandle<InvokeArgs<'watchDirectory'>[0]>(raw, 'file system watchDirectory'),
-    roles: ['visible-ui'],
   }),
 } as const satisfies Contract;
 

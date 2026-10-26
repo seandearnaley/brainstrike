@@ -134,8 +134,8 @@ function awaitingObserverNote(reason: OmAwaitingObserverReason): string {
   switch (reason) {
     case 'model-not-eligible':
       return 'Observations on (Auto) — no recommended observer model is enabled in your model catalog; enable one (e.g. Gemini 2.5 Flash) or pick an observer in Assistant Memory settings';
-    case 'no-hosted-chat-provider':
-      return 'Observations on (Auto) — runs with a hosted chat provider, paused for this chat';
+    case 'no-chat-provider':
+      return 'Observations on (Auto) — needs a chat provider with a saved key';
     case 'no-backend':
       return 'Observations on (Auto) — requires the desktop assistant backend';
     case 'keys-unknown':

@@ -35,11 +35,6 @@ vi.mock('electron', async () => {
   };
 
   const ipcMain = electronUtils.createIpcMainMock();
-  Object.assign(ipcMain, {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    removeHandler: vi.fn(),
-  });
 
   const BrowserWindow = vi.fn();
   Object.assign(BrowserWindow, {

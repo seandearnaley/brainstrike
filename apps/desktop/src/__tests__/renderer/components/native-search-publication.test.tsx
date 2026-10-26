@@ -21,65 +21,41 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
 
 import { mountNativeSearchController } from './native-search-controller-fixture';
 
-const MODEL_ID = 'onnx-community/all-MiniLM-L6-v2-ONNX';
-const REVISION = 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f';
-/** Main's saved semantic search: the exact local execution the query plan must match. */
+const MODEL_ID = 'text-embedding-3-small';
+const MODEL_KEY = `openai::${MODEL_ID}`;
+/** Main's saved semantic search: the hosted model the query plan must name. */
 const SAVED_SEMANTIC: IndexConfig = {
   ...DEFAULT_INDEX_CONFIG,
   mode: 'semantic',
-  model: {
-    dimensions: 384,
-    local: { device: 'webgpu', dtype: 'fp16', revision: REVISION },
-    modelKey: `local::${MODEL_ID}`,
-  },
+  model: { dimensions: 1536, modelKey: MODEL_KEY },
 };
 
-const execution = {
-  dimensions: 384,
-  dtype: 'fp16' as const,
-  modelId: MODEL_ID,
-  revision: REVISION,
-};
-/**
- * The index's profile as Main reports a local model: the saved key's provider, the collection's
- * distance and the execution's pins. Main's catalog facts carry no context window, so no token cap.
- */
+/** The index's profile as Main reports a hosted model: the saved key's provider and the collection's distance. */
 const profile = {
-  ...execution,
+  dimensions: 1536,
   distance: 'cosine' as const,
-  provider: 'local' as const,
+  modelId: MODEL_ID,
+  provider: 'openai' as const,
 };
 /** Main's query plan names the collection's model key verbatim. */
-const queryPlan = {
-  inferencePlan: { ...execution, device: 'webgpu' as const },
-  modelKey: `local::${MODEL_ID}`,
-};
+const queryPlan = { modelKey: MODEL_KEY };
 const ready = {
   authorizedCollectionIds: ['collection-a'],
   authorizedRootIds: ['root-a'],
   embedding: {
     indexMode: 'vector-configured' as const,
     profile,
-    profileHash: '654bee3466feeb474f0f1827badb57d458a679001b339ef3ab959eadbd2b6443',
+    profileHash: '288c9286093cddf9776cab7ba498f9b313a405ebc28471ffd1e9eba9811b7758',
   },
   kind: 'ready' as const,
   queryPlan,
   rootReadiness: [{ rootId: 'root-a', scanComplete: true }],
   storeId: 'store-a',
 };
-const queryEmbedding = vi.fn<(...args: unknown[]) => Promise<number[]>>();
-const cancelQueryEmbedding = vi.fn<(...args: unknown[]) => Promise<{ cancelled: boolean }>>();
-
 beforeEach(() => {
   useIndexConfigStore.setState({
     state: { config: SAVED_SEMANTIC, kind: 'ready' },
     update: vi.fn(),
-  });
-  queryEmbedding.mockReset();
-  cancelQueryEmbedding.mockReset();
-  Object.defineProperty(window, 'embeddingHost', {
-    configurable: true,
-    value: { cancelQueryEmbedding, queryEmbedding },
   });
 });
 afterEach(() => {

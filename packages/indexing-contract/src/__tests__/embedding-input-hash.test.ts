@@ -7,13 +7,13 @@ describe('embedding input hash', () => {
   });
 
   it('hashes the content/model identity with the durable payload algorithm', async () => {
-    await expect(buildEmbeddingInputHash('hash-1', 'local::bge-m3')).resolves.toBe(
-      'a80aabf0d21d49164154d0972531edf40605eb595aff029c37bc74ca083a98df'
+    await expect(buildEmbeddingInputHash('hash-1', 'openai::text-embedding-3-small')).resolves.toBe(
+      'cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78'
     );
   });
 
   it('rejects missing identity inputs', async () => {
-    await expect(buildEmbeddingInputHash('', 'local::bge-m3')).rejects.toThrow(
+    await expect(buildEmbeddingInputHash('', 'openai::text-embedding-3-small')).rejects.toThrow(
       'without a content hash'
     );
     await expect(buildEmbeddingInputHash('hash-1', '')).rejects.toThrow('without a model key');
@@ -22,9 +22,9 @@ describe('embedding input hash', () => {
   it('fails visibly when Web Crypto is unavailable', async () => {
     vi.stubGlobal('crypto', undefined);
 
-    await expect(buildEmbeddingInputHash('hash-1', 'local::bge-m3')).rejects.toThrow(
-      'requires crypto.subtle.digest'
-    );
+    await expect(
+      buildEmbeddingInputHash('hash-1', 'openai::text-embedding-3-small')
+    ).rejects.toThrow('requires crypto.subtle.digest');
   });
 
   it('rejects an invalid SHA-256 digest length', async () => {
@@ -34,17 +34,17 @@ describe('embedding input hash', () => {
       },
     });
 
-    await expect(buildEmbeddingInputHash('hash-1', 'local::bge-m3')).rejects.toThrow(
-      'invalid 16-byte embedding input hash'
-    );
+    await expect(
+      buildEmbeddingInputHash('hash-1', 'openai::text-embedding-3-small')
+    ).rejects.toThrow('invalid 16-byte embedding input hash');
   });
 
   it('accepts only canonical lowercase SHA-256 text', () => {
     expect(
-      isEmbeddingInputHash('a80aabf0d21d49164154d0972531edf40605eb595aff029c37bc74ca083a98df')
+      isEmbeddingInputHash('cc48e54faf852e887cf52ea4b232e7c3db4773e5a55c0045e9ee06a8b4151b78')
     ).toBe(true);
     expect(
-      isEmbeddingInputHash('A80AABF0D21D49164154D0972531EDF40605EB595AFF029C37BC74CA083A98DF')
+      isEmbeddingInputHash('CC48E54FAF852E887CF52EA4B232E7C3DB4773E5A55C0045E9EE06A8B4151B78')
     ).toBe(false);
     expect(isEmbeddingInputHash('not-a-hash')).toBe(false);
   });

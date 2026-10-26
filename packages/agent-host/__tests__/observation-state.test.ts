@@ -2,14 +2,14 @@ import type { VectorProfile } from '@brainstrike/indexer';
 import type { MemoryDomainPort, MemoryJson, MemorySnapshot } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { afterEach, expect, test } from 'vitest';
-import { StateStoreMemoryStorage } from '../src/adapters/memory-storage.js';
-import { calculateMemoryMutation } from '../src/adapters/memory-storage-calculator.js';
+import { StateStoreMemoryStorage } from '../src/adapters/memory-storage.ts';
+import { calculateMemoryMutation } from '../src/adapters/memory-storage-calculator.ts';
 import {
   admittedMemoryModels,
   hostMemoryModels,
   readHostObservation,
-} from '../src/adapters/observation-state.js';
-import { HostObservationalMemoryStateSchema } from '../src/protocol.js';
+} from '../src/adapters/observation-state.ts';
+import { HostObservationalMemoryStateSchema } from '../src/protocol.ts';
 
 const resourceId = 'resource';
 const threadId = 'thread';
@@ -210,22 +210,18 @@ test('a record without a positive reflection threshold is an error, never a zero
 });
 
 test('the run’s models name its observer and its embedder by their identities', () => {
-  const local: VectorProfile = {
-    dimensions: 384,
+  const profile: VectorProfile = {
+    dimensions: 1536,
     distance: 'cosine',
-    dtype: 'fp16',
-    modelId: 'Xenova/all-MiniLM-L6-v2',
-    provider: 'local',
-    revision: 'a'.repeat(40),
-    tokenCap: 256,
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
   };
-  expect(hostMemoryModels('openai::gpt-5-mini', local)).toEqual({
+  expect(hostMemoryModels('openai::gpt-5-mini', profile)).toEqual({
     embedder: {
-      dimensions: 384,
+      dimensions: 1536,
       distance: 'cosine',
-      dtype: 'fp16',
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      provider: 'local',
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
     },
     observer: 'openai::gpt-5-mini',
   });

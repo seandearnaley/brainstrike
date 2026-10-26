@@ -65,11 +65,9 @@ const unused = async (): Promise<never> => {
 function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
   return {
     close: unused,
-    commitFile: unused,
     commitScopedFile: unused,
     commitScopedTextFile: unused,
     commitTextFile: unused,
-    configureVectorProfile: unused,
     coverage: unused,
     coverageAuthority: async () => ({
       authorityEpoch: 'b'.repeat(64),
@@ -85,7 +83,6 @@ function writer(): IndexerPort & ScopedIndexerPort & CoverageAuthorityPort {
     destroy: unused,
     info: async () => ({
       dbPath: '/owned/profile/index.sqlite',
-      embedding: { indexMode: 'text-only' },
       journalMode: 'wal',
       pid: 1,
       readerQueryOnly: 1,
@@ -122,21 +119,17 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     roots: restoredRoots({ restoreRoots: async () => [] }),
     watches: {},
   } as unknown as ApplicationIpcDomain;
-  const transport = { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) };
   const onReceipt = vi.fn();
   const onError = vi.fn();
   const activation = createNativeIndexActivation({
     application: applicationOverride ?? application,
     catalog: catalogFixture.catalog,
-    embedding: transport,
-    modelCatalog: catalogFixture.modelCatalog,
     onError,
     onReceipt,
     profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     settings,
-    storage: { getItem: unused },
   });
-  return { activation, onError, onReceipt, settings, transport };
+  return { activation, onError, onReceipt, settings };
 }
 beforeEach(() => {
   vi.resetAllMocks();

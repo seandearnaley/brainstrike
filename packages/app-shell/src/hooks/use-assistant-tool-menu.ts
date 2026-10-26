@@ -8,7 +8,6 @@ import {
   formatToolLabel,
   getToolDescription,
   resolveAdvertisedNativeToolIds,
-  toLocalRuntimeInputSchema,
 } from '../assistant-ui-panel-wrapper-runtime';
 import { useAssistantMcpMenuState } from './use-assistant-mcp-menu-state';
 
@@ -45,7 +44,6 @@ export function useAssistantToolMenu({
           typeof (metadata as { category?: unknown }).category === 'string'
             ? (metadata as { category: string }).category
             : undefined;
-        const inputSchema = toLocalRuntimeInputSchema(toolId);
 
         return {
           description: getToolDescription(toolId),
@@ -54,8 +52,6 @@ export function useAssistantToolMenu({
           id: toolId,
           label: formatToolLabel(toolId),
           source: 'native',
-          ...(inputSchema ? { inputSchema } : {}),
-          isLocalRuntimeRunnable: true,
           ...(category ? { category } : {}),
         };
       }),

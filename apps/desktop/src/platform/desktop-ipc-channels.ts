@@ -1,3 +1,19 @@
+/**
+ * The renderer and Main share ONE Electron IPC connection: the renderer calls
+ * `invoke(DESKTOP_IPC_INVOKE_CHANNEL, method, ...args)` and Main answers from one
+ * dispatcher (`desktop-ipc-registry.ts`); Main sends every push on
+ * DESKTOP_IPC_PUSH_CHANNEL as a `{ method, payload }` envelope, with any
+ * transferred ports beside it. The names below are the methods that ride it.
+ */
+export const DESKTOP_IPC_INVOKE_CHANNEL = 'brainstrike:invoke';
+export const DESKTOP_IPC_PUSH_CHANNEL = 'brainstrike:push';
+
+/** One push from Main: the method a renderer listener subscribed to, and its payload. */
+export interface DesktopIpcPush {
+  readonly method: string;
+  readonly payload?: unknown;
+}
+
 export const DESKTOP_IPC_CHANNELS = {
   agent: {
     hostConnect: 'agent:host-connect',
@@ -9,9 +25,8 @@ export const DESKTOP_IPC_CHANNELS = {
     prepareClose: 'agent:prepare-close',
     showDataFolder: 'agent:show-data-folder',
   },
-  // Embedded browser pane (BST-1174). Invoke channels drive the main-process
-  // BrowserViewManager; `tabsChanged` is a one-way main→renderer push and is
-  // NEVER registered on the invoke registry.
+  // Embedded browser pane (BST-1174). Invoke methods drive the main-process
+  // BrowserViewManager; `tabsChanged` is a main→renderer push.
   browser: {
     closeTab: 'browser:closeTab',
     createTab: 'browser:createTab',
@@ -49,32 +64,6 @@ export const DESKTOP_IPC_CHANNELS = {
     readMainLogWindow: 'desktop-diagnostics:read-main-log-window',
     readProcessCounters: 'desktop-diagnostics:read-process-counters',
   },
-  // Hidden embedding host; pinned equal to the worker-runtime descriptor in embedding-host-shared.ts by desktop-ipc-channel-contract.test.ts.
-  embeddingHost: {
-    cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
-    cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
-    command: 'embedding-host:command',
-    documentEmbeddings: 'embedding-host:document-embeddings',
-    documentEmbeddingsCancel: 'embedding-host:document-embeddings-cancel',
-    documentEmbeddingsRequest: 'embedding-host:document-embeddings-request',
-    ensureStarted: 'embedding-host:ensure-started',
-    getStatus: 'embedding-host:get-status',
-    modelCacheStatus: 'embedding-host:model-cache-status',
-    modelCacheStatusRequest: 'embedding-host:model-cache-status-request',
-    queryEmbedding: 'embedding-host:query-embedding',
-    queryEmbeddingCancel: 'embedding-host:query-embedding-cancel',
-    queryEmbeddingRequest: 'embedding-host:query-embedding-request',
-    reportDocumentEmbeddingsResponse: 'embedding-host:report-document-embeddings-response',
-    reportModelCacheStatusResponse: 'embedding-host:report-model-cache-status-response',
-    reportQueryEmbeddingResponse: 'embedding-host:report-query-embedding-response',
-    reportStatus: 'embedding-host:report-status',
-    reportWebgpuAdapterResponse: 'embedding-host:report-webgpu-adapter-response',
-    reset: 'embedding-host:reset',
-    status: 'embedding-host:status',
-    stop: 'embedding-host:stop',
-    webgpuAdapter: 'embedding-host:webgpu-adapter',
-    webgpuAdapterRequest: 'embedding-host:webgpu-adapter-request',
-  },
   fileExports: {
     saveToDownloads: 'file-exports:save-to-downloads',
   },
@@ -109,12 +98,12 @@ export const DESKTOP_IPC_CHANNELS = {
     configChanged: 'index-search:config-changed',
     coverage: 'index-search:coverage',
     coverageBatch: 'index-search:coverage-batch',
+    embedQuery: 'index-search:embed-query',
     fileChunks: 'index-search:file-chunks',
     grep: 'index-search:grep',
     lifecycleChanged: 'index-search:lifecycle-changed',
     readConfig: 'index-search:read-config',
     rebuild: 'index-search:rebuild',
-    retryIndexing: 'index-search:retry-indexing',
     rootsRegistered: 'index-search:roots-registered',
     search: 'index-search:search',
     status: 'index-search:status',
@@ -127,7 +116,6 @@ export const DESKTOP_IPC_CHANNELS = {
     durableRecord: 'logging:durable-record',
     getBufferedLogs: 'logging:get-buffered-logs',
     getPreferences: 'logging:get-preferences',
-    ingestBufferedRecord: 'logging:ingest-buffered-record',
     openDestination: 'logging:open-destination',
     preferencesUpdated: 'logging:preferences-updated',
     selectDestination: 'logging:select-destination',
@@ -149,14 +137,8 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   promptLibrary: { request: 'prompt-library:request' },
   runtime: {
-    listModels: 'runtime:listModels',
     noteReloadIntent: 'app:lifecycle:note-reload-intent',
-    powerSnapshot: 'app:power-snapshot',
-    powerState: 'app:power-state',
-    probe: 'runtime:probe',
     requestReload: 'app:lifecycle:request-reload',
-    resolveOllamaCapabilities: 'runtime:resolveOllamaCapabilities',
-    verifyEmbeddingDimensions: 'runtime:verifyEmbeddingDimensions',
   },
   secrets: {
     clearAll: 'secrets:clearAll',
@@ -192,24 +174,11 @@ export const DESKTOP_IPC_CHANNELS = {
   userPersonas: {
     list: 'user-personas:list',
   },
-  /**
-   * Scoped read/write for the single canonical vector-preferences record
-   * (BST-1380). Hidden inference hosts must observe the SAME device preference
-   * the visible UI writes, but must not receive the unrestricted `storage`
-   * bridge. These channels accept no key — main pins the record server-side —
-   * so they can neither enumerate nor address any other persisted store.
-   */
-  vectorPreferences: {
-    clear: 'vector-preferences:clear',
-    read: 'vector-preferences:read',
-    write: 'vector-preferences:write',
-  },
   viewFilterPresets: { request: 'view-filter-presets:request' },
   // Native focus of the host BrowserWindow (BST-1864). `isFocused` is the ONLY
   // invoke: the value for the asking window, served on request so a renderer
   // that (re)loads after a focus change still reads the truth. `changed` is a
-  // one-way main→renderer push (`focus`/`blur` of that window) — NOT an
-  // ipcMain.handle channel, never registered on the invoke registry.
+  // main→renderer push (`focus`/`blur` of that window).
   windowFocus: {
     changed: 'window-focus:changed',
     isFocused: 'window-focus:is-focused',
@@ -223,22 +192,19 @@ export const DESKTOP_IPC_CHANNELS = {
     factoryResetGeneration: 'workspace:factory-reset-generation',
     // One-way main→renderer push: File ▸ Open Folder… asks the FOCUSED window
     // to run its ordinary picker flow, so the grant, the recents recording and
-    // the mount bookkeeping all stay on one path. NOT an `ipcMain.handle`
-    // channel.
+    // the mount bookkeeping all stay on one path.
     openFolderPicker: 'workspace:open-folder-picker',
     // One-way main→renderer push: argv / open-file / second-instance / File ▸
     // Open Recent ask the FOCUSED window to CONNECT a path. A request, never a
     // grant — the renderer routes it through `fs:addRootByPath`, whose gates
-    // decide. NOT an `ipcMain.handle` channel.
+    // decide.
     openPath: 'workspace:open-path',
-    // The ONLY channel in this domain that runs renderer→main. Sent by
+    // The ONLY method in this domain that runs renderer→main. Invoked by
     // `WorkspaceConnectHost` the instant it subscribes to `openPath` above —
     // main gates delivery on BOTH the window having finished loading AND this
     // ping, because `did-finish-load`/`did-stop-loading` only prove the
     // DOCUMENT loaded, not that React has mounted the host and its
-    // `ipcRenderer.on` listener exists yet. NOT an `ipcMain.handle` channel.
+    // push listener exists yet.
     openPathReady: 'workspace:open-path-ready',
   },
 } as const;
-
-export const DESKTOP_PRELOAD_IPC_CHANNELS = DESKTOP_IPC_CHANNELS;

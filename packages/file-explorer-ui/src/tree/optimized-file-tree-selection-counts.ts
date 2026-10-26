@@ -6,6 +6,7 @@ import {
   isPathSeparatorAt,
   isWindowsPath,
   lastPathSeparatorIndex,
+  slashSeparatedPath,
 } from '@brainstrike/utils/path-ancestors';
 import { useEffect, useMemo, useRef } from 'react';
 
@@ -81,11 +82,12 @@ function trimDirectoryCountPath(filePath: string): string {
   return endIndex === filePath.length ? filePath : filePath.slice(0, endIndex);
 }
 
-/** The slash-separated comparison form, for matching agent-relative selections. */
+/**
+ * The slash-separated comparison form, for matching agent-relative selections,
+ * by the path's grammar: a backslash in a POSIX name is part of that name.
+ */
 function normalizeDirectoryCountPath(filePath: string): string {
-  return trimDirectoryCountPath(
-    filePath.includes('\\') ? filePath.replaceAll('\\', '/') : filePath
-  );
+  return trimDirectoryCountPath(slashSeparatedPath(filePath));
 }
 
 function isAbsolutePathLike(filePath: string): boolean {
@@ -170,11 +172,13 @@ export function isSameOrDescendantSelectionPath(path: string, candidatePath: str
   if (normalizedCandidate === '') {
     return true;
   }
+  // Both sides in the slash-separated form: a desktop selection keeps its host's native `\`.
+  const normalizedPath = normalizeDirectoryCountPath(path);
   if (normalizedCandidate === '/') {
-    return path === '/' || path.startsWith('/');
+    return normalizedPath === '/' || normalizedPath.startsWith('/');
   }
   const candidatePrefix = `${normalizedCandidate}/`;
-  return path === normalizedCandidate || path.startsWith(candidatePrefix);
+  return normalizedPath === normalizedCandidate || normalizedPath.startsWith(candidatePrefix);
 }
 
 function addUniqueAncestorPath(

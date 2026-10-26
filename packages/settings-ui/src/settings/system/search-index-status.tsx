@@ -12,7 +12,6 @@ import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 
 /** Each typed reason a person must act on, named; the Record keeps the list exhaustive. */
 const BLOCKED_REASON_LABELS: Readonly<Record<WorkspaceCollectionSyncBlockedReason, string>> = {
-  'embedding-host-unresponsive': 'Embedding model stopped',
   'missing-provider-key': 'Waiting for OpenAI key',
 };
 

@@ -105,14 +105,6 @@ function typedFailure(cause: unknown): BoundaryFailure | undefined {
   if (cause instanceof BoundaryFailureError) {
     return cause.failure;
   }
-  if (cause instanceof Error && 'code' in cause && cause.code === 'EMBEDDING_DEVICE_LOST') {
-    return fault({
-      category: 'availability',
-      code: 'EMBEDDING_DEVICE_LOST',
-      message: 'WebGPU device was lost.',
-      remedy: 'Choose the model again to retry.',
-    });
-  }
   if (cause instanceof ToolInputError) {
     return {
       category: 'input',

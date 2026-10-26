@@ -23,13 +23,8 @@ export type WorkspaceCollectionSyncState =
   | 'embedding'
   | 'error';
 
-/**
- * Why sync is blocked when a person must act: a hosted provider key is missing, or the native
- * embedding host stopped responding and only Retry indexing restarts it (BST-2104).
- */
-export type WorkspaceCollectionSyncBlockedReason =
-  | 'embedding-host-unresponsive'
-  | 'missing-provider-key';
+/** Why sync is blocked when a person must act: a hosted provider key is missing. */
+export type WorkspaceCollectionSyncBlockedReason = 'missing-provider-key';
 
 export interface WorkspaceCollectionSyncScanSummary {
   changedFiles: number;

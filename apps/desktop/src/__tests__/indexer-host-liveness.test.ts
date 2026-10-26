@@ -16,7 +16,6 @@ const SLOW_MS = 7000;
 const dbPath = '/explicit/derived.sqlite';
 const info = {
   dbPath,
-  embedding: { indexMode: 'text-only' },
   journalMode: 'wal',
   pid: 1,
   readerQueryOnly: 1,

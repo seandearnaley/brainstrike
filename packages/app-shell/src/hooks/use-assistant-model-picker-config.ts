@@ -30,11 +30,9 @@ interface UseAssistantModelPickerConfigResult {
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   gateway: 'Gateway',
   hosted: 'Hosted',
-  local: 'Local',
-  'on-device': 'On device',
 };
 
-const runtimeOrder: readonly ProviderRuntime[] = ['hosted', 'gateway', 'local', 'on-device'];
+const runtimeOrder: readonly ProviderRuntime[] = ['hosted', 'gateway'];
 
 export function useAssistantModelPickerConfig({
   configuredProviders,

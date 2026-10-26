@@ -9,14 +9,6 @@ import type { ProviderGroupConfig, ProviderRuntimeCategory } from './assistant-u
 const MAX_RECENT_ROWS = 4;
 const MODEL_KEY_DELIMITER = '::';
 
-/**
- * Runtimes whose enablement lives in the model registry. `local` runtimes
- * (Ollama, LM Studio) enable by discovery and `browser` (built-in local) by
- * download, so the picker never offers to enable them.
- */
-const REGISTRY_BACKED_RUNTIMES: ReadonlySet<ProviderRuntimeCategory> =
-  new Set<ProviderRuntimeCategory>(['hosted', 'gateway']);
-
 export function composerModelCompositeKey(providerId: string, modelId: string): string {
   return `${providerId}${MODEL_KEY_DELIMITER}${modelId}`;
 }
@@ -197,12 +189,7 @@ export function buildComposerPickerSections(args: {
     enabledByKey,
     groups: [],
     matches: enabled.filter((entry) => entryMatches(entry, args.query)),
-    notEnabled: entries.filter(
-      (entry) =>
-        !entry.isEnabled &&
-        REGISTRY_BACKED_RUNTIMES.has(entry.runtime) &&
-        entryMatches(entry, args.query)
-    ),
+    notEnabled: entries.filter((entry) => !entry.isEnabled && entryMatches(entry, args.query)),
     recent: [],
   };
 }

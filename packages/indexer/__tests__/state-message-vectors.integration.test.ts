@@ -24,11 +24,8 @@ const deadlines = { closeMs: 5000 };
 const profile = {
   dimensions: 8,
   distance: 'cosine',
-  dtype: 'fp32',
   modelId: 'deterministic-storage-proof',
-  provider: 'local',
-  revision: 'a'.repeat(40),
-  tokenCap: 256,
+  provider: 'openai',
 } as const;
 const vector = [0.125, -0.25, 0.375, -0.5, 0.625, -0.75, 0.875, -1.031_25];
 const scope = { resourceId: 'resource', rootId: 'root', threadId: 'one' };
@@ -452,7 +449,7 @@ it('refuses schema8 and changed acquired resource grants while preserving files 
     ).rejects.toMatchObject({ code: 'rebuild-required' });
     expect(await readFile(f.options.dbPath)).toEqual(bytes);
     const restore = openConnection(f.options.dbPath);
-    restore.prepare('UPDATE index_metadata SET schema_version=15').run();
+    restore.prepare('UPDATE index_metadata SET schema_version=16').run();
     restore.close();
     await expect(
       openIndexer(
@@ -576,11 +573,11 @@ it('partitions vectors by each request’s complete profile and detects corrupt 
   try {
     await write(f);
     // The grant covers Root and resource; each request carries its profile, under
-    // the workspace index's one profile rule: a local token cap is optional.
-    const { tokenCap: _uncapped, ...uncapped } = profile;
-    const reselected = { ...uncapped, revision: 'b'.repeat(40) };
-    expect(vectorProfileHash(reselected)).not.toBe(vectorProfileHash(uncapped));
-    for (const selected of [uncapped, reselected]) {
+    // the workspace index's one profile rule.
+    const first = { ...profile, modelId: 'deterministic-storage-first' } as const;
+    const reselected = { ...profile, modelId: 'deterministic-storage-second' } as const;
+    expect(vectorProfileHash(reselected)).not.toBe(vectorProfileHash(first));
+    for (const selected of [first, reselected]) {
       // Another selected profile never reads the earlier profile's vectors.
       expect(await f.port.queryStateMessageVectors({ ...query, profile: selected })).toEqual([]);
       const plan = await f.port.prepareStateMessageVectors({

@@ -41,34 +41,27 @@ class FakeSender {
 function attach() {
   const registry = new McpAppShellRegistry();
   const handlers = new Map<string, InvokeHandler>();
-  const registerAuthorizedInvoke = vi.fn(
-    (_domain: string, channel: string, _policy: unknown, handler: InvokeHandler) => {
-      handlers.set(channel, handler);
-    }
-  );
-  attachMcpAppShellBridge(registry, {
-    registerAuthorizedInvoke: registerAuthorizedInvoke as never,
+  const handle = vi.fn((_domain: string, method: string, handler: InvokeHandler) => {
+    handlers.set(method, handler);
   });
-  const invoke = (channel: string, sender: FakeSender, ...args: unknown[]): Promise<unknown> => {
-    const handler = handlers.get(channel);
+  attachMcpAppShellBridge(registry, { handle: handle as never });
+  const invoke = (method: string, sender: FakeSender, ...args: unknown[]): Promise<unknown> => {
+    const handler = handlers.get(method);
     if (handler === undefined) {
-      throw new Error(`no handler for ${channel}`);
+      throw new Error(`no handler for ${method}`);
     }
     return handler({ sender }, ...args);
   };
-  return { invoke, registerAuthorizedInvoke, registry };
+  return { handle, invoke, registry };
 }
 
 describe('attachMcpAppShellBridge', () => {
-  it('registers the two visible-UI shell channels', () => {
-    const { registerAuthorizedInvoke } = attach();
-    expect(registerAuthorizedInvoke.mock.calls.map((call) => call[1])).toEqual([
-      'mcp:apps:prepareShell',
-      'mcp:apps:releaseShell',
+  it('serves the two shell methods in the mcp domain', () => {
+    const { handle } = attach();
+    expect(handle.mock.calls.map(([domain, method]) => [domain, method])).toEqual([
+      ['mcp', 'mcp:apps:prepareShell'],
+      ['mcp', 'mcp:apps:releaseShell'],
     ]);
-    for (const call of registerAuthorizedInvoke.mock.calls) {
-      expect(call[2]).toEqual({ roles: ['visible-ui'] });
-    }
   });
 
   it('serves a registered shell to its sender and releases it on request', async () => {

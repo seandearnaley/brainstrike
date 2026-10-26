@@ -1,7 +1,5 @@
 import {
   createEmbeddingProvider,
-  createLocalHostMemoryEmbedder,
-  type LocalEmbeddingHostClient,
   type ProviderAuthInput,
 } from '@brainstrike/agent/provider-runtime';
 import type {
@@ -9,15 +7,11 @@ import type {
   ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
 import {
-  BoundaryFailureError,
-  fault,
   MEMORY_EMBEDDER_SELECTION_REMEDY,
   MEMORY_FAILURE_CODES,
-  MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
   memoryConfigurationError,
   refusalError,
 } from '@brainstrike/assistant-contract';
-import { parseSemanticRecallEmbeddingModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { VectorProfile } from '@brainstrike/indexer';
 import { Schema } from 'effect';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
@@ -28,17 +22,9 @@ import { PlatformMemorySettingsSchema, type PlatformSelection } from './platform
 type MemoryConfiguration = ProductionHostRunConfiguration['memory'];
 type NativeOptions = NonNullable<MemoryConfiguration['native']['options']>;
 
-type HostedVectorProfile = VectorProfile & {
-  readonly provider: Exclude<VectorProfile['provider'], 'local' | 'transformers'>;
-};
-
-function isHostedVectorProfile(profile: VectorProfile): profile is HostedVectorProfile {
-  return profile.provider !== 'local' && profile.provider !== 'transformers';
-}
-
 /** A hosted embedder for the profile Main admitted, built with its provider's API key. */
 function hostedMemoryEmbedder(
-  profile: HostedVectorProfile,
+  profile: VectorProfile,
   apiKey: string
 ): NonNullable<MemoryConfiguration['vectors']> {
   const provider = profile.provider;
@@ -51,14 +37,12 @@ function hostedMemoryEmbedder(
 }
 
 /**
- * The run's recall embedder for the profile Main admitted. Hosted embedders run
- * here in Node with the resolved credential; a local embedder borrows Main's
- * hidden embedding host (ADR-0007). The host owns the vector store.
+ * The run's recall embedder for the profile Main admitted, run here in Node with
+ * the resolved credential. The host owns the vector store.
  */
 export async function createDesktopHostMemoryVectorConfiguration(
   selection: Pick<PlatformSelection, 'memory'>,
-  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
-  localEmbedding: LocalEmbeddingHostClient | undefined
+  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>
 ): Promise<
   Pick<MemoryConfiguration, 'vectors'> & {
     readonly semanticRecall: NonNullable<NativeOptions['semanticRecall']>;
@@ -74,35 +58,12 @@ export async function createDesktopHostMemoryVectorConfiguration(
   if (!profile) {
     throw memoryConfigurationError('Memory vectors require the embedding profile Main admitted');
   }
-  let vectors: NonNullable<MemoryConfiguration['vectors']>;
-  if (isHostedVectorProfile(profile)) {
-    const auth = await requireMemoryApiKey(
-      semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
-      profile.provider,
-      resolveProviderAuth
-    );
-    vectors = hostedMemoryEmbedder(profile, auth.apiKey);
-  } else {
-    if (!localEmbedding) {
-      throw new BoundaryFailureError(
-        fault({
-          category: 'availability',
-          code: MEMORY_FAILURE_CODES.embedderUnavailable,
-          message: 'The on-device memory embedder cannot be reached from the agent host.',
-          remedy: MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
-        }),
-        { cause: new Error('The admitted thread selection lends no desktop embedding host') }
-      );
-    }
-    vectors = {
-      embedder: createLocalHostMemoryEmbedder({
-        client: localEmbedding,
-        modelId: profile.modelId,
-        resolveDimensions: async () => profile.dimensions,
-      }),
-      profile,
-    };
-  }
+  const auth = await requireMemoryApiKey(
+    semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
+    profile.provider,
+    resolveProviderAuth
+  );
+  const vectors = hostedMemoryEmbedder(profile, auth.apiKey);
   return {
     semanticRecall: semanticRecall.enabled
       ? {
@@ -119,8 +80,7 @@ export async function createDesktopHostMemoryVectorConfiguration(
  * BST-2227: the embedder Settings → Assistant Memory tests, resolved as a run's
  * admission resolves its recall embedder: Main's catalog profile for the
  * selected target, then this host's API key for its provider. It tests the
- * selection whether or not recall is on yet. Only hosted embedders are tested:
- * an on-device one would load its model into the hidden embedding host.
+ * selection whether or not recall is on yet.
  */
 export async function resolveDesktopMemoryEmbedderProbe(
   memorySettings: unknown,
@@ -141,23 +101,12 @@ export async function resolveDesktopMemoryEmbedderProbe(
       MEMORY_EMBEDDER_SELECTION_REMEDY
     );
   }
-  if (parseSemanticRecallEmbeddingModelTarget(target).provider === 'local') {
-    throw refusalError(
-      'input',
-      MEMORY_FAILURE_CODES.configuration,
-      'Test embedder checks hosted embedding models. An on-device model is checked when recall first uses it.'
-    );
-  }
-  const selection = await readMemoryVectors(
+  const resolved = await readMemoryVectors(
     { ...settings, semanticRecall: { ...settings.semanticRecall, enabled: true } },
     signal
   );
-  if (!selection) {
+  if (!resolved) {
     throw memoryConfigurationError('Main resolved no embedder for a selected recall target');
-  }
-  const { profile: resolved } = selection;
-  if (!isHostedVectorProfile(resolved)) {
-    throw memoryConfigurationError('Main resolved an on-device profile for a hosted target');
   }
   const auth = await requireMemoryApiKey('semantic-recall', resolved.provider, resolveProviderAuth);
   signal.throwIfAborted();

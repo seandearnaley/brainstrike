@@ -71,26 +71,6 @@ describe('canonical two-name env scheme', () => {
     }
   });
 
-  it('named role accessors return undefined for keyless providers', () => {
-    for (const provider of listProviders()) {
-      if (provider.authType !== 'none') {
-        continue;
-      }
-      expect(providerOverrideEnvKey(provider.id)).toBeUndefined();
-      expect(providerVendorEnvKey(provider.id)).toBeUndefined();
-    }
-  });
-
-  it('keyless providers declare no envKeys and no deprecatedEnvKeys', () => {
-    for (const provider of listProviders()) {
-      if (provider.authType !== 'none') {
-        continue;
-      }
-      expect(provider.envKeys ?? []).toEqual([]);
-      expect(provider.deprecatedEnvKeys ?? []).toEqual([]);
-    }
-  });
-
   it.each(API_KEY_PROVIDER_IDS)('%s carries every dropped alias in deprecatedEnvKeys', (id) => {
     expect(getProviderDeprecatedEnvKeys(id)).toEqual(EXPECTED_DEPRECATED_KEYS[id]);
     expect(providerDeprecatedEnvKeys(id)).toEqual(EXPECTED_DEPRECATED_KEYS[id]);

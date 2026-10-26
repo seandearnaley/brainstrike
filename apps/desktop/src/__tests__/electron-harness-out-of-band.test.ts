@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events';
-import type { TestInfo } from '@playwright/test';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -53,8 +52,7 @@ vi.mock('../../e2e/utils/load-electron-helpers', () => ({
 const { ElectronHarness } = await import('../../e2e/fixtures/electron-harness');
 
 function createHarness(electronEnv?: Readonly<Record<string, string>>) {
-  const testInfo = { file: '/repo/apps/desktop/e2e/shutdown.desktop.test.ts' } as TestInfo;
-  return new ElectronHarness(testInfo, undefined, '/tmp/brainstrike-harness-oob-test', electronEnv);
+  return new ElectronHarness(undefined, '/tmp/brainstrike-harness-oob-test', electronEnv);
 }
 
 async function launchedProcess(harness: InstanceType<typeof ElectronHarness>) {

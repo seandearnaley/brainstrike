@@ -46,6 +46,7 @@ import {
   ENCODED_SNAPSHOT_REF_PREFIX,
   LEGACY_SNAPSHOT_REF_PREFIX,
   type ShadowBlobRead,
+  type ShadowGitCommands,
   type ShadowGitPlumbing,
   type SnapshotGitCommandRunner,
   SnapshotGitError,
@@ -199,7 +200,7 @@ function readSnapshotRefIdentity(refname: string, subject: string): string {
 }
 
 async function verifyEncodedRefOwner(
-  plumbing: ShadowGitPlumbing,
+  plumbing: Pick<ShadowGitCommands, 'runOrThrow'>,
   ref: string,
   oid: string
 ): Promise<void> {
@@ -255,7 +256,7 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
 
   /** Stage the work-tree into the op's private index (`add -A`, ignore-aware). */
   async function stageWorktree(
-    plumbing: ShadowGitPlumbing,
+    plumbing: Pick<ShadowGitCommands, 'runOrThrow'>,
     env: Readonly<Record<string, string>>
   ): Promise<void> {
     await plumbing.runOrThrow(['add', '-A'], { env });
@@ -272,26 +273,28 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     }
     return await entry.mutex(() =>
       entry.plumbing.withTempIndex(async (env) => {
-        await stageWorktree(entry.plumbing, env);
-        const treeRun = await entry.plumbing.runOrThrow(['write-tree'], { env });
+        // One hook probe, inside the root's lock, serves the whole snapshot.
+        const git = await entry.plumbing.hookFreeCommands();
+        await stageWorktree(git, env);
+        const treeRun = await git.runOrThrow(['write-tree'], { env });
         const treeOid = treeRun.stdout.trim();
         assertValidOid(treeOid, 'write-tree result');
-        const parentOid = await entry.plumbing.resolveRefOrNull(ref);
+        const parentOid = await git.resolveRefOrNull(ref);
         if (parentOid) {
-          await verifyEncodedRefOwner(entry.plumbing, ref, parentOid);
+          await verifyEncodedRefOwner(git, ref, parentOid);
         }
         const message = JSON.stringify({
           kind: meta.kind,
           ...(meta.runId === undefined ? {} : { runId: meta.runId }),
           threadId: meta.threadId,
         });
-        const commitRun = await entry.plumbing.runOrThrow(
+        const commitRun = await git.runOrThrow(
           ['commit-tree', treeOid, ...(parentOid ? ['-p', parentOid] : []), '-m', message],
           { env }
         );
         const commitOid = commitRun.stdout.trim();
         assertValidOid(commitOid, 'commit-tree result');
-        await entry.plumbing.runOrThrow(['update-ref', ref, commitOid], { env });
+        await git.runOrThrow(['update-ref', ref, commitOid], { env });
         return { commitOid };
       })
     );

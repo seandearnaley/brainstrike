@@ -19,7 +19,7 @@ describe('workspace collection sync status helpers', () => {
         embeddingProgress: {
           chunksProcessed: 12,
           currentChunk: 'chunk-12',
-          modelName: 'all-MiniLM-L6-v2',
+          modelName: 'text-embedding-3-small',
           totalChunks: 18,
         },
         importProgress: {
@@ -65,7 +65,7 @@ describe('workspace collection sync status helpers', () => {
       },
       {
         label: 'Embedded',
-        value: '12/18 chunks • all-MiniLM-L6-v2',
+        value: '12/18 chunks • text-embedding-3-small',
       },
       {
         label: 'Queue',
@@ -224,10 +224,10 @@ describe('workspace collection sync status helpers', () => {
         currentFilePath: null,
         embeddingProgress: null,
         importProgress: null,
-        pauseReasons: ['Paused for local assistant'],
+        pauseReasons: ['Paused for assistant run'],
         state: 'paused',
       })
-    ).toEqual({ label: 'Paused by', value: 'Paused for local assistant' });
+    ).toEqual({ label: 'Paused by', value: 'Paused for assistant run' });
 
     expect(
       getWorkspaceCollectionSyncCurrentActivity({

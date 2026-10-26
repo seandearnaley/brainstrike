@@ -161,6 +161,8 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     await expect(region.getByText(FOLLOW_UP_REPLY, { exact: true })).toBeVisible({
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
 
     // Half 1: the host log is one chain. The answer resumed its own run.
     const linear = {
@@ -171,7 +173,7 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         { followsPrevious: true, outcome: 'completed', prompt: FOLLOW_UP_PROMPT },
       ],
     };
-    await expect.poll(() => readLinearRoot(electron.getUserDataDir())).toEqual(linear);
+    expect(await readLinearRoot(electron.getUserDataDir())).toEqual(linear);
     const completedCalls = modelCalls();
 
     // Half 2: the reloaded thread renders as one stream, with no branch carousel.

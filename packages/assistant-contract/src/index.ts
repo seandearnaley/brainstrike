@@ -9,10 +9,6 @@ export * from './child-followup.ts';
 export * from './child-input.ts';
 export * from './child-input-model.ts';
 export * from './child-permission-ceiling.ts';
-export {
-  WORKSPACE_INDEX_EMBEDDING_SET_DEFAULTS,
-  WORKSPACE_INDEX_SYSTEM_ROLE,
-} from './collection-catalog.ts';
 export * from './compaction-summary.ts';
 export * from './context-breakdown.ts';
 export * from './context-budget.ts';
@@ -33,7 +29,6 @@ export * from './grep-match.ts';
 export * from './guarded-tool-error.ts';
 export * from './hook-skip-notices.ts';
 export * from './host-meta-tools.ts';
-export * from './local-runtime-context.ts';
 export * from './mastra-memory-schema.ts';
 export * from './mcp-apps-ipc.ts';
 export * from './mcp-elicitation.ts';

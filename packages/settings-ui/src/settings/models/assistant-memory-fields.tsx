@@ -1,7 +1,4 @@
-import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { type DraftInput, Input, Label, useDraftField } from '@brainstrike/ui';
-import { useId } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 
 interface MemoryNumberFieldProps {
   readonly id: string;
@@ -72,64 +69,6 @@ export function MemoryNumberField({
           {field.error}
         </p>
       ) : null}
-    </div>
-  );
-}
-
-const DEVICE_LABEL = 'On-device embedding device';
-/** The select value for an unconfigured preference: the host detects the device. */
-const AUTOMATIC = '';
-
-/**
- * The embedding host's saved device for on-device models (the vector
- * preferences BST-2193 resolves recall's device from). Unconfigured is
- * automatic detection, which uses WebGPU and never selects WASM on its own.
- */
-export function OnDeviceEmbeddingDeviceField() {
-  const { clearDevicePref, devicePref, devicePrefConfigured, hasHydrated, setDevicePref } =
-    useVectorPreferencesStore(
-      useShallow((state) => ({
-        clearDevicePref: state.clearDevicePref,
-        devicePref: state.devicePref,
-        devicePrefConfigured: state.devicePrefConfigured,
-        hasHydrated: state.hasHydrated,
-        setDevicePref: state.setDevicePref,
-      }))
-    );
-  const id = useId();
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{DEVICE_LABEL}</Label>
-      <select
-        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-        disabled={!hasHydrated}
-        id={id}
-        onChange={(event) => {
-          const next = event.target.value;
-          if (next === AUTOMATIC) {
-            clearDevicePref();
-            return;
-          }
-          if (next !== 'webgpu' && next !== 'wasm') {
-            throw new Error(`Unknown on-device embedding device: ${next}`);
-          }
-          setDevicePref(next);
-        }}
-        value={hasHydrated && devicePrefConfigured ? devicePref : AUTOMATIC}
-      >
-        {hasHydrated ? (
-          <option value={AUTOMATIC}>Automatic — WebGPU when this device has it</option>
-        ) : (
-          <option value={AUTOMATIC}>Loading the saved device…</option>
-        )}
-        <option value="webgpu">WebGPU</option>
-        <option value="wasm">WASM (slower; no GPU needed)</option>
-      </select>
-      <p className="text-muted-foreground text-xs">
-        Where local embedding models run for semantic recall. Automatic never falls back to WASM;
-        choose it on a device without WebGPU. Each device embeds at its own precision, so recall
-        keeps separate vectors for each.
-      </p>
     </div>
   );
 }

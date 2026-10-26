@@ -1,21 +1,25 @@
 import { BrowserWindow, type BrowserWindow as ElectronBrowserWindow, ipcMain } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { untrackAppWindow } from '../../app-windows';
+import { DESKTOP_IPC_PUSH_CHANNEL } from '../../platform/desktop-ipc-channels';
 import { publishWindowFocus, registerWindowFocusIpcHandlers } from '../../window-focus-ipc';
-import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createAllowlistedSenderFrame,
   createTrustedInvokeEvent,
+  invokeDesktopIpcFrom,
 } from '../helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', () => ({
   BrowserWindow: { fromWebContents: vi.fn() },
-  ipcMain: {
-    handle: vi.fn(),
-    on: vi.fn(),
-    removeHandler: vi.fn(),
-    removeListener: vi.fn(),
-  },
+  ipcMain: { handle: vi.fn() },
 }));
+
+function focusPush(focused: boolean) {
+  return {
+    args: [{ method: 'window-focus:changed', payload: focused }],
+    channel: DESKTOP_IPC_PUSH_CHANNEL,
+  };
+}
 
 /**
  * BST-1864: main publishes the host BrowserWindow's native focus to its own
@@ -98,10 +102,7 @@ describe('publishWindowFocus', () => {
     win.emit('blur');
     win.emit('focus');
 
-    expect(win.sent).toEqual([
-      { args: [false], channel: 'window-focus:changed' },
-      { args: [true], channel: 'window-focus:changed' },
-    ]);
+    expect(win.sent).toEqual([focusPush(false), focusPush(true)]);
   });
 
   it('keeps two windows independent: each pushes only to its own renderer', () => {
@@ -113,7 +114,7 @@ describe('publishWindowFocus', () => {
     second.emit('focus');
 
     expect(first.sent).toEqual([]);
-    expect(second.sent).toEqual([{ args: [true], channel: 'window-focus:changed' }]);
+    expect(second.sent).toEqual([focusPush(true)]);
   });
 
   it('drops a blur that arrives after the renderer is destroyed instead of throwing', () => {
@@ -129,31 +130,33 @@ describe('publishWindowFocus', () => {
 });
 
 describe('window-focus IPC handler', () => {
-  type Handler = (...args: unknown[]) => unknown;
-  let handlers: Map<string, Handler>;
+  let dispose: (() => void) | undefined;
 
   function liveWindow(focused: boolean, destroyed = false) {
     return { isDestroyed: () => destroyed, isFocused: () => focused };
   }
 
+  function isFocused(event: unknown): Promise<unknown> {
+    return invokeDesktopIpcFrom(ipcMain, event, 'window-focus:is-focused');
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
-    handlers = new Map();
-    vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
-      handlers.set(channel, handler as Handler);
-    });
+    dispose = registerWindowFocusIpcHandlers();
   });
 
-  it('serves the asking window native focus on the manifest channel', async () => {
-    registerWindowFocusIpcHandlers();
-    const event = createTrustedInvokeEvent('visible-ui', 7301);
-    const handler = handlers.get('window-focus:is-focused');
-    expect(handler).toBeDefined();
+  afterEach(() => {
+    dispose?.();
+    dispose = undefined;
+  });
+
+  it('serves the asking window native focus on the manifest method', async () => {
+    const event = createTrustedInvokeEvent(7301);
 
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(liveWindow(true) as never);
-    await expect(handler?.(event)).resolves.toEqual({ ok: true, value: true });
+    await expect(isFocused(event)).resolves.toEqual({ ok: true, value: true });
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(liveWindow(false) as never);
-    await expect(handler?.(event)).resolves.toEqual({ ok: true, value: false });
+    await expect(isFocused(event)).resolves.toEqual({ ok: true, value: false });
     expect(BrowserWindow.fromWebContents).toHaveBeenCalledWith(event.sender);
   });
 
@@ -161,11 +164,10 @@ describe('window-focus IPC handler', () => {
     ['has no BrowserWindow', null],
     ['is destroyed', liveWindow(true, true)],
   ])('fails with the IpcResult taxonomy when the sender %s', async (_label, window) => {
-    registerWindowFocusIpcHandlers();
-    const event = createTrustedInvokeEvent('visible-ui', 7302);
+    const event = createTrustedInvokeEvent(7302);
     vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as never);
 
-    await expect(handlers.get('window-focus:is-focused')?.(event)).resolves.toEqual({
+    await expect(isFocused(event)).resolves.toEqual({
       error: {
         category: 'availability',
         code: 'window.unavailable',
@@ -176,36 +178,26 @@ describe('window-focus IPC handler', () => {
     });
   });
 
-  it.each(['embedding-host'] as const)(
-    'rejects a %s sender before reading any window',
-    async (role) => {
-      registerWindowFocusIpcHandlers();
-      const event = createTrustedInvokeEvent(role, 7303);
-
-      await expect(handlers.get('window-focus:is-focused')?.(event)).rejects.toThrow(
-        /window-focus:is-focused/
-      );
-      expect(BrowserWindow.fromWebContents).not.toHaveBeenCalled();
-    }
-  );
-
   it('rejects an untracked sender before reading any window', async () => {
-    registerWindowFocusIpcHandlers();
-    clearWindowRoleByWebContentsId(7304);
+    untrackAppWindow(7304);
     const event = {
       sender: { id: 7304 },
-      senderFrame: createAllowlistedSenderFrame('visible-ui'),
+      senderFrame: createAllowlistedSenderFrame(),
     };
 
-    await expect(handlers.get('window-focus:is-focused')?.(event)).rejects.toThrow(
-      /window-focus:is-focused/
+    await expect(isFocused(event)).rejects.toThrow(
+      'Desktop IPC window-focus:is-focused requires an app window sender.'
     );
     expect(BrowserWindow.fromWebContents).not.toHaveBeenCalled();
   });
 
-  it('unregisters the channel when disposed', () => {
-    const dispose = registerWindowFocusIpcHandlers();
-    dispose();
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('window-focus:is-focused');
+  it('stops serving the method when disposed', async () => {
+    dispose?.();
+    dispose = undefined;
+
+    await expect(isFocused(createTrustedInvokeEvent(7305))).rejects.toThrow(
+      'No desktop IPC handler for window-focus:is-focused.'
+    );
+    expect(BrowserWindow.fromWebContents).not.toHaveBeenCalled();
   });
 });

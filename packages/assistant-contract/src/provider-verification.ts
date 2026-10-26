@@ -18,10 +18,6 @@
  *   any HTTP status outside the classified set above (404, 5xx, …).
  *   Wifi-down, not wrong-key — `invalid` and `unreachable` are DISTINCT by
  *   contract.
- * - `not_applicable` — nothing to verify over HTTP: keyless local runtimes
- *   (authType 'none' routes here without a network call; their liveness is the
- *   ipc-runtime probe family's job) and AWS profile-chain credentials (no
- *   bearer to send).
  *
  * `detail` is bounded, advisory, and MUST NEVER carry credential material —
  * producers compose it from HTTP status codes and numeric usage figures only.
@@ -32,7 +28,6 @@ export const PROVIDER_VERIFICATION_STATUSES = [
   'verified_limited',
   'invalid',
   'unreachable',
-  'not_applicable',
 ] as const;
 
 export type ProviderVerificationStatus = (typeof PROVIDER_VERIFICATION_STATUSES)[number];

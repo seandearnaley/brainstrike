@@ -19,7 +19,6 @@ import type {
   PromptItemUsageAction,
   PromptLibraryCapability,
 } from '@brainstrike/types/prompt-item';
-import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import { useCallback, useMemo, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import {
@@ -30,7 +29,6 @@ import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,
 } from './assistant-ui-panel-wrapper-runtime';
-import { buildLocalEmbeddingModelConfigMap } from './embedding-models';
 import { createPromptLibraryRepository } from './prompt-library-repository';
 import { type PromptWorkbenchModelOption, PromptWorkbenchPanel } from './prompt-workbench-panel';
 import {
@@ -247,11 +245,7 @@ async function resolveRequestedPromptRuntime({
   };
 }
 
-interface ConnectedPromptManagerProps {
-  readonly suggestionsEnabled?: boolean;
-}
-
-export function ConnectedPromptManager(props: ConnectedPromptManagerProps) {
+export function ConnectedPromptManager() {
   const transport =
     typeof window === 'undefined'
       ? undefined
@@ -270,25 +264,21 @@ export function ConnectedPromptManager(props: ConnectedPromptManagerProps) {
       </div>
     );
   }
-  return <NativePromptManager {...props} capability={capability} />;
+  return <NativePromptManager capability={capability} />;
 }
-function NativePromptManager({
-  capability,
-  ...props
-}: ConnectedPromptManagerProps & { readonly capability: PromptLibraryCapability }) {
+function NativePromptManager({ capability }: { readonly capability: PromptLibraryCapability }) {
   const repository = useMemo(() => createPromptLibraryRepository(capability), [capability]);
   const host = useAssistantThreadHost();
   const threadRepository = useMemo(
     () => (host ? createHostAssistantThreadRepository(host) : null),
     [host]
   );
-  return <PromptManager {...props} repository={repository} threadRepository={threadRepository} />;
+  return <PromptManager repository={repository} threadRepository={threadRepository} />;
 }
 function PromptManager({
-  suggestionsEnabled = true,
   repository,
   threadRepository,
-}: ConnectedPromptManagerProps & {
+}: {
   readonly repository: PromptItemRepositoryPort;
   readonly threadRepository: AssistantThreadCatalogRepository | null;
 }) {
@@ -299,20 +289,15 @@ function PromptManager({
     (state) => state.getAvailableProviders
   );
   const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
-  const embedder = useSharedSearchEmbedder();
   const activeThreadId = useAssistantThreadStore(
     (state) => state.activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
   );
   const createThread = useAssistantThreadStore((state) => state.createThread);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
-  const composerContext = useAssistantComposerCommandStore((state) =>
-    suggestionsEnabled && activeThreadId ? (state.draftTextByThreadId[activeThreadId] ?? '') : ''
-  );
   const enqueueComposerCommand = useAssistantComposerCommandStore((state) => state.enqueue);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [threadTitleError, setThreadTitleError] = useState<string | null>(null);
 
-  const localModelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const providerNames = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider.name])),
     [providers]
@@ -342,13 +327,7 @@ function PromptManager({
     }
     return options;
   }, [enabledProviderIds, models, providerNames]);
-  const { handleLibraryChanged, handleRequestSuggestions, indexingError, readiness } =
-    usePromptLibraryController({
-      embedder,
-      localModelConfigMap,
-      repository,
-      suggestionsEnabled,
-    });
+  const { readiness } = usePromptLibraryController({ repository });
 
   const recordAppliedUsage = useCallback(
     async (itemId: string, action: PromptItemUsageAction): Promise<void> => {
@@ -464,19 +443,15 @@ function PromptManager({
     );
   }
 
-  const systemError = [indexingError, usageError, threadTitleError].filter(Boolean).join('\n');
+  const systemError = [usageError, threadTitleError].filter(Boolean).join('\n');
 
   return (
     <PromptWorkbenchPanel
       {...(activeThreadId ? { activeThreadId } : {})}
-      composerContext={composerContext}
       initialItems={readiness.items}
       modelOptions={modelOptions}
-      onLibraryChanged={handleLibraryChanged}
-      onRequestSuggestions={handleRequestSuggestions}
       onUseItem={handleUseItem}
       repository={repository}
-      suggestionsEnabled={suggestionsEnabled}
       {...(systemError ? { systemError } : {})}
     />
   );

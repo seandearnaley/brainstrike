@@ -85,6 +85,15 @@ describe('filter-utils', () => {
       expect(matcher.shouldIncludeFile('/.devcontainer/devcontainer.json')).toBe(true);
     });
 
+    it('matches the segments of a Windows path', () => {
+      const matcher = createPathFilterMatcher(['C:/work/src/alpha.ts'], ['__tests__/**'], false);
+
+      expect(matcher.shouldIncludeFile('C:\\work\\src\\alpha.ts')).toBe(true);
+      expect(matcher.shouldIncludeFile('C:\\work\\src\\gamma.ts')).toBe(false);
+      expect(matcher.shouldTraverseDirectory('C:\\work\\__tests__\\unit')).toBe(false);
+      expect(matcher.shouldTraverseDirectory('C:\\work\\src')).toBe(true);
+    });
+
     it('extension globs reach files inside dot-directories', () => {
       const matcher = createPathFilterMatcher(['*.json'], [], false);
 

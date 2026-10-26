@@ -88,7 +88,7 @@ export interface ProviderConfig {
   name: string;
 }
 
-export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'on-device';
+export type ProviderRuntimeCategory = 'hosted' | 'gateway';
 
 export interface ProviderModelOptionConfig {
   default?: boolean;
@@ -135,8 +135,6 @@ export interface AssistantToolMenuItem {
   enabled: boolean;
   group: string;
   id: string;
-  inputSchema?: Record<string, unknown>;
-  isLocalRuntimeRunnable?: boolean;
   label: string;
   source: AssistantToolSource;
 }
@@ -161,7 +159,6 @@ export type {
   AssistantProviderSettingsMap,
   AssistantProviderSettingsUpdate,
   GoogleThinkingLevel,
-  LocalRuntimeActivation,
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';

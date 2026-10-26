@@ -8,6 +8,7 @@ vi.mock('electron', () => ({
 const prepare = vi.hoisted(() => ({ prepareDocumentUnload: vi.fn() }));
 vi.mock('../prepare-document-unload', () => prepare);
 
+import { trackAppWindow } from '../app-windows';
 import {
   admitDocumentClose,
   type DocumentUnloadOwner,
@@ -16,7 +17,6 @@ import {
   reloadDocument,
   visibleDocumentWindows,
 } from '../document-unload';
-import { assignWindowRole, type DesktopWindowRole } from '../window-role';
 
 let nextWebContentsId = 1;
 
@@ -192,16 +192,16 @@ describe('user window close', () => {
 });
 
 describe('visible documents', () => {
-  it('never counts a hidden renderer host or a destroyed window', () => {
-    const byRole = (role: DesktopWindowRole) => {
+  it('never counts an untracked window or a destroyed window', () => {
+    const appWindow = () => {
       const window = windowFixture();
-      assignWindowRole(window as never, role);
+      trackAppWindow(window as never);
       return window;
     };
-    const visible = byRole('visible-ui');
-    const destroyed = byRole('visible-ui');
+    const visible = appWindow();
+    const destroyed = appWindow();
     destroyed.destroy();
-    electron.windows = [byRole('embedding-host'), visible, destroyed];
+    electron.windows = [windowFixture(), visible, destroyed];
 
     expect(visibleDocumentWindows()).toEqual([visible]);
   });

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { useSubagentPersonasStore } from '../stores/subagent-personas-store.ts';
 import { useTokenPreferencesStore } from '../stores/token-preferences-store.ts';
-import { useVectorPreferencesStore } from '../stores/vector-preferences-store.ts';
 import { useWorkspaceInstructionsPreferencesStore } from '../stores/workspace-instructions-preferences-store.ts';
 import type { PersistApi } from './persist-api-test-helper.ts';
 
@@ -39,25 +38,6 @@ describe('current-version preference sanitization siblings', () => {
     ) as typeof current;
 
     expect(merged.accurateCounting).toBe(true);
-  });
-
-  it('sanitizes vector runtime settings at the current version', () => {
-    const current = useVectorPreferencesStore.getState();
-    const merged = mergeCurrentVersion(
-      useVectorPreferencesStore,
-      {
-        devicePref: 'unknown',
-        devicePrefConfigured: 'yes',
-        reinitEveryN: -5,
-        verboseOrtLogs: 'yes',
-      },
-      current
-    ) as typeof current;
-
-    expect(merged.devicePref).toBe('webgpu');
-    expect(merged.devicePrefConfigured).toBe(false);
-    expect(merged.reinitEveryN).toBe(200);
-    expect(merged.verboseOrtLogs).toBe(false);
   });
 
   it('sanitizes workspace instruction preferences at the current version', () => {

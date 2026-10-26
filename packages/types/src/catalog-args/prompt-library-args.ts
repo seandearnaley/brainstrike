@@ -2,7 +2,6 @@ import type {
   CreatePromptItemInput,
   PromptItemFilter,
   PromptItemKind,
-  PromptItemSimilarityOptions,
   PromptItemUsageAction,
   PromptLibraryRequest,
   UpdatePromptItemInput,
@@ -39,12 +38,6 @@ function id(value: unknown): string {
 function integer(value: unknown, min = 1, max = Number.MAX_SAFE_INTEGER): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min || value > max) {
     throw new Error('Prompt integer is outside its bound');
-  }
-  return value;
-}
-function finite(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error('Prompt number must be finite');
   }
   return value;
 }
@@ -138,37 +131,11 @@ function filter(value: unknown): PromptItemFilter {
     ...(input['tags'] === undefined ? {} : { tags: strings(input['tags']) }),
   };
 }
-function similarOptions(value: unknown): PromptItemSimilarityOptions {
-  const input = object(value);
-  keys(input, ['excludeIds', 'kinds', 'limit', 'threshold']);
-  const threshold = input['threshold'] === undefined ? 0.35 : finite(input['threshold']);
-  if (threshold < -1 || threshold > 1) {
-    throw new Error('Prompt threshold must be between -1 and 1');
-  }
-  return {
-    limit: input['limit'] === undefined ? 6 : integer(input['limit'], 1, 20),
-    threshold,
-    ...(input['excludeIds'] === undefined
-      ? {}
-      : { excludeIds: strings(input['excludeIds']).map(id) }),
-    ...(input['kinds'] === undefined ? {} : { kinds: promptKinds(input['kinds']) }),
-  };
-}
-function vector(value: unknown): number[] {
-  if (!Array.isArray(value) || value.length !== 384) {
-    throw new Error('Prompt vector must contain 384 values');
-  }
-  return value.map(finite);
-}
 /** Pure schema owner for Main and sandbox preload; no runtime library or Node import. */
 export function parsePromptLibraryRequest(value: unknown): PromptLibraryRequest {
   const input = object(value);
   const operation = input['operation'];
   switch (operation) {
-    case 'profile':
-    case 'pending':
-      keys(input, ['operation']);
-      return { operation };
     case 'get':
     case 'delete':
     case 'revisions':
@@ -189,34 +156,6 @@ export function parsePromptLibraryRequest(value: unknown): PromptLibraryRequest 
         action: member<PromptItemUsageAction>(input['action'], actions),
         id: id(input['id']),
         operation,
-      };
-    case 'embedding-error':
-      keys(input, ['operation', 'id', 'revision', 'error']);
-      return {
-        error: id(input['error']),
-        id: id(input['id']),
-        operation,
-        revision: integer(input['revision']),
-      };
-    case 'store-embedding': {
-      keys(input, ['operation', 'input']);
-      const body = object(input['input']);
-      keys(body, ['itemId', 'revision', 'embedding']);
-      return {
-        input: {
-          embedding: vector(body['embedding']),
-          itemId: id(body['itemId']),
-          revision: integer(body['revision']),
-        },
-        operation,
-      };
-    }
-    case 'similar':
-      keys(input, ['operation', 'vector', 'options']);
-      return {
-        operation,
-        options: similarOptions(input['options']),
-        vector: vector(input['vector']),
       };
     default:
       throw new Error('Unknown Prompt Library operation');

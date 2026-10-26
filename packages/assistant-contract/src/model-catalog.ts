@@ -19,10 +19,6 @@ export interface CatalogModel {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
-    /** A local embedding model's pooling (BST-1993); absent means 'mean'. */
-    pooling?: 'mean' | 'cls';
-    /** A local embedding model's card prompts (BST-1993); absent means none. */
-    prompts?: { document: string; query: string };
     /** Image-input support (LLM rows only; backfilled by migration 061). */
     vision?: boolean;
   };
@@ -80,11 +76,7 @@ function projectModel(
   if (!presentation) {
     throw new Error(`Model ${provider.id}/${model.id} has no catalog presentation.`);
   }
-  const parameters = {
-    ...presentation.parameters,
-    ...(model.type === 'embedding' && model.revision ? { revision: model.revision } : {}),
-    ...(model.type === 'embedding' && model.execution ? { execution: model.execution } : {}),
-  };
+  const parameters = { ...presentation.parameters };
   return {
     bestFor: presentation.bestFor ? [...presentation.bestFor] : null,
     capabilities:
@@ -92,8 +84,6 @@ function projectModel(
         ? {
             defaultDimension: model.defaultDimension,
             type: 'embedding',
-            ...(model.pooling === undefined ? {} : { pooling: model.pooling }),
-            ...(model.prompts === undefined ? {} : { prompts: model.prompts }),
           }
         : {
             streaming: model.supportsStreaming ?? provider.capabilities.streaming,
@@ -116,7 +106,7 @@ function projectModel(
   };
 }
 
-/** A complete current catalog projection; keyless runtime-discovered providers have no static rows. */
+/** A complete current catalog projection. */
 export function projectModelCatalog(choices: ModelCatalogChoices): ModelCatalogSnapshot {
   const definitions = listProviders();
   const providers = definitions.flatMap((provider) =>

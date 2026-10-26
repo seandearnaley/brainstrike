@@ -36,18 +36,6 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: '@brainstrike/embeddings/runtime-config',
-        replacement: path.resolve(import.meta.dirname, '../embeddings/src/runtime-config.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/inference-plan',
-        replacement: path.resolve(import.meta.dirname, '../embeddings/src/inference-plan.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/provider-core',
-        replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
-      },
-      {
         find: /^@brainstrike\/indexing-contract$/,
         replacement: path.resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
@@ -58,22 +46,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/assistant-contract$/,
         replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/backend',
-        replacement: path.resolve(import.meta.dirname, '../embeddings/src/backend-entry.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/factory',
-        replacement: path.resolve(import.meta.dirname, '../embeddings/src/factory-entry.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/service',
-        replacement: path.resolve(import.meta.dirname, '../embeddings/src/service-entry.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings/worker',
-        replacement: path.resolve(import.meta.dirname, '../embeddings/src/worker-entry.ts'),
       },
       {
         find: 'electron',
@@ -110,14 +82,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/file-explorer-ui\/(.*)$/,
         replacement: path.resolve(import.meta.dirname, '../file-explorer-ui/src/$1'),
-      },
-      {
-        find: /^@brainstrike\/queue$/,
-        replacement: path.resolve(import.meta.dirname, '../queue/src/index.ts'),
-      },
-      {
-        find: '@brainstrike/embeddings',
-        replacement: path.resolve(import.meta.dirname, '__mocks__/embeddings.ts'),
       },
       {
         find: '@brainstrike/text-splitter/chunking-core',
@@ -168,10 +132,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
-      },
-      {
-        find: /^@brainstrike\/vector-management$/,
-        replacement: path.resolve(import.meta.dirname, '../vector-management/src/index.ts'),
       },
       {
         find: '@brainstrike/workers/file-content-worker',

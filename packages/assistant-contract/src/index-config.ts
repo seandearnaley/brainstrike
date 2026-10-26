@@ -18,20 +18,9 @@ export const IndexChunkingSchema = Schema.TaggedUnion({
   Custom: { maxTokens: IntBetween(CHUNK_SIZE_TOKENS), overlap: IntBetween(CHUNK_OVERLAP_TOKENS) },
 });
 
-/**
- * How an on-device model runs, limited to the dtypes and pinned commit revisions every local
- * executor accepts.
- */
-export const IndexLocalExecutionSchema = Schema.Struct({
-  device: Schema.Literals(['webgpu', 'wasm']),
-  dtype: Schema.Literals(['q4', 'q8', 'fp16', 'fp32']),
-  revision: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u))),
-});
-
-/** An embedding model whose dimensions were verified; `local` is how an on-device model runs. */
+/** An embedding model whose dimensions were verified. */
 export const IndexModelSchema = Schema.Struct({
   dimensions: IntBetween({ maximum: 16_000, minimum: 1 }),
-  local: Schema.NullOr(IndexLocalExecutionSchema),
   modelKey: Schema.String.check(Schema.isPattern(/^[^:\s]+::\S+/)),
 });
 
@@ -67,10 +56,9 @@ export const IndexConfigPatchSchema = Schema.Struct({
 export type IndexChunking = typeof IndexChunkingSchema.Type;
 export type IndexConfig = typeof IndexConfigSchema.Type;
 export type IndexConfigPatch = typeof IndexConfigPatchSchema.Type;
-export type IndexLocalExecution = typeof IndexLocalExecutionSchema.Type;
 export type IndexModel = typeof IndexModelSchema.Type;
 
-/** A fresh profile: text search and automatic chunking, with nothing to download. */
+/** A fresh profile: text search and automatic chunking. */
 export const DEFAULT_INDEX_CONFIG: IndexConfig = {
   chunking: { _tag: 'Auto' },
   mode: 'text',
@@ -85,11 +73,6 @@ export const decodeIndexConfig = makeThrowingDecoder(IndexConfigSchema, {
   onExcessProperty: 'error',
 });
 
-export const decodeIndexLocalExecution = makeThrowingDecoder(IndexLocalExecutionSchema, {
-  errors: 'all',
-  onExcessProperty: 'error',
-});
-
 export const sameIndexChunking = Schema.toEquivalence(IndexChunkingSchema);
 export const sameIndexModel = Schema.toEquivalence(IndexModelSchema);
 
@@ -100,29 +83,6 @@ export function indexModelId(model: Pick<IndexModel, 'modelKey'>): string {
     throw new Error(`Embedding model key "${model.modelKey}" names no provider.`);
   }
   return model.modelKey.slice(separator + 2);
-}
-
-/** Structurally the indexing contract's `NativeLocalSelection`. */
-export interface IndexLocalSelection {
-  readonly device: 'webgpu' | 'wasm';
-  readonly dimensions: number;
-  readonly dtype: string;
-  readonly modelId: string;
-  readonly revision?: string;
-}
-
-/** The on-device execution the index runs a local model with; null for a hosted model. */
-export function indexModelLocalSelection(model: IndexModel): IndexLocalSelection | null {
-  if (model.local === null) {
-    return null;
-  }
-  return {
-    device: model.local.device,
-    dimensions: model.dimensions,
-    dtype: model.local.dtype,
-    modelId: indexModelId(model),
-    ...(model.local.revision === undefined ? {} : { revision: model.local.revision }),
-  };
 }
 
 /**

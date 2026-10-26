@@ -47,9 +47,6 @@ describe('matchesCatalogFilters', () => {
     expect(matchesCatalogFilters(makeCatalogRow({ id: 'n', vision: 'unsupported' }), filters)).toBe(
       false
     );
-    expect(matchesCatalogFilters(makeCatalogRow({ id: 'u', vision: 'unknown' }), filters)).toBe(
-      false
-    );
     expect(matchesCatalogFilters(makeCatalogRow({ id: 'x', vision: null }), filters)).toBe(false);
   });
 

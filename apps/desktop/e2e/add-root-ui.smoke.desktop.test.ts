@@ -307,11 +307,8 @@ test.describe('Low-friction folder connection (BST-1393)', () => {
         workspace?: { onOpenFolderPicker?: (callback: () => void) => () => void };
       };
       // Marker the main-process side uses to find THIS window: the harness
-      // launches the main window non-visible alongside the hidden
-      // embedding/llm/chunking host windows (all `isVisible() === false`,
-      // all on the same dist/renderer URL), so neither visibility nor URL
-      // can tell them apart — verified live when a visibility-keyed pick
-      // landed on a host window and the send went nowhere.
+      // launches the main window non-visible and unfocused, so neither
+      // visibility nor focus can pick it.
       scope.__bst1393TargetWindow = true;
       scope.__bst1393OpenFolderAsked = new Promise<string>((resolve) => {
         if (!scope.workspace?.onOpenFolderPicker) {

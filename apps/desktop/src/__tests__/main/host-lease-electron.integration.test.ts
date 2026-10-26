@@ -24,6 +24,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
+import { ESM_REQUIRE_BANNER } from '../../../scripts/build-main-config.mjs';
 import { electronExecutablePath } from '../helpers/electron-executable';
 
 /**
@@ -67,13 +68,14 @@ const cliPids = new Map<number, string>();
 beforeAll(async () => {
   await mkdir(resolve('dist'), { recursive: true });
   directory = await mkdtemp(join(resolve('dist'), 'host-lease-proof-'));
-  entrypoint = join(directory, 'host-lease-entry.cjs');
-  driver = join(directory, 'driver.cjs');
-  agentEntrypoint = join(directory, 'agent-host-entry.cjs');
-  agentPlatform = join(directory, 'agent-host-utility-platform.cjs');
+  entrypoint = join(directory, 'host-lease-entry.js');
+  driver = join(directory, 'driver.js');
+  agentEntrypoint = join(directory, 'agent-host-entry.js');
+  agentPlatform = join(directory, 'agent-host-utility-platform.js');
   // Real production bundle format, external package graph and Electron runtime.
   await build({
     absWorkingDir: resolve('.'),
+    banner: ESM_REQUIRE_BANNER,
     bundle: true,
     entryPoints: {
       'agent-host-entry': 'src/agent-host-entry.ts',
@@ -81,11 +83,9 @@ beforeAll(async () => {
       driver: 'src/__tests__/fixtures/host-lease-electron.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',
     },
-    format: 'cjs',
+    format: 'esm',
     nodePaths: [resolve('node_modules')],
     outdir: directory,
-    // apps/desktop is `type: module`; CommonJS output needs `.cjs`.
-    outExtension: { '.js': '.cjs' },
     packages: 'external',
     platform: 'node',
     target: 'node24',

@@ -13,7 +13,6 @@ const options = { dbPath, embedding: { indexMode: 'text-only' }, rootIds: ['/roo
 const deadlines = { closeMs: 1000 };
 const info = {
   dbPath,
-  embedding: { indexMode: 'text-only' },
   journalMode: 'wal',
   pid: 1,
   readerQueryOnly: 1,

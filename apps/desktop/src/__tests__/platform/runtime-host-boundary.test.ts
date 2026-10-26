@@ -1,13 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createApplicationIpcDomain } from '../../ipc-handlers';
-import {
-  collectDesktopSourceFiles,
-  findRuntimeHostBoundaryViolations,
-  findRuntimeHostBoundaryViolationsInDesktopSource,
-} from './runtime-host-boundary';
 
 const ipcOwners = vi.hoisted(() => ({
   clear: vi.fn(async () => undefined),
@@ -41,129 +35,6 @@ function readDesktopE2e(relativePath: string): string {
 }
 
 describe('runtime host boundary', () => {
-  it('allows renderer host modules to import renderer-only local runtimes', () => {
-    const violations = findRuntimeHostBoundaryViolations([
-      {
-        path: 'apps/desktop/src/renderer/components/embedding-host-runtime.tsx',
-        source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker';",
-      },
-    ]);
-
-    expect(violations).toEqual([]);
-  });
-
-  it('rejects Electron main imports that can execute renderer-only local runtimes', () => {
-    const violations = findRuntimeHostBoundaryViolations([
-      {
-        path: 'apps/desktop/src/ipc-handlers.ts',
-        source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker';",
-      },
-      {
-        path: 'apps/desktop/src/assistant-server/retrieval-tool.ts',
-        source: "import { OpenAIEmbeddingProvider } from '@brainstrike/embeddings';",
-      },
-    ]);
-
-    expect(violations).toEqual([
-      {
-        importSource: '@brainstrike/embeddings/worker',
-        message:
-          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
-        path: 'apps/desktop/src/ipc-handlers.ts',
-      },
-      {
-        importSource: '@brainstrike/embeddings',
-        message:
-          'The embeddings root entrypoint exports renderer-only worker execution; Electron main must import hosted provider contracts from @brainstrike/embeddings/provider-core.',
-        path: 'apps/desktop/src/assistant-server/retrieval-tool.ts',
-      },
-    ]);
-  });
-
-  it('rejects Electron main imports below renderer-only runtime entrypoints', () => {
-    const violations = findRuntimeHostBoundaryViolations([
-      {
-        path: 'apps/desktop/src/ipc-handlers.ts',
-        source: "import { startEmbeddingWorker } from '@brainstrike/embeddings/worker/runtime';",
-      },
-      {
-        path: 'apps/desktop/src/assistant-server/retrieval-tool.ts',
-        source:
-          "import { resolveHostedProviderApiKey } from '@brainstrike/embeddings/provider-core';",
-      },
-    ]);
-
-    expect(violations).toEqual([
-      {
-        importSource: '@brainstrike/embeddings/worker/runtime',
-        message:
-          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
-        path: 'apps/desktop/src/ipc-handlers.ts',
-      },
-    ]);
-  });
-
-  it('rejects dynamic imports and require calls that can execute renderer-only local runtimes', () => {
-    const violations = findRuntimeHostBoundaryViolations([
-      {
-        path: 'apps/desktop/src/main.ts',
-        source:
-          "async function loadLocalRuntime() { return import('@brainstrike/embeddings/worker'); }",
-      },
-      {
-        path: 'apps/desktop/src/ipc-handlers.ts',
-        source: "const embeddingWorker = require('@brainstrike/embeddings/worker');",
-      },
-    ]);
-
-    expect(violations).toEqual([
-      {
-        importSource: '@brainstrike/embeddings/worker',
-        message:
-          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
-        path: 'apps/desktop/src/main.ts',
-      },
-      {
-        importSource: '@brainstrike/embeddings/worker',
-        message:
-          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
-        path: 'apps/desktop/src/ipc-handlers.ts',
-      },
-    ]);
-  });
-
-  it('rejects re-exports that can execute renderer-only local runtimes', () => {
-    const violations = findRuntimeHostBoundaryViolations([
-      {
-        path: 'apps/desktop/src/main.ts',
-        source: "export { startEmbeddingWorker } from '@brainstrike/embeddings/worker';",
-      },
-      {
-        path: 'apps/desktop/src/ipc-handlers.ts',
-        source: "export * from '@brainstrike/embeddings/worker';",
-      },
-    ]);
-
-    expect(violations).toEqual([
-      {
-        importSource: '@brainstrike/embeddings/worker',
-        message:
-          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
-        path: 'apps/desktop/src/main.ts',
-      },
-      {
-        importSource: '@brainstrike/embeddings/worker',
-        message:
-          'Local embedding worker execution is renderer-only; Electron main must talk to embedding-host.',
-        path: 'apps/desktop/src/ipc-handlers.ts',
-      },
-    ]);
-  });
-
-  it('keeps current desktop source free of runtime-host boundary violations', () => {
-    expect(findRuntimeHostBoundaryViolationsInDesktopSource()).toEqual([]);
-  });
-
   it('joins every owned application IPC domain even when one retirement fails', async () => {
     const failure = new Error('Source lease retirement failed');
     ipcOwners.files.mockRejectedValueOnce(failure);
@@ -195,29 +66,6 @@ describe('runtime host boundary', () => {
     expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
   });
 
-  it('keeps host IPC modules on the typed desktop IPC registry instead of direct ipcMain calls', () => {
-    const hostSources = [readDesktopSource('ipc-embedding-host.ts')];
-
-    for (const source of hostSources) {
-      expect(source).toMatch(
-        /createDesktopIpcRegistry|registerBackgroundRuntimeLifecycleIpcHandlers/
-      );
-      expect(source).not.toMatch(/ipcMain\.(handle|on)\(/);
-      expect(source).not.toMatch(/ipcMain\.remove(Handler|Listener)\(/);
-    }
-  });
-
-  it('keeps runtime lifecycle IPC domain ownership explicit', () => {
-    const lifecycleSource = readDesktopSource('register-background-runtime-lifecycle-ipc.ts');
-    const hostSources = [readDesktopSource('ipc-embedding-host.ts')];
-
-    expect(lifecycleSource).not.toMatch(/inferLifecycleDomain/);
-    expect(lifecycleSource).not.toMatch(/domain\?:/);
-    for (const source of hostSources) {
-      expect(source).toMatch(/domain:\s*['"][^'"]+['"]/);
-    }
-  });
-
   it('keeps desktop file explorer selection E2E executable specs split by purpose', () => {
     const interactiveSpec = readDesktopE2e('file-explorer-selection.desktop.test.ts');
     const restoreSpec = readDesktopE2e('file-explorer-selection-restore.desktop.test.ts');
@@ -227,32 +75,5 @@ describe('runtime host boundary', () => {
     expect(restoreSpec.split('\n').length).toBeLessThanOrEqual(2000);
     expect(sharedHarness).toMatch(/file-explorer-selection\.shared\.ts/);
     expect(sharedHarness).toMatch(/test fixture\s+exception/);
-  });
-
-  it('skips symlinked entries while collecting desktop source files', () => {
-    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-runtime-boundary-'));
-    const externalRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-runtime-boundary-external-'));
-
-    try {
-      const sourceRoot = path.join(temporaryRoot, 'src');
-      mkdirSync(sourceRoot);
-      writeFileSync(path.join(sourceRoot, 'main.ts'), "import './safe';", 'utf8');
-      writeFileSync(
-        path.join(externalRoot, 'outside.ts'),
-        "import '@brainstrike/embeddings/worker';",
-        'utf8'
-      );
-      symlinkSync(path.join(externalRoot, 'outside.ts'), path.join(sourceRoot, 'outside.ts'));
-
-      expect(collectDesktopSourceFiles(sourceRoot)).toEqual([
-        {
-          path: 'src/main.ts',
-          source: "import './safe';",
-        },
-      ]);
-    } finally {
-      rmSync(temporaryRoot, { force: true, recursive: true });
-      rmSync(externalRoot, { force: true, recursive: true });
-    }
   });
 });

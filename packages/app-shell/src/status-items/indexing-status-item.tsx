@@ -18,10 +18,7 @@ import {
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import { type IndexConfig, indexModelId } from '@brainstrike/assistant-contract/index-config';
-import type {
-  IndexRetryCapability,
-  IndexSearchCapability,
-} from '@brainstrike/indexing-contract/indexer-client';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   Accordion,
   AccordionContent,
@@ -37,8 +34,6 @@ import {
 import { getBackgroundIndexingPolicyOption } from '@brainstrike/utils';
 import { CirclePause, Database, Loader2, TriangleAlert } from 'lucide-react';
 import { startTransition, useActionState, useId, useState } from 'react';
-import { RetryIndexingButton, RetryIndexingFailure } from './retry-indexing-control';
-import { offeredRetryIndexing, useRetryIndexing } from './use-retry-indexing';
 
 const EMPTY_METRIC_VALUE = '—';
 
@@ -46,7 +41,6 @@ const selectCollectionSyncStatus = (
   state: ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>
 ) => ({
   activeRootPath: state.activeRootPath,
-  blockedReason: state.blockedReason,
   chunkingProgress: state.chunkingProgress,
   currentFilePath: state.currentFilePath,
   embeddingProgress: state.embeddingProgress,
@@ -561,14 +555,11 @@ function usePauseIndexing(config: IndexConfig | null) {
 }
 
 export function IndexingStatusItem({
-  nativeIndexRetry = null,
   nativeIndexSearch,
 }: {
-  readonly nativeIndexRetry?: IndexRetryCapability | null;
   readonly nativeIndexSearch?: IndexSearchCapability | null;
 }) {
   const [open, setOpen] = useState(false);
-  const retryAction = useRetryIndexing(nativeIndexRetry);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const popoverTitleId = useId();
   const snapshot = useIndexingActivityStore((state) => state.snapshot);
@@ -597,8 +588,6 @@ export function IndexingStatusItem({
   const showPauseControl =
     shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state) ||
     shouldShowWorkspaceCollectionSyncPauseControl(snapshot.background.state);
-  // Only the native owner's typed cause offers the restart; the error text above is the cause.
-  const retryIndexing = offeredRetryIndexing(syncStatus, retryAction);
 
   return (
     <Popover onOpenChange={setOpen} open={open}>
@@ -750,8 +739,6 @@ export function IndexingStatusItem({
             </AccordionItem>
           </Accordion>
 
-          {retryIndexing ? <RetryIndexingFailure action={retryIndexing} /> : null}
-
           {pause.error ? (
             <p className="text-destructive text-sm" role="alert">
               {pause.error}
@@ -774,7 +761,6 @@ export function IndexingStatusItem({
             >
               Open indexing settings
             </Button>
-            {retryIndexing ? <RetryIndexingButton action={retryIndexing} /> : null}
             {pause.available && showPauseControl ? (
               <Button
                 disabled={pause.pending}

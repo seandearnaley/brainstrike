@@ -1,36 +1,48 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  getRegisteredIpcMainListener,
-  resetElectronMainTestHarness,
-} from './helpers/electron-main-test-harness';
+  createAllowlistedSenderFrame,
+  invokeDesktopIpcFrom,
+  trackTestAppWindow,
+} from './helpers/desktop-ipc-sender-test-helpers';
+import { mockIpcMain, resetElectronMainTestHarness } from './helpers/electron-main-test-harness';
 
 // Import after the shared harness's global `vi.mock('electron', …)` (wired in
 // `setup.ts`) is active, matching `logging-ipc.test.ts`'s convention for a
 // `register*IpcHandlers` module.
 const { registerWorkspaceOpenReadyIpcHandlers } = await import('../workspace-open-ready-ipc');
 
-const CHANNEL = 'workspace:open-path-ready';
+const METHOD = 'workspace:open-path-ready';
+
+function appWindowEvent(senderId: number) {
+  trackTestAppWindow(senderId);
+  return { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
+}
+
+function ping(event: unknown, payload: unknown): Promise<unknown> {
+  return invokeDesktopIpcFrom(mockIpcMain, event, METHOD, payload);
+}
 
 describe('registerWorkspaceOpenReadyIpcHandlers', () => {
+  let unregister: (() => void) | undefined;
+
+  function register(onOpenPathReady = vi.fn()) {
+    unregister = registerWorkspaceOpenReadyIpcHandlers({ onOpenPathReady });
+    return onOpenPathReady;
+  }
+
   beforeEach(() => {
     resetElectronMainTestHarness();
   });
 
-  it('registers the workspace:open-path-ready event channel', () => {
-    registerWorkspaceOpenReadyIpcHandlers({ onOpenPathReady: vi.fn() });
-
-    expect(() => getRegisteredIpcMainListener(CHANNEL)).not.toThrow();
+  afterEach(() => {
+    unregister?.();
+    unregister = undefined;
   });
 
-  it('routes a valid ping with the echoed reset generation', () => {
-    const onOpenPathReady = vi.fn();
-    registerWorkspaceOpenReadyIpcHandlers({ onOpenPathReady });
-    const listener = getRegisteredIpcMainListener(CHANNEL);
+  it('routes a valid ping with the echoed reset generation', async () => {
+    const onOpenPathReady = register();
 
-    listener(
-      { sender: { id: 42 }, senderFrame: { processId: 7, routingId: 9 } },
-      { resetGeneration: 'reset-42' }
-    );
+    await ping(appWindowEvent(42), { resetGeneration: 'reset-42' });
 
     // Plain number, not the IpcMainEvent/WebContents object — this is what
     // lets `main.ts` route via a `Map<number, () => void>` keyed by
@@ -42,19 +54,11 @@ describe('registerWorkspaceOpenReadyIpcHandlers', () => {
     });
   });
 
-  it('routes a second ping from a DIFFERENT sender id independently', () => {
-    const onOpenPathReady = vi.fn();
-    registerWorkspaceOpenReadyIpcHandlers({ onOpenPathReady });
-    const listener = getRegisteredIpcMainListener(CHANNEL);
+  it('routes a second ping from a DIFFERENT sender id independently', async () => {
+    const onOpenPathReady = register();
 
-    listener(
-      { sender: { id: 1 }, senderFrame: { processId: 10, routingId: 11 } },
-      { resetGeneration: null }
-    );
-    listener(
-      { sender: { id: 2 }, senderFrame: { processId: 12, routingId: 13 } },
-      { resetGeneration: 'reset-2' }
-    );
+    await ping(appWindowEvent(1), { resetGeneration: null });
+    await ping(appWindowEvent(2), { resetGeneration: 'reset-2' });
 
     expect(onOpenPathReady).toHaveBeenNthCalledWith(1, {
       kind: 'ready',
@@ -69,37 +73,31 @@ describe('registerWorkspaceOpenReadyIpcHandlers', () => {
   });
 
   it.each([
-    [null, { resetGeneration: 'reset-3' }, 'has no sender frame'],
-    [{ processId: 14, routingId: 15 }, undefined, 'has malformed payload'],
-    [{ processId: 14, routingId: 15 }, { resetGeneration: 42 }, 'has malformed payload'],
-    [{ processId: 14, routingId: 15 }, { resetGeneration: '' }, 'has malformed payload'],
-    [
-      { processId: 14, routingId: 15 },
-      { extra: true, resetGeneration: 'reset-3' },
-      'has malformed payload',
-    ],
-  ])(
-    'routes an explicit diagnostic for a frameless or malformed ping',
-    (senderFrame, payload, message) => {
-      const onOpenPathReady = vi.fn();
-      registerWorkspaceOpenReadyIpcHandlers({ onOpenPathReady });
-      const listener = getRegisteredIpcMainListener(CHANNEL);
+    [undefined],
+    [{ resetGeneration: 42 }],
+    [{ resetGeneration: '' }],
+    [{ extra: true, resetGeneration: 'reset-3' }],
+  ])('routes an explicit diagnostic for a malformed ping (%j)', async (payload) => {
+    const onOpenPathReady = register();
 
-      listener({ sender: { id: 3 }, senderFrame }, payload);
+    await ping(appWindowEvent(3), payload);
 
-      expect(onOpenPathReady).toHaveBeenCalledExactlyOnceWith({
-        diagnostic: `Renderer 3 readiness acknowledgement ${message}`,
-        kind: 'invalid',
-        senderWebContentsId: 3,
-      });
-    }
-  );
+    expect(onOpenPathReady).toHaveBeenCalledExactlyOnceWith({
+      diagnostic: 'Renderer 3 readiness acknowledgement has malformed payload',
+      kind: 'invalid',
+      senderWebContentsId: 3,
+    });
+  });
 
-  it('the returned unregister function removes the listener', () => {
-    const unregister = registerWorkspaceOpenReadyIpcHandlers({ onOpenPathReady: vi.fn() });
+  it('the returned unregister function stops serving the method', async () => {
+    const onOpenPathReady = register();
 
-    unregister();
+    unregister?.();
+    unregister = undefined;
 
-    expect(() => getRegisteredIpcMainListener(CHANNEL)).toThrow(/No ipcMain.on registration found/);
+    await expect(ping(appWindowEvent(5), { resetGeneration: null })).rejects.toThrow(
+      `No desktop IPC handler for ${METHOD}.`
+    );
+    expect(onOpenPathReady).not.toHaveBeenCalled();
   });
 });

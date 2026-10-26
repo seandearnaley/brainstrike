@@ -16,7 +16,9 @@
 
 import {
   permissionPolicySelectors,
+  rehydratePermissionPolicy,
   usePermissionPolicyHydration,
+  usePermissionPolicySave,
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
@@ -172,7 +174,7 @@ function PerToolOverridesBlock() {
                 onChange={(event) => {
                   const next = event.target.value;
                   if (isPermissionDecisionValue(next)) {
-                    setToolOverride(toolId, next);
+                    void setToolOverride(toolId, next);
                   }
                 }}
                 value={decision}
@@ -186,7 +188,7 @@ function PerToolOverridesBlock() {
               <Button
                 aria-label={`Remove override for ${toolId}`}
                 data-testid={`permission-tool-override-remove-${toolId}`}
-                onClick={() => setToolOverride(toolId, null)}
+                onClick={() => void setToolOverride(toolId, null)}
                 size="sm"
                 title={`Remove override for ${toolId}`}
                 variant="ghost"
@@ -279,6 +281,7 @@ export function PermissionSettingsSection() {
   const setEnforce = usePermissionPolicyStore((state) => state.setEnforce);
   const setCategoryPolicy = usePermissionPolicyStore((state) => state.setCategoryPolicy);
   const setYolo = usePermissionPolicyStore((state) => state.setYolo);
+  const saveError = usePermissionPolicySave((state) => state.error);
 
   // BST-1930: editing defaults while the host is still opening can overwrite
   // saved policy and lose the pending write when the user immediately quits.
@@ -292,9 +295,7 @@ export function PermissionSettingsSection() {
           {hydration.status === 'failed' ? (
             <>
               <p role="alert">Unable to load permission settings: {hydration.error}</p>
-              <Button onClick={() => void usePermissionPolicyStore.persist.rehydrate()}>
-                Retry
-              </Button>
+              <Button onClick={() => void rehydratePermissionPolicy()}>Retry</Button>
             </>
           ) : (
             <p role="status">Loading permission settings…</p>
@@ -315,6 +316,11 @@ export function PermissionSettingsSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {saveError === null ? null : (
+          <p data-testid="permission-policy-save-error" role="alert">
+            Unable to save permission settings: {saveError}
+          </p>
+        )}
         <div className="flex items-center justify-between gap-4">
           <div>
             <Label className="font-medium text-sm" htmlFor="permission-enforce-toggle">
@@ -329,7 +335,7 @@ export function PermissionSettingsSection() {
             checked={enforce}
             data-testid="permission-enforce-toggle"
             id="permission-enforce-toggle"
-            onCheckedChange={(value) => setEnforce(value === true)}
+            onCheckedChange={(value) => void setEnforce(value === true)}
           />
         </div>
 
@@ -352,7 +358,7 @@ export function PermissionSettingsSection() {
                 category={category}
                 disabled={!enforce}
                 label={label}
-                onChange={setCategoryPolicy}
+                onChange={(category, decision) => void setCategoryPolicy(category, decision)}
                 value={policies[category]}
               />
             </div>
@@ -390,7 +396,7 @@ export function PermissionSettingsSection() {
             checked={yolo}
             data-testid="permission-yolo-toggle"
             id="permission-yolo-toggle"
-            onCheckedChange={(value) => setYolo(value === true)}
+            onCheckedChange={(value) => void setYolo(value === true)}
           />
         </div>
 

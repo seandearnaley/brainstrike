@@ -1,16 +1,6 @@
 import { BrowserWindow, ipcMain, type WebContents } from 'electron';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
-import type { DesktopPowerSnapshot } from './platform/desktop-power-snapshot';
-
-const EMBEDDING_HOST_SHARED_SENDER_POLICY = {
-  reason:
-    'Invoked by the visible UI and the embedding-host hidden host (dist/hidden-preload.js); sender-role policy pending (BST-1641 follow-up).',
-} as const;
-const VISIBLE_ONLY_SENDER_POLICY = {
-  reason:
-    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
-} as const;
 
 interface ReloadIntent {
   readonly reason: string;
@@ -18,7 +8,6 @@ interface ReloadIntent {
 }
 
 interface MainPlatformIpcDependencies {
-  readonly getPowerSnapshot: () => DesktopPowerSnapshot;
   readonly noteNextWindowReload: (window: BrowserWindow, intent: ReloadIntent) => void;
   readonly requestReload: (window: BrowserWindow, reason: string) => void;
 }
@@ -43,23 +32,14 @@ function normalizeReloadIntentReason(reason: unknown): string {
 }
 
 export function registerMainPlatformIpcHandlers({
-  getPowerSnapshot,
   noteNextWindowReload,
   requestReload,
 }: MainPlatformIpcDependencies): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerUnauthenticatedInvoke(
+  registry.handle(
     'runtime',
-    DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot,
-    EMBEDDING_HOST_SHARED_SENDER_POLICY,
-    () => getPowerSnapshot()
-  );
-
-  registry.registerUnauthenticatedInvoke(
-    'runtime',
-    DESKTOP_PRELOAD_IPC_CHANNELS.runtime.noteReloadIntent,
-    VISIBLE_ONLY_SENDER_POLICY,
+    DESKTOP_IPC_CHANNELS.runtime.noteReloadIntent,
     async (event, reason: unknown): Promise<void> => {
       const normalizedReason = normalizeReloadIntentReason(reason);
       const window = getLiveSenderWindow(event.sender);
@@ -73,10 +53,9 @@ export function registerMainPlatformIpcHandlers({
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'runtime',
-    DESKTOP_PRELOAD_IPC_CHANNELS.runtime.requestReload,
-    { roles: ['visible-ui'] },
+    DESKTOP_IPC_CHANNELS.runtime.requestReload,
     (event, reason: unknown): void => {
       if (event.senderFrame !== event.sender.mainFrame) {
         throw new Error('Renderer reload must originate from the current main frame.');

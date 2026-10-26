@@ -8,7 +8,7 @@ import { createNativeIndexLifecycle } from '../native-index-lifecycle-owner';
 import type { NativeIndexSettings } from '../native-index-settings';
 import { textSettings, unreadableSettings, vectorSettings } from './helpers/native-index-settings';
 
-// Text search, then semantic search with WASM · Q8 (BST-1988).
+// Text search, then semantic search (BST-1988).
 const TEXT_SAVED = textSettings();
 const VECTOR_SAVED = vectorSettings();
 const VECTOR_PAUSED = vectorSettings({ paused: true });

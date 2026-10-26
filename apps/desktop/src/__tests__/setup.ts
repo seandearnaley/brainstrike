@@ -9,10 +9,10 @@ import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame
 type WatchHealthCallback = Parameters<VisibleDesktopElectronApi['fileSystem']['onWatchHealth']>[0];
 
 // Install the renderer target the loaders and the sender-frame allowlist
-// (`registerAuthorizedInvoke`'s second factor, BST-1641) resolve. Production
+// (the IPC dispatcher's second factor, BST-1641) resolve. Production
 // configures it from `main.ts` once the launch mode is known; the unit lane
-// pins a deterministic built-renderer target so every authorized-channel test
-// dispatches through the real second factor. Build a trusted event with
+// pins a deterministic built-renderer target so every IPC test dispatches
+// through the real second factor. Build a trusted event with
 // `createTrustedInvokeEvent` from the same helper.
 configureDesktopRendererTarget(TEST_DESKTOP_RENDERER_TARGET);
 

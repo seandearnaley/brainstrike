@@ -12,13 +12,6 @@ import { loadStateProjection } from '../src/state-projection.js';
 import { IndexWriter } from '../src/store.js';
 
 const producer = new URL('./fixtures/state-search-schema.mjs', import.meta.url).href;
-const profile = {
-  dimensions: 4,
-  distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'statement-reuse-proof',
-  provider: 'local',
-} as const;
 const events = STATE_CATCH_UP_STEP_EVENTS;
 
 const owned: (() => Promise<void> | void)[] = [];
@@ -96,9 +89,7 @@ it('a catch-up step over many events prepares no more statements than a one-even
   expect(state.gcCheck({ hashes, threads: ['one', 'many'] })).toEqual(
     Object.fromEntries(hashes.map((hash) => [hash, events + 1]))
   );
-  expect(state.searchCoverage({ profile, threadIds: ['many'] })).toEqual({
-    embedded: 0,
-    errored: 0,
-    rows: events,
-  });
+  expect(
+    index.db.prepare("SELECT count(*) FROM state_search_rows WHERE thread_id='many'").pluck().get()
+  ).toBe(events);
 });

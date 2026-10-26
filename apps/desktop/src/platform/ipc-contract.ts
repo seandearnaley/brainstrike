@@ -4,18 +4,15 @@
  * sandboxed preloads (`scripts/build-main-config.mjs`, `bundle: true`) AND
  * imported by main, so ONE contract object per domain derives the main
  * handler map (`Handlers<C>`), the preload bridge object (`Bridge<C>`), and
- * the renderer `Window` typing. The channel string lives here and nowhere
+ * the renderer `Window` typing. The method name lives here and nowhere
  * else; `parseArgs` is a plain function that runs only in MAIN, before the
  * handler sees renderer-controlled input, and THROWS on malformed input (no
- * coercion). Sender roles are a non-empty tuple: a contract channel cannot
- * be registered without authorization (`registerDomain` has no
- * unauthenticated path). See `docs/agents/platform-contracts.md`.
+ * coercion). Every call is authorized by the one dispatcher before it reaches
+ * a handler. See `docs/agents/platform-contracts.md`.
  */
 import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
-import type { DesktopWindowRole } from '../window-role';
 
 export type IpcChannelName = `${string}:${string}`;
-type IpcSenderRoles = readonly [DesktopWindowRole, ...DesktopWindowRole[]];
 
 /**
  * The ONE failure taxonomy that crosses IPC as data (first written for MCP
@@ -59,7 +56,6 @@ export interface IpcChannel<
   readonly parseArgs: (raw: readonly unknown[]) => Args;
   /** Phantom carrier for the unwrapped result type; never assigned. */
   readonly result?: Result;
-  readonly roles: IpcSenderRoles;
 }
 
 /** One-way main→renderer push; the bridge derives `(callback) => unsubscribe`. */
@@ -76,7 +72,6 @@ export type Contract = Record<string, IpcSpec>;
 interface IpcChannelInput<Args extends readonly unknown[]> {
   readonly channel: IpcChannelName;
   readonly parseArgs: (raw: readonly unknown[]) => Args;
-  readonly roles: IpcSenderRoles;
 }
 
 export function channel<Args extends readonly unknown[], Result>(

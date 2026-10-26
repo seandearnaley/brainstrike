@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { TOOL_CALL_BLOCKED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -106,8 +106,11 @@ test('a project hook runs on a host thread only after it is approved in Settings
   const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
   const skipped = panel.getByText('Project hooks not trusted', { exact: true });
   await expect(skipped).toHaveCount(1);
+  // The notice names the file by its native absolute path, as Settings › Hooks does.
   await expect(
-    panel.getByText('/.brainstrike/hooks.json: not trusted — review it in Settings > Hooks')
+    panel.getByText(
+      `${join(basename(workspace), '.brainstrike', 'hooks.json')}: not trusted — review it in Settings > Hooks`
+    )
   ).toBeVisible();
 
   // Settings shows the root untrusted until it is approved through the host.

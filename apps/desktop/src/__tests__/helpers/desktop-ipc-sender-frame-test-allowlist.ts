@@ -7,7 +7,6 @@ import {
   type DesktopIpcSenderFrameAllowlist,
   resolveDesktopIpcSenderFrameAllowlist,
 } from '../../platform/desktop-ipc-sender-frame';
-import type { DesktopWindowRole } from '../../window-role';
 
 /**
  * Deterministic renderer target + sender-frame allowlist for the desktop unit
@@ -18,8 +17,8 @@ import type { DesktopWindowRole } from '../../window-role';
  * `src/__tests__/setup.ts` installs the target process-wide before every
  * file; tests that need a different allowlist inject one into
  * `createDesktopIpcRegistry` or configure a different target explicitly.
- * This module deliberately imports no window-role RUNTIME so suites that mock
- * `window-role` can still build allowlisted frames.
+ * This module deliberately imports no app-windows module so suites that mock
+ * `app-windows` can still build allowlisted frames.
  */
 const TEST_BUILT_RENDERER_PATH = resolve('/mock/app/dist/renderer/index.html');
 export const TEST_DESKTOP_RENDERER_TARGET = createDesktopRendererTarget({
@@ -47,22 +46,18 @@ function allowlistedDocumentUrl(allowlist: DesktopIpcSenderFrameAllowlist): stri
  * instance, and `reconfigureTestRendererTargetAfterModuleReset` pins BOTH
  * instances to the test target so the two agree again. A suite that
  * configures a DIFFERENT target on a fresh instance must pass `allowlist`
- * explicitly. Hidden roles carry the `?mode=` query the real hosts load with.
- * Throws (fail-closed) when nothing is configured, exactly like the registry.
+ * explicitly. Throws (fail-closed) when nothing is configured, exactly like
+ * the registry.
  */
 export function createAllowlistedSenderFrame(
-  role: DesktopWindowRole = 'visible-ui',
   allowlist: DesktopIpcSenderFrameAllowlist = resolveDesktopIpcSenderFrameAllowlist()
 ): Pick<Electron.WebFrameMain, 'url'> {
-  const documentUrl = allowlistedDocumentUrl(allowlist);
-  const url =
-    role === 'visible-ui' ? documentUrl : `${documentUrl}?mode=${role}&runtimeId=test-runtime`;
-  return { url };
+  return { url: allowlistedDocumentUrl(allowlist) };
 }
 
 /**
  * `vi.resetModules()` gives the next registry import a FRESH renderer-target
- * module with nothing configured, so every authorized invoke fails closed
+ * module with nothing configured, so every desktop IPC call fails closed
  * with "Desktop renderer target is not configured". Suites that reset modules
  * call this right after the reset: it installs the pinned test target on that
  * fresh instance (a dynamic import resolves the post-reset module) AND on the

@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StateStorage } from 'zustand/middleware';
 
-interface PersistApi {
-  readonly hasHydrated: () => boolean;
-  readonly rehydrate: () => Promise<void> | void;
-}
-
 function createMemoryStorage(): StateStorage<void> {
   const values = new Map<string, string>();
   return {
@@ -47,19 +42,16 @@ describe('security-sensitive store persistence during chunk evaluation', () => {
 
   it('keeps permission-policy persistence installed and retries a transient resolution failure', async () => {
     const createBrowserJsonStorage = await installTransientStorageFailure();
-    const { usePermissionPolicyStore } = await import('../stores/permission-policy-store.ts');
-    const persist = (
-      usePermissionPolicyStore as typeof usePermissionPolicyStore & {
-        persist?: PersistApi;
-      }
-    ).persist;
+    const { rehydratePermissionPolicy, usePermissionPolicyHydration } = await import(
+      '../stores/permission-policy-store.ts'
+    );
 
-    expect(persist).toBeDefined();
+    await vi.waitFor(() => expect(usePermissionPolicyHydration.getState().status).toBe('failed'));
     expect(createBrowserJsonStorage).toHaveBeenCalledOnce();
 
-    await persist?.rehydrate();
+    await rehydratePermissionPolicy();
 
     expect(createBrowserJsonStorage).toHaveBeenCalledTimes(2);
-    expect(persist?.hasHydrated()).toBe(true);
+    expect(usePermissionPolicyHydration.getState().status).toBe('ready');
   });
 });

@@ -22,7 +22,6 @@ export const LIFECYCLE_DELAY_POINTS = [
   'record-read',
   'indexer-request',
   'canonical-attach',
-  'hidden-host-ready',
   'renderer-flush',
   'child-exit',
   'parcel-subscribe',

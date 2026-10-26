@@ -195,11 +195,6 @@ const OPENAI_DEFINITION = {
   keyNotes: 'Create a key in the OpenAI dashboard.',
 };
 const GOOGLE_DEFINITION = { authType: 'api_key', displayName: 'Google', id: 'google' };
-const OLLAMA_DEFINITION = {
-  authType: 'none',
-  displayName: 'Ollama (Local Runtime)',
-  id: 'ollama',
-};
 
 const waitForReady = async (): Promise<void> => {
   await waitFor(() => {
@@ -211,7 +206,7 @@ describe('CredentialInventory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetSecretsStoreForTests();
-    listProvidersMock.mockReturnValue([OPENAI_DEFINITION, GOOGLE_DEFINITION, OLLAMA_DEFINITION]);
+    listProvidersMock.mockReturnValue([OPENAI_DEFINITION, GOOGLE_DEFINITION]);
     providerVendorEnvKeyMock.mockImplementation((provider: string) =>
       provider === 'openai'
         ? 'OPENAI_API_KEY'
@@ -227,14 +222,13 @@ describe('CredentialInventory', () => {
     delete (window as unknown as Record<string, unknown>)['secrets'];
   });
 
-  it('renders one always-visible row per keyed slot plus Tavily, skipping keyless providers', async () => {
+  it('renders one always-visible row per provider slot plus Tavily', async () => {
     render(<CredentialInventory />);
     await waitForReady();
 
     expect(screen.getByTestId('credential-row-openai')).toBeDefined();
     expect(screen.getByTestId('credential-row-google')).toBeDefined();
     expect(screen.getByTestId('credential-row-tavily')).toBeDefined();
-    expect(screen.queryByTestId('credential-row-ollama')).toBeNull();
     // The dropdown UI is gone.
     expect(screen.queryByTestId('llm-provider')).toBeNull();
 
@@ -310,26 +304,25 @@ describe('CredentialInventory', () => {
     });
   });
 
-  it('renders normally when the listing mentions a stored keyless provider (no row, no blanking)', async () => {
-    // The bridge lists ANY stored provider id it knows (e.g. a keyless local
-    // runtime like ollama). The table shows no row for it — but the entry must
-    // parse, never blank the whole table (BST-1362 review blocker).
+  it('renders normally when the listing mentions a stored provider the filter hides (no row, no blanking)', async () => {
+    // The bridge lists ANY stored provider id it knows, whatever the table is
+    // filtered to. The table shows no row for it — but the entry must parse,
+    // never blank the whole table (BST-1362 review blocker).
     const base = createSecretsApi();
     setSecretsApi({
       ...base,
       list: vi.fn().mockResolvedValue([
-        { provider: 'ollama', source: 'stored' },
+        { provider: 'google', source: 'stored' },
         { provider: 'openai', source: 'stored' },
       ] as ListedSource[]),
     });
 
-    render(<CredentialInventory />);
+    render(<CredentialInventory providers={['openai']} />);
     await waitForReady();
 
     expect(screen.queryByTestId('provider-key-load-error')).toBeNull();
-    expect(screen.queryByTestId('credential-row-ollama')).toBeNull();
+    expect(screen.queryByTestId('credential-row-google')).toBeNull();
     expect(screen.getByTestId('credential-status-openai').textContent).toBe('Stored');
-    expect(screen.getByTestId('credential-status-google').textContent).toBe('Not set');
   });
 
   it('shows a Stored badge with the …last4 fingerprint and saved date', async () => {

@@ -1,4 +1,4 @@
-import { getRuntimeProviderLlmModels } from '@brainstrike/app-shell';
+import { getProviderLlmModelDefinitions } from '@brainstrike/app-shell';
 import { isSupportedProvider } from '@brainstrike/assistant-contract';
 import {
   type CumulativeUsageDisplay,
@@ -10,12 +10,11 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { HostThreadLedger } from './host-thread-ledger';
 
 /**
- * The legacy meter's rate: the model's catalog pricing. Runtime-discovered
- * Ollama and LM Studio models carry none, so they read as unpriced there too.
+ * The legacy meter's rate: the model's catalog pricing.
  */
 const catalogPricing: ModelPricingResolver = (provider, model) =>
   isSupportedProvider(provider)
-    ? getRuntimeProviderLlmModels(provider, {}, undefined).find(
+    ? getProviderLlmModelDefinitions(provider, undefined).find(
         (definition) => definition.id === model
       )?.pricing
     : undefined;

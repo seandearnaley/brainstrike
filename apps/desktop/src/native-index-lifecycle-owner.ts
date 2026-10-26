@@ -1,3 +1,4 @@
+import { NativeIndexSetupRequiredError } from '@brainstrike/assistant-service/node-native-text-services';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { Cause, Data, Effect, Semaphore, Stream, SubscriptionRef, type Tracer } from 'effect';
 import { traceNativeIndexWorkflow } from './native-index-effect-diagnostics';
@@ -9,7 +10,6 @@ import {
   reduceNativeIndex,
 } from './native-index-lifecycle';
 import type { NativeIndexSettings } from './native-index-settings';
-import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 import {
   NativeIndexActionFailure,
   NativeIndexEventRefusedError,

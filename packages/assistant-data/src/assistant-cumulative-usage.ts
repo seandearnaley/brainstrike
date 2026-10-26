@@ -45,7 +45,7 @@ export interface CumulativeUsageDisplay {
   readonly totalTokens: number;
 }
 
-/** Resolves a model's pricing from the registry (undefined when unknown / keyless). */
+/** Resolves a model's pricing from the registry (undefined when unknown). */
 export type ModelPricingResolver = (
   provider: string,
   model: string

@@ -31,11 +31,7 @@ import {
   collectProviderCallProvenance,
   type ProviderCallProvenance,
 } from './providers/foreign-provider-history.ts';
-import {
-  buildGenerationProviderOptionsOption,
-  buildModelSettingsOption,
-} from './providers/generation-settings.ts';
-import type { OllamaModelFacts } from './providers/ollama-chat-model.ts';
+import { buildModelSettingsOption } from './providers/generation-settings.ts';
 import { classifyOpenAIStoredItemError } from './providers/openai-expired-item.ts';
 import {
   assertProviderRequestBoundaries,
@@ -51,11 +47,7 @@ import {
 } from './token-measurement.ts';
 import type { RuntimeData, ToolProjectionRewriteEntry } from './types.ts';
 
-export {
-  buildGenerationProviderOptionsOption,
-  buildModelSettingsOption,
-} from './providers/generation-settings.ts';
-export type { OllamaModelFacts } from './providers/ollama-chat-model.ts';
+export { buildModelSettingsOption } from './providers/generation-settings.ts';
 export {
   isOpenAIStoredItemExpiredError,
   OpenAIStoredItemExpiredError,
@@ -76,11 +68,6 @@ export interface ProviderRequestContext {
   readonly history?: readonly MastraDBMessage[];
   readonly inputTokenLimit?: number;
   readonly interruptedToolCallIds?: ReadonlySet<string>;
-  /**
-   * BST-754: an Ollama run's admitted window and thinking capability, which
-   * its model sends with every call (`num_ctx`, `think`).
-   */
-  readonly localModel?: OllamaModelFacts;
   readonly provider: SupportedProvider;
   readonly rewrites?: ReadonlyMap<string, ToolProjectionRewriteEntry>;
   readonly runtimeData?: Pick<RuntimeData, 'model' | 'modelSettings' | 'providerOptions'>;
@@ -248,7 +235,7 @@ export function preparedPromptBreakdown(
  * The request does not fit the selected model's input budget. Core recovers it
  * by compacting; when nothing can be dropped (a model whose window cannot hold
  * the run's own instructions and tools), the run fails with this refusal,
- * naming both numbers (BST-754: a small local model is now budgeted honestly).
+ * naming both numbers.
  */
 export class ProviderRequestContextOverflowError extends BoundaryFailureError {
   readonly retryable = false;
@@ -420,19 +407,19 @@ export async function prepareProviderRequest(
   params.abortSignal?.throwIfAborted();
   const provenance = collectProviderCallProvenance(params.prompt, context.history ?? []);
   const runtimeData: RuntimeData = { ...context.runtimeData, provider: context.provider };
-  const selected = buildGenerationProviderOptionsOption(runtimeData).providerOptions;
-  const sanitized = buildGenerationProviderOptionsOption({
-    providerOptions: { ...params.providerOptions, ...selected },
-  }).providerOptions;
+  const requested: NonNullable<RuntimeData['providerOptions']> = {
+    ...params.providerOptions,
+    ...context.runtimeData?.providerOptions,
+  };
   const providerOptions = isOpenAI(context.provider)
-    ? { ...sanitized, openai: { ...sanitized?.openai, store: context.provider === 'openai' } }
-    : sanitized;
+    ? { ...requested, openai: { ...requested.openai, store: context.provider === 'openai' } }
+    : requested;
   let prompt =
     isOpenAI(context.provider) && context.abortedItemIds
       ? dropAbortedOpenAIItems(params.prompt, context.abortedItemIds)
       : params.prompt;
   prompt = healInterruptedToolCalls(prompt, context.interruptedToolCallIds ?? new Set());
-  if (context.history && context.provider !== 'ollama' && context.provider !== 'lmstudio') {
+  if (context.history) {
     prompt = new ProjectionSafeToolCallFilter({
       toolNameMap: context.toolNameMap ?? new Map(),
     }).preparePrompt(
@@ -458,7 +445,7 @@ export async function prepareProviderRequest(
     ...callParams,
     ...modelSettings,
     prompt,
-    ...(providerOptions ? { providerOptions } : {}),
+    providerOptions,
   };
   const measurement =
     context.tokenMeasurement ??

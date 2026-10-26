@@ -21,7 +21,7 @@ import {
   createFileSystem,
   createStorage,
   getRootsCatalog,
-  handlers,
+  ipcMethod,
   resetRootsCatalog,
 } from './file-system-ipc-test-harness';
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
@@ -37,11 +37,7 @@ async function restoreRootsQueuedBehindClose(): Promise<unknown> {
     isSyntheticFileSystemPath: () => true,
     storage: createStorage(),
   });
-  const handler = handlers.get('fs:restoreRoots');
-  if (!handler) {
-    throw new Error('fs:restoreRoots handler was not registered');
-  }
-  const restoring = handler(createTrustedInvokeEvent());
+  const restoring = ipcMethod('fs:restoreRoots')(createTrustedInvokeEvent());
   await close();
   return await restoring;
 }
@@ -54,7 +50,6 @@ const disposedRefusal = {
 describe('file system IPC after its workspace root registry is disposed', () => {
   beforeEach(() => {
     resetRootsCatalog();
-    handlers.clear();
     for (const log of Object.values(loggerMock)) {
       log.mockClear();
     }

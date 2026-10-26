@@ -11,7 +11,7 @@ const grep = {
   pattern: 'needle',
   rootIds: ['root'],
 };
-const identity = { embedding: { indexMode: 'text-only' }, storeId: 'a'.repeat(64) };
+const identity = { storeId: 'a'.repeat(64) };
 
 describe('SQLite query process boundary', () => {
   it('rejects unknown command fields, invalid row limits and malformed scopes', () => {

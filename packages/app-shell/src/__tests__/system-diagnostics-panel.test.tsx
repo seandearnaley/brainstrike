@@ -7,7 +7,7 @@ import {
   useDatabaseStatusStore,
 } from '@brainstrike/app-state/stores/database-status-store';
 import { act } from '@brainstrike/test-utils/react-act';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
@@ -25,204 +25,22 @@ describe('SystemDiagnosticsPanel', () => {
     __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
-    (window as Window & { embeddingHost?: unknown }).embeddingHost = {
-      onStatus: vi.fn(() => () => undefined),
-    };
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
-    (window as Window & { embeddingHost?: unknown }).embeddingHost = undefined;
     vi.unstubAllGlobals();
   });
 
   describe('rendering', () => {
-    it('surfaces invalid embedding telemetry from a desktop snapshot', async () => {
-      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
-        getSnapshot: vi.fn(async () => ({
-          ok: true,
-          value: {
-            collectedAt: '2026-08-01T00:00:00.000Z',
-            embeddingHost: {
-              active: false,
-              lastError: null,
-              pendingRequestCount: 0,
-              runtimeId: 'embedding-host:idle',
-              runtimeKind: 'embedding-host',
-              sourceState: 'running',
-              state: 'idle',
-            },
-            reset: { userDataPath: '/tmp/brainstrike-user-data' },
-            telemetry: {
-              backgroundRuntimeMetrics: [],
-              embedding: {
-                batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
-                cache: {
-                  entries: [],
-                  estimatedGpuBytes: 0,
-                  estimatedHeapBytes: 0,
-                  memoryEstimateUnavailableCount: 0,
-                  residentCount: 0,
-                },
-                health: { failureCount: 1, lastFailure: null },
-                lastUpdatedAt: 1000,
-                peakVectorsInFlight: 0,
-              },
-            },
-          },
-        })),
-      };
-
-      render(<SystemDiagnosticsPanel />);
-
-      expect(
-        await screen.findByText(
-          'Desktop embedding telemetry is invalid: Embedding telemetry health requires lastFailure exactly when failureCount is non-zero.'
-        )
-      ).toBeInTheDocument();
-      expect(screen.queryByText('1000')).not.toBeInTheDocument();
-    });
-
-    it('refreshes desktop embedding telemetry when the hidden host reports status', async () => {
-      const createSnapshot = (totalBytes: number) => {
-        const telemetry = {
-          batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
-          cache: {
-            entries: [],
-            estimatedGpuBytes: 0,
-            estimatedHeapBytes: 0,
-            memoryEstimateUnavailableCount: 0,
-            residentCount: 0,
-          },
-          health: { failureCount: 0, lastFailure: null },
-          lastUpdatedAt: null,
-          peakVectorsInFlight: 0,
-        } as const;
-        return {
-          collectedAt: '2026-08-01T00:00:00.000Z',
-          embeddingHost: {
-            active: false,
-            lastError: null,
-            pendingRequestCount: 0,
-            runtimeId: 'embedding-host:idle',
-            runtimeKind: 'embedding-host',
-            sourceState: 'running',
-            state: 'idle',
-          },
-          indexing: { databaseWork: {} },
-          reset: { userDataPath: '/tmp/brainstrike-user-data' },
-          telemetry: {
-            backgroundRuntimeMetrics: [],
-            embedding: {
-              ...telemetry,
-              batchTransfer:
-                totalBytes === 0
-                  ? telemetry.batchTransfer
-                  : {
-                      batchCount: 1,
-                      lastBytes: totalBytes,
-                      peakBytes: totalBytes,
-                      totalBytes,
-                    },
-              lastUpdatedAt: totalBytes === 0 ? null : 1000,
-            },
-          },
-        };
-      };
-      const getSnapshot = vi
-        .fn()
-        .mockResolvedValueOnce({ ok: true, value: createSnapshot(0) })
-        .mockResolvedValueOnce({ ok: true, value: createSnapshot(0) })
-        .mockRejectedValueOnce(
-          new Error('Something went wrong. The details were recorded in the diagnostic log.')
-        );
-      const statusListenerRef: { current: ((status: unknown) => void) | null } = { current: null };
-      const unsubscribe = vi.fn();
-      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = { getSnapshot };
-      (window as Window & { embeddingHost?: unknown }).embeddingHost = {
-        onStatus: vi.fn((listener: (status: unknown) => void) => {
-          statusListenerRef.current = listener;
-          return unsubscribe;
-        }),
-      };
-
-      const { unmount } = render(<SystemDiagnosticsPanel />);
-
-      await waitFor(() => expect(getSnapshot).toHaveBeenCalledTimes(1));
-      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
-      const statusListener = statusListenerRef.current;
-      if (!statusListener) {
-        throw new Error('Expected the diagnostics panel to subscribe to embedding host status.');
-      }
-      const updatedTelemetry = createSnapshot(8 * 1024).telemetry.embedding;
-      act(() => statusListener({ embeddingRuntime: { telemetry: updatedTelemetry } }));
-
-      await waitFor(() => {
-        expect(
-          screen.queryByText(/Embedding host status telemetry is invalid:/)
-        ).not.toBeInTheDocument();
-        expect(getSnapshot).toHaveBeenCalledTimes(1);
-        expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
-      });
-
-      act(() =>
-        statusListener({
-          active: false,
-          lastError: null,
-          runtimeId: 'embedding-host:restarting',
-          runtimeKind: 'embedding-host',
-          state: 'starting',
-        })
-      );
-      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
-
-      act(() =>
-        statusListener({
-          active: false,
-          lastError: 'Embedding host renderer crashed.',
-          runtimeId: 'embedding-host:crashed',
-          runtimeKind: 'embedding-host',
-          state: 'error',
-        })
-      );
-      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
-
-      await userEvent.click(screen.getByRole('button', { name: /refresh all diagnostics/i }));
-
-      await waitFor(() => {
-        expect(getSnapshot).toHaveBeenCalledTimes(2);
-        expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
-      });
-
-      const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/i });
-      await waitFor(() => expect(refreshButton).toBeEnabled());
-      await userEvent.click(refreshButton);
-      expect(
-        await screen.findByText(
-          'Something went wrong. The details were recorded in the diagnostic log.'
-        )
-      ).toBeInTheDocument();
-
-      const listenerAfterFailedRefresh = statusListenerRef.current;
-      if (!listenerAfterFailedRefresh) {
-        throw new Error('Expected the diagnostics panel to retain its host status subscription.');
-      }
-      act(() => listenerAfterFailedRefresh({ embeddingRuntime: { telemetry: updatedTelemetry } }));
-      expect(
-        screen.getByText('Something went wrong. The details were recorded in the diagnostic log.')
-      ).toBeInTheDocument();
-      unmount();
-      expect(unsubscribe).toHaveBeenCalledTimes(3);
-    });
-
     it('renders header with title and description', () => {
       render(<SystemDiagnosticsPanel />);
 
       expect(screen.getByText('System Diagnostics')).toBeInTheDocument();
       expect(
-        screen.getByText('Real-time health monitoring for database, queues, and workers')
+        screen.getByText('Real-time health monitoring for database, indexing, and workers')
       ).toBeInTheDocument();
     });
 
@@ -407,22 +225,11 @@ describe('SystemDiagnosticsPanel', () => {
               lastRendererCrashAt: '2026-05-20T00:01:00.000Z',
               lastRendererCrashExitCode: 5,
               lastRendererCrashReason: 'crashed',
-              lastRendererCrashWindowRole: 'visible-ui',
               lastRendererReloadAt: null,
-              lastRendererReloadWindowRole: null,
               pendingRendererRecovery: true,
               rendererCrashCount: 1,
               rendererReloadAttemptCount: 0,
               suppressedRendererReloadCount: 0,
-            },
-            embeddingHost: {
-              active: false,
-              lastError: null,
-              pendingRequestCount: 0,
-              runtimeId: 'embedding-host:idle',
-              runtimeKind: 'embedding-host',
-              sourceState: 'running',
-              state: 'idle',
             },
             indexing: {
               databaseWork: {
@@ -473,19 +280,6 @@ describe('SystemDiagnosticsPanel', () => {
               status: 'idle',
               userDataPath: '/tmp/brainstrike-user-data',
             },
-            telemetry: {
-              backgroundRuntimeMetrics: [
-                {
-                  cpuPercent: '1.0',
-                  idleWakeupsPerSecond: '0.0',
-                  osProcessId: 123,
-                  privateKb: '1000',
-                  runtimeKind: 'embedding-host',
-                  sharedKb: '200',
-                  workingSetKb: '1200',
-                },
-              ],
-            },
           },
         })),
       };
@@ -493,7 +287,6 @@ describe('SystemDiagnosticsPanel', () => {
       render(<SystemDiagnosticsPanel />);
 
       expect(await screen.findByText('Desktop Platform')).toBeInTheDocument();
-      expect(screen.getByText('Embedding Host')).toBeInTheDocument();
       expect(screen.getByText('/tmp/brainstrike-user-data')).toBeInTheDocument();
       // Desktop has no backfill queue; native indexing reports its own activity.
       expect(screen.queryByText('Active Backfills')).not.toBeInTheDocument();
@@ -503,8 +296,26 @@ describe('SystemDiagnosticsPanel', () => {
       expect(screen.getByText('2 attempts')).toBeInTheDocument();
       expect(screen.getByText('Crash Recovery')).toBeInTheDocument();
       expect(screen.getByText('pending')).toBeInTheDocument();
-      expect(screen.getByText('Runtime Metrics')).toBeInTheDocument();
-      expect(screen.getByText('1 process')).toBeInTheDocument();
+    });
+    it('shows a typed diagnostic refusal and its remedy after transport', async () => {
+      Object.assign(window, {
+        desktopDiagnostics: {
+          getSnapshot: async () => ({
+            error: {
+              category: 'availability',
+              code: 'diagnostics.unavailable',
+              kind: 'refusal',
+              message: 'Diagnostics are unavailable.',
+              remedy: 'Refresh after reconnecting.',
+            },
+            ok: false,
+          }),
+        },
+      });
+      render(<SystemDiagnosticsPanel />);
+      expect(
+        await screen.findByText('Diagnostics are unavailable. Refresh after reconnecting.')
+      ).toBeVisible();
     });
   });
 
@@ -633,7 +444,9 @@ describe('createSystemDiagnosticsSettingsCategory', () => {
 
     expect(category.id).toBe('system-diagnostics');
     expect(category.title).toBe('System Diagnostics');
-    expect(category.description).toBe('Monitor database, queue, and worker health in real-time.');
+    expect(category.description).toBe(
+      'Monitor database, indexing, and worker health in real-time.'
+    );
     expect(category.keywords).toContain('diagnostics');
     expect(category.keywords).toContain('health');
     expect(category.keywords).toContain('database');

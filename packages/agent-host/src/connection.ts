@@ -44,12 +44,7 @@ import {
 import { bindHostProviderMethods } from './provider-connection.ts';
 import { storeRefusal } from './store-refusals.ts';
 import { bindHostTerminalMethods } from './terminal-connection.ts';
-import {
-  coverageHostSearchVectors,
-  pendingHostSearchVectors,
-  putHostSearchVectors,
-  searchHostThreads,
-} from './thread-search.ts';
+import { searchHostThreads } from './thread-search.ts';
 
 interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -83,8 +78,6 @@ export interface HostConnectionOptions {
   readonly retiring?: AbortSignal;
   /** Gap 10: the platform's state index search, where the host owns one. */
   readonly searchState?: HostPlatform['searchState'];
-  /** The semantic arm's index operations, where the host owns a state index. */
-  readonly searchStateVectors?: HostPlatform['searchStateVectors'];
   readonly searchWorkspace?: HostPlatform['searchWorkspace'];
   /** ADR-0029 stage 3: the desktop's Terminal panel, where the host opens terminals. */
   readonly terminals?: HostTerminals;
@@ -136,7 +129,6 @@ export function bindHostConnection(
     resolveMemoryEmbedder,
     retiring,
     searchState,
-    searchStateVectors,
     searchWorkspace,
     terminals,
     workspaceDiscovery,
@@ -370,16 +362,7 @@ export function bindHostConnection(
   };
   handle('workspace/skills', (_params, signal) => discovery().skills(signal));
   handle('workspace/commands', (_params, signal) => discovery().commands(signal));
-  handle('thread/search', (params) =>
-    searchHostThreads(core, searchState, searchStateVectors, params)
-  );
-  handle('thread/search/pending', (params) =>
-    pendingHostSearchVectors(core, searchStateVectors, params)
-  );
-  handle('thread/search/coverage', (params) =>
-    coverageHostSearchVectors(core, searchStateVectors, params)
-  );
-  handle('thread/search/vectors', (params) => putHostSearchVectors(searchStateVectors, params));
+  handle('thread/search', (params) => searchHostThreads(core, searchState, params));
   handle('thread/selection/read', (params) => core.selections.read(params.threadId));
   handle('thread/selection/set', (params) => core.selections.set(params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));

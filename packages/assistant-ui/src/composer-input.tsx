@@ -19,13 +19,12 @@ export interface PlanModeComposerControls {
 
 /**
  * Composer image-attachment availability, resolved by the app-shell wrapper.
- * Absent means the affordance is not offered at all (provider gate: the
- * text-only built-in local provider) and no adapter is registered. 'disabled'
- * renders the attach button visibly disabled with `reason` (per-model vision
- * gate) — never a silent hide — and blocks NEW adds (disabled button, no
- * paste frame) while keeping the adapter and preview strip alive so an
- * attachment staged before a model switch stays removable instead of being
- * wiped by an adapter-less send.
+ * Absent means the affordance is not offered at all and no adapter is
+ * registered. 'disabled' renders the attach button visibly disabled with
+ * `reason` (per-model vision gate) — never a silent hide — and blocks NEW adds
+ * (disabled button, no paste frame) while keeping the adapter and preview
+ * strip alive so an attachment staged before a model switch stays removable
+ * instead of being wiped by an adapter-less send.
  */
 export type ComposerAttachmentsAvailability =
   | { readonly state: 'enabled' }

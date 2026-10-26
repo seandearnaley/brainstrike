@@ -32,7 +32,6 @@ export interface ElectronAppContext {
 }
 
 interface LaunchElectronAppOptions {
-  readonly disableExternalLocalRuntimeProbes?: boolean;
   /** Extra environment for this launch, applied BEFORE the harness's own variables so it cannot override them. */
   readonly env?: Readonly<Record<string, string>>;
   readonly launchMode?: 'built' | 'dev-server' | 'test-built';
@@ -84,11 +83,6 @@ const ignoredElectronOutputPatterns = [
   '🔸 Mocked showMessageBox called with options:',
   '🔸 Mocked showErrorBox called:',
   '🔸 Mocked showCertificateTrustDialog called with args:',
-  'Failed to create WebGPU Context Provider',
-  '[EmbeddingWorker] Initializing deferred local embedding model for claimed work',
-  '[EmbeddingWorker] Stopping embedding worker after fatal local model error',
-  '[EmbeddingHostRuntime] Embedding host worker stopped after fatal local model error',
-  '[EmbeddingWorker] handleBatchFailure: Job(s) failed',
   '"msg":"Lazy-loading database (triggered by IPC usage)"',
   '"msg":"Created database directory:',
   '"msg":"pgvector extension loaded successfully (ESM)"',
@@ -107,9 +101,6 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Loading built renderer file"',
   '"reloadReason":"playwright-reset-renderer"',
   '"reloadReason":"assistant-mock-init-script"',
-  '"reloadReason":"embedding-worker-large-backfill-fixture"',
-  '"reloadReason":"embedding-worker-host-processing-fixture"',
-  '"reloadReason":"embedding-worker-import-backfill-flow"',
   '"reloadReason":"startup-restore-regression"',
   '"msg":"Registering MCP IPC handlers"',
   '"msg":"discoverMcpToolsOnStartup called"',
@@ -131,8 +122,6 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Skipping maximize in desktop E2E mode because Electron shows hidden windows when maximizing"',
   '"msg":"Window startup: did-start-loading"',
   '"msg":"Window startup: renderer-loaded"',
-  '"msg":"powerSaveBlocker started for active embedding host work"',
-  '"msg":"powerSaveBlocker stopped for idle embedding host"',
   '"msg":"Failed to resubscribe live query after pause release"',
   '"msg":"Using environment API key for provider"',
   '"msg":"mastra runtime initialized"',
@@ -150,7 +139,7 @@ const ignoredElectronOutputPatterns = [
   '"msg":"Workspace snapshot startup GC stopped: the app is quitting"',
   '"msg":"Workspace snapshot startup maintenance stopped: the app is quitting"',
   '"msg":"Dimension index maintenance capability probe completed"',
-  '"msg":"Started parcel watcher"',
+  '"msg":"Started root watcher"',
   '[ERROR:dbus/bus.cc:406] Failed to connect to the bus:',
   '[ERROR:dbus/object_proxy.cc:573] Failed to call method: org.freedesktop.DBus.NameHasOwner:',
   'Debugger ending on ws://',
@@ -210,6 +199,9 @@ function verboseError(...args: unknown[]): void {
   console.error(...args);
 }
 
+/** The test window's size, the app's default window size. */
+const E2E_WINDOW_SIZE = { height: 800, width: 1536 } as const;
+
 // Single launch attempt - extracted for reduced complexity
 async function attemptElectronLaunch(
   launchOptions: Parameters<typeof electron.launch>[0],
@@ -226,6 +218,12 @@ async function attemptElectronLaunch(
     );
     verboseLog('⏳ Waiting for first window...');
     const window = await app.firstWindow({ timeout: firstWindowTimeout });
+    // One window size on every machine: otherwise the clamp to the work area makes
+    // the geometry follow the display, or whichever remote session is attached.
+    await (await app.browserWindow(window)).evaluate(
+      (browserWindow, size) => browserWindow.setSize(size.width, size.height),
+      E2E_WINDOW_SIZE
+    );
     await window.waitForLoadState('domcontentloaded');
     await setupDialogMocking(app);
     return { app, window };
@@ -262,11 +260,7 @@ export async function launchElectronApp(
   userDataDir?: string,
   options: Pick<
     LaunchElectronAppOptions,
-    | 'disableExternalLocalRuntimeProbes'
-    | 'env'
-    | 'modelProvider'
-    | 'workspaceRoot'
-    | 'onAppAcquired'
+    'env' | 'modelProvider' | 'workspaceRoot' | 'onAppAcquired'
   > = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
@@ -377,7 +371,6 @@ async function launchElectronAppWithBoundary(
       userDataDir,
       launchTimeoutMs,
       launchMode,
-      options.disableExternalLocalRuntimeProbes ?? false,
       options.env ?? {},
       providerEgressEnv,
       options.workspaceRoot
@@ -421,19 +414,6 @@ export async function getBufferedElectronOutput(
 // NOTE: killSpecificElectronProcess was removed - we no longer use explicit debug ports
 // Playwright manages CDP connections automatically, preventing debugger disconnect hangs.
 
-/**
- * BST-2040: Chromium renders a window X11 never mapped at one frame per second, so
- * Linux CI runs (an isolated Xvfb with no user to disturb) show the test-mode window
- * unfocused. A Linux workstation with a real display keeps it hidden, as do other
- * platforms. An explicit value wins either way: `1` to show it, `''` to keep it hidden.
- */
-function e2eShowInactive(baseEnv: NodeJS.ProcessEnv): string {
-  return (
-    baseEnv['BRAINSTRIKE_E2E_SHOW_INACTIVE'] ??
-    (process.platform === 'linux' && baseEnv['CI'] === 'true' ? '1' : '')
-  );
-}
-
 function createLaunchOptions(
   target: DesktopE2eTarget,
   mainPath: string,
@@ -441,7 +421,6 @@ function createLaunchOptions(
   userDataDir: string | undefined,
   launchTimeoutMs: number | undefined,
   launchMode: 'built' | 'dev-server' | 'test-built',
-  disableExternalLocalRuntimeProbes: boolean,
   extraEnv: Readonly<Record<string, string>>,
   /** Provider egress boundary values; applied over every other source (BST-1931). */
   providerEgressEnv: Readonly<Record<string, string>>,
@@ -450,8 +429,7 @@ function createLaunchOptions(
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
-  const shouldDisableGpuForE2e =
-    process.env['CI'] === 'true' && process.env['BRAINSTRIKE_E2E_ALLOW_GPU'] !== '1';
+  const shouldDisableGpuForE2e = process.env['CI'] === 'true';
   const entry = desktopEntryLaunchOptions(target, mainPath, launchMode);
   const baseArgs = [
     ...entry.args,
@@ -474,7 +452,6 @@ function createLaunchOptions(
         ]
       : []),
     // Disable GPU features to prevent crashes/hangs in CI.
-    // Allow GPU in specific tests (e.g., WebGPU memory diagnostics) via env var.
     ...(shouldDisableGpuForE2e
       ? ['--disable-gpu', '--disable-gpu-sandbox', '--disable-software-rasterizer']
       : []),
@@ -484,9 +461,18 @@ function createLaunchOptions(
     '--disable-extensions',
     // Allow backgrounding in specific crash-reproduction tests to test the
     // production code path where Chromium throttles backgrounded renderers.
+    // The test window is shown inactive, so other windows, a locked screen or a
+    // disconnected remote session can cover it. Windows' native occlusion
+    // tracking would then mark it hidden and stop its frames, so these runs
+    // turn that tracking off (Main merges its own --disable-features into this one).
     ...(process.env['BRAINSTRIKE_E2E_ALLOW_BACKGROUNDING'] === '1'
       ? []
-      : ['--disable-background-timer-throttling', '--disable-renderer-backgrounding']),
+      : [
+          '--disable-background-timer-throttling',
+          '--disable-renderer-backgrounding',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-features=CalculateNativeWinOcclusion',
+        ]),
   ];
 
   // #region Linux CI DISPLAY resolution diagnostics
@@ -525,7 +511,7 @@ function createLaunchOptions(
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // BST-1864: `windowFocus` reports the NATIVE window's focus, and this harness
-      // window is `focusable: false` and never shown, so it is never focused —
+      // window is `focusable: false` and shown inactive, so it is never focused —
       // while Playwright forces the renderer's `document.hasFocus()` true. Left on,
       // every spec would run with an unfocused app (indexer polling, the unseen
       // badge); off, each keeps the focused app it has always run with. An explicit
@@ -534,19 +520,9 @@ function createLaunchOptions(
       BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES:
         baseEnv['BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES'] ?? 'windowFocus',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-      BRAINSTRIKE_E2E_SHOW_INACTIVE: e2eShowInactive(baseEnv),
-      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_IS_E2E_TEST: 'true',
-      ...(disableExternalLocalRuntimeProbes
-        ? {
-            // Regression E2E should not contact developer-local Ollama/LM Studio
-            // daemons unless the test explicitly validates that bridge.
-            // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
-            BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
-          }
-        : {}),
       ...(launchMode === 'dev-server'
         ? {
             // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -861,7 +837,9 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Page was closed before app could become ready');
     }
 
-    await page.waitForFunction(() => document.readyState === 'complete', {
+    // Options are waitForFunction's THIRD argument; the second is the predicate's `arg`.
+    await page.waitForFunction(() => document.readyState === 'complete', undefined, {
+      polling: 100,
       timeout: appReadyTimeoutMs,
     });
 
@@ -899,7 +877,10 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Timed out waiting for app readiness in Codex environment');
     }
 
-    await page.waitForFunction(readinessCheck, { polling: 100, timeout: appReadyTimeoutMs });
+    await page.waitForFunction(readinessCheck, undefined, {
+      polling: 100,
+      timeout: appReadyTimeoutMs,
+    });
     verboseLog('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
@@ -1110,7 +1091,9 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
         if (verboseLogging) {
           console.log('🔸 Mocked exists called with path:', p);
         }
-        return { ok: true, value: p.includes('/mock/') };
+        // Main spells mock paths natively (`C:\mock\…` on Windows), while this
+        // mock's own handles use `/mock/…`: match the `mock` segment in either.
+        return { ok: true, value: p.replaceAll('\\', '/').includes('/mock/') };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {

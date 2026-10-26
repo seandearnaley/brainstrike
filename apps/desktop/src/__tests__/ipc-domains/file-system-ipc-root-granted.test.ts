@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
@@ -20,7 +20,6 @@ import {
   createFileSystem,
   createStorage,
   getRootsCatalog,
-  handlers,
   resetRootsCatalog,
 } from './file-system-ipc-test-harness';
 import { loggerMock } from './workspace-root-registry-logger-test-helper';
@@ -32,24 +31,29 @@ function grantedStorage(grantedPath: string): ElectronStorageAdapter {
 }
 
 async function invokeAddRootByPath(requestedPath: string): Promise<unknown> {
-  const handler = capabilityHandler('fs:addRootByPath');
-  if (!handler) {
-    throw new Error('fs:addRootByPath handler was not registered');
-  }
-  return handler(createTrustedInvokeEvent(), requestedPath);
+  return capabilityHandler('fs:addRootByPath')(createTrustedInvokeEvent(), requestedPath);
 }
 
 describe('file system IPC root-granted notification', () => {
+  const registered: Array<() => Promise<void>> = [];
+
+  function register(options: Parameters<typeof registerFileSystemIpcHandlers>[0]): void {
+    registered.push(registerFileSystemIpcHandlers(options));
+  }
+
   beforeEach(() => {
     resetRootsCatalog();
-    handlers.clear();
     loggerMock.warn.mockClear();
+  });
+
+  afterEach(async () => {
+    await Promise.all(registered.splice(0).map((close) => close()));
   });
 
   it('notifies exactly once with the mounted descriptor path after addRootByPath succeeds', async () => {
     const grantedPath = path.resolve('/users/test/workspace');
     const onWorkspaceRootGranted = vi.fn();
-    registerFileSystemIpcHandlers({
+    register({
       fileSystem: createFileSystem(grantedPath),
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
@@ -65,7 +69,7 @@ describe('file system IPC root-granted notification', () => {
 
   it('does not notify when addRootByPath rejects', async () => {
     const onWorkspaceRootGranted = vi.fn();
-    registerFileSystemIpcHandlers({
+    register({
       fileSystem: createFileSystem(),
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
@@ -82,7 +86,7 @@ describe('file system IPC root-granted notification', () => {
   it('keeps a successful invoke resolved when the notification subscriber throws', async () => {
     const grantedPath = path.resolve('/users/test/workspace');
     const subscriberError = new Error('menu subscriber failed');
-    registerFileSystemIpcHandlers({
+    register({
       fileSystem: createFileSystem(grantedPath),
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,

@@ -89,10 +89,8 @@ it('activates TEXT with no collection as its workspace roots alone', async () =>
   );
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     settings: async () => textSettings(),
-    storage: { getItem: unused },
   });
   try {
     await activation.acquire();
@@ -162,10 +160,8 @@ it('routes explicit workspace scans to the existing admitted trigger and refuses
   );
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     settings: async () => textSettings(),
-    storage: { getItem: unused },
   });
   try {
     await activation.acquire();
@@ -251,11 +247,9 @@ it('a read neither rescans nor un-readies a folder its own scan just indexed', a
   const indexed = Promise.withResolvers<void>();
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     onReceipt: () => indexed.resolve(),
     settings: async () => textSettings(),
-    storage: { getItem: unused },
   });
   // Status reads the index the way the status IPC does.
   const status = () => activation.withRead(async (read) => (await read.getAuthority()).readiness);
@@ -282,10 +276,8 @@ it('refuses explicit workspace scans while source admission is paused', async ()
   setCatalogRoot();
   const activation = createActivation({
     application: mountedRoot(),
-    embedding: { destroyAndRestart: vi.fn(unused), documentEmbeddings: vi.fn(unused) },
     onError: vi.fn(),
     settings: async () => textSettings({ paused: true }),
-    storage: { getItem: unused },
   });
   try {
     await activation.acquire();

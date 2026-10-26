@@ -72,10 +72,6 @@ export function installCatalogDomStubs({ width }: { readonly width: number | nul
 export function makeRowActions(overrides: Partial<CatalogRowActions> = {}): CatalogRowActions {
   return {
     busyModelIds: new Set<string>(),
-    downloadedModels: {},
-    downloadProgress: {},
-    isDownloading: {},
-    onDownload: vi.fn(),
     onToggle: vi.fn(),
     onToggleDetails: vi.fn(),
     query: '',

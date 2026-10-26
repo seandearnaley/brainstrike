@@ -1,9 +1,11 @@
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import {
+  NativeIndexRefusalError,
+  NativeIndexSetupRequiredError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import { isHostLeaseClosed, isRetirementRefusal } from './desktop-shutdown-state';
 import { IndexerUtilityExitedError } from './indexer-utility-exit';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 import { indexConfigCause } from './native-index-boundary-failure';
-import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 import { NativeIndexEventRefusedError } from './native-index-workflow-errors';
 
 /** An aggregated failure's inner error as the log keeps it, nested errors and cause included. */

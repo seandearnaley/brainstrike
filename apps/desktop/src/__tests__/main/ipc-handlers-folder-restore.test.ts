@@ -1,35 +1,28 @@
-import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
-import type { IpcMainInvokeEvent } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 
-type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
-const handlers = new Map<string, IpcHandler>();
-
-vi.mock('electron', () => ({
+vi.mock('electron', async () => ({
+  ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
   app: { getPath: vi.fn() },
-  ipcMain: {
-    handle: vi.fn((channel: string, handler: IpcHandler) => {
-      handlers.set(channel, async (event, ...args) =>
-        readBoundaryResult(await handler(event, ...args))
-      );
-    }),
-  },
 }));
 
 import { registerIpcHandlers } from '../../ipc-handlers';
-import { getRootsCatalog, resetRootsCatalog } from '../ipc-domains/file-system-ipc-test-harness';
+import {
+  capabilityHandler,
+  getRootsCatalog,
+  resetRootsCatalog,
+} from '../ipc-domains/file-system-ipc-test-harness';
 
 describe('IPC handlers - last-folder preference', () => {
   let fileSystem: ElectronFileSystemAdapter;
   let storage: ElectronStorageAdapter;
   let storedValues: Map<string, string>;
+  let close: () => Promise<void>;
 
   beforeEach(() => {
-    handlers.clear();
     resetRootsCatalog();
     vi.clearAllMocks();
     process.env['NODE_ENV'] = 'development';
@@ -55,25 +48,24 @@ describe('IPC handlers - last-folder preference', () => {
         storedValues.set(key, value);
       }),
     } as unknown as ElectronStorageAdapter;
-    registerIpcHandlers(fileSystem, storage, () => null, {
+    close = registerIpcHandlers(fileSystem, storage, () => null, {
       getRootsCatalog,
       isSyntheticFileSystemPath: () => true,
     });
   });
 
-  it('registers the last-folder channels', () => {
-    expect(handlers.has('fs:restoreLastFolder')).toBe(true);
-    expect(handlers.has('fs:saveLastFolder')).toBe(true);
+  afterEach(async () => {
+    await close();
   });
 
   it('does not let lastFolderPath create a second root authority', async () => {
     storedValues.set('lastFolderPath', '/test/workspace');
 
     await expect(
-      handlers.get('fs:restoreLastFolder')?.(createTrustedInvokeEvent())
+      capabilityHandler('fs:restoreLastFolder')(createTrustedInvokeEvent())
     ).resolves.toBeNull();
     await expect(
-      handlers.get('fs:saveLastFolder')?.(createTrustedInvokeEvent(), '/test/workspace')
+      capabilityHandler('fs:saveLastFolder')(createTrustedInvokeEvent(), '/test/workspace')
     ).rejects.toMatchObject({
       code: 'boundary.internal',
       failure: { category: 'internal', kind: 'fault' },
@@ -82,14 +74,17 @@ describe('IPC handlers - last-folder preference', () => {
   });
 
   it('saves and restores only a root already mounted by the registry', async () => {
-    const descriptor = (await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent())) as {
+    const descriptor = (await capabilityHandler('fs:addRoot')(createTrustedInvokeEvent())) as {
       handle: DirectoryHandle;
     };
 
-    await handlers.get('fs:saveLastFolder')?.(createTrustedInvokeEvent(), descriptor.handle.path);
+    await capabilityHandler('fs:saveLastFolder')(
+      createTrustedInvokeEvent(),
+      descriptor.handle.path
+    );
 
     await expect(
-      handlers.get('fs:restoreLastFolder')?.(createTrustedInvokeEvent())
+      capabilityHandler('fs:restoreLastFolder')(createTrustedInvokeEvent())
     ).resolves.toMatchObject({
       path: descriptor.handle.path,
       rootId: descriptor.handle.rootId,

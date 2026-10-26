@@ -10,7 +10,7 @@ import { getContentSecurityPolicy } from '../content-security-policy.js';
  */
 const WEB_DEV_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co; " +
+  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:*; " +
   "default-src 'self' http://localhost:* ws://localhost:*; " +
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
@@ -24,7 +24,7 @@ const WEB_DEV_CSP =
 
 const WEB_PROD_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' https://huggingface.co https://*.hf.co; " +
+  "connect-src 'self'; " +
   "default-src 'self'; " +
   "font-src 'self' data:; " +
   "form-action 'self'; " +
@@ -38,7 +38,7 @@ const WEB_PROD_CSP =
 
 const ELECTRON_DEV_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
+  "connect-src 'self' ws://localhost:* http://localhost:* http://127.0.0.1:* ws://127.0.0.1:* wss://localhost:* https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
   "default-src 'self' http://localhost:* ws://localhost:*; " +
   "font-src 'self' data: http://localhost:*; " +
   "form-action 'self'; " +
@@ -52,7 +52,7 @@ const ELECTRON_DEV_CSP =
 
 const ELECTRON_PROD_CSP =
   "base-uri 'self'; " +
-  "connect-src 'self' http://127.0.0.1:* http://localhost:* https://huggingface.co https://*.hf.co https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
+  "connect-src 'self' http://127.0.0.1:* http://localhost:* https://api.openai.com https://generativelanguage.googleapis.com https://api.cohere.com https://api.voyageai.com; " +
   "default-src 'self'; " +
   "font-src 'self' data:; " +
   "form-action 'self'; " +
@@ -176,7 +176,7 @@ describe('getContentSecurityPolicy', () => {
       }
     });
 
-    it('development reaches local runtimes on 127.0.0.1 on both targets', () => {
+    it('development reaches the dev servers on 127.0.0.1 on both targets', () => {
       expect(directiveOf(webDev, 'connect-src')).toContain('http://127.0.0.1:*');
       expect(directiveOf(electronDev, 'connect-src')).toContain('http://127.0.0.1:*');
     });
@@ -189,8 +189,8 @@ describe('getContentSecurityPolicy', () => {
     });
 
     it('allows jsdelivr in no directive of any target (BST-2003)', () => {
-      // A CDN compromise must never mean code execution (BST-573), and ONNX
-      // Runtime's WASM is the app's own same-origin file, so no fetch needs a CDN.
+      // A CDN compromise must never mean code execution (BST-573), and every
+      // WASM file is the app's own same-origin file, so no fetch needs a CDN.
       for (const policy of [electronDev, electronProd, webDev, webProd]) {
         expect(policy).not.toContain('jsdelivr');
       }

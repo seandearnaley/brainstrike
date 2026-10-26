@@ -11,17 +11,14 @@ let handler: ReturnType<typeof createRendererProtocolHandler>;
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'bst1999-assets-'));
   await mkdir(path.join(directory, 'bundle'));
-  await writeFile(
-    path.join(directory, 'bundle', 'worker.js'),
-    'postMessage({coi:crossOriginIsolated});'
-  );
+  await writeFile(path.join(directory, 'bundle', 'worker.js'), "postMessage('ready');");
   await writeFile(path.join(directory, 'outside.js'), 'private');
   await symlink(path.join(directory, 'outside.js'), path.join(directory, 'bundle', 'escape.js'));
   handler = createRendererProtocolHandler(path.join(directory, 'bundle', 'index.html'));
   vi.mocked(net.fetch).mockReset();
   vi.mocked(net.fetch).mockImplementation(
     async () =>
-      new Response('postMessage({coi:crossOriginIsolated});', {
+      new Response("postMessage('ready');", {
         headers: { 'content-type': 'text/javascript' },
       })
   );
@@ -29,28 +26,12 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(directory, { force: true, recursive: true });
 });
-it('serves confined assets with the embedder policy workers need and preserved MIME', async () => {
+it('serves confined assets with their preserved MIME', async () => {
   const response = await handler(new Request('brainstrike-app://bundle/worker.js'));
   expect(response.status).toBe(200);
   expect(response.headers.get('content-type')).toBe('text/javascript');
-  expect(response.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
-  expect(response.headers.get('cross-origin-opener-policy')).toBeNull();
-  expect(await response.text()).toBe('postMessage({coi:crossOriginIsolated});');
+  expect(await response.text()).toBe("postMessage('ready');");
   expect(net.fetch).toHaveBeenCalledTimes(1);
-});
-it.each([
-  ['embedding-host', 'same-origin', 'require-corp'],
-  ['chunking-host', null, null],
-  [null, null, null],
-])('isolates the document only for an inference host (mode %s)', async (mode, opener, embedder) => {
-  vi.mocked(net.fetch).mockImplementation(
-    async () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } })
-  );
-  await writeFile(path.join(directory, 'bundle', 'index.html'), '<!doctype html>');
-  const query = mode === null ? '' : `?mode=${mode}&runtimeId=host-1`;
-  const response = await handler(new Request(`brainstrike-app://bundle/index.html${query}`));
-  expect(response.headers.get('cross-origin-opener-policy')).toBe(opener);
-  expect(response.headers.get('cross-origin-embedder-policy')).toBe(embedder);
 });
 it('serves HEAD without a body', async () => {
   const response = await handler(

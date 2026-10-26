@@ -173,11 +173,6 @@ export interface SubagentInvocationAddress {
   readonly parentRuntimeRunId: string;
   readonly parentToolCallId: string;
 }
-/** Host lookup uses the persisted native invocation, including before completion. */
-export const SubagentInvocationResolverContext = createContext<
-  ((identity: SubagentInvocationAddress) => Promise<string>) | null
->(null);
-
 function readSubagentInvocationRunId(
   parts: readonly unknown[],
   toolCallId: string

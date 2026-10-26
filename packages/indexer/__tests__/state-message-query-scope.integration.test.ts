@@ -15,9 +15,8 @@ import { IndexWriter } from '../src/store.js';
 const profile = {
   dimensions: 4,
   distance: 'cosine',
-  dtype: 'q8',
   modelId: 'recall-scope-proof',
-  provider: 'local',
+  provider: 'openai',
 } as const;
 const vector = [1, 0, 0, 0];
 const resourceId = 'resource';
