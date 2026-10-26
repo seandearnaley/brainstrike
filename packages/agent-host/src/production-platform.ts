@@ -406,6 +406,7 @@ export async function createProductionHostPlatform<Configuration extends Product
     const borrowed = await authority.executableTools({
       ...(request.snapshot ? { snapshot: request.snapshot } : {}),
       resolvedToolResultBudget: selected.resolvedToolResultBudget,
+      signal: request.signal,
       toolTimeoutMs: selected.toolTimeoutMs,
     });
     try {

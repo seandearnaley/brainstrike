@@ -25,6 +25,7 @@ import type { McpElicitationPresenterAuthority } from './elicitation-presenter.t
 import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.ts';
 import { McpHostRuntime, type McpHostRuntimeDependencies } from './node-host-runtime.ts';
 import type { McpOAuthStore } from './oauth-client-provider.ts';
+import { settleOnAbort } from './server-actor.ts';
 
 const logger = createLogger('McpHostServices');
 
@@ -184,7 +185,12 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
     throw cause;
   }
   const executableTools = (request: HostMcpToolRequest): Promise<HostMcpToolSelection> => {
-    ensureOpen();
+    const { signal } = request;
+    const ensureAdmitted = (): void => {
+      ensureOpen();
+      signal?.throwIfAborted();
+    };
+    ensureAdmitted();
     // Capture the existing model and resilience selection before discovery
     // can overlap another run or a Settings change.
     const resolvedToolResultBudget = Object.freeze({ ...request.resolvedToolResultBudget });
@@ -202,10 +208,10 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
     };
     const work = Promise.resolve()
       .then(async () => {
-        ensureOpen();
+        ensureAdmitted();
         // A failed initial configuration refuses each run with its own cause.
         await configuration;
-        ensureOpen();
+        ensureAdmitted();
         const before = runtime.host.snapshot();
         const client = await createMcpRuntimeClient({
           config: undefined,
@@ -217,7 +223,7 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
         if (client) {
           clients.add(client);
         }
-        ensureOpen();
+        ensureAdmitted();
         const toolNameMap = new Map<string, string>();
         const collected = await options.collectCombinedTools({
           durableArtifactSettlement: true,
@@ -228,7 +234,7 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
           timeoutOverrideMs: undefined,
           toolNameMap,
         });
-        ensureOpen();
+        ensureAdmitted();
         const after = runtime.host.snapshot();
         const bindings: Record<string, HostMcpToolSelection['bindings'][string]> = {};
         for (const [name, source] of Object.entries(collected.tools)) {
@@ -264,11 +270,21 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
         throw cause;
       });
     collections.add(work);
+    // An abort refuses the selection at once. Releasing the borrow aborts its
+    // lease, which ends the discovery's own requests; a failed release is
+    // logged by the client and kept in `clients`, where host close reports it.
+    const onAbort = (): void => {
+      if (borrowedClient) {
+        void closeBorrow().catch(() => undefined);
+      }
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     const settled = (): void => {
       collections.delete(work);
+      signal?.removeEventListener('abort', onAbort);
     };
     work.then(settled, settled);
-    return work;
+    return signal ? settleOnAbort(work, signal) : work;
   };
   return {
     close,

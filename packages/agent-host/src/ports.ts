@@ -504,6 +504,8 @@ export interface HostMcpToolSelection {
 }
 export interface HostMcpToolRequest {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
+  /** The run admission's signal: an abort refuses the selection at once and releases its borrow. */
+  readonly signal?: AbortSignal;
   readonly snapshot?: HostRunSnapshot;
   readonly toolTimeoutMs: number;
 }
