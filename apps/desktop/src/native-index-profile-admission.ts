@@ -26,6 +26,10 @@ export interface NativeIndexProfileAdmission {
  * failed one's release is joined, and only after a failure, which is the host's `failed`
  * report or exit (lifecycle R2: no clock fails a start).
  *
+ * BST-2004: admission never waits on the index. An index action in flight may be the borrower
+ * that recovers a lost host, so recovery only retires the failed owner and starts the next
+ * one; the index the lost host closed reopens on its own once a replacement is admitted.
+ *
  * BST-2247: a borrow never waits out a start-up that quit has fenced. Quit's fence refuses
  * every borrow still waiting, with the terminal refusal, as the shutdown begins. The start-up
  * itself stays its profile owner's, which cancels it when the profile retires in the
@@ -34,57 +38,35 @@ export interface NativeIndexProfileAdmission {
 export function createNativeIndexProfileAdmission(
   lifecycle: Promise<NativeIndexLifecycle>,
   runtime: ProfileAdmissionRuntime,
-  /** Opens the idle index from its saved settings; never waited on. */
-  openResumed: () => void
+  /** A failed host was replaced: the index its release closed reopens. Never waited on. */
+  resumeAfterHostRelease: () => void
 ): NativeIndexProfileAdmission {
   const fenced = Promise.withResolvers<never>();
   fenced.promise.catch(() => undefined);
   let terminal = false;
-  // The idle generation this admission last resumed from a host release; it opens once a
-  // host is admitted. A later resume is a new generation, so this never matches it.
-  let resumed: number | undefined;
   const admitProfile = async (signal?: AbortSignal): Promise<HostAttachment> => {
     const owner = await lifecycle;
-    const recover = async (): Promise<boolean> => {
-      if (!(await runtime.retireFailedProfile())) {
-        return false;
-      }
+    // A host release closed the index only until its host is replaced; any other close refuses.
+    const refuseClosed = async (): Promise<void> => {
       const state = await owner.state();
-      if (state.kind === 'closed') {
-        if (state.reason !== 'host-released') {
-          return false;
-        }
-        const resuming = await owner.dispatch({ kind: 'profile-resume' });
-        await owner.dispatch({ generation: resuming.generation, kind: 'profile-resumed' });
-        resumed = resuming.generation;
-      }
-      return true;
-    };
-    // BST-2004: a lost ready host fails like a failed start; join its Root release first.
-    const recovered = await recover();
-    let state = await owner.state();
-    if (state.kind === 'closed' && !recovered) {
-      throw stateError(state);
-    }
-    const admit = async (): Promise<HostAttachment> => {
-      const attachment = await runtime.acquireProfile({ indexIndependent: true }, signal);
-      state = await owner.state();
-      if (state.kind === 'closed') {
+      if (state.kind === 'closed' && state.reason !== 'host-released') {
         throw stateError(state);
       }
-      if (state.kind === 'idle' && state.generation === resumed) {
-        // BST-2004: the index the lost host closed opens again once a replacement is
-        // admitted. The borrow does not wait for it: host admission is index-independent.
-        openResumed();
-      }
+    };
+    const admit = async (): Promise<HostAttachment> => {
+      const attachment = await runtime.acquireProfile({ indexIndependent: true }, signal);
+      await refuseClosed();
       return attachment;
     };
+    // BST-2004: a lost ready host fails like a failed start; join its Root release first.
+    let recovered = await runtime.retireFailedProfile();
+    await refuseClosed();
+    let attachment: HostAttachment;
     try {
-      return await admit();
+      attachment = await admit();
     } catch (cause) {
-      let recovered: boolean;
       try {
-        recovered = await recover();
+        recovered = await runtime.retireFailedProfile();
       } catch (release) {
         throw cause instanceof AggregateError && cause.errors.includes(release)
           ? cause
@@ -93,8 +75,12 @@ export function createNativeIndexProfileAdmission(
       if (!recovered) {
         throw cause;
       }
-      return admit();
+      attachment = await admit();
     }
+    if (recovered) {
+      resumeAfterHostRelease();
+    }
+    return attachment;
   };
   return {
     acquire: (signal) =>

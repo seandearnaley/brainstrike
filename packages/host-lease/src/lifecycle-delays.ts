@@ -25,6 +25,7 @@ export const LIFECYCLE_DELAY_POINTS = [
   'renderer-flush',
   'child-exit',
   'root-watch-subscribe',
+  'index-replace',
 ] as const;
 export type LifecycleDelayPoint = (typeof LIFECYCLE_DELAY_POINTS)[number];
 export type LifecycleDelays = ReadonlyMap<LifecycleDelayPoint, number>;

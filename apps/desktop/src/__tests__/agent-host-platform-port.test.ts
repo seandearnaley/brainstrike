@@ -136,13 +136,26 @@ it.each([false, true])(
         expect(result?.status).toBe('fulfilled');
         await f.owner.close();
       }
-      expect(closeRoot).toHaveBeenCalledOnce();
+      expect(closeRoot).toHaveBeenCalledExactlyOnceWith('closing');
     } finally {
       retired.resolve();
       f.destroy();
     }
   }
 );
+
+it('a host whose connection closes without asking closes Main Root borrowers as gone (BST-2004)', async () => {
+  const closeRoot = vi.fn(async (): Promise<void> => undefined);
+  const f = harness(mainReads(), closeRoot);
+  try {
+    f.crash();
+    await vi.waitFor(() => expect(closeRoot).toHaveBeenCalledExactlyOnceWith('gone'));
+    await f.owner.close();
+    expect(closeRoot).toHaveBeenCalledOnce();
+  } finally {
+    f.destroy();
+  }
+});
 
 /** An error as the logger keeps it: each nested failure with its own message. */
 interface LoggedError {

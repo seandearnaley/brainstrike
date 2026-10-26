@@ -590,6 +590,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
             graph?.controller.abort(new TransitionError('Native source authority changed.'));
             if (graph) {
               await closeOwned(action.destroy);
+              // E2E seam: an open replacing a live index waits this long before borrowing a host.
+              await dependencies.lifecycleDelays?.().delay('index-replace');
             }
             await runtime.resume();
             const current = await owner.state();
@@ -696,8 +698,38 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       dependencies.onError('open after resume', error);
     }
   };
+  /** The close a host's release requested; the index reopens after it on the next host. */
+  let hostReleased: Promise<unknown> | undefined;
+  // BST-2004: the replacement of a host whose release closed the index is admitted. The
+  // index reopens after that close has run, once, without any borrow waiting for it.
+  const resumeAfterHostRelease = async (): Promise<void> => {
+    const released = hostReleased;
+    hostReleased = undefined;
+    if (!released) {
+      return;
+    }
+    try {
+      await released;
+    } catch {
+      // That close's failure was reported where it ran; the index stays closed.
+      return;
+    }
+    try {
+      const owner = await lifecycle;
+      const state = await owner.state();
+      if (state.kind !== 'closed' || state.reason !== 'host-released') {
+        return;
+      }
+      const resuming = await owner.dispatch({ kind: 'profile-resume' });
+      await owner.dispatch({ generation: resuming.generation, kind: 'profile-resumed' });
+    } catch (error) {
+      dependencies.onError('resume after host release', error);
+      return;
+    }
+    await openResumed();
+  };
   const admission = createNativeIndexProfileAdmission(lifecycle, runtime, () => {
-    void openResumed();
+    void resumeAfterHostRelease();
   });
   const fenceTerminal = (): void => {
     failures.cancel();
@@ -861,7 +893,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     },
     close,
     closeNativeOwner: () => dispatch({ kind: 'terminal', reason: 'root-data-deletion' }),
-    closeRootCapabilities: async () => {
+    closeRootCapabilities: async (host: 'closing' | 'gone') => {
       const state = await (await lifecycle).state();
       if (state.kind === 'closed' && state.reason !== 'host-released') {
         // The host calls this from profile retirement itself: join the resource
@@ -869,7 +901,16 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         await closeOwned();
         return;
       }
-      await dispatch({ kind: 'terminal', reason: 'host-released' });
+      const released = dispatch({ kind: 'terminal', reason: 'host-released' });
+      hostReleased = released;
+      if (host === 'closing') {
+        await released;
+        return;
+      }
+      // BST-2004: a host that is gone holds no writer to release, and its owner's release must
+      // not queue behind an index action that may be waiting for the host admitted after it.
+      // The terminal fenced that action's work; its close runs when the action ends.
+      released.catch((error: unknown) => dependencies.onError('lost host Root release', error));
     },
     fenceTerminal,
     getReadiness: () => graph?.publication?.getReadiness() ?? [],

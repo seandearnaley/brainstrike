@@ -16,8 +16,8 @@ export interface DesktopProfileRuntime<Attachment> {
 
 /**
  * One Main-owned profile lease, shared by bootstrap, clients and native indexing.
- * `createOwner` receives `lost`, which the owner calls when its ready host exits
- * without Main asking (BST-2004). That owner then fails like a failed start:
+ * `createOwner` receives `lost`, which the owner calls when its channel to its ready
+ * host closes without Main asking (BST-2004). That owner then fails like a failed start:
  * `retireFailed` joins its release before admission starts the next host. An
  * intended retirement closes its own owner and never takes that path.
  */

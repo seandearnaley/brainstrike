@@ -51,8 +51,12 @@ export interface DesktopPlatformCapabilities {
    * from. Main serves the reads and holds no selection.
    */
   readonly admission: DesktopAdmissionReads;
-  /** Join Main-owned Root borrowers before Core releases its canonical writer. */
-  closeRootCapabilities?(): Promise<void>;
+  /**
+   * Main-owned Root borrowers close with the host's platform. `closing`: Core asked
+   * (`platform/close`) and releases its canonical writer once this resolves, so they are joined.
+   * `gone`: the host's connection closed without asking, so no writer waits to be released.
+   */
+  closeRootCapabilities?(host: 'closing' | 'gone'): Promise<void>;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
   readonly hostTools?: HostToolServiceCapabilities;
   /** Main's E2E delay seam; `platform-ready` delays Main's answer to the host's readiness check. */
@@ -396,7 +400,7 @@ export function serveDesktopPlatform(
     })
   );
   serveHostToolServices(connection, execute, capabilities.hostTools);
-  const close = (): Promise<void> => {
+  const close = (host: 'closing' | 'gone'): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
       for (const controller of controllers) {
         controller.abort(new Error('Desktop platform is closing'));
@@ -407,7 +411,7 @@ export function serveDesktopPlatform(
       mcpStores.close();
       const results = await Promise.allSettled([...leases.values()].map((lease) => lease.close()));
       const root = await Promise.allSettled([
-        Promise.resolve().then(() => capabilities.closeRootCapabilities?.()),
+        Promise.resolve().then(() => capabilities.closeRootCapabilities?.(host)),
       ]);
       const failures = [...results, ...root].flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : []
@@ -420,7 +424,7 @@ export function serveDesktopPlatform(
     return closing;
   };
   const disconnect = (): Promise<void> => {
-    const joined = close();
+    const joined = close('gone');
     // vscode-jsonrpc close does not reject pending responses. Dispose before
     // joining executors so a lost progress acknowledgement cannot hold a tail.
     connection.dispose();
@@ -431,12 +435,12 @@ export function serveDesktopPlatform(
     void disconnect().catch(() => undefined);
   });
   connection.onDispose(() => {
-    void close().catch(() => undefined);
+    void close('gone').catch(() => undefined);
   });
   // The host keeps its Root when this fails, so the failure is logged here with
   // every inner cause, under the correlation id the host's fault carries (BST-2192).
   connection.onRequest('platform/close', () =>
-    close().catch((cause: unknown) => {
+    close('closing').catch((cause: unknown) => {
       throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
     })
   );

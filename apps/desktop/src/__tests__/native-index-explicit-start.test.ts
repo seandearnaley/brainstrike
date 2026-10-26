@@ -7,7 +7,7 @@ import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/n
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
-import { unreadableSettings } from './helpers/native-index-settings';
+import { textSettings, unreadableSettings } from './helpers/native-index-settings';
 import { restoredRoots } from './helpers/restored-roots';
 import { fixture, mocks, resetActivationFixture, unused } from './native-index-activation-fixture';
 
@@ -230,7 +230,7 @@ it('reopens the index once a lost host relaunches, without holding the host borr
     await f.activation.acquire();
     // The host exits unasked; its platform closes, which releases Root capabilities.
     mocks.loseHost();
-    await f.activation.closeRootCapabilities();
+    await f.activation.closeRootCapabilities('gone');
     f.held.hold = true;
     let relaunched = false;
     const relaunch = f.activation.acquireProfile().then(() => {
@@ -248,6 +248,35 @@ it('reopens the index once a lost host relaunches, without holding the host borr
     expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
   } finally {
     f.held.release.resolve();
+    await f.activation.close();
+  }
+});
+
+it('relaunches a host lost while an index open replaces the index, and reopens the index on it (BST-2004)', async () => {
+  const f = fixture();
+  try {
+    await f.activation.acquireProfile();
+    await f.activation.acquire();
+    // A saved change replaces the open index; the open holds the lifecycle while it closes the old one.
+    const replacing = Promise.withResolvers<void>();
+    mocks.close.mockImplementationOnce(() => replacing.promise);
+    f.settings.mockResolvedValue(textSettings({ policy: 'full-root' }));
+    const reconfigured = f.activation.reconfigure();
+    reconfigured.catch(() => undefined);
+    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+    // The host dies. Its platform connection closes, and retiring its owner closes that platform.
+    mocks.loseHost();
+    f.activation.closeRootCapabilities('gone').catch(() => undefined);
+    mocks.closeProfile.mockImplementationOnce(() => f.activation.closeRootCapabilities('gone'));
+    const relaunch = f.activation.acquireProfile();
+    // The open goes on to borrow a host of its own once the old index has closed.
+    replacing.resolve();
+    await expect(relaunch).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
+    await vi.waitFor(async () =>
+      expect(await lifecycleOf(f.activation)).toMatchObject({ kind: 'ready' })
+    );
+  } finally {
     await f.activation.close();
   }
 });
