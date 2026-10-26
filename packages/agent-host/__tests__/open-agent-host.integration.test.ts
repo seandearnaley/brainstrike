@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel } from 'node:worker_threads';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { RootLockedError } from '@brainstrike/state-store';
+import { RootLockedError, startupRelease } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { authenticateHostClient, type HostClient } from '../src/client-connection.js';
 import type { HostPlatform } from '../src/ports.js';
@@ -83,6 +83,31 @@ test('a refused open closes the platform it was given', async () => {
       closed = true;
     },
   };
-  await expect(openAgentHost(root, refused)).rejects.toBeInstanceOf(RootLockedError);
+  const error = await openAgentHost(root, refused).catch((cause: unknown) => cause);
+  expect(error).toBeInstanceOf(RootLockedError);
+  await startupRelease(error);
+  expect(closed).toBe(true);
+});
+
+// ADR-0031: the refusal is reported at once; the platform's close goes on behind it.
+test('a refused open is reported while the platform it was given is still closing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-open-host-'));
+  roots.push(root);
+  await open(root);
+  const closing = Promise.withResolvers<void>();
+  let closed = false;
+  const refused = {
+    ...platform(),
+    close: async () => {
+      await closing.promise;
+      closed = true;
+    },
+  };
+  const error = await openAgentHost(root, refused).catch((cause: unknown) => cause);
+  expect(error).toBeInstanceOf(RootLockedError);
+  expect(closed).toBe(false);
+
+  closing.resolve();
+  await startupRelease(error);
   expect(closed).toBe(true);
 });

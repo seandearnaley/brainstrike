@@ -1,5 +1,6 @@
 import { extname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createLogger } from '@brainstrike/logging';
 import {
   assertNotSyncedRoot,
   type ClearContentResult,
@@ -17,6 +18,8 @@ import type { HostClientOrigin, HostPlatform } from './ports.ts';
 import { secureDirectory } from './private-directory.ts';
 import { AGENT_HOST_PROTOCOL_VERSION, HOST_VERSION } from './protocol.ts';
 import { ResourceOwner } from './resource-owner.ts';
+
+const logger = createLogger('AgentHostRuntime');
 
 export interface HostStartupContext {
   /** Register a partial resource's join before starting its first side effect. */
@@ -268,21 +271,24 @@ function composeHostRoot(
         });
         signal.throwIfAborted();
       } catch (cause) {
-        try {
-          await closeHostStoreAfterCore(
-            async () => (core ? core.close() : closePlatform()),
-            () => store.close()
-          );
-        } catch (cleanupCause) {
-          if (cleanupCause instanceof HostCoreRetiredError) {
-            throw new AggregateError(
-              [cause, cleanupCause],
-              'Host startup failed after physical retirement'
-            );
-          }
-          throw new AgentHostStartupError([cause, cleanupCause], store, core);
-        }
-        throw cause;
+        // Reported at once; Core, the platform and the store close behind it, store last.
+        const opened = store;
+        const acquired = core;
+        throw withStartupRelease(
+          cause,
+          closeHostStoreAfterCore(
+            async () => (acquired ? acquired.close() : closePlatform()),
+            () => opened.close()
+          ).catch((cleanupCause: unknown) => {
+            if (cleanupCause instanceof HostCoreRetiredError) {
+              throw new AggregateError(
+                [cause, cleanupCause],
+                'Host startup failed after physical retirement'
+              );
+            }
+            throw new AgentHostStartupError([cause, cleanupCause], opened, acquired);
+          })
+        );
       }
       return { core, store };
     },
@@ -327,16 +333,31 @@ export async function openAgentHost(
     // Core fences its own admissions when it closes, so a run needs no other hold.
     opened = await host.open(() => () => undefined);
   } catch (cause) {
-    // A failed startup that could not prove its cleanup reports what it still holds.
-    if (cause instanceof AgentHostStartupError) {
-      throw cause;
-    }
-    try {
-      await host.closePlatform();
-    } catch (cleanupCause) {
-      throw new AggregateError([cause, cleanupCause], 'Host startup and platform cleanup failed');
-    }
-    throw cause;
+    // ADR-0031: reported at once. The platform closes after the root's own cleanup, and the error
+    // carries both as `released`; a failure is logged, and one that could not prove its cleanup
+    // reports what it still holds (`AgentHostStartupError`) without closing anything more.
+    const released = startupRelease(cause).then(
+      async () => {
+        try {
+          await host.closePlatform();
+        } catch (cleanupCause) {
+          throw new AggregateError(
+            [cause, cleanupCause],
+            'Host startup and platform cleanup failed'
+          );
+        }
+      },
+      async (failure: unknown) => {
+        if (!(failure instanceof AgentHostStartupError)) {
+          await host.closePlatform();
+        }
+        throw failure;
+      }
+    );
+    released.catch((error: unknown) => {
+      logger.error('Host startup cleanup failed', { code: 'host_startup_cleanup_failed', error });
+    });
+    throw withStartupRelease(cause, released);
   }
   const { core, store } = opened;
   const identity: HostIdentity = {
