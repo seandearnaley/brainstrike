@@ -1,7 +1,7 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { WatcherHealthTransition } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -52,7 +52,7 @@ describe('shared file-system watch startup failure', () => {
       const failure =
         failureKind === 'unowned'
           ? new Error('native startup failed')
-          : new ParcelWatchRetirementError([new Error('late acquisition cleanup failed')], retire);
+          : new RootWatchRetirementError([new Error('late acquisition cleanup failed')], retire);
       const unregister = registerFileSystemWatchIpcHandlers({ startWatch });
       const watch = (): Promise<unknown> =>
         invoke(owner, DESKTOP_IPC_CHANNELS.files.watch, toDirectoryHandle(directory));

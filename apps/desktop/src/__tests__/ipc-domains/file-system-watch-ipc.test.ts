@@ -720,12 +720,11 @@ describe('file-system watch IPC domain', () => {
 
     it('records health emitted synchronously DURING setup, not just after it', async () => {
       // Every other health test fires transitions after fs:watch has resolved,
-      // by which point the live entry exists — which is exactly why this gap
-      // survived. A real @parcel/watcher binding-load or subscribe failure
-      // emits 'failed' from inside startWatch, i.e. BEFORE the entry is
-      // registered. If that transition is not recorded, lastHealthState stays
-      // null, the retry handler answers 'not-failed', and the Retry button the
-      // user is staring at does nothing at all.
+      // by which point the live entry exists. A real watch start failure emits
+      // 'failed' from inside startWatch, BEFORE the entry is registered. If that
+      // transition is not recorded, lastHealthState stays null, the retry
+      // handler answers 'not-failed', and the Retry button the user sees does
+      // nothing.
       await unregister();
       const startWatch: StartTestNativeWatch = (_directoryPath, _onChanges, onHealth) => {
         onHealth(makeTransition('starting'));

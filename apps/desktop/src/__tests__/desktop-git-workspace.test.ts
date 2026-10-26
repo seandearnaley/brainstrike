@@ -65,8 +65,8 @@ describe('createDesktopGitWorkspace', () => {
     expect(createGitInventoryServiceMock).toHaveBeenCalledTimes(1);
     expect(createWorktreeServiceMock).toHaveBeenCalledTimes(1);
     expect(gitInventoryService.start).toHaveBeenCalledTimes(1);
-    // BST-2244: the joined native producer, so closing the workspace joins
-    // every @parcel/watcher subscribe and unsubscribe.
+    // The joined `fs.watch` producer in `root-watchers.ts` lets workspace
+    // close await every root watch's retirement.
     expect(createGitInventoryServiceMock).toHaveBeenCalledWith(
       expect.objectContaining({ watchDirectory: watchGitCommonDirNatively })
     );

@@ -107,7 +107,7 @@ Quit has one terminal reason: the typed native-index refusal of kind `closed`,
 reason `shutdown`. Boundaries keep it as the cause of whatever they rethrow, and a
 log site that classifies it records it at debug, never as an error.
 
-Main's root watch owners use the joined producer (`startJoinedParcelWatch`),
+Main's root watch owners use the joined producer (`startJoinedRootWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
 each joins its watches in a graceful-shutdown step. The engine is Node's
 recursive `fs.watch`: it arms synchronously, and `close()` is its whole

@@ -3,11 +3,10 @@
  * `createGitInventoryWatchers`: the INTERESTING-path regex, the trailing
  * debounce, stray-late-lock coalescing, `sync()`'s subscribe-new/dispose-
  * removed/retry-dead semantics, dead-watcher visibility, and idempotent
- * disposal with no leaked subscriptions. A real repo + real parcel watcher
- * is covered separately in `git-inventory-watcher.integration.test.ts`.
+ * disposal with no leaked subscriptions.
  */
 import path from 'node:path';
-import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -403,14 +402,14 @@ describe('createGitInventoryWatchers', () => {
   describe('watchDirectory setup rejection', () => {
     it('marks the watcher dead visibly instead of throwing when watchDirectory rejects', async () => {
       const fake = createFakeWatchDirectory();
-      fake.rejectNextWith(new Error('parcel binding missing'));
+      fake.rejectNextWith(new Error('watch binding missing'));
       const watchers = createGitInventoryWatchers(
         makeDeps({ watchDirectory: fake.watchDirectory })
       );
 
       await expect(watchers.sync(['/repo/.git'])).resolves.toBeUndefined();
       expect(watchers.getDeadCommonDirs()).toEqual(new Set(['/repo/.git']));
-      expect(watchers.getHealthErrors()[0]).toContain('parcel binding missing');
+      expect(watchers.getHealthErrors()[0]).toContain('watch binding missing');
     });
   });
 
@@ -510,14 +509,14 @@ describe('createGitInventoryWatchers', () => {
       expect(failing).toHaveBeenCalledOnce();
     });
 
-    it('retires the native subscription a ParcelWatchRetirementError still owns', async () => {
+    it('retires the native subscription a RootWatchRetirementError still owns', async () => {
       vi.useRealTimers();
       const retire = vi.fn(() => Promise.resolve());
       const watchers = createGitInventoryWatchers(
         makeDeps({
           watchDirectory: () =>
             Promise.reject(
-              new ParcelWatchRetirementError(
+              new RootWatchRetirementError(
                 [new Error('start failed after acquisition'), new Error('unsubscribe failed')],
                 retire
               )
@@ -725,7 +724,7 @@ describe('createGitInventoryWatchers', () => {
 
       const disposing = watchers.disposeAll();
       loggerErrorSpy.mockClear();
-      requireCallback<[Error]>(rejectWatch, 'watch rejecter')(new Error('parcel binding missing'));
+      requireCallback<[Error]>(rejectWatch, 'watch rejecter')(new Error('watch binding missing'));
       await syncPromise;
       await disposing;
 
