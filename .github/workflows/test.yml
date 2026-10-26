@@ -676,10 +676,9 @@ jobs:
 
   # Windows unit and integration (owner decision 2026-10-24): the same shards
   # and selection as Unit, on hosted Windows runners, so a Windows-only failure
-  # cannot land. Hosted runners run elevated; test processes take the user as
-  # default owner like the app's process entries (BST-2246), so private
-  # directories stay theirs. ripgrep is a host dependency (live grep), as the
-  # Linux test host installs it.
+  # cannot land. Hosted runners run elevated, which hid failures a normal user
+  # meets, so the tests run as a standard local user, as sean-pc runs them
+  # (windows-desktop-test-host).
   windows-shard:
     name: Windows (${{ matrix.shard }})
     if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0'
@@ -719,69 +718,43 @@ jobs:
       - name: Provision the Electron binary
         uses: ./.github/actions/provision-electron
 
-      # The release's own rg.exe, as apt installs the real binary on Linux. A
-      # Chocolatey install puts a shim first on PATH that runs rg.exe as its
-      # child: live grep's timeout kills the shim, the real rg keeps running
-      # with the Root as its cwd, and the test's rmdir of the Root fails with
-      # EBUSY (queue run 40150063798).
-      - name: Install ripgrep
-        shell: pwsh
-        env:
-          RIPGREP_VERSION: 14.1.1
-          RIPGREP_SHA256: d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1
-        run: |
-          $name = "ripgrep-$env:RIPGREP_VERSION-x86_64-pc-windows-msvc"
-          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
-          Invoke-WebRequest -Uri "https://github.com/BurntSushi/ripgrep/releases/download/$env:RIPGREP_VERSION/$name.zip" -OutFile $zip
-          $actual = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
-          if ($actual -ne $env:RIPGREP_SHA256) {
-            throw "$name.zip has sha256 $actual, expected $env:RIPGREP_SHA256"
-          }
-          Expand-Archive -Path $zip -DestinationPath $env:RUNNER_TEMP
-          $bin = Join-Path $env:RUNNER_TEMP $name
-          & (Join-Path $bin 'rg.exe') --version
-          Add-Content -Path $env:GITHUB_PATH -Value $bin
-
-      # Windows Error Reporting keeps a minidump of any process that crashes in the
-      # desktop lanes (Electron Main, a renderer, a utility, node), so a crash is
-      # read from its stack instead of only its exit code. The runner is ephemeral.
-      # https://learn.microsoft.com/en-us/windows/win32/wer/collecting-user-mode-dumps
-      - name: Keep crash dumps
-        if: matrix.partition == 'desktop'
-        shell: pwsh
-        run: |
-          $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
-          New-Item -ItemType Directory -Force -Path $dumps | Out-Null
-          $key = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'
-          New-Item -Path $key -Force | Out-Null
-          New-ItemProperty -Path $key -Name DumpFolder -PropertyType ExpandString -Value $dumps -Force | Out-Null
-          New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
-          New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 10 -Force | Out-Null
+      # ripgrep, crash dumps and the standard test user every step below runs
+      # its tests as.
+      - name: Provision the Windows desktop test host
+        uses: ./.github/actions/windows-desktop-test-host
 
       - name: Affected unit tests
         if: inputs.merge-queue && github.event_name == 'push'
         env:
           TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
           TURBO_SCM_HEAD: ${{ github.sha }}
-        run: pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/.github/actions/windows-desktop-test-host/run-as-test-user.ps1" 'pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4'
 
       - name: Affected integration tests
         if: inputs.merge-queue && github.event_name == 'push'
         env:
           TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
           TURBO_SCM_HEAD: ${{ github.sha }}
-        run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/.github/actions/windows-desktop-test-host/run-as-test-user.ps1" 'pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2'
 
       - name: Unit tests
         if: github.event_name != 'push' || !inputs.merge-queue
-        run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/.github/actions/windows-desktop-test-host/run-as-test-user.ps1" 'pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4'
 
       - name: Integration tests
         if: github.event_name != 'push' || !inputs.merge-queue
-        run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/.github/actions/windows-desktop-test-host/run-as-test-user.ps1" 'pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2'
 
       # A failed real-app proof keeps its evidence (the app's output, first failure,
-      # cleanup verdict, any crash dump) in the runner's temp directory; uploaded, a
+      # cleanup verdict, any crash dump) in the test user's temp directory; uploaded, a
       # Windows failure names its cause instead of only a test timeout.
       - name: Collect app proof evidence
         if: failure() && matrix.partition == 'desktop'
@@ -789,7 +762,7 @@ jobs:
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'app-proof-evidence'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Get-ChildItem -Path ([System.IO.Path]::GetTempPath()) -Directory -Filter 'brainstrike-*-evidence' |
+          Get-ChildItem -Path $env:BRAINSTRIKE_CI_TEST_USER_TEMP -Directory -Filter 'brainstrike-*-evidence' |
             Copy-Item -Destination $out -Recurse
           $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
           if (Get-ChildItem -Path $dumps -Filter '*.dmp') {

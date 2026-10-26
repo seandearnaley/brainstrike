@@ -41,9 +41,10 @@ jobs:
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-  # The full desktop regression (8 shards) and Desktop Embedding E2E. Owner
-  # decision 2026-10-24: every lane gates the queue; the nightly keeps only the
-  # complete Unit run.
+  # The full desktop regression (8 shards), Desktop Embedding E2E and the whole
+  # desktop E2E suite on Windows as a standard user (15 shards).
+  # Owner decision 2026-10-24: every lane gates the queue; the nightly keeps
+  # only the complete Unit run.
   desktop-e2e:
     name: Desktop E2E
     if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted
