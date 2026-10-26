@@ -104,6 +104,7 @@ export const DESKTOP_IPC_CHANNELS = {
     lifecycleChanged: 'index-search:lifecycle-changed',
     readConfig: 'index-search:read-config',
     rebuild: 'index-search:rebuild',
+    resetConfig: 'index-search:reset-config',
     rootsRegistered: 'index-search:roots-registered',
     search: 'index-search:search',
     status: 'index-search:status',

@@ -270,7 +270,7 @@ it('keeps IPC status connected while a saved TEXT change recovers activation thr
         throw new Error('Unexpected root registration in read-only test');
       },
     },
-    { read: unused, update: unused }
+    { read: unused, reset: unused, update: unused }
   );
   let changing: Promise<void> | undefined;
   try {
