@@ -169,6 +169,31 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
     return next;
   });
 
+  /**
+   * Saves the defaults without reading what is saved: Reset search settings replaces a config
+   * this version cannot read. The index is rebuilt, since the unreadable config's chunking and
+   * model, which its vectors and chunks were built with, are unknown.
+   */
+  const reset = Effect.fn('IndexConfig.reset')(function* (): Effect.fn.Return<
+    IndexConfig,
+    IndexConfigApplyFailed | IndexConfigStoreFailed
+  > {
+    const applying = yield* permit.withPermits(1)(
+      Effect.gen(function* () {
+        yield* store('The search index settings could not be saved.', () =>
+          dependencies.catalog.indexConfig({ config: DEFAULT_INDEX_CONFIG, operation: 'write' })
+        );
+        dependencies.publish(DEFAULT_INDEX_CONFIG);
+        return yield* apply(
+          'The search index could not rebuild with the default settings.',
+          dependencies.rebuild
+        ).pipe(Effect.forkChild({ startImmediately: true }));
+      })
+    );
+    yield* Fiber.join(applying);
+    return DEFAULT_INDEX_CONFIG;
+  });
+
   const nativeSettings = Effect.fn('IndexConfig.nativeSettings')(function* (): Effect.fn.Return<
     NativeIndexSettings,
     IndexConfigApplyFailed | IndexConfigStoreFailed
@@ -235,6 +260,8 @@ export function createDesktopIndexConfig(dependencies: DesktopIndexConfigDepende
       ),
     read: (): Promise<IndexConfig> =>
       runAtPromiseBoundary(traceNativeIndexWorkflow(read(), 'index-config.read')),
+    reset: (): Promise<IndexConfig> =>
+      runAtPromiseBoundary(traceNativeIndexWorkflow(reset(), 'index-config.reset')),
     update: (patch: unknown): Promise<IndexConfig> =>
       runAtPromiseBoundary(traceNativeIndexWorkflow(update(patch), 'index-config.update')),
   };

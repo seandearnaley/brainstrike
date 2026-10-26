@@ -223,6 +223,10 @@ export const indexSearchContract = {
     channel: DESKTOP_IPC_CHANNELS.indexSearch.rebuild,
     parseArgs: parseNoArgs,
   }),
+  resetConfig: channel<[], IndexConfig>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.resetConfig,
+    parseArgs: parseNoArgs,
+  }),
   rootsRegistered: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.rootsRegistered,
     parseArgs: (raw): [] => {

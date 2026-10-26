@@ -4,6 +4,8 @@ import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-regis
 import { fault, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   DEFAULT_INDEX_CONFIG,
+  INDEX_CONFIG_RESET_REMEDY,
+  INDEX_CONFIG_UNREADABLE,
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
 import { act } from '@brainstrike/test-utils/react-act';
@@ -411,5 +413,59 @@ describe('Search & Indexing', () => {
     });
     render(<SearchIndexSettingsSection />);
     expect(screen.getByRole('alert')).toHaveTextContent('could not be read');
+    // A store that could not answer offers no reset: its saved config may be fine.
+    expect(screen.queryByRole('button', { name: 'Reset search settings' })).not.toBeInTheDocument();
+  });
+
+  it('resets a saved config this version cannot read, through Main', async () => {
+    const failure = refusalError(
+      'configuration',
+      INDEX_CONFIG_UNREADABLE,
+      'The saved search index settings are from another version and cannot be read.',
+      INDEX_CONFIG_RESET_REMEDY
+    ).failure;
+    const reset = vi.fn(async () => {
+      // Main publishes the saved defaults to every window.
+      useIndexConfigStore.setState({ state: { config: DEFAULT_INDEX_CONFIG, kind: 'ready' } });
+      return DEFAULT_INDEX_CONFIG;
+    });
+    useIndexConfigStore.setState({
+      reset,
+      state: {
+        failure,
+        kind: 'failed',
+        message: `${failure.message} ${INDEX_CONFIG_RESET_REMEDY}`,
+      },
+      update,
+    });
+    render(<SearchIndexSettingsSection />);
+    expect(screen.getByRole('alert')).toHaveTextContent('cannot be read');
+    fireEvent.click(screen.getByRole('button', { name: 'Reset search settings' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /^Text/ })).toHaveAttribute('aria-pressed', 'true')
+    );
+    expect(reset).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the reset and says why when Main could not save the defaults', async () => {
+    const failure = refusalError(
+      'configuration',
+      INDEX_CONFIG_UNREADABLE,
+      'The saved search index settings are from another version and cannot be read.',
+      INDEX_CONFIG_RESET_REMEDY
+    ).failure;
+    const reset = vi.fn(async (): Promise<IndexConfig> => {
+      throw refusalError('availability', 'host.closing', 'The agent host is closing.');
+    });
+    useIndexConfigStore.setState({
+      reset,
+      state: { failure, kind: 'failed', message: failure.message },
+      update,
+    });
+    render(<SearchIndexSettingsSection />);
+    fireEvent.click(screen.getByRole('button', { name: 'Reset search settings' }));
+    expect(await screen.findByText('The agent host is closing.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset search settings' })).toBeEnabled();
   });
 });

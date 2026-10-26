@@ -35,8 +35,10 @@ StateStore setting `index/config`, written only through the host catalog's
 `host/index-config` domain; desktop main is its only caller
 (`apps/desktop/src/index-config.ts`) and publishes every change to the renderer,
 which reads and edits it through `window.indexSearch` (`readConfig`,
-`updateConfig`, `onConfigChanged`). `index-settings.ts` derives the native index
-settings from that config. Their partition, with its authority and the retirement
+`updateConfig`, `resetConfig`, `onConfigChanged`). A saved value this version cannot
+decode is the host's `index-config.unreadable` refusal; `resetConfig` saves the
+defaults in its place and rebuilds the index (no migration). `index-settings.ts`
+derives the native index settings from that config. Their partition, with its authority and the retirement
 of rows no binding owns at every open, is `index-partition.ts`. A transaction rejects stale
 preparation and atomically changes chunks, text indexes, vectors and graph data.
 Complete catalog inventories, acknowledged bindings and source revisions
