@@ -88,3 +88,11 @@ new instance that finds the wipe lock held is refused at once with a visible err
 marker, never queued behind the first; the first instance's wait for the old Main stays the
 reset's one allowed wait. Both platforms take the wipe lock, and Windows keeps its process-handle
 wait.
+
+### The MCP task store refuses writes once stopped (2026-10-26)
+
+Stopping an MCP Tasks session stops its task store, and the stopped store refuses every later
+write with `McpTaskStoreStoppedError`. Stop no longer drains in-flight task creates or pollers: a
+create still in flight fails its own caller with that error and writes no row, so neither the
+retirement write nor a content reset waits for it. The host's one StateStore writer stays the
+only writer of the task rows.
