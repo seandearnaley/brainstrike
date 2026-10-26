@@ -79,7 +79,7 @@ describe('ContextUsageMeter workspace files row', () => {
         <ContextUsageMeter {...props} />
       </ContextMapLinkContext>
     );
-    fireEvent.focus(screen.getByTestId('context-usage-trigger'));
+    fireEvent.click(screen.getByTestId('context-usage-trigger'));
     expect(screen.getByTestId('context-usage-workspace-files').textContent).toContain('~2.4K');
     fireEvent.click(screen.getByTestId('context-usage-open-context-map'));
     expect(openContextMap).toHaveBeenCalledOnce();
@@ -88,7 +88,7 @@ describe('ContextUsageMeter workspace files row', () => {
   it('says the window was not recorded, and offers no link without the Context tab', () => {
     seed(false);
     render(<ContextUsageMeter {...props} />);
-    fireEvent.focus(screen.getByTestId('context-usage-trigger'));
+    fireEvent.click(screen.getByTestId('context-usage-trigger'));
     expect(screen.getByTestId('context-usage-workspace-files').textContent).toContain(
       'not recorded'
     );
@@ -97,7 +97,7 @@ describe('ContextUsageMeter workspace files row', () => {
 
   it('shows no row where no thread context exists', () => {
     render(<ContextUsageMeter {...props} />);
-    fireEvent.focus(screen.getByTestId('context-usage-trigger'));
+    fireEvent.click(screen.getByTestId('context-usage-trigger'));
     expect(screen.queryByTestId('context-usage-workspace-files')).toBeNull();
   });
 

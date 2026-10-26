@@ -265,7 +265,7 @@ describe('production external store binding', () => {
         />
       </TooltipProvider>
     );
-    fireEvent.focus(await screen.findByTestId('context-usage-trigger'));
+    fireEvent.click(await screen.findByTestId('context-usage-trigger'));
     expect(await screen.findByTestId('context-usage-om-note')).toHaveTextContent(
       /paused.*branches/i
     );

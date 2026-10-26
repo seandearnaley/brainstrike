@@ -111,7 +111,7 @@ test('the Developer memory panel shows the observer buffering live, then its buf
     });
 
     // The observer is still held at the provider: the record says it is buffering.
-    await panel.getByTestId('context-usage-trigger').hover();
+    await panel.getByTestId('context-usage-trigger').click();
     const memory = page.getByTestId('context-usage-memory-panel');
     await expect(memory.getByTestId('context-usage-memory-live')).toContainText(
       'Buffering observation',
@@ -155,7 +155,7 @@ test('the Developer memory panel shows the observer buffering live, then its buf
     await ensureAssistantShellVisible(page);
     const reopened = page.getByRole('region', { exact: true, name: 'Assistant' });
     await expect(reopened.getByText(ANSWER, { exact: true })).toBeVisible({ timeout: 30_000 });
-    await reopened.getByTestId('context-usage-trigger').hover();
+    await reopened.getByTestId('context-usage-trigger').click();
     await expect(memory.getByTestId('context-usage-memory-live')).toHaveText(/Idle$/u, {
       timeout: 30_000,
     });

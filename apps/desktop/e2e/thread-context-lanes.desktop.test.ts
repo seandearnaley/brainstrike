@@ -77,7 +77,7 @@ test("the Context tab shows a subagent's own reads as its lane, and opens its co
     timeout: 120_000,
   });
 
-  await region.getByTestId('context-usage-trigger').focus();
+  await region.getByTestId('context-usage-trigger').click();
   await page.getByTestId('context-usage-open-context-map').click();
   const context = page.getByTestId('thread-context-page');
   await expect(context).toBeVisible({ timeout: 30_000 });

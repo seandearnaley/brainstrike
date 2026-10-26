@@ -101,7 +101,7 @@ test('the Context tab shows the files a thread received and edited, the same fig
   expect(readFileSync(path.join(root, BETA), 'utf8')).toContain('export const beta25 = 250;');
 
   // The popover's files row and the tab's header read the same fold.
-  await region.getByTestId('context-usage-trigger').focus();
+  await region.getByTestId('context-usage-trigger').click();
   const filesRow = page.getByTestId('context-usage-workspace-files');
   await expect(filesRow).toBeVisible();
   const popoverFigure = (await filesRow.textContent())?.match(/~[\d.]+K?/u)?.[0];
