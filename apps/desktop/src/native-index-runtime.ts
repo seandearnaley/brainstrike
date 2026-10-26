@@ -79,6 +79,12 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   retireFailedProfile(): Promise<boolean>;
   retireProfile(reason?: unknown): Promise<void>;
   retireReads(): Promise<void>;
+  /**
+   * Quit's close (ADR-0031): admission closes and the readers and the writer are killed at once.
+   * It joins no read, acquisition or cleanup in flight; each fails when its process dies or at
+   * its next admission check.
+   */
+  terminateIndex(): Promise<void>;
   withRead<T>(
     acquireRead: () => Promise<NativePort>,
     work: (captured: CapturedNativeIndexAuthority) => Promise<T>
@@ -420,6 +426,41 @@ export function createNativeIndexRuntime<Attachment>(
     });
     return closing;
   };
+  const terminateIndex = (): Promise<void> => {
+    closed = true;
+    readsClosed = true;
+    const owner = indexOwner;
+    // A writer an acquisition or cleanup in flight acquires after this is killed when it
+    // settles. Its kill is requested at once; a rejection only repeats an earlier fault.
+    const killLate = (): void => {
+      const late = indexOwner;
+      indexOwner = undefined;
+      port = undefined;
+      late?.close().catch(() => undefined);
+    };
+    for (const pending of [acquisition, cleanup]) {
+      pending?.then(killLate, killLate);
+    }
+    indexOwner = undefined;
+    port = undefined;
+    scopes = '';
+    acknowledgedAuthority = undefined;
+    acknowledgedPort = undefined;
+    bindingRemovalPending = false;
+    authorityMutation = undefined;
+    const terminated = Promise.all([closeQueries(), owner?.close()]).then(() => undefined);
+    // A later close or profile retirement joins this kill, not an earlier joining close.
+    closing = terminated;
+    closingKind = 'close';
+    const settled = (): void => {
+      if (closing === terminated) {
+        closing = undefined;
+        closingKind = undefined;
+      }
+    };
+    terminated.then(settled, settled);
+    return terminated;
+  };
   const cleanupOwned = (requested: NativeIndexAuthority): Promise<void> => {
     if (!(closed && readsClosed) || closing || cleanup || indexOwner) {
       return Promise.reject(
@@ -565,6 +606,7 @@ export function createNativeIndexRuntime<Attachment>(
       readsClosed = true;
       await joinReads();
     },
+    terminateIndex,
     withRead: async <T>(
       acquireRead: () => Promise<NativePort>,
       work: (captured: CapturedNativeIndexAuthority) => Promise<T>

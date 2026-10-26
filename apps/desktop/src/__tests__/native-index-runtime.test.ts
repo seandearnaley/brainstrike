@@ -790,3 +790,28 @@ it('does not cache new bindings before their final authority validation succeeds
   });
   await f.runtime.retireProfile();
 });
+
+// ADR-0031: quit joins nothing. A read in flight fails when its process is killed.
+it('terminates at once, killing readers and writer without joining a read or an acquisition', async () => {
+  const f = fixture();
+  const entered = Promise.withResolvers<void>();
+  void f.runtime
+    .withRead(f.runtime.acquire, async () => {
+      entered.resolve();
+      await Promise.withResolvers<void>().promise;
+    })
+    .catch(() => undefined);
+  await entered.promise;
+  const late = Promise.withResolvers<Awaited<ReturnType<typeof f.createIndexOwner>>>();
+  f.createIndexOwner.mockReturnValueOnce(late.promise);
+  f.setBindings();
+  f.runtime.acquire().catch(() => undefined);
+
+  const terminated = vi.fn();
+  void f.runtime.terminateIndex().then(terminated);
+
+  await vi.waitFor(() => expect(terminated).toHaveBeenCalled());
+  expect(f.closeQueries).toHaveBeenCalled();
+  expect(f.closeWriter).toHaveBeenCalledOnce();
+  await expect(f.runtime.acquire()).rejects.toThrow('closed');
+});
