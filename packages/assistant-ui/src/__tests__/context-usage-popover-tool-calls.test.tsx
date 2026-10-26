@@ -10,7 +10,7 @@ vi.mock('@assistant-ui/react', () => ({
 }));
 
 function openMeterPopover(): void {
-  fireEvent.focus(screen.getByTestId('context-usage-trigger'));
+  fireEvent.click(screen.getByTestId('context-usage-trigger'));
 }
 
 describe('ContextUsageMeter tool-call attribution (inside the popover)', () => {
