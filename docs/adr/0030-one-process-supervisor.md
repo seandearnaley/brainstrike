@@ -14,7 +14,7 @@ f93e0253, they share three causes.
 
 1. **No single owner of a process's life.** About 20 owners each write their own spawn,
    close request, kill and exit wait: agent host, indexer, index query reader, egress proxy,
-   embedding host, renderers, terminals, LSP, git, gh, ripgrep, worktree setup, command
+   embedding host, renderers, terminals, LSP, git, ripgrep, worktree setup, command
    sessions, agent commands, fence, hooks, host state index, CLI starter and test fixtures.
    They use four ways to kill a tree (`tree-kill`, `process.kill(-pgid)`, a per-command Job,
    nothing) and seven grace values from 500 ms to 30 s. ADR-0026's rules are prose, so each
@@ -29,7 +29,7 @@ f93e0253, they share three causes.
    and inherited flocks are POSIX only.
 3. **Containment stops at the agent host.** The host joins a kill-on-close Job at startup
    (ADR-0017), so its tree ends with it, and agent commands run in their own Job. Main's own
-   children (ripgrep, git, gh, LSP, terminals) have none: Node's job kills a direct child when
+   children (ripgrep, git, LSP, terminals) have none: Node's job kills a direct child when
    Main dies, but lets its children break away. And while an owner lives, ending a tree
    ends only its root on Windows, so a timed-out shim leaves its real program running.
 
@@ -82,7 +82,7 @@ one met every done criterion below.
    window and its refused kill as a request; the agent host and host state index on the
    budget. Deletes `indexer-kill-failed`, the post-ACK exit window and the retained
    lifecycle error.
-2. **Tree termination.** `terminateTree` for every third-party tree (ripgrep, LSP, git, gh,
+2. **Tree termination.** `terminateTree` for every third-party tree (ripgrep, LSP, git,
    worktree setup, command sessions, terminals), and `endTreeOnDeadline` for every bounded
    child; on Windows the exit joined on the process handle (`waitForProcessExit`) instead of a
    start-time poll.
@@ -100,7 +100,7 @@ for each name below finds nothing.
 | Stage | Removed |
 | --- | --- |
 | 1 | The indexer's post-ACK exit window (`exitMs`, 1 s, then 30 s in #4308), `indexer-kill-failed`, `IndexerLifecycleError` and the retained-owner path, the host state index's 1 s close and 1 s exit, `KILL_GRACE_MS`, `HOST_COOPERATIVE_CLOSE_MS` |
-| 2 | Hand-written tree kills (`killTree` and its `TreeKill` seam, the terminal's own `tree-kill` call, worktree setup's launcher-only kill on Windows), `timeout` and `signal` options on `spawn`/`execFile` that kill only a launcher (ripgrep, git, gh, the workspace walk's git query), the LSP server's 500 ms shutdown race and its refused-kill error (`killChild`, `rejectNextKillForTest`, `forceKillForTest`), the 25 ms start-time poll on Windows (`PROCESS_EXIT_JOIN_POLL_MS`), ADR-0027's "git's launcher ends on its own" caveat, the open shim-`rg` follow-up |
+| 2 | Hand-written tree kills (`killTree` and its `TreeKill` seam, the terminal's own `tree-kill` call, worktree setup's launcher-only kill on Windows), `timeout` and `signal` options on `spawn`/`execFile` that kill only a launcher (ripgrep, git, the workspace walk's git query), the LSP server's 500 ms shutdown race and its refused-kill error (`killChild`, `rejectNextKillForTest`, `forceKillForTest`), the 25 ms start-time poll on Windows (`PROCESS_EXIT_JOIN_POLL_MS`), ADR-0027's "git's launcher ends on its own" caveat, the open shim-`rg` follow-up |
 | 3 | `LOOPBACK_ANSWER_MS` and the egress startup kill, `EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS`, `EMBEDDING_HOST_STOP_TIMEOUT_MS`, `EMBEDDING_HOST_RESET_TIMEOUT_MS`, the fence's 500 ms grace and confirmation, worktree setup's abandon-after-grace timer, `PROCESS_EXIT_TIMEOUT_MS`, `WORKTREE_SETUP_TERMINATION_GRACE_MS`, `SQLITE_QUERY_EXIT_REPORT_MS`, `HOST_STARTER_CANCEL_EXIT_TIMEOUT_MS`, the `stop-failed` command-session answer. The index read bounds stay: they are R5(a) request bounds, not lifecycle timers (decision 4). The removed 1.5 s attach bound (#4308) stays removed: `HOST_STARTUP_TIMEOUT_MS` is the one startup deadline |
 | 4 | The launcher watchdog's shell loop, per-fixture lifelines (folded into `spawnNativeChild`), per-owner "group SIGTERM is a retirement" labelling |
 | 5 | Quit steps for each service ADR-0029 moves, ADR-0027's native-thread join on Main |
