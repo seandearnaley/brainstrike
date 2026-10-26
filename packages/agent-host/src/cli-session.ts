@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { Schema } from 'effect';
 import type { HostCliOutput } from './cli.ts';
+import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.ts';
 import type { HostClient } from './client.ts';
 import type { HostLogRow, HostRunTelemetry } from './protocol.ts';
 import {
@@ -34,6 +35,8 @@ export class HostCliExitError extends Error {
   }
 }
 export interface HostCliSessionOptions {
+  /** Rows at or before this seq were already printed by an earlier session. */
+  readonly afterSeq?: number;
   readonly client: HostClient;
   readonly interactive: boolean;
   readonly json: boolean;
@@ -57,7 +60,7 @@ export function hostRunExitError(run: HostRunView): HostCliExitError | undefined
   );
 }
 /** The run's oldest MCP input with neither a committed answer intent nor a settlement. */
-function pendingMcpInput(
+export function pendingMcpInput(
   rows: readonly HostLogRow[],
   runId: string | undefined
 ): string | undefined {
@@ -148,8 +151,11 @@ function displayRow(
     output.write('\n');
   }
 }
-/** The terminal observes committed rows and sends decisions to the same host owner. */
-export async function runHostCliSession(options: HostCliSessionOptions): Promise<void> {
+/**
+ * The terminal observes committed rows and sends decisions to the same host
+ * owner. Settles with the last seq it printed.
+ */
+export async function runHostCliSession(options: HostCliSessionOptions): Promise<number> {
   const { client, threadId, output } = options;
   const view = new CommittedThreadView(threadId);
   const notices = new HostRunNotices();
@@ -159,13 +165,14 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   completion.promise.catch(() => undefined);
   let runId = options.runId;
   let initialized = false;
-  let printedSeq = 0;
+  let printedSeq = options.afterSeq ?? 0;
   let finished = false;
   let responding: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
   let displayedApproval: string | undefined;
   let displayedMcpInput: string | undefined;
   let pending: PendingHostApproval | undefined;
+  let mcpInput: string | undefined;
   let stopRequested = false;
   let connectionClosed = false;
   const finish = (cause?: unknown): void => {
@@ -210,24 +217,70 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       );
     }
   };
-  // An MCP server's input is answered with `mcp input read/settle`, from any terminal.
+  // An MCP server's input lives only in this command's host, so this terminal answers it.
   const showMcpInput = (interactionId: string): void => {
-    const settle = `mcp input settle --thread ${threadId} --run ${runId} --interaction ${interactionId}`;
-    if (!terminal) {
+    if (!(terminal && runId)) {
       finish(
         new HostCliExitError(
-          `Run awaits MCP input; read it with mcp input read, then answer: ${settle} --action accept|decline|cancel [--content <json>]`,
+          'Run awaits MCP input; run it in an interactive terminal to answer.',
           2
         )
       );
       return;
     }
-    if (interactionId !== displayedMcpInput) {
-      displayedMcpInput = interactionId;
-      process.stderr.write(
-        `\nMCP input requested. Read it with mcp input read, then answer from another terminal: ${settle} --action accept|decline|cancel [--content <json>]\n`
-      );
+    if (interactionId === displayedMcpInput) {
+      return;
     }
+    displayedMcpInput = interactionId;
+    const address = { interactionId, runId, threadId };
+    responding ??= readCliMcpInput(client, address)
+      .then(
+        (input) => {
+          process.stderr.write(
+            `\nMCP input requested: ${JSON.stringify(input)}\nAnswer with JSON {"action":"accept","content":{...}}, {"action":"decline"} or {"action":"cancel"}, or stop: `
+          );
+        },
+        (cause: unknown) => {
+          process.stderr.write(`MCP input unavailable: ${errorText(cause)}\n`);
+        }
+      )
+      .finally(() => {
+        responding = undefined;
+      });
+  };
+  const settleMcpInput = (interactionId: string, answer: string): void => {
+    if (!runId) {
+      return;
+    }
+    let action: string;
+    let content: string | undefined;
+    try {
+      const parsed = Schema.decodeUnknownSync(
+        Schema.Struct({ action: Schema.String, content: Schema.optional(Schema.MutableJson) }),
+        { errors: 'all', onExcessProperty: 'error' }
+      )(JSON.parse(answer));
+      action = parsed.action;
+      content = parsed.content === undefined ? undefined : JSON.stringify(parsed.content);
+    } catch (cause) {
+      process.stderr.write(`Invalid JSON response: ${errorText(cause)}\n`);
+      return;
+    }
+    responding = settleCliMcpInput(
+      client,
+      { interactionId, runId, threadId },
+      { action, commandId: randomUUID(), content }
+    )
+      .then(
+        () => undefined,
+        (cause: unknown) => {
+          process.stderr.write(`MCP input rejected: ${errorText(cause)}\n`);
+          displayedMcpInput = undefined;
+        }
+      )
+      .finally(() => {
+        responding = undefined;
+        update();
+      });
   };
   const update = (): void => {
     if (!(initialized && !finished)) {
@@ -242,9 +295,9 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     if (pending) {
       showApproval(pending);
     }
-    const input = run?.status === 'running' ? pendingMcpInput(rows, runId) : undefined;
-    if (input) {
-      showMcpInput(input);
+    mcpInput = run?.status === 'running' ? pendingMcpInput(rows, runId) : undefined;
+    if (mcpInput) {
+      showMcpInput(mcpInput);
     }
     if (run && run.status !== 'running') {
       finish(hostRunExitError(run));
@@ -267,6 +320,44 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       .request('run/stop', { commandId: randomUUID(), runId, threadId })
       .then(() => finish(), finish);
   };
+  /** The host request that answers `interaction`, or nothing when `answer` is not an answer. */
+  const answerInteraction = (
+    interaction: PendingHostApproval,
+    selectedRun: string,
+    answer: string
+  ): Promise<unknown> | undefined => {
+    if (interaction.kind !== 'approval') {
+      let resumeData: typeof Schema.MutableJson.Type;
+      try {
+        resumeData = Schema.decodeUnknownSync(Schema.MutableJson, {
+          errors: 'all',
+          onExcessProperty: 'error',
+        })(JSON.parse(answer));
+      } catch (cause) {
+        process.stderr.write(`Invalid JSON response: ${errorText(cause)}\n`);
+        return undefined;
+      }
+      return client.request('interaction/resume', {
+        commandId: randomUUID(),
+        interactionId: interaction.interactionId,
+        resumeData,
+        runId: selectedRun,
+        threadId,
+      });
+    }
+    const decision = answer.trim().toLowerCase();
+    if (decision !== 'approve' && decision !== 'deny') {
+      process.stderr.write('Enter approve, deny, or stop.\n');
+      return undefined;
+    }
+    return client.request('interaction/respond', {
+      commandId: randomUUID(),
+      decision,
+      interactionId: interaction.interactionId,
+      runId: selectedRun,
+      threadId,
+    });
+  };
   const line = (answer: string): void => {
     const decision = answer.trim().toLowerCase();
     if (decision === 'stop') {
@@ -279,41 +370,17 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
         .then(() => finish(), finish);
       return;
     }
+    if (!pending && mcpInput && responding === undefined) {
+      settleMcpInput(mcpInput, answer);
+      return;
+    }
     if (!(pending && runId) || responding !== undefined) {
       process.stderr.write('No unanswered decision is selected.\n');
       return;
     }
-    const interaction = pending;
-    let request: Promise<unknown>;
-    if (interaction.kind !== 'approval') {
-      let resumeData: typeof Schema.MutableJson.Type;
-      try {
-        resumeData = Schema.decodeUnknownSync(Schema.MutableJson, {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(JSON.parse(answer));
-      } catch (cause) {
-        process.stderr.write(`Invalid JSON response: ${errorText(cause)}\n`);
-        return;
-      }
-      request = client.request('interaction/resume', {
-        commandId: randomUUID(),
-        interactionId: interaction.interactionId,
-        resumeData,
-        runId,
-        threadId,
-      });
-    } else if (decision !== 'approve' && decision !== 'deny') {
-      process.stderr.write('Enter approve, deny, or stop.\n');
+    const request = answerInteraction(pending, runId, answer);
+    if (!request) {
       return;
-    } else {
-      request = client.request('interaction/respond', {
-        commandId: randomUUID(),
-        decision,
-        interactionId: interaction.interactionId,
-        runId,
-        threadId,
-      });
     }
     responding = request
       .then(
@@ -331,7 +398,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   const eof = (): void => {
     finish(
       new HostCliExitError(
-        'Terminal input closed; the host retains any active run or unanswered decision.',
+        'Terminal input closed; a running run is interrupted, and an unanswered decision stays for attach.',
         2
       )
     );
@@ -356,7 +423,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     if (finished || stopRequested) {
       finish();
       await completion.promise;
-      return;
+      return printedSeq;
     }
     if (options.startRun) {
       ({ runId } = await options.startRun());
@@ -372,6 +439,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     initialized = true;
     update();
     await completion.promise;
+    return printedSeq;
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);

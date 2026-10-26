@@ -1,15 +1,13 @@
 /**
  * The installed standalone `brainstrike` CLI over one eval's disposable data
- * root and workspace: the real bin, HostCore, tools and storage. The committed
- * log is read back through the CLI (`threads show`) as any client reads it.
+ * root and workspace: the real bin, HostCore, tools and storage. Each command
+ * runs its host in its own process. The committed log is read back through
+ * the CLI (`threads show`) as any client reads it.
  */
-import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/protocol';
-import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import { type CommandResult, runCommand } from './sandbox.ts';
 
@@ -26,12 +24,9 @@ const RunIdentity = Schema.Struct({ runId: Schema.String, threadId: Schema.Strin
 const decodeRunIdentity = Schema.decodeUnknownSync(RunIdentity);
 /** Each CLI command other than a run's own wait. */
 const COMMAND_TIMEOUT_MS = 60_000;
-const HOST_EXIT_TIMEOUT_MS = 30_000;
 
 export interface EvalHost {
   readonly cli: (args: readonly string[], timeoutMs?: number) => Promise<CommandResult>;
-  /** `host stop`, then waits for the host process to exit. */
-  readonly close: () => Promise<void>;
   readonly rows: (threadId: string) => Promise<readonly HostLogRow[]>;
 }
 
@@ -41,52 +36,27 @@ function described(args: readonly string[], result: CommandResult): string {
   return `brainstrike ${command} ${why}: ${result.output.trim()}`;
 }
 
-/** Starts a standalone host whose launch root is `workspace`. */
-export async function startEvalHost(options: {
+/** The CLI over `dataRoot`, each command's host launched with `workspace` as its root. */
+export function startEvalHost(options: {
   readonly dataRoot: string;
   readonly env: Readonly<Record<string, string>>;
   /** A trusted composition module (scripted mode); the bin's own platform otherwise. */
   readonly platformModule?: string;
   readonly workspace: string;
-}): Promise<EvalHost> {
+}): EvalHost {
+  const launch = [
+    '--workspace',
+    options.workspace,
+    ...(options.platformModule ? ['--platform', options.platformModule] : []),
+  ];
   const cli = (args: readonly string[], timeoutMs = COMMAND_TIMEOUT_MS) =>
-    runCommand(process.execPath, [BIN, '--data-root', options.dataRoot, ...args], {
+    runCommand(process.execPath, [BIN, '--data-root', options.dataRoot, ...args, ...launch], {
       cwd: tmpdir(),
       env: options.env,
       timeoutMs,
     });
-  const started = await cli([
-    'host',
-    'start',
-    '--workspace',
-    options.workspace,
-    ...(options.platformModule ? ['--platform', options.platformModule] : []),
-  ]);
-  if (started.code !== 0) {
-    throw new Error(described(['host', 'start'], started));
-  }
   return {
     cli,
-    close: async () => {
-      const owner = RootLock.inspect(options.dataRoot)?.owner;
-      if (!owner || owner.released) {
-        return;
-      }
-      const { pid } = decodeHostRecord(
-        JSON.parse(await readFile(join(options.dataRoot, 'host.json'), 'utf8'))
-      );
-      const stopped = await cli(['host', 'stop']);
-      if (stopped.code !== 0) {
-        throw new Error(described(['host', 'stop'], stopped));
-      }
-      const deadline = Date.now() + HOST_EXIT_TIMEOUT_MS;
-      while (processStartTime(pid) !== null) {
-        if (Date.now() > deadline) {
-          throw new Error(`The eval host ${pid} outlived host stop`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    },
     rows: async (threadId) => {
       const shown = await cli(['threads', 'show', '--thread', threadId]);
       if (shown.code !== 0) {
@@ -138,11 +108,42 @@ function pendingInteractions(rows: readonly HostLogRow[], runId: string) {
   );
 }
 
+/** Approves each interaction through the CLI; the reason the first answer was refused, if any. */
+async function approveAll(
+  host: EvalHost,
+  threadId: string,
+  runId: string,
+  pending: readonly { readonly interactionId: string }[],
+  remaining: () => number
+): Promise<string | undefined> {
+  for (const interaction of pending) {
+    const respond = [
+      'interaction',
+      'respond',
+      '--thread',
+      threadId,
+      '--run',
+      runId,
+      '--interaction',
+      interaction.interactionId,
+      '--decision',
+      'approve',
+    ];
+    const responded = await host.cli(respond, remaining());
+    // 0, 1 and 2: the answer was taken and the resumed run ended or paused again.
+    if (responded.timedOut || ![0, 1, 2].includes(responded.code ?? -1)) {
+      return described(respond, responded);
+    }
+  }
+  return undefined;
+}
+
 /**
  * `run --non-interactive` runs until the run ends (exit 0 or 1) or pauses at
  * an interaction (exit 2). Each pause is an approval the eval grants through
- * the CLI's own mechanism, `interaction respond --decision approve`, then
- * `attach` resumes the wait. Any other interaction (a question, a plan, network
+ * the CLI's own mechanism, `interaction respond --decision approve`, which
+ * follows the resumed run until it ends or pauses again; `attach` then reads
+ * where it stands. Any other interaction (a question, a plan, network
  * consent) has no scripted answer, so it ends the attempt with a reason.
  */
 export async function driveEvalRun(
@@ -187,23 +188,9 @@ export async function driveEvalRun(
         threadId,
       };
     }
-    for (const interaction of pending) {
-      const respond = [
-        'interaction',
-        'respond',
-        '--thread',
-        threadId,
-        '--run',
-        runId,
-        '--interaction',
-        interaction.interactionId,
-        '--decision',
-        'approve',
-      ];
-      const responded = await host.cli(respond);
-      if (responded.code !== 0) {
-        return { error: described(respond, responded), runId, status: 'error', threadId };
-      }
+    const refused = await approveAll(host, threadId, runId, pending, remaining);
+    if (refused) {
+      return { error: refused, runId, status: 'error', threadId };
     }
     result = await host.cli(
       ['attach', '--thread', threadId, '--run', runId, '--json', '--non-interactive'],

@@ -24,6 +24,8 @@ export interface HostRunEndPorts {
   readonly closing: () => boolean;
   readonly deletions: ReadonlyMap<string, unknown>;
   readonly foldRows: (rows: readonly HostLogRow[]) => void;
+  /** A run's end holds the host until the run or wake it leads to is admitted. */
+  readonly hold: () => () => void;
   readonly presentations: Pick<HostThreadPresentationState, 'finishing' | 'settle'>;
   readonly read: (threadId: string) => Promise<HostLogRow[]>;
   readonly runs: () => ReadonlyMap<string, HostRunState>;
@@ -51,6 +53,10 @@ export class HostRunEnds {
 
   finish(run: HostRunState, outcome: Outcome, detail?: string, wakes = true): Promise<void> {
     const ports = this.ports;
+    // The run releases its own hold once its owner settles; this one covers the
+    // gap from there to the next run or the parent's wake, so a host that is
+    // waiting to go quiet never sees none between them.
+    let hold: (() => void) | undefined = ports.hold();
     // While its admission is live: a completed run asks for a title, a failed one withdraws it.
     ports.presentations.finishing(run, outcome, ports.runs().values());
     return finishHostRunWithProviderBilling(
@@ -68,33 +74,38 @@ export class HostRunEnds {
           commit();
           ports.foldRows(rows);
         })
-    ).then(async () => {
-      ports.presentations.settle(run);
-      const parent =
-        ports.children.deliveryParent(run, ports.runs()) ?? (run.origin ? undefined : run.threadId);
-      // BST-1932: a child's human input runs next; only that run reports to the parent.
-      const open = wakes && !(ports.closing() || ports.deletions.has(run.threadId));
-      const input = takeHostChildInput(run, outcome, open);
-      let next = false;
-      if (input) {
-        try {
-          next = await ports.startNextRun(input.params, run.input?.origin, input.refused);
-        } finally {
-          // The input's run, or its refusal, is committed: the report now waits on that run.
-          settleHostChildInput(run, ports.runs());
+    )
+      .then(async () => {
+        ports.presentations.settle(run);
+        const parent =
+          ports.children.deliveryParent(run, ports.runs()) ??
+          (run.origin ? undefined : run.threadId);
+        // BST-1932: a child's human input runs next; only that run reports to the parent.
+        const open = wakes && !(ports.closing() || ports.deletions.has(run.threadId));
+        const input = takeHostChildInput(run, outcome, open);
+        let next = false;
+        if (input) {
+          try {
+            next = await ports.startNextRun(input.params, run.input?.origin, input.refused);
+          } finally {
+            // The input's run, or its refusal, is committed: the report now waits on that run.
+            settleHostChildInput(run, ports.runs());
+          }
         }
-      }
-      // ADR-0028 step 3: the task goes on in the worktree the run entered.
-      if (!next && open && outcome === 'completed' && run.enteredWorktree) {
-        next = await ports.startNextRun(
-          enteredWorktreeRunParams(run, run.enteredWorktree),
-          run.input?.origin
-        );
-      }
-      if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
-        this.wake(parent);
-      }
-    });
+        // ADR-0028 step 3: the task goes on in the worktree the run entered.
+        if (!next && open && outcome === 'completed' && run.enteredWorktree) {
+          next = await ports.startNextRun(
+            enteredWorktreeRunParams(run, run.enteredWorktree),
+            run.input?.origin
+          );
+        }
+        if (parent && wakes && !next && !(ports.closing() || ports.deletions.has(parent))) {
+          // The wake takes the hold over and releases it once its run is admitted.
+          this.wake(parent, hold);
+          hold = undefined;
+        }
+      })
+      .finally(() => hold?.());
   }
 
   /** Await before admitting the thread's next run or rewind, outside Core's shared queue. */
@@ -103,14 +114,20 @@ export class HostRunEnds {
   }
 
   /** B10/B14 (ADR-0010): an idle, unparked parent wakes once per batch of settled children. */
-  private wake(threadId: string): void {
-    (async () => {
-      await this.settled(threadId);
-      // The fence finish applies before waking holds again after the wait.
-      if (this.ports.closing() || this.ports.deletions.has(threadId)) {
-        return;
+  private wake(threadId: string, hold: (() => void) | undefined): void {
+    void (async () => {
+      try {
+        await this.settled(threadId);
+        // The fence finish applies before waking holds again after the wait.
+        if (this.ports.closing() || this.ports.deletions.has(threadId)) {
+          return;
+        }
+        await this.ports.wake(threadId);
+      } catch (cause) {
+        reportHostChildWakeFailure(threadId, cause);
+      } finally {
+        hold?.();
       }
-      await this.ports.wake(threadId);
-    })().catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
+    })();
   }
 }

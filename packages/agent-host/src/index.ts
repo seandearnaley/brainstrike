@@ -55,7 +55,6 @@ export {
   trustHostHooks,
   untrustHostHooks,
 } from './hook-trust.ts';
-export { createAgentHostSpawner } from './launcher.ts';
 export {
   assertMcpAuthorityReconstruction,
   McpAuthorityReconstructionError,

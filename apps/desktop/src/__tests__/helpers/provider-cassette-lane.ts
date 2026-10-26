@@ -98,10 +98,7 @@ async function drive(
       const started = await host.startRun(scenario.prompt, scenario.model);
       threadId = started.threadId;
       await pollUntil(async () => streaming(), Boolean);
-      const stopped = await host.cli(['run', 'stop', '--thread', threadId, '--run', started.runId]);
-      if (stopped.code !== 0) {
-        throw new Error(`run stop failed: ${stopped.stderr}`);
-      }
+      await host.stop(threadId, started.runId);
     } else {
       threadId = (await host.run(scenario.prompt, scenario.model)).threadId;
     }

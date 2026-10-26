@@ -1,47 +1,38 @@
 /**
- * The installed standalone `brainstrike` host over a disposable data root and
- * workspace, with every provider base-URL knob pointed at one loopback server
- * (the model-provider shim, or the cassette recorder). Real bin, real
- * HostCore, real provider SDKs; the committed log is read back through the
- * CLI exactly as any client reads it.
+ * The standalone `brainstrike` host over a disposable data root and workspace,
+ * with every provider base-URL knob pointed at one loopback server (the
+ * model-provider shim, or the cassette recorder). It runs in this process, as
+ * the CLI runs it: the production platform, real HostCore, real provider SDKs;
+ * the committed log is read back through the host's client as any client reads it.
  */
-import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/protocol';
-import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
-import { Schema } from 'effect';
-import { z } from 'zod';
+import type { HostLogRow } from '@brainstrike/agent-host/protocol';
+import { openStandaloneHost } from '@brainstrike/agent-host/standalone-host';
 
 const require = createRequire(import.meta.url);
-const bin = join(
+/** The production executable's platform, as `bin/brainstrike.mjs` composes it. */
+const platformModule = join(
   dirname(require.resolve('@brainstrike/host-capabilities')),
-  '../bin/brainstrike.mjs'
+  'platform.ts'
 );
-interface CliResult {
-  readonly code: number;
-  readonly stderr: string;
-  readonly stdout: string;
-}
 export interface StandaloneProviderHost {
   /** Child thread ids of `threadId`, in the host's order. */
   readonly children: (threadId: string) => Promise<readonly string[]>;
-  readonly cli: (args: readonly string[]) => Promise<CliResult>;
   readonly close: () => Promise<void>;
   readonly rows: (threadId: string) => Promise<readonly HostLogRow[]>;
-  /** `run --json --non-interactive`: blocks until the run ends (exit 0) or pauses (exit 2). */
+  /** A run on a new thread, awaited until it ends or asks for a decision. */
   readonly run: (
     prompt: string,
     model: string
   ) => Promise<{
-    readonly result: CliResult;
     readonly runId: string;
     readonly threadId: string;
   }>;
-  /** `thread start` then `run start`: the run proceeds in the host while the caller watches. */
+  /** A run on a new thread that proceeds while the caller watches. */
   readonly startRun: (
     prompt: string,
     model: string
@@ -49,11 +40,12 @@ export interface StandaloneProviderHost {
     readonly runId: string;
     readonly threadId: string;
   }>;
+  /** Stops a run, as a person's Stop does. */
+  readonly stop: (threadId: string, runId: string) => Promise<void>;
   /** Every root thread id, in the host's order. */
   readonly threads: () => Promise<readonly string[]>;
   readonly workspace: string;
 }
-const RunIdentity = z.object({ runId: z.string(), threadId: z.string() });
 /** A disposable workspace directory, canonical, named `name` (its basename is all a prompt sees). */
 export async function createStandaloneWorkspace(
   name: string,
@@ -71,9 +63,23 @@ export async function createStandaloneWorkspace(
   }
   return { remove: () => rm(parent, { force: true, recursive: true }), workspace };
 }
+/** Sets `entries` in this process's environment and returns the restore of what they replaced. */
+function overlayEnvironment(entries: Readonly<Record<string, string>>): () => void {
+  const previous = Object.entries(entries).map(([name]) => [name, process.env[name]] as const);
+  Object.assign(process.env, entries);
+  return () => {
+    for (const [name, value] of previous) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+  };
+}
 /**
- * `environment` is the host's whole provider environment: base-URL knobs and
- * credentials. Nothing else from this process's environment reaches the host.
+ * `environment` is the host's provider environment: base-URL knobs and
+ * credentials, in this process's environment while the host is open.
  */
 export async function startStandaloneProviderHost(options: {
   readonly environment: Readonly<Record<string, string>>;
@@ -81,110 +87,76 @@ export async function startStandaloneProviderHost(options: {
 }): Promise<StandaloneProviderHost> {
   const { workspace } = options;
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-cassette-data-'));
-  const env = {
-    ...options.environment,
-    LC_ALL: 'C',
-    PATH: process.env['PATH'] ?? '',
-    TZ: 'UTC',
-    ...(process.env['SystemRoot'] ? { SystemRoot: process.env['SystemRoot'] } : {}),
-  };
-  const cli = (args: readonly string[]): Promise<CliResult> =>
-    new Promise((resolve, reject) => {
-      execFile(
-        process.execPath,
-        [bin, '--data-root', dataRoot, ...args],
-        { cwd: tmpdir(), env, maxBuffer: 64 * 1024 * 1024, timeout: 120_000, windowsHide: true },
-        (cause, stdout, stderr) => {
-          if (!cause) {
-            resolve({ code: 0, stderr, stdout });
-          } else if (typeof cause.code === 'number') {
-            resolve({ code: cause.code, stderr, stdout });
-          } else {
-            reject(cause);
-          }
-        }
-      );
+  const restore = overlayEnvironment({ ...options.environment, LC_ALL: 'C', TZ: 'UTC' });
+  let host: Awaited<ReturnType<typeof openStandaloneHost>>;
+  try {
+    host = await openStandaloneHost(join(dataRoot, 'root'), platformModule, {
+      workspaceRoots: [workspace],
     });
-  const started = await cli(['host', 'start', '--workspace', workspace]);
-  if (started.code !== 0) {
-    throw new Error(`The standalone host did not start: ${started.stderr || started.stdout}`);
+  } catch (cause) {
+    restore();
+    await rm(dataRoot, { force: true, recursive: true });
+    throw cause;
   }
-  const rows = async (threadId: string): Promise<readonly HostLogRow[]> => {
-    const shown = await cli(['threads', 'show', '--thread', threadId]);
-    if (shown.code !== 0) {
-      throw new Error(`threads show failed: ${shown.stderr}`);
-    }
-    return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/read'], {
-      errors: 'all',
-      onExcessProperty: 'error',
-    })(JSON.parse(shown.stdout)).rows;
+  const { client } = host;
+  const rows = async (threadId: string): Promise<readonly HostLogRow[]> =>
+    (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+  const startRun = async (prompt: string, modelId: string) => {
+    const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+    const { runId } = await client.request('run/start', {
+      commandId: randomUUID(),
+      modelId,
+      prompt,
+      threadId,
+    });
+    return { runId, threadId };
   };
   return {
-    children: async (threadId) => {
-      const listed = await cli(['children', 'list', '--thread', threadId]);
-      if (listed.code !== 0) {
-        throw new Error(`children list failed: ${listed.stderr}`);
-      }
-      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/children'], {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(JSON.parse(listed.stdout)).children.map((child) => child.threadId);
-    },
-    cli,
+    children: async (threadId) =>
+      (await client.request('thread/children', { threadId })).children.map(
+        (child) => child.threadId
+      ),
     async close() {
-      const owner = RootLock.inspect(dataRoot)?.owner;
-      if (owner && !owner.released) {
-        const { pid } = decodeHostRecord(
-          JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))
-        );
-        const stopped = await cli(['host', 'stop']);
-        if (stopped.code !== 0) {
-          throw new Error(`host stop failed: ${stopped.stderr}`);
-        }
-        for (let waited = 0; processStartTime(pid) !== null; waited += 100) {
-          if (waited > 30_000) {
-            throw new Error(`The standalone host ${pid} outlived host stop`);
-          }
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
+      try {
+        await host.close();
+      } finally {
+        restore();
+        await rm(dataRoot, { force: true, recursive: true });
       }
-      await rm(dataRoot, { force: true, recursive: true });
     },
     rows,
     async run(prompt, model) {
-      const result = await cli(['run', prompt, '--model', model, '--json', '--non-interactive']);
-      const identity = RunIdentity.safeParse(JSON.parse(result.stdout.split('\n')[0] || 'null'));
-      if (!identity.success) {
-        throw new Error(`run printed no identity (exit ${result.code}): ${result.stderr}`);
+      const started = await startRun(prompt, model);
+      const ended = ({ event }: HostLogRow): boolean =>
+        (event.type === 'run.finished' || event.type === 'interaction.requested') &&
+        event.runId === started.runId;
+      const settled = Promise.withResolvers<void>();
+      const release = client.onEvent((row) => {
+        if (row.threadId === started.threadId && ended(row)) {
+          settled.resolve();
+        }
+      });
+      try {
+        const replayed = await client.request('log/subscribe', {
+          fromSeq: 0,
+          threadId: started.threadId,
+        });
+        if (replayed.rows.some(ended)) {
+          settled.resolve();
+        }
+        await settled.promise;
+      } finally {
+        release();
+        await client.request('log/unsubscribe', { threadId: started.threadId });
       }
-      return { result, ...identity.data };
+      return started;
     },
-    async startRun(prompt, model) {
-      const thread = await cli(['thread', 'start']);
-      const { threadId } = z.object({ threadId: z.string() }).parse(JSON.parse(thread.stdout));
-      const startedRun = await cli([
-        'run',
-        'start',
-        '--thread',
-        threadId,
-        '--model',
-        model,
-        '--prompt',
-        prompt,
-      ]);
-      const { runId } = z.object({ runId: z.string() }).parse(JSON.parse(startedRun.stdout));
-      return { runId, threadId };
+    startRun,
+    async stop(threadId, runId) {
+      await client.request('run/stop', { commandId: randomUUID(), runId, threadId });
     },
-    threads: async () => {
-      const listed = await cli(['threads', 'list']);
-      if (listed.code !== 0) {
-        throw new Error(`threads list failed: ${listed.stderr}`);
-      }
-      return Schema.decodeUnknownSync(HOST_RESULT_SCHEMAS['thread/list'], {
-        errors: 'all',
-        onExcessProperty: 'error',
-      })(JSON.parse(listed.stdout)).threads.map((thread) => thread.threadId);
-    },
+    threads: async () =>
+      (await client.request('thread/list', {})).threads.map((thread) => thread.threadId),
     workspace,
   };
 }

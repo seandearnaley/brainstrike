@@ -23,7 +23,7 @@ export async function restartLaunchedAgentHost(options: {
       'conflict',
       'agent-host.restart.external',
       'The agent host was started outside BrainStrike, so it was not restarted.',
-      'Restart it where it was started, for example with `brainstrike host stop`.'
+      'Close the process that holds it, such as a running `brainstrike` command.'
     );
   }
   options.logger.info('Restarting the agent host at the user’s request');

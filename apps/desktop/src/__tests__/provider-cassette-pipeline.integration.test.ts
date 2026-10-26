@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * The provider cassette pipeline itself, with no provider traffic: the
  * scripted model-provider shim stands in for the real provider behind the

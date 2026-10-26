@@ -47,7 +47,6 @@ try {
       ],
     })
   );
-  await brainstrike(['host', 'start', '--workspace', workspace]);
   // Untrusted, the question is asked, and a non-interactive run exits 2.
   const started = await brainstrike([
     'run',
@@ -56,6 +55,8 @@ try {
     'openai::gpt-6-sol',
     '--json',
     '--non-interactive',
+    '--workspace',
+    workspace,
   ]).catch((error) => {
     if (error.code !== 2) {
       throw error;
@@ -68,7 +69,6 @@ try {
   await writeFile(output, `${JSON.stringify(rows, null, 2)}\n`);
   process.stdout.write(`Recorded ${rows.length} committed rows\n`);
 } finally {
-  await brainstrike(['host', 'stop']);
   await rm(dataRoot, { force: true, recursive: true });
   await rm(home, { force: true, recursive: true });
   await rm(workspace, { force: true, recursive: true });

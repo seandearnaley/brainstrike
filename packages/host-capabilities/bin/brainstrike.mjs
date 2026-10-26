@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+// BST-2246: first, before this process creates anything. The command runs its agent
+// host in this process, so everything it creates is owned by the user even when an
+// elevated token defaults to BUILTIN\Administrators.
+import '@brainstrike/secure-fs-native/default-owner';
+
 // Both command names delegate to the same parser, client and exit-code owner.
 // The product executable composes the Core CLI with this package's platform,
 // run from TypeScript source (Node strips its types).

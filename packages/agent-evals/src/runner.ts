@@ -175,7 +175,7 @@ async function runOnHost(
       : await defaultEgress(loaded, options.mode, substitutions);
     const platformModule =
       options.mode === 'scripted' ? await writeScriptedPlatform(sandbox.root, loaded) : undefined;
-    host = await startEvalHost({
+    host = startEvalHost({
       dataRoot: sandbox.dataRoot,
       env: {
         ...sandbox.env,
@@ -200,11 +200,6 @@ async function runOnHost(
     }
   } catch (cause) {
     failures.push(message(cause));
-  }
-  try {
-    await host?.close();
-  } catch (cause) {
-    failures.push(`Host stop: ${message(cause)}`);
   }
   const boundary = egress && { refusals: egress.refusals(), unserved: egress.unserved() };
   try {
