@@ -33,21 +33,24 @@ function isFocusLost(active: Element | null): boolean {
 /**
  * Closing, cycling or reopening can unmount or hide the element that had focus
  * (the tab, or the panel it left), dropping focus to body — and the next chord
- * would then act on the workspace. Once the change has rendered, move LOST focus
- * back into the strip: its selected tab, else its tablist (the strip's focus
- * target of last resort). Focus that survived stays put.
+ * would then act on the workspace. Once the operation has settled, move LOST
+ * focus back into the strip: its selected tab, else its tablist (the strip's
+ * focus target of last resort). Focus that survived stays put.
+ *
+ * This runs when the operation settles, never at a later frame: a key pressed
+ * before that frame would find focus on body and act on the workspace, and a
+ * window that renders no frame would never get focus back. React has committed
+ * the change by then, in the microtask it queued when the store changed.
  */
 function keepFocusInStrip(strip: TabChordStrip): void {
-  window.requestAnimationFrame(() => {
-    if (!isFocusLost(document.activeElement)) {
-      return;
-    }
-    const root = strip.getFocusRoot?.() ?? strip.getPanel();
-    const target =
-      root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
-      root?.querySelector<HTMLElement>('[role="tablist"]');
-    target?.focus();
-  });
+  if (!isFocusLost(document.activeElement)) {
+    return;
+  }
+  const root = strip.getFocusRoot?.() ?? strip.getPanel();
+  const target =
+    root?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ??
+    root?.querySelector<HTMLElement>('[role="tablist"]');
+  target?.focus();
 }
 
 /**

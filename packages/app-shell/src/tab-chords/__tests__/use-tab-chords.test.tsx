@@ -1,7 +1,7 @@
 import { type ActionOutcome, NO_CLOSED_TAB_OUTCOME } from '@brainstrike/context-actions';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { render } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import { type ReactElement, useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toastSpy = vi.fn();
@@ -55,6 +55,8 @@ function press(target: Element, init: KeyboardEventInit): KeyboardEvent {
   target.dispatchEvent(event);
   return event;
 }
+
+const actEnvironment = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
 
 const CTRL_PAGE_DOWN: KeyboardEventInit = { ctrlKey: true, key: 'PageDown' };
 
@@ -331,6 +333,72 @@ describe('useTabChords', () => {
         await vi.waitFor(() => expect(document.activeElement).toBe(nextTab));
       } finally {
         workspaceRoot.remove();
+      }
+    });
+
+    it('acts on the same strip for a chord pressed after a close, with no frame rendered', async () => {
+      // A strip rendered by React from a store, in a window that renders no frame.
+      let state = { activeId: 't2', ids: ['t1', 't2', 't3'] };
+      const listeners = new Set<() => void>();
+      const store = {
+        set(next: typeof state): void {
+          state = next;
+          for (const listener of listeners) {
+            listener();
+          }
+        },
+        subscribe(listener: () => void): () => void {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      };
+      function Strip(): ReactElement {
+        const { activeId, ids } = useSyncExternalStore(store.subscribe, () => state);
+        return (
+          <div role="tablist">
+            {ids.map((id) => (
+              <button aria-selected={id === activeId} key={id} role="tab" type="button">
+                {id}
+              </button>
+            ))}
+          </div>
+        );
+      }
+      const panel = document.createElement('div');
+      document.body.append(panel);
+      const frames = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+      const actScope = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      const reopenClosed = vi.fn<() => Promise<ActionOutcome>>(() => Promise.resolve({ ok: true }));
+      unregister.push(
+        replaceStrip('assistant-threads', {
+          ...strips['assistant-threads'],
+          close: (id) => {
+            store.set({ activeId: 't3', ids: state.ids.filter((tab) => tab !== id) });
+            return Promise.resolve();
+          },
+          getActiveId: () => state.activeId,
+          getPanel: () => panel,
+          reopenClosed,
+        })
+      );
+      try {
+        render(<Strip />, { container: panel });
+        mount({ claimWindowChords: true, isMac: true });
+        const middle = panel.querySelector<HTMLElement>('[aria-selected="true"]');
+        middle?.focus();
+
+        // React's own scheduling, as in the app: the close renders in the microtask React queues.
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
+        press(document.activeElement ?? document.body, { key: 'w', metaKey: true });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        press(document.activeElement ?? document.body, { key: 'T', metaKey: true, shiftKey: true });
+
+        expect(reopenClosed).toHaveBeenCalledOnce();
+        expect(strips.workspace.reopenClosed).not.toHaveBeenCalled();
+      } finally {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = actScope;
+        frames.mockRestore();
+        panel.remove();
       }
     });
 
