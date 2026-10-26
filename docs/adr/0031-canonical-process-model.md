@@ -79,3 +79,12 @@ Each stage deletes more code than it adds.
   commands; Electron, an IDE or any other client spawns the headless host and talks to it over
   its stdio, the way Codex Desktop uses `codex app-server`. The two are not coupled: the CLI never
   attaches to the desktop's host.
+
+### A second instance during a reset is refused (2026-10-26)
+
+On the next start after a factory reset, the new instance takes a wipe lock with
+`tryExclusiveLock` before it waits for the old Main, and holds it through the wipe. A second
+new instance that finds the wipe lock held is refused at once with a visible error and keeps the
+marker, never queued behind the first; the first instance's wait for the old Main stays the
+reset's one allowed wait. Both platforms take the wipe lock, and Windows keeps its process-handle
+wait.
