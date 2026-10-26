@@ -697,7 +697,9 @@ jobs:
       DESKTOP_TEST_SHARD_REQUIRED: ${{ matrix.partition == 'desktop' && 'true' || 'false' }}
       DB_TEST_SHARD: ${{ matrix.partition == 'db' && matrix.vitest_shard || '' }}
       COVERAGE: "false"
-      TEST_TIMEOUT_MULTIPLIER: "2"
+      # 4, not Unit's 2: a hosted Windows runner starts a host in 20-30 s, against
+      # 1.5 s on macOS.
+      TEST_TIMEOUT_MULTIPLIER: "4"
       TURBO_TEST_MODE: unit
     steps:
       # See Unit's checkout: affected selection needs the batch base.
