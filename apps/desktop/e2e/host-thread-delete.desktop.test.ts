@@ -7,6 +7,7 @@
  */
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 test('deletes a committed host thread from the Threads panel and it stays deleted after reload', async ({
@@ -33,7 +34,7 @@ test('deletes a committed host thread from the Threads panel and it stays delete
 
   await expect(rows).toHaveCount(1, { timeout: 30_000 });
 
-  await page.reload();
+  await reloadRenderer(page, 'host-thread-delete: reload');
   await ensureAssistantShellVisible(page);
   await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
   await expect(rows).toHaveCount(1, { timeout: 30_000 });

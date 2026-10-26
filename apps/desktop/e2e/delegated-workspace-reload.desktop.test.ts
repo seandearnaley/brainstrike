@@ -5,6 +5,7 @@ import {
   readHostThreadWorkspace,
 } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   ensureActivityExpanded,
   ensureAssistantShellVisible,
@@ -265,7 +266,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
 
   // Every agent turn from here on would be a child or root executing.
   const settledModelCalls = modelCalls();
-  await window.reload();
+  await reloadRenderer(window, 'delegated-workspace-reload: reload 1');
   await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await threadRow(ROOT_TITLE).click();
@@ -459,7 +460,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
     [second.threadId]: false,
   });
 
-  await window.reload();
+  await reloadRenderer(window, 'delegated-workspace-reload: reload 2');
   await mockFileSystemOperations(window);
   await ensureAssistantShellVisible(window);
   await expect(threadRow(OTHER_TITLE)).toBeVisible();

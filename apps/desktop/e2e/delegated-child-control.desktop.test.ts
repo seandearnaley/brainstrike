@@ -7,6 +7,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import {
   ensureActivityExpanded,
   ensureAssistantShellVisible,
@@ -152,7 +153,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       )
       .toBe('openrouter::openai/gpt-5.6-terra');
     const pausedRequests = modelCalls();
-    await window.reload();
+    await reloadRenderer(window, 'delegated-child-control: reload 1');
     await configureAssistantProvider(window, {
       compositeModelKey: 'openrouter::openai/gpt-5.6-terra',
       provider: 'openrouter',
@@ -465,7 +466,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     const httpBeforeReload = provider.requestCount();
     const metadataBeforeReload = provider.servedMetadata().length;
     const refusalsBeforeReload = provider.refusals().length;
-    await window.reload();
+    await reloadRenderer(window, 'delegated-child-control: reload 2');
     await ensureAssistantShellVisible(window);
     await expect(child.getByText('HUMAN_FOLLOWUP_1723')).toBeVisible();
     await expect(mention).toHaveText('context.txt');
@@ -508,7 +509,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     expect(childCalls).toBe(3);
     expect(childGenerationRequests[2]).toMatchObject({ reasoning: { effort: 'max' } });
     const continuedRequests = modelCalls();
-    await window.reload();
+    await reloadRenderer(window, 'delegated-child-control: reload 3');
     await ensureAssistantShellVisible(window);
     await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(2);
     await expect(
@@ -538,7 +539,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     await window.getByRole('slider', { name: 'Reasoning effort' }).press('Home');
     await window.keyboard.press('Escape');
     const suspendedRequests = modelCalls();
-    await window.reload();
+    await reloadRenderer(window, 'delegated-child-control: reload 4');
     await ensureAssistantShellVisible(window);
     await expect(approve).toBeVisible();
     expect(modelCalls()).toBe(suspendedRequests);
@@ -548,7 +549,7 @@ test('sends human input to the active child and reloads its rich conversation', 
     expect(childCalls).toBe(5);
     expect(childGenerationRequests[4]).toMatchObject({ reasoning: { effort: 'max' } });
     const approvedRequests = modelCalls();
-    await window.reload();
+    await reloadRenderer(window, 'delegated-child-control: reload 5');
     await ensureAssistantShellVisible(window);
     await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
     await expect(approve).toHaveCount(0);

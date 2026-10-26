@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -38,7 +39,7 @@ test('a host thread is titled after its first run, and the title survives a relo
       .filter(({ requestBody }) => (requestBody as { stream?: unknown }).stream !== true)
   ).toHaveLength(1);
 
-  await window.reload();
+  await reloadRenderer(window, 'host-thread-auto-title: reload');
   await expect(strip.getByRole('tab', { name: TITLE })).toHaveCount(1, { timeout: 30_000 });
   expect(modelProvider.refusals()).toEqual([]);
 });
