@@ -35,7 +35,7 @@ const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   /** Main's hosted document embedder; a TEXT index never calls it. */
   hostedEmbeddings: vi.fn(),
-  /** The current profile owner's `lost`: its ready host exited without Main asking. */
+  /** The current profile owner's `lost`: its channel to its ready host closed without Main asking. */
   loseHost: vi.fn(),
   manager: {
     attachCanonicalWorkspace: vi.fn(),

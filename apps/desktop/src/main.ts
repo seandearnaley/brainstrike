@@ -1727,10 +1727,10 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
     ),
     // BST-1977: app-owned host/stop released Root with the native writer live.
     // Retiring the profile here would wait on this same Core close request.
-    closeRootCapabilities: async () => {
+    closeRootCapabilities: async (host) => {
       const results = await Promise.allSettled([
         workspace.close(),
-        nativeIndexActivation.closeRootCapabilities(),
+        nativeIndexActivation.closeRootCapabilities(host),
       ]);
       const failures = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : []
