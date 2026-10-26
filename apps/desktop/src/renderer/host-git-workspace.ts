@@ -12,10 +12,10 @@ import {
 import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
 import { hostStream } from './host-stream';
 
-/** The host methods behind the desktop's git panel, Changes, forge and worktrees. */
+/** The host methods behind the desktop's git panel, Changes and worktrees. */
 export type DesktopGitWorkspaceMethod = Extract<
   HostMethod,
-  `changes/${string}` | `forge/${string}` | `git/${string}` | `worktrees/${string}`
+  `changes/${string}` | `git/${string}` | `worktrees/${string}`
 >;
 
 let windowServices: WorkspaceGitServices | undefined;
@@ -43,11 +43,7 @@ export function createDesktopWorkspaceGitServices(
   let generation = 0;
   const receive = (event: GitWorkspaceEvent): void => {
     generation += 1;
-    events.dispatch(
-      event.type === 'changes-invalidated'
-        ? { event: { ...event.event, generation }, type: event.type }
-        : { event: { ...event.event, generation }, type: event.type }
-    );
+    events.dispatch({ event: { ...event.event, generation }, type: event.type });
   };
   const client = async (): Promise<HostClient> => {
     const host = await connection.current();
@@ -83,18 +79,6 @@ export function createDesktopWorkspaceGitServices(
           }
         }),
       resolveView: (rootId, changeset) => request('changes/resolve-view', { changeset, rootId }),
-    },
-    forge: {
-      cacheSnapshot: () => request('forge/cache-snapshot', {}),
-      identity: (rootId) => request('forge/identity', { rootId }),
-      onPrUpdated: (listener) =>
-        events.subscribe((event) => {
-          if (event.type === 'forge-pr-updated') {
-            listener(event.event);
-          }
-        }),
-      prStatus: (rootId) => request('forge/pr-status', { rootId }),
-      refresh: (rootId, { reason }) => request('forge/refresh', { reason, rootId }),
     },
     git: {
       aheadBehind: (rootId) => request('git/ahead-behind', { rootId }),

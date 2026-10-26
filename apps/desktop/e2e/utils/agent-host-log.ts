@@ -325,24 +325,6 @@ export async function readHostRootRecords(
   }
 }
 
-/** The host's cached pull requests, read-only beside its record. */
-export async function readHostForgePrs(
-  userDataDir: string
-): Promise<readonly { number: number; state: string }[]> {
-  const db = new DatabaseSync(
-    path.join(path.dirname(await hostRecordPath(userDataDir)), 'state.db'),
-    { readOnly: true }
-  );
-  try {
-    return db
-      .prepare('SELECT number, state FROM brainstrike_forge_prs ORDER BY repo_common_dir, branch')
-      .all()
-      .map((row) => ({ number: Number(row['number']), state: String(row['state']) }));
-  } finally {
-    db.close();
-  }
-}
-
 export async function readHostRetiredTableSnapshot(
   userDataDir: string,
   tables: readonly string[]

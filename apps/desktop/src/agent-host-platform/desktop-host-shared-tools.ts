@@ -38,7 +38,7 @@ export function desktopHostSharedTools(options: {
   readonly appPaths?: HostAppPaths | undefined;
   /** The admission's roots, revalidated against their live owners. */
   readonly freshRoots: () => Promise<unknown>;
-  /** The host's worktree and forge services, for the worktree tools and shell correlation. */
+  /** The host's worktree services, for the worktree tools and shell correlation. */
   readonly gitWorkspace: DesktopWorktreeServices;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;

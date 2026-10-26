@@ -613,9 +613,9 @@ export type HostGitWorkspaceMethod = Exclude<
 >;
 
 /**
- * ADR-0029 stage 2: the desktop's git cluster (the git panel, Changes, forge
- * pull-request awareness and managed worktrees), owned by the host that owns
- * the workspace catalog. Each method answers its own wire method.
+ * ADR-0029 stage 2: the desktop's git cluster (the git panel, Changes and
+ * managed worktrees), owned by the host that owns the workspace catalog. Each
+ * method answers its own wire method.
  */
 export type HostGitWorkspaceMethods = {
   readonly [M in HostGitWorkspaceMethod]: (

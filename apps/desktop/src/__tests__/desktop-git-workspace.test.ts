@@ -1,16 +1,11 @@
 import type { GitWorkspaceEvent } from '@brainstrike/agent-host/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { createForgeServiceMock, createGitInventoryServiceMock, createWorktreeServiceMock } =
-  vi.hoisted(() => ({
-    createForgeServiceMock: vi.fn(),
-    createGitInventoryServiceMock: vi.fn(),
-    createWorktreeServiceMock: vi.fn(),
-  }));
-
-vi.mock('../assistant-server/forge-service', () => ({
-  createForgeService: createForgeServiceMock,
+const { createGitInventoryServiceMock, createWorktreeServiceMock } = vi.hoisted(() => ({
+  createGitInventoryServiceMock: vi.fn(),
+  createWorktreeServiceMock: vi.fn(),
 }));
+
 vi.mock('../assistant-server/git-inventory-service', () => ({
   createGitInventoryService: createGitInventoryServiceMock,
 }));
@@ -22,10 +17,6 @@ import { createDesktopGitWorkspace } from '../agent-host-platform/desktop-git-wo
 import { watchGitCommonDirNatively } from '../assistant-server/git-inventory-watcher';
 
 function createWorkspace({ subscribe = true } = {}) {
-  const forgeService = {
-    onRepositoryInvalidated: vi.fn(),
-    stop: vi.fn(async () => undefined),
-  };
   const gitInventoryService = {
     getSnapshot: vi.fn(),
     start: vi.fn(),
@@ -35,7 +26,6 @@ function createWorkspace({ subscribe = true } = {}) {
     isManagedWorktreePath: vi.fn(async () => false),
     prepareClose: vi.fn(async () => undefined),
   };
-  createForgeServiceMock.mockReturnValue(forgeService);
   createGitInventoryServiceMock.mockReturnValue(gitInventoryService);
   createWorktreeServiceMock.mockReturnValue(worktreeService);
   const workspace = createDesktopGitWorkspace({
@@ -50,7 +40,7 @@ function createWorkspace({ subscribe = true } = {}) {
   if (subscribe) {
     workspace.service.subscribe((event) => events.push(event));
   }
-  return { events, forgeService, gitInventoryService, workspace, worktreeService };
+  return { events, gitInventoryService, workspace, worktreeService };
 }
 
 describe('createDesktopGitWorkspace', () => {
@@ -58,10 +48,9 @@ describe('createDesktopGitWorkspace', () => {
     vi.clearAllMocks();
   });
 
-  it('constructs the ONE inventory, forge, and worktree services and starts the inventory', () => {
+  it('constructs the ONE inventory and worktree services and starts the inventory', () => {
     const { gitInventoryService, workspace, worktreeService } = createWorkspace();
 
-    expect(createForgeServiceMock).toHaveBeenCalledTimes(1);
     expect(createGitInventoryServiceMock).toHaveBeenCalledTimes(1);
     expect(createWorktreeServiceMock).toHaveBeenCalledTimes(1);
     expect(gitInventoryService.start).toHaveBeenCalledTimes(1);
@@ -93,8 +82,8 @@ describe('createDesktopGitWorkspace', () => {
     await workspace.close();
   });
 
-  it('publishes changes-invalidated with a monotonic generation and fans the signal out to forge', () => {
-    const { events, forgeService } = createWorkspace();
+  it('publishes changes-invalidated with a monotonic generation', () => {
+    const { events } = createWorkspace();
     const inventoryOptions = createGitInventoryServiceMock.mock.calls[0]?.[0] as {
       onInvalidate: (event: { gitCommonDir: string; repositoryRoot: string | null }) => void;
     };
@@ -111,23 +100,6 @@ describe('createDesktopGitWorkspace', () => {
         event: { generation: 2, gitCommonDir: '/repo/.git', repositoryRoot: '/repo' },
         type: 'changes-invalidated',
       },
-    ]);
-    expect(forgeService.onRepositoryInvalidated).toHaveBeenCalledWith('/repo/.git');
-    expect(forgeService.onRepositoryInvalidated).toHaveBeenCalledTimes(2);
-  });
-
-  it('publishes forge-pr-updated with its own monotonic generation', () => {
-    const { events } = createWorkspace();
-    const forgeOptions = createForgeServiceMock.mock.calls[0]?.[0] as {
-      onPrUpdated: (event: { rootId: string }) => void;
-    };
-
-    forgeOptions.onPrUpdated({ rootId: 'root-1' });
-    forgeOptions.onPrUpdated({ rootId: 'root-1' });
-
-    expect(events).toEqual([
-      { event: { generation: 1, rootId: 'root-1' }, type: 'forge-pr-updated' },
-      { event: { generation: 2, rootId: 'root-1' }, type: 'forge-pr-updated' },
     ]);
   });
 
@@ -160,18 +132,16 @@ describe('createDesktopGitWorkspace', () => {
   });
 
   it('stops publishing and retires every service once, however often it is closed', async () => {
-    const { events, forgeService, gitInventoryService, workspace, worktreeService } =
-      createWorkspace();
-    const forgeOptions = createForgeServiceMock.mock.calls[0]?.[0] as {
-      onPrUpdated: (event: { rootId: string }) => void;
+    const { events, gitInventoryService, workspace, worktreeService } = createWorkspace();
+    const inventoryOptions = createGitInventoryServiceMock.mock.calls[0]?.[0] as {
+      onInvalidate: (event: { gitCommonDir: string; repositoryRoot: string | null }) => void;
     };
 
     await Promise.all([workspace.close(), workspace.close()]);
-    forgeOptions.onPrUpdated({ rootId: 'root-1' });
+    inventoryOptions.onInvalidate({ gitCommonDir: '/repo/.git', repositoryRoot: '/repo' });
 
     expect(events).toEqual([]);
     expect(worktreeService.prepareClose).toHaveBeenCalledTimes(1);
-    expect(forgeService.stop).toHaveBeenCalledTimes(1);
     expect(gitInventoryService.stop).toHaveBeenCalledTimes(1);
   });
 });

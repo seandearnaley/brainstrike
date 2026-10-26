@@ -5,7 +5,7 @@
  * and `will-quit` unwinds the stack instead of a hand-written per-domain
  * ladder. Bookkeeping only — the graceful shutdown
  * (`main/desktop-graceful-shutdown.ts`) still runs BEFORE `will-quit`;
- * disposers that must unwind inside a graceful step (forge) stay there.
+ * disposers that must unwind inside a graceful step stay there.
  *
  * `disposeAll` unwinds in LIFO order and isolates every throw: a failing
  * disposer never prevents a later one from running, and each failure is

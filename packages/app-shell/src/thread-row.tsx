@@ -11,7 +11,6 @@ import {
   defineContextAction,
   type TargetOf,
 } from '@brainstrike/context-actions';
-import type { ForgePrCacheEntry } from '@brainstrike/types';
 import {
   ActionContextMenu,
   Button,
@@ -89,7 +88,6 @@ export interface ThreadRowProps {
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
-  readonly pr: ForgePrCacheEntry | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -105,7 +103,6 @@ export function ThreadRow({
   onRenameThread,
   onSelectThread,
   onUpdateThreadAppearance,
-  pr,
   selected,
   status,
   thread,
@@ -191,7 +188,6 @@ export function ThreadRow({
         }}
         onSelectThread={onSelectThread}
         onUpdateThreadAppearance={onUpdateThreadAppearance}
-        pr={pr}
         renameError={renameError}
         renameSaving={savingRename}
         rowGroupId={groupId}
@@ -268,7 +264,6 @@ function ThreadRowItem({
   onRenameSavingChange,
   onSelectThread,
   onUpdateThreadAppearance,
-  pr,
   renameError,
   renameSaving,
   rowGroupId,
@@ -305,7 +300,6 @@ function ThreadRowItem({
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
-  readonly pr: ForgePrCacheEntry | null;
   readonly renameError: string | null;
   readonly renameSaving: boolean;
   readonly rowGroupId: string | null;
@@ -514,7 +508,6 @@ function ThreadRowItem({
               onSelectThread={onSelectThread}
               onUpdateThreadAppearance={onUpdateThreadAppearance}
               pendingDelete={confirmingDelete}
-              pr={pr}
               selected={selected}
               status={status}
               thread={thread}
@@ -627,7 +620,6 @@ function ThreadRowDisplay({
   onSelectThread,
   onUpdateThreadAppearance,
   pendingDelete,
-  pr,
   selected,
   status,
   thread,
@@ -651,7 +643,6 @@ function ThreadRowDisplay({
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly pendingDelete: boolean;
-  readonly pr: ForgePrCacheEntry | null;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -683,7 +674,7 @@ function ThreadRowDisplay({
               className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
             >
               <div className={THREAD_CONTROL_TITLE_CLASS_NAME}>{thread.title}</div>
-              <ThreadMetadataBadges branch={branch} pr={pr} thread={thread} />
+              <ThreadMetadataBadges branch={branch} thread={thread} />
             </div>
           </div>
         </button>

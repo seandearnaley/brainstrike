@@ -146,11 +146,7 @@ export type {
   WorkspaceRootRequest,
 } from './workspace-root-types.ts';
 export type {
-  ForgeCacheEntry,
-  ForgeCachePort,
-  ForgeCacheReply,
-  ForgeCacheRequest,
   WorktreeLedgerPort,
   WorktreeLedgerReply,
   WorktreeLedgerRequest,
-} from './worktree-forge-types.ts';
+} from './worktree-ledger-types.ts';

@@ -4,8 +4,6 @@ import { shouldNotify } from '../notifications/should-notify.ts';
 
 const baseSettings = {
   events: {
-    prChecks: true,
-    prOpened: true,
     runFailed: true,
     runFinished: true,
     toolApprovalRequired: true,

@@ -1,7 +1,6 @@
 import type { ReactElement, ReactNode } from 'react';
 import { vi } from 'vitest';
 import type { ChangesBridge } from '../../changes/changes-bridge';
-import type { ForgeBridge } from '../../forge/forge-bridge';
 import type { GitBridge } from '../../git-panel/git-bridge';
 import {
   NO_WORKSPACE_GIT_SERVICES,
@@ -30,18 +29,6 @@ export function stubChangesBridge(overrides: Partial<ChangesBridge> = {}): Chang
     inventory: vi.fn(),
     onInvalidated: vi.fn(() => () => undefined),
     resolveView: vi.fn(),
-    ...overrides,
-  };
-}
-
-/** A forge bridge whose methods are spies, with `overrides` replacing any. */
-export function stubForgeBridge(overrides: Partial<ForgeBridge> = {}): ForgeBridge {
-  return {
-    cacheSnapshot: vi.fn(),
-    identity: vi.fn(),
-    onPrUpdated: vi.fn(() => () => undefined),
-    prStatus: vi.fn(),
-    refresh: vi.fn(),
     ...overrides,
   };
 }

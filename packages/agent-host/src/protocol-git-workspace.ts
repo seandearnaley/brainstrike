@@ -1,10 +1,6 @@
 import type {
   ChangesetView,
   ChangesInvalidationEvent,
-  ForgeIdentityState,
-  ForgePrCacheEntry,
-  ForgePrStatus,
-  ForgePrUpdatedEvent,
   GitAheadBehind,
   GitCommitFile,
   GitCommitResult,
@@ -266,93 +262,6 @@ const GitInventorySchema = Schema.Struct({
   ),
 }) satisfies Schema.ConstraintDecoder<GitInventory>;
 
-// --- forge -----------------------------------------------------------------
-
-const ForgeChecksRollupSchema = Schema.Literals(['failing', 'none', 'passing', 'pending']);
-const ForgePrStateSchema = Schema.Literals(['closed', 'merged', 'open']);
-const ForgePullRequestSchema = Schema.Struct({
-  checks: Schema.Array(
-    Schema.Struct({
-      conclusion: Schema.Literals([
-        'action_required',
-        'cancelled',
-        'failure',
-        'neutral',
-        'pending',
-        'skipped',
-        'success',
-        'timed_out',
-      ]),
-      name: Text,
-      url: NullableText,
-    })
-  ),
-  checksRollup: ForgeChecksRollupSchema,
-  headSha: Text,
-  isDraft: Schema.Boolean,
-  number: Count,
-  reviewDecision: Schema.NullOr(
-    Schema.Literals(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'])
-  ),
-  state: ForgePrStateSchema,
-  title: Text,
-  url: Text,
-});
-const ForgeUnavailableSchema = Schema.Struct({
-  detail: Text,
-  reason: Schema.Literals([
-    'detached-head',
-    'fetch-failed',
-    'gh-missing',
-    'gh-unauthenticated',
-    'no-remote',
-    'unparsable-remote',
-    'unsupported-forge',
-  ]),
-});
-const ForgeIdentityStateSchema = Schema.Struct({
-  failure: Schema.NullOr(ForgeUnavailableSchema),
-  identity: Schema.NullOr(
-    Schema.Struct({
-      forge: Schema.Literals(['github', 'gitlab', 'unknown']),
-      host: Text,
-      owner: Text,
-      repo: Text,
-    })
-  ),
-  repoCommonDir: Text,
-}) satisfies Schema.ConstraintDecoder<ForgeIdentityState>;
-const ForgePrStatusSchema = Schema.Union(
-  [
-    Schema.Struct({
-      failure: ForgeUnavailableSchema,
-      kind: Schema.Literal('stale'),
-      observedAt: Text,
-      pullRequest: Schema.NullOr(ForgePullRequestSchema),
-    }),
-    Schema.Struct({ failure: ForgeUnavailableSchema, kind: Schema.Literal('unavailable') }),
-    Schema.Struct({ kind: Schema.Literal('none'), observedAt: Text }),
-    Schema.Struct({
-      kind: Schema.Literal('pr'),
-      observedAt: Text,
-      pullRequest: ForgePullRequestSchema,
-    }),
-    Schema.Struct({ kind: Schema.Literal('unknown') }),
-  ],
-  { mode: 'oneOf' }
-) satisfies Schema.ConstraintDecoder<ForgePrStatus>;
-const ForgePrCacheEntriesSchema = Schema.Array(
-  Schema.Struct({
-    branch: Text,
-    checksRollup: ForgeChecksRollupSchema,
-    isDraft: Schema.Boolean,
-    number: Count,
-    repoCommonDir: Text,
-    state: ForgePrStateSchema,
-    url: Text,
-  })
-) satisfies Schema.ConstraintDecoder<readonly ForgePrCacheEntry[]>;
-
 // --- worktrees -------------------------------------------------------------
 
 const Creator = Schema.Literals(['agent', 'user']);
@@ -466,14 +375,7 @@ const ChangesInvalidationEventSchema = Schema.Struct({
   gitCommonDir: Text,
   repositoryRoot: NullableText,
 }) satisfies Schema.ConstraintDecoder<ChangesInvalidationEvent>;
-const ForgePrUpdatedEventSchema = Schema.Struct({
-  branch: Text,
-  generation: Count,
-  pullRequest: Schema.NullOr(ForgePullRequestSchema),
-  repoCommonDir: Text,
-  transitions: Schema.Array(Schema.Literals(['checks', 'merged', 'opened'])),
-}) satisfies Schema.ConstraintDecoder<ForgePrUpdatedEvent>;
-/** Host -> subscribed client: a repository changed on disk, or a pull request changed. */
+/** Host -> subscribed client: a repository changed on disk. */
 export const GIT_WORKSPACE_EVENT = 'workspace/git/event';
 export const GitWorkspaceEventSchema = Schema.Union(
   [
@@ -481,7 +383,6 @@ export const GitWorkspaceEventSchema = Schema.Union(
       event: ChangesInvalidationEventSchema,
       type: Schema.Literal('changes-invalidated'),
     }),
-    Schema.Struct({ event: ForgePrUpdatedEventSchema, type: Schema.Literal('forge-pr-updated') }),
   ],
   { mode: 'oneOf' }
 );
@@ -496,20 +397,13 @@ export const WorktreePathClassificationSchema = Schema.Literals([
 
 /**
  * ADR-0029 stage 2: the desktop's git cluster, served by the host that owns
- * the workspace catalog. The git panel, Changes, forge awareness and worktrees
- * reach it over the window's host connection.
+ * the workspace catalog. The git panel, Changes and worktrees reach it over
+ * the window's host connection.
  */
 export const GIT_WORKSPACE_METHOD_SCHEMAS = {
   'changes/file-diff': Schema.Struct({ changeset: ChangesetSchema, path: Text, rootId: Id }),
   'changes/inventory': Schema.Struct({ maxAgeMs: Schema.optionalKey(Count) }),
   'changes/resolve-view': Schema.Struct({ changeset: ChangesetSchema, rootId: Id }),
-  'forge/cache-snapshot': None,
-  'forge/identity': RootRequest,
-  'forge/pr-status': RootRequest,
-  'forge/refresh': Schema.Struct({
-    reason: Schema.Literals(['invalidation', 'user', 'window']),
-    rootId: Id,
-  }),
   'git/ahead-behind': RootRequest,
   'git/commit': Schema.Struct({ description: Schema.optionalKey(Text), rootId: Id, summary: Text }),
   'git/commit-files': Schema.Struct({ commit: Text, rootId: Id }),
@@ -579,10 +473,6 @@ export const GIT_WORKSPACE_RESULT_SCHEMAS = {
   'changes/file-diff': gitResult(StructuredFileDiffSchema),
   'changes/inventory': gitResult(GitInventorySchema),
   'changes/resolve-view': gitResult(ChangesetViewSchema),
-  'forge/cache-snapshot': gitResult(ForgePrCacheEntriesSchema),
-  'forge/identity': gitResult(ForgeIdentityStateSchema),
-  'forge/pr-status': gitResult(ForgePrStatusSchema),
-  'forge/refresh': gitResult(ForgePrStatusSchema),
   'git/ahead-behind': gitResult(GitAheadBehindSchema),
   'git/commit': gitResult(GitCommitResultSchema),
   'git/commit-files': gitResult(GitCommitFilesSchema),

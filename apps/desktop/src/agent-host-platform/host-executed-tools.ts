@@ -88,7 +88,7 @@ export function isHostExecutedNativeToolId(id: string): boolean {
 type MainRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
 
 /**
- * A host command's worktree/forge correlation over the host's own worktree
+ * A host command's worktree correlation over the host's own worktree
  * ledger: the pre-command path snapshot, then the completed command under the
  * host run's identity. Neither ever blocks the command; the reconcile fails
  * closed to "adopt nothing" without a snapshot.
@@ -108,9 +108,8 @@ function hostShellCorrelation(
       ? {
           shellCorrelation: {
             onCommandCompleted: (completed) => {
-              // Only a git-worktree or PR-creating command has anything to correlate.
-              const signals = scanShellCommandForGitSignals(completed.command);
-              if (!(signals.touchedWorktrees || signals.createdPullRequest)) {
+              // Only a git-worktree command has anything to correlate.
+              if (!scanShellCommandForGitSignals(completed.command).touchedWorktrees) {
                 return;
               }
               const adopted = shellCorrelation
@@ -223,7 +222,7 @@ function hostSkillExecutors(
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
-  /** The host's worktree and forge services, which each run borrows under its own identity. */
+  /** The host's worktree services, which each run borrows under its own identity. */
   worktrees: DesktopWorktreeServices,
   threadId: string,
   /** The run's admitted native runtime: its roots, retrieval scope and skills. */

@@ -57,10 +57,6 @@ export function bindHostGitWorkspaceMethods(
   serve('changes/file-diff');
   serve('changes/inventory');
   serve('changes/resolve-view');
-  serve('forge/cache-snapshot');
-  serve('forge/identity');
-  serve('forge/pr-status');
-  serve('forge/refresh');
   serve('git/ahead-behind');
   serve('git/commit');
   serve('git/commit-files');

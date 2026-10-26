@@ -1,11 +1,11 @@
 /**
  * Everything the Worktree Map renders, composed from surfaces that already
- * exist. The ONLY new read is `worktrees.list()`; the PR pills, thread
- * occupancy, run state and indexing opt-ins all come from live queries and
+ * exist. The ONLY new read is `worktrees.list()`; thread occupancy, run
+ * state and indexing opt-ins all come from live queries and
  * stores the app already maintains for other surfaces, so the Map can never
  * disagree with the composer chip or the thread list about the same fact.
  *
- * Refresh is EVENT-TRIGGERED, exactly like W4's forge reads: the shared
+ * Refresh is EVENT-TRIGGERED: the shared
  * `changes:invalidated` nonce (`anyInvalidationNonce`) is the only repeat
  * trigger, plus an explicit user refresh. No timer.
  */
@@ -20,7 +20,6 @@ import { useNativeWorkspaceSearchDependencies } from '@brainstrike/workspace-sea
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useChangesLiveRefreshSubscription } from '../changes/use-changes-live-refresh';
-import { useForgePrCache } from '../hooks/use-forge-pr-cache';
 import { useOptionalRootIdentity } from '../roots/root-identity-context';
 import { useWorktreesBridge } from '../workspace-git-services';
 import {
@@ -162,7 +161,6 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
     };
   }, [load, invalidationNonce, rootIdentity]);
 
-  const prCache = useForgePrCache({ enabled: bridge !== null });
   const threads = useAssistantThreadStore(
     (state) => state.threadsByResourceId[input.resourceId] ?? EMPTY_THREADS
   );
@@ -181,18 +179,10 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
         entries,
         indexedRootIds,
         indexingOptInByRootId,
-        prCache: prCache.byRepoBranch,
         runningThreadIds: input.runningThreadIds,
         threads,
       }),
-    [
-      entries,
-      indexedRootIds,
-      indexingOptInByRootId,
-      prCache.byRepoBranch,
-      input.runningThreadIds,
-      threads,
-    ]
+    [entries, indexedRootIds, indexingOptInByRootId, input.runningThreadIds, threads]
   );
 
   const paths = useMemo(
@@ -217,8 +207,7 @@ export function useWorktreeMap(input: UseWorktreeMapInput): WorktreeMapState {
   }, [load]);
 
   return {
-    error:
-      error ?? (prCache.error ? `Pull-request cache unavailable: ${prCache.error.message}` : null),
+    error,
     loading,
     refresh,
     repositories,

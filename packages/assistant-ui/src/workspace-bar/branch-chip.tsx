@@ -29,13 +29,6 @@ const countBadge = (count: number | null, glyph: string): string | null =>
 const CHIP_CLASSES =
   'inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground';
 
-function interactiveBranchName(summary: string, forgeDiagnostic?: string): string {
-  if (!forgeDiagnostic) {
-    return `Branch: ${summary}`;
-  }
-  return `Branch: ${summary}; PR status unavailable — ${forgeDiagnostic}`;
-}
-
 const BranchGlyphs = ({
   ahead,
   behind,
@@ -53,18 +46,6 @@ const BranchGlyphs = ({
     {ahead ? <span className="shrink-0 tabular-nums">{ahead}</span> : null}
     {behind ? <span className="shrink-0 tabular-nums">{behind}</span> : null}
     {checkout.dirty ? <span className="shrink-0 text-warning">●</span> : null}
-  </>
-);
-
-const ForgeDiagnosticSection = ({ reason }: { readonly reason: string }): ReactElement => (
-  <>
-    <DropdownMenuLabel>Pull request status unavailable</DropdownMenuLabel>
-    <div
-      className="px-2 pb-2 text-[11px] text-muted-foreground"
-      data-testid="workspace-bar-branch-forge-diagnostic"
-    >
-      {reason}
-    </div>
   </>
 );
 
@@ -133,7 +114,7 @@ interface BranchChipGlyphProps {
   readonly label: string;
 }
 
-/** W1's read-only labelled image — no menu, no branchMenu, no forge diagnostic. */
+/** W1's read-only labelled image — no menu, no branchMenu. */
 const ReadOnlyBranchChip = ({
   ahead,
   behind,
@@ -245,26 +226,16 @@ const BranchSwitcherSection = ({
   );
 };
 
-/**
- * The interactive chip: the branch switcher, the forge diagnostic, or both.
- *
- * ONE component for every combination, so the menu survives its data
- * arriving. The forge diagnostic usually lands before the branch list does;
- * as separate components, the switch from diagnostic-only to switcher
- * remounted the trigger and silently closed a menu the user had just opened.
- * Here a menu opened on the diagnostic simply gains its branch rows.
- */
+/** The interactive chip: the branch switcher. */
 const BranchMenuChip = ({
   ahead,
   behind,
   branchMenu,
   checkout,
-  forgeDiagnostic,
   label,
   summary,
 }: BranchChipGlyphProps & {
-  readonly branchMenu: WorkspaceBarBranchMenu | undefined;
-  readonly forgeDiagnostic: string | undefined;
+  readonly branchMenu: WorkspaceBarBranchMenu;
   readonly summary: string;
 }): ReactElement => {
   const [newBranchName, setNewBranchName] = useState('');
@@ -272,7 +243,7 @@ const BranchMenuChip = ({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label={interactiveBranchName(summary, forgeDiagnostic)}
+        aria-label={`Branch: ${summary}`}
         className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
         data-dirty={checkout.dirty ? 'true' : 'false'}
         data-testid="workspace-bar-branch-chip"
@@ -282,39 +253,27 @@ const BranchMenuChip = ({
         <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-80">
-        {branchMenu ? (
-          <BranchSwitcherSection
-            branchMenu={branchMenu}
-            newBranchName={newBranchName}
-            onNewBranchNameChange={setNewBranchName}
-          />
-        ) : null}
-        {branchMenu && forgeDiagnostic ? <DropdownMenuSeparator /> : null}
-        {forgeDiagnostic ? <ForgeDiagnosticSection reason={forgeDiagnostic} /> : null}
+        <BranchSwitcherSection
+          branchMenu={branchMenu}
+          newBranchName={newBranchName}
+          onNewBranchNameChange={setNewBranchName}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   );
 };
 
 /**
- * Git state for the primary root. Without an interactive menu or forge
- * diagnostic this preserves W1's read-only labelled image; desktop callers
- * can opt into the switcher by supplying an already-gated branch menu model.
- *
- * A forge diagnostic joins the switcher menu, or forms the whole menu when
- * there is no switcher yet, so the reason stays visible and
- * keyboard-accessible. The reason is never tooltip-only. Both menu states are
- * one component (see `BranchMenuChip`) so an open menu survives either
- * model arriving.
+ * Git state for the primary root. Without an interactive menu this preserves
+ * W1's read-only labelled image; desktop callers can opt into the switcher by
+ * supplying an already-gated branch menu model.
  */
 export const BranchChip = ({
   branchMenu,
   checkout,
-  forgeDiagnostic,
 }: {
   readonly branchMenu?: WorkspaceBarBranchMenu | undefined;
   readonly checkout: WorkspaceBarCheckout;
-  readonly forgeDiagnostic?: string | undefined;
 }): ReactElement => {
   const label = checkout.branch ?? 'detached';
   const ahead = countBadge(checkout.ahead, '↑');
@@ -328,14 +287,13 @@ export const BranchChip = ({
     .filter((part) => part !== null)
     .join(' · ');
 
-  if (branchMenu || forgeDiagnostic) {
+  if (branchMenu) {
     return (
       <BranchMenuChip
         ahead={ahead}
         behind={behind}
         branchMenu={branchMenu}
         checkout={checkout}
-        forgeDiagnostic={forgeDiagnostic}
         label={label}
         summary={summary}
       />

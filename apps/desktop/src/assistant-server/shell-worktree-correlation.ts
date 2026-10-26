@@ -1,7 +1,7 @@
 /**
  * Shell-output correlation (BST-1392, spec §6.4): when the agent's own
- * `executeCommand` ran `git worktree …` or `gh pr create`, ask the authorities
- * what actually changed.
+ * `executeCommand` ran `git worktree …`, ask the worktree authority what
+ * actually changed.
  *
  * BEST-EFFORT AND FIRE-AND-FORGET, on purpose. Reconciliation runs AFTER the
  * tool result exists and never blocks, delays, or fails the tool call — a
@@ -34,7 +34,6 @@ export interface ShellWorktreeCorrelation extends ShellCorrelationCapability {
 }
 
 export function createShellCorrelation(deps: {
-  readonly forgeRefresh: (rootId: string) => void;
   readonly reconcile: (
     rootId: string,
     precedingWorktreePaths: ReadonlySet<string> | undefined
@@ -42,36 +41,28 @@ export function createShellCorrelation(deps: {
 }): ShellWorktreeCorrelation {
   return {
     onCommandCompleted: ({ command, precedingWorktreePaths, rootId }) => {
-      const signals = scanShellCommandForGitSignals(command);
-      const adopted = signals.touchedWorktrees
-        ? deps
-            .reconcile(rootId, precedingWorktreePaths)
-            .then((result): readonly ManagedWorktreeRow[] => {
-              if (result.ok) {
-                logger.info('shell worktree reconcile completed', {
-                  adopted: result.value.adopted.length,
-                  likelyMoves: result.value.likelyMoves.length,
-                  rootId,
-                  vanished: result.value.vanishedLedgerIds.length,
-                });
-                return result.value.adopted;
-              }
-              logger.warn('shell worktree reconcile refused', { reason: result.error, rootId });
-              return [];
-            })
-            .catch((error: unknown): readonly ManagedWorktreeRow[] => {
-              logger.error('shell worktree reconcile threw', { error, rootId });
-              return [];
-            })
-        : Promise.resolve([]);
-      if (signals.createdPullRequest) {
-        try {
-          deps.forgeRefresh(rootId);
-        } catch (error) {
-          logger.error('shell forge refresh threw', { error, rootId });
-        }
+      if (!scanShellCommandForGitSignals(command).touchedWorktrees) {
+        return Promise.resolve([]);
       }
-      return adopted;
+      return deps
+        .reconcile(rootId, precedingWorktreePaths)
+        .then((result): readonly ManagedWorktreeRow[] => {
+          if (result.ok) {
+            logger.info('shell worktree reconcile completed', {
+              adopted: result.value.adopted.length,
+              likelyMoves: result.value.likelyMoves.length,
+              rootId,
+              vanished: result.value.vanishedLedgerIds.length,
+            });
+            return result.value.adopted;
+          }
+          logger.warn('shell worktree reconcile refused', { reason: result.error, rootId });
+          return [];
+        })
+        .catch((error: unknown): readonly ManagedWorktreeRow[] => {
+          logger.error('shell worktree reconcile threw', { error, rootId });
+          return [];
+        });
     },
   };
 }

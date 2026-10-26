@@ -39,7 +39,6 @@ function renderCard(
     entries: [MOUNTED_WORKTREE],
     indexedRootIds,
     indexingOptInByRootId,
-    prCache: new Map(),
     runningThreadIds: new Set(),
     threads: [],
   })[0]?.cards[0];
@@ -53,7 +52,6 @@ function renderCard(
       onAdopt={vi.fn()}
       onArchive={vi.fn()}
       onNewThread={vi.fn()}
-      onOpenPullRequest={vi.fn()}
       onOpenTerminal={undefined}
       onOpenThread={vi.fn()}
       onReveal={vi.fn()}

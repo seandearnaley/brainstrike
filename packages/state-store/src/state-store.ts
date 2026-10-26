@@ -12,7 +12,6 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type {
-  ForgePrCacheEntry,
   ThreadGroupsReply,
   ThreadGroupsRequest,
   ViewFilterPresetReply,
@@ -55,12 +54,7 @@ import { type Ready, waitReady } from './state-store-worker-ready.ts';
 import { assertNotSyncedRoot } from './sync-roots.ts';
 import { errorOf, logRowOf, type WorkerRow } from './worker-reply.ts';
 import type { WorkspaceRootReply, WorkspaceRootRequest } from './workspace-root-types.ts';
-import type {
-  ForgeCacheReply,
-  ForgeCacheRequest,
-  WorktreeLedgerReply,
-  WorktreeLedgerRequest,
-} from './worktree-forge-types.ts';
+import type { WorktreeLedgerReply, WorktreeLedgerRequest } from './worktree-ledger-types.ts';
 
 export { BLOBS_DIR, STATE_DB, sha256Hex } from './state-store-bundle.ts';
 /** Every entry the store creates in its data root besides the lock directory, which the lock removes itself. */
@@ -530,19 +524,6 @@ export class StateStore implements MemoryDomainPort {
     return ['get', 'by-path', 'list-active', 'list-repository'].includes(request.operation)
       ? execute()
       : this.run(execute);
-  }
-
-  async forgeCacheSnapshot(): Promise<readonly ForgePrCacheEntry[]> {
-    const reply = await this.call({ op: 'forge-cache-snapshot' });
-    return reply['entries'] as readonly ForgePrCacheEntry[];
-  }
-
-  forgeCache(request: ForgeCacheRequest): Promise<ForgeCacheReply> {
-    const execute = async (): Promise<ForgeCacheReply> => {
-      const reply = await this.call({ op: 'forge-cache', request });
-      return { entry: reply['entry'] as ForgeCacheReply['entry'] };
-    };
-    return request.operation === 'get' ? execute() : this.run(execute);
   }
 
   /** Prompt Library operations, on the writer chain. */

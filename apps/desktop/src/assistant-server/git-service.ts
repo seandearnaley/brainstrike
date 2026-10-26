@@ -33,7 +33,6 @@ import type {
   GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
-  GitForgeRepositoryContext,
   GitPushPullResult,
   GitRepository,
   GitResult,
@@ -42,7 +41,6 @@ import type {
   GitSwitchBranchResult,
   GitWorktreeSummary,
 } from '@brainstrike/types';
-import { resolveForgeRemoteName } from '@brainstrike/types';
 import { createHistoryOps } from './git-history';
 import { parseBranchSummaries, parseWorktreeSummaries } from './git-repository-parsers';
 import { createStructuredDiffOps } from './git-structured-diff';
@@ -54,7 +52,6 @@ export type {
   GitCreateBranchResult,
   GitDiff,
   GitDiffParams,
-  GitForgeRepositoryContext,
   GitPushPullResult,
   GitRepository,
   GitResult,
@@ -927,95 +924,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
     return { ok: true, value: configured };
   }
 
-  /**
-   * The three facts a forge lookup needs, in one pass: the realpath'd common
-   * dir (repository identity), the checked-out branch (null when detached),
-   * and the default remote's URL.
-   *
-   * `remoteReason` is non-null exactly when `remoteUrl` is null, so the caller
-   * can SAY why there is no PR chip instead of showing nothing.
-   */
-  async function forgeRepositoryContext(): Promise<GitResult<GitForgeRepositoryContext>> {
-    const commonDirRun = await invoke(['rev-parse', '--path-format=absolute', '--git-common-dir']);
-    if (commonDirRun.exitCode !== 0) {
-      return { error: describeFailure(commonDirRun), ok: false };
-    }
-    const rawCommonDir = stripLineEnding(commonDirRun.stdout);
-    if (rawCommonDir.length === 0) {
-      return { error: 'git returned an empty git common dir', ok: false };
-    }
-    // Neither await depends on the other's result — realpath resolves the
-    // already-known rawCommonDir, and the symbolic-ref spawn reads HEAD —
-    // so they run concurrently instead of back-to-back.
-    const [commonDir, headRun] = await Promise.all([
-      realpath(rawCommonDir),
-      invoke(['symbolic-ref', '--quiet', '--short', 'HEAD']),
-    ]);
-    if (headRun.exitCode !== 0 && headRun.exitCode !== 1) {
-      return { error: describeFailure(headRun), ok: false };
-    }
-    const branch = headRun.exitCode === 0 ? stripLineEnding(headRun.stdout) || null : null;
-    const remotes = await listRemoteNames();
-    if (!remotes.ok) {
-      return remotes;
-    }
-    const configured = await resolveDefaultRemote(branch, remotes.value);
-    if (!configured.ok) {
-      return {
-        ok: true,
-        value: { branch, commonDir, remoteReason: configured.error, remoteUrl: null },
-      };
-    }
-    const remoteName = resolveForgeRemoteName({
-      configuredRemote: configured.value,
-      remotes: remotes.value,
-    });
-    if (!remoteName.ok) {
-      return {
-        ok: true,
-        value: { branch, commonDir, remoteReason: remoteName.reason, remoteUrl: null },
-      };
-    }
-    const urlRun = await invoke(['remote', 'get-url', remoteName.value]);
-    if (urlRun.exitCode !== 0) {
-      return {
-        ok: true,
-        value: {
-          branch,
-          commonDir,
-          remoteReason: `git could not read the URL of remote "${remoteName.value}": ${describeFailure(urlRun)}`,
-          remoteUrl: null,
-        },
-      };
-    }
-    const remoteUrl = stripLineEnding(urlRun.stdout);
-    if (remoteUrl.length === 0) {
-      // `remoteReason` is non-null exactly when `remoteUrl` is null (see the
-      // doc comment above): a successful exit with empty stdout must still
-      // be treated as a stated failure, not silently paired with
-      // `remoteUrl: ''` — that pairing would violate the invariant and send
-      // an empty string into `parseForgeRemote` as `unparsable-remote`.
-      return {
-        ok: true,
-        value: {
-          branch,
-          commonDir,
-          remoteReason: `git returned an empty URL for remote "${remoteName.value}"`,
-          remoteUrl: null,
-        },
-      };
-    }
-    return {
-      ok: true,
-      value: {
-        branch,
-        commonDir,
-        remoteReason: null,
-        remoteUrl,
-      },
-    };
-  }
-
   async function createRepositorySnapshot(): Promise<GitResult<GitRepository>> {
     const inventory = await loadRepositoryInventory();
     if (!inventory.ok) {
@@ -1261,9 +1169,6 @@ export function createGitService({ cwd, run, signal }: GitServiceOptions) {
         return { error: toErrorMessage(error), ok: false };
       }
     },
-
-    /** Repository identity + branch + default-remote URL for forge lookups. */
-    forgeRepositoryContext,
 
     /** Paginated, summary-only history for HEAD, a local branch, or a returned OID. */
     history: historyOps.history,

@@ -165,13 +165,6 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     // ADR-0022), never `'running'`: the gate had already decided when the row
     // was minted. The kind stays pinned here as a standalone row.
     'permission.gate.resolved',
-    // BST-1391's forge PR events. `use-forge-run-events.ts` emits these with
-    // `status: 'info' | 'completed' | 'failed'` (see `describe()`), NEVER
-    // `'running'` — a PR observation is a standalone breadcrumb appended out
-    // of band from main, not a span with a start/stop pair to close out.
-    'pr.checks',
-    'pr.merged',
-    'pr.opened',
     // BST-1701's provider call warning. Emitted `status: 'failed'` (`warned()`
     // in packages/assistant-ui/src/committed-assistant-log-projection.ts, from
     // the `warnings` of a committed `start-step` chunk), never `'running'`: by
