@@ -238,3 +238,98 @@ jobs:
             apps/desktop/blob-report/
           retention-days: 1
           if-no-files-found: warn
+
+  # The whole desktop E2E suite on Windows (2026-10-25): every smoke and
+  # regression spec, the embedding specs included, as sean-pc runs it. The queue
+  # ran no Playwright spec on Windows before, so all 40 failures (25 files)
+  # sean-pc found that night had passed it. The tests run as a standard user
+  # (windows-desktop-test-host).
+  # Playwright balances shards by test count; the embedding specs embed real
+  # chunks for minutes each, so they get shards of their own. The @packaged
+  # specs launch electron-builder's output, so their shard packages the app
+  # first, as Native Electron does on Linux.
+  desktop-windows-e2e:
+    name: Desktop Windows E2E (${{ matrix.lane }} ${{ matrix.shard }})
+    if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
+    runs-on: windows-latest
+    # Each shard runs under its lane's 45m --global-timeout, plus setup and build.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { lane: windows, shard: 1/12 }
+          - { lane: windows, shard: 2/12 }
+          - { lane: windows, shard: 3/12 }
+          - { lane: windows, shard: 4/12 }
+          - { lane: windows, shard: 5/12 }
+          - { lane: windows, shard: 6/12 }
+          - { lane: windows, shard: 7/12 }
+          - { lane: windows, shard: 8/12 }
+          - { lane: windows, shard: 9/12 }
+          - { lane: windows, shard: 10/12 }
+          - { lane: windows, shard: 11/12 }
+          - { lane: windows, shard: 12/12 }
+          - { lane: windows-embedding, shard: 1/2 }
+          - { lane: windows-embedding, shard: 2/2 }
+          - { lane: windows-packaged, shard: 1/1 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+
+      # As the Linux regression: seven specs import mcp-test-lab's dist; the
+      # packaged MCP specs also load mcp-app-host's, as in Native Electron.
+      - name: Build desktop
+        run: pnpm run build --filter @brainstrike/desktop --filter @brainstrike/mcp-test-lab --filter @brainstrike/mcp-app-host
+
+      - name: Provision Electron binary
+        uses: ./.github/actions/provision-electron
+
+      - name: Package the desktop application
+        if: matrix.lane == 'windows-packaged'
+        run: pnpm --filter @brainstrike/desktop run pack
+
+      - name: Provision the Windows desktop test host
+        uses: ./.github/actions/windows-desktop-test-host
+
+      - name: Run desktop E2E as the standard test user
+        working-directory: apps/desktop
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/.github/actions/windows-desktop-test-host/run-as-test-user.ps1" 'pnpm run test:e2e:lane:${{ matrix.lane }} --shard=${{ matrix.shard }}'
+
+      # Playwright's traces and blob report, and the app's own evidence folders
+      # and crash dumps, which the test user's runs leave in its temp folder.
+      - name: Collect desktop evidence
+        if: failure()
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'desktop-evidence'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          foreach ($dir in 'test-results', 'blob-report') {
+            $path = Join-Path 'apps/desktop' $dir
+            if (Test-Path $path) { Copy-Item -Path $path -Destination $out -Recurse }
+          }
+          Get-ChildItem -Path $env:BRAINSTRIKE_CI_TEST_USER_TEMP -Directory -Filter 'brainstrike-*-evidence' |
+            Copy-Item -Destination $out -Recurse
+          $dumps = Join-Path $env:RUNNER_TEMP 'crash-dumps'
+          if (Get-ChildItem -Path $dumps -Filter '*.dmp') {
+            Copy-Item -Path $dumps -Destination $out -Recurse
+          }
+
+      - name: Upload desktop evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-windows-e2e-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/desktop-evidence/
+          retention-days: 3
+          if-no-files-found: warn
