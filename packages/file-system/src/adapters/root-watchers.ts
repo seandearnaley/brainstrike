@@ -10,11 +10,14 @@
 // whole retirement: no native thread outlives it.
 //
 // Invariants:
-// - One `fs.watch` per root. `fs.watch` arms synchronously: once it returns the
-//   watch is live. A missing root is the `failed` health transition and a
-//   rejected start (visible to the caller), never a crash. The root is checked
-//   first because Node 26's recursive watch on Linux arms on a missing
-//   directory without throwing or emitting `error` (Node 24 throws ENOENT).
+// - One `fs.watch` per root. On Windows the watch is live once `fs.watch`
+//   returns. On macOS libuv starts the FSEvents stream on its CoreFoundation
+//   thread afterwards, and on Linux Node watches nested directories afterwards,
+//   so a change in the first moments of a watch can go unreported. A missing
+//   root is the `failed` health transition and a rejected start (visible to the
+//   caller), never a crash. The root is checked first because Node 26's
+//   recursive watch on Linux arms on a missing directory without throwing or
+//   emitting `error` (Node 24 throws ENOENT).
 // - The ignore predicate is passed to `fs.watch` itself, so on Linux (Node's
 //   userland per-directory inotify walk) an ignored tree is never walked or
 //   watched, and on macOS/Windows its events never reach JS. The JS event guard
