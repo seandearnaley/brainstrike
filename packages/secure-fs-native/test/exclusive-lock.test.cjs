@@ -43,7 +43,9 @@ const { tryExclusiveLock } = require(${JSON.stringify(path.join(__dirname, '..')
 // Held by a global: a collected lock closes its handle.
 globalThis.held = tryExclusiveLock(process.argv[1]);
 if (globalThis.held === null) throw new Error('holder could not lock');
-const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { stdio: ['inherit', 'ignore', 'inherit'] });
+// Detached: on Windows libuv puts every other child in the parent's kill-on-close Job, so
+// killing the holder would end this child too, and the test checks a child that outlives it.
+const child = spawn(process.execPath, ['-e', 'process.stdin.resume()'], { detached: true, stdio: ['inherit', 'ignore', 'inherit'] });
 child.once('spawn', () => console.log(child.pid));
 process.stdin.on('data', () => console.log('alive'));
 `;
