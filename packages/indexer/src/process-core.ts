@@ -383,11 +383,7 @@ export async function runIndexerProcess(
     } catch (failure) {
       failures.push(failure);
     }
-    try {
-      await worker?.terminate();
-    } catch (failure) {
-      failures.push(failure);
-    }
+    // ADR-0031: the failure is reported first; this process joins its writer's teardown after.
     send({
       error: fault(
         failures.length === 1
@@ -396,6 +392,16 @@ export async function runIndexerProcess(
       ),
       kind: 'startup-error',
     });
+    try {
+      await worker?.terminate();
+    } catch (failure) {
+      process.stderr.write(
+        `Indexer writer teardown after a failed startup failed: ${
+          failure instanceof Error ? (failure.stack ?? failure.message) : String(failure)
+        }\n`
+      );
+      process.exitCode = 1;
+    }
     endpoint.finish();
   }
 }
