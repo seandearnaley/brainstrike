@@ -68,3 +68,31 @@ describe('desktop profile runtime: a ready host lost without Main asking (BST-20
     expect(createOwner).toHaveBeenCalledOnce();
   });
 });
+
+describe('desktop profile runtime: retiring during host startup', () => {
+  it('ends with its owner close while that startup never answers, so reset starts the next host', async () => {
+    const closeReasons: unknown[] = [];
+    const createOwner = vi.fn((_lost: () => void) => {
+      const attachment = `host-${createOwner.mock.calls.length}`;
+      const first = createOwner.mock.calls.length === 1;
+      return {
+        // The first host's startup never answers; its owner's close is what ends it.
+        acquire: () => (first ? new Promise<string>(() => undefined) : Promise.resolve(attachment)),
+        close: async (reason?: unknown) => {
+          closeReasons.push(reason);
+        },
+      };
+    });
+    const profile = createDesktopProfileRuntime(createOwner);
+    void profile.acquire().catch(() => undefined);
+    await vi.waitFor(() => expect(createOwner).toHaveBeenCalledOnce());
+    const reason = new Error('quitting');
+    let retired = false;
+    void profile.retire(undefined, reason).then(() => {
+      retired = true;
+    });
+    await vi.waitFor(() => expect(retired).toBe(true));
+    expect(closeReasons).toEqual([reason]);
+    expect(await profile.acquire()).toBe('host-2');
+  });
+});

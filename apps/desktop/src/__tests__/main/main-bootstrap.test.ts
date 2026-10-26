@@ -138,6 +138,18 @@ it('joins the profile when full Main evaluation rejects before reporting startup
   expect(state.showErrorBox).toHaveBeenCalledOnce();
 });
 
+it('reports a Main evaluation failure once retirement ends, while host startup never answers', async () => {
+  runtime.profile.acquire.mockImplementationOnce(() => new Promise<void>(() => undefined));
+  vi.doMock('../../main', () => {
+    throw new Error('Main binding failed');
+  });
+  appReady.current.resolve();
+  await import('../../main-bootstrap');
+  await vi.waitFor(() => expect(state.exit).toHaveBeenCalledWith(1));
+  expect(runtime.profile.retire).toHaveBeenCalledOnce();
+  expect(state.showErrorBox).toHaveBeenCalledOnce();
+});
+
 it('keeps the early quit join while full Main is still loading', async () => {
   const loaded = Promise.withResolvers<void>();
   const released = Promise.withResolvers<void>();

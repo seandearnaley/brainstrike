@@ -131,12 +131,9 @@ export function createDesktopProfileRuntime<Attachment>(
       const retiring = (async (): Promise<void> => {
         await beforeClose;
         await retireFailed();
-        // Startup may still await Main's binding. Close aborts startup; join both
-        // tails before allowing reset to create the next profile owner.
-        const [closed] = await Promise.allSettled([owner?.close(reason), acquisition]);
-        if (closed?.status === 'rejected') {
-          throw closed.reason;
-        }
+        // Close aborts a startup still in flight and ends once the owner's release
+        // has; reset creates the next profile owner only after it.
+        await owner?.close(reason);
         owner = undefined;
         acquisition = undefined;
       })();

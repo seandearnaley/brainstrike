@@ -78,7 +78,6 @@ if (process.argv.includes('--version')) {
           // Fork with the existing owner before evaluating Main. The private platform
           // port queues until Main binds it; host publication joins that binding.
           const starting = runtime.profile.acquire();
-          const started = Promise.allSettled([starting]);
           try {
             // A host-start refusal still reaches the existing Main error/retry UI.
             // Its original rejection is reported below after Main installs that path.
@@ -93,8 +92,8 @@ if (process.argv.includes('--version')) {
             const quitting = isDesktopShuttingDown();
             markDesktopShuttingDown();
             try {
+              // Retirement closes the owner, which ends a startup still in flight.
               await runtime.profile.retire();
-              await started;
             } catch (retirementFailure) {
               reportBootstrapFailure(retirementFailure, quitting);
               return;
