@@ -49,6 +49,7 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { terminateTree } from '@brainstrike/state-store/native-children';
+import { trackChildProcessGroup } from '@brainstrike/utils/process-groups';
 import {
   createMessageConnection,
   type MessageConnection,
@@ -364,7 +365,6 @@ function boundDiagnostics(raw: RawDiagnostic[]): {
  */
 class LspServerConnection {
   private readonly child: ChildProcess;
-  private readonly childExit: Promise<void>;
   private readonly connection: MessageConnection;
   private readonly diagnostics = new Map<string, RawDiagnostic[]>();
   private childSpawnError: Error | undefined;
@@ -386,23 +386,25 @@ class LspServerConnection {
     // a live process pins its cwd, so a Root cwd would keep the Root directory
     // undeletable after disposal returned.
     this.child = spawn(process.execPath, [server.cliPath, ...server.args], {
+      // POSIX: the server leads its own group, so one SIGKILL ends it with tsserver and the
+      // typings installer, and Main ends the group if this host dies first.
+      detached: process.platform !== 'win32',
       // ELECTRON_RUN_AS_NODE lets the packaged app run the server's JS entry
       // through Electron's bundled Node (there is no standalone `node`).
       // biome-ignore lint/style/useNamingConvention: OS env var name is fixed
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    this.childExit = new Promise((resolve) => {
-      this.child.once('spawn', () => {
-        this.childSpawned = true;
-      });
-      this.child.once('error', (error) => {
-        if (!this.childSpawned) {
-          this.childSpawnError = error;
-          resolve();
-        }
-      });
-      this.child.once('exit', () => resolve());
+    if (process.platform !== 'win32') {
+      trackChildProcessGroup(this.child);
+    }
+    this.child.once('spawn', () => {
+      this.childSpawned = true;
+    });
+    this.child.once('error', (error) => {
+      if (!this.childSpawned) {
+        this.childSpawnError = error;
+      }
     });
     // Drain stderr so a chatty server can't fill the pipe buffer and stall.
     this.child.stderr?.on('data', () => {
@@ -669,28 +671,42 @@ class LspServerConnection {
     return this.disposal;
   }
 
-  private async disposeOnce(): Promise<void> {
+  /**
+   * Ends the server's whole tree (ADR-0030) and returns at the kill, never at its exit or a
+   * helper's (ADR-0031). POSIX SIGKILLs the server's group. Windows has no groups and a kill
+   * would stop only a `.cmd` launcher, so `taskkill /T` ends the tree, unjoined.
+   */
+  private disposeOnce(): Promise<void> {
     this.disposed = true;
     try {
       this.connection.dispose();
     } catch {
       /* connection already down */
     }
-    if (this.childSpawnError) {
-      await this.childExit;
-      return;
+    const { pid } = this.child;
+    if (
+      this.childSpawnError ||
+      pid === undefined ||
+      this.child.exitCode !== null ||
+      this.child.signalCode !== null
+    ) {
+      return Promise.resolve();
     }
-    if (this.child.exitCode !== null || this.child.signalCode !== null) {
-      await this.childExit;
-      return;
+    const failed = (error: unknown): void => {
+      logger.warn('Could not end the language server process tree', { error, pid });
+    };
+    if (process.platform === 'win32') {
+      terminateTree(pid).catch(failed);
+      return Promise.resolve();
     }
-    // The server's whole tree ends (ADR-0030): on Windows a kill would stop only a `.cmd`
-    // launcher. Disposal completes when Node observes the exit, never on the kill request; a
-    // post-spawn child `error` is not settlement.
-    if (this.child.pid !== undefined) {
-      await terminateTree(this.child.pid);
+    try {
+      process.kill(-pid, 'SIGKILL');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+        failed(error);
+      }
     }
-    await this.childExit;
+    return Promise.resolve();
   }
 }
 
