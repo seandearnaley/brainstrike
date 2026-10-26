@@ -2,7 +2,7 @@
 import './embedding-host-runtime-fixture';
 import { recordEmbeddingTelemetryFailure } from '@brainstrike/embedding-worker';
 import { act } from '@brainstrike/test-utils/react-act';
-import { render, waitFor } from '@testing-library/react';
+import { type RenderResult, render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { configureDesktopRendererTarget } from '../../../desktop-renderer-target';
 import { EmbeddingHostManager } from '../../../embedding-host-manager';
@@ -25,7 +25,6 @@ import {
   reopenEmbeddingQueueMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
-  retireEmbeddingQueueMock,
   storeState,
 } from './embedding-host-runtime-fixture';
 
@@ -79,6 +78,14 @@ function createConnectedManager(): EmbeddingHostManager {
     configureDesktopRendererTarget(null);
   });
   return manager;
+}
+
+/** Reset destroys the hidden window, its renderer with it, and loads a fresh one. */
+async function mountReplacementRenderer(view: RenderResult): Promise<void> {
+  await waitFor(() => expect(hostWindow.loadURL).toHaveBeenCalledTimes(2));
+  view.unmount();
+  const fresh = render(<EmbeddingHostRuntime />);
+  onTestFinished(() => fresh.unmount());
 }
 
 describe('embedding host native catalog and runtime readiness', () => {
@@ -136,7 +143,7 @@ describe('embedding host native catalog and runtime readiness', () => {
     });
     await waitFor(() => expect(readModelCatalogMock).toHaveBeenCalledTimes(1));
     const replacing = manager.reset();
-    await act(async () => {});
+    await mountReplacementRenderer(view);
     await replacing;
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
@@ -182,7 +189,7 @@ describe('embedding host native catalog and runtime readiness', () => {
     await waitFor(() => expect(readModelCatalogMock).toHaveBeenCalledTimes(1));
     await act(async () => {});
     const replacing = manager.reset();
-    await act(async () => {});
+    await mountReplacementRenderer(view);
     await replacing;
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
@@ -219,7 +226,7 @@ describe('embedding host native catalog and runtime readiness', () => {
       await waitFor(() => expect(initializeWithModelMock).toHaveBeenCalledTimes(1));
       const oldService = initializeWithModelMock.mock.contexts[0];
       const replacing = manager.reset();
-      await act(async () => {});
+      await mountReplacementRenderer(view);
       await replacing;
       await waitFor(() => expect(manager.getStatus().state).toBe('running'));
       await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
@@ -278,18 +285,12 @@ describe('embedding host native catalog and runtime readiness', () => {
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1));
     const replacing = manager.reset();
-    await act(async () => {});
-    await act(async () => {});
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-    expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(1);
-    const generated: Generated = {
-      embedding: [0.1, 0.2],
-      runtime: { device: 'webgpu', dtype: 'fp32', fallbackApplied: false },
-    };
-    oldInference.resolve(generated);
     expect(await oldResult).toMatchObject({
-      message: 'Embedding host query runtime is no longer available.',
+      message: expect.stringContaining(
+        'Embedding host reset while inference requests were in flight.'
+      ),
     });
+    await mountReplacementRenderer(view);
     await replacing;
     await waitFor(() => expect(manager.getStatus().state).toBe('running'));
     const newQuery = manager.queryEmbedding(QUERY, { signal: controller.signal });
@@ -302,6 +303,11 @@ describe('embedding host native catalog and runtime readiness', () => {
       await newResult;
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(2));
+    const generated: Generated = {
+      embedding: [0.1, 0.2],
+      runtime: { device: 'webgpu', dtype: 'fp32', fallbackApplied: false },
+    };
+    await act(async () => oldInference.resolve(generated));
 
     expect(manager.getStatus().active).toBe(true);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
@@ -346,14 +352,15 @@ describe('embedding host native catalog and runtime readiness', () => {
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledTimes(2));
     const resetting = manager.reset();
-    await act(async () => {});
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
     expect(manager.getStatus().state).toBe('starting');
+    await mountReplacementRenderer(view);
     oldInference.resolve(generated);
     await expect(resetting).resolves.toMatchObject({ state: 'running' });
     expect(manager.getStatus().runtimeId).not.toBe(oldRuntimeId);
     expect(await oldResult).toMatchObject({
-      message: 'Embedding host query runtime is no longer available.',
+      message: expect.stringContaining(
+        'Embedding host reset while inference requests were in flight.'
+      ),
     });
     const newQuery = manager.queryEmbedding(QUERY, { signal: newController.signal });
     const newResult = newQuery.catch((error: unknown) => error);
@@ -384,6 +391,7 @@ describe('embedding host native catalog and runtime readiness', () => {
     );
   });
 
+  // ADR-0031: Stop destroys the hidden window at once; a late report from its renderer is ignored.
   it('keeps selected Stop authoritative when held query inference completes', async () => {
     const manager = createConnectedManager();
     await manager.ensureStarted({ waitForRunning: false });
@@ -404,53 +412,22 @@ describe('embedding host native catalog and runtime readiness', () => {
       await result;
     });
     await waitFor(() => expect(generateQueryEmbeddingMock).toHaveBeenCalledOnce());
-    const stopping = manager.stop();
-    await act(async () => {});
-    expect(manager.getStatus().state).toBe('stopping');
-    expect(disposeQueryEmbeddingServiceMock).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    reportStatusMock.mockClear();
+    await expect(manager.stop()).resolves.toMatchObject({ state: 'stopped' });
+    expect(hostWindow.destroy).toHaveBeenCalledOnce();
+    expect(await result).toMatchObject({
+      message: expect.stringContaining(
+        'Embedding host stopped while inference requests were in flight.'
+      ),
+    });
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
+    reportQueryEmbeddingResponseMock.mockClear();
     inference.resolve({
       embedding: [0.1, 0.2],
       runtime: { device: 'webgpu', dtype: 'fp32', fallbackApplied: false },
     });
-    await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
-    expect(await result).toBeInstanceOf(Error);
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalled());
     expect(manager.getStatus().state).toBe('stopped');
-    expect(reportStatusMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'running' })
-    );
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
-  });
-
-  it('joins old stop and service disposal before starting the replacement owner', async () => {
-    const manager = createConnectedManager();
-    await manager.ensureStarted({ waitForRunning: false });
-    const view = render(<EmbeddingHostRuntime />);
-    onTestFinished(() => view.unmount());
-    await waitFor(() => expect(manager.getStatus().state).toBe('running'));
-    await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
-    const oldService = initializeWithModelMock.mock.contexts[0];
-    const stopped = Promise.withResolvers<void>();
-    const disposed = Promise.withResolvers<void>();
-    retireEmbeddingQueueMock.mockImplementationOnce(() => stopped.promise);
-    disposeQueryEmbeddingServiceMock.mockImplementationOnce(() => disposed.promise);
-    const replacing = manager.reset();
-    await waitFor(() => expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce());
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-    stopped.resolve();
-    await waitFor(() => expect(disposeQueryEmbeddingServiceMock).toHaveBeenCalledTimes(1));
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-    expect(disposeQueryEmbeddingServiceMock.mock.contexts).toEqual([oldService]);
-    disposed.resolve();
-    await replacing;
-    await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(manager.getStatus().state).toBe('running'));
-    await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
-    await expect(manager.queryEmbedding(QUERY)).resolves.toEqual([0.1, 0.2]);
-    expect(initializeWithModelMock).toHaveBeenCalledTimes(2);
-    expect(disposeQueryEmbeddingServiceMock.mock.contexts).toEqual([oldService]);
   });
 
   it('delivers a query after immediate component replacement with a ready catalog', async () => {

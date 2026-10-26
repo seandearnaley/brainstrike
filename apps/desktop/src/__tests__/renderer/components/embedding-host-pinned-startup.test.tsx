@@ -244,10 +244,6 @@ describe('pinned native hidden-host startup', () => {
       expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
       expect(detectDeviceCapabilitiesMock).not.toHaveBeenCalled();
       expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
-      await act(async () => {
-        await manager.stop();
-      });
-      expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
     }
   );
 
@@ -286,34 +282,25 @@ describe('pinned native hidden-host startup', () => {
     }
   );
 
-  it('joins Stop during native queue opening without acknowledging a stale running owner', async () => {
+  // ADR-0031: Stop destroys the hidden window at once; nothing joins its renderer's queue opening.
+  it('stops during native queue opening at once, and a late running report from the destroyed host is ignored', async () => {
     const manager = connect();
     const opened = Promise.withResolvers<void>();
-    const physical = Promise.withResolvers<void>();
     reopenEmbeddingQueueMock.mockReturnValueOnce(opened.promise);
-    retireEmbeddingQueueMock.mockReturnValueOnce(physical.promise);
-    onTestFinished(() => {
-      opened.resolve();
-      physical.resolve();
-    });
+    onTestFinished(() => opened.resolve());
     await manager.ensureStarted({ waitForRunning: false });
     await mount();
     await waitFor(() => expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce());
-    let settled = false;
-    const stopped = manager.stop().then((status) => {
-      settled = true;
-      return status;
-    });
+    await expect(manager.stop()).resolves.toMatchObject({ state: 'stopped' });
+    expect(hostWindow.destroy).toHaveBeenCalledOnce();
     const reportsAtStop = reportStatusMock.mock.calls.length;
     await act(async () => opened.resolve());
-    expect(settled).toBe(false);
-    physical.resolve();
-    await expect(stopped).resolves.toMatchObject({ state: 'stopped' });
-    expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
-    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
-    expect(reportStatusMock.mock.calls.slice(reportsAtStop)).not.toContainEqual([
+    await waitFor(() => expect(reportStatusMock.mock.calls.length).toBeGreaterThan(reportsAtStop));
+    expect(reportStatusMock.mock.calls.slice(reportsAtStop)).toContainEqual([
       expect.objectContaining({ state: 'running' }),
     ]);
+    expect(manager.getStatus()).toMatchObject({ lastError: null, state: 'stopped' });
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
   });
 });
 

@@ -8,9 +8,8 @@ import {
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import { addLogListener } from '@brainstrike/logging';
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
-import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import { act } from '@brainstrike/test-utils/react-act';
-import { render, waitFor } from '@testing-library/react';
+import { type RenderResult, render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { configureDesktopRendererTarget } from '../../../desktop-renderer-target';
 import { EmbeddingHostManager } from '../../../embedding-host-manager';
@@ -40,7 +39,6 @@ import {
   reopenEmbeddingQueueMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
-  retireEmbeddingQueueMock,
   storeState,
 } from './embedding-host-foreground-ownership-fixture';
 
@@ -167,6 +165,14 @@ async function connectControlledQuery(options?: { cancellationCapability?: boole
   };
 }
 
+/** Reset destroys the hidden window, its renderer with it, and loads a fresh one. */
+async function mountReplacementRenderer(view: RenderResult): Promise<void> {
+  await waitFor(() => expect(hostWindow.loadURL).toHaveBeenCalledTimes(2));
+  view.unmount();
+  const fresh = render(<EmbeddingHostRuntime />);
+  onTestFinished(() => fresh.unmount());
+}
+
 describe('committed readiness fix physical query ownership controls', () => {
   installEmbeddingHostRuntimeFixture();
 
@@ -231,173 +237,6 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(run.isPhysicallyActive()).toBe(false);
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-
-  it('joins physical pool retirement before publishing a rejected query or completing Stop', async () => {
-    const run = await connectControlledQuery();
-    const physical = Promise.withResolvers<void>();
-    const workerFailure = new Error('Worker terminated');
-    onTestFinished(() => physical.resolve());
-    retireEmbeddingQueueMock.mockImplementationOnce(() => {
-      run.fail(workerFailure);
-      return physical.promise;
-    });
-    const querySettled = vi.fn();
-    const result = run.manager.queryEmbedding(query).catch((error: unknown) => {
-      querySettled();
-      return error;
-    });
-    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-    const stopped = vi.fn();
-    const stopping = run.manager.stop().then((status) => {
-      stopped();
-      return status;
-    });
-    await act(async () => {});
-    expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
-    expect(querySettled).not.toHaveBeenCalled();
-    expect(stopped).not.toHaveBeenCalled();
-    expect(reportQueryEmbeddingResponseMock).not.toHaveBeenCalled();
-    expect(run.dispose).not.toHaveBeenCalled();
-    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    physical.resolve();
-    await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
-    expect(failureCauses(await result)).toContainEqual(
-      expect.objectContaining({ message: 'Worker terminated' })
-    );
-    expect(run.dispose).toHaveBeenCalledOnce();
-    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
-  });
-
-  it('joins actual query queue settlement before manual host Stop disposes its service', async () => {
-    const run = await connectControlledQuery();
-    const oldQuery = run.manager.queryEmbedding(query).then(
-      () => null,
-      (error: unknown) => error
-    );
-    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-    expect(run.isPhysicallyActive()).toBe(true);
-    const stopping = run.manager.stop();
-    await act(async () => {});
-    expect(run.manager.getStatus().state).toBe('stopping');
-    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    expect(run.isPhysicallyActive()).toBe(true);
-    expect(run.dispose).not.toHaveBeenCalled();
-    expect(run.cancel).not.toHaveBeenCalled();
-    reportStatusMock.mockClear();
-    run.finish();
-    await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
-    expect(await oldQuery).toBeInstanceOf(Error);
-    expect(run.dispose).toHaveBeenCalledOnce();
-    await waitFor(() => expect(run.isPhysicallyActive()).toBe(false));
-    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledOnce());
-    expect(run.manager.getStatus().state).toBe('stopped');
-    expect(reportStatusMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ state: 'running' })
-    );
-  });
-
-  it('joins actual query queue settlement before reset starts its replacement worker', async () => {
-    const run = await connectControlledQuery();
-    const oldQuery = run.manager.queryEmbedding(query).then(
-      () => null,
-      (error: unknown) => error
-    );
-    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-    expect(run.isPhysicallyActive()).toBe(true);
-    const resetting = run.manager.reset();
-    await act(async () => {});
-    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-    expect(run.manager.getStatus().state).toBe('starting');
-    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-    expect(run.isPhysicallyActive()).toBe(true);
-    expect(run.dispose).not.toHaveBeenCalled();
-    expect(run.cancel).not.toHaveBeenCalled();
-    run.finish();
-    await expect(resetting).resolves.toMatchObject({ state: 'running' });
-    expect(await oldQuery).toBeInstanceOf(Error);
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(2);
-    expect(run.dispose).toHaveBeenCalledOnce();
-    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledOnce());
-    expect(run.manager.getStatus().state).toBe('running');
-  });
-
-  it.each([
-    ['stop', 'success'],
-    ['stop', 'failure'],
-    ['reset', 'success'],
-    ['reset', 'failure'],
-  ] as const)(
-    'joins pending cached-service disposal on %s %s through the real manager',
-    async (action, outcome) => {
-      const run = await connectControlledQuery();
-      const warm = run.manager.queryEmbedding(query);
-      await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-      run.finish();
-      await warm;
-      const held = Promise.withResolvers<void>();
-      run.dispose.mockImplementationOnce(() => held.promise);
-      const switching = run.manager
-        .queryEmbedding({ ...query, modelId: 'model-b', modelKey: 'local:model-b' })
-        .catch((error: unknown) => error);
-      await waitFor(() => expect(run.dispose).toHaveBeenCalledOnce());
-      let settled = false;
-      const backgroundStop = Promise.withResolvers<void>();
-      if (action === 'stop' && outcome === 'failure') {
-        // Disposal may reject while background Stop is still pending: attach both immediately.
-        retireEmbeddingQueueMock.mockReturnValueOnce(backgroundStop.promise);
-        onTestFinished(() => backgroundStop.resolve());
-      }
-      const command = action === 'stop' ? run.manager.stop() : run.manager.reset();
-      const result = command.then(
-        (status) => {
-          settled = true;
-          return status;
-        },
-        (error: unknown) => {
-          settled = true;
-          return error;
-        }
-      );
-      await act(async () => {});
-      expect(settled).toBe(false);
-      expect(hostWindow.destroy).not.toHaveBeenCalled();
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-      expect(run.dispose).toHaveBeenCalledOnce();
-      if (outcome === 'failure') {
-        held.reject(new Error('Owned service disposal failed.'));
-      } else {
-        held.resolve();
-      }
-      if (action === 'stop' && outcome === 'failure') {
-        await act(async () => {});
-        expect(settled).toBe(false);
-      }
-      backgroundStop.resolve();
-      const completion = await result;
-      await switching;
-      expect(run.dispose).toHaveBeenCalledOnce();
-      if (outcome === 'failure') {
-        expect(completion).toMatchObject(
-          action === 'stop'
-            ? { message: 'Owned service disposal failed.' }
-            : { lastError: 'Owned service disposal failed.', state: 'error' }
-        );
-        expect(hostWindow.destroy).toHaveBeenCalledOnce();
-        expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-        expect(run.add).toHaveBeenCalledOnce();
-      } else {
-        expect(completion).toMatchObject({ state: action === 'stop' ? 'stopped' : 'running' });
-        expect(hostWindow.destroy).not.toHaveBeenCalled();
-        expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(action === 'stop' ? 1 : 2);
-        if (action === 'reset') {
-          await expect(run.manager.queryEmbedding(query)).resolves.toHaveLength(2);
-          expect(run.add).toHaveBeenCalledTimes(2);
-        }
-      }
-    }
-  );
 
   it('keeps the public query cancellation pending while the actual queue is held', async () => {
     const run = await connectControlledQuery();
@@ -553,7 +392,8 @@ describe('committed readiness fix physical query ownership controls', () => {
     run.finish();
     await waitFor(() => expect(run.isPhysicallyActive()).toBe(false));
   });
-  it('joins shared Stop after a failed abort cancellation send and preserves its causes', async () => {
+  // ADR-0031: a cancel the host cannot be sent retires the host at once; nothing waits on it.
+  it('retires the host at once after a failed abort cancellation send and preserves its causes', async () => {
     const run = await connectControlledQuery();
     const controller = new AbortController();
     const request = run.manager
@@ -570,13 +410,8 @@ describe('committed readiness fix physical query ownership controls', () => {
       send(channel, payload);
     });
     controller.abort(new Error('Ordinary cancellation reason'));
-    await act(async () => {});
-    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    expect(run.isPhysicallyActive()).toBe(true);
-    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-    expect(hostWindow.isDestroyed()).toBe(false);
-    run.finish();
     const failure = await request;
+    expect(hostWindow.isDestroyed()).toBe(true);
     expect(failure).toBeInstanceOf(AggregateError);
     const causes = failureCauses(failure);
     expect(causes).toContainEqual(
@@ -588,9 +423,9 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(causes).toContainEqual(
       expect.objectContaining({ message: 'Ordinary cancellation reason' })
     );
-    expect(run.isPhysicallyActive()).toBe(false);
     expect(run.add).toHaveBeenCalledOnce();
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+    expect(run.manager.getStatus().state).toBe('stopped');
   });
 
   it('rejects query admission when the present host bridge lacks request cancellation', async () => {
@@ -757,22 +592,18 @@ describe('committed readiness fix physical query ownership controls', () => {
       const requests = hostWindow.webContents.send.mock.calls
         .filter(([channel]) => channel === EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT)
         .map(([, payload]) => assertEmbeddingHostQueryEmbeddingRequest(payload));
-      const cancelListener = queryEmbeddingCancelListenerRef.current;
       const transition = action === 'stop' ? run.manager.stop() : run.manager.reset();
-      await act(async () => {});
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
-      for (const request of requests) {
-        cancelListener?.(createEmbeddingHostQueryEmbeddingCancel(request));
+      expect(await active).toBeInstanceOf(Error);
+      expect(await queued).toBeInstanceOf(Error);
+      expect(hostWindow.destroy).toHaveBeenCalledOnce();
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+      if (action === 'reset') {
+        await mountReplacementRenderer(run.view);
       }
-      expect(run.add).toHaveBeenCalledOnce();
-      run.finish();
       await expect(transition).resolves.toMatchObject({
         state: action === 'stop' ? 'stopped' : 'running',
       });
-      expect(await active).toBeInstanceOf(Error);
-      expect(await queued).toBeInstanceOf(Error);
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
-      await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
+      expect(run.add).toHaveBeenCalledOnce();
       expect(readModelCatalogMock).toHaveBeenCalledOnce();
       if (action === 'reset') {
         const replacement = run.manager.queryEmbedding({
@@ -780,157 +611,42 @@ describe('committed readiness fix physical query ownership controls', () => {
           modelId: 'model-c',
           modelKey: 'local:model-c',
         });
-        await act(async () => {});
+        await waitFor(() => expect(run.add).toHaveBeenCalledTimes(2));
         for (const request of requests) {
-          cancelListener?.(createEmbeddingHostQueryEmbeddingCancel(request));
+          queryEmbeddingCancelListenerRef.current?.(
+            createEmbeddingHostQueryEmbeddingCancel(request)
+          );
         }
-        await expect(replacement).resolves.toHaveLength(2);
-        expect(run.add).toHaveBeenCalledTimes(2);
         expect(run.add.mock.calls[1]?.[1]?.signal?.aborted).toBe(false);
+        run.finish();
+        await expect(replacement).resolves.toHaveLength(2);
       }
-      run.view.unmount();
-      expect(queryEmbeddingListenerRef.current).toBeNull();
-      expect(queryEmbeddingCancelListenerRef.current).toBeNull();
     }
   );
 
-  it.each(['stop', 'reset'] as const)(
-    'joins a native device-loss rejection and physical retirement before %s settles',
-    async (action) => {
-      const run = await connectControlledQuery();
-      const result = run.manager.queryEmbedding(query).catch((error: unknown) => error);
-      await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-      const physical = Promise.withResolvers<void>();
-      retireEmbeddingQueueMock.mockReturnValueOnce(physical.promise);
-      onTestFinished(() => physical.resolve());
-      const completion = action === 'stop' ? run.manager.stop() : run.manager.reset();
-      let settled = false;
-      void result.then(() => {
-        settled = true;
-      });
-      const failure = Object.assign(new Error('Device lost'), { code: 'EMBEDDING_DEVICE_LOST' });
-      run.fail(failure);
-      await act(async () => {});
-      expect(settled).toBe(false);
-      expect(run.dispose).not.toHaveBeenCalled();
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-      physical.resolve();
-      await completion;
-      expect(await result).toBeInstanceOf(Error);
-      expect(run.dispose).toHaveBeenCalledOnce();
-      expect(run.add).toHaveBeenCalledOnce();
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(action === 'stop' ? 1 : 2);
-    }
-  );
-
-  it.each(['stop', 'reset'] as const)(
-    'retains independent native execution and physical retirement failures on %s',
-    async (action) => {
-      const run = await connectControlledQuery();
-      const result = run.manager.queryEmbedding(query).catch((error: unknown) => error);
-      await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-      retireEmbeddingQueueMock.mockRejectedValueOnce(new Error('Physical retirement failed'));
-      const completion = (action === 'stop' ? run.manager.stop() : run.manager.reset()).catch(
-        (error: unknown) => error
-      );
-      run.fail(new Error('Independent device execution failed'));
-      expect(await completion).toMatchObject(
-        action === 'stop'
-          ? { message: 'Physical retirement failed' }
-          : { lastError: 'Physical retirement failed', state: 'error' }
-      );
-      expect(await result).toBeInstanceOf(Error);
-      await waitFor(() =>
-        expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
-          expect.objectContaining({
-            payload: expect.objectContaining({
-              message: 'Embedding inference and physical retirement failed',
-            }),
-            type: 'error',
-          })
-        )
-      );
-      expect(hostWindow.destroy).toHaveBeenCalledOnce();
-      expect(run.dispose).toHaveBeenCalledOnce();
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-      expect(run.add).toHaveBeenCalledOnce();
-    }
-  );
-
-  it('keeps failed physical retirement closed until old native inference settles', async () => {
-    const run = await connectControlledQuery();
-    const result = run.manager.queryEmbedding(query).catch((error: unknown) => error);
-    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-    retireEmbeddingQueueMock.mockRejectedValueOnce(new Error('Worker drain failed'));
-    let settled = false;
-    const resetting = run.manager.reset().then((status) => {
-      settled = true;
-      return status;
-    });
-    await act(async () => {});
-    expect(settled).toBe(false);
-    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-    expect(run.isPhysicallyActive()).toBe(true);
-    expect(run.dispose).not.toHaveBeenCalled();
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-    run.finish();
-    await expect(resetting).resolves.toMatchObject({ state: 'error' });
-    expect(await result).toBeInstanceOf(Error);
-    expect(reopenEmbeddingQueueMock).toHaveBeenCalledOnce();
-  });
-
-  // ADR-0030: Stop, quit and reset share the one close budget.
+  // ADR-0031: Stop, quit and reset destroy the hidden window at once; no close budget waits on it.
   it.each(['stop', 'shutdown', 'reset'] as const)(
-    'retires a non-cooperative host at the one close budget on %s',
+    'retires a non-cooperative host at once on %s',
     async (action) => {
       const run = await connectControlledQuery();
       const request = run.manager.queryEmbedding(query).catch((error: unknown) => error);
       await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
-      vi.useFakeTimers();
-      onTestFinished(() => {
-        vi.useRealTimers();
-      });
-      let settled = false;
-      const operation = (
+      const operation =
         action === 'stop'
           ? run.manager.stop()
           : action === 'reset'
             ? run.manager.reset()
-            : run.manager.dispose()
-      ).then(
-        (value) => {
-          settled = true;
-          return value;
-        },
-        (error: unknown) => {
-          settled = true;
-          return error;
-        }
-      );
-      await act(async () => {});
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(CHILD_CLOSE_BUDGET_MS - 1);
-      });
-      expect(settled).toBe(false);
-      expect(hostWindow.isDestroyed()).toBe(false);
-      expect(run.isPhysicallyActive()).toBe(true);
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1);
-      });
-      await operation;
+            : run.manager.dispose();
       expect(await request).toBeInstanceOf(Error);
+      expect(hostWindow.destroy).toHaveBeenCalledOnce();
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
-      expect(settled).toBe(true);
-      expect(hostWindow.isDestroyed()).toBe(true);
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-      // Public document teardown fences callbacks; this fixture does not pretend to run native workers.
-      run.view.unmount();
-      run.finish();
-      await act(async () => {});
-      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(1);
-      vi.useRealTimers();
+      // The host never settled its inference; nothing waited for it to.
+      expect(run.isPhysicallyActive()).toBe(true);
+      if (action === 'reset') {
+        await mountReplacementRenderer(run.view);
+      }
+      await operation;
+      expect(reopenEmbeddingQueueMock).toHaveBeenCalledTimes(action === 'reset' ? 2 : 1);
     }
   );
 });
