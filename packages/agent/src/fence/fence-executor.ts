@@ -969,12 +969,19 @@ export async function createFenceExecutor(
     });
   };
 
-  const dispose = async (): Promise<void> => {
-    if (disposed) {
-      return;
+  // Disposal does not join the session's release: the last executor's
+  // `SandboxManager.reset()` stops srt's proxy bridges on its own ladder
+  // (SIGTERM, 1.5 s, SIGKILL), and srt's own exit handler signals them when the
+  // host exits. The release keeps the session lock, so a later executor's
+  // readiness check starts only after it.
+  const dispose = (): Promise<void> => {
+    if (!disposed) {
+      disposed = true;
+      runExclusive(releaseSession).catch((error: unknown) => {
+        logger.error('Failed to release the sandbox session', { error });
+      });
     }
-    disposed = true;
-    await runExclusive(releaseSession);
+    return Promise.resolve();
   };
 
   return { capabilities, dispose, execute };

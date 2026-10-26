@@ -375,10 +375,25 @@ describe.skipIf(!supported)('readiness failure lifetime', () => {
     expect(sandbox.reset).not.toHaveBeenCalled();
     const second = await createFenceExecutor({ interpreters });
     expect(sandbox.initialize).toHaveBeenCalledTimes(1);
+    // Disposal returns before its release runs; a macrotask turn lets the release run.
     await first.dispose();
+    await new Promise(setImmediate);
     expect(sandbox.reset).not.toHaveBeenCalled();
     await second.dispose();
+    await new Promise(setImmediate);
     expect(sandbox.reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns from dispose while the sandbox reset is still stopping its bridges', async () => {
+    const executor = await createFenceExecutor({ interpreters });
+    const reset = Promise.withResolvers<void>();
+    sandbox.reset.mockReturnValueOnce(reset.promise);
+    try {
+      await expect(executor.dispose()).resolves.toBeUndefined();
+      expect(sandbox.reset).toHaveBeenCalledTimes(1);
+    } finally {
+      reset.resolve();
+    }
   });
 
   it('requires the success marker as well as exit zero', async () => {
