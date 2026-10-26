@@ -14,6 +14,25 @@ export interface DesktopMemoryVectorSources {
 }
 
 /**
+ * A saved target the parser refuses (a provider Brainstrike no longer has, such as a removed
+ * local model) is the user's selection to change, as an empty one is.
+ */
+function selectedTarget(
+  modelTarget: string
+): ReturnType<typeof parseSemanticRecallEmbeddingModelTarget> {
+  try {
+    return parseSemanticRecallEmbeddingModelTarget(modelTarget);
+  } catch (error) {
+    throw refusalError(
+      'configuration',
+      MEMORY_FAILURE_CODES.configuration,
+      error instanceof Error ? error.message : String(error),
+      MEMORY_EMBEDDER_SELECTION_REMEDY
+    );
+  }
+}
+
+/**
  * Recall and vector OM embed with the semantic recall target, which is
  * independent of Search & Indexing, as it was before host threads.
  */
@@ -35,7 +54,7 @@ export async function resolveDesktopMemoryVectors(
       MEMORY_EMBEDDER_SELECTION_REMEDY
     );
   }
-  const target = parseSemanticRecallEmbeddingModelTarget(semanticRecall.embeddingModelTarget);
+  const target = selectedTarget(semanticRecall.embeddingModelTarget);
   const modelKey = `${target.provider}::${target.model}`;
   return resolveNativeCanonicalProfile({
     dimensions: await sources.readDimensions(target.provider, target.model),
