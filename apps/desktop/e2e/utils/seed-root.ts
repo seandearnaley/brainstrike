@@ -3,10 +3,8 @@
  * reload, so the main process restores the roots on boot and the renderer
  * reconciles the durable `roots` rows the UI resolves against.
  *
- * Lifted out of `git-panel.desktop.test.ts` (where the shape originated) when
- * `workspace-bar.desktop.test.ts` needed the same seed plus the recents
- * ledger. Everything the two callers differ on is a PARAMETER, so lifting
- * changed no existing test's behavior.
+ * Everything its callers differ on (the recents ledger among them) is a
+ * PARAMETER.
  *
  * ONE evaluate, ONE reload — deliberately. `recentRootsList` MUST be written
  * in the same evaluate as `rootsList`, because the reload boots main, which

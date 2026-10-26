@@ -8,8 +8,8 @@ import { useMemo } from 'react';
  *
  * Derived purely during render from the file-system store — never mirrored into
  * state via an effect (react-doctor `no-adjust-state-on-prop-change`). Matches
- * the resolution used by every other workspace surface (see the Git panel and
- * FileTreeWrapper): prefer the self-identifying `handle.rootId`, fall back to the
+ * the resolution used by every other workspace surface (see FileTreeWrapper):
+ * prefer the self-identifying `handle.rootId`, fall back to the
  * path→id map for legacy single-root handles.
  */
 export function useActiveRootId(): string | null {

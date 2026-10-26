@@ -1,4 +1,4 @@
-/** Shared renderer/main contract for Brainstrike's local Git workbench. */
+/** Shared renderer/main contract for Brainstrike's local git operations. */
 
 /** Discriminated result envelope returned across the desktop IPC boundary. */
 export type GitResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -20,26 +20,6 @@ export interface GitStatus {
   readonly clean: boolean;
   readonly files: readonly GitStatusFile[];
   readonly isRepository: boolean;
-  readonly upstream: string | null;
-}
-
-export interface GitDiff {
-  readonly path: string | null;
-  readonly staged: boolean;
-  readonly truncated: boolean;
-  readonly unifiedDiff: string;
-}
-
-/** Explicit diff source; invalid staged/untracked combinations are unrepresentable. */
-export type GitDiffParams =
-  | { readonly mode: 'staged'; readonly path?: string }
-  | { readonly mode: 'untracked'; readonly path: string }
-  | { readonly mode: 'working'; readonly path?: string };
-
-export interface GitAheadBehind {
-  readonly ahead: number | null;
-  readonly behind: number | null;
-  readonly hasUpstream: boolean;
   readonly upstream: string | null;
 }
 
@@ -87,26 +67,6 @@ export interface GitRepository {
   /** True when the opened workspace is below the Git worktree root. */
   readonly scope: 'repository' | 'workspace';
   readonly worktrees: readonly GitWorktreeSummary[];
-}
-
-export interface GitHistoryCommit {
-  readonly authorEmail: string;
-  readonly authoredAt: string;
-  readonly authorName: string;
-  readonly body: string;
-  readonly committedAt: string;
-  readonly decoration: string;
-  readonly id: string;
-  readonly parentIds: readonly string[];
-  readonly shortId: string;
-  readonly summary: string;
-}
-
-export interface GitHistoryPage {
-  readonly commits: readonly GitHistoryCommit[];
-  readonly hasMore: boolean;
-  readonly limit: number;
-  readonly offset: number;
 }
 
 export interface GitCommitFile {

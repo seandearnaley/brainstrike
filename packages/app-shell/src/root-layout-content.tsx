@@ -157,12 +157,6 @@ export interface RootLayoutContentProps {
    */
   readonly diagnosticFeatureFlags?: readonly string[];
   /**
-   * Optional Git surface (desktop-only). Supplied by the desktop wrapper when
-   * the Git bridge is present; web never constructs it (capability
-   * gating, not an isElectron check). When absent, no Git nav item is rendered.
-   */
-  readonly gitPageContent?: ReactNode;
-  /**
    * Optional Logs surface (BST-1791): the log viewer, with Settings keeping the
    * logging configuration. Each host supplies its own log sources; when absent,
    * no Logs tab renders.
@@ -204,7 +198,6 @@ export interface RootLayoutContentProps {
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/browser': 'browser',
-  '/git': 'git',
   '/settings': 'settings',
   // '/terminal' intentionally absent (BST-1270): Terminal is a workspace app
   // now. activeTab is SESSION-ONLY (panel-layout-store partializes it away)
@@ -220,7 +213,7 @@ const SETTINGS_NAV_PATH = '/settings';
 
 /**
  * Nav-rail order: every route the wrappers contribute, then Settings last.
- * The wrappers append their capability-gated routes (git/browser) AFTER
+ * The wrappers append their capability-gated routes (browser) AFTER
  * the shared `navigationItems` list, which places Settings second; the shell
  * owns the rail, so it owns the rule that Settings closes the list.
  *
@@ -240,13 +233,13 @@ function orderNavigationItems(items: readonly NavigationItem[]): NavigationItem[
 }
 
 /**
- * A shell route (git/browser/settings) that, once first opened, STAYS
+ * A shell route (browser/settings) that, once first opened, STAYS
  * mounted and only toggles hidden — so its watchers/scan state/scroll
  * position/in-progress edits survive later tab switches. `content` is
  * `undefined` when the app wrapper never constructed the surface at all
  * (capability absent); this renders nothing in that case, same as an
  * unopened tab.
- * Extracted out of `RootLayoutContent`'s own JSX (rather than four inline
+ * Extracted out of `RootLayoutContent`'s own JSX (rather than inline
  * ternaries) to keep that already-large component's cognitive complexity
  * under the lint budget.
  */
@@ -280,12 +273,12 @@ function KeepMountedRoute({
  * surface to navigate to. A dedicated hook (rather than inlined in
  * `RootLayoutContent`) purely to keep that already-large component's
  * cognitive complexity under the lint budget — the logic itself is a
- * straight capability-presence gate, same shape as `gitPageContent`/etc.
+ * straight capability-presence gate, same shape as `browserPageContent`/etc.
  *
  * The Changes surface lives as a closable singleton workspace app tab
  * (BST-1258 unified workspace tab panel), not its own top-level route, so
  * opening it from here is two steps: bring the shell back to the `explorer`
- * route (in case the user is on Settings/Git/etc — the workspace panel only
+ * route (in case the user is on Settings/Browser/etc — the workspace panel only
  * exists on that route), and hand the changeset to `openChangeset`, which
  * opens/activates the Changes app tab through
  * `useWorkspaceTabSelectionStore.openApp` (see that store action's doc
@@ -589,7 +582,6 @@ export function RootLayoutContent({
   canvasPanelContent,
   changesPageContent,
   settingsPageContent,
-  gitPageContent,
   logsPageContent,
   terminalPageContent,
   threadContextPageContent,
@@ -609,7 +601,7 @@ export function RootLayoutContent({
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
-  // Capability gate mirrors gitPageContent/terminalPageContent:
+  // Capability gate mirrors browserPageContent/terminalPageContent:
   // the desktop wrapper only passes changesPageContent when the Changes bridge
   // exists, so its presence IS the capability check here — the "→ Review"
   // footer link (packages/ui, gated on this same context) renders null without it.
@@ -682,7 +674,7 @@ export function RootLayoutContent({
         {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
-          gating as the git nav item below. */}
+          gating as the browser nav item. */}
         <ChangesReviewProvider value={changesReviewValue}>
           <ContextMapLinkContext value={contextMapLinkValue}>
             {/* Binds the assistant panel's "Restore to before this message"
@@ -729,12 +721,6 @@ export function RootLayoutContent({
                 <McpPromptComposerHost />
                 {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
-                <KeepMountedRoute
-                  content={gitPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="git"
-                />
                 {/* Embedded browser pane (BST-1174). The native
                     WebContentsView follows this route's show/hide via the
                     surface's own occlusion reporting — see BrowserPaneContent. */}

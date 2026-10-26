@@ -5,12 +5,8 @@ import type {
   ForgePrCacheEntry,
   ForgePrStatus,
   ForgePrUpdatedEvent,
-  GitAheadBehind,
-  GitCommitFile,
   GitCommitResult,
   GitCreateBranchResult,
-  GitDiff,
-  GitHistoryPage,
   GitInventory,
   GitPushPullResult,
   GitRepository,
@@ -45,7 +41,7 @@ function gitResult<T extends Schema.Constraint>(value: T) {
   });
 }
 
-// --- git panel -------------------------------------------------------------
+// --- git -------------------------------------------------------------------
 
 const GitStatusFileSchema = Schema.Struct({
   originalPath: Schema.optionalKey(Text),
@@ -64,26 +60,6 @@ const GitStatusSchema = Schema.Struct({
   isRepository: Schema.Boolean,
   upstream: NullableText,
 }) satisfies Schema.ConstraintDecoder<GitStatus>;
-const GitDiffSchema = Schema.Struct({
-  path: NullableText,
-  staged: Schema.Boolean,
-  truncated: Schema.Boolean,
-  unifiedDiff: Text,
-}) satisfies Schema.ConstraintDecoder<GitDiff>;
-const GitDiffParamsSchema = Schema.Union(
-  [
-    Schema.Struct({ mode: Schema.Literal('staged'), path: Schema.optionalKey(Text) }),
-    Schema.Struct({ mode: Schema.Literal('untracked'), path: Text }),
-    Schema.Struct({ mode: Schema.Literal('working'), path: Schema.optionalKey(Text) }),
-  ],
-  { mode: 'oneOf' }
-);
-const GitAheadBehindSchema = Schema.Struct({
-  ahead: Schema.NullOr(Count),
-  behind: Schema.NullOr(Count),
-  hasUpstream: Schema.Boolean,
-  upstream: NullableText,
-}) satisfies Schema.ConstraintDecoder<GitAheadBehind>;
 const GitCommitResultSchema = Schema.Struct({
   branch: NullableText,
   commit: Text,
@@ -122,28 +98,6 @@ const GitRepositorySchema = Schema.Struct({
   scope: Schema.Literals(['repository', 'workspace']),
   worktrees: Schema.Array(GitWorktreeSummarySchema),
 }) satisfies Schema.ConstraintDecoder<GitRepository>;
-const GitHistoryPageSchema = Schema.Struct({
-  commits: Schema.Array(
-    Schema.Struct({
-      authorEmail: Text,
-      authoredAt: Text,
-      authorName: Text,
-      body: Text,
-      committedAt: Text,
-      decoration: Text,
-      id: Text,
-      parentIds: Texts,
-      shortId: Text,
-      summary: Text,
-    })
-  ),
-  hasMore: Schema.Boolean,
-  limit: Count,
-  offset: Count,
-}) satisfies Schema.ConstraintDecoder<GitHistoryPage>;
-const GitCommitFilesSchema = Schema.Array(
-  Schema.Struct({ originalPath: Schema.optionalKey(Text), path: Text, status: Text })
-) satisfies Schema.ConstraintDecoder<readonly GitCommitFile[]>;
 const GitSwitchBranchResultSchema = Schema.Struct({
   branch: Text,
 }) satisfies Schema.ConstraintDecoder<GitSwitchBranchResult>;
@@ -160,17 +114,6 @@ const ChangedFileStatusSchema = Schema.Literals([
   'renamed',
   'untracked',
 ]);
-const StructuredFileDiffParamsSchema = Schema.Union(
-  [
-    Schema.Struct({ commitId: Text, mode: Schema.Literal('commit'), path: Text }),
-    Schema.Struct({ baseRef: Text, mode: Schema.Literal('range'), path: Text }),
-    Schema.Struct({ mode: Schema.Literal('staged'), path: Text }),
-    Schema.Struct({ mode: Schema.Literal('untracked'), path: Text }),
-    Schema.Struct({ mode: Schema.Literal('unstaged'), path: Text }),
-    Schema.Struct({ mode: Schema.Literal('working'), path: Text }),
-  ],
-  { mode: 'oneOf' }
-);
 const StructuredFileDiffSchema = Schema.Struct({
   additions: Schema.NullOr(Count),
   content: Schema.Union(
@@ -496,8 +439,8 @@ export const WorktreePathClassificationSchema = Schema.Literals([
 
 /**
  * ADR-0029 stage 2: the desktop's git cluster, served by the host that owns
- * the workspace catalog. The git panel, Changes, forge awareness and worktrees
- * reach it over the window's host connection.
+ * the workspace catalog. Changes, the branch chip, forge awareness and
+ * worktrees reach it over the window's host connection.
  */
 export const GIT_WORKSPACE_METHOD_SCHEMAS = {
   'changes/file-diff': Schema.Struct({ changeset: ChangesetSchema, path: Text, rootId: Id }),
@@ -510,30 +453,17 @@ export const GIT_WORKSPACE_METHOD_SCHEMAS = {
     reason: Schema.Literals(['invalidation', 'user', 'window']),
     rootId: Id,
   }),
-  'git/ahead-behind': RootRequest,
   'git/commit': Schema.Struct({ description: Schema.optionalKey(Text), rootId: Id, summary: Text }),
-  'git/commit-files': Schema.Struct({ commit: Text, rootId: Id }),
   'git/create-branch': Schema.Struct({
     branch: Text,
     rootId: Id,
     startPoint: Schema.optionalKey(Text),
   }),
-  'git/diff': Schema.Struct({ diff: GitDiffParamsSchema, rootId: Id }),
   'git/fetch': Schema.Struct({ remote: Text, rootId: Id }),
-  'git/history': Schema.Struct({
-    limit: Count,
-    offset: Count,
-    ref: Schema.optionalKey(Text),
-    rootId: Id,
-  }),
-  'git/pull': RootRequest,
   'git/push': Schema.Struct({ remote: Schema.optionalKey(Text), rootId: Id }),
   'git/repository': RootRequest,
-  'git/stage': Schema.Struct({ path: Schema.optionalKey(Text), rootId: Id }),
   'git/status': RootRequest,
-  'git/structured-file-diff': Schema.Struct({ diff: StructuredFileDiffParamsSchema, rootId: Id }),
   'git/switch-branch': Schema.Struct({ branch: Text, rootId: Id }),
-  'git/unstage': Schema.Struct({ path: Schema.optionalKey(Text), rootId: Id }),
   'workspace/git/subscribe': None,
   'worktrees/adopt': Schema.Struct({ createdBy: Creator, path: Text, ...RunProvenance }),
   'worktrees/archive': Schema.Struct({
@@ -583,21 +513,13 @@ export const GIT_WORKSPACE_RESULT_SCHEMAS = {
   'forge/identity': gitResult(ForgeIdentityStateSchema),
   'forge/pr-status': gitResult(ForgePrStatusSchema),
   'forge/refresh': gitResult(ForgePrStatusSchema),
-  'git/ahead-behind': gitResult(GitAheadBehindSchema),
   'git/commit': gitResult(GitCommitResultSchema),
-  'git/commit-files': gitResult(GitCommitFilesSchema),
   'git/create-branch': gitResult(GitCreateBranchResultSchema),
-  'git/diff': gitResult(GitDiffSchema),
   'git/fetch': gitResult(GitPushPullResultSchema),
-  'git/history': gitResult(GitHistoryPageSchema),
-  'git/pull': gitResult(GitPushPullResultSchema),
   'git/push': gitResult(GitPushPullResultSchema),
   'git/repository': gitResult(GitRepositorySchema),
-  'git/stage': gitResult(Schema.Null),
   'git/status': gitResult(GitStatusSchema),
-  'git/structured-file-diff': gitResult(StructuredFileDiffSchema),
   'git/switch-branch': gitResult(GitSwitchBranchResultSchema),
-  'git/unstage': gitResult(Schema.Null),
   'workspace/git/subscribe': Schema.Struct({ subscribed: Schema.Literal(true) }),
   'worktrees/adopt': gitResult(ManagedWorktreeRowSchema),
   'worktrees/archive': gitResult(WorktreeArchiveResultSchema),

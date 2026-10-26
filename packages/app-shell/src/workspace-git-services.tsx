@@ -1,7 +1,7 @@
 import { createContext, type ReactElement, type ReactNode, useContext } from 'react';
 import type { ChangesBridge } from './changes/changes-bridge';
 import type { ForgeBridge } from './forge/forge-bridge';
-import type { GitBridge } from './git-panel/git-bridge';
+import type { GitBridge } from './git-bridge';
 import type { WorktreesBridge } from './worktrees/worktrees-bridge';
 
 /**

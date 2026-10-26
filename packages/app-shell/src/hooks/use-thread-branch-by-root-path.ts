@@ -10,7 +10,7 @@
  * `deferInitialLoad: !enabled`. One
  * inventory load is a FULL repository/worktree scan across every workspace root
  * — the cost that made `deferInitialLoad` exist at all (BST-1116 W6 review
- * finding 4, where merely mounting the git panel header paid for it). Branch
+ * finding 4). Branch
  * chips exist ONLY in the Threads panel's `groupBy: 'folder'` view, so an
  * ungated hook would charge that scan to every panel mount in every grouping
  * mode.

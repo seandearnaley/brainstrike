@@ -8,7 +8,7 @@
  * (GPU-agnostic — no canvas assertions).
  *
  * Isolation: each test gets its OWN temp root dir (tracked + removed in
- * `afterAll`). Root setup matches git-panel.desktop.test.ts.
+ * `afterAll`).
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

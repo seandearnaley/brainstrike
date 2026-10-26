@@ -25,8 +25,7 @@
  *   comment in `@brainstrike/types`).
  *
  * Uses `@brainstrike/ui`'s `DropdownMenu` (+ `DropdownMenuSub` for the
- * repository -> worktree -> scope hierarchy) rather than a hand-rolled menu,
- * mirroring `git-workbench-header.tsx`'s repository/worktree/branch pickers.
+ * repository -> worktree -> scope hierarchy) rather than a hand-rolled menu.
  */
 import type { Changeset, GitInventory, GitScope, WorktreeDescriptor } from '@brainstrike/types';
 import {

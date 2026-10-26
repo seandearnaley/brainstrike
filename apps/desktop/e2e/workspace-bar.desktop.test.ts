@@ -13,8 +13,8 @@
  * ledgers can never leak between tests. Every temp dir is tracked and removed
  * in `afterAll`.
  *
- * Root setup uses the shared `seedRoot` helper (`e2e/utils/seed-root.ts`,
- * lifted from `git-panel.desktop.test.ts`): seed the ledgers (the real paths)
+ * Root setup uses the shared `seedRoot` helper (`e2e/utils/seed-root.ts`):
+ * seed the ledgers (the real paths)
  * into `electronAPI.storage`, then reload — main restores the root and the
  * renderer reconciles the durable `roots` row the bar resolves against.
  */

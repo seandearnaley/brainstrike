@@ -23,12 +23,11 @@ export type DocumentMetaByRoute = Readonly<Record<PanelTab, DocumentMeta>>;
  * Document metadata keyed by the shell route it belongs to. The `explorer` and
  * `settings` strings are the ones the removed `<Helmet>` blocks wrote; the rest
  * previously inherited whichever tab had written last, which is why switching
- * to Git or Terminal used to leave the title reading "Home".
+ * to Browser or Terminal used to leave the title reading "Home".
  */
 const DOCUMENT_META: DocumentMetaByRoute = {
   browser: { description: APP_DESCRIPTION, title: 'Browser - BrainStrike.ai' },
   explorer: { description: 'BrainStrike.ai Home Dashboard', title: 'BrainStrike.ai - Home' },
-  git: { description: APP_DESCRIPTION, title: 'Git - BrainStrike.ai' },
   settings: {
     description: 'Customize your application settings',
     title: 'Settings - BrainStrike.ai',

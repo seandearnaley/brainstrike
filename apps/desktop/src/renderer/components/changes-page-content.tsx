@@ -1,8 +1,8 @@
 import { lazy, type ReactElement, Suspense } from 'react';
 
 // Code-split the Changes surface (BST-1114) so it only loads when the
-// desktop user opens the Changes tab. Mirrors `git-page-content.tsx` exactly:
-// the wrapper is rendered only when the host serves the Changes bridge (see
+// desktop user opens the Changes tab. The wrapper is rendered only when the
+// host serves the Changes bridge (see
 // root-layout-content.tsx capability gate), so there is no `isElectron()`
 // check here.
 const ChangesSurface = lazy(() =>

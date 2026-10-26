@@ -253,21 +253,13 @@ export function createDesktopGitWorkspace(
     'forge/identity': ({ rootId }) => forge.identity(rootId),
     'forge/pr-status': ({ rootId }) => forge.prStatus(rootId),
     'forge/refresh': ({ reason, rootId }) => forge.refresh(rootId, { reason }),
-    'git/ahead-behind': ({ rootId }) => git.aheadBehind(rootId),
     'git/commit': ({ rootId, ...request }) => git.commit(rootId, request),
-    'git/commit-files': ({ rootId, ...request }) => git.commitFiles(rootId, request),
     'git/create-branch': ({ rootId, ...request }) => git.createBranch(rootId, request),
-    'git/diff': ({ diff, rootId }) => git.diff(rootId, diff),
     'git/fetch': ({ rootId, ...request }) => git.fetch(rootId, request),
-    'git/history': ({ rootId, ...request }) => git.history(rootId, request),
-    'git/pull': ({ rootId }) => git.pull(rootId),
     'git/push': ({ rootId, ...request }) => git.push(rootId, request),
     'git/repository': ({ rootId }) => git.repository(rootId),
-    'git/stage': ({ rootId, ...request }) => git.stage(rootId, request),
     'git/status': ({ rootId }) => git.status(rootId),
-    'git/structured-file-diff': ({ diff, rootId }) => git.structuredFileDiff(rootId, diff),
     'git/switch-branch': ({ rootId, ...request }) => git.switchBranch(rootId, request),
-    'git/unstage': ({ rootId, ...request }) => git.unstage(rootId, request),
     subscribe: (listener) => {
       listeners.add(listener);
       start();

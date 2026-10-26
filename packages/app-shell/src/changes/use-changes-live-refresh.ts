@@ -6,7 +6,7 @@
  *
  * REFCOUNTED on purpose: `useChangeset` and `useGitInventory` each call
  * {@link useChangesLiveRefreshSubscription}, and several instances of both can
- * be mounted at once (Changes surface + git panel). The first acquirer
+ * be mounted at once (the Changes surface, the branch chips). The first acquirer
  * subscribes `bridge.onInvalidated`; the last release unsubscribes. State is
  * module-scoped but mutated only from effects — never at import time (the
  * chunk-init hazard class).
@@ -272,7 +272,7 @@ export function acquireChangesLiveRefreshSubscription(
       try {
         unsubscribeFromBridge = bridge.onInvalidated((event) => {
           // Do NOT pre-register active renderer repository strings here. A
-          // git-panel changeset may carry a symlink spelling while the wire
+          // git-scope changeset may carry a symlink spelling while the wire
           // event carries the inventory's canonical realpath. Keeping that
           // key unknown preserves selectGitScopeRefreshNonce's deliberate
           // conservative path-vocabulary guard.

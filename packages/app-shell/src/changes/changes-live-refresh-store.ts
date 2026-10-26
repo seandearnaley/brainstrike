@@ -229,9 +229,9 @@ export const useChangesLiveRefreshStore = create<ChangesLiveRefreshState>((set) 
  * A repositoryRoot the store has NEVER seen follows `anyInvalidationNonce`
  * instead — deliberately conservative (PR #2288 review). Event keys carry the
  * inventory's CANONICAL realpath'd main-worktree path, but not every
- * `git-scope` changeset does: the git panel pins `GitRepository.repositoryRoot`
- * straight out of `git worktree list`, never realpath'd
- * (`git-changes-view.tsx`), so through a symlink the two vocabularies diverge
+ * `git-scope` changeset does: one that pins `GitRepository.repositoryRoot`
+ * straight out of `git worktree list` is never realpath'd, so through a
+ * symlink the two vocabularies diverge
  * and a string-equality lookup would silently NEVER refresh that surface —
  * the exact staleness class this channel exists to remove. Unknown-key
  * consumers therefore refetch on every event: an extra refetch is just work,
