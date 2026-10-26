@@ -27,7 +27,7 @@ permissions:
 jobs:
   # test.yml itself: Static, Type check, Unit (affected against the main
   # commit the batch was built on), Build, Native Electron, Browser tests and
-  # the smoke E2E lanes. Only Notify Linear skips under `merge-queue: true`. A dispatch
+  # the smoke E2E lanes. Windows and Notify Linear skip under `merge-queue: true`. A dispatch
   # runs every Unit shard. Check names read "Test / Static", "Test / Unit (db-1)" and so on.
   #
   # Deleting a branch also fires push, with the SHA reverted to main. Mergify
@@ -56,7 +56,7 @@ jobs:
   # The merge condition in .mergify.yml and the check the ruleset requires;
   # keep its name exact. It passes only when the call succeeded, every
   # fast-tier job succeeded and every nightly-only job skipped. Unit plan owns
-  # Unit selection, so the Unit and Windows matrices may skip only when Unit
+  # Unit selection, so the Unit matrix may skip only when Unit
   # plan succeeded and selected no affected shard; a Unit skipped because it failed, or any
   # other skipped, failed or cancelled job, fails the gate.
   merge-queue-gate:
@@ -78,8 +78,6 @@ jobs:
           RESULT_UNIT_PLAN: ${{ needs.test.outputs.unit-plan-result }}
           RESULT_UNIT_SHARD: ${{ needs.test.outputs.unit-shard-result }}
           RESULT_UNIT: ${{ needs.test.outputs.unit-result }}
-          RESULT_WINDOWS_SHARD: ${{ needs.test.outputs.windows-shard-result }}
-          RESULT_WINDOWS: ${{ needs.test.outputs.windows-result }}
           RESULT_BUILD: ${{ needs.test.outputs.build-result }}
           RESULT_NATIVE_ELECTRON: ${{ needs.test.outputs.native-electron-result }}
           RESULT_BROWSER_TESTS: ${{ needs.test.outputs.browser-tests-result }}
@@ -101,7 +99,7 @@ jobs:
             if [ "$result" = "$expected" ]; then
               continue
             fi
-            if { [ "$job" = UNIT_SHARD ] || [ "$job" = WINDOWS_SHARD ]; } && [ "$result" = skipped ] &&
+            if [ "$job" = UNIT_SHARD ] && [ "$result" = skipped ] &&
               [ "$RESULT_UNIT_PLAN" = success ] && [ "$UNIT_SHARD_COUNT" = 0 ]; then
               echo "Unit plan succeeded and selected no affected Unit shard."
               continue

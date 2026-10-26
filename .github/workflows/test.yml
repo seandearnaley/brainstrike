@@ -1,5 +1,5 @@
-# Gates every merge-queue batch; the nightly on main runs only its Unit and
-# Windows jobs.
+# Gates every merge-queue batch but its Windows jobs; the nightly on main runs
+# only its Unit and Windows jobs.
 # Per-PR hosted CI is off; main lands through the merge queue after `pnpm check`.
 
 name: Test
@@ -8,15 +8,16 @@ on:
   # BST-2233: no schedule of its own. nightly.yml calls this workflow each
   # night with `nightly: true`: only the complete Unit and Windows runs (every
   # package, the state-store soak) run, because every other job gates each
-  # queue batch and a batch runs Unit and Windows on affected packages only.
+  # queue batch, a batch runs Unit on affected packages only and no batch runs
+  # Windows.
   workflow_dispatch:
   # BST-2188 (owner decision 2026-10-19): merge-queue.yml calls this workflow
   # on each Mergify merge-queue batch, so the queue's fast tier is these jobs,
-  # not a copy. Every job but Notify Linear gates the queue (owner decision
-  # 2026-10-24); with `merge-queue: true` the smoke E2E lanes also run on a
-  # manual dispatch. The nightly passes `merge-queue: false` and manual runs
-  # carry no input, so every condition on either input reads false for a
-  # manual run, which runs every job. Inside a called run, `github.workflow` and
+  # not a copy. Every job but Windows and Notify Linear gates the queue (owner
+  # decisions 2026-10-24 and 2026-10-26); with `merge-queue: true` the smoke E2E
+  # lanes also run on a manual dispatch. The nightly passes `merge-queue: false`
+  # and manual runs carry no input, so every condition on either input reads
+  # false for a manual run, which runs every job. Inside a called run, `github.workflow` and
   # `github.event_name` are the caller's: a batch is the caller's push of a
   # queue branch, which keeps its concurrency group apart from this workflow's.
   workflow_call:
@@ -51,10 +52,6 @@ on:
         value: ${{ jobs.unit-shard.result }}
       unit-result:
         value: ${{ jobs.unit.result }}
-      windows-shard-result:
-        value: ${{ jobs.windows-shard.result }}
-      windows-result:
-        value: ${{ jobs.windows.result }}
       build-result:
         value: ${{ jobs.build.result }}
       native-electron-result:
@@ -670,15 +667,17 @@ jobs:
             exit 1
           fi
 
-  # Windows unit and integration (owner decision 2026-10-24): the same shards
-  # and selection as Unit, on hosted Windows runners, so a Windows-only failure
-  # cannot land. Hosted runners run elevated; test processes take the user as
-  # default owner like the app's process entries (BST-2246), so private
-  # directories stay theirs. ripgrep is a host dependency (live grep), as the
-  # Linux test host installs it.
+  # Windows unit and integration: the same shards as Unit, on hosted Windows
+  # runners, in the nightly and manual runs only. No merge-queue batch runs them
+  # (owner decision 2026-10-26): a hosted runner here has 2 vCPUs, starts a host
+  # in 20-30 s against 3 s on a real Windows machine, and failed about a third
+  # of batches on deadlines. Hosted runners run elevated; test processes take
+  # the user as default owner like the app's process entries (BST-2246), so
+  # private directories stay theirs. ripgrep is a host dependency (live grep),
+  # as the Linux test host installs it.
   windows-shard:
     name: Windows (${{ matrix.shard }})
-    if: needs.admission.outputs.admitted == 'true' && needs.unit-plan.outputs.unit-shard-count != '0'
+    if: needs.admission.outputs.admitted == 'true' && !inputs.merge-queue && needs.unit-plan.outputs.unit-shard-count != '0'
     needs: [admission, unit-plan]
     runs-on: windows-latest
     timeout-minutes: 40
@@ -702,7 +701,7 @@ jobs:
       TEST_TIMEOUT_MULTIPLIER: "4"
       TURBO_TEST_MODE: unit
     steps:
-      # See Unit's checkout: affected selection needs the batch base.
+      # The same checkout as Unit's.
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -756,26 +755,10 @@ jobs:
           New-ItemProperty -Path $key -Name DumpType -PropertyType DWord -Value 1 -Force | Out-Null
           New-ItemProperty -Path $key -Name DumpCount -PropertyType DWord -Value 10 -Force | Out-Null
 
-      - name: Affected unit tests
-        if: inputs.merge-queue && github.event_name == 'push'
-        env:
-          TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
-        run: pnpm turbo run test ${{ matrix.pr_filters }} --affected --concurrency=4
-
-      - name: Affected integration tests
-        if: inputs.merge-queue && github.event_name == 'push'
-        env:
-          TURBO_SCM_BASE: ${{ needs.unit-plan.outputs.affected-base }}
-          TURBO_SCM_HEAD: ${{ github.sha }}
-        run: pnpm turbo run test:integration ${{ matrix.pr_filters }} --affected --concurrency=2
-
       - name: Unit tests
-        if: github.event_name != 'push' || !inputs.merge-queue
         run: pnpm turbo run test ${{ matrix.push_filters }} --concurrency=4
 
       - name: Integration tests
-        if: github.event_name != 'push' || !inputs.merge-queue
         run: pnpm turbo run test:integration ${{ matrix.push_filters }} --concurrency=2
 
       # A failed real-app proof keeps its evidence (the app's output, first failure,
@@ -806,7 +789,7 @@ jobs:
   # Fan-in over the Windows shards, like Unit over unit-shard.
   windows:
     name: Windows
-    if: github.repository == 'seandearnaley/brainstrike' && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
+    if: github.repository == 'seandearnaley/brainstrike' && !inputs.merge-queue && always() && (needs.admission.result != 'success' || needs.admission.outputs.admitted == 'true')
     needs: [admission, unit-plan, windows-shard]
     runs-on: ubuntu-slim
     timeout-minutes: 5
