@@ -208,16 +208,10 @@ export async function createDesktopNodeMcpHost(
     });
   } catch (cause) {
     oauthStore.unregister();
-    try {
-      await diagnostics.drain();
-    } catch (delivery) {
-      throw new AggregateError(
-        [cause, delivery],
-        'Desktop MCP host startup and diagnostics failed'
-      );
-    } finally {
-      diagnostics.dispose();
-    }
+    // Report first (ADR-0031): the records already queued still go to Main,
+    // and each failed delivery is logged on host stderr as it fails.
+    diagnostics.dispose();
+    void diagnostics.drain().catch(() => undefined);
     throw cause;
   }
   const settings = new DesktopMcpSettingsAuthority(

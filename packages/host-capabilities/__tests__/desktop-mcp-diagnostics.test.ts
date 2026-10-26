@@ -225,6 +225,26 @@ function compositionOptions(
   };
 }
 
+describe('desktop MCP composition startup failure', () => {
+  it('reports a failed start while Main has not acknowledged its diagnostics', async () => {
+    configureLogger({ level: LogLevel.INFO });
+    const failure = new Error('MCP runtime could not start');
+    const create = vi.spyOn(hostServices, 'createMcpHostServices').mockImplementation(async () => {
+      stdioFailure();
+      throw failure;
+    });
+    const unacknowledged = Promise.withResolvers<undefined>();
+    const request = vi.fn((_method: string, _payload: unknown) => unacknowledged.promise);
+    try {
+      await expect(createDesktopNodeMcpHost(compositionOptions(request))).rejects.toBe(failure);
+      expect(request).toHaveBeenCalledWith(MCP_STORE_METHODS.diagnostics, expect.anything());
+    } finally {
+      unacknowledged.resolve(undefined);
+      create.mockRestore();
+    }
+  }, 5000);
+});
+
 describe('desktop MCP composition receipts', () => {
   it("joins the runtime's physical close, asks Main for nothing, and unregisters the tap", async () => {
     const joined = Promise.withResolvers<typeof report>();
