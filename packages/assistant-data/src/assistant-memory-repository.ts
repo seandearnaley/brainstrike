@@ -50,7 +50,6 @@ import type { AssistantThreadColorId } from './assistant-thread-palette.ts';
 
 export type { AssistantThreadColorId } from './assistant-thread-palette.ts';
 
-// biome-ignore assist/source/useSortedInterfaceMembers: BST-1391 Task 6 explicitly places forge fields immediately before model.
 export interface AssistantThreadMetadata {
   /** Last observed branch of the thread's checkout. Display only — live from git. */
   readonly checkoutBranch?: string;
@@ -68,19 +67,6 @@ export interface AssistantThreadMetadata {
   readonly checkoutWorktreePath?: string;
   readonly color?: AssistantThreadColorId;
   readonly icon?: AssistantThreadIconId;
-  /**
-   * The pull request this thread is driving, kept so "jump to the PR" works
-   * offline and after `gh` is uninstalled. Display + navigation only: the
-   * AUTHORITY for PR state is `brainstrike_forge_prs`, refreshed from gh.
-   */
-  readonly forgePrUrl?: string;
-  /**
-   * Whether check-transition notifications fire for this thread's PR
-   * (spec §4.4's Watch toggle). ABSENT means watching: the user opted into
-   * notifications globally, and a thread that has never touched the toggle
-   * should not be quieter than one that has. Only an explicit `false` mutes.
-   */
-  readonly forgePrWatch?: boolean;
   readonly model?: string;
   readonly modelSettings?: Record<string, unknown>;
   /** Human-readable label retained for a stable historical thread scope chip. */

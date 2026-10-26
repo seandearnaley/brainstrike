@@ -6,8 +6,8 @@
  * it owns the capability gate and the stable callback, so it stays a real
  * hook rather than a plain function.
  *
- * Returns a ready-to-spread partial (the `checkoutEntry`/`forgeEntry`/
- * `modeEntry` idiom already established in `use-workspace-bar.ts`) so the
+ * Returns a ready-to-spread partial (the `checkoutEntry`/`modeEntry` idiom
+ * already established in `use-workspace-bar.ts`) so the
  * call site carries no conditional of its own — the capability gate is
  * pulled out entirely rather than merely relocated, keeping the calling
  * hook's cognitive-complexity budget untouched by this wiring.

@@ -4,7 +4,6 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
-import type { ForgePrCacheEntry } from '@brainstrike/types';
 import { ActionRegistryProvider, TooltipProvider, toast } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -41,7 +40,6 @@ function createProps(overrides: Partial<ThreadRowProps> = {}): ThreadRowProps {
     onRenameThread: vi.fn().mockResolvedValue(undefined),
     onSelectThread: vi.fn(),
     onUpdateThreadAppearance: vi.fn().mockResolvedValue(undefined),
-    pr: null,
     selected: false,
     status: null,
     thread: THREAD,
@@ -49,44 +47,14 @@ function createProps(overrides: Partial<ThreadRowProps> = {}): ThreadRowProps {
   };
 }
 
-describe('thread row PR pill', () => {
+describe('thread metadata badges', () => {
   const thread: AssistantMemoryThread = {
     createdAt: new Date('2026-08-24T00:00:00Z'),
-    id: 'thread-pr-pill',
+    id: 'thread-badges',
     resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-    title: 'PR pill thread',
+    title: 'Badges thread',
     updatedAt: new Date('2026-08-24T01:00:00Z'),
   };
-  const pr: ForgePrCacheEntry = {
-    branch: 'main',
-    checksRollup: 'failing',
-    isDraft: false,
-    number: 2574,
-    repoCommonDir: '/repos/widgets/.git',
-    state: 'open',
-    url: 'https://github.test/acme/widgets/pull/2574',
-  };
-
-  it('renders the PR number and open failing state', () => {
-    render(<ThreadMetadataBadges branch={null} pr={pr} thread={thread} />);
-
-    const pill = screen.getByTestId('thread-pr-pill');
-    expect(pill).toHaveTextContent('#2574');
-    expect(pill).toHaveAttribute('data-checks', 'failing');
-    expect(pill).toHaveAttribute('data-state', 'open');
-  });
-
-  it('renders no PR pill when there is no cached PR', () => {
-    render(<ThreadMetadataBadges branch={null} pr={null} thread={thread} />);
-
-    expect(screen.queryByTestId('thread-pr-pill')).toBeNull();
-  });
-
-  it('marks merged PRs for faded row styling', () => {
-    render(<ThreadMetadataBadges branch={null} pr={{ ...pr, state: 'merged' }} thread={thread} />);
-
-    expect(screen.getByTestId('thread-pr-pill')).toHaveAttribute('data-state', 'merged');
-  });
 
   describe('provider badge — the wideOnly "protected slot" it can inherit', () => {
     const branchInfo: ThreadBranchInfo = {
@@ -117,11 +85,11 @@ describe('thread row PR pill', () => {
       return screen.getByText('OpenRouter').className;
     }
 
-    // (a) No branch and no PR: provider is the row's first badge, so it takes
+    // (a) No branch: provider is the row's first badge, so it takes
     // over the "always visible in the narrow band" slot instead of also
     // hiding until 560px.
     it('does not wide-gate the provider badge when nothing protected renders', () => {
-      render(<ThreadMetadataBadges branch={null} pr={null} thread={threadWithProvider} />);
+      render(<ThreadMetadataBadges branch={null} thread={threadWithProvider} />);
 
       const className = providerBadgeClassName();
       expect(className).toContain('inline-flex');
@@ -132,7 +100,7 @@ describe('thread row PR pill', () => {
     // (b) Branch present: branch occupies the protected slot, so provider
     // reverts to hiding until 560px, same as model/reasoning/max-output.
     it('wide-gates the provider badge once a branch renders, and keeps the branch visible', () => {
-      render(<ThreadMetadataBadges branch={branchInfo} pr={null} thread={threadWithProvider} />);
+      render(<ThreadMetadataBadges branch={branchInfo} thread={threadWithProvider} />);
 
       const providerClassName = providerBadgeClassName();
       expect(providerClassName).toContain('hidden');
@@ -141,17 +109,6 @@ describe('thread row PR pill', () => {
       const branchClassName = screen.getByText('main').className;
       expect(branchClassName).toContain('inline-flex');
       expect(branchClassName).not.toContain('hidden');
-    });
-
-    // (c) PR present (no branch): the PR pill alone is enough to occupy the
-    // protected slot too.
-    it('wide-gates the provider badge once a PR pill renders', () => {
-      render(<ThreadMetadataBadges branch={null} pr={pr} thread={threadWithProvider} />);
-
-      const providerClassName = providerBadgeClassName();
-      expect(providerClassName).toContain('hidden');
-      expect(providerClassName).toContain('@[560px]/threads:inline-flex');
-      expect(screen.getByTestId('thread-pr-pill')).toBeVisible();
     });
   });
 });

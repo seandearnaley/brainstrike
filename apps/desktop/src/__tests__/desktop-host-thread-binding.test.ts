@@ -26,7 +26,7 @@ if (!(thread && startedAt !== undefined)) {
   throw new Error('The recorded host thread needs its committed creation rows');
 }
 const BINDING = {
-  forgePrWatch: false,
+  checkoutMode: 'local' as const,
   operatingRootDisplayName: 'repo',
   operatingRootId: 'root-repo',
   operatingRootPath: '/ws/repo',
@@ -102,7 +102,7 @@ test('a key the host does not own is refused visibly before any request', async 
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   const calls = request.mock.calls.length;
   await expect(
-    capability.updateThreadBinding(thread, { color: 'emerald', forgePrWatch: true, model: 'gpt-5' })
+    capability.updateThreadBinding(thread, { color: 'emerald', model: 'gpt-5' })
   ).rejects.toThrow(/\bmodel\b/u);
   await expect(
     capability.updateThreadBinding(thread, { operatingRootId: 'root-repo' })

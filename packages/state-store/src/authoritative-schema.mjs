@@ -53,31 +53,6 @@ CREATE TABLE IF NOT EXISTS brainstrike_worktrees (
     CREATE INDEX IF NOT EXISTS brainstrike_worktrees_thread_idx
       ON brainstrike_worktrees (thread_id);
 
--- PostgreSQL migrations 110
-CREATE TABLE IF NOT EXISTS brainstrike_forge_prs (
-      repo_common_dir TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      number INTEGER,
-      url TEXT,
-      title TEXT,
-      state TEXT CHECK (state IS NULL OR state IN ('open', 'closed', 'merged')),
-      is_draft INTEGER CHECK (is_draft IN (0,1)),
-      review_decision TEXT,
-      checks_json TEXT CHECK (checks_json IS NULL OR json_valid(checks_json)),
-      head_sha TEXT,
-      observed_at TEXT NOT NULL,
-      PRIMARY KEY (repo_common_dir, branch),
-      CHECK (
-        (
-          number IS NULL AND url IS NULL AND title IS NULL AND state IS NULL
-          AND is_draft IS NULL AND checks_json IS NULL AND head_sha IS NULL
-        ) OR (
-          number IS NOT NULL AND url IS NOT NULL AND title IS NOT NULL AND state IS NOT NULL
-          AND is_draft IS NOT NULL AND checks_json IS NOT NULL AND head_sha IS NOT NULL
-        )
-      )
-    ) STRICT;
-
 -- PostgreSQL migrations 115 final authority
 CREATE TABLE brainstrike_mcp_task_authorities (
       authority_epoch TEXT PRIMARY KEY NOT NULL,

@@ -13,8 +13,7 @@ function needsAttention(
     !(card.entry.primary || card.entry.usable) ||
     status?.kind === 'error' ||
     (status?.kind === 'ready' &&
-      (!status.value.clean || (status.value.behind !== null && status.value.behind > 0))) ||
-    card.pullRequest?.checksRollup === 'failing'
+      (!status.value.clean || (status.value.behind !== null && status.value.behind > 0)))
   );
 }
 
@@ -106,7 +105,6 @@ export function selectWorktreeCollection(input: {
           card.branchLabel,
           card.thread?.title,
           card.provenanceLabel,
-          card.pullRequest ? `#${card.pullRequest.number}` : '',
         ]
           .join(' ')
           .toLocaleLowerCase();

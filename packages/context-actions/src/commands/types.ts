@@ -3,13 +3,13 @@ import type { ActionOutcome, ActionServices, CapabilityKey, ContextTarget } from
 
 /**
  * Commands extend the reused context-actions capability union with surfaces
- * that have no per-target context action today (a shell, the active git
- * surface, the workspace as a whole). Capability gating is identical to
+ * that have no per-target context action today (a shell, the workspace as a
+ * whole). Capability gating is identical to
  * context-actions: a command whose required capabilities are not present in the
  * app's capability set is HIDDEN — never rendered disabled, never a stub that
  * fails at invoke time.
  */
-export type CommandCapability = CapabilityKey | 'shell' | 'git' | 'workspace';
+export type CommandCapability = CapabilityKey | 'shell' | 'workspace';
 
 /**
  * Determines ordering and section heading in the ⌘K palette. Distinct from

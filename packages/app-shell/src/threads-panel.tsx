@@ -67,7 +67,6 @@ import {
 } from './assistant-thread-presentation';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
 import { useCreateThreadInFolderRepository } from './hooks/use-create-thread-in-folder';
-import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
 import { useOnScreenThreadId } from './hooks/use-on-screen-thread';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
@@ -76,7 +75,6 @@ import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { HostChildSidebarCell } from './host-child-sidebar-cell';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
-import { lookupThreadForgePr } from './thread-forge-pr-resolution';
 import {
   createNativeThreadGroupsRepository,
   getThreadGroupsCapability,
@@ -615,7 +613,6 @@ interface ThreadRowContextProps {
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   /** Folder sections project a thread's root binding; they are not move targets. */
   readonly folderMode: boolean;
-  readonly forgePrLookup: ForgePrCacheLookup;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
   readonly needsYouThreadIds: ReadonlySet<string>;
@@ -829,7 +826,6 @@ function ThreadPanelCell({
         onRenameThread={rowsProps.onRenameThread}
         onSelectThread={rowsProps.onSelectThread}
         onUpdateThreadAppearance={rowsProps.onUpdateThreadAppearance}
-        pr={lookupThreadForgePr(row.thread, rowsProps.branchLookup, rowsProps.forgePrLookup)}
         selected={rowsProps.selectedThreadId === row.thread.id}
         status={resolveThreadRowStatusState({
           failedUnseen: rowsProps.failedUnseenThreadIds.has(row.thread.id),
@@ -1089,7 +1085,6 @@ function ThreadPanelTree({
   activeThreadIds,
   branchLookup,
   failedUnseenThreadIds,
-  forgePrLookup,
   groupHandlers,
   membershipByThreadId,
   moveTargets,
@@ -1112,7 +1107,6 @@ function ThreadPanelTree({
   readonly activeThreadIds: ReadonlySet<string>;
   readonly branchLookup: ThreadBranchLookup;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
-  readonly forgePrLookup: ForgePrCacheLookup;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
@@ -1196,7 +1190,6 @@ function ThreadPanelTree({
       branchLookup,
       failedUnseenThreadIds,
       folderMode,
-      forgePrLookup,
       membershipByThreadId,
       // A folder is not a custom group, so folder mode offers no "Move to …"
       // row action: the binding is the thread's own, re-bound from the
@@ -1217,7 +1210,6 @@ function ThreadPanelTree({
       branchLookup,
       failedUnseenThreadIds,
       folderMode,
-      forgePrLookup,
       membershipByThreadId,
       moveTargets,
       needsYouThreadIds,
@@ -1382,7 +1374,6 @@ function ThreadsPanelContent({
   branchLookup,
   failedUnseenThreadIds,
   folderGrouping,
-  forgePrLookup,
   groupHandlers,
   loadState,
   membershipByThreadId,
@@ -1408,7 +1399,6 @@ function ThreadsPanelContent({
   readonly branchLookup: ThreadBranchLookup;
   readonly failedUnseenThreadIds: ReadonlySet<string>;
   readonly folderGrouping: ThreadPanelFolderGroupingState | null;
-  readonly forgePrLookup: ForgePrCacheLookup;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly loadState: ThreadPanelLoadState | null;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
@@ -1458,7 +1448,6 @@ function ThreadsPanelContent({
       activeThreadIds={activeThreadIds}
       branchLookup={branchLookup}
       failedUnseenThreadIds={failedUnseenThreadIds}
-      forgePrLookup={forgePrLookup}
       groupHandlers={groupHandlers}
       membershipByThreadId={membershipByThreadId}
       moveTargets={moveTargets}
@@ -1492,7 +1481,6 @@ function ThreadsPanelContent({
 function ThreadsPanelToolbar({
   folderSortBy,
   groupBy,
-  hasPrFilterAvailable,
   newGroupDisabled,
   newThreadDisabled,
   newThreadTitle,
@@ -1510,8 +1498,6 @@ function ThreadsPanelToolbar({
 }: {
   readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: ThreadsPanelGroupBy;
-  /** See `ThreadsViewOptionsPopover` — gates whether "Has PR" is offered at all. */
-  readonly hasPrFilterAvailable: boolean;
   readonly newGroupDisabled: boolean;
   readonly newThreadDisabled: boolean;
   readonly newThreadTitle: string;
@@ -1580,7 +1566,6 @@ function ThreadsPanelToolbar({
         <ThreadsViewOptionsPopover
           folderSortBy={folderSortBy}
           groupBy={groupBy}
-          hasPrFilterAvailable={hasPrFilterAvailable}
           onClearThreadFilters={onClearThreadFilters}
           onFolderSortByChange={onFolderSortByChange}
           onGroupByChange={onGroupByChange}
@@ -1743,34 +1728,13 @@ export function ThreadsPanelCore({
     return [...rootIds];
   }, [folderGrouping, threads]);
   const folderRows = useThreadFolderRows(threadRootIds);
-  const {
-    available: branchLookupAvailable,
-    byRootId,
-    byRootIdAndPath,
-    byRootPath,
-  } = useThreadBranchByRootPath({
+  const { byRootId, byRootIdAndPath, byRootPath } = useThreadBranchByRootPath({
     enabled: folderGrouping,
   });
   const branchLookup = useMemo<ThreadBranchLookup>(
     () => ({ byRootId, byRootIdAndPath, byRootPath }),
     [byRootId, byRootIdAndPath, byRootPath]
   );
-  // Gated on folder grouping exactly like the branch chips: the pill only
-  // exists there, and an ungated live query would subscribe every panel mount.
-  const { byRepoBranch: forgePrLookup, error: forgePrError } = useForgePrCache({
-    enabled: folderGrouping,
-  });
-  // "Has PR" can only ever match a thread while folder grouping is active AND
-  // the branch lookup's bridge is present (desktop; web omits it — the
-  // omit-don't-stub constraint, matching how the chips themselves disappear
-  // rather than fabricating a branch). Both `branchLookup` and `forgePrLookup`
-  // above are already gated on `folderGrouping` alone, so `hasPrThreadIds`
-  // below is naturally empty outside that combination — this flag exists so
-  // the OPTION disappears too, and so a filter left ticked from a session
-  // where it worked doesn't silently strand the list at zero rows once its
-  // data sources are gated again.
-  const hasPrFilterAvailable = folderGrouping && branchLookupAvailable;
-
   // Folder sections mint persisted collapse keys; this is the symmetric prune
   // to the one `deleteGroup` does for group keys. The RESOLVED folder rows are
   // the only honest live-root evidence the panel has — an empty map also means
@@ -1788,32 +1752,11 @@ export function ThreadsPanelCore({
     pruneFolderCollapseIds([...folderRowsByRootId.keys()]);
   }, [folderRowsByRootId, folderRowsResolved, pruneFolderCollapseIds]);
 
-  // Ignores a `hasPr: true` left over from a session where folder grouping
-  // (or the branch lookup bridge) was available: without this, leaving that
-  // mode would strand the list at zero rows behind a filter the "Has PR"
-  // option has ALSO just disappeared for (see `hasPrFilterAvailable` above),
-  // with no visible control left to un-tick it.
-  const effectiveThreadFilters = useMemo(
-    () => (hasPrFilterAvailable ? threadFilters : { ...threadFilters, hasPr: false }),
-    [hasPrFilterAvailable, threadFilters]
-  );
-  const threadFiltersActive = hasActiveThreadFilters(effectiveThreadFilters);
-  // "Has PR" is a projection over the same lookup the pill renders from, so a
-  // filtered row and its pill can never disagree.
-  const hasPrThreadIds = useMemo(
-    () =>
-      new Set(
-        threads
-          .filter((thread) => lookupThreadForgePr(thread, branchLookup, forgePrLookup) !== null)
-          .map((thread) => thread.id)
-      ),
-    [branchLookup, forgePrLookup, threads]
-  );
+  const threadFiltersActive = hasActiveThreadFilters(threadFilters);
   const filteredThreads = useMemo(
     () =>
       filterThreadsByThreadFilters({
-        filters: effectiveThreadFilters,
-        hasPrThreadIds,
+        filters: threadFilters,
         needsYouThreadIds: threadsAwaitingApproval.threadIds,
         runningThreadIds: activeThreads.threadIds,
         threads,
@@ -1821,8 +1764,7 @@ export function ThreadsPanelCore({
       }),
     [
       activeThreads.threadIds,
-      effectiveThreadFilters,
-      hasPrThreadIds,
+      threadFilters,
       threads,
       threadsAwaitingApproval.threadIds,
       unseenThreadIds.unseen,
@@ -2078,7 +2020,6 @@ export function ThreadsPanelCore({
       <ThreadsPanelToolbar
         folderSortBy={folderSortBy}
         groupBy={groupBy}
-        hasPrFilterAvailable={hasPrFilterAvailable}
         newGroupDisabled={!groupsRepository}
         newThreadDisabled={loadState?.status === 'loading'}
         newThreadTitle="Create a new Mastra memory thread for this workspace."
@@ -2133,11 +2074,6 @@ export function ThreadsPanelCore({
           Approval status unavailable: {threadsAwaitingApproval.error.message}
         </p>
       ) : null}
-      {forgePrError ? (
-        <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-pr-status-error">
-          Pull request status unavailable: {forgePrError.message}
-        </p>
-      ) : null}
 
       <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 overflow-hidden'}>
         <ThreadsPanelContent
@@ -2145,7 +2081,6 @@ export function ThreadsPanelCore({
           branchLookup={branchLookup}
           failedUnseenThreadIds={unseenThreadIds.failedUnseen}
           folderGrouping={folderGroupingState}
-          forgePrLookup={forgePrLookup}
           groupHandlers={{
             collapsedGroupIds,
             onDeleteGroup: handleDeleteGroup,

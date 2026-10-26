@@ -66,8 +66,8 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({ useFileSystem: () => cur
 // test is the production one.
 const showItemInFolder = vi.fn(async () => ({ ok: true }));
 
-const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, forgePrSpy, loggerMock, toastSpy } =
-  vi.hoisted(() => ({
+const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, loggerMock, toastSpy } = vi.hoisted(
+  () => ({
     branchSwitcherSpy: vi.fn(),
     checkoutSpy: vi.fn(
       (
@@ -87,7 +87,6 @@ const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, forgePrSpy, loggerMo
       })
     ),
     clipboardWriteText: vi.fn(),
-    forgePrSpy: vi.fn(),
     loggerMock: {
       debug: vi.fn(),
       error: vi.fn(),
@@ -97,10 +96,10 @@ const { branchSwitcherSpy, checkoutSpy, clipboardWriteText, forgePrSpy, loggerMo
       warn: vi.fn(),
     },
     toastSpy: vi.fn(),
-  }));
+  })
+);
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
-vi.mock('../hooks/use-thread-forge-pr', () => ({ useThreadForgePr: forgePrSpy }));
 vi.mock('../hooks/use-thread-checkout-status', () => ({ useThreadCheckoutStatus: checkoutSpy }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
@@ -289,8 +288,6 @@ beforeEach(() => {
   branchSwitcherSpy.mockReset();
   branchSwitcherSpy.mockReturnValue(branchMenu);
   checkoutSpy.mockClear();
-  forgePrSpy.mockReset();
-  forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
   loggerMock.debug.mockClear();
   loggerMock.error.mockClear();
@@ -328,8 +325,6 @@ describe('useWorkspaceBar — failure and success surfacing', () => {
       variant: 'destructive',
     });
   });
-
-  // F4's onCopyUrl regression test lives in use-workspace-bar-forge.test.ts.
 
   it('surfaces a failed Add folder with the platform message, never a bare log', async () => {
     fs.addRootDirectory.mockRejectedValueOnce(new Error('The folder picker was unavailable.'));

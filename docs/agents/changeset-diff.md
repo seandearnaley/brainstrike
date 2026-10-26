@@ -37,8 +37,8 @@ unreadable chains prevent reclamation. Per-edit undo and whole-turn shadow Git a
 separate restoration paths.
 
 Changes/worktree IPC uses declared visible-UI capabilities and strict envelopes;
-web omits them. Reuse the same structured diff engine in Changes and Git History,
-with explicit invalidation and safe failure surfaces. A worktree status still
+web omits them. Changes uses the structured diff engine, with explicit
+invalidation and safe failure surfaces. A worktree status still
 loading is not a clean checkout; closing UI does not mutate durable run history.
 
 Implementation: `packages/types/src/changeset.ts` and desktop changeset,

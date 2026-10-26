@@ -316,16 +316,16 @@ describe('RootLayoutContent', () => {
     vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
 
     const view = renderComponent({
-      gitPageContent: <div data-testid="git-page">Git</div>,
+      browserPageContent: <div data-testid="browser-page">Browser</div>,
     });
     expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'unavailable',
     });
     view.rerender(
       <RootLayoutContent
+        browserPageContent={<div data-testid="browser-page">Browser</div>}
         deleteRootData={async () => undefined}
         diagnosticFeatureFlags={['diagnostics-v2']}
-        gitPageContent={<div data-testid="git-page">Git</div>}
         navigationItems={navigationItems}
         settingsPageContent={<div data-testid="settings-page">Settings</div>}
       />
@@ -335,7 +335,7 @@ describe('RootLayoutContent', () => {
       sampleCount: 0,
     });
     act(() => {
-      mockHandlers.onNavigationClick('/git');
+      mockHandlers.onNavigationClick('/browser');
     });
 
     expect(callbacks).toHaveLength(1);
@@ -350,7 +350,7 @@ describe('RootLayoutContent', () => {
     expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'available',
       featureFlags: [{ count: 1, flag: 'diagnostics-v2' }],
-      routes: [{ count: 1, route: 'git' }],
+      routes: [{ count: 1, route: 'browser' }],
     });
 
     view.unmount();
@@ -383,7 +383,7 @@ describe('RootLayoutContent', () => {
     expect(settingsRoute).toHaveAttribute('aria-hidden', 'false');
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
     // A tab, not an overlay: nothing is layered, and the explorer is hidden
-    // underneath exactly like it is behind git/notes/browser.
+    // underneath exactly like it is behind the browser.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
     expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
@@ -401,7 +401,7 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
   });
 
-  it('reaches settings from the nav rail like git and notes', () => {
+  it('reaches settings from the nav rail like any other route', () => {
     renderComponent();
 
     act(() => {
@@ -417,13 +417,13 @@ describe('RootLayoutContent', () => {
       navigationItems: [
         { icon: () => <div />, name: 'Context Explorer', path: '/' },
         { icon: () => <div />, name: 'Settings', path: '/settings' },
-        { icon: () => <div />, name: 'Git', path: '/git' },
+        { icon: () => <div />, name: 'Browser', path: '/browser' },
       ],
     });
 
     // The wrappers append capability-gated routes AFTER the shared list, so
     // the shell owns the rule that Settings is the last rail item.
-    expect(mockHandlers.navigationPaths).toEqual(['/', '/git', '/settings']);
+    expect(mockHandlers.navigationPaths).toEqual(['/', '/browser', '/settings']);
   });
 
   it('refuses a navigation list without the settings rail item instead of hiding Settings', () => {
@@ -439,21 +439,21 @@ describe('RootLayoutContent', () => {
   });
 
   it('switches between settings and another shell tab without unmounting either', () => {
-    usePanelLayoutStore.setState({ activeTab: 'git' });
-    renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
+    usePanelLayoutStore.setState({ activeTab: 'browser' });
+    renderComponent({ browserPageContent: <div data-testid="browser-page">Browser</div> });
 
     act(() => {
       usePanelLayoutStore.getState().openSettings();
     });
     expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
-    expect(screen.getByTestId('git-route')).toHaveClass('hidden');
+    expect(screen.getByTestId('browser-route')).toHaveClass('hidden');
 
     act(() => {
-      mockHandlers.onNavigationClick('/git');
+      mockHandlers.onNavigationClick('/browser');
     });
 
-    expect(usePanelLayoutStore.getState().activeTab).toBe('git');
-    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('browser');
+    expect(screen.getByTestId('browser-route')).not.toHaveClass('hidden');
     // Keep-mounted contract: hidden, not gone.
     const settingsRoute = screen.getByTestId('settings-route');
     expect(settingsRoute).toHaveClass('hidden');
@@ -463,12 +463,12 @@ describe('RootLayoutContent', () => {
 
   it('keeps prompts mounted on every hidden outer route', () => {
     renderComponent({
-      gitPageContent: <div>Git</div>,
+      browserPageContent: <div>Browser</div>,
     });
 
     const promptManager = screen.getByTestId('connected-prompt-manager');
 
-    for (const path of ['/git']) {
+    for (const path of ['/browser']) {
       act(() => {
         mockHandlers.onNavigationClick(path);
       });
@@ -522,7 +522,7 @@ describe('RootLayoutContent', () => {
     await act(async () => mockHandlers.onOpenSettings());
 
     // The modal unmounted its content on close; a keep-mounted route keeps
-    // in-progress edits exactly like the git/notes surfaces do.
+    // in-progress edits exactly like the browser surface does.
     expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
     expect(screen.getByTestId('settings-input')).toHaveValue('persist me');
   });

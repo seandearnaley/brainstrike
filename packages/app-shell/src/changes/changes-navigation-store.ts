@@ -145,9 +145,8 @@ export interface ChangesNavigationState {
    * Show `changeset` on the Changes surface AND open/activate the Changes
    * workspace app tab. Used ONLY by external entry points — today the
    * assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
-   * `useChangesReviewValue` in `root-layout-content.tsx`) and the git
-   * panel's worktree dropdown (BST-1116 W6, `git-workbench-header.tsx`).
-   * Both pair this call with a SHELL-route switch to `explorer` via
+   * `useChangesReviewValue` in `root-layout-content.tsx`). It pairs this
+   * call with a SHELL-route switch to `explorer` via
    * `usePanelLayoutStore.setActiveTab`, since the workspace panel only
    * exists on that route; this action owns only the panel-tab half. The tab
    * activation (BST-1258: `useWorkspaceTabSelectionStore.openApp('changes')`)

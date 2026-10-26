@@ -38,7 +38,6 @@ export type ThreadOrderPresentation = 'flat' | 'grouped';
 
 /** Session-only Threads-panel filters; never persisted, cleared by `reset()`. */
 export interface ThreadFilters {
-  readonly hasPr: boolean;
   readonly needsYou: boolean;
   readonly running: boolean;
   readonly unseen: boolean;
@@ -178,7 +177,6 @@ function requireThreadIds(threadIds: readonly string[]): readonly string[] {
 }
 
 const DEFAULT_THREAD_FILTERS: ThreadFilters = {
-  hasPr: false,
   needsYou: false,
   running: false,
   unseen: false,

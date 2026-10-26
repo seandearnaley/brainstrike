@@ -1,12 +1,9 @@
 /**
  * The composer Branch chip's interactive half (spec §4.2).
  *
- * Reads the SAME data path the git panel's workbench header uses —
- * the Git bridge's `repository(rootId)` for the recency-sorted local branches
- * (`for-each-ref --sort=-committerdate`), PLUS its own Git bridge `status(rootId)`
- * read (the header already had one as a prop; this hook has no equivalent
- * parent, so it fetches its own) — and shapes both through the shared
- * `buildBranchSwitchModel` / `deriveBranchSwitchDirty`. No polling: both reads
+ * Reads the Git bridge's `repository(rootId)` for the recency-sorted local
+ * branches (`for-each-ref --sort=-committerdate`) and `status(rootId)`, and
+ * shapes both through `buildBranchSwitchModel` / `deriveBranchSwitchDirty`. No polling: both reads
  * are keyed on the same live-refresh nonce `useThreadCheckoutStatus` uses, and
  * every mutation refreshes the inventory so the next open cannot describe
  * pre-switch topology.
@@ -34,8 +31,8 @@ import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useChangesLiveRefreshStore } from '../changes/changes-live-refresh-store';
 import { useGitInventory } from '../changes/use-git-inventory';
-import { buildBranchSwitchModel, deriveBranchSwitchDirty } from '../git-panel/branch-switch-model';
 import { useGitBridge } from '../workspace-git-services';
+import { buildBranchSwitchModel, deriveBranchSwitchDirty } from './branch-switch-model';
 
 const logger = createLogger('BranchSwitcher');
 

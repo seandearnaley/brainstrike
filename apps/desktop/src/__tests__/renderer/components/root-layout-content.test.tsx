@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import type { GitBridge } from '@brainstrike/app-shell/git-panel';
 import {
   NO_WORKSPACE_GIT_SERVICES,
   useWorktreesBridge,
@@ -79,31 +78,13 @@ vi.mock('@brainstrike/app-shell/navigation', () => ({
   navigationItems: [],
 }));
 
-// The agent host serves the git cluster (ADR-0029), and the Git and Worktrees
-// surfaces are capability-gated on its bridges. `workspaceGitMock` lets each
+// The agent host serves the git cluster (ADR-0029), and the Worktrees
+// surface is capability-gated on its bridge. `workspaceGitMock` lets each
 // test choose which bridges the host serves (default none = web-safe).
 const workspaceGitMock = vi.fn((): WorkspaceGitServices => NO_WORKSPACE_GIT_SERVICES);
 vi.mock('../../../renderer/host-git-workspace', () => ({
   resolveDesktopWorkspaceGitServices: () => workspaceGitMock(),
 }));
-
-const GIT_BRIDGE: GitBridge = {
-  aheadBehind: vi.fn(),
-  commit: vi.fn(),
-  commitFiles: vi.fn(),
-  createBranch: vi.fn(),
-  diff: vi.fn(),
-  fetch: vi.fn(),
-  history: vi.fn(),
-  pull: vi.fn(),
-  push: vi.fn(),
-  repository: vi.fn(),
-  stage: vi.fn(),
-  status: vi.fn(),
-  structuredFileDiff: vi.fn(),
-  switchBranch: vi.fn(),
-  unstage: vi.fn(),
-};
 
 const WORKTREES_BRIDGE: WorktreesBridge = {
   adopt: vi.fn(),
@@ -119,10 +100,6 @@ const WORKTREES_BRIDGE: WorktreesBridge = {
   restore: vi.fn(),
   setSettings: vi.fn(),
 };
-
-vi.mock('../../../renderer/components/git-page-content', () => ({
-  default: () => <div data-testid="git-page-content" />,
-}));
 
 // The agent host serves the terminal cluster the same way (default none =
 // web-safe); the page content mock below keeps @xterm out of this test.
@@ -156,7 +133,6 @@ vi.mock('../../../renderer/components/logs-page-content', () => ({
 
 vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
   RootLayoutContent: (props: {
-    gitPageContent?: React.ReactNode;
     navigationItems?: Array<{ name: string; path: string }>;
     promptsPageContent?: React.ReactNode;
     settingsPageContent?: React.ReactNode;
@@ -164,11 +140,11 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
     worktreeMapPageContent?: React.ReactNode;
   }) => {
     sharedRootLayoutCapture.props = props as Record<string, unknown>;
-    const { gitPageContent, navigationItems, settingsPageContent, terminalPageContent } = props;
+    const { navigationItems, settingsPageContent, terminalPageContent } = props;
     return (
       <div data-testid="file-explorer-provider">
         <div data-testid="app-layout">
-          {/* Surface the nav items + git/terminal pages so capability-gating can
+          {/* Surface the nav items + terminal page so capability-gating can
               be asserted. */}
           <nav data-testid="nav-items">
             {(navigationItems ?? []).map((item) => (
@@ -180,7 +156,6 @@ vi.mock('@brainstrike/app-shell/root-layout-content', () => ({
           {/* The Files surface belongs to the shared layout (BST-2018); the app
               passes only its own pages, kept mounted as the shell keeps them. */}
           <main>{settingsPageContent}</main>
-          {gitPageContent ? <aside data-testid="git-page-slot">{gitPageContent}</aside> : null}
           {terminalPageContent ? (
             <aside data-testid="terminal-page-slot">{terminalPageContent}</aside>
           ) : null}
@@ -256,7 +231,7 @@ describe('RootLayoutContent', () => {
     settingsMountCount = 0;
     vi.clearAllMocks();
     sharedRootLayoutCapture.props = null;
-    // Default: Git + Terminal + Worktrees bridges unavailable (web-safe).
+    // Default: Terminal + Worktrees bridges unavailable (web-safe).
     // clearAllMocks wiped the impls.
     workspaceGitMock.mockReturnValue(NO_WORKSPACE_GIT_SERVICES);
     workspaceTerminalsMock.mockReturnValue(NO_WORKSPACE_TERMINAL_SERVICES);
@@ -308,24 +283,6 @@ describe('RootLayoutContent', () => {
     render(<RootLayoutContent />);
     expect(sharedRootLayoutCapture.props).not.toHaveProperty('promptsPageContent');
     expect(screen.queryByTestId('nav-item-/prompts')).not.toBeInTheDocument();
-  });
-
-  it('does NOT surface the Git tab when the host serves no Git bridge (web-safe gate)', () => {
-    render(<RootLayoutContent />);
-    expect(screen.queryByTestId('nav-item-/git')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('git-page-slot')).not.toBeInTheDocument();
-  });
-
-  it('surfaces the Git nav item + mounts the git page when the host serves the Git bridge', () => {
-    workspaceGitMock.mockReturnValue({ ...NO_WORKSPACE_GIT_SERVICES, git: GIT_BRIDGE });
-    render(<RootLayoutContent />);
-    const gitNavItem = screen.getByTestId('nav-item-/git');
-    expect(gitNavItem).toBeInTheDocument();
-    expect(gitNavItem).toHaveTextContent('Git');
-    // gitPageContent was passed → the git page surface mounts.
-    const gitSlot = screen.getByTestId('git-page-slot');
-    expect(gitSlot).toBeInTheDocument();
-    expect(within(gitSlot).getByTestId('git-page-content')).toBeInTheDocument();
   });
 
   it('does NOT surface the Terminal tab when the host serves no terminal bridge (web-safe gate)', () => {

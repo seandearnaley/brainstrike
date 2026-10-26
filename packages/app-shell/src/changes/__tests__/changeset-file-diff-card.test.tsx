@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Stub the heavy CodeMirror DiffView (covered by its own suite) — surface the
 // `source` prop so the card→DiffView wiring is asserted without mounting CM6.
-// Mirrors the established pattern in `git-panel.test.tsx`.
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {

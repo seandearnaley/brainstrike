@@ -12,10 +12,10 @@ import {
 import { type DesktopHostConnection, windowHostConnection } from './desktop-host-connection';
 import { hostStream } from './host-stream';
 
-/** The host methods behind the desktop's git panel, Changes, forge and worktrees. */
+/** The host methods behind the desktop's Changes, branch chip and worktrees. */
 export type DesktopGitWorkspaceMethod = Extract<
   HostMethod,
-  `changes/${string}` | `forge/${string}` | `git/${string}` | `worktrees/${string}`
+  `changes/${string}` | `git/${string}` | `worktrees/${string}`
 >;
 
 let windowServices: WorkspaceGitServices | undefined;
@@ -43,11 +43,7 @@ export function createDesktopWorkspaceGitServices(
   let generation = 0;
   const receive = (event: GitWorkspaceEvent): void => {
     generation += 1;
-    events.dispatch(
-      event.type === 'changes-invalidated'
-        ? { event: { ...event.event, generation }, type: event.type }
-        : { event: { ...event.event, generation }, type: event.type }
-    );
+    events.dispatch({ event: { ...event.event, generation }, type: event.type });
   };
   const client = async (): Promise<HostClient> => {
     const host = await connection.current();
@@ -84,34 +80,14 @@ export function createDesktopWorkspaceGitServices(
         }),
       resolveView: (rootId, changeset) => request('changes/resolve-view', { changeset, rootId }),
     },
-    forge: {
-      cacheSnapshot: () => request('forge/cache-snapshot', {}),
-      identity: (rootId) => request('forge/identity', { rootId }),
-      onPrUpdated: (listener) =>
-        events.subscribe((event) => {
-          if (event.type === 'forge-pr-updated') {
-            listener(event.event);
-          }
-        }),
-      prStatus: (rootId) => request('forge/pr-status', { rootId }),
-      refresh: (rootId, { reason }) => request('forge/refresh', { reason, rootId }),
-    },
     git: {
-      aheadBehind: (rootId) => request('git/ahead-behind', { rootId }),
       commit: (rootId, params) => request('git/commit', { ...params, rootId }),
-      commitFiles: (rootId, { commit }) => request('git/commit-files', { commit, rootId }),
       createBranch: (rootId, params) => request('git/create-branch', { ...params, rootId }),
-      diff: (rootId, diff) => request('git/diff', { diff, rootId }),
       fetch: (rootId, { remote }) => request('git/fetch', { remote, rootId }),
-      history: (rootId, params) => request('git/history', { ...params, rootId }),
-      pull: (rootId) => request('git/pull', { rootId }),
       push: (rootId, params) => request('git/push', { ...params, rootId }),
       repository: (rootId) => request('git/repository', { rootId }),
-      stage: (rootId, params) => request('git/stage', { ...params, rootId }),
       status: (rootId) => request('git/status', { rootId }),
-      structuredFileDiff: (rootId, diff) => request('git/structured-file-diff', { diff, rootId }),
       switchBranch: (rootId, { branch }) => request('git/switch-branch', { branch, rootId }),
-      unstage: (rootId, params) => request('git/unstage', { ...params, rootId }),
     },
     worktrees: {
       adopt: (params) => request('worktrees/adopt', params),

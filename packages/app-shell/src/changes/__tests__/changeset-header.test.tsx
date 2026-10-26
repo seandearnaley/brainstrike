@@ -6,7 +6,6 @@ import type {
   GitRepository,
   GitResult,
   GitStatus,
-  StructuredFileDiff,
 } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -16,7 +15,7 @@ import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
 } from '../../assistant-thread-host-context';
-import type { GitBridge } from '../../git-panel/git-bridge';
+import type { GitBridge } from '../../git-bridge';
 import type { WorkspaceGitServices } from '../../workspace-git-services';
 import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
@@ -90,34 +89,18 @@ function installGitBridge(): void {
     isRepository: true,
     upstream: null,
   };
-  const structuredFileDiff: StructuredFileDiff = {
-    additions: 0,
-    content: { kind: 'binary' },
-    deletions: 0,
-    hunks: [],
-    path: '',
-    status: 'modified',
-  };
   const bridge: GitBridge = {
-    aheadBehind: vi.fn(async () => ok({ ahead: 0, behind: 0, hasUpstream: false, upstream: null })),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
-    commitFiles: vi.fn(async () => ok([])),
     createBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
       ok({ branch: params.branch })
     ),
-    diff: vi.fn(async () => ok({ path: '', staged: false, truncated: false, unifiedDiff: '' })),
     fetch: vi.fn(async () => ok({ output: '' })),
-    history: vi.fn(async () => ok({ commits: [], hasMore: false, limit: 100, offset: 0 })),
-    pull: vi.fn(async () => ok({ output: '' })),
     push: vi.fn(async () => ok({ output: '' })),
     repository: vi.fn(async () => ok(repository)),
-    stage: vi.fn(async () => ok(null)),
     status: vi.fn(async () => ok(status)),
-    structuredFileDiff: vi.fn(async () => ok(structuredFileDiff)),
     switchBranch: vi.fn(async (_rootId: string, params: { branch: string }) =>
       ok({ branch: params.branch })
     ),
-    unstage: vi.fn(async () => ok(null)),
   };
   installed = { ...installed, git: bridge };
 }

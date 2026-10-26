@@ -10,7 +10,7 @@ import { type ReactElement, useMemo } from 'react';
 /**
  * The composer workspace bar for a committed host thread.
  *
- * Thread folder, checkout and PR-watch writes go through the same host-routed
+ * Thread folder and checkout writes go through the same host-routed
  * repository the thread tabs use: a host-owned thread commits them as its
  * workspace binding, which stays authoritative for the thread's operating
  * root and checkout. Core commits a scope change only after Main's live

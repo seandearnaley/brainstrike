@@ -17,10 +17,9 @@
  *    any); and no `:` (the `<ref>:./<path>` spec we build ourselves uses
  *    the FIRST `:` as its own separator — a ref containing one would
  *    corrupt that spec, silently pointing at the wrong object). `commitId`
- *    is additionally constrained to a full git object id (the same
- *    `[0-9a-f]{40,64}` shape `git-history.ts`'s `requireCommitId` already
- *    uses for a renderer-supplied commit id) because the engine always
- *    receives it pre-resolved to a SHA; `baseRef` stays a general (but
+ *    is additionally constrained to a full git object id
+ *    (`[0-9a-f]{40,64}`) because the engine always receives it
+ *    pre-resolved to a SHA; `baseRef` stays a general (but
  *    still injection-safe) ref string because ITS caller-resolved value
  *    may legitimately be a branch name (`origin/main`), a tag, a SHA, or
  *    the empty-tree sentinel below — the engine never resolves a symbolic
@@ -29,14 +28,11 @@
  *
  * 2. ROOT-COMMIT FALLBACK: `commit` mode's old side is normally
  *    `<commitId>^`, which does not exist for a root commit (no parent).
- *    Detection mirrors `git-history.ts`'s `resolveFirstParent` precedent
- *    exactly (`git rev-list --parents -n 1 <commit>` — a root commit's
- *    output has no second token) — but where that module then picks a
- *    DIFFERENT DIFF COMMAND for the root case (`git show --format=`, which
- *    diffs a commit against the empty tree implicitly), this module needs
- *    an actual REF STRING: every side of a `structuredFileDiff` is read
- *    INDIVIDUALLY via `readRefBlob`'s `<ref>:./<path>` spec, not assembled
- *    from one combined diff invocation. So a root commit's "old ref"
+ *    Detection uses `git rev-list --parents -n 1 <commit>` (a root commit's
+ *    output has no second token). The old side must be an actual REF
+ *    STRING: every side of a `structuredFileDiff` is read INDIVIDUALLY via
+ *    `readRefBlob`'s `<ref>:./<path>` spec, not assembled from one combined
+ *    diff invocation. So a root commit's "old ref"
  *    resolves to git's well-known empty-tree object id instead.
  *    `readRefBlob` against that id then naturally reports every path as
  *    "absent" (the empty tree object has zero entries), which flows
@@ -106,8 +102,7 @@ function validateRefArg(value: unknown, fieldName: string): GitResult<string> {
 
 /**
  * Validate a renderer-supplied `commitId` (mode `commit`): the shared ref
- * safety rule plus the exact full-object-id shape `git-history.ts`'s
- * `requireCommitId` uses for the same kind of field.
+ * safety rule plus the exact full-object-id shape.
  */
 export function validateCommitId(value: unknown): GitResult<string> {
   const safe = validateRefArg(value, 'commitId');
@@ -154,15 +149,14 @@ export async function resolveEmptyTreeHash(invoke: InvokeFn): Promise<GitResult<
 /**
  * Resolve `commit` mode's OLD ref for {@link resolveEmptyTreeHash}'s
  * root-commit fallback: `${commitId}^` when a first parent exists (validated
- * via the `git-history.ts`-precedented `rev-list --parents` probe below —
+ * via the `rev-list --parents` probe below —
  * never trusted blind, since an invalid `commitId` must surface as a typed
  * error here rather than a confusing absent-side result downstream), or the
  * PER-REPO empty-tree id when `commitId` names a root commit. See this
  * module's doc comment, ROOT-COMMIT FALLBACK.
  *
  * For a MERGE commit `^` names the FIRST parent, so `commit` mode is a
- * first-parent diff — the same semantics `git-history.ts` established. That
- * is honest, not a defect: changes that arrived via the
+ * first-parent diff. That is honest, not a defect: changes that arrived via the
  * merged branch appear as the merge's changes, while mainline changes
  * between the merge-base and the merge appear as no difference.
  */

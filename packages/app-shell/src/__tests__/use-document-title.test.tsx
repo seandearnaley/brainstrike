@@ -44,9 +44,9 @@ describe('useDocumentTitle', () => {
     render(<TitleWriter />);
 
     act(() => {
-      usePanelLayoutStore.getState().setActiveTab('git');
+      usePanelLayoutStore.getState().setActiveTab('browser');
     });
-    expect(document.title).toBe('Git - BrainStrike.ai');
+    expect(document.title).toBe('Browser - BrainStrike.ai');
 
     act(() => {
       usePanelLayoutStore.getState().setActiveTab('terminal');
@@ -83,10 +83,10 @@ describe('useDocumentTitle', () => {
     );
 
     act(() => {
-      usePanelLayoutStore.getState().setActiveTab('git');
+      usePanelLayoutStore.getState().setActiveTab('browser');
     });
 
-    expect(readTitles()).toEqual(['Git - BrainStrike.ai']);
+    expect(readTitles()).toEqual(['Browser - BrainStrike.ai']);
     expect(readDescriptions()).toEqual(['Multi-app dashboard']);
   });
 });

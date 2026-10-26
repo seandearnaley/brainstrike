@@ -8,10 +8,8 @@
  *    run inside a folder the user actually opened. `realpath` then canonicalizes
  *    that root to its real path, which becomes the pinned cwd (git runs AT the
  *    root — there is no user-supplied subpath here to widen).
- * 2. Per-PATH containment (the `path` arg of diff/stage/unstage, and the paths
- *    `git status` reports) is enforced inside the service: status is scoped to
- *    the opened root and path args that are absolute or escape via `..` are
- *    rejected before reaching git.
+ * 2. The paths `git status` reports are scoped to the opened root inside the
+ *    service.
  * 3. Run `git` through {@link createGitService} with a `spawn`-backed runner
  *    — args array, NO shell, so a branch name / commit message / path can never
  *    inject a command. No `exec`/`execSync` anywhere.
@@ -24,13 +22,11 @@ import type { Readable } from 'node:stream';
 import { createLogger } from '@brainstrike/logging';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import { endTreeOnDeadline, spawnNativeChild } from '@brainstrike/state-store/native-children';
-import type { StructuredFileDiffParams } from '@brainstrike/types';
 import {
   createGitService,
   GIT_MAX_BUFFER_BYTES,
   type GitCommandRun,
   type GitCommandRunner,
-  type GitDiffParams,
   type GitResult,
 } from './assistant-server/git-service';
 import { loadWorkspaceRootsFromCatalog } from './assistant-server/workspace-roots';
@@ -270,13 +266,10 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
   }
 
   return {
-    aheadBehind: (rootId: unknown) => withService(rootId, (service) => service.aheadBehind()),
     commit: (rootId: unknown, params: { description?: string; summary: string }) =>
       withService(rootId, (service) =>
         service.commit({ description: params?.description, summary: params?.summary })
       ),
-    commitFiles: (rootId: unknown, params: { commit: string }) =>
-      withService(rootId, (service) => service.commitFiles({ commit: params?.commit })),
     createBranch: (rootId: unknown, params: { branch: string; startPoint?: string }) =>
       withService(rootId, (service) =>
         service.createBranch({
@@ -287,29 +280,14 @@ export function createGitIpcHandlers({ resolver, run = execFileGitRunner }: GitI
           ...(params?.startPoint === undefined ? {} : { startPoint: params.startPoint }),
         })
       ),
-    diff: (rootId: unknown, params: unknown) =>
-      withService(rootId, (service) => service.diff(params as GitDiffParams)),
     fetch: (rootId: unknown, params: { remote: string }) =>
       withService(rootId, (service) => service.fetch({ remote: params?.remote })),
-    history: (rootId: unknown, params: { limit: number; offset: number; ref?: string }) =>
-      withService(rootId, (service) =>
-        service.history({ limit: params?.limit, offset: params?.offset, ref: params?.ref })
-      ),
-    pull: (rootId: unknown) => withService(rootId, (service) => service.pull()),
     push: (rootId: unknown, params: { remote?: string } = {}) =>
       withService(rootId, (service) => service.push({ remote: params?.remote })),
     repository: (rootId: unknown) => withService(rootId, (service) => service.repository()),
-    stage: (rootId: unknown, params: { path?: string } = {}) =>
-      withService(rootId, (service) => service.stage({ path: params.path })),
     status: (rootId: unknown) => withService(rootId, (service) => service.status()),
-    structuredFileDiff: (rootId: unknown, params: unknown) =>
-      withService(rootId, (service) =>
-        service.structuredFileDiff(params as StructuredFileDiffParams)
-      ),
     switchBranch: (rootId: unknown, params: { branch: string }) =>
       withService(rootId, (service) => service.switchBranch({ branch: params?.branch })),
-    unstage: (rootId: unknown, params: { path?: string } = {}) =>
-      withService(rootId, (service) => service.unstage({ path: params.path })),
   };
 }
 

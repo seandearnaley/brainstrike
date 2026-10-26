@@ -19,8 +19,8 @@ the host". In practice Main still owns most workspace services. Measured on `mai
 - Main serves about 199 renderer IPC channels in 36 domains, and about 45 methods the
   agent host calls back for its own tools (`platform/*`, `desktop-read/*`, MCP stores).
 - Quit runs 12 ordered steps (`DESKTOP_SHUTDOWN_STEP_ORDER`). Most exist only because a
-  Node-only service lives in Main: child processes, file system, git inventory, forge,
-  MCP runtime, main catalog.
+  Node-only service lives in Main: child processes, file system, git inventory, MCP
+  runtime, main catalog.
 
 Native work in Main is why ADR-0027 keeps joining `@parcel/watcher` subscribes and root
 reads on Main's own threads: work that outlives Node's environment crashes Main
@@ -34,7 +34,7 @@ store's single writer.
 
 Two alternatives were weighed. Keeping Main as is costs nothing now and keeps the quit
 and crash class. A separate Electron-free workspace process isolates crashes best, but
-the worktree ledger, snapshots and forge cache write durable data, so it would borrow
+the worktree ledger and snapshots write durable data, so it would borrow
 the host's writer across a process boundary, and it adds a third readiness, liveness and
 close lifecycle that the CLI would not share.
 
@@ -48,7 +48,7 @@ close lifecycle that the CLI would not share.
    - the renderer flush and shutdown-time exit labelling (ADR-0027).
 2. **Node-only workspace services move into the agent host**, under
    `@brainstrike/host-capabilities`, the existing Electron-free owner of native tools,
-   hooks and MCP: git, changes and forge; worktrees, snapshots and rewind; terminals and
+   hooks and MCP: git and changes; worktrees, snapshots and rewind; terminals and
    LSP; file watching and Explorer reads; skills, commands and personas; MCP control.
    Renderers call them over the port they already hold; Main relays nothing.
 3. **One owner per service at every step.** Each stage moves one area and deletes Main's
@@ -67,10 +67,10 @@ its Main side and quit step:
 
 1. This ADR.
 2. Skills, commands and personas (2a), then the whole git cluster (2b): worktrees,
-   snapshots and rewind, Git, Changes and forge. The host called these back, and the
+   snapshots and rewind, Git and Changes. The host called these back, and the
    panels read them over IPC; both callers now use host methods, gated to the
    desktop's private client, and the `platform/*` methods, IPC domains and the
-   `snapshot-maintenance`, `git-inventory` and `forge` steps go. Personas report
+   `snapshot-maintenance` and `git-inventory` steps go. Personas report
    availability against Main's model catalog, so they move with it. The git cluster
    moves as one stage because its services share one inventory, ledger and resolver.
 3. Terminals and LSP. The Terminal panel's terminals and command-session inventory

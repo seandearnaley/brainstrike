@@ -1,4 +1,4 @@
-/** Shared renderer/main contract for Brainstrike's local Git workbench. */
+/** Shared renderer/main contract for Brainstrike's local git operations. */
 
 /** Discriminated result envelope returned across the desktop IPC boundary. */
 export type GitResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -20,26 +20,6 @@ export interface GitStatus {
   readonly clean: boolean;
   readonly files: readonly GitStatusFile[];
   readonly isRepository: boolean;
-  readonly upstream: string | null;
-}
-
-export interface GitDiff {
-  readonly path: string | null;
-  readonly staged: boolean;
-  readonly truncated: boolean;
-  readonly unifiedDiff: string;
-}
-
-/** Explicit diff source; invalid staged/untracked combinations are unrepresentable. */
-export type GitDiffParams =
-  | { readonly mode: 'staged'; readonly path?: string }
-  | { readonly mode: 'untracked'; readonly path: string }
-  | { readonly mode: 'working'; readonly path?: string };
-
-export interface GitAheadBehind {
-  readonly ahead: number | null;
-  readonly behind: number | null;
-  readonly hasUpstream: boolean;
   readonly upstream: string | null;
 }
 
@@ -89,26 +69,6 @@ export interface GitRepository {
   readonly worktrees: readonly GitWorktreeSummary[];
 }
 
-export interface GitHistoryCommit {
-  readonly authorEmail: string;
-  readonly authoredAt: string;
-  readonly authorName: string;
-  readonly body: string;
-  readonly committedAt: string;
-  readonly decoration: string;
-  readonly id: string;
-  readonly parentIds: readonly string[];
-  readonly shortId: string;
-  readonly summary: string;
-}
-
-export interface GitHistoryPage {
-  readonly commits: readonly GitHistoryCommit[];
-  readonly hasMore: boolean;
-  readonly limit: number;
-  readonly offset: number;
-}
-
 export interface GitCommitFile {
   readonly originalPath?: string;
   readonly path: string;
@@ -121,20 +81,4 @@ export interface GitSwitchBranchResult {
 
 export interface GitCreateBranchResult {
   readonly branch: string;
-}
-
-/**
- * The three facts a forge lookup needs from a repository, read in one git
- * round trip (see `createGitService().forgeRepositoryContext`).
- *
- * `remoteReason` is non-null EXACTLY when `remoteUrl` is null: a repository
- * with no usable remote must say why, never present as "no pull request".
- */
-export interface GitForgeRepositoryContext {
-  /** `null` on a detached HEAD — a detached checkout drives no branch PR. */
-  readonly branch: string | null;
-  /** Realpath'd git common dir — the repository identity the PR cache keys on. */
-  readonly commonDir: string;
-  readonly remoteReason: string | null;
-  readonly remoteUrl: string | null;
 }

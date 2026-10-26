@@ -3,7 +3,7 @@
  * (src/vs/platform/shell/node/shellEnv.ts, `getResolvedShellEnv`).
  *
  * launchd starts a Dock or Finder app with PATH `/usr/bin:/bin:/usr/sbin:/sbin`;
- * the PATH that finds gh, node, pnpm and Homebrew tools is set by the user's
+ * the PATH that finds git, node, pnpm and Homebrew tools is set by the user's
  * shell rc files. Main runs the shell as an interactive login shell, has it
  * print the environment it built, and applies that before it forks any child,
  * so the agent host and every command it runs inherit it.

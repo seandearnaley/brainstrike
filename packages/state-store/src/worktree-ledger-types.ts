@@ -1,9 +1,4 @@
-import type {
-  ForgePrCacheEntry,
-  ForgePullRequest,
-  ManagedWorktreeRow,
-  ManagedWorktreeSetupStatus,
-} from '@brainstrike/types';
+import type { ManagedWorktreeRow, ManagedWorktreeSetupStatus } from '@brainstrike/types';
 
 export type WorktreeLedgerRequest =
   | { readonly operation: 'get'; readonly id: string }
@@ -26,22 +21,4 @@ export interface WorktreeLedgerReply {
 }
 export interface WorktreeLedgerPort {
   worktreeLedger(request: WorktreeLedgerRequest): Promise<WorktreeLedgerReply>;
-}
-export interface ForgeCacheEntry {
-  readonly observedAt: string;
-  readonly pullRequest: ForgePullRequest | null;
-}
-export type ForgeCacheRequest =
-  | { readonly operation: 'get'; readonly repoCommonDir: string; readonly branch: string }
-  | ({
-      readonly operation: 'write';
-      readonly repoCommonDir: string;
-      readonly branch: string;
-    } & ForgeCacheEntry);
-export interface ForgeCacheReply {
-  readonly entry: ForgeCacheEntry | null;
-}
-export interface ForgeCachePort {
-  forgeCache(request: ForgeCacheRequest): Promise<ForgeCacheReply>;
-  forgeCacheSnapshot(): Promise<readonly ForgePrCacheEntry[]>;
 }

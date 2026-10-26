@@ -141,7 +141,8 @@ export * from './workspace-wire.ts';
 // `auth/disconnect`, `auth/status`, `auth/verify` and the host-to-client `client/open-external`
 // are gone, and a login credential is an API key or an AWS credential. Additions since:
 // `workspace/skills` and `workspace/commands` (ADR-0029 stage 2), new methods.
-export const AGENT_HOST_PROTOCOL_VERSION = 13;
+// v14 (2026-10-26): `forge/*` and the git history, staging, pull and diff methods are gone.
+export const AGENT_HOST_PROTOCOL_VERSION = 14;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
 /**
@@ -1089,6 +1090,4 @@ export const HOST_RESULT_SCHEMAS = {
   'thread/workspace/read': Schema.Struct({ snapshot: Schema.NullOr(WorkspaceSnapshotSchema) }),
   'thread/workspace/set': Schema.Struct({ accepted: Schema.Literal(true) }),
 } as const;
-export type HostResults = {
-  [M in HostMethod]: (typeof HOST_RESULT_SCHEMAS)[M]['Type'];
-};
+export type HostResults = { [M in HostMethod]: (typeof HOST_RESULT_SCHEMAS)[M]['Type'] };
