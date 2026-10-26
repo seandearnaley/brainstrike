@@ -1,5 +1,8 @@
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import {
   decodeIndexConfig,
+  INDEX_CONFIG_RESET_REMEDY,
+  INDEX_CONFIG_UNREADABLE,
   type IndexConfig,
   IndexConfigSchema,
 } from '@brainstrike/assistant-contract/index-config';
@@ -37,7 +40,23 @@ async function execute(
     return { config: request.config };
   }
   const saved = await store.getSetting(INDEX_CONFIG_SETTING);
-  return { config: saved === undefined ? null : decodeIndexConfig(JSON.parse(saved)) };
+  if (saved === undefined) {
+    return { config: null };
+  }
+  try {
+    return { config: decodeIndexConfig(JSON.parse(saved)) };
+  } catch (cause) {
+    // The store answered; its value is one this version cannot read. A failed read is not this.
+    throw new BoundaryFailureError(
+      refusal({
+        category: 'configuration',
+        code: INDEX_CONFIG_UNREADABLE,
+        message: 'The saved search index settings are from another version and cannot be read.',
+        remedy: INDEX_CONFIG_RESET_REMEDY,
+      }),
+      { cause }
+    );
+  }
 }
 
 /** Decoded on arrival and served by the one acquired writer, never a second store. */

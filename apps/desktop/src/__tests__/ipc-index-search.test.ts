@@ -36,6 +36,9 @@ const unusedConfig: Parameters<typeof registerIndexSearchIpcHandlers>[2] = {
   read: async () => {
     throw new Error('Unexpected search index settings read in this test');
   },
+  reset: async () => {
+    throw new Error('Unexpected search index settings reset in this test');
+  },
   update: async () => {
     throw new Error('Unexpected search index settings change in this test');
   },
@@ -457,6 +460,7 @@ it("hands the renderer's settings change to Main's config owner undecoded and re
   const saved = { ...DEFAULT_INDEX_CONFIG, paused: true };
   const config = {
     read: vi.fn(async () => DEFAULT_INDEX_CONFIG),
+    reset: vi.fn(async () => DEFAULT_INDEX_CONFIG),
     update: vi.fn(async () => saved),
   };
   dispose.push(
@@ -473,6 +477,8 @@ it("hands the renderer's settings change to Main's config owner undecoded and re
     value: saved,
   });
   expect(config.update).toHaveBeenCalledExactlyOnceWith(change);
+  await expect(invoke('resetConfig')).resolves.toEqual({ ok: true, value: DEFAULT_INDEX_CONFIG });
+  expect(config.reset).toHaveBeenCalledOnce();
 });
 
 /** The renderer's `window.indexSearch`, over the handlers registered with this owner. */
@@ -483,6 +489,7 @@ function rendererWithConfigOwner(update: (patch: unknown) => Promise<never>) {
       { rootsRegistered: async () => {} },
       {
         read: unusedConfig.read,
+        reset: unusedConfig.reset,
         update,
       }
     )

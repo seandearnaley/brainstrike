@@ -17,7 +17,11 @@ import {
 export function registerIndexSearchIpcHandlers(
   capability: IndexSearchCapability & IndexChunkBoundsCapability,
   registration: IndexRootRegistrationCapability,
-  config: { read(): Promise<IndexConfig>; update(patch: unknown): Promise<IndexConfig> }
+  config: {
+    read(): Promise<IndexConfig>;
+    reset(): Promise<IndexConfig>;
+    update(patch: unknown): Promise<IndexConfig>;
+  }
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
   const failure = { category: 'native-index', code: 'native-index-failed' };
@@ -31,6 +35,7 @@ export function registerIndexSearchIpcHandlers(
     grep: (request) => settleIpcResult(failure, () => capability.grep(request)),
     readConfig: () => settleIpcResult(failure, () => config.read()),
     rebuild: () => settleIpcResult(failure, () => capability.rebuild()),
+    resetConfig: () => settleIpcResult(failure, () => config.reset()),
     rootsRegistered: () => settleIpcResult(failure, () => registration.rootsRegistered()),
     search: (request) => settleIpcResult(failure, () => capability.search(request)),
     status: () => settleIpcResult(failure, () => capability.status()),
