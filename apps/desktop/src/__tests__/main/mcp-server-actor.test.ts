@@ -429,6 +429,19 @@ describe('McpServerActor', () => {
     expect(subject.snapshot().state).toBe('connected');
     expect(await subject.close()).toEqual(report);
   });
+  it('closes at once while an accepted request is still running', async () => {
+    const held = deferred<unknown>();
+    const invoke = vi.fn(() => held.promise);
+    const closeClient = vi.fn(async () => report);
+    const subject = actor(() => client(invoke, closeClient));
+    const active = subject.invoke(LIST);
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
+
+    await expect(subject.close()).resolves.toEqual(report);
+
+    expect(closeClient).toHaveBeenCalledOnce();
+    await failure(active, 'mcp_generation_retired');
+  }, 5000);
   it('retires accepted leases distinctly from caller cancellation', async () => {
     const retirementHeld = deferred<unknown>();
     const closeClient = vi.fn(async () => report);
@@ -441,11 +454,10 @@ describe('McpServerActor', () => {
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledOnce());
     const closing = subject.close();
     await failure(active, 'mcp_generation_retired');
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(closeClient).not.toHaveBeenCalled();
-    retirementHeld.resolve(listResult.result);
+    // Close never joins the retired work: it closes the client at once.
     await expect(closing).resolves.toEqual(report);
     expect(closeClient).toHaveBeenCalledOnce();
+    retirementHeld.resolve(listResult.result);
     await failure(subject.invoke(LIST), 'mcp_generation_retired');
 
     const caller = new AbortController();
@@ -471,11 +483,12 @@ describe('McpServerActor', () => {
     const pendingActor = actor(() => pendingFactory.promise);
     const pendingInvoke = pendingActor.invoke(LIST);
     await Promise.resolve();
-    const pendingDrain = pendingActor.close();
+    // Close returns before the factory hands its client over, and the actor
+    // closes that client on arrival.
+    await expect(pendingActor.close()).resolves.toMatchObject({ clientsClosed: 0 });
     pendingFactory.resolve(client(undefined, pendingClose));
     await failure(pendingInvoke, 'mcp_generation_retired');
-    await expect(pendingDrain).resolves.toEqual(report);
-    expect(pendingClose).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(pendingClose).toHaveBeenCalledOnce());
   });
 
   it('invalidates one generation when its owned transport closes unexpectedly', async () => {
@@ -673,13 +686,14 @@ describe('McpServerActor', () => {
     await expect(subject.close()).resolves.toMatchObject({ requestsSettled: 0 });
     expect(close).toHaveBeenCalledOnce();
   });
-  it('latches failed client cleanup when retirement wins factory failure', async () => {
+  it('records failed client cleanup when retirement wins factory failure', async () => {
     const connecting = deferred<McpServerActorClient>();
     const internalError = vi.fn();
     const subject = actor(async () => await connecting.promise, linearId, internalError);
     const invocation = subject.invoke(LIST);
     await vi.waitFor(() => expect(subject.snapshot().state).toBe('connecting'));
-    const closing = subject.close();
+    // Close returns before the factory settles; it never joins that attempt.
+    await expect(subject.close()).resolves.toMatchObject({ failures: [] });
     await failure(invocation, 'mcp_generation_retired');
     connecting.reject(
       new McpServerActorClientCleanupError(
@@ -687,9 +701,7 @@ describe('McpServerActor', () => {
         'MCP client operation failed and cleanup also failed'
       )
     );
-    await expect(closing).resolves.toMatchObject({
-      failures: [{ code: 'mcp-client-creation-cleanup-failed' }],
-    });
+    await vi.waitFor(() => expect(internalError).toHaveBeenCalled());
     expect(internalError).toHaveBeenCalledWith(
       'mcp-client-creation-failed',
       expect.objectContaining({ errors: [expect.any(Error), expect.any(Error)] })

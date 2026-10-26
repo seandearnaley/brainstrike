@@ -356,7 +356,7 @@ export class McpServerActor {
     if (this.closePromise !== undefined) {
       return this.closePromise;
     }
-    this.closePromise = Promise.resolve().then(() => this.closeAfterDrain());
+    this.closePromise = Promise.resolve().then(() => this.closeAtRetirement());
     this.retireGeneration();
     if (!this.failure) {
       this.change({ state: 'closing' });
@@ -496,7 +496,9 @@ export class McpServerActor {
       this.throwIfAborted(attempt.signal);
     } catch (cause) {
       if (this.generationAbort.signal.aborted) {
+        // Close already returned without this client: close it on arrival.
         this.client = client;
+        void this.closeClient();
         throw cause;
       }
       await Promise.resolve(client.close()).catch(() => undefined);
@@ -728,8 +730,13 @@ export class McpServerActor {
           : 'disconnected',
     });
   }
-  private async closeAfterDrain(): Promise<McpHostCloseReport> {
-    await Promise.allSettled([...this.inFlight]);
+  /**
+   * Close at once once the generation is retired (ADR-0031): every accepted
+   * lease has already been refused, so in-flight work is never joined. A
+   * client that a factory hands over after this point is closed on arrival
+   * (see `createClient`); its failures are diagnosed, not joined.
+   */
+  private async closeAtRetirement(): Promise<McpHostCloseReport> {
     const report = await this.closeClient();
     if (!this.failure) {
       this.change({ state: 'disconnected' });
