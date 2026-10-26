@@ -1,6 +1,7 @@
 import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
@@ -140,7 +141,7 @@ test('a host thread edit and regenerate are navigable branches that survive a re
 
   // After a reload the committed head (the regeneration) is selected and every
   // branch is still reachable.
-  await window.reload();
+  await reloadRenderer(window, 'host-thread-branch-history: reload');
   await ensureAssistantShellVisible(window);
   await expect(panel.getByText('Delta answer.', { exact: true })).toBeVisible({
     timeout: E2E_TIMEOUTS.messageVisibility,

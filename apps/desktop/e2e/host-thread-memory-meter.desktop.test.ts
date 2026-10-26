@@ -2,6 +2,7 @@ import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistan
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-host-memory-meter';
@@ -80,7 +81,7 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
     }
   );
   // The renderer reads its persisted memory settings when it loads.
-  await page.reload();
+  await reloadRenderer(page, 'host-thread-memory-meter: reload');
   await ensureAssistantShellVisible(page);
   const reopened = page.getByRole('region', { exact: true, name: 'Assistant' });
 

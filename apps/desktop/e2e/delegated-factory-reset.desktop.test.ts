@@ -6,6 +6,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -121,7 +122,7 @@ test.describe('@destructive', () => {
       await childPanel.getByRole('textbox', { name: 'Message input' }).fill(FOLLOWUP);
       await childPanel.getByRole('button', { exact: true, name: 'Send' }).click();
       await expect(childPanel.getByText(FOLLOWUP_REPLY, { exact: true })).toBeVisible();
-      await page.reload();
+      await reloadRenderer(page, 'delegated-factory-reset: reload');
       await expect(page.getByRole('tab', { exact: true, name: callSign })).toBeVisible();
       await expect(
         page

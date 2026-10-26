@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { Schema } from 'effect';
 import { expect, test } from './fixtures/electron-fixture';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { resolveProviderEgressEnvironment } from './utils/model-provider-shim';
 
@@ -166,7 +167,7 @@ test('CLI-created children appear in the GUI and retain their identity through C
     await expect(
       childPanel.getByText('CLI CHILD FOLLOWUP RESPONSE', { exact: true })
     ).toBeVisible();
-    await window.reload();
+    await reloadRenderer(window, 'cli-first-child: reload');
     await expect(
       window
         .getByRole('region', { exact: true, name: child.callSign })
