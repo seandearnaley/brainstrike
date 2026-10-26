@@ -599,6 +599,9 @@ export function createIndexerConnection(
       decoder(infoSchema)(await client.ready);
       return port;
     } catch (error) {
+      if (killed) {
+        throw error;
+      }
       return fail(error);
     }
   })();

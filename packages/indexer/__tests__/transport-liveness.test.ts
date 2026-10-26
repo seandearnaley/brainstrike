@@ -427,3 +427,20 @@ it('rejects a request in flight at the kill at once, before the exit', async () 
   expect(failure).toMatchObject({ code: 'indexer-closed' });
   expect(connection.exited).toBe(false);
 });
+
+// ADR-0031: a startup the owner killed fails at once; nothing waits for its exit.
+it('rejects a startup killed before its ready report at once, before the exit', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ exitAfterKillMs: 60_000, readyMs: 60_000, replyMs: 0 });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  let failure: unknown;
+  connection.ready.catch((error: unknown) => {
+    failure = error;
+  });
+
+  void connection.kill();
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(failure).toMatchObject({ code: 'indexer-closed' });
+  expect(connection.exited).toBe(false);
+});
