@@ -848,6 +848,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       stopSources,
     }),
     acquire,
+    acquireClientProfile: admission.acquireClient,
     acquireProfile: admission.acquire,
     acquireRead,
     captureAcknowledgedAuthority: () => {

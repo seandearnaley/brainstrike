@@ -192,7 +192,7 @@ export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): Bo
         held.holder === 'owner'
           ? `This profile’s data is in use by another process (pid ${held.owner.pid}).`
           : `This profile’s data is still held by a process that pid ${held.owner.pid} started.`,
-      remedy: 'Close that process, then reconnect.',
+      remedy: 'Close that process, then open BrainStrike again.',
     });
   }
   const configFailure = indexConfigFailure(error, log);

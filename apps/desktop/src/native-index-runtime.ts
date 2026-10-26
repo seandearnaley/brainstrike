@@ -69,11 +69,11 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   cleanupCollection(embeddingSetId: string): Promise<void>;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
-  /** Joins a failed acquisition's release (its host exited, port closed); false when none failed. */
   /** Why the profile's last host start failed, until a start succeeds. */
   lastProfileFailure(): { readonly cause: unknown } | undefined;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
   resume(signal?: AbortSignal): Promise<void>;
+  /** Joins a failed acquisition's release (its host exited, port closed); false when none failed. */
   retireFailedProfile(): Promise<boolean>;
   retireProfile(reason?: unknown): Promise<void>;
   retireReads(): Promise<void>;
