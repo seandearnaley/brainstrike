@@ -26,7 +26,6 @@ import { randomUUID } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { platform } from 'node:process';
-import { setTimeout as delay } from 'node:timers/promises';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { createLogger } from '@brainstrike/logging';
 import { CHILD_SIGNAL_GRACE_MS } from '@brainstrike/state-store/native-children';
@@ -54,12 +53,9 @@ import {
 } from './fence-readiness.ts';
 import { FenceReadinessError } from './fence-readiness-error.ts';
 
-/** Poll interval while confirming that a SIGKILLed process group is gone. */
-const PROCESS_GROUP_EXIT_POLL_MS = 10;
-
 /**
- * The grace between the SIGTERM and the SIGKILL sent to the process tree, and the confirmation
- * window after SIGKILL before the fence fails closed: the one signal grace (ADR-0030).
+ * The run's own timeout ladder: the grace between the SIGTERM and the SIGKILL sent to the process
+ * tree, and the window after SIGKILL for its exit status: the one signal grace (ADR-0030).
  */
 const KILL_GRACE_MS = CHILD_SIGNAL_GRACE_MS;
 
@@ -393,64 +389,22 @@ function processGroupState(pid: number): ProcessGroupState {
   return signalTree(pid, 0);
 }
 
-export async function terminateProcessGroup(pid: number, signal: NodeJS.Signals): Promise<void> {
-  let state: ProcessGroupState;
+/**
+ * Signals the whole group and settles once the signal is sent: nothing polls for
+ * the group's end (ADR-0031), and a SIGKILLed member runs no more user code.
+ * 'unsignalable' (EPERM) does not reject either: every member of this group is
+ * our own descendant running as us, so a genuine permission failure is
+ * impossible (the same reasoning agent-host-platform/desktop-terminals.ts
+ * records for its own group kill). What it reports is the post-reap race: a
+ * just-SIGKILLed zombie leader the kernel will not route a group signal through.
+ */
+export function terminateProcessGroup(pid: number, signal: NodeJS.Signals): Promise<void> {
   try {
-    state = signalTree(pid, signal);
+    signalTree(pid, signal);
   } catch (error) {
-    throw new FenceProcessGroupTeardownError(pid, error);
+    return Promise.reject(new FenceProcessGroupTeardownError(pid, error));
   }
-  if (state === 'gone') {
-    return;
-  }
-  // NOTE: 'unsignalable' (EPERM) deliberately does NOT throw here. It is
-  // inconclusive, not a denial — every member of this group is our own
-  // descendant running as us, so a genuine permission failure is impossible
-  // (the same reasoning agent-host-platform/desktop-terminals.ts records for its own group
-  // kill). What it reports is the post-reap race: a just-SIGKILLed zombie
-  // leader the kernel will not route a group signal through. SIGKILL therefore
-  // falls through to the confirmation loop below, which resolves it; any other
-  // signal returns with the rest, since it has no confirmation step to reach.
-  if (signal !== 'SIGKILL') {
-    return;
-  }
-
-  // kill(2) returning only means the signal was sent. The target can still run
-  // before the kernel delivers SIGKILL, so settling at that point can expose a
-  // later run's policy to a descendant that has not exited yet. Signal 0 is the
-  // POSIX existence probe; ESRCH is the confirmation that the group is gone.
-  const deadline = Date.now() + KILL_GRACE_MS;
-  while (true) {
-    try {
-      state = processGroupState(pid);
-    } catch (error) {
-      throw new FenceProcessGroupTeardownError(pid, error);
-    }
-    if (state === 'gone') {
-      return;
-    }
-    // 'unsignalable' (EPERM) is INCONCLUSIVE, so it polls on exactly like
-    // 'alive' rather than short-circuiting either way. Measured: the group
-    // reaches ESRCH ~7ms later, because EPERM here is the post-reap race — a
-    // just-SIGKILLed zombie leader the kernel will not route a group signal
-    // through — not a surviving group.
-    //
-    // Returning early on EPERM would be unsound in the other direction: a
-    // process group can outlive its leader, so "the leader is gone" does not
-    // prove the group is empty. Only ESRCH does, and only ESRCH returns.
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) {
-      throw new FenceProcessGroupTeardownError(
-        pid,
-        new Error(
-          state === 'unsignalable'
-            ? `Process group ${pid} was still unsignalable ${KILL_GRACE_MS}ms after SIGKILL; teardown could not be confirmed.`
-            : `Process group ${pid} still existed ${KILL_GRACE_MS}ms after SIGKILL.`
-        )
-      );
-    }
-    await delay(Math.min(PROCESS_GROUP_EXIT_POLL_MS, remainingMs), undefined, { ref: false });
-  }
+  return Promise.resolve();
 }
 
 /**
