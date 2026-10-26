@@ -61,6 +61,18 @@ beforeEach(() => {
   sandbox.reset.mockResolvedValue(undefined);
 });
 
+/**
+ * Disposal returns before its session release runs (ADR-0031: it does not join
+ * the sandbox reset). The release runs under the session lock within the
+ * current turn's microtasks, so one macrotask turn lets every queued release run
+ * before the lease count is read.
+ */
+function sessionReleases(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
 describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
   'readiness queue and handoff',
   () => {
@@ -123,6 +135,7 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
         finish(runningChild);
         await first.dispose();
       }
+      await sessionReleases();
       expect(sandbox.reset).toHaveBeenCalledTimes(1);
     });
 
@@ -159,10 +172,12 @@ describe.skipIf(platform !== 'linux' && platform !== 'darwin')(
           }
           const retried = await createFenceExecutor({ interpreters });
           await retried.dispose();
+          await sessionReleases();
           expect(sandbox.reset).not.toHaveBeenCalled();
         } finally {
           await sentinel.dispose();
         }
+        await sessionReleases();
         expect(sandbox.reset).toHaveBeenCalledTimes(1);
       }
     );
