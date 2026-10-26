@@ -12,6 +12,7 @@ import {
   withAppHost,
 } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import {
   ensureActivityExpanded,
@@ -177,7 +178,7 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     const completedCalls = modelCalls();
 
     // Half 2: the reloaded thread renders as one stream, with no branch carousel.
-    await window.reload();
+    await reloadRenderer(window, 'assistant-approval-reload-linearity: reload 1');
     await prepareMockWorkspace(window);
     await waitForAssistantChat(window);
     await window
@@ -467,7 +468,7 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         await expect.poll(childDecisions).toEqual(answered);
         const completedCalls = modelCalls();
 
-        await window.reload();
+        await reloadRenderer(window, 'assistant-approval-reload-linearity: reload 2');
         await configureAssistantProvider(window, {
           compositeModelKey: 'openrouter::openai/gpt-5.4',
           provider: 'openrouter',

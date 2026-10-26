@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-host-usage-total';
@@ -41,7 +42,7 @@ test("a host thread's meter leads with its committed total and cost, across a re
   await expect(region.getByTestId('context-usage-trigger-cost')).toHaveText('· $0.000057');
 
   // The total is read from the committed log, so a reload shows it again.
-  await page.reload();
+  await reloadRenderer(page, 'host-thread-usage-total: reload');
   const reloaded = page.getByRole('region', { exact: true, name: 'Assistant' });
   await expect(reloaded.getByText(REPLY)).toBeVisible({ timeout: 60_000 });
   await expect(reloaded.getByTestId('context-usage-trigger')).toHaveAttribute(
