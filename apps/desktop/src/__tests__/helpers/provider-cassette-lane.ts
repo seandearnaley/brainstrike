@@ -85,6 +85,7 @@ async function drive(
   environment: Readonly<Record<string, string>>,
   workspace: string,
   streaming: () => boolean,
+  signal: AbortSignal,
   started: (host: StandaloneProviderHost) => void = () => undefined
 ): Promise<ScenarioResult> {
   const host = await startStandaloneProviderHost({
@@ -97,7 +98,7 @@ async function drive(
     if (scenario.stop) {
       const started = await host.startRun(scenario.prompt, scenario.model);
       threadId = started.threadId;
-      await pollUntil(async () => streaming(), Boolean);
+      await pollUntil(async () => streaming(), Boolean, signal);
       const stopped = await host.cli(['run', 'stop', '--thread', threadId, '--run', started.runId]);
       if (stopped.code !== 0) {
         throw new Error(`run stop failed: ${stopped.stderr}`);
@@ -114,12 +115,15 @@ async function drive(
         parent: { rows: await host.rows(threadId), threadId },
       };
     };
-    const conversation = await pollUntil(read, ({ children, parent }) =>
-      isSettledConversation(
-        scenario.children ?? 0,
-        parent.rows,
-        children.map(({ rows }) => rows)
-      )
+    const conversation = await pollUntil(
+      read,
+      ({ children, parent }) =>
+        isSettledConversation(
+          scenario.children ?? 0,
+          parent.rows,
+          children.map(({ rows }) => rows)
+        ),
+      signal
     );
     return conversationShape(conversation);
   } finally {
@@ -130,7 +134,8 @@ async function drive(
 /** Replays `cassette` through the shim into a fresh standalone host. */
 export async function replayScenario(
   scenario: ProviderCassetteScenario,
-  cassette: ProviderCassette
+  cassette: ProviderCassette,
+  signal: AbortSignal
 ): Promise<ReplayResult> {
   const { remove, workspace } = await createStandaloneWorkspace(WORKSPACE_NAME, scenario.files);
   let host: StandaloneProviderHost | undefined;
@@ -140,7 +145,8 @@ export async function replayScenario(
     settled: async (lane) => {
       await pollUntil(
         async () => (host ? isSettledLane(await threadRows(host), lane) : false),
-        Boolean
+        Boolean,
+        signal
       );
     },
     substitutions: [{ from: workspace, to: WORKSPACE_PLACEHOLDER }],
@@ -154,6 +160,7 @@ export async function replayScenario(
       },
       workspace,
       () => shim.heldExchanges() > 0,
+      signal,
       (started) => {
         host = started;
       }
@@ -184,6 +191,7 @@ export interface RecordedScenario extends ScenarioResult {
 export async function recordScenario(
   scenario: ProviderCassetteScenario,
   key: string,
+  signal: AbortSignal,
   upstreams?: Readonly<Record<ProviderCassetteKnob, string>>
 ): Promise<RecordedScenario> {
   const { remove, workspace } = await createStandaloneWorkspace(WORKSPACE_NAME, scenario.files);
@@ -199,11 +207,13 @@ export async function recordScenario(
         ...credentialEnvironment(scenario, key),
       },
       workspace,
-      () => recorder.recording.inFlightBodies().some(streamsText)
+      () => recorder.recording.inFlightBodies().some(streamsText),
+      signal
     );
     await pollUntil(
       async () => recorder.recording.inFlight(),
-      (count) => count === 0
+      (count) => count === 0,
+      signal
     );
     const cassette = assembleProviderCassette({
       exchanges: recorder.recording.exchanges(),

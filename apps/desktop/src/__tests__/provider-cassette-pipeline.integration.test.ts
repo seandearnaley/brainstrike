@@ -36,13 +36,17 @@ async function standIn(select: ModelProviderScriptSelector) {
   };
 }
 
-async function roundTrip(scenario: ProviderCassetteScenario, select: ModelProviderScriptSelector) {
+async function roundTrip(
+  scenario: ProviderCassetteScenario,
+  select: ModelProviderScriptSelector,
+  signal: AbortSignal
+) {
   const { upstreams } = await standIn(select);
-  const recorded = await recordScenario(scenario, 'stand-in-key', upstreams);
+  const recorded = await recordScenario(scenario, 'stand-in-key', signal, upstreams);
   expect(recorded.findings).toEqual([]);
   expect(recorded.secretScan).toBe('');
   expect(recorded.violations).toEqual([]);
-  const replayed = await replayScenario(scenario, recorded.cassette);
+  const replayed = await replayScenario(scenario, recorded.cassette, signal);
   expect(replayed.refusals).toEqual([]);
   expect(replayed.unserved).toEqual([]);
   expect(replayed.violations).toEqual([]);
@@ -53,7 +57,7 @@ async function roundTrip(scenario: ProviderCassetteScenario, select: ModelProvid
 describe('provider cassette pipeline', () => {
   test('records and replays parallel tool calls and two background children on the Responses wire', {
     timeout: 120_000,
-  }, async () => {
+  }, async ({ signal }) => {
     // Each finished child wakes its parent with the turn's ledger (ADR-0010), so
     // two children finishing together reach it as one wake or two by host timing,
     // and no cassette can match both (BST-2106). Child two answers well after the
@@ -99,7 +103,8 @@ describe('provider cassette pipeline', () => {
             ],
           ],
         };
-      }
+      },
+      signal
     );
     // The request keeps no credential, and the disposable workspace became a placeholder.
     const text = JSON.stringify(recorded.cassette);
@@ -114,7 +119,7 @@ describe('provider cassette pipeline', () => {
 
   test('records a Stop as a client-aborted stream and replays it held until the next Stop', {
     timeout: 120_000,
-  }, async () => {
+  }, async ({ signal }) => {
     const { recorded, replayed } = await roundTrip(
       {
         credential: 'recorder',
@@ -130,7 +135,8 @@ describe('provider cassette pipeline', () => {
               beforeFinalText: new Promise<void>(() => undefined),
               finalText: 'never sent',
               streamedBeforeHold: 'Once upon a time. '.repeat(200),
-            }
+            },
+      signal
     );
     expect(recorded.cassette.exchanges.map((exchange) => exchange.response.ended)).toContain(
       'client-aborted'
@@ -140,7 +146,7 @@ describe('provider cassette pipeline', () => {
 
   test('matches an OpenRouter chat-completions tool call that opens with empty arguments', {
     timeout: 120_000,
-  }, async () => {
+  }, async ({ signal }) => {
     const { replayed } = await roundTrip(
       {
         credential: 'recorder',
@@ -155,7 +161,8 @@ describe('provider cassette pipeline', () => {
           : {
               finalText: 'It is a notes file.',
               toolCall: { arguments: { path: 'notes.md' }, name: 'brainstrike_readWorkspaceFile' },
-            }
+            },
+      signal
     );
     expect(replayed.shape.runs[0]?.rows).toEqual(['Read done']);
   });

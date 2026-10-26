@@ -43,8 +43,16 @@ function recording(scenario: ProviderCassetteScenario): boolean {
   return scenario.recordedIn !== 'desktop' && (RECORD === 'all' || RECORD === scenario.id);
 }
 
-async function record(scenario: ProviderCassetteScenario): Promise<ProviderCassette> {
-  const recorded = await recordScenario(scenario, recorderKey(scenario), recordingUpstreams());
+async function record(
+  scenario: ProviderCassetteScenario,
+  signal: AbortSignal
+): Promise<ProviderCassette> {
+  const recorded = await recordScenario(
+    scenario,
+    recorderKey(scenario),
+    signal,
+    recordingUpstreams()
+  );
   expect(
     recorded.findings,
     'a recording that holds a local path or the key is never saved'
@@ -56,7 +64,7 @@ async function record(scenario: ProviderCassetteScenario): Promise<ProviderCasse
     );
   }
   expect(recorded.violations, 'a recording that breaks an invariant is never saved').toEqual([]);
-  const replayed = await replayScenario(scenario, recorded.cassette);
+  const replayed = await replayScenario(scenario, recorded.cassette, signal);
   expect(replayed.refusals, 'a recording must answer every request its replay makes').toEqual([]);
   expect(replayed.unserved, 'a replay must claim every recorded exchange').toEqual([]);
   expect(replayed.shape, 'a recording must replay to the conversation it recorded').toEqual(
@@ -73,11 +81,15 @@ export function describeProviderCassettes(provider: CassetteProvider): void {
   )('provider cassette $id', (scenario) => {
     test(`${recording(scenario) ? 'records' : 'replays'} and keeps every invariant${scenario.guards ? ` (guards ${scenario.guards})` : ''}`, {
       timeout: 300_000,
-    }, async () => {
+    }, async ({ signal }) => {
       const cassette = recording(scenario)
-        ? await record(scenario)
+        ? await record(scenario, signal)
         : readScenarioCassette(scenario);
-      const { refusals, shape, unserved, violations } = await replayScenario(scenario, cassette);
+      const { refusals, shape, unserved, violations } = await replayScenario(
+        scenario,
+        cassette,
+        signal
+      );
       expect(refusals).toEqual([]);
       expect(unserved).toEqual([]);
       expect(violations).toEqual([]);
