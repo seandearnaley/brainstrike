@@ -186,7 +186,7 @@ test('a hosted embedder recalls from the first send, with observations on', asyn
   await page
     .getByRole('region', { exact: true, name: 'Assistant' })
     .getByTestId('context-usage-trigger')
-    .hover();
+    .click();
   await expect(page.getByTestId('context-usage-memory-last-recall')).toContainText(
     / messages? · top \d+ · (all threads|this thread) · [\d,]+ ms/u,
     { timeout: 30_000 }
