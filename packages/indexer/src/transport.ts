@@ -153,9 +153,9 @@ export interface IndexerConnection {
   readonly exited: boolean;
   /**
    * Ends the process now, with no close request (ADR-0031: every write has committed, so a kill
-   * loses nothing): admission closes, every request fails, and one kill is requested. It resolves
-   * at the exit, which only a caller that needs the process gone joins, such as a replacement
-   * start or a file deletion. Quit does not join it.
+   * loses nothing): admission closes, every request fails at once, and one kill is requested. It
+   * resolves at the exit, which only a caller that needs the process gone joins, such as a
+   * replacement start or a file deletion. Quit does not join it.
    */
   kill(): Promise<void>;
   readonly ready: Promise<
@@ -183,6 +183,8 @@ export function createIndexerConnection(
   let exited = false;
   let exitCode: number | null | undefined;
   let closing = false;
+  /** Set by `kill`: its owner asked for the end, so nothing it had in flight waits for the exit. */
+  let killed = false;
   let resolveExit!: () => void;
   const exit = new Promise<void>((resolve) => {
     resolveExit = resolve;
@@ -262,6 +264,9 @@ export function createIndexerConnection(
     try {
       return await client.call(op, payload, decode);
     } catch (error) {
+      if (killed) {
+        throw error;
+      }
       // A remote refusal leaves the process serving. A transport or protocol failure, or
       // the process's exit, retires it; the operation is never retried.
       if (error instanceof IndexerError) {
@@ -605,6 +610,7 @@ export function createIndexerConnection(
     },
     kill: () => {
       closing = true;
+      killed = true;
       client.fail(new IndexerError('indexer-closed', 'Indexer was killed.'));
       return retire();
     },

@@ -408,3 +408,22 @@ it('rejects a failed startup while its killed process has not exited yet', async
   await closing;
   expect(connection.exited).toBe(true);
 });
+
+// ADR-0031: nothing waits on a killed process, so a request in flight at the kill fails at once.
+it('rejects a request in flight at the kill at once, before the exit', async () => {
+  vi.useFakeTimers();
+  const process = slowProcess({ exitAfterKillMs: 60_000, readyMs: 0, replyMs: 60_000 });
+  const connection = createIndexerConnection(options, deadlines, process.transport);
+  await vi.advanceTimersByTimeAsync(0);
+  const port = await connection.ready;
+  let failure: unknown;
+  void port.info().catch((error: unknown) => {
+    failure = error;
+  });
+
+  void connection.kill();
+  await vi.advanceTimersByTimeAsync(0);
+
+  expect(failure).toMatchObject({ code: 'indexer-closed' });
+  expect(connection.exited).toBe(false);
+});
