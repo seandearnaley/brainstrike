@@ -78,6 +78,9 @@ test("a host thread's Tools menu toggles a native tool, and the next host run le
     await input.fill(`Turn ${turn + 1}.`);
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(region.getByText(REPLIES[turn] ?? '')).toBeVisible({ timeout: 90_000 });
+    // The reply streams before the host commits the run's end, which joins the run's memory and
+    // syncs to disk first; the pane leaves the running state only once that end is committed.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     // Three model calls: the listing, the load, and the reply.
     expect(runRequests()).toHaveLength((turn + 1) * 3);
   };
