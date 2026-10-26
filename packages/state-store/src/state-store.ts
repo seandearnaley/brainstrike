@@ -202,7 +202,6 @@ export class StateStore implements MemoryDomainPort {
       worker = new Worker(new URL('./writer-worker.mjs', import.meta.url), {
         workerData: {
           blobsDir: join(dataRoot, BLOBS_DIR),
-          busyTimeoutMs: options.busyTimeoutMs ?? 5000,
           checkpointPages: options.checkpointPages ?? 1000,
           crashTestHooks: options.crashTestHooks,
           fullfsync: options.fullfsync ?? process.platform === 'darwin',

@@ -50,8 +50,6 @@ export interface SyncSpan extends WriteSpan {
 }
 
 export interface StateStoreOptions {
-  /** busy_timeout of the writer, which bounds how long a purge waits on a reader pinning the WAL. Default 5000. */
-  readonly busyTimeoutMs?: number;
   /** WAL frames at which a step boundary checkpoints (PASSIVE) first. Default 1000, SQLite's autocheckpoint size. */
   readonly checkpointPages?: number;
   /** Crash-test seam: SIGKILL this process inside the purge transaction. */

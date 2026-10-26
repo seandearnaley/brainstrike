@@ -31,7 +31,6 @@ test('pinned WAL reader prevents strict WM/OM erasure acceptance; existing inten
   const root = freshDir('m3-memory-pin');
   let indexer = new TruthIndexer(root);
   let store = await StateStore.open(root, {
-    busyTimeoutMs: 300,
     indexer,
     memoryCalculatorModule: calculator,
   });

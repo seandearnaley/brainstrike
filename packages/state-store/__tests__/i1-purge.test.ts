@@ -122,7 +122,7 @@ describe('item 1 · purge', () => {
   test('S: a reader pinning the WAL makes the purge fail loudly; the retry completes it', async () => {
     const root = freshDir('i1pin');
     const indexer = new TruthIndexer(root);
-    const store = await StateStore.open(root, { busyTimeoutMs: 300, indexer });
+    const store = await StateStore.open(root, { indexer });
     try {
       await appendInputs(store, T, seedInputs(10, 5, 31));
       await indexer.catchUp([T]);

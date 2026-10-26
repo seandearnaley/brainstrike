@@ -72,7 +72,6 @@ import {
  * @property {boolean} fullfsync
  * @property {'boundary' | 'sqlite-auto'} walCheckpoint
  * @property {number} checkpointPages
- * @property {number} busyTimeoutMs
  * @property {{ purgeInTxn?: 'sigkill' } | undefined} crashTestHooks
  * @property {string | undefined} memoryCalculatorModule
  */
@@ -99,7 +98,9 @@ try {
   opened.pragma('secure_delete = ON');
   opened.pragma('foreign_keys = ON');
   opened.pragma(`wal_autocheckpoint = ${cfg.walCheckpoint === 'sqlite-auto' ? 1000 : 0}`);
-  opened.pragma(`busy_timeout = ${cfg.busyTimeoutMs}`);
+  // The one writer holds the Root lock, so a busy wait could only wait on a reader: refuse at once
+  // (ADR-0031). A reader pinning the WAL fails a TRUNCATE checkpoint as CheckpointBlockedError.
+  opened.pragma('busy_timeout = 0');
   const rows = /** @type {Array<{ integrity_check: string }>} */ (opened.pragma('integrity_check'));
   if (!(rows.length === 1 && rows[0]?.integrity_check === 'ok')) {
     damage = rows.map((r) => r.integrity_check).join('; ');
@@ -110,7 +111,7 @@ try {
   }
   opened?.close();
   opened = new Database(cfg.path, { fileMustExist: true, readonly: true });
-  opened.pragma(`busy_timeout = ${cfg.busyTimeoutMs}`);
+  opened.pragma('busy_timeout = 0');
   damage = String(/** @type {Error} */ (e).message);
 }
 const db = opened;
