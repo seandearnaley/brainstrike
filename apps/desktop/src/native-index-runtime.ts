@@ -72,6 +72,8 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   /** Why the profile's last host start failed, until a start succeeds. */
   lastProfileFailure(): { readonly cause: unknown } | undefined;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
+  /** The exit of the profile's current ready host, once it has one. */
+  profileHostExited(): Promise<unknown> | undefined;
   resume(signal?: AbortSignal): Promise<void>;
   /** Joins a failed acquisition's release (its host exited, port closed); false when none failed. */
   retireFailedProfile(): Promise<boolean>;
@@ -542,6 +544,7 @@ export function createNativeIndexRuntime<Attachment>(
       );
       return operation;
     },
+    profileHostExited: dependencies.profile.hostExited,
     resume: async (signal?: AbortSignal): Promise<void> => {
       signal?.throwIfAborted();
       if (indexOwner || dependencies.profile.isRetiring() || closing || acquisition) {

@@ -14,6 +14,7 @@ interface ProfileAdmissionRuntime {
     signal?: AbortSignal
   ): Promise<HostClient>;
   lastProfileFailure(): { readonly cause: unknown } | undefined;
+  profileHostExited(): Promise<unknown> | undefined;
   retireFailedProfile(): Promise<boolean>;
 }
 
@@ -22,19 +23,14 @@ export interface NativeIndexProfileAdmission {
   acquire(signal?: AbortSignal): Promise<HostClient>;
   /**
    * A window's client borrow, which never runs inside index work. When it finds the host
-   * released while other borrows start its replacement, it admits again once they settle
-   * instead of being refused.
+   * released while that host is still exiting or other borrows start its replacement, it
+   * admits again once they settle instead of being refused.
    */
   acquireClient(signal?: AbortSignal): Promise<HostClient>;
   /** Quit begins: every borrow still waiting for the host's start-up is refused now. */
   fenceTerminal(): void;
 }
 
-/**
- * A borrow that finds the index closed with no failed host left to retire. Released for a failed
- * start, the host is still releasing or another borrow is starting the next one, so the failed
- * start is this borrow's answer: the host was refused, not the index.
- */
 /**
  * ADR-0031: a Root another process holds refuses this profile. The refusal stands until the app
  * starts again; no borrow starts another host against it.
@@ -53,6 +49,11 @@ function isReleasedHostRefusal(cause: unknown): boolean {
   );
 }
 
+/**
+ * A borrow that finds the index closed with no failed host left to retire. Released for a failed
+ * start, the host is still releasing or another borrow is starting the next one, so the failed
+ * start is this borrow's answer: the host was refused, not the index.
+ */
 function closedRefusal(
   state: Extract<NativeIndexState, { readonly kind: 'closed' }>,
   runtime: ProfileAdmissionRuntime
@@ -160,12 +161,16 @@ export function createNativeIndexProfileAdmission(
       try {
         return await acquire(signal);
       } catch (cause) {
-        // BST-2004: another borrow is retiring the lost host and starting the next one. Index work
-        // never waits on it (it may hold the index queue that recovery needs); a window can.
-        if (!(isReleasedHostRefusal(cause) && admitting.size > 0)) {
+        // BST-2004: the host is going away, or another borrow is retiring it and starting the
+        // next one. A window waits for both, then admits once more. Index work never waits on
+        // them (it may hold the index queue that recovery needs).
+        const releasing = [runtime.profileHostExited(), ...admitting].filter(
+          (pending) => pending !== undefined
+        );
+        if (!(isReleasedHostRefusal(cause) && releasing.length > 0)) {
           throw cause;
         }
-        await Promise.allSettled([...admitting]);
+        await Promise.race([Promise.allSettled(releasing), fenced.promise]);
         return acquire(signal);
       }
     },

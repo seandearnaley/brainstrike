@@ -113,6 +113,8 @@ export interface DesktopHostLease {
   acquire(): Promise<HostClient>;
   clearAndRetireContent(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
+  /** The exit of this lease's ready host, once it has one. */
+  hostExited(): Promise<number> | undefined;
   /** Why this lease's start failed, known as soon as it failed, before its release ends. */
   startFailure(): { readonly cause: unknown } | undefined;
 }
@@ -436,6 +438,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
         .then(() => lostTail)
         .then(closeScope);
     },
+    hostExited: () => (ownedChild?.ready ? ownedChild.exited : undefined),
     startFailure: () => startFailure,
   };
 }
