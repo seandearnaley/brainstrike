@@ -1,8 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { setTimeout } from 'node:timers/promises';
 import { RootLock } from '@brainstrike/state-store';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -29,11 +28,12 @@ async function openHostThread(page: Page): Promise<void> {
 }
 
 /**
- * Quit, then reopen while the previous host is still exiting: it has removed
- * its record but still holds the profile's Root while its store closes. The new
- * Main waits for that Root, then starts its own host, instead of failing.
+ * ADR-0031 decision 4: one lock per data root, and a second owner is refused, not waited for.
+ * A launch while another process holds the profile's Root opens at once and shows that its
+ * conversation store is unavailable. Once that process lets go, the next launch reaches a
+ * working host thread with the conversation the first one committed.
  */
-test('relaunching while the previous host still holds the profile reaches a working host thread', async ({
+test('a launch while another process holds the profile is refused visibly; the next launch reaches a working host thread', async ({
   electron,
   modelProvider,
 }) => {
@@ -46,51 +46,20 @@ test('relaunching while the previous host still holds the profile reaches a work
   await electron.closeForStateSeeding();
   const root = path.join(electron.getUserDataDir(), 'profiles', 'test');
   expect(existsSync(path.join(root, 'lock'))).toBe(true);
-  // Stands in for the exiting host: a live owner of the Root with no host record.
-  const exiting = await RootLock.acquire(root);
-  const acquired = Promise.withResolvers<ElectronApplication>();
-  let settled = false;
-  // Bootstrap waits for profile acquisition before creating its first window.
-  // Observe the real Main launch without waiting on the Root this test holds.
-  const reopening = electron
-    .restart((app) => acquired.resolve(app))
-    .then(
-      (context) => {
-        settled = true;
-        return { context, kind: 'ready' as const };
-      },
-      (error: unknown) => {
-        settled = true;
-        return { error, kind: 'failed' as const };
-      }
-    );
-  let result: Awaited<typeof reopening>;
+  // Another live owner of the Root: this test's own process.
+  const holder = await RootLock.acquire(root);
   try {
-    const started = await Promise.race([
-      acquired.promise.then((app) => ({ app, kind: 'acquired' as const })),
-      reopening,
-    ]);
-    if (started.kind === 'failed') {
-      throw started.error;
-    }
-    if (started.kind !== 'acquired') {
-      throw new Error('The relaunch completed before reporting its Main process.');
-    }
-    await setTimeout(3000);
-    // A held Root keeps startup pending, with no conversation or error window.
-    expect(settled).toBe(false);
-    expect(started.app.windows()).toHaveLength(0);
-    expect(started.app.process().exitCode).toBeNull();
+    page = (await electron.restart()).window;
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'couldn’t check its conversation store' })
+    ).toBeVisible();
   } finally {
-    exiting.release();
-    result = await reopening;
+    holder.release();
   }
-  if (result.kind === 'failed') {
-    throw result.error;
-  }
-  page = result.context.window;
-  await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
+
+  page = (await electron.restart()).window;
   await openHostThread(page);
+  await expect(page.getByText('Assistant threads failed to load')).toHaveCount(0);
   await expect(page.getByText('RAN_BEFORE_QUIT', { exact: true }).first()).toBeVisible({
     timeout: 30_000,
   });
