@@ -32,8 +32,7 @@ const PANEL_LAYOUT_KEY = 'panel-layout-store.v1';
 
 /**
  * A seeded root with one folder, and one thread whose workspace the host has stored. The root is
- * seeded, then the app relaunches on it: the test's own unload is then the launch's first, which
- * is the one the E2E lifecycle seam's one-shot `renderer-flush` delay applies to.
+ * seeded, then the app relaunches on it, so the test's own unload is the launch's first.
  *
  * The root lives in the harness's disposable workspace, which the fixture's teardown removes
  * after the app's exit is joined: removing it while the app still has it mounted fails on

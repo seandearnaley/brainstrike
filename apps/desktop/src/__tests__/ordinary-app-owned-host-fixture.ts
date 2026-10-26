@@ -716,20 +716,27 @@ setInterval(() => {}, 1000);
         // Explicit fault injection targets only this test's proven-owned host.
         process.kill(record.pid, 'SIGKILL');
         await expect.poll(() => processStartTime(record.pid)).not.toBe(record.start);
-        const before = commandIdentities.filter(
-          ({ pid, start }) => processStartTime(pid) === start
-        );
-        expect(before.length).toBeGreaterThan(0);
-        // ADR-0031: the dead host's lock died with it. The SIGTERM-immune command it
-        // started holds nothing. Main disconnects the window from its dead host, and the
-        // window's next client gets a new host on the root.
+        // ADR-0031: no command outlives its host. Main kills the dead host's command groups
+        // (POSIX); on Windows the host's kill-on-close Job ends them. The dead host's lock died
+        // with it, Main disconnects the window from it, and the window's next client gets a
+        // new host on the root.
+        await expect
+          .poll(
+            () => commandIdentities.filter(({ pid, start }) => processStartTime(pid) === start),
+            RUN_PROGRESS_POLL
+          )
+          .toEqual([]);
         await client.closed;
         client = await attachHostThroughWindow(page);
         const replacement = client.host.pid;
         await writeFile(
           join(evidence, 'utility-loss-root-reuse.json'),
           JSON.stringify(
-            { before, replacement, utility: { pid: record.pid, start: record.start } },
+            {
+              commands: commandIdentities,
+              replacement,
+              utility: { pid: record.pid, start: record.start },
+            },
             null,
             2
           )
