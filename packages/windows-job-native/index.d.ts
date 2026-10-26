@@ -32,5 +32,18 @@ export function createCommandJob(): CommandJob;
 export function getCurrentProcessIdentity(): WindowsProcessIdentity;
 
 export function activeProcessCount(): number;
+/**
+ * Joins this process to a new kill-on-close Job, so the whole tree ends with it. A child stays
+ * in the Job unless it is created with CREATE_BREAKAWAY_FROM_JOB, as `launchOutsideJob` does.
+ * Windows only.
+ */
 export function initialize(): void;
+/**
+ * Starts `executable` with `args` outside this process's Job, so the Job's kill-on-close does
+ * not end it: detached, with no inherited handles, this process's environment and `cwd` (this
+ * process's working directory when omitted). Returns its pid. Throws the Windows error when
+ * CreateProcessW fails, including when this process's own Job forbids breakaway. It also leaves
+ * each enclosing Job that allows breakaway, up to the first that does not. Windows only.
+ */
+export function launchOutsideJob(executable: string, args: readonly string[], cwd?: string): number;
 export function terminateOtherProcesses(exitCode: number): number;

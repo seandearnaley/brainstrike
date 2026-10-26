@@ -49,7 +49,10 @@ Napi::Value Initialize(const Napi::CallbackInfo& info) {
   }
 
   JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-  limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  // Breakaway is allowed, never silent: a child stays in the Job unless it is created with
+  // CREATE_BREAKAWAY_FROM_JOB, as LaunchOutsideJob below does.
+  limits.BasicLimitInformation.LimitFlags =
+      JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
   if (!SetInformationJobObject(candidate, JobObjectExtendedLimitInformation, &limits,
                                sizeof(limits))) {
     const DWORD error = GetLastError();
@@ -316,6 +319,106 @@ Napi::Value WaitForProcessExit(const Napi::CallbackInfo& info) {
   }
   (new ProcessExitWorker(env, process, deferred))->Queue();
   return deferred.Promise();
+}
+
+std::wstring WideText(const Napi::String& value) {
+  const std::u16string text = value.Utf16Value();
+  return std::wstring(text.begin(), text.end());
+}
+
+// Appends one argument so that CommandLineToArgvW, and the C runtime's argv parser, read it
+// back unchanged: backslashes are literal unless they precede a quote, so the ones before a
+// quote, and before the closing quote, are doubled.
+void AppendQuotedArgument(const std::wstring& argument, std::wstring* command_line) {
+  command_line->push_back(L' ');
+  if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring::npos) {
+    command_line->append(argument);
+    return;
+  }
+  command_line->push_back(L'"');
+  size_t backslashes = 0;
+  for (const wchar_t character : argument) {
+    if (character == L'\\') {
+      ++backslashes;
+      continue;
+    }
+    if (character == L'"') {
+      command_line->append(backslashes * 2 + 1, L'\\');
+    } else {
+      command_line->append(backslashes, L'\\');
+    }
+    backslashes = 0;
+    command_line->push_back(character);
+  }
+  command_line->append(backslashes * 2, L'\\');
+  command_line->push_back(L'"');
+}
+
+// Starts a process that is not a member of this process's Job, so the Job's kill-on-close does
+// not end it. When this process's own Job forbids breakaway, CreateProcessW fails and that is
+// thrown. Above a Job that allows it, the process leaves each enclosing Job up to the first
+// that forbids breakaway, and stays in that one (Nested Jobs, Win32 docs).
+Napi::Value LaunchOutsideJob(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  if (info.Length() < 2 || info.Length() > 3 || !info[0].IsString() || !info[1].IsArray() ||
+      (info.Length() == 3 && !info[2].IsUndefined() && !info[2].IsString())) {
+    Napi::TypeError::New(
+        env, "launchOutsideJob requires an executable, an argument array and an optional cwd.")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const std::wstring executable = WideText(info[0].As<Napi::String>());
+  // The program name is read up to its closing quote with no escapes, and no Windows path
+  // contains a quote.
+  if (executable.empty() || executable.find(L'"') != std::wstring::npos ||
+      executable.find(L'\0') != std::wstring::npos) {
+    Napi::TypeError::New(env, "launchOutsideJob executable must be a path without quotes.")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  std::wstring command_line = L"\"" + executable + L"\"";
+  const Napi::Array args = info[1].As<Napi::Array>();
+  for (std::uint32_t index = 0; index < args.Length(); ++index) {
+    const Napi::Value arg = args.Get(index);
+    if (!arg.IsString()) {
+      Napi::TypeError::New(env, "launchOutsideJob arguments must be strings.")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    const std::wstring text = WideText(arg.As<Napi::String>());
+    if (text.find(L'\0') != std::wstring::npos) {
+      Napi::TypeError::New(env, "launchOutsideJob arguments cannot contain NUL.")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    AppendQuotedArgument(text, &command_line);
+  }
+  std::wstring cwd;
+  if (info.Length() == 3 && info[2].IsString()) {
+    cwd = WideText(info[2].As<Napi::String>());
+    if (cwd.empty() || cwd.find(L'\0') != std::wstring::npos) {
+      Napi::TypeError::New(env, "launchOutsideJob cwd must be a non-empty path.")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+  }
+
+  // CreateProcessW may write to the command line buffer, so it gets its own copy.
+  std::vector<wchar_t> mutable_command_line(command_line.begin(), command_line.end());
+  mutable_command_line.push_back(L'\0');
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  PROCESS_INFORMATION created{};
+  // No inherited handles and a null environment block, which is this process's current one.
+  if (!CreateProcessW(executable.c_str(), mutable_command_line.data(), nullptr, nullptr, FALSE,
+                      CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_UNICODE_ENVIRONMENT,
+                      nullptr, cwd.empty() ? nullptr : cwd.c_str(), &startup, &created)) {
+    ThrowWindowsError(env, "CreateProcessW", GetLastError());
+    return env.Undefined();
+  }
+  CloseHandle(created.hThread);
+  CloseHandle(created.hProcess);
+  return Napi::Number::New(env, created.dwProcessId);
 }
 
 bool ReadCommandMembers(HANDLE job, std::vector<ULONG_PTR>* members, std::string* error) {
@@ -668,6 +771,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("getProcessCreationTime", Napi::Function::New(env, GetProcessCreationTime));
   exports.Set("activeProcessCount", Napi::Function::New(env, ActiveProcessCount));
   exports.Set("initialize", Napi::Function::New(env, Initialize));
+  exports.Set("launchOutsideJob", Napi::Function::New(env, LaunchOutsideJob));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, TerminateOtherProcesses));
   exports.Set("waitForProcessExit", Napi::Function::New(env, WaitForProcessExit));
 #else
@@ -676,6 +780,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("getProcessCreationTime", Napi::Function::New(env, Unsupported));
   exports.Set("activeProcessCount", Napi::Function::New(env, Unsupported));
   exports.Set("initialize", Napi::Function::New(env, Unsupported));
+  exports.Set("launchOutsideJob", Napi::Function::New(env, Unsupported));
   exports.Set("terminateOtherProcesses", Napi::Function::New(env, Unsupported));
   exports.Set("waitForProcessExit", Napi::Function::New(env, Unsupported));
 #endif
