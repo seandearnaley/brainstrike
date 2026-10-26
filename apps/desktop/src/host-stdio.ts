@@ -55,6 +55,11 @@ class StdioChannel implements PlatformMessagePort {
   on(event: 'message', listener: MessageListener): this;
   on(event: 'close', listener: CloseListener): this;
   on(event: 'message' | 'close', listener: MessageListener): this {
+    if (event === 'close' && this.#closed) {
+      // A channel that already closed still tells a late listener, so no waiter on it hangs.
+      queueMicrotask(() => listener({ data: undefined }));
+      return this;
+    }
     (event === 'message' ? this.#messages : this.#closes).add(listener);
     return this;
   }
@@ -120,7 +125,10 @@ export interface HostStdio {
   readonly ended: Promise<void>;
   /** Sends a `host/message`: the host's report, or Main's control; resolves once written. */
   message(params: unknown): Promise<void>;
-  /** Opens a channel to the other end, which receives it as `opened`. */
+  /**
+   * Opens a channel to the other end, which receives it as `opened`. Once this end's input has
+   * ended, the channel comes back closed.
+   */
   open(channel: string): PlatformMessagePort;
 }
 export interface HostStdioHandlers {
@@ -138,6 +146,7 @@ export function openHostStdio(
 ): HostStdio {
   const channels = new Map<string, StdioChannel>();
   const ended = Promise.withResolvers<void>();
+  let inputEnded = false;
   let writable = true;
   const write = (frame: Frame): Promise<void> => {
     if (!writable) {
@@ -192,6 +201,7 @@ export function openHostStdio(
     }
   });
   lines.once('close', () => {
+    inputEnded = true;
     for (const open of [...channels.values()]) {
       open.ended();
     }
@@ -209,6 +219,11 @@ export function openHostStdio(
         throw new Error(`Host channel ${id} is already open`);
       }
       const opened = channel(id);
+      if (inputEnded) {
+        // The other end is gone: the channel is born closed instead of waiting on nobody.
+        opened.ended();
+        return opened;
+      }
       send({ jsonrpc: '2.0', method: 'channel/open', params: { channel: id } });
       return opened;
     },

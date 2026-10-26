@@ -256,10 +256,8 @@ export async function attachHostThroughWindow(page: Page): Promise<HostClient> {
   ) {
     throw new Error('The app sent no host versions to expect');
   }
-  const connection = createMessageConnection(reader, writer);
-  void closed.promise.then(() => connection.dispose());
   return await authenticateHostClient(
-    connection,
+    createMessageConnection(reader, writer),
     { hostVersion: host.hostVersion, protocolVersion: host.protocolVersion },
     async () => {
       transports.delete(id);

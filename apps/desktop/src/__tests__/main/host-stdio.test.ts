@@ -91,6 +91,20 @@ describe("the host's stdio", () => {
     expect(closed).toHaveBeenCalledOnce();
   });
 
+  it('closes a channel opened after the host exited, and tells a listener that comes after the close', async () => {
+    const { host, main } = pipe();
+    // The host exited right after ready: its output ended before Main opened its client.
+    host.end();
+    await main.ended;
+    const late = main.open('main');
+    const closed = vi.fn();
+    late.on('close', closed);
+    await vi.waitFor(() => expect(closed).toHaveBeenCalledOnce());
+    expect(() => late.postMessage({ id: 1, jsonrpc: '2.0', method: 'initialize' })).toThrow(
+      'closed'
+    );
+  });
+
   it('reports a line that is not this protocol and stops reading', async () => {
     const { hostMessages, invalid, stdin } = pipe();
     stdin.write('a log line that is not JSON\n');

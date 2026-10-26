@@ -106,3 +106,47 @@ test('a write failure the peer did not cause stays the internal fault', async ()
     await client.close().catch(() => undefined);
   }
 });
+
+// A host killed while a request is in flight never answers it: the transport's close
+// fails the request instead of leaving its caller waiting for good.
+test.each([
+  ['initialize', false],
+  ['a host request', true],
+] as const)('%s pending when the transport closes rejects', async (_name, initialized) => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const server = stdioConnection(input, output);
+  const held = Promise.withResolvers<void>();
+  server.onRequest('initialize', async () => {
+    if (!initialized) {
+      await held.promise;
+    }
+    return {
+      hostVersion: record.hostVersion,
+      pid: record.pid,
+      protocolVersion: record.protocolVersion,
+      start: record.start,
+    };
+  });
+  server.onRequest('thread/list', () => held.promise);
+  server.listen();
+  const closed = Promise.withResolvers<void>();
+  const client = authenticateHostClient(
+    stdioConnection(output, input),
+    record,
+    async () => undefined,
+    closed.promise
+  );
+  const pending = initialized
+    ? client.then((authenticated) => authenticated.request('thread/list', {}))
+    : client;
+  if (initialized) {
+    await client;
+  } else {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  closed.resolve();
+  await expect(pending).rejects.toThrow();
+  held.resolve();
+  server.dispose();
+});

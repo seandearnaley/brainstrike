@@ -21,10 +21,6 @@ export function attachBrowserHost(
     new BrowserMessageWriter(port)
   );
   port.start();
-  closed.then(
-    () => connection.dispose(),
-    () => connection.dispose()
-  );
   return authenticateHostClient(
     connection,
     expected,

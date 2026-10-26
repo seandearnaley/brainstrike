@@ -260,11 +260,8 @@ async function connectMainClient(child: OwnedChild, signal: AbortSignal): Promis
   const aborted = (): void => port.close();
   signal.addEventListener('abort', aborted, { once: true });
   void closed.then(() => signal.removeEventListener('abort', aborted));
-  const connection = mainPlatformConnection(port);
-  // A closed channel rejects pending requests instead of leaving them unanswered.
-  void closed.then(() => connection.dispose());
   return await authenticateHostClient(
-    connection,
+    mainPlatformConnection(port),
     { hostVersion: HOST_VERSION, protocolVersion: AGENT_HOST_PROTOCOL_VERSION },
     async () => {
       port.close();

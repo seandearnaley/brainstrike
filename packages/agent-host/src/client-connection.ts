@@ -144,6 +144,12 @@ export async function authenticateHostClient<E extends HostClientExpectation>(
   watchPeerReset(connection);
   connection.onNotification(HOST_CLOSING_EVENT, () => markHostClosing(connection));
   connection.onNotification(HOST_DRAINED_EVENT, () => markHostDrained(connection));
+  // A transport that closes, the host killed included, rejects every request still pending.
+  // The JSON-RPC connection rejects them only when disposed, never when its reader ends.
+  transportClosed.then(
+    () => connection.dispose(),
+    () => connection.dispose()
+  );
   connection.onNotification('log/event', (input: unknown) => {
     const row = Schema.decodeUnknownSync(HostLogRowSchema, {
       errors: 'all',
