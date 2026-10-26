@@ -28,7 +28,11 @@ import {
   type HostRunState,
   type HostThreadGrants,
 } from './core-state.ts';
-import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.ts';
+import {
+  defaultHostToolModelOutput,
+  joinHostTurnStart,
+  withHostToolHookContext,
+} from './hook-context.ts';
 import { canonical, jsonValue } from './json-value.ts';
 import { McpAuthorityReconstructionError } from './mcp-authority.ts';
 import type {
@@ -768,6 +772,8 @@ export async function decideHostSdkApproval(
       reason: string;
     }
 > {
+  // No tool acts before the workspace it may change is recorded.
+  await joinHostTurnStart(run);
   run.controller.signal.throwIfAborted();
   // The provider already ran its own search; admission and each step's active
   // tools are its gate (hostStepActiveTools), never a decision after the fact.
