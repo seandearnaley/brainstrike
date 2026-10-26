@@ -15,6 +15,7 @@ import {
 } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { SqliteQueryProcessExitedError } from '@brainstrike/sqlite-query';
+import { RootLockedError } from '@brainstrike/state-store';
 
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
@@ -160,7 +161,40 @@ function lostIndexProcess(error: unknown): BoundaryFailureError | undefined {
 }
 
 /** Preserve proven native outcomes; source and cleanup diagnostics stay in Main. */
+/** The held Root a failure comes from, through its causes and joined errors. */
+function heldRoot(error: unknown): RootLockedError | undefined {
+  if (error instanceof RootLockedError) {
+    return error;
+  }
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+  const inner: readonly unknown[] =
+    error instanceof AggregateError ? [...(error.errors as unknown[]), error.cause] : [error.cause];
+  for (const cause of inner) {
+    const held = heldRoot(cause);
+    if (held) {
+      return held;
+    }
+  }
+  return undefined;
+}
+
 export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): BoundaryFailure {
+  // ADR-0031: another process holds the profile's Root, so its host was refused. Say who,
+  // whichever operation needed the host.
+  const held = heldRoot(error);
+  if (held) {
+    return refusal({
+      category: 'availability',
+      code: 'profile.data-in-use',
+      message:
+        held.holder === 'owner'
+          ? `This profile’s data is in use by another process (pid ${held.owner.pid}).`
+          : `This profile’s data is still held by a process that pid ${held.owner.pid} started.`,
+      remedy: 'Close that process, then reconnect.',
+    });
+  }
   const configFailure = indexConfigFailure(error, log);
   if (configFailure) {
     return configFailure;

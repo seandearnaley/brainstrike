@@ -29,8 +29,8 @@ async function openHostThread(page: Page): Promise<void> {
 
 /**
  * ADR-0031 decision 4: one lock per data root, and a second owner is refused, not waited for.
- * A launch while another process holds the profile's Root opens at once and shows that its
- * conversation store is unavailable. Once that process lets go, the next launch reaches a
+ * A launch while another process holds the profile's Root opens at once and says which
+ * process holds it. Once that process lets go, the next launch reaches a
  * working host thread with the conversation the first one committed.
  */
 test('a launch while another process holds the profile is refused visibly; the next launch reaches a working host thread', async ({
@@ -50,9 +50,10 @@ test('a launch while another process holds the profile is refused visibly; the n
   const holder = await RootLock.acquire(root);
   try {
     page = (await electron.restart()).window;
+    // The lock's refusal names the process that holds the Root.
     await expect(
       page.getByRole('alert').filter({ hasText: 'couldn’t check its conversation store' })
-    ).toBeVisible();
+    ).toContainText(`This profile’s data is in use by another process (pid ${process.pid}).`);
   } finally {
     holder.release();
   }

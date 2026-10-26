@@ -1,4 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/client';
+import type { NativeIndexState } from './native-index-lifecycle';
 import {
   nativeIndexClosedError,
   nativeIndexStateError as stateError,
@@ -10,6 +11,7 @@ interface ProfileAdmissionRuntime {
     options: { readonly indexIndependent: true },
     signal?: AbortSignal
   ): Promise<HostClient>;
+  lastProfileFailure(): { readonly cause: unknown } | undefined;
   retireFailedProfile(): Promise<boolean>;
 }
 
@@ -18,6 +20,19 @@ export interface NativeIndexProfileAdmission {
   acquire(signal?: AbortSignal): Promise<HostClient>;
   /** Quit begins: every borrow still waiting for the host's start-up is refused now. */
   fenceTerminal(): void;
+}
+
+/**
+ * A borrow that finds the index closed with no failed host left to retire. Released for a failed
+ * start, the host is still releasing or another borrow is starting the next one, so the failed
+ * start is this borrow's answer: the host was refused, not the index.
+ */
+function closedRefusal(
+  state: Extract<NativeIndexState, { readonly kind: 'closed' }>,
+  runtime: ProfileAdmissionRuntime
+): unknown {
+  const failure = state.reason === 'host-released' ? runtime.lastProfileFailure() : undefined;
+  return failure ? failure.cause : stateError(state);
 }
 
 /**
@@ -64,7 +79,7 @@ export function createNativeIndexProfileAdmission(
     const recovered = await recover();
     let state = await owner.state();
     if (state.kind === 'closed' && !recovered) {
-      throw stateError(state);
+      throw closedRefusal(state, runtime);
     }
     const admit = async (): Promise<HostClient> => {
       const attachment = await runtime.acquireProfile({ indexIndependent: true }, signal);

@@ -257,6 +257,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
         }
         return lease.close(reason);
       },
+      startFailure: lease.startFailure,
     };
   });
   return {

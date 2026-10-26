@@ -113,6 +113,8 @@ export interface DesktopHostLease {
   acquire(): Promise<HostClient>;
   clearAndRetireContent(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
+  /** Why this lease's start failed, known as soon as it failed, before its release ends. */
+  startFailure(): { readonly cause: unknown } | undefined;
 }
 
 interface OwnedChild {
@@ -277,6 +279,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   const abort = new AbortController();
   let acquiring: Promise<HostClient> | undefined;
   let retired = false;
+  let startFailure: { readonly cause: unknown } | undefined;
   let releasing: Promise<void> | undefined;
   let ownedChild: OwnedChild | undefined;
   let clearing: Promise<ClearContentResult> | undefined;
@@ -365,6 +368,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       retired = true;
       // A startup its own close cancelled settles with that close's typed reason.
       const cause: unknown = abort.signal.aborted ? abort.signal.reason : failure;
+      startFailure = { cause };
       try {
         await closeScope();
       } catch (cleanupCause) {
@@ -432,5 +436,6 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
         .then(() => lostTail)
         .then(closeScope);
     },
+    startFailure: () => startFailure,
   };
 }

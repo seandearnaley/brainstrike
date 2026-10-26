@@ -4,12 +4,16 @@ interface ProfileOwner<Attachment> {
   acquire(): Promise<Attachment>;
   clearAndRetireContent?(): Promise<ClearContentResult>;
   close(reason?: unknown): Promise<void>;
+  /** Why this owner's start failed, known before its release ends. */
+  startFailure?(): { readonly cause: unknown } | undefined;
 }
 
 export interface DesktopProfileRuntime<Attachment> {
   acquire(signal?: AbortSignal): Promise<Attachment>;
   clearAndRetireContent(): Promise<ClearContentResult>;
   isRetiring(): boolean;
+  /** Why the profile's last host start failed, until a start succeeds. */
+  lastFailure(): { readonly cause: unknown } | undefined;
   retire(beforeClose?: Promise<void>, reason?: unknown): Promise<void>;
   retireFailed(): Promise<boolean>;
 }
@@ -29,6 +33,7 @@ export function createDesktopProfileRuntime<Attachment>(
   let retirement: Promise<void> | undefined;
   let retirementPending = false;
   let failedOwner: ProfileOwner<Attachment> | undefined;
+  let lastFailure: { readonly cause: unknown } | undefined;
 
   const retireFailed = async (): Promise<boolean> => {
     const failed = failedOwner;
@@ -61,10 +66,13 @@ export function createDesktopProfileRuntime<Attachment>(
       acquisition ??= retained.acquire();
       const acquiring = acquisition;
       try {
-        return await acquiring;
+        const attachment = await acquiring;
+        lastFailure = undefined;
+        return attachment;
       } catch (cause) {
         if (acquisition === acquiring && !retirement) {
           failedOwner = retained;
+          lastFailure = { cause };
           owner = undefined;
           acquisition = undefined;
         }
@@ -105,6 +113,8 @@ export function createDesktopProfileRuntime<Attachment>(
       );
     },
     isRetiring: () => retirement !== undefined,
+    // A start that failed is known to its owner before its release ends and the acquisition settles.
+    lastFailure: () => lastFailure ?? owner?.startFailure?.(),
     retire: (beforeClose = Promise.resolve(), reason?: unknown) => {
       if (retirement && retirementPending) {
         return retirement;
