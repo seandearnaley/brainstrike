@@ -98,7 +98,9 @@ test('the thread pane reconnects to a replaced agent host and never resends', as
     await input.fill(SECOND_PROMPT);
     await input.press('Enter');
     await expect(region.getByText(SECOND_REPLY, { exact: true })).toBeVisible({ timeout: 60_000 });
-    await expect.poll(outcomes, { timeout: 30_000 }).toEqual(['interrupted', 'completed']);
+    // The pane leaves the running state once the host has committed the run's end.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+    expect(await outcomes()).toEqual(['interrupted', 'completed']);
 
     // 2. A second loss before the user reconnects, with a send the host never read.
     const stopped = await readHostProcess(userDataDir);

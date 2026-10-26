@@ -182,6 +182,8 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_RECEIVED_CHILD_1720', { exact: true })).toBeVisible();
     expect(observed).toEqual({ childRead: true, parentResult: true });
+    // The child's pane leaves the running state once the host has committed its run's end.
+    await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     // The host committed the child's one approval, answered once, and its run completed.
     const childLog = (await readHostThreadTree(electron.getUserDataDir())).find(
       ({ parentThreadId }) => parentThreadId

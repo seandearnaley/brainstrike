@@ -128,14 +128,15 @@ test('deleting another folder’s indexed data leaves a streaming host run runni
     await expect(page.getByText(DISCONNECTED)).toHaveCount(0);
     // The same host process served the whole run: deletion never replaced it.
     expect(await readHostProcess(userDataDir)).toEqual(hostBefore);
-    // The reply streams before the run commits its end: wait for the committed outcome.
-    const finishedOutcomes = async (): Promise<readonly string[]> =>
-      (await readHostThreadTree(userDataDir))
-        .filter(({ parentThreadId }) => parentThreadId === undefined)
-        .flatMap(({ rows }) =>
-          rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
-        );
-    await expect.poll(finishedOutcomes, { timeout: 60_000 }).toEqual(['completed']);
+    // The reply streams before the run commits its end; the pane leaves the
+    // running state once that end is committed.
+    await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+    const finishedOutcomes = (await readHostThreadTree(userDataDir))
+      .filter(({ parentThreadId }) => parentThreadId === undefined)
+      .flatMap(({ rows }) =>
+        rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
+      );
+    expect(finishedOutcomes).toEqual(['completed']);
     expect(await readHostProcess(userDataDir)).toEqual(hostBefore);
     await expect(page.getByText(DISCONNECTED)).toHaveCount(0);
     expect(modelProvider.refusals()).toEqual([]);

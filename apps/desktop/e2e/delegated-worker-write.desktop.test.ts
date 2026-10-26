@@ -407,11 +407,13 @@ async function assertWorkerWrite(
         await expect(
           root.getByText('PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723', { exact: true })
         ).toBeVisible();
+        // Send returns in place of Stop once the host has committed the run's end.
         await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
         // The user's turn carries no second delivery of the stopped child.
-        await expect
-          .poll(() => rootRuns(electron.getUserDataDir()))
-          .toEqual([...stoppedRuns, { outcome: 'completed', states: [], via: 'command' }]);
+        expect(await rootRuns(electron.getUserDataDir())).toEqual([
+          ...stoppedRuns,
+          { outcome: 'completed', states: [], via: 'command' },
+        ]);
         const afterStop = modelCalls();
         await window.reload();
         await ensureAssistantShellVisible(window);
