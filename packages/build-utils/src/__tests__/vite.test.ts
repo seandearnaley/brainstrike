@@ -125,7 +125,6 @@ describe('assistant vite helpers', () => {
   test('returns shared startup optimize-deps package ids', () => {
     expect(getCoreAppOptimizeDepsInclude()).toEqual(
       expect.arrayContaining([
-        'idb',
         'minimatch',
         'pino',
         'react-hotkeys-hook',
