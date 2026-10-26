@@ -189,16 +189,21 @@ export async function startStandaloneProviderHost(options: {
   };
 }
 /**
- * Polls `read` until `found` holds. The test's own timeout is the one deadline: a second, shorter
- * one here failed slow but progressing runs (hosted Windows replays a background delegation in
- * about 60 s).
+ * Polls `read` until `found` holds. The test's own timeout is the one deadline: `signal` (the test
+ * context's, aborted at that timeout) ends the poll with the last value, so the caller's cleanup
+ * runs. A shorter clock here failed slow but progressing runs (hosted Windows replays a background
+ * delegation in about 60 s).
  */
 export async function pollUntil<T>(
   read: () => Promise<T>,
-  found: (value: T) => boolean
+  found: (value: T) => boolean,
+  signal: AbortSignal
 ): Promise<T> {
   let latest = await read();
   while (!found(latest)) {
+    if (signal.aborted) {
+      throw new Error(`The test ended while polling; last value: ${JSON.stringify(latest)}`);
+    }
     await new Promise((resolve) => setTimeout(resolve, 200));
     latest = await read();
   }
