@@ -197,3 +197,23 @@ it('starts as usual with no reset recorded, and a second request is refused whil
     held.release();
   }
 });
+
+// ADR-0031: on Windows the old Main's process handle is the reset's one wait. A lock still held
+// after it is another new instance wiping, so this start is refused at once instead of waiting.
+it.runIf(process.platform === 'win32')(
+  'refuses at once while another new instance holds the reset lock after the old Main exited',
+  async () => {
+    const { files, logs, profile, userData } = seed();
+    const old = await previousMain([]);
+    recordReset(userData, profile, old.identity);
+    await old.exit();
+    const wiping = await previousMain([path.join(userData, LOCK)]);
+
+    await expect(
+      completePendingFactoryReset({ logsPath: logs, userDataPath: userData })
+    ).rejects.toThrow('Another Brainstrike instance is finishing the factory reset of this data.');
+    await wiping.alive();
+    expect(existsSync(path.join(userData, MARKER))).toBe(true);
+    expect(existsSync(files.threads)).toBe(true);
+  }
+);

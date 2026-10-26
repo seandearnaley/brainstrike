@@ -198,11 +198,21 @@ export async function completePendingFactoryReset(options: {
   }
   logger.warn('Finishing the factory reset the previous run asked for', { scope: pending.scope });
   const started = performance.now();
+  const lockPath = path.join(options.userDataPath, LOCK_FILE);
+  let lock: ExclusiveLock;
   if (pending.process && processExitWait) {
     await processExitWait.wait(pending.process);
+    // The previous Main has exited, so a holder now is another new instance wiping: refused at once.
+    const held = tryExclusiveLock(lockPath);
+    if (held === null) {
+      throw new Error('Another Brainstrike instance is finishing the factory reset of this data.');
+    }
+    lock = held;
+  } else {
+    // POSIX: the previous Main holds this until it exits, and this wait is the reset's one wait on
+    // it. A lock does not name its holder, so a second new instance waits out the first one's wipe.
+    lock = await waitForExclusiveLock(lockPath);
   }
-  // The previous Main holds this until it exits; a second instance started meanwhile waits here.
-  const lock = await waitForExclusiveLock(path.join(options.userDataPath, LOCK_FILE));
   const exited = performance.now();
   try {
     // An instance that held the lock first may have finished this reset already.
