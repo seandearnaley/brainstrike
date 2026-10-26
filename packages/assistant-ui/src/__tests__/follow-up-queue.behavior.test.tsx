@@ -198,6 +198,10 @@ describe('follow-up queue behavior (real local runtime)', () => {
     await waitFor(() => {
       expect(runInputs).toEqual(['first message', 'steer: change course', 'passive follow-up']);
     });
+    // The passive follow-up's run starts before React renders it: wait until
+    // it is on screen as running (the queue control replaced Send) before
+    // ending it, or it too would end unseen.
+    await screen.findByTestId('assistant-queue-follow-up');
     expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
     release();
     await waitFor(() => {
