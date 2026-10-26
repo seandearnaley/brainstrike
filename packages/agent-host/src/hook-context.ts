@@ -158,7 +158,7 @@ async function passHostPromptHooks(
   commit: (events: HostEvent[]) => Promise<unknown>
 ): Promise<string | undefined> {
   try {
-    const gate = await admission.hooks?.userPromptSubmit(run.branch.prompt);
+    const gate = await admission.hooks?.userPromptSubmit(run.branch.prompt, run.controller.signal);
     if (gate?.blocked) {
       return `The request was blocked by a hook: ${gate.reason}`;
     }

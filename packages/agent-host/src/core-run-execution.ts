@@ -216,6 +216,7 @@ async function commitPostToolUseContext(
     error: isGuardedToolError(output),
     input,
     output,
+    signal: run.controller.signal,
     toolName: registered.permissionToolId ?? action.toolId,
   });
   if (post?.additionalContext) {

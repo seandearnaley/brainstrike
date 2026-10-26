@@ -100,8 +100,9 @@ export function loadHostRunHooks(options: HostRunHooksOptions): {
   }
   const hooks: HostRunHooks = {
     matchesPreToolUse: (toolName) => manager.matchesPreToolUse(toolName),
-    postToolUse: async ({ error, input, output, toolName }) => {
+    postToolUse: async ({ error, input, output, signal, toolName }) => {
       const result = await manager.runPostToolUse({
+        signal,
         toolError: error,
         toolInput: input,
         toolName,
@@ -112,8 +113,8 @@ export function loadHostRunHooks(options: HostRunHooksOptions): {
         ? { additionalContext: boundedContext(result.additionalContext) }
         : {};
     },
-    preToolUse: async ({ input, toolName }) => {
-      const result = await manager.runPreToolUse(toolName, input);
+    preToolUse: async ({ input, signal, toolName }) => {
+      const result = await manager.runPreToolUse(toolName, input, signal);
       return result.allowed
         ? { blocked: false }
         : { blocked: true, reason: result.blockReason ?? `A PreToolUse hook blocked ${toolName}` };
@@ -122,8 +123,8 @@ export function loadHostRunHooks(options: HostRunHooksOptions): {
       const result = await manager.runStop(reason, assistantMessage);
       return result.runVerdict ? { verdict: result.runVerdict } : {};
     },
-    userPromptSubmit: async (prompt) => {
-      const result = await manager.runUserPromptSubmit(prompt);
+    userPromptSubmit: async (prompt, signal) => {
+      const result = await manager.runUserPromptSubmit(prompt, signal);
       if (!result.allowed) {
         return {
           blocked: true,

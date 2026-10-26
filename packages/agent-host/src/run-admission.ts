@@ -810,6 +810,7 @@ export async function decideHostSdkApproval(
   if (!prior && run.admission?.hooks) {
     const hooked = await run.admission.hooks.preToolUse({
       input: call.input,
+      signal: run.controller.signal,
       toolName: registered.permissionToolId ?? call.toolName,
     });
     run.controller.signal.throwIfAborted();

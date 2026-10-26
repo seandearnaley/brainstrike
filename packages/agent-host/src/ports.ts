@@ -322,12 +322,16 @@ export interface HostRunHooks {
     readonly error: boolean;
     readonly input: unknown;
     readonly output: unknown;
+    /** The run's signal: its abort kills the running hook at once. */
+    readonly signal?: AbortSignal;
     /** The tool's catalog ID, which hook matchers name. */
     readonly toolName: string;
   }): Promise<{ readonly additionalContext?: string }>;
   /** Before a tool the policy would allow or ask about: a hook may block it, with a reason. */
   preToolUse(call: {
     readonly input: unknown;
+    /** The run's signal: its abort kills the running hook at once. */
+    readonly signal?: AbortSignal;
     /** The tool's catalog ID (`brainstrike.readWorkspaceFile`), which hook matchers name. */
     readonly toolName: string;
   }): Promise<HostPreToolUseVerdict>;
@@ -337,8 +341,11 @@ export interface HostRunHooks {
     readonly assistantMessage?: string;
     readonly reason: 'aborted' | 'complete' | 'error';
   }): Promise<{ readonly verdict?: HostHookRunVerdict }>;
-  /** Before a fresh run's first step: a hook may block the prompt or add context for the run. */
-  userPromptSubmit(prompt: string): Promise<HostUserPromptVerdict>;
+  /**
+   * Before a fresh run's first step: a hook may block the prompt or add context for the run.
+   * The run's abort kills the running hook at once.
+   */
+  userPromptSubmit(prompt: string, signal?: AbortSignal): Promise<HostUserPromptVerdict>;
 }
 
 /** One turn boundary of a run, for the platform's workspace snapshot owner. */

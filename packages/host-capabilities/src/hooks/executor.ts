@@ -108,6 +108,8 @@ function killHookTree(child: ChildProcess): void {
 interface ExecuteHookOptions {
   /** Scan raw stdout for a `brainstrikeRunVerdict` line (Stop phase only). */
   readonly captureRunVerdict?: boolean;
+  /** The run's signal: its abort kills the running hook at once. */
+  readonly signal?: AbortSignal | undefined;
   readonly timeoutOverrideMs?: number;
   readonly windowsCommandEntry: () => string;
 }
@@ -191,12 +193,16 @@ async function executeWindowsHook(
       }),
   });
   windowsHooks.add(owner);
+  // start() observes the same retirement failure. Never release an unjoined Job.
+  const retire = (): void => {
+    void owner.retire().catch(() => {});
+  };
   const timer = setTimeout(() => {
     timedOut = true;
-    // start() observes the same retirement failure. Never release an unjoined Job.
-    void owner.retire().catch(() => {});
+    retire();
   }, timeout);
   timer.unref();
+  options.signal?.addEventListener('abort', retire, { once: true });
   try {
     const result = await owner.start();
     const parsedStdout = parseStdout(stdout);
@@ -226,6 +232,7 @@ async function executeWindowsHook(
     };
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener('abort', retire);
   }
 }
 
@@ -284,11 +291,30 @@ function executeHook(
     let timedOut = false;
     let settled = false;
 
+    let aborted = false;
+
     const timer = setTimeout(() => {
       timedOut = true;
       killHookTree(child);
     }, timeout);
     timer.unref?.();
+
+    // The run's abort kills the hook's group at once, and the hook ends at its shell's exit: a
+    // process that left the group may hold the pipes for good.
+    const { signal } = options;
+    const abort = (): void => {
+      aborted = true;
+      killHookTree(child);
+      if (child.exitCode !== null || child.signalCode !== null) {
+        finish(child.exitCode);
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    child.on('exit', (exitCode) => {
+      if (aborted) {
+        finish(exitCode);
+      }
+    });
 
     child.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
@@ -297,12 +323,17 @@ function executeHook(
       stderr += data.toString();
     });
 
-    child.on('close', (exitCode) => {
+    child.on('close', (exitCode) => finish(exitCode));
+
+    function finish(exitCode: number | null): void {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (settled) {
         return;
       }
       settled = true;
+      child.stdout?.destroy();
+      child.stderr?.destroy();
       const parsedStdout = parseStdout(stdout);
       // Verdict lines are scanned from the RAW stdout (the decision protocol
       // above parses the whole trimmed stdout as one JSON object, which a test
@@ -320,10 +351,11 @@ function executeHook(
         durationMs: Date.now() - startTime,
         timedOut,
       });
-    });
+    }
 
     child.on('error', (error: Error) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (settled) {
         return;
       }
@@ -388,6 +420,11 @@ export interface RunHooksOptions {
    */
   readonly captureRunVerdict?: boolean;
   readonly logger: HookLogger;
+  /**
+   * The run's signal. Its abort kills the running hook's group at once and
+   * skips the phase's remaining hooks.
+   */
+  readonly signal?: AbortSignal | undefined;
   /**
    * The composing app's Windows command wrapper. On Windows each hook runs
    * through it, as the app's own commands do.
@@ -497,6 +534,9 @@ export async function runHooksForEvent(
   const phaseStart = Date.now();
 
   for (const hook of hooks) {
+    if (opts.signal?.aborted) {
+      break;
+    }
     const budget = resolvePhaseBudget(hook, opts, phaseStart);
     if (budget.kind === 'exhausted') {
       opts.logger.warn('hook phase exceeded aggregate budget', {
@@ -509,6 +549,7 @@ export async function runHooksForEvent(
     }
     const result = await executeHook(hook, buildStdin(hook), opts.logger, {
       captureRunVerdict: opts.captureRunVerdict === true,
+      signal: opts.signal,
       windowsCommandEntry: opts.windowsCommandEntry,
       ...(budget.timeoutOverrideMs === undefined
         ? {}

@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { createHostRunHooks, loadHostRunHooks } from '../../src/hooks/host-run-hooks.js';
 import { windowsCommandEntry } from '../fixtures/windows-command-entry.js';
 
@@ -59,3 +59,45 @@ test('a run whose only project hooks file is untrusted runs no hooks, and names 
     },
   ]);
 });
+
+test.skipIf(process.platform === 'win32')(
+  'the run’s abort ends a running hook at once and runs none of the hooks after it',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'bs-host-run-hooks-'));
+    roots.push(root);
+    const globalPath = join(root, 'hooks.json');
+    const marker = join(root, 'second-hook-ran');
+    writeFileSync(
+      globalPath,
+      JSON.stringify({
+        PreToolUse: [
+          { command: 'sleep 600', type: 'command' },
+          { command: `touch '${marker}'`, type: 'command' },
+        ],
+      })
+    );
+    const hooks = createHostRunHooks({
+      globalPath,
+      maxHookTimeoutMs: 30_000,
+      roots: [],
+      sessionId: 'thread-1',
+      windowsCommandEntry,
+    });
+    // No hook timeout can fire: only the abort can end the sleeping hook.
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const controller = new AbortController();
+      const verdict = hooks?.preToolUse({
+        input: {},
+        signal: controller.signal,
+        toolName: 'brainstrike.webSearch',
+      });
+      controller.abort();
+      await expect(verdict).resolves.toEqual({ blocked: false });
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+  10_000
+);

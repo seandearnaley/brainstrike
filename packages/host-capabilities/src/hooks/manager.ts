@@ -133,7 +133,11 @@ export class HookManager {
     return this.hooksFor('PreToolUse').some((hook) => matchesTool(hook, toolName));
   }
 
-  async runPreToolUse(toolName: string, toolInput: unknown): Promise<HookEventResult> {
+  async runPreToolUse(
+    toolName: string,
+    toolInput: unknown,
+    signal?: AbortSignal
+  ): Promise<HookEventResult> {
     const hooks = this.hooksFor('PreToolUse').filter((hook) => matchesTool(hook, toolName));
     const result = await runHooksForEvent(
       hooks,
@@ -144,7 +148,12 @@ export class HookManager {
         tool_input: toolInput,
         tool_name: toolName,
       }),
-      { blocking: true, logger: this.ctx.logger, windowsCommandEntry: this.ctx.windowsCommandEntry }
+      {
+        blocking: true,
+        logger: this.ctx.logger,
+        signal,
+        windowsCommandEntry: this.ctx.windowsCommandEntry,
+      }
     );
     this.surfaceOutcome('PreToolUse', result);
     return result;
@@ -155,6 +164,7 @@ export class HookManager {
     toolInput: unknown;
     toolOutput: unknown;
     toolError: boolean;
+    signal?: AbortSignal | undefined;
   }): Promise<HookEventResult> {
     const hooks = this.hooksFor('PostToolUse').filter((hook) => matchesTool(hook, input.toolName));
     const result = await runHooksForEvent(
@@ -171,6 +181,7 @@ export class HookManager {
       {
         blocking: false,
         logger: this.ctx.logger,
+        signal: input.signal,
         windowsCommandEntry: this.ctx.windowsCommandEntry,
       }
     );
@@ -178,7 +189,7 @@ export class HookManager {
     return result;
   }
 
-  async runUserPromptSubmit(userMessage: string): Promise<HookEventResult> {
+  async runUserPromptSubmit(userMessage: string, signal?: AbortSignal): Promise<HookEventResult> {
     const result = await runHooksForEvent(
       this.hooksFor('UserPromptSubmit'),
       () => ({
@@ -191,6 +202,7 @@ export class HookManager {
         aggregateTimeoutMs: this.ctx.aggregateTimeoutMs,
         blocking: true,
         logger: this.ctx.logger,
+        signal,
         windowsCommandEntry: this.ctx.windowsCommandEntry,
       }
     );
