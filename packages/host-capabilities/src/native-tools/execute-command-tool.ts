@@ -514,15 +514,9 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
       reject(new Error('Failed to spawn shell process (no pid).'));
       return;
     }
+    // At the shell's exit this SIGKILLs whatever is left of its group, `&` work included.
     trackChildProcessGroup(child);
-    const closed = Promise.withResolvers<void>();
-    const owner = {
-      retire: () => {
-        killProcessTree(pid, 'SIGKILL');
-        return closed.promise;
-      },
-    };
-    liveChildProcesses.add(owner);
+    const settledCall = Promise.withResolvers<void>();
 
     let stdout = '';
     let stderr = '';
@@ -530,8 +524,9 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
     let stderrBytes = 0;
     let timedOut = false;
     let settled = false;
-    let tornDown = false;
+    let terminated = false;
     let killTimer: NodeJS.Timeout | undefined;
+    let exitStatus: { code: number | null; signal: NodeJS.Signals | null } | undefined;
 
     const emitStream = createBoundedShellStreamer(streamer);
 
@@ -554,43 +549,60 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
     child.stdout?.on('data', (chunk: Buffer) => appendBounded('stdout', chunk));
     child.stderr?.on('data', (chunk: Buffer) => appendBounded('stderr', chunk));
 
-    // Escalating teardown: polite SIGTERM, then SIGKILL after a grace window in
-    // case the tree ignored SIGTERM. Always kills the GROUP, not just the shell.
-    // Idempotent: a second trigger (timeout AND abort) must not overwrite
-    // killTimer (which would leak the first SIGKILL timer) or re-SIGTERM.
-    const tearDownTree = (): void => {
-      if (tornDown) {
-        return;
-      }
-      tornDown = true;
-      killProcessTree(pid, 'SIGTERM');
-      killTimer = setTimeout(() => {
-        killProcessTree(pid, 'SIGKILL');
-      }, CHILD_SIGNAL_GRACE_MS);
-      killTimer.unref();
-    };
-
-    const onAbort = (): void => {
-      tearDownTree();
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-
-    const timeoutTimer = setTimeout(() => {
-      timedOut = true;
-      tearDownTree();
-    }, timeoutMs);
-    timeoutTimer.unref();
-
     const cleanup = (): void => {
       clearTimeout(timeoutTimer);
       if (killTimer) {
         clearTimeout(killTimer);
       }
-      signal?.removeEventListener('abort', onAbort);
+      signal?.removeEventListener('abort', terminate);
       liveChildProcesses.delete(owner);
       args.releaseWorkspaceLease?.();
-      closed.resolve();
+      settledCall.resolve();
     };
+
+    const settle = (code: number | null, exitSignal: NodeJS.Signals | null): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      // A process that left the group (setsid) may hold these pipes for good; nothing waits on it.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      resolve({ exitCode: code, signal: exitSignal, stderr, stdout, timedOut });
+    };
+
+    // An abort or a disposal kills the whole group at once: no SIGTERM grace.
+    const terminate = (): void => {
+      if (terminated) {
+        return;
+      }
+      terminated = true;
+      killProcessTree(pid, 'SIGKILL');
+    };
+
+    const owner = {
+      retire: () => {
+        terminate();
+        return settledCall.promise;
+      },
+    };
+    liveChildProcesses.add(owner);
+    signal?.addEventListener('abort', terminate, { once: true });
+
+    // The command's own timeout keeps its ladder: SIGTERM, so the command can clean up, then a
+    // SIGKILL of the group after the signal grace. A shell already gone ends the call at once.
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true;
+      if (exitStatus !== undefined) {
+        terminate();
+        return;
+      }
+      killProcessTree(pid, 'SIGTERM');
+      killTimer = setTimeout(terminate, CHILD_SIGNAL_GRACE_MS);
+      killTimer.unref();
+    }, timeoutMs);
+    timeoutTimer.unref();
 
     child.on('error', (error) => {
       if (settled) {
@@ -601,36 +613,16 @@ export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome
       reject(error);
     });
 
-    // 'exit' fires when the SHELL process itself terminates — BEFORE the stdio
-    // pipes close. If the command backgrounded work that inherited those pipes
-    // (e.g. `sleep 60 &`), 'close' would otherwise wait for that grandchild to
-    // finish (deferring the whole tool call). So when the shell exits on its OWN
-    // (not via our teardown), reap the rest of the process group here: this kills
-    // any background pipe-holder, which then lets 'close' fire promptly with the
-    // captured output. Without this, a `&`-detached grandchild both stalls the
-    // call AND survives the tool (the registry entry is deleted on close).
-    // RESIDUAL GAP (documented, accepted): a deliberately daemonized grandchild
-    // that left the group (setsid → reparents to PID 1) escapes this too — see
-    // killProcessTree.
-    child.on('exit', () => {
-      if (!(settled || tornDown)) {
-        killProcessTree(pid, 'SIGTERM');
-      }
+    // A shell that exits on its own ends at `close`, once its group (killed at the exit, see
+    // `trackChildProcessGroup`) has let the pipes go, so no output is lost. RESIDUAL GAP
+    // (documented, accepted): a daemon that left the group (setsid) holds them until the abort,
+    // the disposal or the timeout ends the call — see killProcessTree.
+    child.on('exit', (code, exitSignal) => {
+      exitStatus = { code, signal: exitSignal };
     });
 
     child.on('close', (code, closeSignal) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      resolve({
-        exitCode: code,
-        signal: closeSignal,
-        stderr,
-        stdout,
-        timedOut,
-      });
+      settle(code, closeSignal);
     });
   });
 }
