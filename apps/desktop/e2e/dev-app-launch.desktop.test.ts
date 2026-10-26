@@ -51,6 +51,17 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
   });
   try {
     await server.listen();
+    // The forced cold optimize commits its scan before the window loads, so the launch never
+    // shares the machine with it. A dependency the scan missed still optimizes late, on the
+    // window's first load, and is recorded below.
+    const optimizer = server.environments.client.depsOptimizer;
+    if (!optimizer) {
+      throw new Error('Dev renderer has no dependency optimizer');
+    }
+    await optimizer.scanProcessing;
+    await Promise.all(
+      Object.values(optimizer.metadata.discovered).map((dependency) => dependency.processing)
+    );
     const rendererUrl = server.resolvedUrls?.local[0];
     if (!rendererUrl) {
       throw new Error('Dev renderer URL unavailable');
