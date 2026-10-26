@@ -218,17 +218,17 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
     });
   });
 
-  it('closes the feature subscription before closing its transport client', async () => {
-    let subscriptionClosed = false;
+  it('closes its transport client without joining the feature subscription cancel', async () => {
     const closeOrder: string[] = [];
     const explicitClient = transportClient();
     explicitClient.getServerCapabilities.mockReturnValue({ tools: { listChanged: true } });
+    // The cancel is a message to the server; this server never takes it.
+    const subscriptionClose = vi.fn(() => {
+      closeOrder.push('subscription');
+      return new Promise<void>(() => undefined);
+    });
     explicitClient.listen.mockResolvedValue({
-      close: vi.fn(async () => {
-        await new Promise((resolve) => setImmediate(resolve));
-        subscriptionClosed = true;
-        closeOrder.push('subscription');
-      }),
+      close: subscriptionClose,
       closed: new Promise<'graceful' | 'local' | 'remote'>(() => undefined),
       honoredFilter: { toolsListChanged: true },
     });
@@ -238,9 +238,6 @@ describe('DesktopMcpHostRuntime core feature composition', () => {
       })
     );
     explicitClient.close.mockImplementation(async () => {
-      if (!subscriptionClosed) {
-        throw new Error('transport closed before feature subscription');
-      }
       closeOrder.push('client');
     });
     const runtime = createDesktopMcpHostRuntime({
