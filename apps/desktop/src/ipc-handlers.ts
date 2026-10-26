@@ -1,8 +1,8 @@
 import path from 'node:path';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
-  ParcelWatchRetirementError,
-  startJoinedParcelWatch,
+  RootWatchRetirementError,
+  startJoinedRootWatch,
 } from '@brainstrike/file-system/native-watch';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -100,7 +100,7 @@ export function createApplicationIpcDomain(
   });
   const watches = createWorkspaceRootWatchOwner({
     startWatch: (mounted, onChanges, onHealth) =>
-      startJoinedParcelWatch(
+      startJoinedRootWatch(
         {
           kind: 'directory',
           name: path.basename(mounted.canonicalPath),
@@ -109,7 +109,7 @@ export function createApplicationIpcDomain(
         },
         onChanges,
         {
-          beforeSubscribe: () => lifecycleDelaySeam().delay('parcel-subscribe'),
+          beforeSubscribe: () => lifecycleDelaySeam().delay('root-watch-subscribe'),
           onHealth,
           reportDefaultFilteredChanges: true,
         }
@@ -146,7 +146,7 @@ export function createApplicationIpcDomain(
         try {
           await lease.retire();
         } catch (retirementError) {
-          throw new ParcelWatchRetirementError([error, retirementError], () => lease.retire());
+          throw new RootWatchRetirementError([error, retirementError], () => lease.retire());
         }
         throw error;
       }

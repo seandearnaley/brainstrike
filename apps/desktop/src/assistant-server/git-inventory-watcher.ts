@@ -16,8 +16,8 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
-  ParcelWatchRetirementError,
-  startJoinedParcelWatch,
+  RootWatchRetirementError,
+  startJoinedRootWatch,
 } from '@brainstrike/file-system/native-watch';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange, FileSystemWatchSignal } from '@brainstrike/types';
@@ -48,16 +48,14 @@ export const GIT_INVENTORY_WATCH_MAX_BATCH_MS = 2000;
  * Injected watch function (BST-1112). Resolves once the native subscription
  * is ACQUIRED, with a disposer that settles only once the native unsubscribe
  * has settled. A rejection owns no subscription, except a typed
- * `ParcelWatchRetirementError`: the start failed after its subscription was
+ * `RootWatchRetirementError`: the start failed after its subscription was
  * acquired and that subscription's retirement failed too, so its `retire`
  * still has to release it.
  *
- * Both halves are awaitable so `disposeAll()` can join every native
- * operation before Electron frees Main's Node environment. A @parcel/watcher
- * subscribe or unsubscribe still on the libuv thread pool at that point
- * completes into a dead JS context and aborts Main (BST-2244). Setup failure
- * is the visible rejection; it marks the watcher dead, and `sync()` never
- * throws for it. Production passes {@link watchGitCommonDirNatively}.
+ * Both halves are awaitable so `disposeAll()` can join every in-flight watch
+ * operation before Electron frees Main's Node environment (BST-2244). Setup
+ * failure is the visible rejection; it marks the watcher dead, and `sync()`
+ * never throws for it. Production passes {@link watchGitCommonDirNatively}.
  */
 export type WatchGitCommonDir = (
   commonDir: string,
@@ -67,9 +65,10 @@ export type WatchGitCommonDir = (
 ) => Promise<() => Promise<void>>;
 
 /**
- * The production {@link WatchGitCommonDir}: Main's joined @parcel/watcher
- * producer. A degraded backend (events lost) is an `overflow` signal; setup
- * failure arrives as the rejection, so `failed` health is not re-signalled.
+ * The production {@link WatchGitCommonDir}: the joined `fs.watch` root watcher
+ * producer in `root-watchers.ts`. A degraded backend (events lost) is an
+ * `overflow` signal; setup failure arrives as the rejection, so `failed`
+ * health is not re-signalled.
  */
 export const watchGitCommonDirNatively: WatchGitCommonDir = (
   commonDir,
@@ -77,7 +76,7 @@ export const watchGitCommonDirNatively: WatchGitCommonDir = (
   onSignal,
   options
 ) =>
-  startJoinedParcelWatch(
+  startJoinedRootWatch(
     { kind: 'directory', name: path.basename(commonDir), path: commonDir, platform: 'electron' },
     callback,
     {
@@ -454,25 +453,17 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
     }
 
     try {
-      // `ignorePatterns: []` is LOAD-BEARING, not a perf oversight — do not
-      // "fix" it back to the default. `DEFAULT_IGNORE_PATTERNS`
-      // (packages/utils/src/path-filter.ts) includes `.git`, so a
-      // subscription rooted AT `.git` would have every single event dropped
-      // by the native filter before it ever reached this module.
-      //
-      // The cost this buys: `[]` disables native filtering ENTIRELY, not
-      // just for `.git`. `parcel-watchers.ts`'s `processEvent` only calls
-      // `shouldIgnore()` before `fs.stat()`-ing a non-delete event; with no
-      // patterns, `shouldIgnore()` never matches, so every event reaches
-      // that `stat()`. During a `git fetch`/`gc`, `.git/objects/**` writes
-      // can number in the thousands — each one costs a main-process `stat`
-      // call, and our own {@link isInterestingGitMetadataPath} then discards
-      // nearly all of them anyway (see {@link logAndResetBatchCounters} for
-      // a debug-level, per-repo seen-vs-interesting counter that measures
-      // this live instead of by speculation).
+      // `ignorePatterns: []` keeps every event under the common dir visible.
+      // The cost: `processEvent` in `root-watchers.ts` stats each delivered
+      // path, so a `git fetch`/`gc` that writes thousands of `.git/objects/**`
+      // files costs as many main-process `stat` calls, and our own
+      // {@link isInterestingGitMetadataPath} then discards nearly all of them
+      // ({@link logAndResetBatchCounters} measures seen versus interesting
+      // events per repo).
       //
       // Rejected fix: `ignorePatterns: ['objects', 'logs']` would kill the
-      // native storm, but `buildIgnorePatternRegex` (same file) is
+      // native storm, but `buildIgnorePatternRegex` in
+      // `packages/utils/src/path-filter.ts` is
       // PATH-SEGMENT based — it matches a pattern against ANY segment,
       // anywhere in the path — so it would also silently ignore a branch
       // literally named `objects` or `logs` (e.g. `refs/heads/objects`).
@@ -483,7 +474,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
       // ROOT-ANCHORED PREFIX ignores — extend the `ignorePatterns` /
       // `WatchDirectoryOptions` mechanism so `objects/**` anchors at the
       // subscription root instead of matching any segment. Nothing like
-      // that exists in `path-filter.ts` or `parcel-watchers.ts` today; it
+      // that exists in `path-filter.ts` or `root-watchers.ts` today; it
       // would need to be built, not approximated with segment patterns.
       //
       // A claim removed while this resolves (sync() dropping or retrying the
@@ -496,7 +487,7 @@ export function createGitInventoryWatchers(deps: GitInventoryWatcherDeps): GitIn
         { ignorePatterns: [] }
       );
     } catch (error) {
-      if (error instanceof ParcelWatchRetirementError) {
+      if (error instanceof RootWatchRetirementError) {
         // The start failed after acquiring its subscription, and that
         // subscription's cleanup failed: it is still owned, and the claim's
         // remover retries its retirement.

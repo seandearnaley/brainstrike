@@ -12,8 +12,8 @@ import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type RootWatchFunction,
-  startJoinedParcelWatch,
-  startParcelWatch,
+  startJoinedRootWatch,
+  startRootWatch,
 } from '../adapters/root-watchers.js';
 import type {
   DirectoryHandle,
@@ -107,7 +107,7 @@ describe('root watch engine', () => {
   describe('watch-level ignore', () => {
     it('ignores every default tree, worktree copies at any depth, and nothing visible', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, { watch: fake.watch });
+      const stop = await startRootWatch(makeHandle(root), collect, { watch: fake.watch });
       expect(fake.directory).toBe(root);
       for (const ignored of [
         '.git',
@@ -133,7 +133,7 @@ describe('root watch engine', () => {
 
     it('keeps reportable output trees watched only after the explicit opt-in', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         reportDefaultFilteredChanges: true,
         watch: fake.watch,
       });
@@ -153,7 +153,7 @@ describe('root watch engine', () => {
         const worktreeRoot = join(root, directory, 'worktrees', 'agent-1');
         await mkdir(worktreeRoot, { recursive: true });
         const fake = createFakeWatch();
-        const stop = await startParcelWatch(makeHandle(worktreeRoot), collect, {
+        const stop = await startRootWatch(makeHandle(worktreeRoot), collect, {
           watch: fake.watch,
         });
         expect(fake.ignore('src.ts')).toBe(false);
@@ -170,7 +170,7 @@ describe('root watch engine', () => {
 
     it('replaces every default layer with custom patterns (BST-1112)', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         ignorePatterns: ['node_modules'],
         watch: fake.watch,
       });
@@ -189,7 +189,7 @@ describe('root watch engine', () => {
 
     it('treats an empty ignorePatterns array as "ignore nothing" (BST-1112)', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         ignorePatterns: [],
         watch: fake.watch,
       });
@@ -201,7 +201,7 @@ describe('root watch engine', () => {
     it('rejects filtered reporting combined with any explicit ignore override', async () => {
       const fake = createFakeWatch();
       await expect(
-        startParcelWatch(makeHandle(root), collect, {
+        startRootWatch(makeHandle(root), collect, {
           ignorePatterns: [],
           reportDefaultFilteredChanges: true,
           watch: fake.watch,
@@ -216,7 +216,7 @@ describe('root watch engine', () => {
   describe('event guard', () => {
     it('drops a delivered default-filtered event without the opt-in', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, { watch: fake.watch });
+      const stop = await startRootWatch(makeHandle(root), collect, { watch: fake.watch });
       const visibleFile = join(root, 'kept.ts');
       await writeFile(visibleFile, 'x');
       // The fake delivers paths its ignore predicate would have dropped, so this
@@ -235,7 +235,7 @@ describe('root watch engine', () => {
       'reports a root-relative %s boundary after the explicit opt-in',
       async (directoryName) => {
         const fake = createFakeWatch();
-        const stop = await startParcelWatch(makeHandle(root), collect, {
+        const stop = await startRootWatch(makeHandle(root), collect, {
           reportDefaultFilteredChanges: true,
           watch: fake.watch,
         });
@@ -251,7 +251,7 @@ describe('root watch engine', () => {
 
     it('keeps a high-cardinality subtree silent beneath a reportable boundary', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         reportDefaultFilteredChanges: true,
         watch: fake.watch,
       });
@@ -267,7 +267,7 @@ describe('root watch engine', () => {
 
     it('coalesces visible and default-filtered activity after the opt-in (BST-1180)', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         reportDefaultFilteredChanges: true,
         watch: fake.watch,
       });
@@ -287,7 +287,7 @@ describe('root watch engine', () => {
         const watchedRoot = join(root, ancestorName, 'workspace');
         await mkdir(watchedRoot, { recursive: true });
         const fake = createFakeWatch();
-        const stop = await startParcelWatch(makeHandle(watchedRoot), collect, {
+        const stop = await startRootWatch(makeHandle(watchedRoot), collect, {
           reportDefaultFilteredChanges: true,
           watch: fake.watch,
         });
@@ -304,7 +304,7 @@ describe('root watch engine', () => {
   describe('event normalization', () => {
     it('reports a rename that leaves a file as added/file', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, { watch: fake.watch });
+      const stop = await startRootWatch(makeHandle(root), collect, { watch: fake.watch });
       const filePath = join(root, 'a.txt');
       await writeFile(filePath, 'x');
       fake.emit('rename', 'a.txt');
@@ -315,7 +315,7 @@ describe('root watch engine', () => {
 
     it('reports a rename that leaves a directory as added/directory', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, { watch: fake.watch });
+      const stop = await startRootWatch(makeHandle(root), collect, { watch: fake.watch });
       const dirPath = join(root, 'sub');
       await mkdir(dirPath);
       fake.emit('rename', 'sub');
@@ -326,7 +326,7 @@ describe('root watch engine', () => {
 
     it('reports a change to a file as modified/file', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, { watch: fake.watch });
+      const stop = await startRootWatch(makeHandle(root), collect, { watch: fake.watch });
       const filePath = join(root, 'b.txt');
       await writeFile(filePath, 'x');
       fake.emit('change', 'b.txt');
@@ -337,7 +337,7 @@ describe('root watch engine', () => {
 
     it('reports any event for a vanished path as the safe directory-removed shape', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(root), collect, { watch: fake.watch });
+      const stop = await startRootWatch(makeHandle(root), collect, { watch: fake.watch });
       fake.emit('rename', 'gone');
       fake.emit('change', join('nested', 'ghost.txt'));
       await batchCount(1);
@@ -350,7 +350,7 @@ describe('root watch engine', () => {
 
     it('joins event names onto the handle path as given, with no doubled separator', async () => {
       const fake = createFakeWatch();
-      const stop = await startParcelWatch(makeHandle(`${root}${sep}`), collect, {
+      const stop = await startRootWatch(makeHandle(`${root}${sep}`), collect, {
         watch: fake.watch,
       });
       expect(fake.directory).toBe(root);
@@ -367,7 +367,7 @@ describe('root watch engine', () => {
     it('reports starting then healthy, labelled with the OS mechanism', async () => {
       const fake = createFakeWatch();
       const health: WatcherHealthTransition[] = [];
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         onHealth: (event) => health.push(event),
         watch: fake.watch,
       });
@@ -383,7 +383,7 @@ describe('root watch engine', () => {
     it('maps dropped events to a root invalidation and keeps the watch', async () => {
       const fake = createFakeWatch();
       const health: WatcherHealthTransition[] = [];
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         onHealth: (event) => health.push(event),
         watch: fake.watch,
       });
@@ -409,7 +409,7 @@ describe('root watch engine', () => {
     it('recovers degraded to healthy on the next clean event, once per episode', async () => {
       const fake = createFakeWatch();
       const health: WatcherHealthTransition[] = [];
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         onHealth: (event) => health.push(event),
         watch: fake.watch,
       });
@@ -431,7 +431,7 @@ describe('root watch engine', () => {
     it('reports a watch that ends with an error as failed, with a root invalidation', async () => {
       const fake = createFakeWatch();
       const health: WatcherHealthTransition[] = [];
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         onHealth: (event) => health.push(event),
         watch: fake.watch,
       });
@@ -453,7 +453,7 @@ describe('root watch engine', () => {
     it('reports a refused start as failed and rejects, owning no watch', async () => {
       const health: WatcherHealthTransition[] = [];
       await expect(
-        startParcelWatch(makeHandle(root), collect, {
+        startRootWatch(makeHandle(root), collect, {
           onHealth: (event) => health.push(event),
           watch: () => {
             throw new Error('ENOSPC: System limit for number of file watchers reached');
@@ -473,7 +473,7 @@ describe('root watch engine', () => {
       const watch = vi.fn(fake.watch);
       const gate = Promise.withResolvers<void>();
       const health: WatcherHealthTransition[] = [];
-      const watching = startParcelWatch(makeHandle(root), collect, {
+      const watching = startRootWatch(makeHandle(root), collect, {
         beforeSubscribe: () => gate.promise,
         onHealth: (event) => health.push(event),
         watch,
@@ -493,7 +493,7 @@ describe('root watch engine', () => {
     it('closes the watch exactly once and reports stopped once', async () => {
       const fake = createFakeWatch();
       const health: WatcherHealthTransition[] = [];
-      const stop = await startParcelWatch(makeHandle(root), collect, {
+      const stop = await startRootWatch(makeHandle(root), collect, {
         onHealth: (event) => health.push(event),
         watch: fake.watch,
       });
@@ -506,7 +506,7 @@ describe('root watch engine', () => {
     it('drops events and errors that arrive after close', async () => {
       const fake = createFakeWatch();
       const health: WatcherHealthTransition[] = [];
-      const retire = await startJoinedParcelWatch(makeHandle(root), collect, {
+      const retire = await startJoinedRootWatch(makeHandle(root), collect, {
         onHealth: (event) => health.push(event),
         watch: fake.watch,
       });
@@ -526,7 +526,7 @@ describe('root watch engine', () => {
         statStarted.resolve();
         return releaseStat.promise;
       });
-      const retire = await startJoinedParcelWatch(makeHandle(root), collect, {
+      const retire = await startJoinedRootWatch(makeHandle(root), collect, {
         watch: fake.watch,
       });
       fake.emit('change', 'a.ts');
@@ -566,7 +566,7 @@ describe('root watch engine on Node fs.watch', () => {
     const created = join(root, 'src', 'deep', 'created.ts');
     const seen: FileSystemChange[] = [];
     const delivered = Promise.withResolvers<void>();
-    const retire = await startJoinedParcelWatch(makeHandle(root), (changes) => {
+    const retire = await startJoinedRootWatch(makeHandle(root), (changes) => {
       seen.push(...changes);
       if (changes.some((change) => change.path === created)) {
         delivered.resolve();
@@ -591,7 +591,7 @@ describe('root watch engine on Node fs.watch', () => {
     const seen: FileSystemChange[] = [];
     const pending = new Set(expected);
     const delivered = Promise.withResolvers<void>();
-    const retire = await startJoinedParcelWatch(makeHandle(root), (changes) => {
+    const retire = await startJoinedRootWatch(makeHandle(root), (changes) => {
       seen.push(...changes);
       for (const change of changes) {
         pending.delete(change.path);
@@ -645,7 +645,7 @@ describe('root watch engine on Node fs.watch', () => {
     const missing = join(root, 'missing');
     const health: WatcherHealthTransition[] = [];
     await expect(
-      startJoinedParcelWatch(makeHandle(missing), () => undefined, {
+      startJoinedRootWatch(makeHandle(missing), () => undefined, {
         onHealth: (event) => health.push(event),
       })
     ).rejects.toMatchObject({ code: 'ENOENT' });
