@@ -119,12 +119,7 @@ test.each([
     if (!initialized) {
       await held.promise;
     }
-    return {
-      hostVersion: record.hostVersion,
-      pid: record.pid,
-      protocolVersion: record.protocolVersion,
-      start: record.start,
-    };
+    return { hostVersion: record.hostVersion, pid: 1, protocolVersion: record.protocolVersion };
   });
   server.onRequest('thread/list', () => held.promise);
   server.listen();
