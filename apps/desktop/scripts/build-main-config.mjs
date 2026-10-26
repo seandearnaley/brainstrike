@@ -42,7 +42,7 @@ const packagesRoot = path.resolve(appRoot, '../../packages');
  * Workspace source may call `require` (through `createRequire` or a dependency's
  * CommonJS interop); give every ESM output a real one.
  */
-const ESM_REQUIRE_BANNER = {
+export const ESM_REQUIRE_BANNER = {
   js: "import { createRequire as __bundleCreateRequire } from 'node:module'; const require = __bundleCreateRequire(import.meta.url);",
 };
 
