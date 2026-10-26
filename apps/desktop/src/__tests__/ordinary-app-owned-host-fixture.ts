@@ -65,12 +65,7 @@ export type OrdinaryAppOwnedHostFault =
 export function testOrdinaryAppOwnedHost(fault: OrdinaryAppOwnedHostFault): void {
   test(`ordinary desktop owns the first M3 Root, New Thread, CLI attachment and reopen (${fault})`, {
     timeout: getAdjustedTimeout('e2e'),
-  }, async (context) => {
-    // This native-tail fixture uses POSIX SIGTERM handling; Windows needs its
-    // own physical tail fixture rather than treating taskkill as a grace period.
-    if (fault === 'utility-loss' && process.platform === 'win32') {
-      context.skip();
-    }
+  }, async () => {
     const { evidence, root: disposable } = await createDisposableAppProfile(
       'brainstrike-m3-app-owned-'
     );
@@ -705,7 +700,6 @@ setInterval(() => {}, 1000);
         const before = commandIdentities.filter(
           ({ pid, start }) => processStartTime(pid) === start
         );
-        expect(before.length).toBeGreaterThan(0);
         let contender: RootLock | undefined;
         let refusal: unknown;
         try {
@@ -730,6 +724,19 @@ setInterval(() => {}, 1000);
           )
         );
         contender?.release();
+        if (process.platform === 'win32') {
+          // ADR-0017: the utility's kill-on-close Job ends its commands with it, and nothing they
+          // hold keeps the Root, so the next owner takes it at once.
+          expect(refusal).toBeUndefined();
+          await expect
+            .poll(() =>
+              commandIdentities.filter(({ pid, start }) => processStartTime(pid) === start)
+            )
+            .toEqual([]);
+          return;
+        }
+        // POSIX: a command that outlives its utility inherited the Root's flock and keeps it refused.
+        expect(before.length).toBeGreaterThan(0);
         expect(after.length).toBeGreaterThan(0);
         expect(refusal).toBeInstanceOf(RootLockedError);
         return;
