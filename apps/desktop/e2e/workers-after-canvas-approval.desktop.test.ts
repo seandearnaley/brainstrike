@@ -8,6 +8,7 @@ import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
 import { type HostThreadLog, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -289,7 +290,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       .toEqual(['completed', 'completed']);
     const rootThreadId = rootLog(await readHostThreadTree(userDataDir)).threadId;
     const pausedModelCalls = modelCalls();
-    await window.reload();
+    await reloadRenderer(window, 'workers-after-canvas-approval: reload');
     await ensureAssistantShellVisible(window);
     await expect(canvasApproval).toBeVisible();
     expect(modelCalls()).toBe(pausedModelCalls);

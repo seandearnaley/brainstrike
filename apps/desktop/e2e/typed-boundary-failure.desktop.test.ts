@@ -70,8 +70,7 @@ test('missing and dangling references show durable per-file notices while valid 
   const requests = modelProvider.requests().length;
   for (const reload of [false, true]) {
     if (reload) {
-      await page.reload();
-      await (await loadElectronHelpers()).waitForAppReady(page);
+      await (await loadElectronHelpers()).reloadRenderer(page, 'typed-boundary-failure: reopen');
       await ensureAssistantShellVisible(page);
     }
     await expect(

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createLogger, createServer } from 'vite';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
+import { launchElectronAppWithOptions, reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import { seedRoot } from './utils/seed-root';
@@ -84,7 +84,7 @@ test('dev renderer sends Luna cache usage and reloads without losing the thread'
       await region.getByRole('button', { exact: true, name: 'Send' }).click();
       await expect(region.getByText(reply, { exact: true })).toBeVisible();
       await expect(region.getByTestId('context-usage-trigger-cost')).toContainText('$0.000017');
-      await context.window.reload();
+      await reloadRenderer(context.window, 'dev-app-launch: reload');
       await expect(region.getByText(reply, { exact: true })).toBeVisible();
       await expect(region.getByTestId('context-usage-trigger-cost')).toContainText('$0.000017');
       expect(provider.refusals()).toEqual([]);

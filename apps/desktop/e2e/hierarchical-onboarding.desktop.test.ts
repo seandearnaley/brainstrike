@@ -5,7 +5,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import { launchElectronAppWithOptions } from './utils/electron-helpers.mts';
+import { launchElectronAppWithOptions, reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 import { seedRoot } from './utils/seed-root';
@@ -162,7 +162,7 @@ test('hierarchical research uses two supervisors and four Explorer leaves, creat
       // Prove empty reasoning was committed, then omitted only from the visible transcript.
       expect(JSON.stringify(tree)).toContain('opaque-fixture-state');
       await expect(region.getByTestId('local-chain-of-thought')).toHaveCount(0);
-      await page.reload();
+      await reloadRenderer(page, 'hierarchical-onboarding: reload');
       await expect(region.getByText(reply, { exact: true }).first()).toBeVisible();
       await expect(region.getByTestId('local-chain-of-thought')).toHaveCount(0);
       expect(provider.refusals()).toEqual([]);
