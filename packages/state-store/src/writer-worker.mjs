@@ -59,11 +59,7 @@ import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 import { executeThreadGroups } from './thread-groups-domain.mjs';
 import { executeViewFilterPresetRequest } from './view-filter-preset-domain.mjs';
 import { executeWorkspaceRootRequest } from './workspace-root-domain.mjs';
-import {
-  executeForgeCacheRequest,
-  executeWorktreeLedgerRequest,
-  readForgeCacheSnapshot,
-} from './worktree-forge-domain.mjs';
+import { executeWorktreeLedgerRequest } from './worktree-ledger-domain.mjs';
 
 /**
  * @typedef {object} WriterConfig
@@ -311,14 +307,7 @@ async function handle(m) {
     case 'worktree-ledger':
       return executeWorktreeLedgerRequest(
         db,
-        /** @type {import('./worktree-forge-types.ts').WorktreeLedgerRequest} */ (m['request'])
-      );
-    case 'forge-cache-snapshot':
-      return { entries: readForgeCacheSnapshot(db) };
-    case 'forge-cache':
-      return executeForgeCacheRequest(
-        db,
-        /** @type {import('./worktree-forge-types.ts').ForgeCacheRequest} */ (m['request'])
+        /** @type {import('./worktree-ledger-types.ts').WorktreeLedgerRequest} */ (m['request'])
       );
     case 'prompt-catalog':
       return executePromptCatalogRequest(

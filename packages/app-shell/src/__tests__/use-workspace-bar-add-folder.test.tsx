@@ -80,7 +80,6 @@ const {
   branchSwitcherSpy,
   checkoutSpy,
   clipboardWriteText,
-  forgePrSpy,
   loggerMock,
   toastSpy,
   worktreeArchiveSpy,
@@ -93,7 +92,6 @@ const {
   // below overrides it with mockReturnValue for the whole test body.
   checkoutSpy: vi.fn(),
   clipboardWriteText: vi.fn(),
-  forgePrSpy: vi.fn(),
   loggerMock: {
     debug: vi.fn(),
     error: vi.fn(),
@@ -109,7 +107,6 @@ const {
 }));
 
 vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: branchSwitcherSpy }));
-vi.mock('../hooks/use-thread-forge-pr', () => ({ useThreadForgePr: forgePrSpy }));
 vi.mock('../hooks/use-thread-checkout-status', () => ({ useThreadCheckoutStatus: checkoutSpy }));
 vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
@@ -281,8 +278,6 @@ beforeEach(() => {
     checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
     settled: true,
   });
-  forgePrSpy.mockReset();
-  forgePrSpy.mockReturnValue({ diagnostic: null, refresh: vi.fn(), status: null });
   toastSpy.mockClear();
   worktreeArchiveSpy.mockReset();
   worktreeCreateSpy.mockReset();

@@ -135,7 +135,6 @@ function card(overrides: Record<string, unknown> = {}) {
     indexing: 'excluded',
     lastActivityLabel: 'Created 6 days ago',
     provenanceLabel: 'Managed',
-    pullRequest: null,
     thread: null,
     ...overrides,
   };

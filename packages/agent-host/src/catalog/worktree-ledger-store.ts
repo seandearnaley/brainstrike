@@ -1,4 +1,4 @@
-import type { ForgeCachePort, WorktreeLedgerPort } from '@brainstrike/state-store';
+import type { WorktreeLedgerPort } from '@brainstrike/state-store';
 import { Schema } from 'effect';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
@@ -44,66 +44,11 @@ const WorktreeRequest = Schema.Union(
   { mode: 'oneOf' }
 );
 const WorktreeReply = Schema.Struct({ rows: Schema.mutable(Schema.Array(Worktree)) });
-const Check = Schema.Struct({
-  conclusion: Schema.Literals([
-    'action_required',
-    'cancelled',
-    'failure',
-    'neutral',
-    'pending',
-    'skipped',
-    'success',
-    'timed_out',
-  ]),
-  name: Id,
-  url: Schema.NullOr(Text),
-});
-const PullRequest = Schema.Struct({
-  checks: Schema.mutable(Schema.Array(Check)),
-  checksRollup: Schema.Literals(['failing', 'none', 'passing', 'pending']),
-  headSha: Id,
-  isDraft: Schema.Boolean,
-  number: Schema.Int,
-  reviewDecision: Schema.NullOr(
-    Schema.Literals(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'])
-  ),
-  state: Schema.Literals(['open', 'closed', 'merged']),
-  title: Text,
-  url: Id,
-});
-const Entry = Schema.Struct({
-  observedAt: Schema.String.check(Schema.isPattern(z.regexes.datetime({}))),
-  pullRequest: Schema.NullOr(PullRequest),
-});
-const CacheKey = { branch: Id, repoCommonDir: Id };
-const ForgeRequest = Schema.Union(
-  [
-    Schema.Struct({ operation: Schema.Literal('get'), ...CacheKey }),
-    Schema.Struct({ operation: Schema.Literal('write'), ...CacheKey, ...Entry.fields }),
-  ],
-  { mode: 'oneOf' }
-);
-export const ForgeCacheReplySchema = Schema.Struct({ entry: Schema.NullOr(Entry) });
 const WORKTREE_METHOD = 'host/worktree-ledger';
-const FORGE_METHOD = 'host/forge-cache';
-const SNAPSHOT_METHOD = 'host/forge-cache-snapshot';
-const Snapshot = Schema.mutable(
-  Schema.Array(
-    Schema.Struct({
-      branch: Id,
-      checksRollup: Schema.Literals(['failing', 'none', 'passing', 'pending']),
-      isDraft: Schema.Boolean,
-      number: Schema.Int,
-      repoCommonDir: Id,
-      state: Schema.Literals(['open', 'closed', 'merged']),
-      url: Id,
-    })
-  )
-);
 /** Private Main transport; each operation remains owned by the profile's SQLite writer. */
-export function serveWorktreeForgeStore(
+export function serveWorktreeLedgerStore(
   connection: Pick<MessageConnection, 'onRequest'>,
-  store: WorktreeLedgerPort & ForgeCachePort
+  store: WorktreeLedgerPort
 ): {
   close(): Promise<void>;
 } {
@@ -111,7 +56,7 @@ export function serveWorktreeForgeStore(
   const pending = new Set<Promise<unknown>>();
   async function admitted<T>(start: () => Promise<T>): Promise<T> {
     if (closing !== undefined) {
-      throw new Error('Worktree/Forge endpoint is closing');
+      throw new Error('Worktree ledger endpoint is closing');
     }
     const work = start();
     pending.add(work);
@@ -122,28 +67,10 @@ export function serveWorktreeForgeStore(
     }
   }
   const subscriptions = [
-    connection.onRequest(SNAPSHOT_METHOD, (input: unknown) =>
-      admitted(() => {
-        Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Never), {
-          errors: 'all',
-          onExcessProperty: 'error',
-        })(input);
-        return store.forgeCacheSnapshot();
-      })
-    ),
     connection.onRequest(WORKTREE_METHOD, (input: unknown) =>
       admitted(() =>
         store.worktreeLedger(
           Schema.decodeUnknownSync(WorktreeRequest, { errors: 'all', onExcessProperty: 'error' })(
-            input
-          )
-        )
-      )
-    ),
-    connection.onRequest(FORGE_METHOD, (input: unknown) =>
-      admitted(() =>
-        store.forgeCache(
-          Schema.decodeUnknownSync(ForgeRequest, { errors: 'all', onExcessProperty: 'error' })(
             input
           )
         )
@@ -164,24 +91,8 @@ export function serveWorktreeForgeStore(
     },
   };
 }
-export function createWorktreeForgeClient(
-  connection: MessageConnection
-): WorktreeLedgerPort & ForgeCachePort {
+export function createWorktreeLedgerClient(connection: MessageConnection): WorktreeLedgerPort {
   return {
-    forgeCache: async (request) =>
-      Schema.decodeUnknownSync(ForgeCacheReplySchema, { errors: 'all', onExcessProperty: 'error' })(
-        await sendCatalogRequest(
-          connection,
-          FORGE_METHOD,
-          Schema.decodeUnknownSync(ForgeRequest, { errors: 'all', onExcessProperty: 'error' })(
-            request
-          )
-        )
-      ),
-    forgeCacheSnapshot: async () =>
-      Schema.decodeUnknownSync(Snapshot, { errors: 'all', onExcessProperty: 'error' })(
-        await sendCatalogRequest(connection, SNAPSHOT_METHOD, {})
-      ),
     worktreeLedger: async (request) =>
       Schema.decodeUnknownSync(WorktreeReply, { errors: 'all', onExcessProperty: 'error' })(
         await sendCatalogRequest(

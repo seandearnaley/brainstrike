@@ -1,6 +1,5 @@
 import type { AssistantMemoryThread, AssistantThreadMetadata } from '@brainstrike/assistant-data';
 import type { WorktreeListEntry } from '@brainstrike/types';
-import { forgePrCacheKey } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { selectWorktreeCollection } from '../worktree-map-collection';
 import {
@@ -68,7 +67,6 @@ describe('buildWorktreeMap', () => {
       ],
       indexedRootIds: null,
       indexingOptInByRootId: {},
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -86,34 +84,11 @@ describe('buildWorktreeMap', () => {
       ],
       indexedRootIds: null,
       indexingOptInByRootId: {},
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
 
     expect(model.map((repository) => repository.repositoryName)).toEqual(['a', 'z']);
-  });
-
-  it('joins the PR cache on (repoCommonDir, branch), not on repositoryRoot', () => {
-    const pr = {
-      branch: 'bs/bright-fox',
-      checksRollup: 'passing' as const,
-      isDraft: false,
-      number: 2574,
-      repoCommonDir: '/repo/.git',
-      state: 'open' as const,
-      url: 'https://github.com/acme/repo/pull/2574',
-    };
-    const model = buildWorktreeMap({
-      entries: [entry({ branch: 'bs/bright-fox', path: '/wt', primary: false })],
-      indexedRootIds: null,
-      indexingOptInByRootId: {},
-      prCache: new Map([[forgePrCacheKey('/repo/.git', 'bs/bright-fox'), pr]]),
-      runningThreadIds: new Set(),
-      threads: [],
-    });
-
-    expect(model[0]?.cards[0]?.pullRequest).toEqual(pr);
   });
 
   it('attaches the thread whose checkout metadata names the worktree, with its run state', () => {
@@ -123,7 +98,6 @@ describe('buildWorktreeMap', () => {
       indexedRootIds: null,
       indexingOptInByRootId: {},
       now: NOW,
-      prCache: new Map(),
       runningThreadIds: new Set(['thread-1']),
       threads: [
         thread({
@@ -159,7 +133,6 @@ describe('buildWorktreeMap', () => {
       indexedRootIds: null,
       indexingOptInByRootId: {},
       now: NOW,
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [
         thread({
@@ -193,7 +166,6 @@ describe('buildWorktreeMap', () => {
         indexedRootIds: null,
         indexingOptInByRootId: {},
         now: NOW,
-        prCache: new Map(),
         runningThreadIds: new Set(),
         threads,
       });
@@ -220,7 +192,6 @@ describe('buildWorktreeMap', () => {
         indexedRootIds: null,
         indexingOptInByRootId: {},
         now: NOW,
-        prCache: new Map(),
         runningThreadIds: new Set(),
         threads,
       });
@@ -253,7 +224,6 @@ describe('buildWorktreeMap', () => {
         indexedRootIds: null,
         indexingOptInByRootId: {},
         now: NOW,
-        prCache: new Map(),
         runningThreadIds: new Set(),
         threads,
       });
@@ -273,7 +243,6 @@ describe('buildWorktreeMap', () => {
       indexedRootIds: null,
       indexingOptInByRootId: {},
       now: NOW,
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -288,7 +257,6 @@ describe('buildWorktreeMap', () => {
       indexedRootIds: null,
       indexingOptInByRootId: {},
       now: NOW,
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -321,7 +289,6 @@ describe('buildWorktreeMap', () => {
       ],
       indexedRootIds: [],
       indexingOptInByRootId: { 'root-a': true, 'root-b': false, 'root-d': true },
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -346,7 +313,6 @@ describe('buildWorktreeMap', () => {
       ],
       indexedRootIds: ['root-a', 'root-b'],
       indexingOptInByRootId: { 'root-b': true },
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -366,7 +332,6 @@ describe('buildWorktreeMap', () => {
       ],
       indexedRootIds: null,
       indexingOptInByRootId: { 'root-b': true },
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -382,7 +347,6 @@ describe('buildWorktreeMap', () => {
       ],
       indexedRootIds: null,
       indexingOptInByRootId: null,
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -395,7 +359,6 @@ describe('buildWorktreeMap', () => {
       entries: [entry({ disabledReason: 'Locked: rebase in progress', usable: false })],
       indexedRootIds: null,
       indexingOptInByRootId: {},
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -491,7 +454,6 @@ describe('worktree collection navigation', () => {
       entries,
       indexedRootIds: null,
       indexingOptInByRootId: {},
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [],
     });
@@ -563,7 +525,6 @@ describe('worktree collection navigation', () => {
       ],
       indexedRootIds: null,
       indexingOptInByRootId: {},
-      prCache: new Map(),
       runningThreadIds: new Set(),
       threads: [
         thread({

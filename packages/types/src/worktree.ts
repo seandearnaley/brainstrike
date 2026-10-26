@@ -97,8 +97,7 @@ export interface WorktreeListEntry {
   readonly remedy: 'grant-access' | null;
   /**
    * Realpath'd git common dir — the repository identity `brainstrike_worktrees`
-   * and `brainstrike_forge_prs` both key on. Distinct from `repositoryRoot`
-   * (the main worktree path): the PR cache joins on THIS.
+   * keys on. Distinct from `repositoryRoot` (the main worktree path).
    */
   readonly repoCommonDir: string;
   readonly repositoryRoot: string;

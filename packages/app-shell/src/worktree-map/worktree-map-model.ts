@@ -1,15 +1,12 @@
 /**
  * The Worktree Map's ONE projection (spec §10). Pure: no bridge, no DB, no
  * React. Everything it needs is already produced by a landed surface —
- * `worktrees.list()`, `useForgePrCache`, the assistant thread store,
+ * `worktrees.list()`, the assistant thread store,
  * `useActiveAssistantThreadIds`, and BST-1453's worktree indexing opt-ins — so
  * the Map introduces no new source of truth for any fact it renders.
  */
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
-import type { ForgePrCacheEntry, WorktreeListEntry } from '@brainstrike/types';
-import { forgePrCacheKey } from '@brainstrike/types';
-
-export type ForgePrCacheLookup = ReadonlyMap<string, ForgePrCacheEntry>;
+import type { WorktreeListEntry } from '@brainstrike/types';
 
 interface WorktreeMapThread {
   readonly running: boolean;
@@ -43,7 +40,6 @@ export interface WorktreeMapCardModel {
   readonly indexing: 'excluded' | 'included' | 'not-a-root' | 'open-folder' | 'unknown';
   readonly lastActivityLabel: string | null;
   readonly provenanceLabel: string;
-  readonly pullRequest: ForgePrCacheEntry | null;
   readonly thread: WorktreeMapThread | null;
 }
 
@@ -300,7 +296,6 @@ export function buildWorktreeMap(input: {
   /** Main's worktree index choices; null until Main's config is read. */
   readonly indexingOptInByRootId: Readonly<Record<string, boolean>> | null;
   readonly now?: Date;
-  readonly prCache: ForgePrCacheLookup;
   readonly runningThreadIds: ReadonlySet<string>;
   readonly threads: readonly AssistantMemoryThread[];
 }): readonly WorktreeMapRepositoryModel[] {
@@ -322,9 +317,6 @@ export function buildWorktreeMap(input: {
       indexing: indexingFor(entry, input.indexingOptInByRootId, input.indexedRootIds),
       lastActivityLabel: lastActivityLabelFor(thread, entry.createdAt, format),
       provenanceLabel: describeWorktreeProvenance(entry),
-      pullRequest: entry.branch
-        ? (input.prCache.get(forgePrCacheKey(entry.repoCommonDir, entry.branch)) ?? null)
-        : null,
       thread,
     };
     const group = byRepository.get(entry.repoCommonDir);

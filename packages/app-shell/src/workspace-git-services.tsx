@@ -1,18 +1,16 @@
 import { createContext, type ReactElement, type ReactNode, useContext } from 'react';
 import type { ChangesBridge } from './changes/changes-bridge';
-import type { ForgeBridge } from './forge/forge-bridge';
 import type { GitBridge } from './git-bridge';
 import type { WorktreesBridge } from './worktrees/worktrees-bridge';
 
 /**
- * The workspace git cluster — the Git panel, Changes, forge PR awareness and
- * managed worktrees — as the renderer reaches it. The desktop builds each from
+ * The workspace git cluster — Changes, the branch chip and managed worktrees —
+ * as the renderer reaches it. The desktop builds each from
  * its agent-host connection (ADR-0029); a host without one provides `null` and
  * every surface built on it is omitted, never stubbed.
  */
 export interface WorkspaceGitServices {
   readonly changes: ChangesBridge | null;
-  readonly forge: ForgeBridge | null;
   readonly git: GitBridge | null;
   readonly worktrees: WorktreesBridge | null;
 }
@@ -20,7 +18,6 @@ export interface WorkspaceGitServices {
 /** No git cluster at all: web, and any tree rendered without a provider. */
 export const NO_WORKSPACE_GIT_SERVICES: WorkspaceGitServices = {
   changes: null,
-  forge: null,
   git: null,
   worktrees: null,
 };
@@ -50,10 +47,6 @@ export function useGitBridge(): GitBridge | null {
 
 export function useChangesBridge(): ChangesBridge | null {
   return useContext(WorkspaceGitServicesContext).changes;
-}
-
-export function useForgeBridge(): ForgeBridge | null {
-  return useContext(WorkspaceGitServicesContext).forge;
 }
 
 export function useWorktreesBridge(): WorktreesBridge | null {

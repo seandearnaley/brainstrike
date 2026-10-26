@@ -15,7 +15,6 @@
 import { getNotificationPermissionState } from '@brainstrike/app-state/notifications/notification-permission';
 import {
   createRunNotificationDispatcher,
-  type ForgeNotificationEvent,
   type RunNotificationEvent,
 } from '@brainstrike/app-state/notifications/run-notification-dispatcher';
 import { useNotificationPreferencesStore } from '@brainstrike/app-state/stores/notification-preferences-store';
@@ -28,7 +27,6 @@ import { isAppActive } from '@brainstrike/hooks';
 import { useMemo, useState } from 'react';
 
 export interface AssistantRunNotificationCallbacks {
-  readonly onForgeEvent: (event: ForgeNotificationEvent) => void;
   readonly onRunFailed: (event: AssistantRunEvent) => void;
   readonly onRunFinished: (event: AssistantRunEvent) => void;
   /** An agent-host thread's committed run event, already in dispatcher terms. */
@@ -55,9 +53,6 @@ export function useAssistantRunNotifications(): AssistantRunNotificationCallback
 
   return useMemo<AssistantRunNotificationCallbacks>(
     () => ({
-      onForgeEvent: (event) => {
-        dispatcher.dispatch(event);
-      },
       onRunFailed: (event) => {
         // An event without a `runId` coalesces on its per-event `id`, a
         // stable, unique key — an honest fallback, never a fabricated runId

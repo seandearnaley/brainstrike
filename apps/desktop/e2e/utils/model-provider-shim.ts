@@ -23,9 +23,8 @@
  * supplies a live shim of its own, so an unscripted provider request is refused
  * on loopback instead of reaching a real provider. The shim never redirects.
  *
- * Precedent: gh-shim.ts fakes `gh` at ITS external boundary via a real
- * executable on PATH; this is the same idea for the model provider via a
- * real local HTTP server. A durable E2E asset — reuse it, don't fork it.
+ * It fakes the model provider at its external boundary via a real local HTTP
+ * server. A durable E2E asset — reuse it, don't fork it.
  */
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
