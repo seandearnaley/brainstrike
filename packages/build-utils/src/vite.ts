@@ -101,7 +101,6 @@ export function isSanitizedPersistMergeModule(id: string): boolean {
 }
 
 const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
-  'idb',
   'minimatch',
   'pino',
   'react-hotkeys-hook',

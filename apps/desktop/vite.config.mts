@@ -87,6 +87,9 @@ export default defineConfig({
   },
   cacheDir: path.resolve(__dirname, '.vite'),
   define: {
+    // The renderer has no Node process. Dependencies read `process.env` (assistant-ui's cloud
+    // base URL); the dev client must expose the same empty object a production build inlines.
+    'process.env': '{}',
     // Retained from the PGlite removal; not proven unneeded by other renderer dependencies.
     'process.versions': 'undefined',
   },
