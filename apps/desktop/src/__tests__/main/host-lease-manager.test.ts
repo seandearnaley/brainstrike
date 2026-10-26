@@ -313,6 +313,55 @@ setInterval(() => {}, 1000);
     }
   );
 
+  it.skipIf(process.platform === 'win32')(
+    'leaves nothing the host started without a group of its own running once the host exits',
+    async () => {
+      const { mkdtemp, readFile, rm, writeFile } = await import('node:fs/promises');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      const { joinProcessExit, processStartTime } = await import(
+        '@brainstrike/test-utils/process-identity'
+      );
+      const { createDesktopHostLease } = await import('../../host-lease-manager');
+      const directory = await mkdtemp(join(tmpdir(), 'host-own-group-'));
+      const entry = join(directory, 'host.mjs');
+      const serverPid = join(directory, 'server.pid');
+      // A real host that starts a server as its own child, as it starts MCP and LSP servers: no
+      // group of its own, no report, deaf to SIGTERM and to its stdin's end. The host exits at
+      // its own stdin's end without ending it.
+      await writeFile(
+        entry,
+        `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+const server = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' });
+server.unref();
+writeFileSync(${JSON.stringify(serverPid)}, String(server.pid));
+process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'host/message', params: { event: 'ready' } }) + '\\n');
+process.stdin.on('end', () => process.exit(0)).resume();
+`
+      );
+      let server: { readonly pid: number; readonly start: string } | undefined;
+      try {
+        const owner = createDesktopHostLease({ entryPath: entry, root });
+        await owner.acquire();
+        const pid = Number(await readFile(serverPid, 'utf8'));
+        const start = processStartTime(pid);
+        if (start === null) {
+          throw new Error('The server exited before the host ended');
+        }
+        server = { pid, start };
+        await owner.close();
+        // Joined at its OS exit: nothing but its group's kill ends this server.
+        await joinProcessExit(pid, start);
+      } finally {
+        if (server && processStartTime(server.pid) === server.start) {
+          process.kill(server.pid, 'SIGKILL');
+        }
+        await rm(directory, { force: true, recursive: true });
+      }
+    }
+  );
+
   it('ends a ready host that never answers Main’s initialize when the app closes', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const { isHostLeaseClosed } = await import('../../desktop-shutdown-state');

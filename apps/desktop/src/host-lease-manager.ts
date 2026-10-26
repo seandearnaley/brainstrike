@@ -61,12 +61,20 @@ export function spawnHostProcess(
   env: NodeJS.ProcessEnv
 ): HostChildProcess {
   markDescriptorsCloseOnExec();
+  const ownGroup = process.platform !== 'win32';
   const child = spawn(process.execPath, [entrypoint, ...args], {
+    detached: ownGroup,
     // biome-ignore lint/style/useNamingConvention: Electron's documented Node-mode switch.
     env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });
+  const { pid } = child;
+  if (ownGroup && pid !== undefined) {
+    // POSIX: the host leads its own group, so what it starts without a group of its own, such
+    // as MCP and LSP servers, ends with it. On Windows its kill-on-close Job does this.
+    child.once('exit', () => killCommandGroup(pid));
+  }
   child.stderr.pipe(process.stderr, { end: false });
   return child;
 }
