@@ -2,7 +2,7 @@ import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
-import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
@@ -134,7 +134,7 @@ class MountedRootWatchOwner implements WorkspaceRootWatchOwner {
       try {
         await subscription.close();
       } catch (retirementError) {
-        throw new ParcelWatchRetirementError([error, retirementError], () => this.retire(watch));
+        throw new RootWatchRetirementError([error, retirementError], () => this.retire(watch));
       }
       throw error;
     }
@@ -282,7 +282,7 @@ class MountedRootWatchOwner implements WorkspaceRootWatchOwner {
       } catch (error) {
         // Startup rejection is returned to its subscriber. Only the typed
         // acquired-handle failure owns a disposer that retirement must join.
-        if (error instanceof ParcelWatchRetirementError) {
+        if (error instanceof RootWatchRetirementError) {
           stop = error.retire;
         }
       }

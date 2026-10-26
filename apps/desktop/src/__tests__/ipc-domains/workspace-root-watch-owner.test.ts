@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
+import { RootWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import type { FileSystemChange, WatcherHealthTransition } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import type { MountedWorkspaceRoot } from '../../ipc-domains/workspace-root-types';
@@ -134,13 +134,13 @@ describe('Application-owned mounted-root watcher sharing', () => {
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error('acquired native handle still requires retirement'))
       .mockReturnValueOnce(exit.promise);
-    const failure = new ParcelWatchRetirementError([new Error('native start timed out')], retire);
+    const failure = new RootWatchRetirementError([new Error('native start timed out')], retire);
     f.startWatch.mockRejectedValueOnce(failure);
     const result: unknown = await f.owner
       .subscribe(root, vi.fn(), vi.fn(), vi.fn(), context())
       .catch((error: unknown) => error);
-    expect(result).toBeInstanceOf(ParcelWatchRetirementError);
-    if (!(result instanceof ParcelWatchRetirementError)) {
+    expect(result).toBeInstanceOf(RootWatchRetirementError);
+    if (!(result instanceof RootWatchRetirementError)) {
       throw new Error('Missing native retirement ownership.');
     }
     expect(retire).toHaveBeenCalledTimes(1);
