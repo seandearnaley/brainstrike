@@ -24,7 +24,11 @@ function psEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-/** OS start time of a live pid, or null once it has exited (a zombie has exited too). */
+/**
+ * OS start time of a live pid, or null once it has exited. A zombie has exited once it is its
+ * only thread: a killed leader turns zombie (`Zl`) while its other threads still exit, and they
+ * hold the process's descriptors, and so its file locks, until the last one is gone.
+ */
 export function processStartTime(pid: number): string | null {
   if (process.platform === 'win32') {
     return windowsProcessIdentity().getProcessCreationTime(pid);
@@ -36,7 +40,8 @@ export function processStartTime(pid: number): string | null {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
     const row = /^(\S+)\s+(.+)$/.exec(out);
-    return !row || row[1]?.startsWith('Z') ? null : (row[2] ?? null);
+    const stat = row?.[1] ?? '';
+    return !row || (stat.startsWith('Z') && !stat.includes('l')) ? null : (row[2] ?? null);
   } catch (e) {
     if (e !== null && typeof e === 'object' && 'status' in e && e.status === 1) {
       return null; // ps exits 1 when the pid does not exist
