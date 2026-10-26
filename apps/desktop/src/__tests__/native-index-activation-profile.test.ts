@@ -93,7 +93,7 @@ it('retries a failed host start once that host has released Root; Main retiremen
   try {
     // The failed start's rollback closes its platform, which releases Root capabilities.
     mocks.acquireProfile.mockImplementationOnce(async () => {
-      await activation.closeRootCapabilities();
+      await activation.closeRootCapabilities('gone');
       throw new Error('Host startup timed out');
     });
     await expect(activation.acquireProfile()).resolves.toBeUndefined();
@@ -111,7 +111,7 @@ it('relaunches a ready host that was lost once its Root release has run (BST-200
     await activation.acquireProfile();
     // The host exits unasked; its platform closes, which releases Root capabilities.
     mocks.loseHost();
-    await activation.closeRootCapabilities();
+    await activation.closeRootCapabilities('gone');
     await expect(activation.acquireProfile()).resolves.toBeUndefined();
     expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
     expect(mocks.closeProfile).toHaveBeenCalledOnce();
@@ -129,7 +129,7 @@ it('joins the lost host Root release before relaunching when a client asks first
     // A client reconnects before the lost host's platform has closed: retiring
     // that owner closes its platform, which releases Root, before the next host.
     mocks.closeProfile.mockImplementationOnce(async () => {
-      await activation.closeRootCapabilities();
+      await activation.closeRootCapabilities('gone');
     });
     await expect(activation.acquireProfile()).resolves.toBeUndefined();
     expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
@@ -149,7 +149,7 @@ it('keeps Main retirement terminal when a starting host fails and releases Root 
     starting.resolve();
     await failing.promise;
     // The failed start's rollback closes its platform, which releases Root capabilities.
-    await activation.closeRootCapabilities();
+    await activation.closeRootCapabilities('gone');
     throw new Error('MCP is unavailable: the agent host is not running.');
   });
   const connecting = activation.acquireProfile();
