@@ -307,8 +307,6 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         const mounted = await readFolders(window);
         expect(mounted[0]).toHaveLength(folderCount);
         expect(mounted[1]).toHaveLength(folderCount);
-        // The user resets a workspace whose folders the index has taken in.
-        await expect(window.getByTestId('indexing-status-value')).toHaveText('Ready');
         const reopened = await factoryResetAndRelaunch(electronHarness, window, logs.observeApp);
         const { waitForAppReady } = await loadElectronHelpers();
         await waitForAppReady(reopened.window);

@@ -9,7 +9,10 @@ interface Dependencies {
   transition(operation: () => Promise<void>): Promise<void>;
 }
 
-/** Re-read committed roots through the existing Main-owned, joined transition. */
+/**
+ * Re-read committed roots through the existing Main-owned, joined transition. A quit leaves
+ * nothing to do: the roots are committed, and the next start's activation reads them.
+ */
 export function createNativeRootRegistration(
   dependencies: Dependencies
 ): IndexRootRegistrationCapability {
@@ -17,14 +20,15 @@ export function createNativeRootRegistration(
     rootsRegistered: async () => {
       try {
         await dependencies.transition(async () => {
-          if (dependencies.isShuttingDown()) {
-            throw new NativeAuthorityTransitionError(
-              'Native root registration retired during shutdown.'
-            );
+          if (!dependencies.isShuttingDown()) {
+            await dependencies.reconfigureRoots();
           }
-          await dependencies.reconfigureRoots();
         });
       } catch (error) {
+        if (error instanceof NativeAuthorityTransitionError && dependencies.isShuttingDown()) {
+          // The quit retired the index while this registration waited on it.
+          return;
+        }
         dependencies.reportError(
           'Registered native source configuration could not activate',
           error
