@@ -64,9 +64,9 @@ test('the host starter waits the production readiness deadline, and a cancelled 
     await expect(
       createNodeHostSpawner({ readyTimeoutMs: 1234 })(start, new AbortController().signal)
     ).rejects.toThrow('Recorded readiness deadline');
-    expect(HOST_STARTER_READY_TIMEOUT_MS).toBe(30_000);
+    expect(HOST_STARTER_READY_TIMEOUT_MS).toBe(90_000);
     // Each spawn: its readiness wait, then its cancelled child's exit wait (the one close budget).
-    expect(recorded.deadlines).toEqual([30_000, CHILD_CLOSE_BUDGET_MS, 1234, 1234]);
+    expect(recorded.deadlines).toEqual([90_000, CHILD_CLOSE_BUDGET_MS, 1234, 1234]);
   } finally {
     await rm(root, { force: true, recursive: true });
   }

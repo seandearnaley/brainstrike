@@ -180,9 +180,10 @@ async function attachWith(
  * R5(a), the R2 exception: the one bound on waiting for a host this process did not
  * start, from a launch's start: a starting or leaving owner, and the handshake with a
  * live one. A loaded runner slows that handshake 100-300 times (ADR-0026), so it has no
- * tighter bound of its own; a 1.5 s one refused live CLI hosts on Windows CI.
+ * tighter bound of its own; a 1.5 s one refused live CLI hosts on Windows CI. A hosted
+ * Windows runner takes 20-30 s to start a healthy host, so 30 s refused those too.
  */
-export const HOST_STARTUP_TIMEOUT_MS = 30_000;
+export const HOST_STARTUP_TIMEOUT_MS = 90_000;
 
 /**
  * Attaches to a host this process did not start. R5(a), the R2 exception:
