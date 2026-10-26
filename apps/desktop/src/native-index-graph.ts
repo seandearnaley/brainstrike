@@ -80,7 +80,7 @@ export async function loadNativeGraphRecords(
 export interface NativeIndexActivationDependencies {
   readonly application: ApplicationIpcDomain;
   readonly catalog: SourceCatalogPort & WorkspaceRootPort & CollectionPort;
-  /** Main's E2E delay seam accessor for the indexer host, read at its boundaries; absent, none. */
+  /** Main's E2E delay seam accessor for the index and its indexer host, read at their boundaries; absent, none. */
   readonly lifecycleDelays?: () => LifecycleDelaySeam;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;

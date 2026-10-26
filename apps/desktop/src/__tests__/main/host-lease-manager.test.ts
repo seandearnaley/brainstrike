@@ -34,22 +34,42 @@ class Child extends EventEmitter {
   });
   exitOnClose = true;
   exitOnKill = true;
+  /** Its end of Main's lifetime channel, which closes with its process. */
+  private lifetime: { close(): void } | undefined;
   constructor() {
     super();
     liveFakes.add(this);
   }
-  postMessage(message: unknown): void {
+  postMessage(message: unknown, transfer?: readonly { close(): void }[]): void {
     this.posts.push(message);
+    if (JSON.stringify(message) === '{"event":"lifetime"}') {
+      this.lifetime = transfer?.[0];
+    }
     // Only the close control ends the utility; the lifetime port arrives at spawn.
     if (this.exitOnClose && JSON.stringify(message) === '{"method":"close"}') {
       queueMicrotask(() => this.exit(0));
     }
   }
+  /** Its process ends: its ports close first, as on Windows, then Electron reports its exit. */
   exit(code: number): void {
+    this.closeLifetime();
     this.pid = undefined;
     liveFakes.delete(this);
     this.emit('exit', code);
   }
+  /** Its ports have closed; Electron has not reported its exit yet. */
+  closeLifetime(): void {
+    this.lifetime?.close();
+    this.lifetime = undefined;
+  }
+}
+/** A lifetime channel whose Main end reports its close once the utility holding the other end ends. */
+function lifetimeChannel(): { readonly port1: MessagePortMain; readonly port2: MessagePortMain } {
+  const port1 = Object.assign(new EventEmitter(), { close: vi.fn(), start: vi.fn() });
+  return {
+    port1: port1 as unknown as MessagePortMain,
+    port2: { close: () => port1.emit('close') } as unknown as MessagePortMain,
+  };
 }
 const root = '/private/host-lease-test';
 /** What the fake utility's ready report carries: its own pid and start time. */
@@ -221,16 +241,45 @@ describe('desktop host lease ownership', () => {
           queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
           return child;
         },
+        lifetimeChannel,
         onLost,
         root,
       });
       await owner.acquire();
       child.exit(code);
-      expect(onLost).toHaveBeenCalledExactlyOnceWith(code, { requested: false });
+      expect(onLost).toHaveBeenCalledExactlyOnceWith({ requested: false });
       // The loss was reported when it happened; retiring the owner is not a failed close.
       await owner.close();
       expect(child.posts).not.toContainEqual({ method: 'close' });
     }
+  });
+  it('reports the loss once the host’s channel closes, before Electron reports its exit, and joins that exit (BST-2004)', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const child = new Child();
+    child.exitOnClose = false;
+    const onLost = vi.fn();
+    const owner = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
+        return child;
+      },
+      lifetimeChannel,
+      onLost,
+      root,
+    });
+    await owner.acquire();
+    // Windows: a killed host's ports close at once; Electron's exit waits for its process handle.
+    child.closeLifetime();
+    expect(onLost).toHaveBeenCalledExactlyOnceWith({ requested: false });
+    let released = false;
+    const closing = owner.close().then(() => {
+      released = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(released).toBe(false);
+    child.exit(9);
+    await closing;
+    expect(onLost).toHaveBeenCalledOnce();
   });
   it('reports every attachment close failure of a lost host; the client decides which ones fail (BST-2143)', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
@@ -243,6 +292,7 @@ describe('desktop host lease ownership', () => {
           queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
           return child;
         },
+        lifetimeChannel,
         onLost: vi.fn(),
         root,
       });
@@ -308,6 +358,7 @@ describe('desktop host lease ownership', () => {
           queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
           return child;
         },
+        lifetimeChannel,
         onLost,
         root,
       });
@@ -351,6 +402,7 @@ describe('desktop host lease ownership', () => {
         queueMicrotask(() => asked.emit('message', { event: 'ready', record: readyRecord }));
         return asked;
       },
+      lifetimeChannel,
       onLost: onAskedLost,
       root,
     });
@@ -366,6 +418,7 @@ describe('desktop host lease ownership', () => {
         queueMicrotask(() => early.exit(1));
         return early;
       },
+      lifetimeChannel,
       onLost: onEarlyLost,
       root,
     });
@@ -439,8 +492,11 @@ describe('desktop host lease ownership', () => {
         return child;
       },
       lifetimeChannel: () => ({
-        port1: { close: () => order.push('lifetime released') } as unknown as MessagePortMain,
-        port2: {} as MessagePortMain,
+        ...lifetimeChannel(),
+        port1: Object.assign(new EventEmitter(), {
+          close: () => order.push('lifetime released'),
+          start: vi.fn(),
+        }) as unknown as MessagePortMain,
       }),
       root,
     });
@@ -586,6 +642,7 @@ describe('stop for relaunch', () => {
         queueMicrotask(() => child.emit('message', { event: 'ready', record: readyRecord }));
         return child;
       },
+      lifetimeChannel,
       onChildReady: (readyChild) => {
         ready = readyChild;
       },
@@ -609,7 +666,7 @@ describe('stop for relaunch', () => {
     expect(closes(child)).toBe(1);
     expect(child.kill).not.toHaveBeenCalled();
     // The lost path (BST-2004): the profile fails this owner and the next acquire relaunches.
-    expect(onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+    expect(onLost).toHaveBeenCalledExactlyOnceWith({ requested: true });
     // Retiring the failed owner is not a failed close.
     await expect(owner.close()).resolves.toBeUndefined();
     expect(closes(child)).toBe(1);
@@ -631,7 +688,7 @@ describe('stop for relaunch', () => {
       await stopping;
       expect(child.kill).toHaveBeenCalledOnce();
       expect(exitCode).toBe(15);
-      expect(onLost).toHaveBeenCalledExactlyOnceWith(15, { requested: true });
+      expect(onLost).toHaveBeenCalledExactlyOnceWith({ requested: true });
     } finally {
       vi.useRealTimers();
     }
@@ -667,17 +724,17 @@ describe('stop for relaunch', () => {
     expect(child.kill).not.toHaveBeenCalled();
     // The exit landed before the lease's own close began: it is the relaunch's requested
     // loss, which a retiring profile ignores, and the lease close still succeeds.
-    expect(onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+    expect(onLost).toHaveBeenCalledExactlyOnceWith({ requested: true });
   });
 
   it('keeps the request on that child: a later child that crashes is still an unrequested loss', async () => {
     const relaunched = await readyOwner({ exitOnClose: true });
     await relaunched.ready.stopForRelaunch();
-    expect(relaunched.onLost).toHaveBeenCalledExactlyOnceWith(0, { requested: true });
+    expect(relaunched.onLost).toHaveBeenCalledExactlyOnceWith({ requested: true });
 
     const next = await readyOwner({ exitOnClose: true });
     next.child.exit(9);
-    expect(next.onLost).toHaveBeenCalledExactlyOnceWith(9, { requested: false });
+    expect(next.onLost).toHaveBeenCalledExactlyOnceWith({ requested: false });
   });
 });
 
