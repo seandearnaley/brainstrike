@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
@@ -110,7 +111,7 @@ test('a context overflow compacts the host thread behind a durable divider and t
   expect(JSON.stringify(attempts[1]?.messages)).not.toContain(FIRST);
 
   // The divider is durable: the committed thread renders it again after a reload.
-  await window.reload();
+  await reloadRenderer(window, 'assistant-compaction: reload');
   await ensureAssistantShellVisible(window);
   await expect(panel.getByText('Answer after compaction.', { exact: true })).toBeVisible({
     timeout: E2E_TIMEOUTS.messageVisibility,

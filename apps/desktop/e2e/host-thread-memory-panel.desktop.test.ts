@@ -2,6 +2,7 @@ import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistan
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-host-memory-panel';
@@ -95,7 +96,7 @@ test('the Developer memory panel shows the observer buffering live, then its buf
       }
     );
     // The renderer reads its persisted memory settings and Detail level when it loads.
-    await page.reload();
+    await reloadRenderer(page, 'host-thread-memory-panel: reload 1');
     await enableModel(page);
     await ensureAssistantShellVisible(page);
     const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
@@ -150,7 +151,7 @@ test('the Developer memory panel shows the observer buffering live, then its buf
     await expect(cycle).toContainText(/ in \/ [\d,]+ out/u);
 
     // The thread's next read, when it reopens, finds the record idle again.
-    await page.reload();
+    await reloadRenderer(page, 'host-thread-memory-panel: reload 2');
     await ensureAssistantShellVisible(page);
     const reopened = page.getByRole('region', { exact: true, name: 'Assistant' });
     await expect(reopened.getByText(ANSWER, { exact: true })).toBeVisible({ timeout: 30_000 });

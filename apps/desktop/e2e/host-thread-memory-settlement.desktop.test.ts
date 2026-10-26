@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 const API_KEY = 'test-key-host-memory-settlement';
@@ -90,7 +91,7 @@ test('Stop clears when the answer finishes while its memory observation is still
       }
     );
     // The renderer reads its persisted memory settings when it loads.
-    await page.reload();
+    await reloadRenderer(page, 'host-thread-memory-settlement: reload');
     await enableModel(page);
     await ensureAssistantShellVisible(page);
     const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
