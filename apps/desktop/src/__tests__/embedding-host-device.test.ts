@@ -26,12 +26,7 @@ function lifecycle(current: EmbeddingHostStatus, destroyed = false) {
     getStatus: vi.fn(() => current),
     send,
     waitForStatus:
-      vi.fn<
-        (
-          predicate: (next: EmbeddingHostStatus) => boolean,
-          timeoutMs: number
-        ) => Promise<EmbeddingHostStatus>
-      >(),
+      vi.fn<(predicate: (next: EmbeddingHostStatus) => boolean) => Promise<EmbeddingHostStatus>>(),
   };
 }
 
@@ -39,9 +34,8 @@ test('a started host with no device is asked for one, and answers with the statu
   const unresolved = status('running');
   const resolved = status('running', { hostDevice: 'wasm' });
   const host = lifecycle(unresolved);
-  host.waitForStatus.mockImplementation(async (predicate, timeoutMs) => {
-    expect(timeoutMs).toBe(30_000);
-    // Only a resolution, or a host leaving this running runtime, ends the wait.
+  host.waitForStatus.mockImplementation(async (predicate) => {
+    // The host's status report answers; no clock bounds the wait. Only a resolution, or a host leaving this running runtime, ends the wait.
     expect(predicate(unresolved)).toBe(false);
     expect(predicate(resolved)).toBe(true);
     expect(predicate(status('running', { hostDeviceError: 'No WebGPU adapter.' }))).toBe(true);

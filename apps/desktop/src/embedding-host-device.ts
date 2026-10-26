@@ -5,12 +5,6 @@ import {
 } from './embedding-host-shared';
 import type { RendererHostLifecycle } from './renderer-host-lifecycle';
 
-/**
- * R5(a): a memory-recall read waiting on the host's device resolution is refused at this bound.
- * It refuses that read only; the host keeps running.
- */
-const DEVICE_RESOLUTION_TIMEOUT_MS = 30_000;
-
 type HostLifecycle = Pick<
   RendererHostLifecycle<EmbeddingHostStatus>,
   'getHostWindow' | 'getStatus' | 'waitForStatus'
@@ -44,7 +38,9 @@ export function requestHostDeviceResolution(lifecycle: HostLifecycle, available:
 /**
  * The started host's status once it carries the device memory recall pins, or
  * why it has none. The host chooses no device at start (#3595), so the first
- * reader asks it to resolve one; a preference change re-resolves it.
+ * reader asks it to resolve one; a preference change re-resolves it. The answer
+ * is the host's status report; no clock bounds it. The host's loss ends the wait,
+ * and the reader's own signal bounds the read.
  */
 export async function awaitHostDevice(
   started: EmbeddingHostStatus,
@@ -59,7 +55,6 @@ export async function awaitHostDevice(
     (next) =>
       next.runtimeId !== started.runtimeId ||
       next.state !== 'running' ||
-      hasResolvedHostDevice(next),
-    DEVICE_RESOLUTION_TIMEOUT_MS
+      hasResolvedHostDevice(next)
   );
 }

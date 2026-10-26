@@ -87,7 +87,6 @@ function createWaitLifecycle(): RendererHostLifecycle<RendererHostStatusShape> {
     mode: 'embedding-host',
     role: 'embedding-host',
     statusEventName: 'embedding-host:status',
-    timeoutMessage: 'status timeout',
   });
 }
 
@@ -216,7 +215,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     lifecycle.setStatus({
@@ -280,7 +278,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const status = await lifecycle.ensureStarted();
@@ -318,7 +315,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const status = await lifecycle.ensureStarted({ waitForRunning: false });
@@ -363,7 +359,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     hostWindow.loadURL.mockImplementation(() => {
@@ -418,7 +413,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -455,7 +449,6 @@ describe('RendererHostLifecycle', () => {
         mode: role,
         role,
         statusEventName: `${role}:status`,
-        timeoutMessage: 'timeout',
       });
 
       await lifecycle.ensureStarted({ waitForRunning: false });
@@ -496,7 +489,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -536,7 +528,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -572,7 +563,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -611,7 +601,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -650,7 +639,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -690,7 +678,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -737,7 +724,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -781,7 +767,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
@@ -839,7 +824,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
     const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
     await Promise.resolve();
@@ -872,7 +856,7 @@ describe('RendererHostLifecycle', () => {
     await vi.waitFor(() => expect(nextWindow.loadURL).toHaveBeenCalledTimes(1));
   });
 
-  it('lets a stopping host settle before replacing its window', async () => {
+  it('replaces a stopping host window at once, never waiting on its report', async () => {
     const stoppingWindow = createFakeWindow(71);
     const restartedWindow = createFakeWindow(72);
     stoppingWindow.loadURL.mockResolvedValue(undefined);
@@ -900,7 +884,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
     const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
     await Promise.resolve();
@@ -910,28 +893,14 @@ describe('RendererHostLifecycle', () => {
     );
     await initialStart;
 
-    // The manager's stop() owns this window until the renderer reports stopped.
+    // A renderer reporting `stopping` holds nothing: a start replaces its window at once.
     lifecycle.setStatus(
       createStatus({ active: false, lastError: null, runtimeId, state: 'stopping' })
     );
-    let settled = false;
-    const restart = lifecycle.ensureStarted({ waitForRunning: false }).then((status) => {
-      settled = true;
-      return status;
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(stoppingWindow.destroy).not.toHaveBeenCalled();
-    expect(settled).toBe(false);
-
-    lifecycle.setStatus(
-      createStatus({ active: false, lastError: null, runtimeId, state: 'stopped' })
-    );
-    const restarted = await restart;
+    const restarted = await lifecycle.ensureStarted({ waitForRunning: false });
 
     expect(stoppingWindow.destroy).toHaveBeenCalledTimes(1);
-    // The replacement loads only once the window it replaces has closed.
+    // The replacement loads without the destroyed window's `closed`.
     await vi.waitFor(() => expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1));
     expect(restarted.state).toBe('starting');
     expect(restarted.runtimeId).not.toBe(runtimeId);
@@ -973,7 +942,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const initialStart = lifecycle.ensureStarted({ waitForRunning: true });
@@ -1050,7 +1018,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const firstStart = lifecycle.ensureStarted({ waitForRunning: true });
@@ -1090,13 +1057,12 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const error = new Error('predicate exploded');
     const waitPromise = lifecycle.waitForStatus(() => {
       throw error;
-    }, 10_000);
+    });
 
     lifecycle.setStatus(
       createStatus({
@@ -1121,9 +1087,10 @@ describe('RendererHostLifecycle', () => {
     vi.useFakeTimers();
     try {
       const lifecycle = createWaitLifecycle();
-      const wait = lifecycle.waitForStatus((status) => status.state === 'running', 1000);
+      const wait = lifecycle.waitForStatus((status) => status.state === 'running');
       expect(statusListenerCount(lifecycle)).toBe(1);
-      expect(vi.getTimerCount()).toBe(1);
+      // The host's report settles the wait; no clock is armed for it.
+      expect(vi.getTimerCount()).toBe(0);
 
       lifecycle.setStatus(
         createStatus({
@@ -1142,29 +1109,26 @@ describe('RendererHostLifecycle', () => {
     }
   });
 
-  it('keeps each status waiter independent through timeout and disposal', async () => {
-    vi.useFakeTimers();
-    try {
-      const lifecycle = createWaitLifecycle();
-      const timedOut = lifecycle.waitForStatus((status) => status.state === 'running', 5);
-      const disposed = lifecycle.waitForStatus((status) => status.state === 'running', 100);
-      const timedOutFailure = timedOut.catch((error: unknown) => error);
-      const disposedFailure = disposed.catch((error: unknown) => error);
-      expect(statusListenerCount(lifecycle)).toBe(2);
-      expect(vi.getTimerCount()).toBe(2);
-
-      await vi.advanceTimersByTimeAsync(5);
-      expect(((await timedOutFailure) as Error).message).toBe('status timeout');
-      expect(statusListenerCount(lifecycle)).toBe(1);
-      expect(vi.getTimerCount()).toBe(1);
-
-      lifecycle.dispose();
-      expect(((await disposedFailure) as Error).message).toContain('disposed');
-      expect(statusListenerCount(lifecycle)).toBe(0);
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
+  it('keeps each status waiter independent through host window loss and disposal', async () => {
+    const hostWindow = createFakeWindow(97);
+    hostWindow.loadURL.mockResolvedValue(undefined);
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+      Object.assign(this, hostWindow);
+    });
+    Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [hostWindow]) });
+    const lifecycle = createWaitLifecycle();
+    void lifecycle.ensureStarted({ waitForRunning: false });
+    await vi.waitFor(() => expect(lifecycle.getHostWindow()).not.toBeNull());
+    const lost = lifecycle.waitForStatus((status) => status.state === 'running');
+    const lostFailure = lost.catch((error: unknown) => error);
+    lifecycle.destroyHostWindow();
+    expect(((await lostFailure) as Error).message).toContain('window closed');
+    const disposed = lifecycle.waitForStatus((status) => status.state === 'running');
+    const disposedFailure = disposed.catch((error: unknown) => error);
+    expect(statusListenerCount(lifecycle)).toBe(1);
+    lifecycle.dispose();
+    expect(((await disposedFailure) as Error).message).toContain('disposed');
+    expect(statusListenerCount(lifecycle)).toBe(0);
   });
 
   it('preserves an initial predicate throw and normalizes a later non-Error throw', async () => {
@@ -1173,7 +1137,7 @@ describe('RendererHostLifecycle', () => {
     await expect(
       lifecycle.waitForStatus(() => {
         throw sentinel;
-      }, 100)
+      })
     ).rejects.toBe(sentinel);
     expect(statusListenerCount(lifecycle)).toBe(0);
 
@@ -1185,7 +1149,7 @@ describe('RendererHostLifecycle', () => {
         return false;
       }
       throw laterThrown;
-    }, 100);
+    });
     lifecycle.setStatus(
       createStatus({
         active: true,
@@ -1246,9 +1210,8 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
-    const wait = lifecycle.waitForStatus((status) => status.state === 'running', 100);
+    const wait = lifecycle.waitForStatus((status) => status.state === 'running');
 
     expect(() =>
       lifecycle.setStatus(
@@ -1293,7 +1256,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
@@ -1339,7 +1301,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -1381,7 +1342,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     await lifecycle.ensureStarted({ waitForRunning: false });
@@ -1407,7 +1367,7 @@ describe('RendererHostLifecycle', () => {
     expect(visibleWindow.webContents.send).toHaveBeenCalledTimes(1);
   });
 
-  it('settles startup as error when its renderer is gone before it reports, and replaces it only after it closes', async () => {
+  it('settles startup as error when its renderer is gone before it reports, and replaces it on the next start', async () => {
     const hostWindow = createFakeWindow(91);
     const replacement = createFakeWindow(94);
     hostWindow.loadURL.mockResolvedValue(undefined);
@@ -1465,7 +1425,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     let settled = false;
@@ -1548,7 +1507,6 @@ describe('RendererHostLifecycle', () => {
         mode: 'embedding-host',
         role: 'embedding-host',
         statusEventName: 'embedding-host:status',
-        timeoutMessage: 'timeout',
       });
 
       const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
@@ -1566,8 +1524,7 @@ describe('RendererHostLifecycle', () => {
     }
   );
 
-  it('retries document load on transient failure and succeeds on second attempt', async () => {
-    vi.useFakeTimers();
+  it('loads a new window at once on the start after a failed load, never joining the failed one', async () => {
     const failWindow = createFakeWindow(101);
     const successWindow = createFakeWindow(102);
     failWindow.loadURL.mockRejectedValue(new Error('ERR_FAILED (-2)'));
@@ -1585,74 +1542,16 @@ describe('RendererHostLifecycle', () => {
       getAllWindows: vi.fn(() => [successWindow]),
     });
 
-    const lifecycle = new RendererHostLifecycle({
-      createStatus,
-      createStoppedStatus: () =>
-        createStatus({
-          active: false,
-          lastError: null,
-          runtimeId: 'embedding-host:stopped',
-          state: 'stopped',
-        }),
-      mode: 'embedding-host',
-      role: 'embedding-host',
-      statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
+    const lifecycle = createWaitLifecycle();
+
+    await expect(lifecycle.ensureStarted({ waitForRunning: true })).resolves.toMatchObject({
+      state: 'error',
     });
-
-    lifecycle.ensureStarted({ waitForRunning: false });
-
-    await vi.waitFor(() => expect(failWindow.destroy).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(300);
+    // The failed window never emits `closed` here; the next start does not wait for it.
+    void lifecycle.ensureStarted({ waitForRunning: false });
     await vi.waitFor(() => expect(successWindow.loadURL).toHaveBeenCalledTimes(1));
     expect(failWindow.destroy).toHaveBeenCalledTimes(1);
-    expect(successWindow.loadURL).toHaveBeenCalledTimes(1);
     expect(getWindowRoleByWebContentsId(101)).toBeUndefined();
-    vi.useRealTimers();
-  });
-
-  it('retries as soon as the failed window closes, without waiting out 300 ms', async () => {
-    vi.useFakeTimers();
-    const failedWindow = createFakeWindow(103);
-    const nextWindow = createFakeWindow(104);
-    failedWindow.loadURL.mockRejectedValue(new Error('transient load failure'));
-    nextWindow.loadURL.mockResolvedValue(undefined);
-    failedWindow.destroy.mockImplementation(() => {
-      failedWindow.isDestroyed.mockReturnValue(true);
-      failedWindow.listeners.closed?.();
-    });
-    const windows = [failedWindow, nextWindow];
-    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
-      const window = windows.shift();
-      if (!window) {
-        throw new Error('No fake BrowserWindow left to create');
-      }
-      Object.assign(this, window);
-    });
-    Object.assign(BrowserWindow, { getAllWindows: vi.fn(() => [nextWindow]) });
-    const lifecycle = new RendererHostLifecycle({
-      createStatus,
-      createStoppedStatus: () =>
-        createStatus({
-          active: false,
-          lastError: null,
-          runtimeId: 'embedding-host:stopped',
-          state: 'stopped',
-        }),
-      mode: 'embedding-host',
-      role: 'embedding-host',
-      statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
-    });
-
-    const startedAt = Date.now();
-    void lifecycle.ensureStarted({ waitForRunning: false });
-    await vi.waitFor(() => expect(nextWindow.loadURL).toHaveBeenCalledTimes(1));
-
-    expect(Date.now() - startedAt).toBeLessThan(300);
-    expect(failedWindow.destroy).toHaveBeenCalledOnce();
-    expect(getWindowRoleByWebContentsId(103)).toBeUndefined();
-    vi.useRealTimers();
   });
 
   it('does not retry a BrowserWindow construction failure', async () => {
@@ -1672,7 +1571,6 @@ describe('RendererHostLifecycle', () => {
       mode: 'embedding-host',
       role: 'embedding-host',
       statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
     });
 
     const status = await lifecycle.ensureStarted({ waitForRunning: true });
@@ -1682,54 +1580,24 @@ describe('RendererHostLifecycle', () => {
     expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
   });
 
-  it('gives up after 3 failed load attempts and sets error status', async () => {
-    vi.useFakeTimers();
-    const windows = [createFakeWindow(111), createFakeWindow(112), createFakeWindow(113)];
-    for (const w of windows) {
-      w.loadURL.mockRejectedValue(new Error('ERR_FAILED (-2)'));
-    }
-
-    const createdWindows = [...windows];
+  it('fails a start once on a load failure and reports it, loading no second window', async () => {
+    const failedWindow = createFakeWindow(111);
+    failedWindow.loadURL.mockRejectedValue(new Error('ERR_FAILED (-2)'));
     MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
-      const nextWindow = createdWindows.shift();
-      if (!nextWindow) {
-        throw new Error('No fake BrowserWindow left to create');
-      }
-      Object.assign(this, nextWindow);
+      Object.assign(this, failedWindow);
     });
     Object.assign(BrowserWindow, {
       getAllWindows: vi.fn(() => []),
     });
 
-    const lifecycle = new RendererHostLifecycle({
-      createStatus,
-      createStoppedStatus: () =>
-        createStatus({
-          active: false,
-          lastError: null,
-          runtimeId: 'embedding-host:stopped',
-          state: 'stopped',
-        }),
-      mode: 'embedding-host',
-      role: 'embedding-host',
-      statusEventName: 'embedding-host:status',
-      timeoutMessage: 'timeout',
-    });
+    const lifecycle = createWaitLifecycle();
 
-    lifecycle.ensureStarted({ waitForRunning: false });
+    const status = await lifecycle.ensureStarted({ waitForRunning: true });
 
-    await vi.waitFor(() => expect(windows[0]?.destroy).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(300);
-    await vi.waitFor(() => expect(windows[1]?.destroy).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(300);
-    await vi.waitFor(() => expect(lifecycle.getStatus().state).toBe('error'));
-
-    const finalStatus = lifecycle.getStatus();
-    expect(finalStatus.state).toBe('error');
-    expect(finalStatus.lastError).toContain('failed to load after 3 attempts');
-    for (const w of windows) {
-      expect(w.destroy).toHaveBeenCalledTimes(1);
-    }
-    vi.useRealTimers();
+    expect(status.state).toBe('error');
+    expect(status.lastError).toBe('embedding-host failed to load: ERR_FAILED (-2)');
+    expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
+    expect(failedWindow.destroy).toHaveBeenCalledTimes(1);
+    expect(lifecycle.getHostWindow()).toBeNull();
   });
 });

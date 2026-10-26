@@ -54,8 +54,7 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
       }),
       waitForStatus: vi.fn<
         (
-          predicate: (status: EmbeddingLifecycleStatus) => boolean,
-          timeoutMs: number
+          predicate: (status: EmbeddingLifecycleStatus) => boolean
         ) => Promise<EmbeddingLifecycleStatus>
       >(async () => ({
         active: false,

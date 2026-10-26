@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events';
-import { CHILD_CLOSE_BUDGET_MS } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EmbeddingHostQueryEmbeddingRequest,
@@ -80,7 +79,6 @@ describe('query transport physical settlement', () => {
   };
   let manager: EmbeddingHostManager;
   let request: EmbeddingHostQueryEmbeddingRequest;
-  let stopAck: ReturnType<typeof Promise.withResolvers<EmbeddingHostStatus>>;
   beforeEach(() => {
     vi.useFakeTimers();
     const status: EmbeddingHostStatus = {
@@ -90,8 +88,6 @@ describe('query transport physical settlement', () => {
       runtimeKind: 'embedding-host',
       state: 'running',
     };
-    stopAck = Promise.withResolvers<EmbeddingHostStatus>();
-    void stopAck.promise.catch(() => undefined);
     window = Object.assign(new EventEmitter(), {
       destroy: vi.fn(),
       isDestroyed: () => false,
@@ -105,7 +101,7 @@ describe('query transport physical settlement', () => {
       getHostWindow: () => window,
       getStatus: () => status,
       setStatus: (next) => Object.assign(status, next),
-      waitForStatus: vi.fn(() => stopAck.promise),
+      waitForStatus: vi.fn(),
     };
     manager = new EmbeddingHostManager({ platform: 'linux' });
   });
@@ -259,21 +255,18 @@ describe('query transport physical settlement', () => {
     complete();
     await expect(next.outcome).resolves.toHaveLength(384);
   });
-  it('joins retirement after cancellation delivery fails and keeps both causes', async () => {
+  it('retires the host at once when cancellation delivery fails and keeps both causes', async () => {
     const controller = new AbortController();
     const reason = new Error('caller stopped');
-    const { outcome, settled } = await start(controller.signal);
+    const { outcome } = await start(controller.signal);
     window.webContents.send.mockImplementation((event: string) => {
       if (event === 'embedding-host:query-embedding-cancel') {
         throw new Error('cancel IPC failed');
       }
     });
     controller.abort(reason);
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     const error = await outcome;
+    expect(window.destroy).toHaveBeenCalledOnce();
     expect((error as AggregateError).errors).toEqual([
       reason,
       expect.objectContaining({
@@ -281,16 +274,18 @@ describe('query transport physical settlement', () => {
       }),
     ]);
   });
-  it('retains a query through explicit Stop until its acknowledgement', async () => {
+  // ADR-0031: stopping the hidden host is destroying its window; nothing waits on its renderer.
+  it('stops a host whose renderer never answers at once, rejecting its in-flight query', async () => {
     const { outcome, settled } = await start();
     const stop = manager.stop();
     await flush();
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    await stop;
+    expect(window.destroy).toHaveBeenCalledOnce();
+    expect(settled).toHaveBeenCalledOnce();
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('stopped') })
     );
+    await expect(stop).resolves.toMatchObject({ state: 'stopped' });
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
   it('settles a caller cancellation only after an actual renderer exit, retaining crash evidence', async () => {
     const controller = new AbortController();
@@ -346,19 +341,18 @@ describe('query transport physical settlement', () => {
     expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
     expect(window.destroy).not.toHaveBeenCalled();
   });
-  it('joins physical Stop when the initial request send fails', async () => {
+  it('retires the host at once when the initial request send fails', async () => {
     window.webContents.send.mockImplementation((event: string) => {
       if (event === 'embedding-host:query-embedding-request') {
         throw new Error('request IPC failed');
       }
     });
-    const { outcome, settled } = await start();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
+    const { outcome } = await start();
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('could not be sent') })
     );
+    expect(window.destroy).toHaveBeenCalledOnce();
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
   it('retains malformed result evidence during caller cancellation', async () => {
     const controller = new AbortController();
@@ -377,84 +371,51 @@ describe('query transport physical settlement', () => {
       expect.objectContaining({ message: expect.stringContaining('dimensions') }),
     ]);
   });
-  it('joins reset before rejecting active query work', async () => {
-    const { outcome, settled } = await start();
-    const reset = manager.reset();
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'running' });
-    await reset;
+  it('rejects active query work when reset destroys the host', async () => {
+    const { outcome } = await start();
+    await manager.reset();
+    expect(window.destroy).toHaveBeenCalledOnce();
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('reset') })
     );
   });
-  it('joins restart destruction before rejecting active query work', async () => {
-    const { outcome, settled } = await start();
-    const restart = manager.destroyAndRestart();
-    await flush();
-    expect(window.destroy).toHaveBeenCalled();
-    expect(settled).not.toHaveBeenCalled();
-    window.emit('closed');
-    await restart;
+  it('rejects active query work when restart destroys the host', async () => {
+    const { outcome } = await start();
+    await manager.destroyAndRestart();
+    expect(window.destroy).toHaveBeenCalledOnce();
     expect(await outcome).toEqual(
       expect.objectContaining({ message: expect.stringContaining('restarted') })
     );
   });
-  it('joins shutdown with the one close budget', async () => {
-    const { outcome, settled } = await start();
-    const dispose = manager.dispose();
-    await flush();
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledWith(
-      expect.any(Function),
-      CHILD_CLOSE_BUDGET_MS
-    );
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
-    await dispose;
+  it('shutdown destroys the host at once and rejects its work', async () => {
+    const { outcome } = await start();
+    await manager.dispose();
+    expect(window.destroy).toHaveBeenCalled();
+    expect(fixture.lifecycle.waitForStatus).not.toHaveBeenCalled();
     expect(await outcome).toBeInstanceOf(Error);
   });
-  it('shutdown joins an ordinary Stop already underway', async () => {
-    const { outcome, settled } = await start();
+  it('shutdown settles beside an ordinary Stop already underway', async () => {
+    const { outcome } = await start();
     const stop = manager.stop();
     const dispose = manager.dispose();
-    await flush();
-    expect(fixture.lifecycle.waitForStatus).toHaveBeenCalledOnce();
-    expect(settled).not.toHaveBeenCalled();
-    stopAck.resolve({ ...fixture.lifecycle.getStatus(), state: 'stopped' });
     await Promise.all([stop, dispose]);
     expect(await outcome).toBeInstanceOf(Error);
+    expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-  it('does not admit a replacement before a forced retirement closes', async () => {
+  it('admits a replacement at once after Stop destroys a host that never answered a cancel', async () => {
+    const reason = new Error('caller stopped');
     const controller = new AbortController();
-    await start(controller.signal);
-    controller.abort(new Error('caller stopped'));
+    const { outcome } = await start(controller.signal);
+    controller.abort(reason);
     // A cancel the host never answers holds the host until an explicit Stop retires it.
-    const stop = manager.stop().catch((error: unknown) => error);
-    stopAck.reject(new Error('Stop failed'));
-    await flush();
-    const started = vi.fn();
-    const replacement = manager
-      .ensureStarted()
-      .then(started)
-      .catch((error: unknown) => error);
-    await flush();
-    expect(started).not.toHaveBeenCalled();
-    window.emit('closed');
-    expect(await stop).toBeInstanceOf(Error);
-    expect(await replacement).toBeInstanceOf(Error);
-    expect(started).not.toHaveBeenCalled();
-    await manager.ensureStarted().then(started);
-    expect(started).toHaveBeenCalledOnce();
+    await manager.stop();
+    await expect(outcome).resolves.toBe(reason);
+    await expect(manager.ensureStarted()).resolves.toBeDefined();
   });
-  it('does not treat isDestroyed as a close event', async () => {
-    const { outcome, settled } = await start();
+  it('stops a host whose window is already destroyed, rejecting its work', async () => {
+    const { outcome } = await start();
     window.isDestroyed = () => true;
-    const stop = manager.stop();
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    window.emit('closed');
-    await stop;
+    await manager.stop();
     expect(await outcome).toBeInstanceOf(Error);
   });
   it('retains aborted capacity until every matching terminal response', async () => {
@@ -486,33 +447,12 @@ describe('query transport physical settlement', () => {
     await expect(Promise.all(outcomes)).resolves.toEqual(reasons);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-  it('joins forced close when Stop delivery fails after caller cancellation', async () => {
-    const controller = new AbortController();
-    const reason = new Error('caller stopped');
-    const { outcome, settled } = await start(controller.signal);
-    const stopFailure = new Error('Stop IPC failed');
-    window.webContents.send.mockImplementation((event: string) => {
-      if (event === 'embedding-host:command') {
-        throw stopFailure;
-      }
-    });
-    controller.abort(reason);
-    // A cancel the host never answers holds the host until an explicit Stop retires it.
-    const stop = manager.stop().catch((error: unknown) => error);
-    await flush();
-    expect(window.destroy).toHaveBeenCalled();
-    expect(settled).not.toHaveBeenCalled();
-    window.emit('closed');
-    expect(failureCauses(await outcome)).toEqual([reason, stopFailure]);
-    expect(failureCauses(await stop)).toEqual([stopFailure]);
-  });
   it.each([false, true])(
-    'preserves Stop and destruction failures after physical close (caller aborted: %s)',
+    'preserves a destruction failure in every outcome (caller aborted: %s)',
     async (aborted) => {
       const controller = new AbortController();
       const reason = { source: 'caller' };
-      const { outcome, settled } = await start(controller.signal);
-      const stopFailure = new Error('Stop failed before destruction');
+      const { outcome } = await start(controller.signal);
       const destructionFailure = new Error('initial destruction failed');
       window.destroy.mockImplementationOnce(() => {
         throw destructionFailure;
@@ -521,79 +461,46 @@ describe('query transport physical settlement', () => {
         controller.abort(reason);
       }
       const stop = manager.stop().catch((error: unknown) => error);
-      stopAck.reject(stopFailure);
-      await flush();
-      expect(window.destroy).toHaveBeenCalledOnce();
-      expect(settled).not.toHaveBeenCalled();
-      expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-      window.emit('closed');
       expect(failureCauses(await outcome)).toEqual(
-        aborted ? [reason, stopFailure, destructionFailure] : [stopFailure, destructionFailure]
+        aborted ? [reason, destructionFailure] : [destructionFailure]
       );
-      expect(failureCauses(await stop)).toEqual([stopFailure, destructionFailure]);
+      expect(failureCauses(await stop)).toEqual([destructionFailure]);
       expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
     }
   );
-  it.each([false, true])(
-    'preserves failed destruction retry in every retirement outcome (caller aborted: %s)',
-    async (aborted) => {
-      const controller = new AbortController();
-      const reason = { source: 'caller' };
-      const { outcome, settled } = await start(controller.signal);
-      const stopFailure = new Error('Stop failed before retry');
-      const destructionFailure = new Error('first destruction failed');
-      const retryFailure = new Error('retry destruction failed');
-      window.destroy
-        .mockImplementationOnce(() => {
-          throw destructionFailure;
-        })
-        .mockImplementationOnce(() => {
-          throw retryFailure;
-        });
-      if (aborted) {
-        controller.abort(reason);
-      }
-      const stop = manager.stop().catch((error: unknown) => error);
-      stopAck.reject(stopFailure);
-      await flush();
-      const retry = manager.destroyAndRestart().catch((error: unknown) => error);
-      await flush();
-      expect(window.destroy).toHaveBeenCalledTimes(2);
-      expect(settled).not.toHaveBeenCalled();
-      expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-      window.emit('closed');
-      const failures = [stopFailure, destructionFailure, retryFailure];
-      expect(failureCauses(await outcome)).toEqual(aborted ? [reason, ...failures] : failures);
-      expect(failureCauses(await stop)).toEqual(failures);
-      expect(failureCauses(await retry)).toEqual(failures);
-      expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
-    }
-  );
-  it('preserves retirement failures when the renderer exit callback precedes the shared join', async () => {
-    const { outcome, settled } = await start();
-    const stopFailure = new Error('Stop failed before exit');
-    const destructionFailure = new Error('destruction failed before exit');
-    window.destroy.mockImplementationOnce(() => {
-      throw destructionFailure;
-    });
+  it('retries a destruction that failed on the next restart, reporting each failure', async () => {
+    const { outcome } = await start();
+    const destructionFailure = new Error('first destruction failed');
+    const retryFailure = new Error('retry destruction failed');
+    window.destroy
+      .mockImplementationOnce(() => {
+        throw destructionFailure;
+      })
+      .mockImplementationOnce(() => {
+        throw retryFailure;
+      });
     const stop = manager.stop().catch((error: unknown) => error);
-    stopAck.reject(stopFailure);
-    await flush();
+    expect(failureCauses(await stop)).toEqual([destructionFailure]);
+    expect(failureCauses(await outcome)).toEqual([destructionFailure]);
+    const retry = manager.destroyAndRestart().catch((error: unknown) => error);
+    expect(failureCauses(await retry)).toEqual([retryFailure]);
+    expect(window.destroy).toHaveBeenCalledTimes(2);
+    await expect(manager.destroyAndRestart()).resolves.toBeDefined();
+    expect(window.destroy).toHaveBeenCalledTimes(3);
+  });
+  it('rejects work with a renderer exit that precedes Stop, and Stop still destroys the host', async () => {
+    const { outcome } = await start();
     fixture.callbacks.onRenderProcessGone({
       exitCode: 1,
-      message: 'renderer exited during retirement',
+      message: 'renderer exited before Stop',
       reason: 'crashed',
       window,
     });
-    expect(settled).not.toHaveBeenCalled();
-    window.webContents.emit('render-process-gone');
-    const failures = failureCauses(await outcome);
-    expect(failures).toEqual([
-      stopFailure,
-      destructionFailure,
-      expect.objectContaining({ message: 'renderer exited during retirement' }),
+    expect(failureCauses(await outcome)).toEqual([
+      expect.objectContaining({ message: expect.stringContaining('renderer exited before Stop') }),
     ]);
-    expect(failureCauses(await stop)).toEqual(failures);
+    await expect(manager.stop()).resolves.toMatchObject({ state: 'stopped' });
+    expect(window.destroy).toHaveBeenCalledOnce();
   });
   it('returns a normal response only once the held inference completes', async () => {
     const { outcome, settled } = await start();
@@ -602,53 +509,36 @@ describe('query transport physical settlement', () => {
     complete();
     expect(await outcome).toEqual(Array.from({ length: 384 }, () => 0.1));
   });
-  it('joins load failure retirement before rejecting the query', async () => {
-    const { outcome, settled } = await start();
+  it('retires a host whose load failed at once, rejecting the query', async () => {
+    const { outcome } = await start();
     fixture.callbacks.onDidFailLoad({
       errorCode: -2,
       errorDescription: 'load failed',
       message: 'query host load failed',
       url: 'app://host',
     });
-    await flush();
     expect(window.destroy).toHaveBeenCalledOnce();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    window.emit('closed');
     expect(failureCauses(await outcome)).toContainEqual(
       expect.objectContaining({ message: 'query host load failed' })
     );
   });
-
-  it('preserves query and document ownership through shared Stop and failed destruction', async () => {
-    const { outcome, settled } = await start();
-    const documentSettled = vi.fn();
+  it('rejects query and document work alike when Stop fails to destroy the host', async () => {
+    const { outcome } = await start();
     const document = manager
       .documentEmbeddings({ ...QUERY, texts: ['document sibling'] })
-      .catch((error: unknown) => {
-        documentSettled();
-        return error;
-      });
+      .catch((error: unknown) => error);
     await flush();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(2);
-    const stopFailure = new Error('shared Stop failed');
     const destroyFailure = new Error('shared destruction failed');
     window.destroy.mockImplementationOnce(() => {
       throw destroyFailure;
     });
     const stop = manager.stop().catch((error: unknown) => error);
-    stopAck.reject(stopFailure);
-    await flush();
-    expect(settled).not.toHaveBeenCalled();
-    expect(documentSettled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(2);
-    window.emit('closed');
-    expect(failureCauses(await outcome)).toEqual([stopFailure, destroyFailure]);
-    expect(failureCauses(await document)).toEqual([stopFailure, destroyFailure]);
-    expect(failureCauses(await stop)).toEqual([stopFailure, destroyFailure]);
+    expect(failureCauses(await outcome)).toEqual([destroyFailure]);
+    expect(failureCauses(await document)).toEqual([destroyFailure]);
+    expect(failureCauses(await stop)).toEqual([destroyFailure]);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
-
   it('refuses a query and a document sibling past their windows each alone, never stopping the host', async () => {
     const { outcome } = await start();
     const document = manager
@@ -668,6 +558,7 @@ describe('query transport physical settlement', () => {
   });
   it('settles a cancelled query when closed makes BrowserWindow webContents inaccessible', async () => {
     const controller = new AbortController();
+    const reason = new Error('caller stopped');
     const contents = window.webContents;
     let destroyed = false;
     Object.defineProperty(window, 'webContents', {
@@ -685,22 +576,17 @@ describe('query transport physical settlement', () => {
       window.emit('closed');
     });
     const { outcome, settled } = await start(controller.signal);
-    const stopError = new Error('Stop join failed');
-    controller.abort(new Error('caller stopped'));
+    controller.abort(reason);
     // A cancel the host never answers holds the host until an explicit Stop retires it.
-    const stop = manager.stop().catch((error: unknown) => error);
-    stopAck.reject(stopError);
-    await flush();
+    await expect(manager.stop()).resolves.toMatchObject({ state: 'stopped' });
     expect(settled).toHaveBeenCalledOnce();
-    expect(failureCauses(await outcome)).toContain(stopError);
-    expect(failureCauses(await stop)).toContain(stopError);
+    await expect(outcome).resolves.toBe(reason);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
     expect(contents.listenerCount('render-process-gone')).toBe(0);
     expect(window.listenerCount('closed')).toBe(0);
   });
-
-  it('joins an errored host before a new request can replace its unresolved inference owner', async () => {
-    const { outcome, settled } = await start();
+  it('retires an errored host before a new request can replace its unresolved inference owner', async () => {
+    const { outcome } = await start();
     const admission = vi.fn(async () => fixture.lifecycle.getStatus());
     fixture.lifecycle.ensureStarted = admission;
     fixture.lifecycle.setStatus({
@@ -709,14 +595,9 @@ describe('query transport physical settlement', () => {
       state: 'error',
     });
     const replacement = manager.queryEmbedding(QUERY).catch((error: unknown) => error);
-    await flush();
-    expect(admission).not.toHaveBeenCalled();
-    expect(window.destroy).toHaveBeenCalledOnce();
-    expect(settled).not.toHaveBeenCalled();
-    expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
-    window.emit('closed');
     expect(await replacement).toMatchObject({ message: 'owned renderer failure' });
     expect(await outcome).toMatchObject({ message: 'owned renderer failure' });
+    expect(window.destroy).toHaveBeenCalledOnce();
     expect(admission).not.toHaveBeenCalled();
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
