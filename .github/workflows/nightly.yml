@@ -1,9 +1,10 @@
 # Runs nightly on main. Per-PR hosted CI is off; main lands through the merge
 # queue, which runs every other lane on each batch (owner decision 2026-10-24).
-# The night keeps only what a batch does not: the complete Unit and Windows
-# runs over every package, not just the affected ones, with the state-store
-# soak (100 kills, a 100 MB thread), so breakage from outside the repo, or in a
-# package no batch touched, shows on days nothing merges. Its Unit shards also
+# The night keeps only what a batch does not: the complete Unit run over every
+# package, not just the affected ones, and Windows, which no batch runs (owner
+# decision 2026-10-26), with the state-store soak (100 kills, a 100 MB thread),
+# so breakage from outside the repo, or in a package no batch touched, shows on
+# days nothing merges. Its Unit shards also
 # save the Electron and .turbo caches on main, which queue batches can only
 # restore.
 
