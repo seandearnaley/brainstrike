@@ -17,16 +17,12 @@ function rendererWindow() {
 }
 
 describe('closeDesktopRenderers', () => {
-  it('joins ordinary close before dependencies stop and leaves hidden host listeners alive', async () => {
+  it('joins ordinary close before dependencies stop', async () => {
     const visible = rendererWindow();
-    const hidden = rendererWindow();
     const stopDependencies = vi.fn();
-    const draining = closeDesktopRenderers([visible, hidden], (window) => window === hidden).then(
-      stopDependencies
-    );
+    const draining = closeDesktopRenderers([visible]).then(stopDependencies);
     await Promise.resolve();
     expect(visible.close).toHaveBeenCalledOnce();
-    expect(hidden.close).not.toHaveBeenCalled();
     expect(stopDependencies).not.toHaveBeenCalled();
     visible.emit('closed');
     await draining;
@@ -41,7 +37,7 @@ describe('closeDesktopRenderers', () => {
     });
     const destroyed = rendererWindow();
     destroyed.isDestroyed.mockReturnValue(true);
-    await closeDesktopRenderers([visible, destroyed], () => false);
+    await closeDesktopRenderers([visible, destroyed]);
     expect(visible.close).toHaveBeenCalledOnce();
     expect(destroyed.close).not.toHaveBeenCalled();
   });
@@ -52,7 +48,7 @@ describe('closeDesktopRenderers', () => {
       visible.isDestroyed.mockReturnValue(true);
       throw new Error('Object has been destroyed');
     });
-    await expect(closeDesktopRenderers([visible], () => false)).resolves.toBeUndefined();
+    await expect(closeDesktopRenderers([visible])).resolves.toBeUndefined();
     expect(visible.listenerCount('closed')).toBe(0);
   });
 
@@ -60,7 +56,7 @@ describe('closeDesktopRenderers', () => {
     // BST-2135: a signal to Main's process group kills the renderer while it unloads.
     const visible = rendererWindow();
     const readsWindow = vi.fn(() => expect(visible.isDestroyed()).toBe(false));
-    const draining = closeDesktopRenderers([visible], () => false);
+    const draining = closeDesktopRenderers([visible]);
     visible.webContents.on('render-process-gone', readsWindow);
     expect(visible.close).toHaveBeenCalledOnce();
     expect(visible.destroy).not.toHaveBeenCalled();
@@ -74,7 +70,7 @@ describe('closeDesktopRenderers', () => {
 
   it('destroys a window whose renderer hangs mid-close and joins its closed (ADR-0026 R2)', async () => {
     const visible = rendererWindow();
-    const draining = closeDesktopRenderers([visible], () => false);
+    const draining = closeDesktopRenderers([visible]);
     visible.webContents.emit('unresponsive');
     expect(visible.destroy).not.toHaveBeenCalled();
     await draining;
@@ -85,7 +81,7 @@ describe('closeDesktopRenderers', () => {
 
   it('overrides a page’s beforeunload veto: app-owned quit is terminal (ADR-0026 R4)', async () => {
     const visible = rendererWindow();
-    const draining = closeDesktopRenderers([visible], () => false);
+    const draining = closeDesktopRenderers([visible]);
     const veto = { preventDefault: vi.fn() };
     visible.webContents.emit('will-prevent-unload', veto);
     expect(veto.preventDefault).toHaveBeenCalledOnce();
@@ -101,7 +97,7 @@ describe('closeDesktopRenderers', () => {
     visible.destroy.mockImplementation(() => {
       throw failure;
     });
-    const draining = closeDesktopRenderers([visible], () => false);
+    const draining = closeDesktopRenderers([visible]);
     visible.webContents.emit('render-process-gone');
     // Bounded: a destroy failure lost in its deferred callback would leave the close pending.
     const outcome = await Promise.race([
@@ -123,7 +119,7 @@ describe('closeDesktopRenderers', () => {
       visible.isDestroyed.mockReturnValue(true);
       throw new Error('Object has been destroyed');
     });
-    const draining = closeDesktopRenderers([visible], () => false);
+    const draining = closeDesktopRenderers([visible]);
     visible.webContents.emit('render-process-gone');
     await expect(draining).resolves.toBeUndefined();
     expect(visible.listenerCount('closed')).toBe(0);
@@ -131,7 +127,7 @@ describe('closeDesktopRenderers', () => {
 
   it('never destroys a live renderer that is still closing', async () => {
     const visible = rendererWindow();
-    const draining = closeDesktopRenderers([visible], () => false);
+    const draining = closeDesktopRenderers([visible]);
     visible.emit('closed');
     await draining;
     expect(visible.destroy).not.toHaveBeenCalled();
@@ -144,7 +140,7 @@ describe('closeDesktopRenderers', () => {
     failed.close.mockImplementation(() => {
       throw new Error('native close refused');
     });
-    const draining = closeDesktopRenderers([failed, visible], () => false);
+    const draining = closeDesktopRenderers([failed, visible]);
     const assertion = expect(draining).rejects.toThrow('Desktop renderer shutdown failed');
     expect(visible.close).toHaveBeenCalledOnce();
     visible.emit('closed');

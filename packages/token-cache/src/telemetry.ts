@@ -2,14 +2,11 @@
  * Token Indexer Telemetry
  *
  * Pub/sub telemetry for token indexing operations.
- * Follows the same pattern as @brainstrike/queue telemetry.
  *
  * Event types:
  * - indexed_file: File successfully indexed (includes cache hits)
  * - indexing_error: File failed to index
  * - indexing_backlog: Periodic queue depth snapshot
- *
- * @see packages/queue/src/telemetry.ts for the queue telemetry pattern
  */
 
 import type { TokenCountingMode } from './types';

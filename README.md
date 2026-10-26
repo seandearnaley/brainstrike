@@ -20,16 +20,15 @@ Desktop's renderer uses port 38181 by default. The dev URL can be configured
 through `BRAINSTRIKE_DESKTOP_DEV_SERVER_URL`.
 
 See the [desktop](apps/desktop/README.md) guide for
-app-specific commands. [Ollama and LM Studio setup](docs/local-model-servers.md)
-covers local model servers.
+app-specific commands.
 
 ## Architecture
 
 - **Desktop:** the shared agent host owns runs, conversations and the canonical
   catalog through its committed log and SQLite StateStore. The derived SQLite
   index runs in a separate process.
-- **Inference:** desktop embeddings and local model generation run in hidden
-  renderer hosts. Electron main coordinates their lifecycle and authorized IPC.
+- **Models:** chat and embeddings come from hosted providers; the app runs no
+  local models.
 - **Shared code:** `packages/` contains UI, contracts, host/storage/indexing owners,
   provider adapters and inference libraries. Use
   [`pnpm-workspace.yaml`](pnpm-workspace.yaml) and package manifests for inventory.

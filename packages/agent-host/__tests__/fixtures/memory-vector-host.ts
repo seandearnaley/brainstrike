@@ -27,13 +27,13 @@ import {
 import type { MockLanguageModelV4 } from 'ai/test';
 import { expect, onTestFinished } from 'vitest';
 import { z } from 'zod';
-import { StateStoreHostMemory } from '../../src/adapters/state-store-host-memory.js';
-import { HostCore } from '../../src/core.js';
-import type { HostPlatform, HostRunContext } from '../../src/ports.js';
-import type { HostEvent } from '../../src/protocol.js';
-import { REAL_INDEXER_DEADLINES } from './real-indexer-deadlines.js';
-import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
-import { scriptedModel } from './scripted-model.js';
+import { StateStoreHostMemory } from '../../src/adapters/state-store-host-memory.ts';
+import { HostCore } from '../../src/core.ts';
+import type { HostPlatform, HostRunContext } from '../../src/ports.ts';
+import type { HostEvent } from '../../src/protocol.ts';
+import { REAL_INDEXER_DEADLINES } from './real-indexer-deadlines.ts';
+import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.ts';
+import { scriptedModel } from './scripted-model.ts';
 
 /** Records vendor calls only. It is not an index or production indexer adapter. */
 export class RecordedVectorCalls extends MastraVector {
@@ -86,7 +86,7 @@ export class RecordedVectorCalls extends MastraVector {
 const FIXTURE_READ_TOOL = 'readFixtureNote';
 
 export function deterministicEmbedding(text: string): number[] {
-  return Array.from({ length: 384 }, (_, index) =>
+  return Array.from({ length: 1536 }, (_, index) =>
     index === (text.includes('Paris') ? 0 : 1) ? 1 : 0
   );
 }
@@ -177,8 +177,8 @@ export async function memoryVectorHost(options: {
       };
     },
     maxEmbeddingsPerCall: 1,
-    modelId: 'deterministic-fixture-384',
-    provider: 'local-fixture',
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
     specificationVersion: 'v3',
     supportsParallelCalls: false,
   };

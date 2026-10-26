@@ -1,5 +1,4 @@
 import { decoder, IndexerError, type IndexerOptions, optionsSchema } from './contracts.ts';
-import { configuredEmbedding } from './index-metadata.ts';
 
 /**
  * The indexer options' schema and consistency rules, wherever the store runs.
@@ -26,10 +25,7 @@ export function decodeIndexerOptions(input: unknown): IndexerOptions {
   return options;
 }
 
-/**
- * A store with no index yet refuses an explicit open-existing, and a vector
- * profile it cannot configure, before anything is written.
- */
+/** A store with no index yet refuses an explicit open-existing before anything is written. */
 export function assertFreshOpen(options: IndexerOptions, fresh: boolean): void {
   if (!fresh) {
     return;
@@ -39,8 +35,5 @@ export function assertFreshOpen(options: IndexerOptions, fresh: boolean): void {
       'index-not-found',
       'Explicit open-existing requires an existing index file.'
     );
-  }
-  if (options.embedding.indexMode === 'vector-configured') {
-    configuredEmbedding(options.embedding.profile);
   }
 }

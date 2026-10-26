@@ -2,7 +2,6 @@
 // creates is owned by the user even when an elevated token defaults to
 // BUILTIN\Administrators.
 import '@brainstrike/secure-fs-native/default-owner';
-import { enableCompileCache } from 'node:module';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { lifecycleDelay, takeLifecycleDelays } from '@brainstrike/host-lease/lifecycle-delays';
@@ -10,10 +9,6 @@ import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-i
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
 async function main(): Promise<void> {
-  // Node's on-disk compile cache, on before the host's module graph loads (the
-  // dynamic imports below), as the CLI does. Worker threads enable their own.
-  // https://nodejs.org/api/module.html#moduleenablecompilecacheoptions
-  enableCompileCache();
   const parent = process.parentPort;
   if (!parent) {
     throw new Error('Agent host utility has no parent channel');

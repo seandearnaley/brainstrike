@@ -1,11 +1,11 @@
 import { BoundaryFailureError, fault, refusal } from '@brainstrike/assistant-contract';
+import { NativeIndexSetupRequiredError } from '@brainstrike/assistant-service/node-native-text-services';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
 import { IndexConfigStoreFailed } from '../index-config';
 import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { reportNativeIndexActivationError } from '../native-index-activation-error';
-import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import { NativeIndexEventRefusedError } from '../native-index-workflow-errors';
 
 it('reports a typed closing catalog refusal as retirement only during shutdown', () => {

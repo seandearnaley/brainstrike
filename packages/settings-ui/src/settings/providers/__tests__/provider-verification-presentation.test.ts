@@ -40,10 +40,6 @@ describe('PROVIDER_VERIFICATION_PRESENTATION', () => {
     );
     expect(successes).toEqual(['verified']);
   });
-
-  it('presents not_applicable neutrally — there is nothing to test', () => {
-    expect(PROVIDER_VERIFICATION_PRESENTATION.not_applicable.tone).toBe('neutral');
-  });
 });
 
 describe('formatCheckedAt', () => {

@@ -76,7 +76,7 @@ describe('providerSupportsNativeWebSearch', () => {
   });
 
   it('returns false for every provider without a first-party native search (incl. google)', () => {
-    for (const provider of ['google', 'openrouter', 'ollama', 'lmstudio', 'local', 'unknown']) {
+    for (const provider of ['google', 'openrouter', 'bedrock', 'unknown']) {
       expect(providerSupportsNativeWebSearch(provider)).toBe(false);
     }
   });
@@ -108,7 +108,7 @@ describe('createProviderNativeWebSearchTool', () => {
   });
 
   it('returns undefined for a provider with no native search', () => {
-    for (const provider of ['google', 'openrouter', 'ollama', 'lmstudio', 'local']) {
+    for (const provider of ['google', 'openrouter', 'bedrock']) {
       expect(createProviderNativeWebSearchTool(provider, undefined)).toBeUndefined();
     }
   });
@@ -146,7 +146,7 @@ describe('applyProviderNativeWebSearch — selection table', () => {
     expect(hasExecute(result[SANITIZED_ID])).toBe(true);
   });
 
-  it.each(['google', 'openrouter', 'ollama', 'lmstudio', 'local'])(
+  it.each(['google', 'openrouter', 'bedrock'])(
     'provider %s + allow → keeps the Tavily (execute-backed) tool unchanged',
     (provider) => {
       const params = baseParams({ provider });

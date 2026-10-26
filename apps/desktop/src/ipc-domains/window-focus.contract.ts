@@ -23,7 +23,6 @@ export const windowFocusContract = {
   isFocused: channel<[], boolean>({
     channel: DESKTOP_IPC_CHANNELS.windowFocus.isFocused,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   onChange: pushEvent<boolean>({ channel: DESKTOP_IPC_CHANNELS.windowFocus.changed }),
 } satisfies Contract;

@@ -1,6 +1,4 @@
 import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
-import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
-import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   ASSISTANT_THREAD_ICON_IDS,
   type AssistantMemoryThread,
@@ -37,7 +35,6 @@ import {
   TreeTable,
   type TreeTableColumn,
 } from '@brainstrike/ui';
-import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   ArrowLeft,
   Check,
@@ -69,7 +66,6 @@ import {
   resolveThreadRowStatusState,
 } from './assistant-thread-presentation';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
-import { buildLocalEmbeddingModelConfigMap } from './embedding-models';
 import { useCreateThreadInFolderRepository } from './hooks/use-create-thread-in-folder';
 import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
 import { useOnScreenThreadId } from './hooks/use-on-screen-thread';
@@ -102,7 +98,6 @@ import {
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
 import { type ThreadMoveTarget, ThreadRow } from './thread-row';
-import { readDesktopThreadSearchProfile } from './thread-search-profile';
 import { useThreadSearchStore } from './thread-search-store';
 import {
   resolveThreadsPanelDrop,
@@ -1882,20 +1877,8 @@ export function ThreadsPanelCore({
     view,
   });
 
-  // Thread hybrid search: controller (debounce, embedding backlog) + honest
-  // semantic availability. See use-thread-search-controller.
-  const embedder = useSharedSearchEmbedder();
-  useEnsureModelRegistry();
-  const registryModels = useModelRegistryStore((state) => state.models);
-  const localModelConfigMap = useMemo(
-    () => buildLocalEmbeddingModelConfigMap(registryModels),
-    [registryModels]
-  );
+  // Thread text search: debounce and generation gating live in use-thread-search-controller.
   const { retrySearch } = useThreadSearchController({
-    embedder,
-    hostSearchVectors: host.searchVectors,
-    localModelConfigMap,
-    readEmbeddingProfile: readDesktopThreadSearchProfile,
     resourceId,
     searchHost: host.searchThreads?.bind(host),
   });

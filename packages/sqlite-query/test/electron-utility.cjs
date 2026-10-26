@@ -67,7 +67,6 @@ app
       const [cafe, alphabet] = fixture.chunkIds.proof;
       const client = await open();
       const grep = await client.grep(proof('alpha', { maxRows: 1 }));
-      assert.equal(grep.identity.embedding.indexMode, 'text-only');
       assert.match(grep.identity.storeId, /^[0-9a-f]{64}$/u);
       assert.equal(grep.matchedChunks, 2);
       assert.equal(grep.truncated, true);

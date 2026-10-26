@@ -5,14 +5,12 @@ import {
   createDesktopRendererTarget,
   type DesktopRendererTarget,
   rendererDocumentUrl,
-  rendererIsolationHeaders,
   resolveDesktopRendererTarget,
 } from '../desktop-renderer-target';
 import {
   createDesktopIpcSenderFrameAllowlist,
   isAllowedDesktopIpcSenderFrameUrl,
 } from '../platform/desktop-ipc-sender-frame';
-import type { DesktopWindowRole } from '../window-role';
 import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
 const BUILT_RENDERER_PATH = resolve('/opt/brainstrike/dist/renderer/index.html');
@@ -20,20 +18,12 @@ const DEV_RENDERER_URL = 'http://localhost:38181';
 
 /**
  * The document URL a window ends up on for `target`, spelled the way the
- * loaders spell it: `create-window.ts` → `loadFile(rendererPath)` /
- * `loadURL(url)`; `renderer-host-lifecycle.ts` → the same plus
- * `?mode=<role>&runtimeId=…` (`loadFile`'s `query` option for the built
- * file, string concatenation for the dev URL).
+ * loader spells it: `create-window.ts` → `loadFile(rendererPath)` /
+ * `loadURL(url)`.
  */
-function loadedDocumentUrl(target: DesktopRendererTarget, role: DesktopWindowRole): string {
-  const query = role === 'visible-ui' ? '' : `?mode=${role}&runtimeId=${role}%3A018f-0000`;
-  if (target.kind === 'built-renderer') {
-    return `${rendererDocumentUrl(target)}${query}`;
-  }
-  return `${target.url}${query}`;
+function loadedDocumentUrl(target: DesktopRendererTarget): string {
+  return target.kind === 'built-renderer' ? rendererDocumentUrl(target) : target.url;
 }
-
-const ROLES: readonly DesktopWindowRole[] = ['visible-ui', 'embedding-host'];
 
 describe('desktop renderer target', () => {
   afterEach(() => {
@@ -102,10 +92,9 @@ describe('desktop renderer target', () => {
     expect(resolveDesktopRendererTarget()).toBe(target);
   });
 
-  // BST-1641 review: the allowlist and the loaders share this ONE object, so
+  // BST-1641 review: the allowlist and the loader share this ONE object, so
   // for every launch mode the document a window is loaded on is, by
-  // construction, on the allowlist derived from the same target — for the
-  // visible window and for each hidden host's query-suffixed variant.
+  // construction, on the allowlist derived from the same target.
   describe.each(['built', 'test-built', 'dev-server'] as const)(
     'the %s target agrees with its derived sender-frame allowlist',
     (launchMode) => {
@@ -116,10 +105,8 @@ describe('desktop renderer target', () => {
       });
       const allowlist = createDesktopIpcSenderFrameAllowlist(target);
 
-      it.each(ROLES)('accepts the document the %s window loads', (role) => {
-        expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, loadedDocumentUrl(target, role))).toBe(
-          true
-        );
+      it('accepts the document the app window loads', () => {
+        expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, loadedDocumentUrl(target))).toBe(true);
       });
 
       it('rejects the document the OTHER launch mode would have loaded', () => {
@@ -128,39 +115,8 @@ describe('desktop renderer target', () => {
           devRendererUrl: DEV_RENDERER_URL,
           launchMode: launchMode === 'dev-server' ? 'built' : 'dev-server',
         });
-        expect(
-          isAllowedDesktopIpcSenderFrameUrl(allowlist, loadedDocumentUrl(other, 'visible-ui'))
-        ).toBe(false);
+        expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, loadedDocumentUrl(other))).toBe(false);
       });
     }
   );
-});
-
-describe('rendererIsolationHeaders (BST-1999)', () => {
-  const DEV_DOCUMENTS = ['/', '/index.html'];
-  const isolated = {
-    'Cross-Origin-Embedder-Policy': 'require-corp',
-    'Cross-Origin-Opener-Policy': 'same-origin',
-  };
-
-  it.each([
-    ['http://localhost:38181/?mode=embedding-host&runtimeId=r1', isolated],
-    ['http://localhost:38181/index.html?mode=embedding-host', isolated],
-    ['http://localhost:38181/?mode=chunking-host', {}],
-    ['http://localhost:38181/', {}],
-    ['http://localhost:38181/?mode=unknown-host', {}],
-  ])('decides the dev document %s by its host mode', (url, headers) => {
-    expect(rendererIsolationHeaders(new URL(url), DEV_DOCUMENTS)).toEqual(headers);
-  });
-
-  it('gives every other response the embedder policy a worker needs, never the opener policy', () => {
-    for (const url of [
-      'http://localhost:38181/@fs/worker.ts?worker_file&type=module',
-      'http://localhost:38181/assets/ort-wasm-simd-threaded.wasm?mode=embedding-host',
-    ]) {
-      expect(rendererIsolationHeaders(new URL(url), DEV_DOCUMENTS)).toEqual({
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-      });
-    }
-  });
 });

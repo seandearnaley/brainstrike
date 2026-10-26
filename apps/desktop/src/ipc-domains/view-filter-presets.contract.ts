@@ -14,6 +14,5 @@ export const viewFilterPresetsContract = {
       assertArgCount(raw, 1, 'Preset request');
       return [parseViewFilterPresetRequest(raw[0])];
     },
-    roles: ['visible-ui'],
   }),
 };

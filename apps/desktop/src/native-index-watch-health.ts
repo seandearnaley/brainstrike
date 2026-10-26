@@ -40,7 +40,6 @@ export function createNativeIndexWatchHealthHandler(dependencies: Dependencies) 
     dependencies.publication()?.invalidateScope({ kind: 'workspace', rootId: dependencies.rootId });
     if (
       health.state === 'degraded' &&
-      health.backend === 'fs-events' &&
       health.failure?.code === 'rescan-required' &&
       !health.failure.terminal
     ) {

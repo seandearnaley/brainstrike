@@ -18,13 +18,6 @@ import {
   databaseStatusSelectors,
   useDatabaseStatusStore,
 } from '@brainstrike/app-state/stores/database-status-store';
-import {
-  assertEmbeddingTelemetrySnapshot,
-  createEmptyEmbeddingTelemetrySnapshot,
-  type EmbeddingTelemetrySnapshot,
-  getEmbeddingTelemetrySnapshot,
-  subscribeEmbeddingTelemetryThrottled,
-} from '@brainstrike/embeddings';
 import { type IndexerTelemetrySnapshot, useIndexerTelemetry } from '@brainstrike/token-cache';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { Activity, CheckCircle2, Database, RefreshCw, Server, Timer, XCircle } from 'lucide-react';
@@ -43,9 +36,6 @@ import {
 
 /** Animation duration in ms for refresh button visual feedback */
 const REFRESH_ANIMATION_DURATION_MS = 500;
-const EMPTY_EMBEDDING_TELEMETRY = createEmptyEmbeddingTelemetrySnapshot();
-const EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE =
-  'Embedding telemetry provider failed. See internal diagnostics for details.';
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading' | 'neutral';
 const STATUS_BADGE_VARIANTS: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
@@ -55,28 +45,6 @@ const STATUS_BADGE_VARIANTS: Record<StatusVariant, 'default' | 'secondary' | 'de
   success: 'default',
   warning: 'secondary',
 };
-
-type RuntimeHostPlatformState =
-  | 'active'
-  | 'disposed'
-  | 'failed'
-  | 'idle'
-  | 'ready'
-  | 'resetting'
-  | 'restarting'
-  | 'starting'
-  | 'stopped'
-  | 'stopping';
-
-interface RuntimeHostPlatformStatus {
-  readonly active: boolean;
-  readonly lastError: string | null;
-  readonly pendingRequestCount: number;
-  readonly runtimeId: string;
-  readonly runtimeKind: 'embedding-host' | 'llm-host';
-  readonly sourceState: string;
-  readonly state: RuntimeHostPlatformState;
-}
 
 type DimensionIndexMaintenanceState = 'failed' | 'pending' | 'running' | 'succeeded';
 
@@ -103,10 +71,6 @@ interface DesktopPlatformDiagnosticsSnapshot {
     readonly rendererReloadAttemptCount: number;
     readonly suppressedRendererReloadCount: number;
   };
-  readonly embeddingHost: RuntimeHostPlatformStatus;
-  readonly errors?: {
-    readonly embeddingTelemetry?: string;
-  };
   readonly indexing?: {
     readonly databaseWork: unknown;
     readonly dimensionIndexMaintenance?: {
@@ -124,18 +88,10 @@ interface DesktopPlatformDiagnosticsSnapshot {
     readonly status?: string;
     readonly userDataPath: string;
   };
-  readonly telemetry?: {
-    readonly backgroundRuntimeMetrics: readonly unknown[];
-    readonly embedding?: EmbeddingTelemetrySnapshot;
-  };
 }
 
 interface DesktopDiagnosticsBridge {
   readonly getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
-}
-
-interface EmbeddingHostStatusSubscriptionBridge {
-  readonly onStatus: (callback: (status: unknown) => void) => () => void;
 }
 
 function getDesktopDiagnosticsBridge(): DesktopDiagnosticsBridge | null {
@@ -153,48 +109,6 @@ function getDesktopDiagnosticsBridge(): DesktopDiagnosticsBridge | null {
     return { getSnapshot: () => callBoundary(() => transport.getSnapshot()) };
   }
   return null;
-}
-
-function getEmbeddingHostStatusSubscriptionBridge(): EmbeddingHostStatusSubscriptionBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const candidate = (window as Window & { embeddingHost?: unknown }).embeddingHost;
-  if (
-    candidate &&
-    typeof candidate === 'object' &&
-    'onStatus' in candidate &&
-    typeof candidate.onStatus === 'function'
-  ) {
-    return candidate as EmbeddingHostStatusSubscriptionBridge;
-  }
-  return null;
-}
-
-function readEmbeddingTelemetryFromHostStatus(status: unknown): EmbeddingTelemetrySnapshot | null {
-  if (!(status && typeof status === 'object' && !Array.isArray(status))) {
-    throw new Error('Embedding host status must be an object.');
-  }
-  const statusRecord = status as Record<string, unknown>;
-  const embeddingRuntime = statusRecord['embeddingRuntime'];
-  if (embeddingRuntime === undefined) {
-    const state = statusRecord['state'];
-    if (state === 'error' || state === 'stopped') {
-      return EMPTY_EMBEDDING_TELEMETRY;
-    }
-    if (state === 'running' || state === 'starting' || state === 'stopping') {
-      return null;
-    }
-    throw new Error('Embedding host status state is invalid.');
-  }
-  if (
-    !(embeddingRuntime && typeof embeddingRuntime === 'object' && !Array.isArray(embeddingRuntime))
-  ) {
-    throw new Error('Embedding host status embeddingRuntime must be an object.');
-  }
-  return assertEmbeddingTelemetrySnapshot(
-    (embeddingRuntime as Record<string, unknown>)['telemetry']
-  );
 }
 
 interface StatusBadgeProps {
@@ -372,33 +286,8 @@ function WorkerStatusSection({
   );
 }
 
-function getHostStatusVariant(state: RuntimeHostPlatformState): StatusVariant {
-  if (state === 'active' || state === 'idle' || state === 'ready') {
-    return 'success';
-  }
-  if (state === 'failed' || state === 'disposed') {
-    return 'error';
-  }
-  return 'warning';
-}
-
 function formatCount(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
-}
-
-function formatBinaryBytes(bytes: number): string {
-  const units = [
-    { bytes: 1024 ** 3, label: 'GiB' },
-    { bytes: 1024 ** 2, label: 'MiB' },
-    { bytes: 1024, label: 'KiB' },
-  ] as const;
-  for (const unit of units) {
-    if (bytes >= unit.bytes) {
-      const scaled = bytes / unit.bytes;
-      return `${Number.isInteger(scaled) ? scaled.toFixed(0) : scaled.toFixed(1)} ${unit.label}`;
-    }
-  }
-  return `${bytes} B`;
 }
 
 type TokenIndexerDiagnosticsSnapshot = Pick<
@@ -479,101 +368,6 @@ function TokenIndexerTelemetrySection({
   );
 }
 
-function EmbeddingRuntimeDiagnosticsCard({
-  providerError,
-  telemetry,
-}: {
-  readonly providerError: string | null;
-  readonly telemetry: EmbeddingTelemetrySnapshot;
-}): ReactElement {
-  const hasSamples = telemetry.lastUpdatedAt !== null;
-  const hasFailures = providerError !== null || telemetry.health.failureCount > 0;
-  const residentDeviceCounts = telemetry.cache.entries.reduce(
-    (counts, entry) => {
-      counts[entry.device] += 1;
-      return counts;
-    },
-    { wasm: 0, webgpu: 0 }
-  );
-  return (
-    <DiagnosticCard
-      description="Worker transfer and model residency"
-      icon={<Activity className="h-4 w-4 text-primary" />}
-      status={hasFailures ? 'error' : hasSamples ? 'success' : 'neutral'}
-      statusLabel={
-        providerError
-          ? 'Embedding telemetry unavailable'
-          : hasFailures
-            ? 'Telemetry degraded'
-            : hasSamples
-              ? 'Observed'
-              : 'No samples'
-      }
-      title="Embedding Runtime"
-    >
-      <div className="space-y-2 text-xs">
-        {providerError ? (
-          <div className="text-destructive" role="alert">
-            {EMBEDDING_TELEMETRY_PROVIDER_ERROR_MESSAGE}
-          </div>
-        ) : null}
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Pipeline Cache</span>
-          <span className="font-medium">
-            {formatCount(telemetry.cache.residentCount, 'resident', 'resident')}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Batch Transfer</span>
-          <span className="font-mono text-[10px]">
-            {formatBinaryBytes(telemetry.batchTransfer.totalBytes)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Estimated GPU</span>
-          <span className="font-mono text-[10px]">
-            {formatBinaryBytes(telemetry.cache.estimatedGpuBytes)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Estimated Heap</span>
-          <span className="font-mono text-[10px]">
-            {formatBinaryBytes(telemetry.cache.estimatedHeapBytes)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Peak In Flight</span>
-          <span className="font-medium">
-            {formatCount(telemetry.peakVectorsInFlight, 'vector', 'vectors')}
-          </span>
-        </div>
-        {telemetry.cache.entries.length > 0 && (
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">Resident Devices</span>
-            <span className="font-mono text-[10px]">
-              {`${residentDeviceCounts.webgpu} WebGPU · ${residentDeviceCounts.wasm} WASM`}
-            </span>
-          </div>
-        )}
-        {telemetry.cache.memoryEstimateUnavailableCount > 0 && (
-          <div className="text-[10px] text-warning">
-            {formatCount(
-              telemetry.cache.memoryEstimateUnavailableCount,
-              'model estimate unavailable',
-              'model estimates unavailable'
-            )}
-          </div>
-        )}
-        {telemetry.health.failureCount > 0 && (
-          <div className="text-[10px] text-destructive">
-            {formatCount(telemetry.health.failureCount, 'telemetry failure', 'telemetry failures')}
-          </div>
-        )}
-      </div>
-    </DiagnosticCard>
-  );
-}
-
 function getMigrationLabel(snapshot: DesktopPlatformDiagnosticsSnapshot): string {
   const migration = snapshot.migration;
   if (!migration) {
@@ -637,34 +431,22 @@ function getDimensionMaintenanceLabel(snapshot: DesktopPlatformDiagnosticsSnapsh
   return labels.join(' / ');
 }
 
+const DESKTOP_PLATFORM_DESCRIPTION = 'Desktop process, migration and recovery state';
+
 function DesktopPlatformStatusSection({
   snapshot,
 }: {
   readonly snapshot: DesktopPlatformDiagnosticsSnapshot;
 }): ReactElement {
-  // The embedding host is the only hidden runtime host left: the local chat
-  // engine and its llm-host renderer role were retired.
-  const status: StatusVariant = getHostStatusVariant(snapshot.embeddingHost.state);
-
   return (
     <DiagnosticCard
-      description="Hidden desktop runtime hosts"
+      description={DESKTOP_PLATFORM_DESCRIPTION}
       icon={<Server className="h-4 w-4 text-primary" />}
-      status={status}
-      statusLabel={status === 'success' ? 'Ready' : status === 'warning' ? 'Transition' : 'Issue'}
+      status="neutral"
+      statusLabel="Collected"
       title="Desktop Platform"
     >
       <div className="space-y-2 text-xs">
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Embedding Host</span>
-          <span className="font-medium">{snapshot.embeddingHost.state}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Pending Requests</span>
-          <span className="font-mono text-[10px]">
-            {snapshot.embeddingHost.pendingRequestCount}
-          </span>
-        </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Dimension Maintenance</span>
           <span className="font-medium">{getDimensionMaintenanceLabel(snapshot)}</span>
@@ -676,16 +458,6 @@ function DesktopPlatformStatusSection({
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Crash Recovery</span>
           <span className="font-medium">{getCrashRecoveryLabel(snapshot)}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Runtime Metrics</span>
-          <span className="font-medium">
-            {formatCount(
-              snapshot.telemetry?.backgroundRuntimeMetrics.length ?? 0,
-              'process',
-              'processes'
-            )}
-          </span>
         </div>
         {snapshot.reset.status && (
           <div className="flex items-center justify-between">
@@ -818,23 +590,10 @@ export function SystemDiagnosticsPanel({
   const [desktopSnapshot, setDesktopSnapshot] = useState<DesktopPlatformDiagnosticsSnapshot | null>(
     null
   );
-  const [desktopEmbeddingTelemetry, setDesktopEmbeddingTelemetry] =
-    useState<EmbeddingTelemetrySnapshot | null>(null);
   const [desktopDiagnosticsError, setDesktopDiagnosticsError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const localEmbeddingTelemetry = useSyncExternalStore(
-    subscribeEmbeddingTelemetryThrottled,
-    getEmbeddingTelemetrySnapshot,
-    () => EMPTY_EMBEDDING_TELEMETRY
-  );
-  const embeddingTelemetry =
-    desktopEmbeddingTelemetry ?? desktopSnapshot?.telemetry?.embedding ?? localEmbeddingTelemetry;
-  const embeddingTelemetryProviderError =
-    desktopEmbeddingTelemetry === null
-      ? (desktopSnapshot?.errors?.embeddingTelemetry ?? null)
-      : null;
   const { snapshot: tokenIndexerTelemetry } = useIndexerTelemetry();
   const tokenIndexerDiagnostics: TokenIndexerDiagnosticsSnapshot = {
     averageLatencyMs: tokenIndexerTelemetry.averageLatencyMs,
@@ -867,60 +626,16 @@ export function SystemDiagnosticsPanel({
     const bridge = getDesktopDiagnosticsBridge();
     if (!bridge) {
       setDesktopSnapshot(null);
-      setDesktopEmbeddingTelemetry(null);
       setDesktopDiagnosticsError(null);
       return () => {
         cancelled = true;
       };
     }
-    const hostStatusBridge = getEmbeddingHostStatusSubscriptionBridge();
-    if (!hostStatusBridge) {
-      setDesktopSnapshot(null);
-      setDesktopDiagnosticsError('Desktop embedding host status bridge is unavailable.');
-      return () => {
-        cancelled = true;
-      };
-    }
-    setDesktopEmbeddingTelemetry(null);
-    const unsubscribe = hostStatusBridge.onStatus((status) => {
-      if (cancelled) {
-        return;
-      }
-      try {
-        const telemetry = readEmbeddingTelemetryFromHostStatus(status);
-        if (telemetry) {
-          setDesktopEmbeddingTelemetry(telemetry);
-          setDesktopDiagnosticsError((currentError) =>
-            currentError?.startsWith('Embedding host status telemetry is invalid:')
-              ? null
-              : currentError
-          );
-        }
-      } catch (error) {
-        setDesktopDiagnosticsError(
-          `Embedding host status telemetry is invalid: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    });
     void bridge.getSnapshot().then(
       (snapshot) => {
         if (!cancelled) {
-          try {
-            if (snapshot.telemetry?.embedding !== undefined) {
-              assertEmbeddingTelemetrySnapshot(snapshot.telemetry.embedding);
-            }
-            setDesktopSnapshot(snapshot);
-            setDesktopDiagnosticsError((currentError) =>
-              currentError?.startsWith('Embedding host status telemetry is invalid:')
-                ? currentError
-                : null
-            );
-          } catch (error) {
-            setDesktopSnapshot(null);
-            setDesktopDiagnosticsError(
-              `Desktop embedding telemetry is invalid: ${error instanceof Error ? error.message : String(error)}`
-            );
-          }
+          setDesktopSnapshot(snapshot);
+          setDesktopDiagnosticsError(null);
         }
       },
       (error: unknown) => {
@@ -932,7 +647,6 @@ export function SystemDiagnosticsPanel({
     );
     return () => {
       cancelled = true;
-      unsubscribe();
     };
   }, [refreshKey]);
 
@@ -959,7 +673,7 @@ export function SystemDiagnosticsPanel({
           <div>
             <h3 className="font-semibold text-lg">System Diagnostics</h3>
             <p className="text-muted-foreground text-xs">
-              Real-time health monitoring for database, queues, and workers
+              Real-time health monitoring for database, indexing, and workers
             </p>
           </div>
         </div>
@@ -987,13 +701,9 @@ export function SystemDiagnosticsPanel({
         <TokenIndexerTelemetrySection snapshot={tokenIndexerDiagnostics} />
         <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
-        <EmbeddingRuntimeDiagnosticsCard
-          providerError={embeddingTelemetryProviderError}
-          telemetry={embeddingTelemetry}
-        />
         {desktopDiagnosticsError && (
           <DiagnosticCard
-            description="Hidden desktop runtime hosts"
+            description={DESKTOP_PLATFORM_DESCRIPTION}
             icon={<Server className="h-4 w-4 text-primary" />}
             status="error"
             statusLabel="Issue"

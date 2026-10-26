@@ -30,6 +30,7 @@ import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { HOST_LEASE_CLOSED } from './desktop-shutdown-state';
 import { forkUtility } from './fork-utility';
 import { decodeHostContentCleared, type HostLeaseControl } from './host-lease-control';
+import { holdHostProcessJob, releaseHostProcessJob } from './host-process-job';
 import type { LifecycleDelaySeam } from './lifecycle-delay-seam';
 import { joinProcessExit, type ProcessIdentity } from './process-exit-join';
 
@@ -145,6 +146,10 @@ interface OwnedChild {
   lost: boolean;
   /** The exit as Main observes it, shared by every join of this child. */
   observedExit?: Promise<number>;
+  /** Windows: the kill-on-close Job Main assigned it to at spawn, released after its exit. */
+  processJob?: ReturnType<typeof holdHostProcessJob>;
+  /** The assignment to that Job failed: its acquisition fails with this. */
+  processJobFailure?: unknown;
   ready: boolean;
   /** Asked to close for a user's restart (`stopForRelaunch`): its exit is a requested loss. */
   relaunchRequested: boolean;
@@ -225,6 +230,9 @@ async function awaitReady(
  * time, read before this owner has observed its exit (a zombie has no start time).
  */
 function readyRecord(child: OwnedChild, record: HostRecord): HostRecord {
+  if (child.processJobFailure !== undefined) {
+    throw child.processJobFailure;
+  }
   const pid = child.handle.pid;
   const start = child.exitCode === undefined && pid !== undefined ? processStartTime(pid) : null;
   if (pid === undefined || start === null) {
@@ -304,6 +312,7 @@ async function closeChild(child: OwnedChild, ladder: CloseLadder): Promise<void>
   const code = child.clearRequested
     ? await observedExit(child, ladder)
     : await askCloseAndJoin(child, ladder);
+  await releaseHostProcessJob(child.processJob);
   child.handle.off('exit', child.exitListener);
   if (child.clearRequested && !child.clearReceipt) {
     throw child.clearFailure ?? new Error('Owned host exited without a content-clear receipt');
@@ -452,6 +461,12 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           // Electron's utilityProcess has no pid until its spawn event.
           child.handle.once('spawn', () => {
             stage = 'spawned';
+            // Assigned at once, before the host can have started much.
+            try {
+              child.processJob = holdHostProcessJob(child.handle.pid);
+            } catch (cause) {
+              child.processJobFailure = cause;
+            }
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);

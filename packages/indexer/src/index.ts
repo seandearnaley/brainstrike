@@ -1,4 +1,3 @@
-import type { PromptVectorReply, PromptVectorRequest } from '@brainstrike/state-store';
 import type { ScopedFileChunkBounds, ScopedFilePage } from './contracts.ts';
 
 export type {
@@ -16,7 +15,6 @@ import type {
   CommitResult,
   FilePlan,
   IndexerCoverage,
-  IndexerIdentity,
   IndexerInfo,
   IndexerManifestResult,
   ScopedCoverage,
@@ -39,15 +37,7 @@ import type {
   StateObservationUpsert,
   StateProjectionStats,
   StateSearch,
-  StateSearchCoverage,
-  StateSearchCoverageRequest,
   StateSearchHit,
-  StateSearchPending,
-  StateSearchPendingRow,
-  StateSearchSimilar,
-  StateSearchSimilarHit,
-  StateSearchVectorBatch,
-  StateSearchVectorsResult,
 } from './contracts.ts';
 import type { CoverageAuthorityPort } from './coverage-authority.ts';
 import {
@@ -56,13 +46,10 @@ import {
   validateIndexerOptions,
 } from './transport.ts';
 
-export { embeddingProfileHash, fileChunks } from './chunks.ts';
+export { fileChunks, vectorProfileHash } from './chunks.ts';
 export type {
   CommitResult,
-  EmbeddingProfile,
-  EmbeddingState,
   FileChunk,
-  FileCommit,
   FilePlan,
   FileSnapshot,
   FileSyntax,
@@ -108,27 +95,16 @@ export type {
   StateProjectionOptions,
   StateProjectionStats,
   StateSearch,
-  StateSearchCoverage,
-  StateSearchCoverageRequest,
   StateSearchHit,
-  StateSearchPending,
-  StateSearchPendingRow,
-  StateSearchSimilar,
-  StateSearchSimilarHit,
-  StateSearchVectorBatch,
-  StateSearchVectorsResult,
   TextFileCommit,
   VectorProfile,
 } from './contracts.ts';
 export { decodeVectorProfile, IndexerError, STATE_CATCH_UP_STEP_EVENTS } from './contracts.ts';
-export { vectorProfileHash } from './scope-authority.ts';
 export type { StateMessageEvent, StateProducerDecoder } from './state-projection.ts';
 export type { IndexerDeadlines } from './transport.ts';
 export interface IndexerPort {
   close(): Promise<void>;
-  commitFile(commit: unknown): Promise<CommitResult>;
   commitTextFile(commit: unknown): Promise<CommitResult>;
-  configureVectorProfile(profile: unknown): Promise<IndexerIdentity>;
   coverage(request: unknown): Promise<IndexerCoverage>;
   destroy(): Promise<void>;
   info(): Promise<IndexerInfo>;
@@ -186,19 +162,10 @@ export interface StateIndexerPort {
   catchUpStateStep(threads: readonly string[], maxEvents: number): Promise<boolean>;
   dropStateThread(threadId: string): Promise<readonly string[]>;
   matchState(threadId: string, query: string): Promise<readonly number[]>;
-  promptVectors(request: PromptVectorRequest): Promise<PromptVectorReply>;
-  /** Stores the caller's vectors for backlog rows whose text has not changed since. */
-  putStateSearchVectors(request: StateSearchVectorBatch): Promise<StateSearchVectorsResult>;
   rebuildState(threadId: string): Promise<void>;
   reindexState(threadId: string, seq: number): Promise<void>;
   /** Gap 10: committed conversation rows of the requested threads matching every query word. */
   searchState(request: StateSearch): Promise<readonly StateSearchHit[]>;
-  /** The semantic arm's coverage: rows, embedded rows and recently failed rows. */
-  searchStateCoverage(request: StateSearchCoverageRequest): Promise<StateSearchCoverage>;
-  /** The semantic arm's backlog: rows with no vector under the profile, for the caller to embed. */
-  searchStatePending(request: StateSearchPending): Promise<readonly StateSearchPendingRow[]>;
-  /** The semantic arm: rows nearest the query vector under the profile, best first. */
-  searchStateSimilar(request: StateSearchSimilar): Promise<readonly StateSearchSimilarHit[]>;
   stateBlobCounts(
     threads: readonly string[],
     hashes: readonly string[]
@@ -221,7 +188,6 @@ export function createStateStoreIndexer(
     gcCheck: (threads, hashes) => port.stateBlobCounts(threads, hashes),
     health: () => port.stateHealth(),
     match: (threadId, query) => port.matchState(threadId, query),
-    promptVectors: (request) => port.promptVectors(request),
     rebuild: (threadId) => port.rebuildState(threadId),
     reindex: (threadId, seq) => port.reindexState(threadId, seq),
     reset: () => port.destroy(),

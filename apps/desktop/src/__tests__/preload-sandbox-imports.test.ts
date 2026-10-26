@@ -35,8 +35,8 @@ function workspaceSourceExports(): Record<string, string> {
 }
 
 /**
- * BST-1648: the preload bundles (`dist/preload.js`, `dist/hidden-preload.js`)
- * run in sandboxed renderers where `require` resolves NOTHING but `electron`.
+ * BST-1648: the preload bundle (`dist/preload.js`) runs in a sandboxed
+ * renderer where `require` resolves NOTHING but `electron`.
  * `scripts/build-main-config.mjs` bundles every RELATIVE and workspace import
  * into the preload output (`bundle: true`). Other bare package, `node:*`, and
  * `electron` imports stay external `require(...)` calls — so a preload may
@@ -163,16 +163,13 @@ describe('preload sandbox import graph', () => {
     ]);
   });
 
-  it.each(['preload.ts', 'hidden-preload.ts'])(
-    'keeps the %s import graph sandbox-pure and sourced from the channel manifest',
-    (entry) => {
-      const sourceRoot = path.resolve(import.meta.dirname, '..');
-      const graph = collectPreloadImportGraph(path.join(sourceRoot, entry), {
-        allowedEntryRequires: PRELOAD_ENTRY_REQUIRES,
-        bundledAliases: workspaceSourceExports(),
-      });
-      expect(graph.violations).toEqual([]);
-      expect(graph.modules).toContain(path.join(sourceRoot, 'platform', 'desktop-ipc-channels.ts'));
-    }
-  );
+  it('keeps the preload import graph sandbox-pure and sourced from the channel manifest', () => {
+    const sourceRoot = path.resolve(import.meta.dirname, '..');
+    const graph = collectPreloadImportGraph(path.join(sourceRoot, 'preload.ts'), {
+      allowedEntryRequires: PRELOAD_ENTRY_REQUIRES,
+      bundledAliases: workspaceSourceExports(),
+    });
+    expect(graph.violations).toEqual([]);
+    expect(graph.modules).toContain(path.join(sourceRoot, 'platform', 'desktop-ipc-channels.ts'));
+  });
 });

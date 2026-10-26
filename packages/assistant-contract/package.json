@@ -42,7 +42,6 @@
     "./context-breakdown": "./src/context-breakdown.ts",
     "./context-provenance": "./src/context-provenance.ts",
     "./context-budget": "./src/context-budget.ts",
-    "./local-runtime-context": "./src/local-runtime-context.ts",
     "./env-bootstrap-bridge": "./src/env-bootstrap-bridge.ts",
     "./context-packer": "./src/context-packer.ts",
     "./assistant-attachments": "./src/assistant-attachments.ts",

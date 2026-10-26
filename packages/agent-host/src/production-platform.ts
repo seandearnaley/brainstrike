@@ -1,5 +1,4 @@
 import {
-  buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
   type ProviderRequestContext,
 } from '@brainstrike/agent/provider-request';
@@ -14,7 +13,7 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import { decodeVectorProfile, type VectorProfile } from '@brainstrike/indexer';
+import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { Schema } from 'effect';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.ts';
@@ -169,17 +168,10 @@ export interface ProductionHostPlatformOptions {
 }
 function rootModel(
   configuration: RuntimeData,
-  auth: ProviderAuthInput | undefined,
-  localModel: ProviderRequestContext['localModel']
+  auth: ProviderAuthInput | undefined
 ): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
-  const model = createProvider(
-    selected.provider,
-    selected.authInput,
-    selected.runtime.model,
-    selected.runtime,
-    localModel
-  );
+  const model = createProvider(selected.provider, selected.authInput, selected.runtime.model);
   return materializeHostProviderModel(model);
 }
 /** The provider's own web search, built with the chat model's auth; Core decides its use. */
@@ -214,7 +206,7 @@ async function admittedModel(
   const { configuration } = selected;
   return options.resolveModel
     ? await options.resolveModel(configuration, auth)
-    : rootModel(configuration, auth, selected.providerRequestContext.localModel);
+    : rootModel(configuration, auth);
 }
 function unavailableMcpServers(
   borrowed: HostMcpToolSelection | undefined
@@ -630,8 +622,7 @@ export async function createProductionHostPlatform<Configuration extends Product
           provider: {
             prepare: async ({ configuration, messages, signal }) => {
               signal.throwIfAborted();
-              const providerOptions =
-                buildGenerationProviderOptionsOption(configuration).providerOptions;
+              const providerOptions = configuration.providerOptions;
               return {
                 ...buildModelSettingsOption(configuration).modelSettings,
                 ...(providerOptions
@@ -686,29 +677,6 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...(options.mcp ? { mcp: options.mcp } : {}),
     ...(options.searchWorkspace ? { searchWorkspace: options.searchWorkspace } : {}),
     searchState: (request) => index.search(request),
-    // The caller's profile is the index's to validate, as every vector profile is.
-    searchStateVectors: {
-      coverage: (request) =>
-        index.searchVectors.searchStateCoverage({
-          ...request,
-          profile: decodeVectorProfile(request.profile),
-        }),
-      pending: (request) =>
-        index.searchVectors.searchStatePending({
-          ...request,
-          profile: decodeVectorProfile(request.profile),
-        }),
-      put: (request) =>
-        index.searchVectors.putStateSearchVectors({
-          profile: decodeVectorProfile(request.profile),
-          rows: request.rows,
-        }),
-      similar: (request) =>
-        index.searchVectors.searchStateSimilar({
-          ...request,
-          profile: decodeVectorProfile(request.profile),
-        }),
-    },
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),

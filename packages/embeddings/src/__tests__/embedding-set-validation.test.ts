@@ -29,12 +29,12 @@ describe('embedding-set-validation', () => {
     providerId: 'voyage',
   };
 
-  const localMetadata: ProviderMetadata = {
-    dimensions: 768,
-    displayName: 'Jina Code v2',
+  const cohereMetadata: ProviderMetadata = {
+    dimensions: 1024,
+    displayName: 'Cohere Embed English v3',
     distance: 'cosine',
-    modelKey: 'jinaai/jina-embeddings-v2-base-code',
-    providerId: 'local',
+    modelKey: 'embed-english-v3.0',
+    providerId: 'cohere',
   };
 
   describe('validateEmbeddingSetParams', () => {
@@ -101,15 +101,15 @@ describe('embedding-set-validation', () => {
       expect(result.ok).toBe(true);
     });
 
-    it('validates local Transformers provider parameters', () => {
+    it('validates Cohere provider parameters', () => {
       const params: EmbeddingSetCreateParams = {
-        dimensions: 768,
+        dimensions: 1024,
         distance: 'cosine',
-        modelId: 'jinaai/jina-embeddings-v2-base-code',
-        modelKey: 'local',
+        modelId: 'embed-english-v3.0',
+        modelKey: 'cohere',
       };
 
-      const result = validateEmbeddingSetParams(params, localMetadata);
+      const result = validateEmbeddingSetParams(params, cohereMetadata);
       expect(result.ok).toBe(true);
     });
   });
@@ -135,14 +135,14 @@ describe('embedding-set-validation', () => {
       expect(params.metadata?.name).toBe('Voyage 3 (1024D)');
     });
 
-    it('creates params from local Transformers metadata', () => {
-      const params = createEmbeddingSetParamsFromMetadata(localMetadata);
+    it('creates params from Cohere metadata', () => {
+      const params = createEmbeddingSetParamsFromMetadata(cohereMetadata);
 
-      expect(params.modelKey).toBe('local');
-      expect(params.modelId).toBe('jinaai/jina-embeddings-v2-base-code');
-      expect(params.dimensions).toBe(768);
+      expect(params.modelKey).toBe('cohere');
+      expect(params.modelId).toBe('embed-english-v3.0');
+      expect(params.dimensions).toBe(1024);
       expect(params.distance).toBe('cosine');
-      expect(params.metadata?.name).toBe('Jina Code v2 (768D)');
+      expect(params.metadata?.name).toBe('Cohere Embed English v3 (1024D)');
     });
 
     it('applies user-provided metadata', () => {
@@ -286,15 +286,15 @@ describe('embedding-set-validation', () => {
       }
     });
 
-    it('validates local provider compatibility', () => {
+    it('validates Cohere provider compatibility', () => {
       const setConfig = {
-        dimensions: 768,
+        dimensions: 1024,
         distance: 'cosine' as const,
-        modelId: 'jinaai/jina-embeddings-v2-base-code',
-        modelKey: 'local',
+        modelId: 'embed-english-v3.0',
+        modelKey: 'cohere',
       };
 
-      const result = isProviderCompatibleWithSet(setConfig, localMetadata);
+      const result = isProviderCompatibleWithSet(setConfig, cohereMetadata);
       expect(result.ok).toBe(true);
     });
   });

@@ -4,7 +4,6 @@ import { ThemeSettings } from '@brainstrike/ui';
 import {
   Bot,
   BrainCircuit,
-  Cpu,
   FolderTree,
   Palette,
   Search,
@@ -16,7 +15,6 @@ import {
 import type { TestMemoryEmbedder } from './settings/models/assistant-memory-embedder-test';
 import { AssistantMemorySettingsSection } from './settings/models/assistant-memory-settings-section';
 import { SubagentSettingsSection } from './settings/models/subagent-settings-section';
-import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
 import type { ClearContentProps } from './settings/system/clear-content-panel';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import {
@@ -141,16 +139,10 @@ export function createWorkspaceSettingsCategory(
 }
 
 export function createSearchIndexingSettingsCategory(
-  nativeIndex?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability,
-  localExecution?: import('@brainstrike/indexing-contract').LocalExecutionCapability
+  nativeIndex?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability
 ): SettingsCategory {
   return {
-    content: (
-      <SearchIndexSettingsSection
-        {...(nativeIndex ? { nativeIndex } : {})}
-        {...(localExecution ? { localExecution } : {})}
-      />
-    ),
+    content: <SearchIndexSettingsSection {...(nativeIndex ? { nativeIndex } : {})} />,
     description:
       'Choose how your folders are searched, the embedding model and how files are split.',
     icon: Search,
@@ -198,16 +190,13 @@ export function createPermissionSettingsCategory(options?: {
 
 export interface CreateAssistantMemorySettingsCategoryOptions {
   readonly assistantMemoryBackendAvailable: boolean;
-  /** The host's embedding host runs local embedders on a device the user may choose. */
-  readonly onDeviceEmbedding?: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
-  /** The host's test of the selected hosted embedder (BST-2227). */
+  /** The host's test of the selected embedder (BST-2227). */
   readonly testEmbedder?: TestMemoryEmbedder;
 }
 
 export function createAssistantMemorySettingsCategory({
   assistantMemoryBackendAvailable,
-  onDeviceEmbedding = false,
   providerKeySources,
   testEmbedder,
 }: CreateAssistantMemorySettingsCategoryOptions): SettingsCategory {
@@ -215,7 +204,6 @@ export function createAssistantMemorySettingsCategory({
     content: (
       <AssistantMemorySettingsSection
         assistantMemoryBackendAvailable={assistantMemoryBackendAvailable}
-        onDeviceEmbedding={onDeviceEmbedding}
         {...(providerKeySources ? { providerKeySources } : {})}
         {...(testEmbedder ? { testEmbedder } : {})}
       />
@@ -281,26 +269,5 @@ export function createHooksSettingsCategory(
     id: 'hooks',
     keywords: ['hooks', 'shell', 'lifecycle', 'pretooluse', 'posttooluse', 'trust', 'approve'],
     title: 'Hooks',
-  };
-}
-
-export function createLocalRuntimeSettingsCategory(): SettingsCategory {
-  return {
-    content: <LocalRuntimeSettingsSection />,
-    description:
-      'Detect and configure local LLM servers (Ollama, LM Studio) for chat and embeddings.',
-    icon: Cpu,
-    id: 'local-runtimes',
-    keywords: [
-      'ollama',
-      'lm studio',
-      'lmstudio',
-      'local',
-      'runtime',
-      'localhost',
-      'gpu',
-      'self-hosted',
-    ],
-    title: 'Local Runtimes',
   };
 }

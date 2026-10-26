@@ -64,7 +64,7 @@ export interface ThreadWorkspaceCoordinatorOptions {
 
 type SnapshotEditors = Readonly<Record<string, WorkspaceSnapshotEditor>>;
 type MutableSnapshotEditors = Record<string, WorkspaceSnapshotEditor>;
-interface BootHydrationRecord {
+interface HydrationBaseline {
   readonly snapshot: WorkspaceSnapshotV1;
   readonly threadId: string;
 }
@@ -244,7 +244,7 @@ function mergeExplorerEdits(
   };
 }
 
-function mergeBootEditsIntoSnapshot(
+function mergeLiveEditsIntoSnapshot(
   snapshot: WorkspaceSnapshotV1,
   baseline: WorkspaceSnapshotV1,
   live: WorkspaceSnapshotV1
@@ -303,16 +303,18 @@ function mergeBootEditsIntoSnapshot(
     : null;
 }
 
-function prepareBootHydrationBaseline(
+function prepareHydrationBaseline(
   activeThreadId: string | null,
-  preserveLiveBootEdits: boolean,
-  baseline: BootHydrationRecord | null,
+  preserveLiveEdits: boolean,
+  isDeferredBootHydration: boolean,
+  baseline: HydrationBaseline | null,
   facade: WorkspaceStateFacade
-): BootHydrationRecord | null {
-  if (activeThreadId === null || !preserveLiveBootEdits) {
+): HydrationBaseline | null {
+  if (activeThreadId === null || !preserveLiveEdits) {
     return null;
   }
-  if (baseline?.threadId === activeThreadId) {
+  // Only a deferred boot hydration continues an earlier read's baseline; a switch starts its own.
+  if (isDeferredBootHydration && baseline?.threadId === activeThreadId) {
     return baseline;
   }
   return { snapshot: captureWorkspaceSnapshot(facade), threadId: activeThreadId };
@@ -320,7 +322,7 @@ function prepareBootHydrationBaseline(
 
 function readInheritedChildTabs(
   threadId: string,
-  baseline: BootHydrationRecord | null,
+  baseline: HydrationBaseline | null,
   facade: WorkspaceStateFacade
 ): readonly string[] {
   // The boot baseline spans deferred repository startup. Later tab opens are
@@ -330,16 +332,17 @@ function readInheritedChildTabs(
   return apps.filter(isChildConversationTabId);
 }
 
-function shouldPreserveLiveBootEdits(
+function shouldPreserveLiveEdits(
   activeThreadId: string | null,
-  hasActivatedThread: boolean,
   isDeferredBootHydration: boolean,
   pendingBootPreserveEdits: boolean
 ): boolean {
-  return (
-    (activeThreadId !== null && !hasActivatedThread) ||
-    (isDeferredBootHydration && pendingBootPreserveEdits)
-  );
+  // A switch keeps what the user changed while its saved workspace loads, as the first
+  // activation does; a deferred boot hydration keeps them only when its first read would have.
+  if (activeThreadId === null) {
+    return false;
+  }
+  return isDeferredBootHydration ? pendingBootPreserveEdits : true;
 }
 
 /**
@@ -385,11 +388,10 @@ export function useThreadWorkspaceCoordinator({
   const pendingBootHydrateRef = useRef<string | null>(null);
   /** Whether deferred boot hydration may preserve live edits made while waiting for the DB. */
   const pendingBootPreserveEditsRef = useRef(false);
-  /** Workspace state at boot-hydration start, used to identify later user edits. */
-  const bootHydrationBaselineRef = useRef<BootHydrationRecord | null>(null);
+  /** Workspace state when the current hydration's read started, used to identify later user edits. */
+  const hydrationBaselineRef = useRef<HydrationBaseline | null>(null);
   /** A live edit suppressed behind the current initial snapshot read. */
   const pendingHydrationSaveRef = useRef<PendingHydrationSave | null>(null);
-  const hasActivatedThreadRef = useRef(false);
   const previousThreadIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
@@ -661,15 +663,11 @@ export function useThreadWorkspaceCoordinator({
     }
 
     navigation?.loading(resourceId, activeThreadId);
-    const preserveLiveBootEdits = shouldPreserveLiveBootEdits(
+    const preserveLiveEdits = shouldPreserveLiveEdits(
       activeThreadId,
-      hasActivatedThreadRef.current,
       isDeferredBootHydration,
       pendingBootPreserveEditsRef.current
     );
-    if (activeThreadId !== null) {
-      hasActivatedThreadRef.current = true;
-    }
     pendingBootHydrateRef.current = null;
     pendingBootPreserveEditsRef.current = false;
     previousThreadIdRef.current = activeThreadId;
@@ -680,10 +678,11 @@ export function useThreadWorkspaceCoordinator({
       pendingHydrationSaveRef.current = null;
     }
 
-    bootHydrationBaselineRef.current = prepareBootHydrationBaseline(
+    hydrationBaselineRef.current = prepareHydrationBaseline(
       activeThreadId,
-      preserveLiveBootEdits,
-      bootHydrationBaselineRef.current,
+      preserveLiveEdits,
+      isDeferredBootHydration,
+      hydrationBaselineRef.current,
       facadeRef.current
     );
 
@@ -711,7 +710,7 @@ export function useThreadWorkspaceCoordinator({
         return;
       }
       hydrationThreadRef.current = null;
-      bootHydrationBaselineRef.current = null;
+      hydrationBaselineRef.current = null;
       pendingHydrationSaveRef.current = null;
     };
     const hydrate = (snapshot: WorkspaceSnapshotV1) => {
@@ -725,10 +724,10 @@ export function useThreadWorkspaceCoordinator({
       navigation?.complete(resourceId, activeThreadId);
     };
     const hydrateLoadedSnapshot = (snapshot: WorkspaceSnapshotV1) => {
-      const baseline = bootHydrationBaselineRef.current;
-      if (preserveLiveBootEdits && baseline?.threadId === activeThreadId) {
+      const baseline = hydrationBaselineRef.current;
+      if (preserveLiveEdits && baseline?.threadId === activeThreadId) {
         const live = captureWorkspaceSnapshot(facadeRef.current);
-        const merged = mergeBootEditsIntoSnapshot(snapshot, baseline.snapshot, live);
+        const merged = mergeLiveEditsIntoSnapshot(snapshot, baseline.snapshot, live);
         if (merged) {
           cacheRef.current.set(activeThreadId, merged);
           hydrate(merged);
@@ -748,7 +747,7 @@ export function useThreadWorkspaceCoordinator({
 
     const inheritedChildTabs = readInheritedChildTabs(
       activeThreadId,
-      bootHydrationBaselineRef.current,
+      hydrationBaselineRef.current,
       facadeRef.current
     );
     const cached = cacheRef.current.get(activeThreadId);
@@ -763,7 +762,7 @@ export function useThreadWorkspaceCoordinator({
       // thread so hydration runs when the repository arrives — session-only
       // state (per-tab panes) has no other restore path.
       pendingBootHydrateRef.current = activeThreadId;
-      pendingBootPreserveEditsRef.current = preserveLiveBootEdits;
+      pendingBootPreserveEditsRef.current = preserveLiveEdits;
       return;
     }
     hydrationThreadRef.current = activeThreadId;

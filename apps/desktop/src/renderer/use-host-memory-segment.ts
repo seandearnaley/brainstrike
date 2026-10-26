@@ -144,7 +144,6 @@ function memoryModelsDisplay({ embedder, observer }: HostMemoryModels): MemoryMo
           embedder: {
             dimensions: embedder.dimensions,
             distance: embedder.distance,
-            ...(embedder.dtype === undefined ? {} : { dtype: embedder.dtype }),
             modelId: embedder.modelId,
             provider: embedder.provider,
           },

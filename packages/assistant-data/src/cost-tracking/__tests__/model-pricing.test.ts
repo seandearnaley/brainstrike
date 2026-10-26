@@ -15,7 +15,7 @@ describe('resolveModelPricing', () => {
 
   it('leaves an embedder without an official price unpriced, never $0', () => {
     expect(resolveModelPricing('google', 'gemini-embedding-001')).toBeUndefined();
-    expect(resolveModelPricing('local', 'Xenova/all-MiniLM-L6-v2')).toBeUndefined();
+    expect(resolveModelPricing('cohere', 'embed-english-v3.0')).toBeUndefined();
   });
 
   it('keeps a chat model’s own catalog pricing', () => {

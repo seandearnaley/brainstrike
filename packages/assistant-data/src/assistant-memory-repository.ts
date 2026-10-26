@@ -106,7 +106,7 @@ export type AssistantThreadRunStatus =
   | 'completed'
   | 'failed'
   | 'running';
-export type AssistantThreadRuntimeKind = 'gateway' | 'hosted' | 'local';
+export type AssistantThreadRuntimeKind = 'gateway' | 'hosted';
 
 export interface AssistantThreadRunRecord {
   readonly completedAt: Date | null;

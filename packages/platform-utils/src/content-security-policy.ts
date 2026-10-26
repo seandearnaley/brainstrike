@@ -40,9 +40,8 @@ function buildConnectSrc(isDev: boolean, isElectron: boolean): string[] {
     connectSrc.push('http://127.0.0.1:*', 'http://localhost:*');
   }
   if (isDev) {
-    // Vite dev server + HMR websockets (both targets). Web development also
-    // probes local runtimes directly (`configure-browser-runtime.ts` turns that
-    // off only in production), and their default origins are on 127.0.0.1.
+    // Vite dev server + HMR websockets and the dev servers on 127.0.0.1 (both
+    // targets).
     connectSrc.push(
       'ws://localhost:*',
       'http://localhost:*',
@@ -51,9 +50,6 @@ function buildConnectSrc(isDev: boolean, isElectron: boolean): string[] {
       'wss://localhost:*'
     );
   }
-  // Hugging Face: model-weight fetches (both targets). ONNX Runtime's WASM is the
-  // app's own same-origin file, so no CDN is allowed (BST-2003).
-  connectSrc.push('https://huggingface.co', 'https://*.hf.co');
   if (isElectron) {
     // Desktop calls embedding providers directly; the browser cannot (CORS), so
     // web routes them server-side and these origins stay Electron-only.

@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
@@ -107,6 +107,7 @@ async function runBudgetCase(
   const failures: unknown[] = [];
   let ownedProcess: ChildProcess | undefined;
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-tool-budget-'));
+  electron.removeAfterClose(workspace);
   let rootTurns = 0;
   const provider = await startModelProviderShim(({ toolNames }) => {
     // The thread's title request, made beside the first turn, advertises no tools.
@@ -209,7 +210,6 @@ async function runBudgetCase(
           }
         }
       },
-      async () => rm(workspace, { force: true, recursive: true }),
     ]) {
       try {
         await cleanup();

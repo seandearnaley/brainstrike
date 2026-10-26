@@ -1,23 +1,11 @@
 export type {
   DistanceMetric,
   EmbeddingProviderType,
-  EmbeddingRuntime,
-  HostedProviderType,
-  LocalProviderType,
   ProviderMetadata,
 } from '@brainstrike/indexing-contract';
-export {
-  hostedProviderRequiresApiKey,
-  isLocalProviderType,
-  STANDARD_EMBEDDING_DIMENSION,
-} from '@brainstrike/indexing-contract';
+export { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/indexing-contract';
 
-import type {
-  DistanceMetric,
-  EmbeddingProviderType,
-  HostedProviderType,
-  LocalProviderType,
-} from '@brainstrike/indexing-contract';
+import type { DistanceMetric, EmbeddingProviderType } from '@brainstrike/indexing-contract';
 
 /**
  * Discriminated union for embedding provider configurations
@@ -25,48 +13,24 @@ import type {
  */
 export type EmbeddingProviderConfig =
   | {
-      runtime: 'browser';
-      provider: 'local';
-      modelId: string; // e.g., 'jina-code', 'bge-base-en-v1.5'
-      quantization?: 'q4' | 'q8' | 'fp16';
-    }
-  | {
-      runtime: 'hosted';
       provider: 'openai';
       modelId: string; // e.g., 'text-embedding-3-small'
       dimensions: number; // Configurable dimensions (256-1536 supported)
     }
   | {
-      runtime: 'hosted';
       provider: 'google';
       modelId: string; // e.g., 'gemini-embedding-001'
       outputDimensionality?: number; // Optional, defaults to model's native dimensions
     }
   | {
-      runtime: 'hosted';
       provider: 'cohere';
       modelId: string; // e.g., 'embed-english-v3.0'
       inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
     }
   | {
-      runtime: 'hosted';
       provider: 'voyage';
       modelId: string; // e.g., 'voyage-2'
       inputType?: 'document' | 'query';
-    }
-  | {
-      runtime: 'hosted';
-      provider: 'ollama';
-      modelId: string; // e.g., 'nomic-embed-text'
-      dimensions: number; // Expected output dimensions from embedding set metadata
-      endpoint?: string; // Optional custom endpoint (defaults to localhost Ollama)
-    }
-  | {
-      runtime: 'hosted';
-      provider: 'lmstudio';
-      modelId: string; // e.g., 'text-embedding-nomic-embed-text-v1.5'
-      dimensions: number; // Expected output dimensions from embedding set metadata
-      endpoint?: string; // Optional custom endpoint (defaults to localhost LM Studio)
     };
 
 /**
@@ -82,28 +46,22 @@ export type EmbeddingProviderError =
     }
   | {
       type: 'api_error';
-      provider: HostedProviderType;
+      provider: EmbeddingProviderType;
       statusCode: number;
       message: string;
     }
   | {
-      type: 'model_load_failed';
-      provider: LocalProviderType;
-      modelId: string;
-      reason: string;
-    }
-  | {
       type: 'missing_api_key';
-      provider: HostedProviderType;
+      provider: EmbeddingProviderType;
     }
   | {
       type: 'network_error';
-      provider: HostedProviderType;
+      provider: EmbeddingProviderType;
       originalError: Error;
     }
   | {
       type: 'rate_limit_exceeded';
-      provider: HostedProviderType;
+      provider: EmbeddingProviderType;
       retryAfter?: number;
     }
   | {

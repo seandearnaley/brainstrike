@@ -70,14 +70,11 @@ function fixture() {
 }
 const completion = { aborted: false, errors: [], files: [], full: true, truncatedDirectories: [] };
 
-const localProfile = {
-  dimensions: 384,
+const hostedProfile = {
+  dimensions: 1536,
   distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  provider: 'transformers',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 512,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 function planFixture() {
   const { port, publication } = fixture();
@@ -103,8 +100,8 @@ function planFixture() {
     contentHash: 'c'.repeat(64),
     embeddingChunkIds: [],
     previousSnapshotHash: null,
-    profile: localProfile,
-    profileHash: vectorProfileHash(localProfile),
+    profile: hostedProfile,
+    profileHash: vectorProfileHash(hostedProfile),
     snapshot: {
       ...file,
       content: 'canonical',
@@ -136,14 +133,14 @@ function planFixture() {
         fileId: file.fileId,
         providedChunks: 'providedChunks' in plan.snapshot ? plan.snapshot.providedChunks : [],
       },
-      profile: localProfile,
+      profile: hostedProfile,
       ticket,
     });
     await publication.commitVectorFile({
       embeddings: [],
       file,
       plan: prepared,
-      profile: localProfile,
+      profile: hostedProfile,
       ticket,
     });
     expect(
@@ -174,7 +171,7 @@ it('projects distinct matching native plans only after commit acknowledgement', 
       embeddings: [],
       file: f.file,
       plan: f.plan,
-      profile: localProfile,
+      profile: hostedProfile,
       ticket,
     });
   const pending = commit();
@@ -189,7 +186,7 @@ it('projects distinct matching native plans only after commit acknowledgement', 
       authorityRevision: 1,
       generation: ticket.generation,
       mutationRevision: 1,
-      profileHash: vectorProfileHash(localProfile),
+      profileHash: vectorProfileHash(hostedProfile),
       requestId: ticket.requestId,
       storeId,
     },
@@ -231,7 +228,7 @@ it.each(['aborted', 'failed', 'invalidated'] as const)(
       embeddings: [],
       file: f.file,
       plan: f.plan,
-      profile: localProfile,
+      profile: hostedProfile,
       ticket,
     });
     const outcome = pending.catch((error: unknown) => error);
@@ -257,7 +254,7 @@ it('keeps ticket identity while acknowledged authority advances within one scan'
     embeddings: [],
     file: f.file,
     plan: f.plan,
-    profile: localProfile,
+    profile: hostedProfile,
     ticket: workspaceTicket,
   });
   const second = { ...f.file, fileId: 'second' };
@@ -272,7 +269,7 @@ it('keeps ticket identity while acknowledged authority advances within one scan'
     embeddings: [],
     file: second,
     plan: secondPlan,
-    profile: localProfile,
+    profile: hostedProfile,
     ticket: workspaceTicket,
   });
   const acknowledged = f.publication.getReadiness()[0]?.publication;
@@ -301,7 +298,7 @@ it.each(['store', 'profile', 'scope'] as const)(
         embeddings: [],
         file: f.file,
         plan,
-        profile: localProfile,
+        profile: hostedProfile,
         ticket,
       })
     ).rejects.toThrow(/plan|identity|scope/);
@@ -357,7 +354,7 @@ it.each(['TEXT', 'VECTOR'] as const)(
             embeddings: [],
             file: f.file,
             plan,
-            profile: localProfile,
+            profile: hostedProfile,
             ticket,
           });
     const outcome = publishing.catch((error: unknown) => error);
@@ -391,7 +388,7 @@ it.each(['TEXT', 'VECTOR'] as const)(
         embeddings: [],
         file: f.file,
         plan,
-        profile: localProfile,
+        profile: hostedProfile,
         ticket: next,
       });
     }

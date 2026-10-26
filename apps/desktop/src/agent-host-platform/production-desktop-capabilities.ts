@@ -1,24 +1,15 @@
 import {
-  BoundaryFailureError,
-  fault,
   isSupportedProvider,
   MEMORY_EMBEDDER_SELECTION_REMEDY,
   MEMORY_FAILURE_CODES,
-  MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
   type ModelCatalogCapability,
   refusalError,
 } from '@brainstrike/assistant-contract';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  type CatalogEmbeddingModel,
-  decodeCatalogEmbeddingModel,
-} from '@brainstrike/indexing-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { WorkspaceRootPort } from '@brainstrike/state-store';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { loadWorkspaceRootsFromCatalog } from '../assistant-server/workspace-roots';
-import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { resolveOllamaModelForAdmission } from '../ipc-runtime';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
@@ -30,7 +21,6 @@ export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cli
 
 /** Main's tool services for host threads. */
 export interface DesktopHostToolServices {
-  readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | undefined;
   readonly modelCatalog: Pick<ModelCatalogCapability, 'read'>;
   readonly nativeIndexSearch?: IndexSearchCapability | undefined;
   readonly retrievalStore: RetrievalStore;
@@ -53,53 +43,15 @@ function readHostedEmbeddingDimensions(provider: string, modelId: string): numbe
   return model.defaultDimension;
 }
 
-/** A local recall embedder's facts are projected from the one canonical model catalog. */
-async function readLocalEmbeddingModel(
-  catalog: Pick<ModelCatalogCapability, 'read'>,
-  modelId: string
-): Promise<CatalogEmbeddingModel> {
-  const row = (await catalog.read()).models.find(
-    (model) => model.id === modelId && model.providerId === 'local'
-  );
-  if (!row) {
-    throw refusalError(
-      'configuration',
-      MEMORY_FAILURE_CODES.configuration,
-      `The semantic recall embedding model local/${modelId} is not in the model catalog.`,
-      MEMORY_EMBEDDER_SELECTION_REMEDY
-    );
-  }
-  return decodeCatalogEmbeddingModel(row);
-}
-
-async function readLocalEmbeddingHostDevice(
-  read: ((signal: AbortSignal) => Promise<'webgpu' | 'wasm'>) | undefined,
-  signal: AbortSignal
-): Promise<'webgpu' | 'wasm'> {
-  if (!read) {
-    throw new BoundaryFailureError(
-      fault({
-        category: 'availability',
-        code: MEMORY_FAILURE_CODES.embedderUnavailable,
-        message: 'This desktop has no embedding host for the on-device memory embedder.',
-        remedy: MEMORY_ON_DEVICE_EMBEDDER_REMEDY,
-      }),
-      { cause: new Error('Local Memory vectors require the embedding host') }
-    );
-  }
-  return await read(signal);
-}
-
 /**
  * The facts a host-composed run admission reads from Main (BST-1930 stage e):
- * the model catalog and live roots in Main's database, the live binding
- * authority and the embedding host.
+ * the model catalog and live roots in Main's database and the live binding
+ * authority.
  */
 function desktopAdmissionReads(
   dependencies: DesktopHostToolServices,
   readCliOwnerIntent: DesktopCliOwnerIntentReader | undefined,
-  workspaceAuthority: DesktopWorkspaceBindingAuthority | undefined,
-  readLocalEmbeddingDevice: ((signal: AbortSignal) => Promise<'webgpu' | 'wasm'>) | undefined
+  workspaceAuthority: DesktopWorkspaceBindingAuthority | undefined
 ): DesktopAdmissionReads {
   return {
     acquireWorkspace: async (request) => {
@@ -141,23 +93,10 @@ function desktopAdmissionReads(
         : { kind: 'unavailable', reason: 'This desktop has no workspace index.' },
     liveWorkspaceRoots: async () =>
       await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots),
-    localRuntimeModel: async ({ endpoint, model }, signal) => {
-      const result = await resolveOllamaModelForAdmission(model, endpoint, signal);
-      return result.state === 'resolved'
-        ? {
-            contextLength: result.contextLength,
-            endpoint: result.endpoint,
-            state: 'resolved',
-            thinking: result.thinking,
-          }
-        : { endpoint: result.endpoint, message: result.message, state: 'unavailable' };
-    },
-    memoryVectors: async (settings, signal) =>
+    memoryVectors: async (settings) =>
       await resolveDesktopMemoryVectors(settings, {
         readDimensions: async (provider, modelId) =>
           readHostedEmbeddingDimensions(provider, modelId),
-        readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, signal),
-        readLocalModel: (modelId) => readLocalEmbeddingModel(dependencies.modelCatalog, modelId),
       }),
   };
 }
@@ -166,23 +105,14 @@ function desktopAdmissionReads(
 export function productionDesktopCapabilities(
   dependencies: DesktopHostToolServices,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
-  workspaceAuthority?: DesktopWorkspaceBindingAuthority,
-  readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
+  workspaceAuthority?: DesktopWorkspaceBindingAuthority
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   return {
-    admission: desktopAdmissionReads(
-      dependencies,
-      readCliOwnerIntent,
-      workspaceAuthority,
-      readLocalEmbeddingDevice
-    ),
+    admission: desktopAdmissionReads(dependencies, readCliOwnerIntent, workspaceAuthority),
     ...(workspaceAuthority
       ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
       : {}),
     hostTools: desktopHostToolServices(dependencies),
-    ...(dependencies.embeddingHostManager
-      ? { localEmbedding: dependencies.embeddingHostManager }
-      : {}),
     resolveWorkspaceRoot: async (rootId) => {
       const root = (await loadWorkspaceRootsFromCatalog(dependencies.workspaceRoots)).find(
         (candidate) => candidate.rootId === rootId

@@ -36,7 +36,6 @@ import {
 } from '../host-mcp-settings';
 import { resolveDesktopWorkspaceTerminalServices } from '../host-terminals';
 import { createIpcCapability } from '../ipc-capability';
-import { createDesktopLocalSearchEmbedder } from '../local-search-embedder';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 // Task A's changes-page-content.tsx exports this by name (not default,
 // unlike its git/context-explorer/terminal siblings) — imported as written.
@@ -78,7 +77,7 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
 /** Stable identity: the provider value must not change between renders. */
 const MCP_APP_TOOL_RESULT_RENDERERS = Object.freeze([mcpAppToolResultRenderer]);
 
-/** Desktop shell; the host owns persistence and hidden hosts own inference. */
+/** Desktop shell; the host owns persistence. */
 export default function RootLayoutContent() {
   // The one writer of the window title, keyed on the route on screen.
   useDocumentTitle(DESKTOP_DOCUMENT_META);
@@ -136,7 +135,6 @@ export default function RootLayoutContent() {
     // and the brainstrike-canvas: shell protocol, both unconditionally present
     // on desktop — no bridge gate.
     canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
-    createLocalSearchEmbedder: createDesktopLocalSearchEmbedder,
     deleteRootData: (rootId) => {
       const bridge = window.electronAPI;
       if (!(bridge && 'fileSystem' in bridge)) {
@@ -146,7 +144,6 @@ export default function RootLayoutContent() {
     },
     // Every desktop window has its own log buffer and Electron main's (BST-1791).
     logsPageContent: <LogsPageContent />,
-    nativeIndexRetry: nativeSearch,
     nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,
     settingsPageContent: <SettingsPageContent />,

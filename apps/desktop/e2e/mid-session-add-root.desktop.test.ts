@@ -5,13 +5,13 @@ import type { IndexSearchCapability } from '@brainstrike/indexing-contract/index
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostRootRecords } from './utils/agent-host-log';
-import { seedPausedWorkspace } from './utils/foreground-latency-bench';
 import {
   closeIndexingPopover,
   configureNativeIndex,
   type NativeRootSummary,
   openResumeControl,
   readNativeIndexSummary,
+  seedPausedWorkspace,
   waitForReadyIndex,
 } from './utils/native-index-build';
 
@@ -77,18 +77,18 @@ async function readRoots(page: Page): Promise<Record<string, NativeRootSummary>>
 }
 
 test.describe('Mid-session add root indexing', () => {
-  test('@desktop-mid-session-add-root @desktop-embedding-native-backfill indexes a root added while another is importing', async ({
+  test('@desktop-mid-session-add-root indexes a root added while another is importing', async ({
     electronApp,
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(8 * 60 * 1000);
     await seedPausedWorkspace(
       page,
       [{ path: rootOneDir, rootId: ROOT_ONE_ID }],
-      'wasm',
       'mid-session-add-root-seeded'
     );
-    await configureNativeIndex(page, 'wasm');
+    await configureNativeIndex(page, modelProvider);
     await waitForReadyIndex(page, 300_000);
     const resume = await openResumeControl(page);
     await resume.click();

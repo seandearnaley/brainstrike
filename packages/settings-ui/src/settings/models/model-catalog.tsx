@@ -69,14 +69,10 @@ function pruneProviderSelection(
 
 export interface ModelCatalogProps {
   readonly busyModelIds: ReadonlySet<string>;
-  readonly downloadedModels: Readonly<Record<string, boolean>>;
-  readonly downloadProgress: Readonly<Record<string, number>>;
-  readonly isDownloading: Readonly<Record<string, boolean>>;
   /** The registry has loaded at least once (distinguishes loading from empty). */
   readonly loaded: boolean;
   readonly models: readonly DbModel[];
   readonly onBulkChange: (change: ModelBulkChange) => void;
-  readonly onDownload: (modelId: string) => void;
   readonly onRefresh: () => void;
   readonly onToggle: (modelId: string, enabled: boolean) => void;
   readonly providers: readonly DbProvider[];
@@ -89,13 +85,9 @@ export interface ModelCatalogProps {
  */
 export function ModelCatalog({
   busyModelIds,
-  downloadedModels,
-  downloadProgress,
-  isDownloading,
   loaded,
   models,
   onBulkChange,
-  onDownload,
   onRefresh,
   onToggle,
   providers,
@@ -216,28 +208,13 @@ export function ModelCatalog({
   const rowActions = useMemo<CatalogRowActions>(
     () => ({
       busyModelIds,
-      downloadedModels,
-      downloadProgress,
-      isDownloading,
-      onDownload,
       onToggle,
       onToggleDetails: toggleDetails,
       query: deferredQuery,
       showTagline: tier !== 'narrow',
       showTypeTag: filters.type === 'all',
     }),
-    [
-      busyModelIds,
-      deferredQuery,
-      downloadedModels,
-      downloadProgress,
-      filters.type,
-      isDownloading,
-      onDownload,
-      onToggle,
-      tier,
-      toggleDetails,
-    ]
+    [busyModelIds, deferredQuery, filters.type, onToggle, tier, toggleDetails]
   );
 
   useEffect(() => {

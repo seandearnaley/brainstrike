@@ -15,12 +15,7 @@ import {
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
-const UNAUTHENTICATED_SENDER_POLICY = {
-  reason:
-    'Exposed only by the visible-UI preload (dist/preload.js); sender-role policy pending (BST-1641 follow-up).',
-} as const;
 /** Trust writes change what runs on the user's machine: the visible UI only. */
-const VISIBLE_UI_POLICY = { roles: ['visible-ui'] } as const;
 const Sha256Schema = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 
 /**
@@ -59,10 +54,9 @@ export function registerHooksIpcHandlers(
 ): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerUnauthenticatedInvoke(
+  registry.handle(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview,
-    UNAUTHENTICATED_SENDER_POLICY,
     async (_event, rootId: unknown, absPath: unknown): Promise<ProjectHooksReview> => {
       const dbRoots = await loadDbRoots(workspaceRoots);
       const review = getProjectHooksForReview(rootId, absPath, {
@@ -78,10 +72,9 @@ export function registerHooksIpcHandlers(
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks,
-    VISIBLE_UI_POLICY,
     async (_event, absPath: unknown, sha256: unknown): Promise<void> => {
       const dbRoot = await containingDbRoot(workspaceRoots, absPath);
       await hookTrust.trust({
@@ -92,10 +85,9 @@ export function registerHooksIpcHandlers(
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'hooks',
     DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks,
-    VISIBLE_UI_POLICY,
     async (_event, absPath: unknown): Promise<void> => {
       await hookTrust.untrust((await containingDbRoot(workspaceRoots, absPath)).id);
     }

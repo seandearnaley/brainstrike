@@ -8,7 +8,6 @@ import {
   type LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
-import { ModelRouterLanguageModel } from '@mastra/core/llm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
@@ -211,7 +210,7 @@ describe('canonical provider request preparation', () => {
     expect(JSON.stringify(prepared.params.prompt)).toContain('kept');
   });
 
-  it.each(['anthropic', 'google', 'bedrock', 'openrouter', 'ollama', 'lmstudio'] as const)(
+  it.each(['anthropic', 'google', 'bedrock', 'openrouter'] as const)(
     'strips an OpenAI executed call AND assistant-carried result on switch to %s',
     async (provider) => {
       const prompt: LanguageModelV4Prompt = [
@@ -515,13 +514,11 @@ describe('canonical provider request preparation', () => {
     ).rejects.toBeInstanceOf(ProviderRequestContextOverflowError);
   });
 
-  it('retains selected settings while stripping local transport configuration', async () => {
+  it('retains the selected settings over the request options', async () => {
     const params = {
       prompt: [user('start')],
       providerOptions: {
         google: { thinkingConfig: { includeThoughts: false } },
-        lmstudio: { baseUrl: 'http://fixture' },
-        ollama: { apiToken: 'not-a-credential', baseUrl: 'http://fixture' },
       },
     };
     const prepared = await prepareProviderRequest(params, model('google.generative-ai'), {
@@ -536,7 +533,6 @@ describe('canonical provider request preparation', () => {
     expect(prepared.params.providerOptions).toEqual({
       google: { thinkingConfig: { includeThoughts: true } },
     });
-    expect(params.providerOptions.ollama).toBeDefined();
   });
 
   it('rejects cancellation before provider preparation or schema/usage callbacks', async () => {
@@ -754,8 +750,6 @@ const providers = [
   ['google', 'gemini-3.1-pro-preview'],
   ['bedrock', 'anthropic.claude-sonnet-5'],
   ['openrouter', 'qwen/qwen3-coder'],
-  ['ollama', 'qwen3'],
-  ['lmstudio', 'qwen3'],
 ] as const;
 
 describe('recorded installed-provider payloads (offline)', () => {
@@ -796,20 +790,7 @@ describe('recorded installed-provider payloads (offline)', () => {
         provider === 'bedrock'
           ? { apiKey: 'offline-fixture', kind: 'aws' as const, region: 'us-east-1' }
           : { apiKey: 'offline-fixture', kind: 'api_key' as const };
-      const config = createProvider(
-        provider,
-        auth,
-        modelId,
-        undefined,
-        // BST-754: Ollama sends the window its run was admitted with.
-        provider === 'ollama' ? { contextWindow: 32_768, thinking: true } : undefined
-      );
-      const resolved =
-        typeof config === 'object' && 'doStream' in config
-          ? config
-          : new ModelRouterLanguageModel(
-              config as ConstructorParameters<typeof ModelRouterLanguageModel>[0]
-            );
+      const resolved = createProvider(provider, auth, modelId);
       const identity = { modelId, provider: resolved.provider, supportsStructuredOutputs: true };
       const Layer =
         provider === 'google'

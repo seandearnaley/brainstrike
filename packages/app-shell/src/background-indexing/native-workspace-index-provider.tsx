@@ -10,7 +10,6 @@ import {
 } from '@brainstrike/app-state/stores/indexing-activity-store';
 import {
   useWorkspaceCollectionSyncStatusStore,
-  type WorkspaceCollectionSyncBlockedReason,
   type WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
@@ -28,7 +27,6 @@ import type {
   IndexLifecycleCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
-  NativeIndexRefusalCause,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { type ReactNode, useEffect, useRef } from 'react';
 import { RootIdentityProvider } from '../roots/root-identity-context';
@@ -156,35 +154,11 @@ function publishUnavailableProgress(
     return;
   }
   useWorkspaceCollectionSyncStatusStore.getState().setStatus({
-    blockedReason: progress.phase === 'blocked' ? syncBlockedReason(progress.cause) : null,
+    blockedReason: null,
     lastError: progress.reason,
     managedCollectionId: null,
     state: progress.phase === 'blocked' ? 'blocked' : 'unconfigured',
   });
-}
-
-/**
- * The one mapping from the native owner's typed refusal to the sync store's blocked reason: only
- * a cause a person resolves from the status surface names one (BST-2104).
- */
-function syncBlockedReason(
-  cause: NativeIndexRefusalCause | undefined
-): WorkspaceCollectionSyncBlockedReason | null {
-  if (cause === undefined) {
-    return null;
-  }
-  switch (cause.kind) {
-    case 'embedding-host-unresponsive':
-      return cause.kind;
-    case 'closed':
-    case 'off':
-    case 'rebuild-required':
-    case 'settings-invalid':
-    case 'setup-required':
-    case 'source-failure':
-    case 'transitioning':
-      return null;
-  }
 }
 
 interface RetainedProgress {

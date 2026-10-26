@@ -60,7 +60,7 @@ describe('OpenAIEmbeddingProvider', () => {
     });
   });
 
-  it('supports OpenAI-compatible local runtimes without API keys', async () => {
+  it('sends the request to the configured endpoint with the requested dimensions', async () => {
     const mockPayload = {
       data: [
         {
@@ -69,40 +69,38 @@ describe('OpenAIEmbeddingProvider', () => {
       ],
     };
     const mockResponse = new Response(JSON.stringify(mockPayload), { status: 200 });
+    let capturedUrl: RequestInfo | URL | undefined;
     let capturedInit: RequestInit | undefined;
-    const mockFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      capturedUrl = input;
       capturedInit = init;
       return mockResponse;
     });
 
     const provider = new OpenAIEmbeddingProvider({
-      endpoint: 'http://127.0.0.1:11434/v1/embeddings',
+      apiKey: 'test-api-key',
+      endpoint: 'https://proxy.example.test/v1/embeddings',
       fetch: mockFetch as typeof fetch,
-      includeDimensions: false,
-      modelId: 'nomic-embed-text',
-      provider: 'ollama',
-      requiresApiKey: false,
+      modelId: 'text-embedding-3-small',
       targetDimensions: 4,
     });
 
-    expect(await provider.isAvailable()).toBe(true);
-    expect(provider.hasApiKey()).toBe(true);
-
     const result = await provider.embed({
-      modelId: 'nomic-embed-text',
-      text: 'hello runtime',
+      modelId: 'text-embedding-3-small',
+      text: 'hello endpoint',
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.provider).toBe('ollama');
+      expect(result.value.provider).toBe('openai');
       expect(result.value.embedding).toHaveLength(4);
     }
 
+    expect(capturedUrl).toBe('https://proxy.example.test/v1/embeddings');
     if (!capturedInit) {
-      throw new Error('Expected fetch init options for OpenAI-compatible runtime provider');
+      throw new Error('Expected fetch init options for the configured endpoint');
     }
     const body = JSON.parse(String(capturedInit.body));
-    expect(body.dimensions).toBeUndefined();
+    expect(body.dimensions).toBe(4);
   });
 
   it('captures total token usage from successful responses', async () => {

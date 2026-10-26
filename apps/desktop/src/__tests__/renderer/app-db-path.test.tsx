@@ -20,8 +20,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   ),
 }));
 
-vi.mock('../../renderer/create-embedding-queue', () => ({}));
-
 vi.mock('@brainstrike/app-shell/app-reload', () => ({
   AppReloadGate: ({ buildId, children }: { buildId: string; children: React.ReactNode }) => (
     <div data-build-id={buildId} data-testid="app-reload-gate">
@@ -124,7 +122,6 @@ beforeEach(() => {
         },
       },
     })),
-    ingestBufferedRecord: vi.fn(),
     onPreferencesUpdated: vi.fn(),
     openDestination: vi.fn(),
     selectDestination: vi.fn(),

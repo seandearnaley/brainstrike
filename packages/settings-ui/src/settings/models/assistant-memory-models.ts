@@ -11,13 +11,9 @@ export interface AssistantMemoryModelOption {
   target: string;
 }
 
-// The assistant server allows the same provider set. All four need a key:
-// the built-in on-device provider is embeddings-only, so there is no longer a
-// keyless observer.
+// The assistant server allows the same provider sets.
 const OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set(['openai', 'anthropic', 'google', 'openrouter']);
-// 'local' embedders run in the hidden embedding-host renderer, proxied for
-// Mastra semantic recall by the assistant server (no API key).
-const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
+const SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google']);
 
 function providerById(providers: readonly DbProvider[]): Map<string, DbProvider> {
   return new Map(providers.map((provider) => [provider.id, provider]));
@@ -56,10 +52,9 @@ function toOption(provider: DbProvider, model: DbModel): AssistantMemoryModelOpt
 
 /**
  * Observational memory needs the durable memory backend to record anything, so
- * `assistantMemoryBackendAvailable` gates every candidate rather than only the
- * keyless one it used to gate (the built-in on-device chat model, now retired).
- * That matches `resolveEffectiveObservationalMemorySettings`, where a missing
- * backend is the 'no-backend' unresolved reason for all providers.
+ * `assistantMemoryBackendAvailable` gates every candidate. That matches
+ * `resolveEffectiveObservationalMemorySettings`, where a missing backend is the
+ * 'no-backend' unresolved reason for all providers.
  */
 export function listObservationalMemoryModelOptions(args: {
   assistantMemoryBackendAvailable: boolean;
@@ -101,9 +96,7 @@ export function listSemanticRecallEmbeddingModelOptions(args: {
       const provider = providers.get(model.providerId);
       return (
         SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS.has(model.providerId) &&
-        (args.providerKeySources === undefined ||
-          model.providerId === 'local' ||
-          providersWithKeys.has(model.providerId)) &&
+        (args.providerKeySources === undefined || providersWithKeys.has(model.providerId)) &&
         isEnabledProvider(provider) &&
         model.isEnabled &&
         model.capabilities.type === 'embedding' &&

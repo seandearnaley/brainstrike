@@ -36,16 +36,13 @@ describe('desktop IPC sender-frame allowlist', () => {
   describe('built renderer (built + test-built launch modes)', () => {
     const allowlist = createDesktopIpcSenderFrameAllowlist(createTarget('built'));
 
-    it('accepts the visible renderer app URL and hidden-host URLs that only differ by query', () => {
+    it('accepts the renderer app URL whatever its query or fragment', () => {
       expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, BUILT_RENDERER_URL)).toBe(true);
       expect(
-        isAllowedDesktopIpcSenderFrameUrl(
-          allowlist,
-          `${BUILT_RENDERER_URL}?mode=embedding-host&runtimeId=018f-0000`
-        )
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, `${BUILT_RENDERER_URL}?runtimeId=018f-0000`)
       ).toBe(true);
       expect(
-        isAllowedDesktopIpcSenderFrameUrl(allowlist, `${BUILT_RENDERER_URL}?mode=llm-host#route`)
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, `${BUILT_RENDERER_URL}?view=threads#route`)
       ).toBe(true);
     });
 
@@ -93,21 +90,14 @@ describe('desktop IPC sender-frame allowlist', () => {
   describe('dev-server launch mode', () => {
     const allowlist = createDesktopIpcSenderFrameAllowlist(createTarget('dev-server'));
 
-    it('accepts the dev origin document with or without hidden-host query parameters', () => {
+    it('accepts the dev origin document with or without query parameters', () => {
       expect(isAllowedDesktopIpcSenderFrameUrl(allowlist, `${DEV_RENDERER_URL}/`)).toBe(true);
-      // The exact string `renderer-host-lifecycle.ts` loads in dev: the
-      // configured URL (no trailing slash) plus the role query.
+      // The configured URL (no trailing slash) plus a query.
       expect(
-        isAllowedDesktopIpcSenderFrameUrl(
-          allowlist,
-          `${DEV_RENDERER_URL}?mode=chunking-host&runtimeId=018f-0001`
-        )
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, `${DEV_RENDERER_URL}?runtimeId=018f-0001`)
       ).toBe(true);
       expect(
-        isAllowedDesktopIpcSenderFrameUrl(
-          allowlist,
-          `${DEV_RENDERER_URL}/?mode=chunking-host&runtimeId=018f-0001`
-        )
+        isAllowedDesktopIpcSenderFrameUrl(allowlist, `${DEV_RENDERER_URL}/?runtimeId=018f-0001`)
       ).toBe(true);
     });
 

@@ -57,7 +57,7 @@ export function createHostProviderServices(
       return key === undefined ? undefined : { key, type: 'api_key' };
     },
   });
-  const metadata = createOpenRouterModelMetadataService(fetchImpl);
+  const metadata = createOpenRouterModelMetadataService({ ...fetchImpl, env: options.env });
   const providers = listProviders()
     .map(({ id }) => id)
     .filter((id): id is SupportedProvider => isSupportedProvider(id));

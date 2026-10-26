@@ -1,6 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import path from 'node:path';
-import type { ElectronApplication, Page, TestInfo } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { ElectronProcessExitGuard } from '../utils/electron-process-exit-guard';
 import { loadElectronHelpers } from '../utils/load-electron-helpers';
@@ -18,7 +17,6 @@ export class ElectronHarness {
   private hasProvidedWindow = false;
   private readonly maxRendererRecoveryAttempts = 1;
 
-  private readonly testInfo: TestInfo;
   private readonly debugPort: number | undefined;
   private readonly userDataDir: string | undefined;
   /** Extra environment for every launch of the app, restarts included (never the harness's own). */
@@ -27,16 +25,15 @@ export class ElectronHarness {
   private readonly modelProvider: ModelProviderShim | undefined;
   /** The real folder every launch's folder picker mounts by default, restarts included. */
   private readonly workspaceRoot: string | undefined;
+  private readonly removedAfterClose = new Set<string>();
 
   constructor(
-    testInfo: TestInfo,
     debugPort?: number,
     userDataDir?: string,
     electronEnv?: Readonly<Record<string, string>>,
     modelProvider?: ModelProviderShim,
     workspaceRoot?: string
   ) {
-    this.testInfo = testInfo;
     this.debugPort = debugPort;
     this.userDataDir = userDataDir;
     this.electronEnv = electronEnv;
@@ -55,6 +52,20 @@ export class ElectronHarness {
       throw new Error('Electron harness requires a disposable workspace root.');
     }
     return this.workspaceRoot;
+  }
+
+  /**
+   * Hands `directory` to the fixture, which removes it after the app has closed. A test never
+   * deletes a folder the running app may still hold: Windows refuses to remove an open
+   * directory (EBUSY), so the app closes first, then its folders go.
+   */
+  removeAfterClose(directory: string): void {
+    this.removedAfterClose.add(directory);
+  }
+
+  /** The folders `removeAfterClose` collected, for the fixture's teardown. */
+  directoriesRemovedAfterClose(): readonly string[] {
+    return [...this.removedAfterClose];
   }
 
   getUserDataDir(): string {
@@ -134,14 +145,18 @@ export class ElectronHarness {
    * rethrown, because the fixture's teardown finds nothing to close once the context is forgotten.
    * If that SIGTERM cannot be confirmed either, the context is kept for the teardown to close, and
    * both errors are thrown together. Afterwards the next `ensureContext()`/`restart()` launches a fresh process on the same userData.
+   * `killSignal`: `end` kills the process with it (a simulated crash), so that exit is intended.
    */
-  async endOutOfBand(end: (mainProcess: ChildProcess) => Promise<void>): Promise<void> {
+  async endOutOfBand(
+    end: (mainProcess: ChildProcess) => Promise<void>,
+    killSignal?: NodeJS.Signals
+  ): Promise<void> {
     const context = this.context;
     if (!context) {
       throw new Error('Electron harness has no running app to end.');
     }
     const mainProcess = context.app.process();
-    this.exitGuard.beginIntentionalClose(mainProcess);
+    this.exitGuard.beginIntentionalClose(mainProcess, killSignal);
     try {
       await end(mainProcess);
       if (!hasExited(mainProcess)) {
@@ -243,7 +258,6 @@ export class ElectronHarness {
   ): Promise<ElectronAppContext> {
     const { launchElectronApp } = await loadElectronHelpers();
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
-      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
       onAppAcquired: (app) => {
         this.app = app;
         this.exitGuard.observe(app.process());
@@ -395,8 +409,4 @@ async function reapProcess(process: ChildProcess): Promise<void> {
     process.off('exit', onExit);
     process.off('error', onError);
   }
-}
-
-function shouldDisableExternalLocalRuntimeProbes(testInfo: TestInfo): boolean {
-  return !testInfo.file.endsWith(`${path.sep}local-runtime-probe.desktop.test.ts`);
 }

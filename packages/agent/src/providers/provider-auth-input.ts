@@ -180,8 +180,8 @@ export function providerFetchOptions(
 
 /**
  * Narrow an auth input to the bearer-key-only surface for provider cases whose
- * model config is a Mastra DESCRIPTOR (openrouter/ollama/lmstudio) or the
- * local host client — configs with no fetch seam at all. `aws` throws typed
+ * model config is a Mastra router (openrouter) — a config with no fetch seam
+ * at all. `aws` throws typed
  * here: dropping the AWS credentials and proceeding on an absent key would be
  * a silent auth downgrade.
  */

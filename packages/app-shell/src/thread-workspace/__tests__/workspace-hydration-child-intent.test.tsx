@@ -136,3 +136,30 @@ it('retires inherited outgoing children while retaining a new child opened durin
     selection: { appId: incoming, kind: 'app' },
   });
 });
+
+it('keeps a child the user opened while a saved thread workspace was still loading', async () => {
+  const f = fixture();
+  const view = f.render('old-root');
+  await waitFor(() => expect(f.repository.setThreadWorkspace).toHaveBeenCalled());
+  view.rerender({ activeThreadId: 'new-root', repository: f.repository });
+  const incoming = child('incoming-child');
+  act(() => f.open(incoming));
+  // The thread's saved workspace arrives after the click, showing the explorer.
+  await act(async () => {
+    f.pending.resolve({
+      ...EMPTY_WORKSPACE_SNAPSHOT,
+      apps: {
+        openAppIds: ['context-explorer'],
+        selection: { appId: 'context-explorer', kind: 'app' },
+      },
+    });
+  });
+  expect(f.state.selection).toEqual({ appId: incoming, kind: 'app' });
+  expect(f.state.openAppIds).toEqual(['context-explorer', incoming]);
+  await waitFor(() =>
+    expect(f.rows.get('new-root')?.apps).toEqual({
+      openAppIds: ['context-explorer', incoming],
+      selection: { appId: incoming, kind: 'app' },
+    })
+  );
+});

@@ -81,13 +81,12 @@ async function launchPackagedApp(
       '--disable-extensions',
       '--disable-background-timer-throttling',
       '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-features=CalculateNativeWinOcclusion',
     ],
     env: {
       ...electronEnvironment(),
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
-      BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES: '1',
-      // Linux renders a never-mapped window at 1 fps (BST-2040).
-      BRAINSTRIKE_E2E_SHOW_INACTIVE: '1',
       BRAINSTRIKE_E2E_USER_DATA_DIR: userDataDir,
       ELECTRON_IS_E2E_TEST: 'true',
       NODE_OPTIONS: '',

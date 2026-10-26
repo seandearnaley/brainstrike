@@ -20,6 +20,7 @@ import type {
 } from '@brainstrike/types';
 import { ipcMain, type WebContents } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
+import { pushToRenderer } from '../platform/desktop-ipc-push';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
 import { fileSystemWatchContract } from './file-system.contract';
 import { isMockFileSystemIpcPath, resolveFileSystemIpcPath } from './file-system-ipc';
@@ -228,7 +229,7 @@ function makeHealthSink(
     for (const watchId of entry.watchIds) {
       const payload: WatcherHealthEvent = { ...transition, watchId };
       telemetry.healthPushes += 1;
-      owner.send(DESKTOP_IPC_CHANNELS.files.watchHealth, payload);
+      pushToRenderer(owner, DESKTOP_IPC_CHANNELS.files.watchHealth, payload);
     }
   };
 }
@@ -257,7 +258,7 @@ function makeChangeSink(
           : {}),
         watchId,
       };
-      owner.send(DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
+      pushToRenderer(owner, DESKTOP_IPC_CHANNELS.files.watchEvent, payload);
     }
   };
 }
@@ -526,10 +527,9 @@ export function registerFileSystemWatchIpcHandlers({
   telemetry.duplicateRegistrations = 0;
   telemetry.setupLatencySamples = 0;
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'files',
     fileSystemWatchContract.watchDirectory.channel,
-    { roles: fileSystemWatchContract.watchDirectory.roles },
     async (event, ...raw): Promise<FileSystemWatchRegistration> => {
       const [handle] = fileSystemWatchContract.watchDirectory.parseArgs(raw);
       const owner = event.sender;
@@ -590,10 +590,9 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'files',
     fileSystemWatchContract.retryWatch.channel,
-    { roles: fileSystemWatchContract.retryWatch.roles },
     async (event, ...raw): Promise<FileSystemWatchRetryResult> => {
       const [watchId] = fileSystemWatchContract.retryWatch.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);
@@ -646,10 +645,9 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'files',
     fileSystemWatchContract.getWatcherTelemetry.channel,
-    { roles: fileSystemWatchContract.getWatcherTelemetry.roles },
     (_event, ...raw) => {
       fileSystemWatchContract.getWatcherTelemetry.parseArgs(raw);
       return {
@@ -659,10 +657,9 @@ export function registerFileSystemWatchIpcHandlers({
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'files',
     fileSystemWatchContract.unwatchDirectory.channel,
-    { roles: fileSystemWatchContract.unwatchDirectory.roles },
     async (event, ...raw): Promise<void> => {
       const [watchId] = fileSystemWatchContract.unwatchDirectory.parseArgs(raw);
       const entry = liveWatchersById.get(watchId);

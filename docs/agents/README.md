@@ -15,7 +15,6 @@ against current source and tests. Historical notes are reference, not more rules
 | Child runs and parent continuation | [Subagents](assistant-subagents.md) |
 | Canonical SQLite state and root lease | [StateStore](state-store.md), [host lease](host-lease.md) |
 | Derived search and indexing | [Indexer](indexer.md), [retrieval quality](retrieval-quality.md) |
-| Embeddings and local LLM | [Local inference](local-inference.md) |
 | Workspace instructions, roots and edits | [Workspace](workspace-context.md) |
 | Explorer, search and the thread context map | [Explorer](explorer-search-context-map.md) |
 | Git changes and managed worktrees | [Changesets](changeset-diff.md) |

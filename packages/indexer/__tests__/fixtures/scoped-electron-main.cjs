@@ -113,7 +113,7 @@ app
         const identity = decodeIndexIdentityRow(
           reader
             .prepare(
-              'SELECT schema_version AS schemaVersion,store_id AS storeId,index_mode AS indexMode,profile_json AS profileJson,profile_hash AS profileHash FROM index_metadata'
+              'SELECT schema_version AS schemaVersion,store_id AS storeId FROM index_metadata'
             )
             .get()
         );

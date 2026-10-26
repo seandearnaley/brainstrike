@@ -43,11 +43,6 @@ export interface HostStateIndex {
   readonly rootId: string;
   /** Gap 10: committed conversation rows of the requested threads matching every query word. */
   readonly search: StateIndexerPort['searchState'];
-  /** The semantic arm: search-row vectors, their backlog and nearest rows. */
-  readonly searchVectors: Pick<
-    StateIndexerPort,
-    'putStateSearchVectors' | 'searchStateCoverage' | 'searchStatePending' | 'searchStateSimilar'
-  >;
   /** Recall and observation vectors, in this same derived store and writer. */
   readonly vectors: StateMessageVectorPort & StateObservationVectorPort;
 }
@@ -114,7 +109,6 @@ export async function openHostStateIndex(
     indexer: createStateStoreIndexer(owner.port),
     rootId: stateRoot,
     search: (request) => owner.port.searchState(request),
-    searchVectors: owner.port,
     vectors: owner.port,
   };
 }

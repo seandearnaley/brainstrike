@@ -1,7 +1,6 @@
 import {
   SubagentConversationNavigationContext,
   SubagentConversationPresentationContext,
-  SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
@@ -28,10 +27,8 @@ const invocationKey = (identity: Invocation): string =>
 const UNAVAILABLE = 'The delegated conversation is unavailable or belongs to another parent.';
 
 /**
- * BST-1932: a host thread's delegation cards reach their child threads through
- * the host. The live index, the resolver and navigation all read the host's
- * committed children of `threadId`; `revision` changes when this thread's
- * committed log may have started or settled a child.
+ * Delegation cards use the host's committed children of `threadId`.
+ * `revision` changes when the log may have started or settled a child.
  */
 export function HostChildConversations({
   children,
@@ -63,7 +60,6 @@ export function HostChildConversations({
         }
       },
       (error: unknown) => {
-        // Cards still open through the resolver, which reports its own failure.
         logger.error('Host child threads could not be listed', { error, threadId });
       }
     );
@@ -88,23 +84,6 @@ export function HostChildConversations({
       subscribe: () => () => undefined,
     };
   }, [current]);
-  const resolveInvocation = useCallback(
-    async (identity: Invocation): Promise<string> => {
-      if (!list) {
-        throw new Error(UNAVAILABLE);
-      }
-      const child = (await list(threadId)).find(
-        (candidate) =>
-          candidate.parentRunId === identity.parentRuntimeRunId &&
-          candidate.toolCallId === identity.parentToolCallId
-      );
-      if (!child) {
-        throw new Error(UNAVAILABLE);
-      }
-      return child.threadId;
-    },
-    [list, threadId]
-  );
   // The card presents the child's call sign and family colour, as its tab does.
   const presentation = useCallback(
     async (childThreadId: string) => {
@@ -157,11 +136,9 @@ export function HostChildConversations({
   return (
     <SubagentConversationNavigationContext value={list ? open : null}>
       <SubagentConversationPresentationContext value={list ? presentation : null}>
-        <SubagentInvocationResolverContext value={list ? resolveInvocation : null}>
-          <SubagentLiveInvocationContext value={list ? liveInvocations : null}>
-            {children}
-          </SubagentLiveInvocationContext>
-        </SubagentInvocationResolverContext>
+        <SubagentLiveInvocationContext value={list ? liveInvocations : null}>
+          {children}
+        </SubagentLiveInvocationContext>
       </SubagentConversationPresentationContext>
     </SubagentConversationNavigationContext>
   );

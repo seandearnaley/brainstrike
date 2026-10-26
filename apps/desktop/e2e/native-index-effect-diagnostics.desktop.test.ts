@@ -1,8 +1,8 @@
 import { Schema } from 'effect';
-import { getMainBufferedLogs } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { getMainBufferedLogs } from './utils/main-logs';
 
 test.use({ electronEnv: { LOG_LEVEL: 'info' } });
 const Event = Schema.Struct({

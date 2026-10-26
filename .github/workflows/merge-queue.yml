@@ -41,7 +41,7 @@ jobs:
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-  # The full desktop regression (8 shards) and Desktop Embedding E2E. Owner
+  # The full desktop regression (8 shards). Owner
   # decision 2026-10-24: every lane gates the queue; the nightly keeps only the
   # complete Unit run.
   desktop-e2e:

@@ -454,9 +454,8 @@ describe('fetchAssistantStatusState', () => {
     ).rejects.toThrowError('Assistant status provider cohere has no registry default model');
   });
 
-  it('keeps a host with no keyed provider enabled, since local runtimes are discovered separately', async () => {
-    // The desktop host's status with no stored or env key (#3681 stopped
-    // listing the embeddings-only on-device provider).
+  it('keeps a host with no keyed provider enabled, so the panel can ask for one', async () => {
+    // The desktop host's status with no stored or env key.
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({ enabled: true, providerKeySources: [], providers: [] }),
       ok: true,
@@ -470,7 +469,7 @@ describe('fetchAssistantStatusState', () => {
     ).resolves.toEqual({ providerKeySources: [], providers: [], state: 'enabled' });
   });
 
-  it('rejects a hosted provider without matching key-source metadata', async () => {
+  it('rejects a provider without matching key-source metadata', async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({
         enabled: true,
@@ -485,7 +484,7 @@ describe('fetchAssistantStatusState', () => {
         fetchImpl,
         signal: new AbortController().signal,
       })
-    ).rejects.toThrowError('Assistant hosted provider is missing its key source');
+    ).rejects.toThrowError('Assistant provider is missing its key source');
   });
 
   it('rejects a key source omitted from the available provider list', async () => {

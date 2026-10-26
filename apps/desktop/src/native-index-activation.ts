@@ -57,7 +57,6 @@ import {
 import { assertSavedCollection, vectorCollectionId } from './native-index-partition';
 import { createNativeIndexProfileAdmission } from './native-index-profile-admission';
 import { createNativeIndexFailures } from './native-index-reopen';
-import { createNativeIndexRetry } from './native-index-retry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import { type NativeIndexSettings, prepareSavedNativeIndexPause } from './native-index-settings';
 import {
@@ -104,7 +103,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
   const resolver = (current: Graph): NativeCanonicalProfileResolver =>
     createNativeGraphProfileResolver(current, assertCurrent, {
       collections: dependencies.catalog,
-      modelCatalog: dependencies.modelCatalog,
     });
   const authority = async (): Promise<NativeIndexAuthority> => {
     const current = graph;
@@ -394,11 +392,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         };
       }
       const inference = new NativeCanonicalInference({
-        hostedEmbeddings: (input) =>
-          generateHostedEmbeddings({ ...input, storage: dependencies.storage }),
+        hostedEmbeddings: generateHostedEmbeddings,
         resolver: profileResolver,
         scope,
-        transport: dependencies.embedding,
       });
       sources.inference.add(inference);
       return {
@@ -802,12 +798,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       collectionId: current.settings.managedCollectionId,
       generation: current.generation,
       profile: resolved?.profile ?? null,
-      queryPlan: resolved
-        ? {
-            ...(resolved.workerPlan ? { inferencePlan: resolved.workerPlan } : {}),
-            modelKey: resolved.modelKey,
-          }
-        : undefined,
+      queryPlan: resolved ? { modelKey: resolved.modelKey } : undefined,
       readiness: current.publication?.getReadiness() ?? [],
       rootIds: authorized.rootIds,
     };
@@ -901,7 +892,6 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     reconfigure: () => reconfigure(),
     reconfigureRoots: () => reconfigure(true),
     resume,
-    retryIndexing: createNativeIndexRetry({ embedding: dependencies.embedding, lifecycle }),
     stopSources,
     withRead,
   };

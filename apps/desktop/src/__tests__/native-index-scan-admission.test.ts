@@ -46,7 +46,6 @@ function fixture() {
     coverageScope: vi.fn(),
     info: vi.fn(async () => ({
       dbPath: '/owned/index.sqlite',
-      embedding: { indexMode: 'text-only' as const },
       journalMode: 'wal',
       pid: 1,
       readerQueryOnly: 1,

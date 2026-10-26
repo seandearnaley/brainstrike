@@ -6,11 +6,7 @@ import { nativeIndexSettingsFromConfig } from '@brainstrike/canonical-ingestion'
 import { IndexConfigStoreFailed } from '../../index-config';
 
 const SPACE = 'space-1';
-const MODEL = {
-  dimensions: 384,
-  local: { device: 'wasm', dtype: 'q8' },
-  modelKey: 'local::Xenova/bge-small-en-v1.5',
-} as const;
+const MODEL = { dimensions: 1536, modelKey: 'openai::text-embedding-3-small' } as const;
 export const textSettings = (change: Partial<IndexConfig> = {}) =>
   nativeIndexSettingsFromConfig({ ...DEFAULT_INDEX_CONFIG, ...change }, null);
 /** `space` is the `workspace-index` vector space Main ensured for the model. */

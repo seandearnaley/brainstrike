@@ -33,7 +33,7 @@ const capability: IndexSearchCapability = {
   search: vi.fn(),
   status: vi.fn(),
 };
-const embeddingHostManager = { queryEmbedding: vi.fn() };
+const queryEmbedder = vi.fn();
 // The cores are mocked above, so the store is never read.
 const store: RetrievalStore = {
   embeddingSet: vi.fn(),
@@ -46,7 +46,7 @@ function entry(
   native = true
 ) {
   const tool = retrievalToolExecutors(() => ({
-    dependencies: { embeddingHostManager, ...(native ? { nativeIndexSearch: capability } : {}) },
+    dependencies: { queryEmbedder, ...(native ? { nativeIndexSearch: capability } : {}) },
     store,
   }))[toolId]({
     ports: hostExecutionPorts(),
@@ -75,7 +75,7 @@ it.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch] as con
     const call = (
       toolId === NATIVE_TOOL_ID.queryEmbeddingSpace ? calls.semantic : calls.hybrid
     ).mock.calls.at(-1);
-    expect(call?.[2]).toEqual({ embeddingHostManager, nativeIndexSearch: capability });
+    expect(call?.[2]).toEqual({ nativeIndexSearch: capability, queryEmbedder });
     expect(call?.[SIGNAL_ARG]).toBe(signal);
   }
 );

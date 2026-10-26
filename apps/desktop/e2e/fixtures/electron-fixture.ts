@@ -54,7 +54,6 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
       await mkdtemp(path.join(os.tmpdir(), 'brainstrike-e2e-workspace-'))
     );
     const harness = new ElectronHarness(
-      testInfo,
       undefined,
       userDataDir,
       electronEnv,
@@ -64,7 +63,10 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
     try {
       await use(harness);
     } finally {
-      await tearDownElectronTest(harness, testInfo, userDataDir, workspaceRoot);
+      await tearDownElectronTest(harness, testInfo, userDataDir, [
+        workspaceRoot,
+        ...harness.directoriesRemovedAfterClose(),
+      ]);
     }
   },
 

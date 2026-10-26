@@ -1,16 +1,5 @@
-import type {
-  PromptItem,
-  PromptItemRepositoryPort,
-  PromptItemSimilarityResult,
-} from '@brainstrike/types/prompt-item';
-import type {
-  EmbeddingSetModelInfo,
-  UseSearchEmbedderResult,
-} from '@brainstrike/vector-management';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { buildLocalEmbeddingModelConfigMap } from './embedding-models';
-import { resolvePromptEmbeddingModelInfo } from './prompt-embedding-model-info';
-import { embedPendingPromptItems, queryPromptSuggestions } from './prompt-library-embedding';
+import type { PromptItem, PromptItemRepositoryPort } from '@brainstrike/types/prompt-item';
+import { useEffect, useState } from 'react';
 
 type PromptManagerReadiness =
   | { readonly status: 'loading' }
@@ -25,22 +14,11 @@ type PromptManagerReadiness =
       readonly status: 'ready';
     };
 
-interface PromptIndexingPassResult {
-  readonly error: string | null;
-  readonly requestId: number;
-}
-
 interface UsePromptLibraryControllerOptions {
-  readonly embedder: UseSearchEmbedderResult;
-  readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
   readonly repository: PromptItemRepositoryPort;
-  readonly suggestionsEnabled: boolean;
 }
 
 export interface PromptLibraryController {
-  readonly handleLibraryChanged: () => Promise<void>;
-  readonly handleRequestSuggestions: (context: string) => Promise<PromptItemSimilarityResult[]>;
-  readonly indexingError: string | null;
   readonly readiness: PromptManagerReadiness;
 }
 
@@ -50,190 +28,33 @@ export function toPromptWorkbenchErrorMessage(error: unknown): string {
     : `Unexpected Prompt Workbench failure: ${String(error)}`;
 }
 
-function promptRecallAbortError(): Error {
-  const error = new Error('Prompt recall was cancelled because suggestions are no longer active.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function throwIfPromptRecallAborted(signal: AbortSignal): void {
-  if (signal.aborted) {
-    throw signal.reason instanceof Error ? signal.reason : promptRecallAbortError();
-  }
-}
-
-function usePromptRecallAbortController(enabled: boolean) {
-  const controllerRef = useRef<AbortController | null>(null);
-  useLayoutEffect(() => {
-    const controller = new AbortController();
-    controllerRef.current = controller;
-    if (!enabled) {
-      controller.abort(promptRecallAbortError());
-    }
-    return () => {
-      controller.abort(promptRecallAbortError());
-      if (controllerRef.current === controller) {
-        controllerRef.current = null;
-      }
-    };
-  }, [enabled]);
-  return controllerRef;
-}
-
-async function loadInitialPromptItems(repository: PromptItemRepositoryPort): Promise<PromptItem[]> {
-  return repository.list();
-}
-
-async function reloadPromptItemsAfterIndexing(
-  repository: PromptItemRepositoryPort,
-  runIndexingPass: () => Promise<PromptIndexingPassResult>
-): Promise<
-  | {
-      readonly error: string;
-      readonly indexing: PromptIndexingPassResult;
-      readonly status: 'error';
-    }
-  | {
-      readonly indexing: PromptIndexingPassResult;
-      readonly items: PromptItem[];
-      readonly status: 'ready';
-    }
-> {
-  const indexing = await runIndexingPass();
-  try {
-    const items = await repository.list();
-    return { indexing, items, status: 'ready' };
-  } catch (error) {
-    return { error: toPromptWorkbenchErrorMessage(error), indexing, status: 'error' };
-  }
-}
-
 export function usePromptLibraryController({
-  embedder,
-  localModelConfigMap,
   repository,
-  suggestionsEnabled,
 }: UsePromptLibraryControllerOptions): PromptLibraryController {
   const [readiness, setReadiness] = useState<PromptManagerReadiness>({ status: 'loading' });
-  const [indexingError, setIndexingError] = useState<string | null>(null);
-  const indexingTailRef = useRef<Promise<void> | null>(null);
-  const latestIndexingRequestIdRef = useRef(0);
-  const promptRecallAbortControllerRef = usePromptRecallAbortController(suggestionsEnabled);
-
-  const resolveModelInfo = useCallback(async (): Promise<EmbeddingSetModelInfo> => {
-    const profile = await repository.getEmbeddingProfile();
-    return resolvePromptEmbeddingModelInfo(profile, localModelConfigMap);
-  }, [localModelConfigMap, repository]);
-
-  const performPendingItemIndexing = useCallback(async () => {
-    const modelInfo = await resolveModelInfo();
-    const outcomes = await embedPendingPromptItems({ embedder, modelInfo, repository });
-    const failures = outcomes.filter((outcome) => outcome.status === 'error');
-    if (failures.length > 0) {
-      throw new Error(failures.map((outcome) => outcome.error).join('\n'));
-    }
-  }, [embedder, repository, resolveModelInfo]);
-
-  const runIndexingPass = useCallback((): Promise<PromptIndexingPassResult> => {
-    const requestId = latestIndexingRequestIdRef.current + 1;
-    latestIndexingRequestIdRef.current = requestId;
-    const execute = async (): Promise<PromptIndexingPassResult> => {
-      try {
-        await performPendingItemIndexing();
-        return { error: null, requestId };
-      } catch (error) {
-        return { error: toPromptWorkbenchErrorMessage(error), requestId };
-      }
-    };
-    const pass = (indexingTailRef.current ?? Promise.resolve()).then(execute, execute);
-    indexingTailRef.current = pass.then(
-      () => undefined,
-      () => undefined
-    );
-    return pass;
-  }, [performPendingItemIndexing]);
 
   useEffect(() => {
     let current = true;
-    const initialize = (): void => {
-      void loadInitialPromptItems(repository)
-        .then((items) => {
-          if (!current) {
-            return null;
-          }
+    void repository
+      .list()
+      .then((items) => {
+        if (current) {
           setReadiness({ items, repository, status: 'ready' });
-          return reloadPromptItemsAfterIndexing(repository, runIndexingPass);
-        })
-        .then((refreshed) => {
-          if (
-            !(refreshed && current) ||
-            refreshed.indexing.requestId !== latestIndexingRequestIdRef.current
-          ) {
-            return;
-          }
-          if (refreshed.status === 'error') {
-            setReadiness({
-              error: refreshed.error,
-              repository,
-              status: 'error',
-            });
-            return;
-          }
-          setIndexingError(refreshed.indexing.error);
-          setReadiness({ items: refreshed.items, repository, status: 'ready' });
-        })
-        .catch((error: unknown) => {
-          if (!current) {
-            return;
-          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (current) {
           setReadiness({
             error: toPromptWorkbenchErrorMessage(error),
             repository,
             status: 'error',
           });
-        });
-    };
-    initialize();
+        }
+      });
     return () => {
       current = false;
     };
-  }, [repository, runIndexingPass]);
+  }, [repository]);
 
-  const handleLibraryChanged = useCallback(async () => {
-    const indexing = await runIndexingPass();
-    if (indexing.requestId === latestIndexingRequestIdRef.current) {
-      setIndexingError(null);
-    }
-    if (indexing.error) {
-      throw new Error(indexing.error);
-    }
-  }, [runIndexingPass]);
-
-  const handleRequestSuggestions = useCallback(
-    async (context: string) => {
-      const signal = promptRecallAbortControllerRef.current?.signal;
-      if (!(suggestionsEnabled && signal)) {
-        throw promptRecallAbortError();
-      }
-      throwIfPromptRecallAborted(signal);
-      const modelInfo = await resolveModelInfo();
-      throwIfPromptRecallAborted(signal);
-      return queryPromptSuggestions({
-        context,
-        embedder,
-        modelInfo,
-        options: { limit: 6, threshold: 0.35 },
-        repository,
-        signal,
-      });
-    },
-    [embedder, promptRecallAbortControllerRef, repository, resolveModelInfo, suggestionsEnabled]
-  );
-
-  return {
-    handleLibraryChanged,
-    handleRequestSuggestions,
-    indexingError,
-    readiness,
-  };
+  return { readiness };
 }

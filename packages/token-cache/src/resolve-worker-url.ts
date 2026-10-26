@@ -3,7 +3,6 @@
  * The `new URL(..., import.meta.url)` pattern is the MDN-recommended approach for bundlers.
  * Source: https://developer.mozilla.org/docs/Web/API/Worker/Worker#syntax
  *
- * This follows the same pattern as @brainstrike/embedding-worker's resolveEmbeddingWorkerUrl().
  * The worker TypeScript source is compiled to JavaScript by tsup during the package build.
  */
 interface ImportMetaLike {
@@ -85,7 +84,6 @@ export function resolveTokenCacheWorkerUrl(): URL {
  * The `new URL(..., import.meta.url)` pattern is the MDN-recommended approach for bundlers.
  * Source: https://developer.mozilla.org/docs/Web/API/Worker/Worker#syntax
  *
- * This follows the same pattern as @brainstrike/embedding-worker's resolveEmbeddingWorkerUrl().
  * The worker TypeScript source is compiled to JavaScript by tsup during the package build.
  */
 export function resolveBackgroundIndexerWorkerUrl(): URL {

@@ -45,10 +45,4 @@ describe('preload bridge APIs', () => {
     expect(typeof exposed.get('agentHost')?.['connect']).toBe('function');
     expect(exposed.has('agent')).toBe(false);
   });
-
-  // The visible preload no longer exposes a local-LLM host bridge: that host
-  // and its channels were retired with the built-in local chat model.
-  it('exposes no llmHost bridge', () => {
-    expect(exposed.has('llmHost')).toBe(false);
-  });
 });

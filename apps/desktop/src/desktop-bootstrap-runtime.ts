@@ -20,7 +20,6 @@ import { createDesktopProfileRuntime, type DesktopProfileRuntime } from './deskt
 import { isDesktopShuttingDown } from './desktop-shutdown-state';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
-import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { createDesktopHostLease } from './host-lease-manager';
 import { lifecycleDelaySeam } from './lifecycle-delay-seam';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -138,7 +137,6 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
   let focusSecondInstance: (() => void) | undefined;
   if (singleInstanceLockAcquired) {
-    app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
     app.on('open-file', (event, openedPath) => {
       event.preventDefault();
       if (isDesktopShuttingDown()) {

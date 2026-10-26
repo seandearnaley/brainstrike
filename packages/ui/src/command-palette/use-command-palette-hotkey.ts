@@ -31,9 +31,8 @@ export interface CommandPaletteHotkeyOptions {
  *  - `preventDefault()`s and calls `onOpen()` otherwise,
  *  - removes itself on unmount.
  *
- * Mount this ONLY in the visible-UI root so hidden hosts (embedding/llm/chunking
- * renderers) never bind it — they never mount the root layout, so this is
- * structurally gated rather than role-checked here.
+ * Mount this ONLY in the visible-UI root: the binding is structurally gated by
+ * where it mounts rather than role-checked here.
  */
 export function useCommandPaletteHotkey({ onOpen }: CommandPaletteHotkeyOptions): void {
   const onOpenRef = React.useRef(onOpen);

@@ -64,7 +64,7 @@ it('enforces the root tri-state model rule against the actual child model', () =
   expect(() => assertAssistantChildImageCapability(input, 'openrouter', 'z-ai/glm-5.3')).toThrow(
     'does not support'
   );
-  expect(() => assertAssistantChildImageCapability(input, 'local', 'gemma')).toThrow(
+  expect(() => assertAssistantChildImageCapability(input, 'voyage', 'voyage-3')).toThrow(
     'does not support'
   );
   expect(() => assertAssistantChildImageCapability(input, undefined, undefined)).toThrow(

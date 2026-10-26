@@ -74,7 +74,12 @@ describe('useBudgetGuardrailBinding', () => {
     useAssistantBudgetPreferencesStore.getState().setDailyCapUsd(10);
     useDailySpendMock.mockReturnValue(
       spendState({
-        spend: { estimatedUsd: 1.5, exactUsd: 4, totalUsd: 5.5, unpricedModels: ['ollama::x'] },
+        spend: {
+          estimatedUsd: 1.5,
+          exactUsd: 4,
+          totalUsd: 5.5,
+          unpricedModels: ['openrouter::vendor/unpriced'],
+        },
       })
     );
 

@@ -2,4 +2,4 @@ export {
   ParcelWatchRetirementError,
   type StartParcelWatchOptions,
   startJoinedParcelWatch,
-} from './adapters/parcel-watchers.ts';
+} from './adapters/root-watchers.ts';

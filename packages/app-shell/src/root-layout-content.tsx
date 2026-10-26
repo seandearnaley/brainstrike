@@ -32,7 +32,6 @@ import {
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type {
   IndexLifecycleCapability,
-  IndexRetryCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
@@ -42,11 +41,6 @@ import {
   PanelLayoutProvider,
   type PanelLayoutState,
 } from '@brainstrike/ui';
-import {
-  IndexingActivityCoordinator,
-  type LocalSearchEmbedderFactory,
-  SearchEmbedderProvider,
-} from '@brainstrike/vector-management';
 import {
   memo,
   type ReactElement,
@@ -65,6 +59,7 @@ import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel, AssistantProviderStatusProvider } from './assistant-chat-panel';
+import { IndexingActivityCoordinator } from './background-indexing/indexing-activity-coordinator';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { buildWorkspaceApps } from './build-workspace-apps';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
@@ -155,7 +150,6 @@ export interface RootLayoutContentProps {
    * hidden (its provider binds to this same presence check).
    */
   readonly changesPageContent?: ReactNode;
-  readonly createLocalSearchEmbedder?: LocalSearchEmbedderFactory;
   readonly deleteRootData: (rootId: string) => Promise<void>;
   /**
    * Active flags from an authoritative app-owned feature-flag registry.
@@ -174,8 +168,6 @@ export interface RootLayoutContentProps {
    * no Logs tab renders.
    */
   readonly logsPageContent?: ReactNode;
-  /** Retry indexing after the embedding host stopped responding (BST-2104); desktop only. */
-  readonly nativeIndexRetry?: IndexRetryCapability | null;
   readonly nativeIndexSearch?:
     | (IndexSearchCapability &
         IndexConfigCapability &
@@ -472,7 +464,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   terminalPageContent,
   threadContextPageContent,
   worktreeMapPageContent,
-  visible,
   nativeIndexSearch,
 }: {
   readonly canvasPanelContent?: ReactNode;
@@ -481,7 +472,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly terminalPageContent?: ReactNode;
   readonly threadContextPageContent?: ReactNode;
   readonly worktreeMapPageContent?: ReactNode;
-  readonly visible: boolean;
   readonly nativeIndexSearch:
     | (IndexSearchCapability &
         IndexConfigCapability &
@@ -548,7 +538,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                   assistantContent={<AssistantChatPanel />}
                   sidebarContent={
                     <AgentSidebarPanel
-                      promptsContent={(isActive) => (
+                      promptsContent={
                         <Suspense
                           fallback={
                             <div
@@ -560,9 +550,9 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                             </div>
                           }
                         >
-                          <ConnectedPromptManagerLazy suggestionsEnabled={visible && isActive} />
+                          <ConnectedPromptManagerLazy />
                         </Suspense>
-                      )}
+                      }
                       threadsContent={<ThreadsPanel />}
                     />
                   }
@@ -592,7 +582,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 });
 
 export function RootLayoutContent({
-  nativeIndexRetry,
   nativeIndexSearch,
   stateHealth,
   deleteRootData,
@@ -606,7 +595,6 @@ export function RootLayoutContent({
   threadContextPageContent,
   worktreeMapPageContent,
   navigationItems,
-  createLocalSearchEmbedder,
   diagnosticFeatureFlags,
 }: RootLayoutContentProps): ReactElement {
   const shellTab = usePanelLayoutStore((state) => state.activeTab);
@@ -683,7 +671,6 @@ export function RootLayoutContent({
       <AppLayout
         config={appConfig}
         currentPath={shellTab === 'explorer' ? '/' : `/${shellTab}`}
-        nativeIndexRetry={nativeIndexRetry ?? null}
         nativeIndexSearch={nativeIndexSearch ?? null}
         onNavigationClick={handleNavigationClick}
         onOpenSettings={openSettings}
@@ -705,72 +692,67 @@ export function RootLayoutContent({
             header) must land in the same one. */}
             <RewindProvider value={rewindValue}>
               <ActionRegistryProvider registry={actionRegistry}>
-                {/* The ⌘K command palette mounts once at the visible-UI root. Only the
-            visible renderer mounts RootLayoutContent, so hidden hosts never
-            instantiate it (structural gating — no role check needed here). */}
+                {/* The ⌘K command palette mounts once at the visible-UI root. */}
                 <CommandPaletteHost />
-                {/* Tab chords (BST-1842): the same structural gating as the palette. */}
+                {/* Tab chords (BST-1842): mounted once beside the palette. */}
                 <TabChordHost />
                 <WorkspaceConnectHost />
-                <SearchEmbedderProvider createLocalEmbedder={createLocalSearchEmbedder}>
-                  <IndexingActivityCoordinator />
-                  <div
-                    aria-hidden={shellTab !== 'explorer'}
-                    className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
-                    data-testid="explorer-route"
+                <IndexingActivityCoordinator />
+                <div
+                  aria-hidden={shellTab !== 'explorer'}
+                  className={shellTab === 'explorer' ? 'h-full min-h-0' : 'hidden h-full min-h-0'}
+                  data-testid="explorer-route"
+                >
+                  <PanelLayoutProvider
+                    controlledState={panelState}
+                    onChange={handlePanelLayoutChange}
                   >
-                    <PanelLayoutProvider
-                      controlledState={panelState}
-                      onChange={handlePanelLayoutChange}
-                    >
-                      <ExplorerAppSurface
-                        canvasPanelContent={canvasPanelContent}
-                        changesPageContent={changesPageContent}
-                        logsPageContent={logsPageContent}
-                        nativeIndexSearch={nativeIndexSearch ?? null}
-                        terminalPageContent={terminalPageContent}
-                        threadContextPageContent={threadContextPageContent}
-                        visible={shellTab === 'explorer'}
-                        worktreeMapPageContent={worktreeMapPageContent}
-                      />
-                    </PanelLayoutProvider>
-                  </div>
-                  {/* MCP elicitation consent is app-wide (BST-1584): desktop main
+                    <ExplorerAppSurface
+                      canvasPanelContent={canvasPanelContent}
+                      changesPageContent={changesPageContent}
+                      logsPageContent={logsPageContent}
+                      nativeIndexSearch={nativeIndexSearch ?? null}
+                      terminalPageContent={terminalPageContent}
+                      threadContextPageContent={threadContextPageContent}
+                      worktreeMapPageContent={worktreeMapPageContent}
+                    />
+                  </PanelLayoutProvider>
+                </div>
+                {/* MCP elicitation consent is app-wide (BST-1584): desktop main
                     pushes server input requests here regardless of route, and the
                     host renders nothing when the preload bridge is absent. */}
-                  <McpElicitationHost />
-                  {/* Composer MCP prompt selection is app-wide (BST-1592): the
+                <McpElicitationHost />
+                {/* Composer MCP prompt selection is app-wide (BST-1592): the
                     "/" menu's execute hands the selection here from wherever the
                     composer is mounted, and the host renders nothing when the
                     preload bridge is absent. */}
-                  <McpPromptComposerHost />
-                  {/* Each keeps its content mounted-but-hidden once first opened — see
+                <McpPromptComposerHost />
+                {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
-                  <KeepMountedRoute
-                    content={gitPageContent}
-                    mountedTabs={mountedTabs}
-                    shellTab={shellTab}
-                    tab="git"
-                  />
-                  {/* Embedded browser pane (BST-1174). The native
+                <KeepMountedRoute
+                  content={gitPageContent}
+                  mountedTabs={mountedTabs}
+                  shellTab={shellTab}
+                  tab="git"
+                />
+                {/* Embedded browser pane (BST-1174). The native
                     WebContentsView follows this route's show/hide via the
                     surface's own occlusion reporting — see BrowserPaneContent. */}
-                  <KeepMountedRoute
-                    content={browserPageContent}
-                    mountedTabs={mountedTabs}
-                    shellTab={shellTab}
-                    tab="browser"
-                  />
-                  {/* Settings is a full shell tab (BST-1668): same keep-mounted
+                <KeepMountedRoute
+                  content={browserPageContent}
+                  mountedTabs={mountedTabs}
+                  shellTab={shellTab}
+                  tab="browser"
+                />
+                {/* Settings is a full shell tab (BST-1668): same keep-mounted
                     contract as the routes above, so in-progress edits survive
                     a trip to another tab. */}
-                  <KeepMountedRoute
-                    content={settingsPageContent}
-                    mountedTabs={mountedTabs}
-                    shellTab={shellTab}
-                    tab="settings"
-                  />
-                </SearchEmbedderProvider>
+                <KeepMountedRoute
+                  content={settingsPageContent}
+                  mountedTabs={mountedTabs}
+                  shellTab={shellTab}
+                  tab="settings"
+                />
                 {/* Conversation Rewind confirm modal. Mounted only when the
                 changes capability is present (`rewindValue`), so web never
                 loads its chunk, and lazily so the Changes tree/diff panes stay

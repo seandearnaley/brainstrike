@@ -8,10 +8,10 @@ describe('findBareDynamicImports (BST-2230)', () => {
   it('finds a bare specifier, as a @vite-ignore import leaves it in minified output', () => {
     expect(
       findBareDynamicImports(
-        'async function H(){return x||(x=import(`@huggingface/transformers`)),await x}' +
+        'async function H(){return x||(x=import(`@scope/sdk`)),await x}' +
           'const y=()=>import("@scope/pkg/sub");const z=()=>import(\'lodash\')'
       )
-    ).toEqual(['@huggingface/transformers', '@scope/pkg/sub', 'lodash']);
+    ).toEqual(['@scope/pkg/sub', '@scope/sdk', 'lodash']);
   });
 
   it('ignores chunk-relative, absolute, URL and computed imports', () => {
@@ -48,17 +48,15 @@ describe('browserBareDynamicImportGuardPlugin', () => {
     const errors = generate({
       'assets/index.css': { fileName: 'assets/index.css', type: 'asset' },
       'assets/ok.js': { code: 'import("./x.js")', fileName: 'assets/ok.js', type: 'chunk' },
-      'assets/transformers-backend.js': {
-        code: 'import("@huggingface/transformers")',
-        fileName: 'assets/transformers-backend.js',
+      'assets/sdk-backend.js': {
+        code: 'import("@scope/sdk")',
+        fileName: 'assets/sdk-backend.js',
         type: 'chunk',
       },
     });
 
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain(
-      'assets/transformers-backend.js: import("@huggingface/transformers")'
-    );
+    expect(errors[0]).toContain('assets/sdk-backend.js: import("@scope/sdk")');
     expect(errors[0]).not.toContain('assets/ok.js');
   });
 

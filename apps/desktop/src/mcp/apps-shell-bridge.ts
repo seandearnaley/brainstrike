@@ -22,7 +22,7 @@ interface McpAppShellSender {
  */
 export function attachMcpAppShellBridge(
   registry: Pick<McpAppShellRegistry, 'register' | 'release' | 'releaseOwner'>,
-  ipc: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>
+  ipc: Pick<DesktopIpcRegistry, 'handle'>
 ): void {
   const trackedSenders = new Set<number>();
   const track = (sender: McpAppShellSender): void => {
@@ -36,25 +36,19 @@ export function attachMcpAppShellBridge(
     });
   };
 
-  ipc.registerAuthorizedInvoke(
-    'mcp',
-    mcpAppsContract.prepareShell.channel,
-    { roles: mcpAppsContract.prepareShell.roles },
-    async (event, ...raw: unknown[]) => {
-      const [value] = mcpAppsContract.prepareShell.parseArgs(raw);
-      const sender: McpAppShellSender = event.sender;
-      if (sender.isDestroyed()) {
-        throw new Error('MCP App shell registration from a destroyed WebContents');
-      }
-      const lease = registry.register(sender.id, parseMcpAppShellPrepareRequest(value));
-      track(sender);
-      return parseMcpAppShellPrepareResult(lease);
+  ipc.handle('mcp', mcpAppsContract.prepareShell.channel, async (event, ...raw: unknown[]) => {
+    const [value] = mcpAppsContract.prepareShell.parseArgs(raw);
+    const sender: McpAppShellSender = event.sender;
+    if (sender.isDestroyed()) {
+      throw new Error('MCP App shell registration from a destroyed WebContents');
     }
-  );
-  ipc.registerAuthorizedInvoke(
+    const lease = registry.register(sender.id, parseMcpAppShellPrepareRequest(value));
+    track(sender);
+    return parseMcpAppShellPrepareResult(lease);
+  });
+  ipc.handle(
     'mcp',
     mcpAppsContract.releaseShell.channel,
-    { roles: mcpAppsContract.releaseShell.roles },
     async (event, ...raw: unknown[]): Promise<void> => {
       const [value] = mcpAppsContract.releaseShell.parseArgs(raw);
       const { token } = parseMcpAppShellReleaseRequest(value);

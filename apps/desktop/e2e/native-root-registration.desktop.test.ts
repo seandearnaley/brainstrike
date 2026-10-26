@@ -1,21 +1,39 @@
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addWorkspaceFolder } from './embedding-worker-renderer.native-search';
-import {
-  expect,
-  openWorkspaceSearchPanel,
-  runWorkspaceSemanticSearch,
-  test,
-  waitForWorkspaceSemanticSearchResults,
-} from './embedding-worker-renderer.shared';
+import type { ElectronApplication, Page } from '@playwright/test';
+import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
+import { expect, test } from './fixtures/electron-fixture';
 import { updateIndexConfig } from './utils/index-config';
 import { configureNativeIndex, waitForEmbeddedFolder } from './utils/native-index-build';
 import { textReadiness } from './utils/text-search-mode';
+import {
+  openWorkspaceSearchPanel,
+  runWorkspaceSemanticSearch,
+  waitForWorkspaceSemanticSearchResults,
+} from './utils/workspace-search-helpers';
+
+/** Adds a real folder with the explorer's Add Folder button, which picks `folder`. */
+async function addWorkspaceFolder(
+  app: ElectronApplication,
+  page: Page,
+  folder: string,
+  visibleFile: string
+): Promise<void> {
+  await app.evaluate((_electron, picked) => {
+    process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = picked;
+  }, folder);
+  await ensureFileExplorerPanelVisible(page);
+  await page.getByTestId('select-root-button').click({ timeout: 15_000 });
+  await expect(
+    page.getByRole('treegrid', { name: 'File tree' }).getByText(visibleFile)
+  ).toBeVisible({ timeout: 30_000 });
+}
 
 test('indexes and searches a real folder registered while native ingestion is paused', async ({
   electron,
   electronApp,
+  modelProvider,
   window,
 }) => {
   test.setTimeout(180_000);
@@ -28,7 +46,7 @@ test('indexes and searches a real folder registered while native ingestion is pa
       'export const evidence = "A real native root authority proof";\n'
     );
     await updateIndexConfig(window, { paused: true });
-    await configureNativeIndex(window, 'wasm');
+    await configureNativeIndex(window, modelProvider);
     await expect
       .poll(() => textReadiness(window), { timeout: 120_000 })
       .toEqual({ folders: 0, indexMode: 'vector-configured', kind: 'ready' });

@@ -22,7 +22,7 @@ function createDesktopHostBrowserOrigins(
 
 let windowOrigins: DesktopHostBrowserOrigins | undefined;
 
-/** `null` where this window has no agent-host capability (web, hidden hosts). */
+/** `null` where this window has no agent-host capability (web). */
 export function resolveDesktopHostBrowserOrigins(): DesktopHostBrowserOrigins | null {
   if (!window.agentHost) {
     return null;

@@ -1,30 +1,18 @@
 import { parseProviderKeySources } from '@brainstrike/assistant-contract';
 import {
   getProviderDefaultModel,
-  getProviderDefinition,
   listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   type ProviderDefinition,
-  providerAuthType,
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  type LocalRuntimeAvailabilityState,
-  LocalRuntimeDiscoveryService,
-  type LocalRuntimeId,
-  LocalRuntimeModelCatalogService,
-  type LocalRuntimeModelCatalogState,
-  type RuntimeDiagnosticLogLevel,
-} from '@brainstrike/local-runtime';
-import { createLogger } from '@brainstrike/logging';
 import type {
   AnthropicEffort,
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
   GoogleThinkingLevel,
-  LocalRuntimeActivation,
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 } from '@brainstrike/types';
@@ -32,15 +20,7 @@ import { mergeAssistantProviderSettings } from '@brainstrike/types';
 import type { StateStorage } from 'zustand/middleware';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
-import {
-  getAssistantConfiguredProvidersTestOverride,
-  getLocalRuntimeStatusTestOverride,
-  recordLocalRuntimeProbeForTests,
-} from '../automation-overrides.ts';
-import {
-  recordAssistantModelDiagnostic,
-  withLocalRuntimeDiagnostics,
-} from '../local-runtime-diagnostics.ts';
+import { getAssistantConfiguredProvidersTestOverride } from '../automation-overrides.ts';
 import { getModelIdMigrationTarget, isRetiredModelId } from './assistant-model-id-migrations.ts';
 import { ASSISTANT_PREFERENCES_STORE_VERSION as LOCAL_ASSISTANT_PREFERENCES_STORE_VERSION } from './assistant-preferences-store-version.ts';
 import { clearPersistedStorageForTests } from './persist-api.ts';
@@ -49,8 +29,6 @@ export {
   getModelIdMigrationTarget,
   isRetiredModelId,
 } from './assistant-model-id-migrations.ts';
-
-const logger = createLogger('AssistantPreferencesStore');
 
 type EnabledModelsMap = Record<SupportedProvider, string[]>;
 
@@ -63,31 +41,11 @@ export type {
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
   GoogleThinkingLevel,
-  LocalRuntimeActivation,
   OpenAiReasoningEffort,
   OpenAiReasoningSummary,
 };
 
 type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;
-
-/**
- * Provider discovery can be partially successful when independent local
- * runtime probes disagree. The native AggregateError channel keeps every
- * failure visible while `providers` carries the independently verified
- * providers that the app shell can continue rendering in its error state.
- */
-export class AvailableProviderDiscoveryError extends AggregateError {
-  readonly providers: readonly SupportedProvider[];
-
-  constructor(errors: readonly unknown[], providers: readonly SupportedProvider[]) {
-    const details = errors
-      .map((error) => (error instanceof Error ? error.message : String(error)))
-      .join('; ');
-    super(errors, `Provider discovery failed: ${details}`);
-    this.name = 'AvailableProviderDiscoveryError';
-    this.providers = providers;
-  }
-}
 
 /**
  * The retired model id the persist migration replaced in the user's SELECTED
@@ -131,27 +89,6 @@ interface AssistantPreferencesActions {
   clearModel: () => void;
   getAvailableProviders: () => Promise<SupportedProvider[]>;
   getEnabledModels: (provider: SupportedProvider) => string[];
-  getLocalRuntimeModels: (options?: {
-    diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
-    force?: boolean;
-    verifyEmbeddingDimensions?: boolean;
-    maxVerificationModels?: number;
-  }) => Promise<Record<LocalRuntimeId, LocalRuntimeModelCatalogState>>;
-  /**
-   * Probe a single local runtime. The per-card "Probe now" button uses this
-   * so a click on the Ollama card doesn't fan out to LM Studio (and vice
-   * versa) — flagged by reviewers as the dominant source of unnecessary
-   * probe traffic on this PR. Reuses the same bridge / service stack as
-   * `getLocalRuntimeStatuses` and honors the same `off` short-circuit.
-   */
-  getLocalRuntimeStatus: (
-    runtimeId: LocalRuntimeId,
-    options?: { diagnosticLogLevel?: RuntimeDiagnosticLogLevel; force?: boolean }
-  ) => Promise<LocalRuntimeAvailabilityState>;
-  getLocalRuntimeStatuses: (options?: {
-    diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
-    force?: boolean;
-  }) => Promise<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
   getProviderSettings: (provider: SupportedProvider) => AssistantProviderSettings;
   getSelectedModel: () => string | null;
   getSelectedProvider: () => SupportedProvider | null;
@@ -189,270 +126,8 @@ const SUPPORTED_PROVIDERS = listProviders().map(
   (provider: ProviderDefinition) => provider.id
 ) as SupportedProvider[];
 const SUPPORTED_PROVIDER_SET = new Set<SupportedProvider>(SUPPORTED_PROVIDERS);
-const LOCAL_RUNTIME_PROVIDER_BY_RUNTIME: Record<LocalRuntimeId, SupportedProvider> = {
-  lmstudio: 'lmstudio',
-  ollama: 'ollama',
-};
-const LOCAL_RUNTIME_PROVIDERS = new Set<SupportedProvider>(
-  Object.values(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME)
-);
-/**
- * Providers that can serve a CHAT turn with NO credential at all.
- *
- * Keyless-ness DERIVES from `authType === 'none'` (BST-1349) — it is never
- * inferred from "declares no env keys".
- *
- * `capabilities.llm` is part of the derivation, not an afterthought: the
- * built-in on-device provider is keyless but EMBEDDINGS-ONLY, and seeding it
- * into chat discovery would offer a provider the picker has no model for.
- */
-const STATIC_NO_KEY_PROVIDERS = SUPPORTED_PROVIDERS.filter(
-  (provider) =>
-    providerAuthType(provider) === 'none' &&
-    getProviderDefinition(provider).capabilities.llm &&
-    !LOCAL_RUNTIME_PROVIDERS.has(provider)
-);
 const MODEL_KEY_DELIMITER = '::' as const;
 const RECENT_MODELS_MAX = 5;
-
-interface LocalRuntimeServices {
-  readonly discoveryService: LocalRuntimeDiscoveryService;
-  readonly modelCatalogService: LocalRuntimeModelCatalogService;
-}
-
-let localRuntimeServices: LocalRuntimeServices | null = null;
-let browserRuntimeUnavailableReason: string | undefined;
-
-/** Configure the web host's direct-runtime capability before provider discovery starts. */
-export function configureBrowserRuntimeAccess(unavailableReason: string): void {
-  if (localRuntimeServices) {
-    throw new Error('Browser runtime access must be configured before provider discovery.');
-  }
-  if (!unavailableReason.trim()) {
-    throw new Error('Unavailable browser runtime access requires a visible reason.');
-  }
-  browserRuntimeUnavailableReason = unavailableReason;
-}
-
-function getLocalRuntimeServices(): LocalRuntimeServices {
-  if (localRuntimeServices) {
-    return localRuntimeServices;
-  }
-
-  const discoveryService = new LocalRuntimeDiscoveryService({
-    ...(browserRuntimeUnavailableReason
-      ? { browserUnavailableReason: browserRuntimeUnavailableReason }
-      : {}),
-  });
-  const modelCatalogService = new LocalRuntimeModelCatalogService({
-    discoveryService,
-  });
-  localRuntimeServices = {
-    discoveryService,
-    modelCatalogService,
-  };
-  return localRuntimeServices;
-}
-
-/**
- * Main-process IPC bridge exposed by the Electron preload. When it exists,
- * runtime probes execute in Node (no CORS) instead of the Chromium renderer
- * (subject to Ollama's OLLAMA_ORIGINS allow-list which excludes
- * `file://` / `app://` origins by default). The web build has no bridge,
- * falling back to the in-renderer services.
- */
-interface RuntimeBridge {
-  readonly listModels: (runtimeId: LocalRuntimeId, options?: unknown) => Promise<unknown>;
-  readonly probe: (runtimeId: LocalRuntimeId, options?: unknown) => Promise<unknown>;
-}
-
-function getRuntimeBridge(): RuntimeBridge | undefined {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  const bridge = (window as Window & { runtime?: Partial<RuntimeBridge> }).runtime;
-  if (typeof bridge?.probe !== 'function' || typeof bridge?.listModels !== 'function') {
-    return;
-  }
-  return bridge as RuntimeBridge;
-}
-
-/**
- * Runtime shape guards for values crossing the renderer ↔ main IPC
- * boundary. A compromised main process, an Electron version mismatch, or
- * an accidental structured-clone drop of a field would otherwise let an
- * invalid object propagate silently. Throwing at the boundary preserves
- * the full diagnostic context in the call stack that produced it.
- *
- * `state` is validated against the exact discriminant union produced by
- * the services — a truly malformed payload (e.g. `{state: 'busy'}` from a
- * future version we haven't taught the renderer about) fails here rather
- * than propagating an unknown discriminant into reducer-style UI code.
- */
-const KNOWN_AVAILABILITY_STATES: ReadonlySet<LocalRuntimeAvailabilityState['state']> = new Set([
-  'available',
-  'auth_required',
-  'blocked_web',
-  'checking',
-  'incompatible',
-  'stale',
-  'unavailable',
-]);
-
-const KNOWN_CATALOG_STATES: ReadonlySet<LocalRuntimeModelCatalogState['state']> = new Set([
-  'failed',
-  'loaded_empty',
-  'loaded_non_empty',
-  'stale_cached',
-]);
-
-function isAvailabilityState(value: unknown): value is LocalRuntimeAvailabilityState {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const candidate = value as { state?: unknown };
-  return (
-    typeof candidate.state === 'string' &&
-    KNOWN_AVAILABILITY_STATES.has(candidate.state as LocalRuntimeAvailabilityState['state'])
-  );
-}
-
-function isCatalogState(value: unknown): value is LocalRuntimeModelCatalogState {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const candidate = value as { runtime?: unknown; state?: unknown };
-  return (
-    typeof candidate.runtime === 'string' &&
-    typeof candidate.state === 'string' &&
-    KNOWN_CATALOG_STATES.has(candidate.state as LocalRuntimeModelCatalogState['state'])
-  );
-}
-
-/**
- * Field names whose values are redacted before serializing the result of a
- * boundary-violation into an error message. If the main-process bridge ever
- * echoes request options back (a buggy wrapper, or a serialization error
- * that wraps the whole request), we don't want the bearer token leaking
- * into console logs or telemetry. The redaction is defensive — none of the
- * documented result shapes carry these fields, but a malformed payload
- * could.
- */
-// Case-insensitive exact matches against lowercased field names. Bare
-// `key` is intentionally NOT in this set — we use `modelKey` / `cacheKey`
-// as legitimate non-secret diagnostic identifiers, and redacting those
-// would hide useful info. Sensitive variants are named explicitly
-// (`providerKey`, `accessKey`, `sessionKey`, etc.) so expanding this list
-// doesn't accidentally redact something we want to keep readable.
-const SENSITIVE_BRIDGE_FIELDS: ReadonlySet<string> = new Set([
-  'apitoken',
-  'authorization',
-  'token',
-  'apikey',
-  'providerkey',
-  'accesskey',
-  'sessionkey',
-  'secret',
-  'password',
-  'bearer',
-]);
-
-/**
- * Hard cap on the serialized size of a bridge-result summary that ends up in
- * an `Error` message. A malformed payload (very large array, deeply nested
- * object, or worst-case an attacker-controlled echo from a compromised main
- * process) could otherwise produce a multi-megabyte error string that flows
- * into console logs, telemetry, and crash reports. 4 KiB is enough to capture
- * the discriminant + a few fields for triage and small enough to bound any
- * downstream cost.
- */
-const SUMMARY_MAX_LENGTH = 4096;
-
-function summarizeBridgeResult(value: unknown): string {
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(value, (key, val) => {
-      if (typeof key === 'string' && SENSITIVE_BRIDGE_FIELDS.has(key.toLowerCase())) {
-        return '[redacted]';
-      }
-      return val;
-    });
-  } catch {
-    // Circular or non-serializable — fall back to the type tag without
-    // leaking content.
-    return `[unserializable ${typeof value}]`;
-  }
-  if (serialized.length > SUMMARY_MAX_LENGTH) {
-    return `${serialized.slice(0, SUMMARY_MAX_LENGTH)}…[truncated ${serialized.length - SUMMARY_MAX_LENGTH} chars]`;
-  }
-  return serialized;
-}
-
-async function probeRuntimeViaBridgeOrService(
-  runtimeId: LocalRuntimeId,
-  options: {
-    readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
-    readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
-    readonly force?: boolean;
-  }
-): Promise<LocalRuntimeAvailabilityState> {
-  const overriddenStatus = getLocalRuntimeStatusTestOverride(runtimeId);
-  if (overriddenStatus !== undefined) {
-    recordLocalRuntimeProbeForTests(runtimeId);
-    return overriddenStatus;
-  }
-
-  const bridge = getRuntimeBridge();
-  return await withLocalRuntimeDiagnostics(
-    'probe',
-    runtimeId,
-    bridge ? 'native-bridge' : 'browser-service',
-    async () => {
-      if (bridge) {
-        const result = await bridge.probe(runtimeId, options);
-        if (!isAvailabilityState(result)) {
-          throw new Error(
-            `Unexpected probe result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
-          );
-        }
-        return result;
-      }
-      const { discoveryService } = getLocalRuntimeServices();
-      return await discoveryService.probeRuntime(runtimeId, options);
-    }
-  );
-}
-
-async function listRuntimeModelsViaBridgeOrService(
-  runtimeId: LocalRuntimeId,
-  options: {
-    readonly diagnosticLogLevel?: RuntimeDiagnosticLogLevel;
-    readonly endpoint?: { readonly apiToken?: string; readonly baseUrl?: string };
-    readonly force?: boolean;
-    readonly maxVerificationModels?: number;
-    readonly verifyEmbeddingDimensions?: boolean;
-  }
-): Promise<LocalRuntimeModelCatalogState> {
-  const bridge = getRuntimeBridge();
-  return await withLocalRuntimeDiagnostics(
-    'models',
-    runtimeId,
-    bridge ? 'native-bridge' : 'browser-service',
-    async () => {
-      if (bridge) {
-        const result = await bridge.listModels(runtimeId, options);
-        if (!isCatalogState(result)) {
-          throw new Error(
-            `Unexpected catalog result shape from main-process bridge for ${runtimeId}: ${summarizeBridgeResult(result)}`
-          );
-        }
-        return result;
-      }
-      const { modelCatalogService } = getLocalRuntimeServices();
-      return await modelCatalogService.listRuntimeModels(runtimeId, options);
-    }
-  );
-}
 
 interface ParsedCompositeModelKey {
   compositeKey: string;
@@ -568,94 +243,6 @@ function resolvePreferredModel(
   return enabledModels[0] ?? null;
 }
 
-function shouldIncludeLocalRuntimeProvider(status: LocalRuntimeAvailabilityState): boolean {
-  switch (status.state) {
-    case 'available':
-    case 'stale':
-      return true;
-    case 'checking':
-    case 'auth_required':
-    case 'incompatible':
-    case 'blocked_web':
-    case 'unavailable':
-      return false;
-    default:
-      return false;
-  }
-}
-
-function resolveLocalRuntimeActivation(
-  settings: AssistantProviderSettings | undefined
-): LocalRuntimeActivation {
-  return settings?.localRuntimeEnabled ?? 'auto';
-}
-
-function resolveLocalRuntimeBaseUrl(
-  settings: AssistantProviderSettings | undefined
-): string | undefined {
-  const raw = settings?.localRuntimeBaseUrl;
-  if (typeof raw !== 'string') {
-    return;
-  }
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Fetch the optional bearer token for a local runtime from the Electron
- * `window.secrets` bridge. Web builds (no secrets bridge, no stored keys)
- * fall through to `undefined` silently — there is nothing useful to log
- * there. Genuine bridge errors (e.g. Electron keychain locked, OS
- * credential store corrupt) DO log at warn level so desktop users with a
- * stored token who suddenly see \`auth_required\` probes can diagnose from
- * the log stream. Detection always proceeds anonymously after a failure;
- * throwing here would block every probe on a transient keychain hiccup.
- */
-async function resolveLocalRuntimeApiToken(
-  providerId: SupportedProvider
-): Promise<string | undefined> {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  const secrets = (
-    window as Window & { secrets?: { getKey?: (provider: string) => Promise<string | null> } }
-  ).secrets;
-  if (typeof secrets?.getKey !== 'function') {
-    return;
-  }
-  try {
-    const key = await secrets.getKey(providerId);
-    if (typeof key !== 'string') {
-      return;
-    }
-    const trimmed = key.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  } catch (error) {
-    logger.warn('Failed to read stored local runtime token', {
-      error: error instanceof Error ? error.message : String(error),
-      providerId,
-    });
-  }
-  return;
-}
-
-async function buildLocalRuntimeEndpointConfig(
-  providerId: SupportedProvider,
-  settings: AssistantProviderSettings | undefined
-): Promise<{ apiToken?: string; baseUrl?: string } | undefined> {
-  const [baseUrl, apiToken] = await Promise.all([
-    Promise.resolve(resolveLocalRuntimeBaseUrl(settings)),
-    resolveLocalRuntimeApiToken(providerId),
-  ]);
-  if (!(baseUrl || apiToken)) {
-    return;
-  }
-  return {
-    ...(baseUrl ? { baseUrl } : {}),
-    ...(apiToken ? { apiToken } : {}),
-  };
-}
-
 const TAVILY_ENV_KEYS = new Set(['BRAINSTRIKE_TAVILY_API_KEY', 'TAVILY_API_KEY']);
 
 function invalidProviderKeyMetadata(): Error {
@@ -708,83 +295,6 @@ async function getProvidersWithConfiguredKeys(): Promise<readonly SupportedProvi
 
   const configured = parseConfiguredProviderKeys(await secretsBridge.list());
   return SUPPORTED_PROVIDERS.filter((provider) => configured.has(provider));
-}
-
-interface DetectedRuntimeProvidersResult {
-  readonly errors: readonly unknown[];
-  readonly providers: readonly SupportedProvider[];
-}
-
-async function getDetectedRuntimeProviders(
-  providerSettings: ProviderSettingsMap
-): Promise<DetectedRuntimeProvidersResult> {
-  const detected: SupportedProvider[] = [];
-
-  // `on` providers are included up-front so users can select a forced remote
-  // runtime even before (or without) a successful probe. `off` providers are
-  // skipped entirely — no probe, no result in the picker. `auto` is the
-  // default and follows the detection state.
-  const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
-  const autoRuntimes: LocalRuntimeId[] = [];
-
-  for (const runtimeId of runtimeIds) {
-    const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-    const activation = resolveLocalRuntimeActivation(providerSettings[providerId]);
-    if (activation === 'off') {
-      continue;
-    }
-    if (activation === 'on') {
-      detected.push(providerId);
-      continue;
-    }
-    autoRuntimes.push(runtimeId);
-  }
-
-  if (autoRuntimes.length === 0) {
-    return { errors: [], providers: detected };
-  }
-
-  // Probe only the `auto` runtimes. Each probe carries the user's stored
-  // baseUrl and bearer token so "auto" against a remote token-protected
-  // host (Ollama Turbo, LM Studio with auth) still surfaces as available.
-  // Prefer the main-process bridge on desktop to sidestep Chromium CORS.
-  const probes = await Promise.allSettled(
-    autoRuntimes.map(async (runtimeId) => {
-      const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-      const endpoint = await buildLocalRuntimeEndpointConfig(
-        providerId,
-        providerSettings[providerId]
-      );
-      const status = await probeRuntimeViaBridgeOrService(runtimeId, {
-        diagnosticLogLevel: 'debug',
-        ...(endpoint ? { endpoint } : {}),
-      });
-      return { providerId, status };
-    })
-  );
-
-  const errors: unknown[] = [];
-  for (const [index, probe] of probes.entries()) {
-    const runtimeId = autoRuntimes[index];
-    if (!runtimeId) {
-      throw new Error('Local runtime probe results lost their registry ordering');
-    }
-    if (probe.status === 'rejected') {
-      const reason = probe.reason;
-      errors.push(
-        new Error(
-          `${runtimeId} discovery failed: ${reason instanceof Error ? reason.message : String(reason)}`,
-          { cause: reason }
-        )
-      );
-      continue;
-    }
-    if (shouldIncludeLocalRuntimeProvider(probe.value.status)) {
-      detected.push(probe.value.providerId);
-    }
-  }
-
-  return { errors, providers: detected };
 }
 
 function orderProvidersByRegistry(providers: ReadonlySet<SupportedProvider>): SupportedProvider[] {
@@ -1113,130 +623,12 @@ export const useAssistantPreferencesStore = create<Store>()(
           return orderProvidersByRegistry(new Set(providersTestOverride));
         }
 
-        const combined = new Set<SupportedProvider>(STATIC_NO_KEY_PROVIDERS);
-        const { providerSettings } = get();
-        const [providersWithConfiguredKeys, runtimeDiscovery] = await Promise.all([
-          getProvidersWithConfiguredKeys(),
-          getDetectedRuntimeProviders(providerSettings),
-        ]);
-
-        for (const provider of providersWithConfiguredKeys) {
-          combined.add(provider);
-        }
-
-        for (const provider of runtimeDiscovery.providers) {
-          combined.add(provider);
-        }
-
-        const providers = orderProvidersByRegistry(combined);
-        if (runtimeDiscovery.errors.length > 0) {
-          throw new AvailableProviderDiscoveryError(runtimeDiscovery.errors, providers);
-        }
-        return providers;
+        return [...(await getProvidersWithConfiguredKeys())];
       },
 
       getEnabledModels: (provider) => {
         const { enabledModelsByProvider } = get();
         return [...(enabledModelsByProvider[provider] ?? DEFAULT_ENABLED_MODELS[provider] ?? [])];
-      },
-
-      getLocalRuntimeModels: async (options) => {
-        const { providerSettings } = get();
-        const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
-
-        const entries = await Promise.all(
-          runtimeIds.map(async (runtimeId) => {
-            const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-            const settings = providerSettings[providerId];
-            // Mirror the `off` short-circuit from getLocalRuntimeStatuses so a
-            // disabled runtime isn't contacted every time the UI refreshes the
-            // model catalog (e.g., when a sibling runtime is reachable).
-            if (resolveLocalRuntimeActivation(settings) === 'off') {
-              const offState: LocalRuntimeModelCatalogState = {
-                availability: {
-                  checkedAt: Date.now(),
-                  message: 'Disabled by settings',
-                  state: 'unavailable',
-                },
-                checkedAt: Date.now(),
-                message: 'Disabled by settings',
-                runtime: runtimeId,
-                state: 'failed',
-              };
-              return [runtimeId, offState] as const;
-            }
-            const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
-            const catalogState = await listRuntimeModelsViaBridgeOrService(runtimeId, {
-              ...(options?.diagnosticLogLevel
-                ? { diagnosticLogLevel: options.diagnosticLogLevel }
-                : {}),
-              ...(options?.force ? { force: true } : {}),
-              ...(options?.verifyEmbeddingDimensions ? { verifyEmbeddingDimensions: true } : {}),
-              ...(typeof options?.maxVerificationModels === 'number'
-                ? { maxVerificationModels: options.maxVerificationModels }
-                : {}),
-              ...(endpoint ? { endpoint } : {}),
-            });
-            return [runtimeId, catalogState] as const;
-          })
-        );
-
-        return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeModelCatalogState>;
-      },
-
-      getLocalRuntimeStatus: async (runtimeId, options) => {
-        const { providerSettings } = get();
-        const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-        const settings = providerSettings[providerId];
-        if (resolveLocalRuntimeActivation(settings) === 'off') {
-          return {
-            checkedAt: Date.now(),
-            message: 'Disabled by settings',
-            state: 'unavailable',
-          };
-        }
-        const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
-        return probeRuntimeViaBridgeOrService(runtimeId, {
-          ...(options?.diagnosticLogLevel
-            ? { diagnosticLogLevel: options.diagnosticLogLevel }
-            : {}),
-          ...(options?.force ? { force: true } : {}),
-          ...(endpoint ? { endpoint } : {}),
-        });
-      },
-
-      getLocalRuntimeStatuses: async (options) => {
-        const { providerSettings } = get();
-        const runtimeIds = Object.keys(LOCAL_RUNTIME_PROVIDER_BY_RUNTIME) as LocalRuntimeId[];
-
-        const entries = await Promise.all(
-          runtimeIds.map(async (runtimeId) => {
-            const providerId = LOCAL_RUNTIME_PROVIDER_BY_RUNTIME[runtimeId];
-            const settings = providerSettings[providerId];
-            // Respect the tri-state: `off` surfaces a synthetic "unavailable"
-            // status without probing, so the UI does not keep the server warm
-            // for a runtime the user explicitly disabled.
-            if (resolveLocalRuntimeActivation(settings) === 'off') {
-              const offStatus: LocalRuntimeAvailabilityState = {
-                checkedAt: Date.now(),
-                message: 'Disabled by settings',
-                state: 'unavailable',
-              };
-              return [runtimeId, offStatus] as const;
-            }
-            const endpoint = await buildLocalRuntimeEndpointConfig(providerId, settings);
-            const status = await probeRuntimeViaBridgeOrService(runtimeId, {
-              ...(options?.diagnosticLogLevel
-                ? { diagnosticLogLevel: options.diagnosticLogLevel }
-                : {}),
-              ...(options?.force ? { force: true } : {}),
-              ...(endpoint ? { endpoint } : {}),
-            });
-            return [runtimeId, status] as const;
-          })
-        );
-
-        return Object.fromEntries(entries) as Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
       },
 
       getProviderSettings: (provider) =>
@@ -1260,16 +652,12 @@ export const useAssistantPreferencesStore = create<Store>()(
         if (!parsed) {
           return;
         }
-        const changed = get().selectedModel !== parsed.compositeKey;
         // The UI validates enabled state before this single atomic preference update.
         set((state) => ({
           modelsByProvider: { ...state.modelsByProvider, [parsed.provider]: parsed.model },
           recentModels: pushRecentModel(state.recentModels, parsed.compositeKey),
           selectedModel: parsed.compositeKey,
         }));
-        if (changed) {
-          recordAssistantModelDiagnostic('assistant_model_selected', parsed.provider);
-        }
       },
 
       setModelEnabled: (provider, model, enabled) =>
@@ -1426,11 +814,6 @@ function resetStoreState() {
 export function __resetAssistantPreferencesStoreForTests() {
   try {
     resetStoreState();
-    if (localRuntimeServices) {
-      localRuntimeServices.discoveryService.clearCache();
-      localRuntimeServices.modelCatalogService.clearCache();
-      localRuntimeServices = null;
-    }
     clearPersistedStorageForTests(useAssistantPreferencesStore);
   } catch {
     // Intentionally silent in tests - if storage fails, state is still reset.

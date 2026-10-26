@@ -11,7 +11,6 @@ export const threadGroupsContract = {
       assertArgCount(raw, 0, 'Thread root catalog');
       return [];
     },
-    roles: ['visible-ui'],
   }),
   request: channel<[ThreadGroupsRequest], ThreadGroupsReply>({
     channel: DESKTOP_IPC_CHANNELS.threadGroups.request,
@@ -19,6 +18,5 @@ export const threadGroupsContract = {
       assertArgCount(raw, 1, 'Thread groups');
       return [parseThreadGroupsRequest(raw[0])];
     },
-    roles: ['visible-ui'],
   }),
 };

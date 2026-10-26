@@ -9,7 +9,6 @@ import type {
   IndexerGrepRequest,
   IndexerSearchRequest,
   IndexLifecycleCapability,
-  IndexRetryCapability,
   IndexRootRegistrationCapability,
   IndexSearchCapability,
   NativeIndexObservation,
@@ -129,6 +128,33 @@ function parseSearch(raw: readonly unknown[]): [IndexerSearchRequest] {
     },
   ];
 }
+/** One search query's embedding: the index's hosted model, keyed `provider::modelId`, and the text. */
+export interface QueryEmbeddingRequest {
+  readonly dimensions: number;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly query: string;
+}
+function parseEmbedQuery(raw: readonly unknown[]): [QueryEmbeddingRequest] {
+  const record = one(raw);
+  assertSupportedKeys(record, ['dimensions', 'modelId', 'modelKey', 'query'], 'query embedding');
+  const dimensions = requireFiniteNumber(record, 'dimensions', 'query embedding');
+  if (!Number.isSafeInteger(dimensions) || dimensions < 1) {
+    throw new TypeError('Query embedding dimensions must be a positive integer.');
+  }
+  const query = requireStringType(record, 'query', 'query embedding');
+  if (!query.trim()) {
+    throw new TypeError('Query embedding needs a nonempty query.');
+  }
+  return [
+    {
+      dimensions,
+      modelId: requireStringType(record, 'modelId', 'query embedding'),
+      modelKey: requireStringType(record, 'modelKey', 'query embedding'),
+      query,
+    },
+  ];
+}
 function parseGrep(raw: readonly unknown[]): [IndexerGrepRequest] {
   const record = one(raw);
   assertSupportedKeys(
@@ -166,22 +192,22 @@ export const indexSearchContract = {
   coverage: channel<[IndexerCoverageRequest], Result<'coverage'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.coverage,
     parseArgs: parseCoverage,
-    roles: ['visible-ui'],
   }),
   coverageBatch: channel<[readonly IndexerCoverageRequest[]], Result<'coverageBatch'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.coverageBatch,
     parseArgs: parseCoverageBatch,
-    roles: ['visible-ui'],
+  }),
+  embedQuery: channel<[QueryEmbeddingRequest], number[]>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.embedQuery,
+    parseArgs: parseEmbedQuery,
   }),
   fileChunks: channel<[IndexerFileChunksRequest], Result<'fileChunks'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.fileChunks,
     parseArgs: parseFileChunks,
-    roles: ['visible-ui'],
   }),
   grep: channel<[IndexerGrepRequest], Result<'grep'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.grep,
     parseArgs: parseGrep,
-    roles: ['visible-ui'],
   }),
   onConfigChanged: pushEvent<IndexConfig>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.configChanged,
@@ -192,17 +218,10 @@ export const indexSearchContract = {
   readConfig: channel<[], IndexConfig>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.readConfig,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   rebuild: channel<[], Result<'rebuild'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.rebuild,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
-  }),
-  retryIndexing: channel<[], void>({
-    channel: DESKTOP_IPC_CHANNELS.indexSearch.retryIndexing,
-    parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   rootsRegistered: channel<[], void>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.rootsRegistered,
@@ -210,17 +229,14 @@ export const indexSearchContract = {
       assertArgCount(raw, 0, 'native root registration');
       return [];
     },
-    roles: ['visible-ui'],
   }),
   search: channel<[IndexerSearchRequest], Result<'search'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.search,
     parseArgs: parseSearch,
-    roles: ['visible-ui'],
   }),
   status: channel<[], Result<'status'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.status,
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   // Main decodes the change with IndexConfigPatchSchema; a preload contract stays Effect-free.
   updateConfig: channel<[unknown], IndexConfig>({
@@ -229,9 +245,12 @@ export const indexSearchContract = {
       assertArgCount(raw, 1, 'search index settings change');
       return [raw[0]];
     },
-    roles: ['visible-ui'],
   }),
 } satisfies Contract;
+/** The renderer's search query embedding, answered by Main's hosted embedder. */
+export interface IndexQueryEmbeddingCapability {
+  embedQuery(request: QueryEmbeddingRequest): Promise<number[]>;
+}
 /** @internal Compile-time assertion that the runtime contract matches its public wire types. */
 export type IndexSearchBridgeDerivation = AssertTrue<
   BridgeMatches<
@@ -240,7 +259,7 @@ export type IndexSearchBridgeDerivation = AssertTrue<
       IndexSearchCapability &
       IndexChunkBoundsCapability &
       IndexRootRegistrationCapability &
-      IndexRetryCapability &
+      IndexQueryEmbeddingCapability &
       IndexLifecycleCapability
   >
 >;

@@ -47,7 +47,7 @@ export interface DesktopHostMcpSettings {
 
 let windowSettings: DesktopHostMcpSettings | undefined;
 
-/** `null` where this window has no agent-host capability (web, hidden hosts). */
+/** `null` where this window has no agent-host capability (web). */
 export function resolveDesktopHostMcpSettings(): DesktopHostMcpSettings | null {
   if (!window.agentHost) {
     return null;

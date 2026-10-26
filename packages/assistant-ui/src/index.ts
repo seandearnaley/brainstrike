@@ -163,7 +163,6 @@ export {
   SubagentConversationNavigationContext,
   type SubagentConversationPresentation,
   SubagentConversationPresentationContext,
-  SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
 export { personaLabelForToolName } from './subagent-persona-label';

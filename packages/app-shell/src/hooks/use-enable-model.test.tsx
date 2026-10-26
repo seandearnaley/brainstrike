@@ -25,26 +25,12 @@ afterEach(() => {
 });
 
 describe('useEnableModel', () => {
-  it('toggles a hosted-runtime model through useModelToggle and resolves its result, without a toast', async () => {
+  it('toggles a registry model through useModelToggle and resolves its result, without a toast', async () => {
     const { result } = renderHook(() => useEnableModel());
 
     await expect(result.current('anthropic', 'claude-opus-5')).resolves.toBe(true);
     expect(toggleMock).toHaveBeenCalledWith('claude-opus-5', true);
     expect(toastMock).not.toHaveBeenCalled();
-  });
-
-  it('refuses a local-runtime provider without calling toggle', async () => {
-    const { result } = renderHook(() => useEnableModel());
-
-    await expect(result.current('ollama', 'llama3')).resolves.toBe(false);
-    expect(toggleMock).not.toHaveBeenCalled();
-    expect(toastMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        description: 'ollama models are enabled by their runtime, not the model registry.',
-        title: 'Could not enable this model',
-        variant: 'destructive',
-      })
-    );
   });
 
   it('refuses an unsupported provider id without calling toggle', async () => {

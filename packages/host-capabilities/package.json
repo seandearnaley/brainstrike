@@ -31,6 +31,7 @@
     "./workspace-text-file-reader": "./src/native-tools/workspace-text-file-reader.ts",
     "./mcp/*": "./src/mcp/*.ts",
     "./openrouter-model-metadata": "./src/openrouter-model-metadata.ts",
+    "./provider-base-url": "./src/provider-base-url.ts",
     "./provider-credentials": "./src/provider-credentials.ts",
     "./provider-status": "./src/provider-status.ts",
     "./provider-verification": "./src/provider-verification.ts"

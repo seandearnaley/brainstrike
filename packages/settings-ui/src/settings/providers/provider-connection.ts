@@ -1,6 +1,5 @@
 import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type {
-  ProviderAuthType,
   ProviderDefinition,
   ProviderRuntime,
 } from '@brainstrike/assistant-contract/provider-metadata';
@@ -20,14 +19,11 @@ export type ProviderSourceState = CredentialSourceState | 'unavailable';
 /**
  * Whether the runtime can authenticate as this provider right now.
  *
- * `not-applicable` is deliberately distinct from `disconnected`: a keyless
- * local runtime has nothing to connect, and reporting it as disconnected would
- * invent a problem the user cannot fix on this surface. `unknown` is equally
- * deliberate — while the credential listing is loading, has FAILED, or is
- * unavailable entirely, "not set" is a claim the data cannot support (NO
- * SILENT FALLBACKS).
+ * `unknown` is deliberately distinct from `disconnected` — while the credential
+ * listing is loading, has FAILED, or is unavailable entirely, "not set" is a
+ * claim the data cannot support (NO SILENT FALLBACKS).
  */
-export type ProviderConnectionState = 'connected' | 'disconnected' | 'not-applicable' | 'unknown';
+export type ProviderConnectionState = 'connected' | 'disconnected' | 'unknown';
 
 export interface ProviderCardModel {
   readonly connection: ProviderConnectionState;
@@ -53,35 +49,23 @@ export interface ProviderRuntimeGroup {
  * (`use-assistant-model-picker-config.ts`), so a provider sits in the same
  * place in Settings as it does in the composer.
  */
-export const PROVIDER_RUNTIME_ORDER: readonly ProviderRuntime[] = [
-  'hosted',
-  'gateway',
-  'local',
-  'on-device',
-];
+export const PROVIDER_RUNTIME_ORDER: readonly ProviderRuntime[] = ['hosted', 'gateway'];
 
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   gateway: 'Gateway',
   hosted: 'Hosted',
-  local: 'Local',
-  'on-device': 'On device',
 };
 
 /** How many providers the first-run panel suggests. */
 const RECOMMENDATION_COUNT = 3;
 
 export function resolveProviderConnection({
-  authType,
   source,
   sourceState,
 }: {
-  readonly authType: ProviderAuthType;
   readonly source: ProviderKeySource<string> | undefined;
   readonly sourceState: ProviderSourceState;
 }): ProviderConnectionState {
-  if (authType === 'none') {
-    return 'not-applicable';
-  }
   if (source) {
     return 'connected';
   }
@@ -116,11 +100,7 @@ export function buildProviderRuntimeGroups({
       );
     }
     bucket.push({
-      connection: resolveProviderConnection({
-        authType: definition.authType,
-        source,
-        sourceState,
-      }),
+      connection: resolveProviderConnection({ source, sourceState }),
       definition,
       registryIndex,
       source,

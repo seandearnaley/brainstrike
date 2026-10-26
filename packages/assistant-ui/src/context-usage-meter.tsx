@@ -85,7 +85,7 @@ export type OmAwaitingObserverReason =
   | 'keys-unknown'
   | 'model-not-eligible'
   | 'no-backend'
-  | 'no-hosted-chat-provider';
+  | 'no-chat-provider';
 
 /**
  * The OM record's own lifecycle, as the desktop host reports it (BST-2201):
@@ -113,7 +113,6 @@ export interface MemoryModelsDisplay {
   readonly embedder?: {
     readonly dimensions: number;
     readonly distance: string;
-    readonly dtype?: string;
     readonly modelId: string;
     readonly provider: string;
   };

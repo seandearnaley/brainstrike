@@ -23,30 +23,30 @@ const openAiDisabledModel: LlmProviderModelDefinition = {
   vision: 'unsupported',
 };
 
-const ollamaModel: LlmProviderModelDefinition = {
+const gatewayModel: LlmProviderModelDefinition = {
   contextWindow: 200_000,
-  id: 'llama3.2',
-  label: 'Llama 3.2',
+  id: 'vendor/uncatalogued',
+  label: 'Uncatalogued',
   supportsStreaming: true,
   type: 'llm',
-  vision: 'unknown',
+  vision: 'unsupported',
 };
 
 describe('useAssistantModelPickerConfig', () => {
   it('builds grouped provider config and picker models from enabled LLM definitions', () => {
     const getProviderLlmModels = vi.fn((provider) => {
-      if (provider === 'ollama') {
-        return [ollamaModel];
+      if (provider === 'openrouter') {
+        return [gatewayModel];
       }
       return [openAiDefaultModel, openAiDisabledModel];
     });
     const isModelEnabled = vi.fn((_providerId, modelId) =>
-      ['hosted-default', 'llama3.2'].includes(modelId)
+      ['hosted-default', 'vendor/uncatalogued'].includes(modelId)
     );
 
     const { result } = renderHook(() =>
       useAssistantModelPickerConfig({
-        configuredProviders: ['openai', 'ollama'],
+        configuredProviders: ['openai', 'openrouter'],
         getProviderLlmModels,
         isModelEnabled,
       })
@@ -83,34 +83,34 @@ describe('useAssistantModelPickerConfig', () => {
         runtime: 'hosted',
       },
       {
-        label: 'Local',
+        label: 'Gateway',
         providers: [
           expect.objectContaining({
             capabilities: expect.objectContaining({
               llm: true,
               supportsStandardEmbeddingDimension: false,
             }),
-            id: 'ollama',
+            id: 'openrouter',
             models: [
               {
                 default: false,
                 enabled: true,
-                id: 'llama3.2',
-                label: 'Llama 3.2',
+                id: 'vendor/uncatalogued',
+                label: 'Uncatalogued',
                 supportsStreaming: true,
                 type: 'llm',
               },
             ],
-            name: 'Ollama (Local Runtime)',
-            runtime: 'local',
+            name: 'OpenRouter',
+            runtime: 'gateway',
           }),
         ],
-        runtime: 'local',
+        runtime: 'gateway',
       },
     ]);
     expect(result.current.pickerProviders).toEqual([
       { icon: null, id: 'openai', name: 'OpenAI' },
-      { icon: null, id: 'ollama', name: 'Ollama (Local Runtime)' },
+      { icon: null, id: 'openrouter', name: 'OpenRouter' },
     ]);
     expect(result.current.pickerModels).toEqual([
       {
@@ -129,19 +129,19 @@ describe('useAssistantModelPickerConfig', () => {
         providerId: 'openai',
       },
       {
-        // Discovered runtime models surface tri-state 'unknown' (unverified),
+        // Undeclared gateway models surface reasoning 'unknown' (unverified),
         // and taglineless models keep a null description (no invented copy).
         capabilities: {
           reasoning: 'unknown',
           streaming: true,
           type: 'llm',
-          vision: 'unknown',
+          vision: 'unsupported',
         },
         contextWindow: 200_000,
         description: null,
-        id: 'llama3.2',
-        name: 'Llama 3.2',
-        providerId: 'ollama',
+        id: 'vendor/uncatalogued',
+        name: 'Uncatalogued',
+        providerId: 'openrouter',
       },
     ]);
   });

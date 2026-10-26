@@ -180,10 +180,7 @@ export class HostRunOutcome {
     });
     this.failure =
       cause instanceof StreamStalledError
-        ? describeStreamStall(cause, {
-            model: this.configuration?.model ?? this.modelId,
-            provider: this.configuration?.provider,
-          })
+        ? describeStreamStall(cause)
         : cause instanceof ToolCallInputStreamingTimeoutError
           ? describeToolCallInputTimeout(cause)
           : failure && describeBoundaryFailure(failure);

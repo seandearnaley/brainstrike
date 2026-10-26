@@ -31,16 +31,7 @@ export interface DatabaseChunkInsert {
 export interface InsertChunksAndEnqueueEmbeddingJobsOptions {
   dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension' | null;
   model?: string | null;
-  provider?:
-    | 'local'
-    | 'transformers'
-    | 'openai'
-    | 'google'
-    | 'cohere'
-    | 'voyage'
-    | 'ollama'
-    | 'lmstudio'
-    | null;
+  provider?: 'openai' | 'google' | 'cohere' | 'voyage' | null;
   targetDimension?: number | null;
   targetEmbeddingSetId?: string | null;
 }

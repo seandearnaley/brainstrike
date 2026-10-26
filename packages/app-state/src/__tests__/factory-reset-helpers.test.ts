@@ -390,7 +390,7 @@ describe('clearPersistentUiState IndexedDB handling', () => {
   it('deletes every CacheStorage entry and verifies the reset', async () => {
     const keysMock = vi
       .fn<() => Promise<string[]>>()
-      .mockResolvedValueOnce(['runtime-cache', 'model-cache'])
+      .mockResolvedValueOnce(['runtime-cache', 'response-cache'])
       .mockResolvedValueOnce([]);
     const deleteMock = vi.fn(async () => true);
     Object.defineProperty(globalWindow, 'caches', {
@@ -404,7 +404,7 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     await clearPersistentUiState({ skipIndexedDb: true });
 
     expect(deleteMock).toHaveBeenCalledWith('runtime-cache');
-    expect(deleteMock).toHaveBeenCalledWith('model-cache');
+    expect(deleteMock).toHaveBeenCalledWith('response-cache');
     expect(keysMock).toHaveBeenCalledTimes(2);
   });
 

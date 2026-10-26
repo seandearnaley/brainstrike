@@ -10,7 +10,7 @@ export interface ComposerDraftChannel {
   readonly command: AssistantComposerCommand | undefined;
   /** Acknowledges a command only once its text is in the draft. */
   readonly onApplied: (commandId: string) => void;
-  /** Records the live draft so prompt recall and the carry can read it. */
+  /** Records the live draft so the carry can read it. */
   readonly onTextChange: (text: string) => void;
 }
 

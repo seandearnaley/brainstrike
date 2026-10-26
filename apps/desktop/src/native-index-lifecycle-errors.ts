@@ -17,11 +17,6 @@ export function nativeIndexClosedError(
 export function nativeIndexStateError(state: NativeIndexState): Error {
   if (state.kind === 'failed' || state.kind === 'unconfigured') {
     const refusal = nativeIndexFailureRefusal(state.cause);
-    // A host that stopped responding stays that typed refusal even when its retirement also
-    // failed: only Retry indexing recovers it, and the full failure rides as the cause (BST-2104).
-    if (refusal.kind === 'embedding-host-unresponsive') {
-      return new NativeIndexRefusalError(refusal, refusal.message, { cause: state.cause.error });
-    }
     if (state.cause.error instanceof NativeIndexRefusalError) {
       return state.cause.error;
     }

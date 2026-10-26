@@ -19,7 +19,6 @@ describe('logging API contract', () => {
       durableRecord: 'logging:durable-record',
       getBufferedLogs: 'logging:get-buffered-logs',
       getPreferences: 'logging:get-preferences',
-      ingestBufferedRecord: 'logging:ingest-buffered-record',
       openDestination: 'logging:open-destination',
       preferencesUpdated: 'logging:preferences-updated',
       selectDestination: 'logging:select-destination',

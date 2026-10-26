@@ -26,6 +26,16 @@ export function isWindowsPath(path: string): boolean {
   return WINDOWS_PATH.test(path);
 }
 
+/**
+ * `path` with `/` between its segments, by its grammar: a Windows path's
+ * backslashes become `/`, while a POSIX name keeps its backslashes. Glob
+ * matching splits on `/` alone wherever no Node `process` names the platform
+ * (a renderer, a worker), so a native Windows path is matched in this form.
+ */
+export function slashSeparatedPath(path: string): string {
+  return isWindowsPath(path) ? path.replaceAll('\\', '/') : path;
+}
+
 /** The last segment separator of `path` at or before `fromIndex`, by its grammar; -1 if none. */
 export function lastPathSeparatorIndex(path: string, fromIndex = path.length - 1): number {
   const slash = path.lastIndexOf('/', fromIndex);

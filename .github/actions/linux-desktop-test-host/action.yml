@@ -2,26 +2,16 @@ name: Linux desktop test host
 description: >-
   BST-2127. The one Linux host provisioning for every lane that runs the Unit
   suites or their coverage (test.yml `unit-shard`, nightly-coverage.yml
-  `package-coverage`): the real OS-fence dependencies, an X server for the
-  integration passes that launch Electron and, when asked, the desktop test
-  model cache.
-  Callers MUST check out and run `setup-workspace` first: the model cache is
-  provisioned by a desktop package script under the installed Electron.
-# ONE host, two lanes. Nightly Coverage gained xvfb and the model cache in #3813
-# while the Unit lane kept its own fence-only copy, so the first hosted Unit run
-# (Test run 39066362173) failed desktop's integration proofs at launch
-# ("Missing X server or $DISPLAY", "BRAINSTRIKE_M3_TRANSFORMERS_CACHE_ORIGIN must
-# identify an existing app-origin transformers-cache"). Both lanes call this
+  `package-coverage`): the real OS-fence dependencies and an X server for the
+  integration passes that launch Electron.
+  Callers MUST check out and run `setup-workspace` first.
+# ONE host, two lanes. Nightly Coverage gained xvfb in #3813 while the Unit lane
+# kept its own fence-only copy, so the first hosted Unit run (Test run
+# 39066362173) failed desktop's integration proofs at launch ("Missing X server
+# or $DISPLAY"). Both lanes call this
 # action, so they cannot drift again; scripts/__tests__/
 # linux-desktop-test-host-contract.test.mjs fails any lane that runs desktop's
 # integration without it.
-inputs:
-  model-cache:
-    description: >-
-      'true' provisions apps/desktop/test-cache/transformers-cache, which the
-      ordinary vector-search proof copies into its disposable profile.
-    required: false
-    default: 'false'
 runs:
   using: composite
   steps:
@@ -64,15 +54,7 @@ runs:
         # Asserting it here names a future image that drops it as provisioning.
         python3 --version
 
-    # Provisioned before the model cache step launches Electron and before any
-    # lane runs.
+    # Provisioned before any lane runs.
     - name: Provision the Electron binary
       uses: ./.github/actions/provision-electron
 
-    # Electron itself downloads the model into the app origin's Cache Storage
-    # (apps/desktop/scripts/provision-test-model-cache.mjs), so it needs the X
-    # server too. The proof never downloads a model itself.
-    - name: Provision the desktop test model cache
-      if: ${{ inputs.model-cache == 'true' }}
-      shell: bash
-      run: xvfb-run --auto-servernum pnpm --filter @brainstrike/desktop provision:test-model-cache

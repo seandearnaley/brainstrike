@@ -1,9 +1,4 @@
 import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
-import type {
-  WorkspaceIndexingIdleState,
-  WorkspaceIndexingPowerSource,
-  WorkspaceIndexingThermalState,
-} from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
   DiagnosticEventsReader,
@@ -26,11 +21,7 @@ import type { viewFilterPresetsContract } from '../ipc-domains/view-filter-prese
 import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import type { LoggingSettingsPayload } from '../logging-shared';
 import type { TransportBridge } from '../platform/ipc-contract';
-import type {
-  DesktopElectronApi,
-  EmbeddingHostRuntimeBridge,
-  VisibleEmbeddingHostBridge,
-} from './desktop-electron-api';
+import type { VisibleDesktopElectronApi } from './desktop-electron-api';
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
@@ -93,8 +84,7 @@ declare global {
       noteReloadIntent: (reason: string) => Promise<void>;
       requestReload: (reason: string) => Promise<void>;
     };
-    electronAPI?: DesktopElectronApi;
-    embeddingHost?: EmbeddingHostRuntimeBridge | VisibleEmbeddingHostBridge;
+    electronAPI?: VisibleDesktopElectronApi;
     /**
      * Env bootstrap visibility bridge (BST-1363). Shape defined ONCE in
      * `@brainstrike/assistant-contract/env-bootstrap-bridge`
@@ -132,7 +122,6 @@ declare global {
       selectDestination: () => Promise<BoundaryResult<string | null>>;
       openDestination: (target: string | null) => Promise<BoundaryResult<boolean>>;
       getBufferedLogs: () => Promise<BoundaryResult<LogRecord[]>>;
-      ingestBufferedRecord: (record: LogRecord) => void;
       onDurableRecord: (listener: (record: LogRecord) => void) => () => void;
       onPreferencesUpdated: (
         callback: (preferences: LoggingPreferences) => void
@@ -154,16 +143,6 @@ declare global {
       openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
       openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
       showItemInFolder: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
-    };
-    power: {
-      getSnapshot: () => Promise<{
-        idleState: WorkspaceIndexingIdleState;
-        idleTimeMs: number;
-        powerSource: WorkspaceIndexingPowerSource;
-        sampledAt: number;
-        thermalState: WorkspaceIndexingThermalState;
-      }>;
-      onPowerState: (callback: (state: 'resume' | 'suspend') => void) => () => void;
     };
     promptLibrary?: TransportBridge<typeof promptLibraryContract>;
     /**

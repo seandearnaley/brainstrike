@@ -8,8 +8,7 @@
  * requiring file content to be loaded first.
  *
  * Priority contract: foreground token counting (this hook) is never gated on background-sync
- * flags (`isImporting`, `isEmbeddingActive`). The WebGPU/LLM priority contract lives in
- * `packages/utils/src/background-work-arbiter.ts` and is enforced at the collection-sync layer.
+ * flags (`isImporting`, `isEmbeddingActive`).
  */
 
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
@@ -138,15 +137,9 @@ function doesPreloadedSnapshotCoverSelection(
 }
 
 // Foreground selection-driven dispatch is intentionally NOT gated on
-// `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only and
-// does not contend with the collection sync for WebGPU; PGLite serializes
-// cache writes internally so concurrent `TokenCacheStore.set` calls from the
-// foreground and background paths cannot corrupt data. The WebGPU priority
-// contract (local LLM > background sync) lives in `background-work-arbiter`
-// and is enforced at the collection-sync layer, not here. See
-// packages/utils/src/background-work-arbiter.ts and
-// packages/app-shell/src/background-indexing/workspace-collection-sync-provider.tsx
-// for the full priority story.
+// `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only, and
+// PGLite serializes cache writes internally so concurrent `TokenCacheStore.set`
+// calls from the foreground and background paths cannot corrupt data.
 function getSelectionSkipState(params: {
   hasHandleSource: boolean;
   selectedCount: number;

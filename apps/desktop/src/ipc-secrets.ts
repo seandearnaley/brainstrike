@@ -246,10 +246,9 @@ export function registerSecretsIpcHandlers(
   const registry = createDesktopIpcRegistry({ ipcMain });
   const envFileFailures = options.envFileFailures ?? [];
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.save,
-    { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider, value] = decodeProviderValueArgs(args);
       try {
@@ -260,20 +259,18 @@ export function registerSecretsIpcHandlers(
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.get,
-    { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider] = decodeProviderArgs(args);
       return await secrets.getKey(provider);
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.saveCredential,
-    { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider, credential] = decodeProviderCredentialArgs(args);
       // Single validation site: setCredential's guard.
@@ -285,10 +282,9 @@ export function registerSecretsIpcHandlers(
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.getCredential,
-    { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider] = decodeProviderArgs(args);
       // Failures are serialized as data — invoke drops custom error props.
@@ -304,76 +300,61 @@ export function registerSecretsIpcHandlers(
     }
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.delete,
-    { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider] = decodeProviderArgs(args);
       return await secrets.deleteKey(provider);
     }
   );
 
-  registry.registerAuthorizedInvoke(
-    'preferences',
-    DESKTOP_IPC_CHANNELS.secrets.list,
-    { roles: ['visible-ui'] },
-    async () => {
-      throwEnvFileFailures(envFileFailures);
+  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.list, async () => {
+    throwEnvFileFailures(envFileFailures);
 
-      // In test mode, only the profile store (ignore env vars)
-      if (isTestMode()) {
-        const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
-        await appendStoredProviders(providers, secrets);
-        return Array.from(providers.values());
-      }
-
-      // Merge environment-configured providers with stored secrets so renderer consumers
-      // (assistant preferences, etc.) discover env-only setups.
-      // Consumers that only want persisted secrets should call secrets:listStored.
+    // In test mode, only the profile store (ignore env vars)
+    if (isTestMode()) {
       const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
-      appendEnvConfiguredProviders(providers);
       await appendStoredProviders(providers, secrets);
-      // LAST — rung 3 of the AWS precedence table (see the helper).
-      appendEnvChainProviders(providers);
       return Array.from(providers.values());
     }
-  );
 
-  registry.registerAuthorizedInvoke(
-    'preferences',
-    DESKTOP_IPC_CHANNELS.secrets.listStored,
-    { roles: ['visible-ui'] },
-    async () => {
-      const storedProviders = new Set<string>();
-      const providers = await secrets.listProviders();
-      for (const provider of providers) {
-        if (typeof provider !== 'string') {
-          continue;
-        }
-        const trimmed = provider.trim();
-        if (trimmed.length > 0) {
-          storedProviders.add(trimmed);
-        }
+    // Merge environment-configured providers with stored secrets so renderer consumers
+    // (assistant preferences, etc.) discover env-only setups.
+    // Consumers that only want persisted secrets should call secrets:listStored.
+    const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
+    appendEnvConfiguredProviders(providers);
+    await appendStoredProviders(providers, secrets);
+    // LAST — rung 3 of the AWS precedence table (see the helper).
+    appendEnvChainProviders(providers);
+    return Array.from(providers.values());
+  });
+
+  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.listStored, async () => {
+    const storedProviders = new Set<string>();
+    const providers = await secrets.listProviders();
+    for (const provider of providers) {
+      if (typeof provider !== 'string') {
+        continue;
       }
-      return Array.from(storedProviders);
+      const trimmed = provider.trim();
+      if (trimmed.length > 0) {
+        storedProviders.add(trimmed);
+      }
     }
-  );
+    return Array.from(storedProviders);
+  });
 
   // Read-only env bootstrap projection (BST-1363). Deliberately does NOT call
   // throwEnvFileFailures: `secrets:list` throws on a failed env file, but this
   // channel exists precisely to explain that failure, so it must still answer.
-  registry.registerAuthorizedInvoke(
-    'preferences',
-    DESKTOP_IPC_CHANNELS.secrets.envBootstrap,
-    { roles: ['visible-ui'] },
-    () => options.readEnvBootstrapReport()
+  registry.handle('preferences', DESKTOP_IPC_CHANNELS.secrets.envBootstrap, () =>
+    options.readEnvBootstrapReport()
   );
 
-  registry.registerAuthorizedInvoke(
+  registry.handle(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.clearAll,
-    { roles: ['visible-ui'] },
     async (_event, confirmationToken?: string) => {
       if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
         return {

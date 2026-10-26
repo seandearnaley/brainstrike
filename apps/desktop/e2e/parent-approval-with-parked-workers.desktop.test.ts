@@ -301,6 +301,8 @@ test('root approval resumes while three Workers are parked, then live grants com
     await expect(root.getByText('ROOT_WRITE_COMPLETE', { exact: true })).toHaveCount(1);
     await expect(root.getByText('ROOT_AND_WORKERS_COMPLETE', { exact: true })).toBeVisible();
     await expect(root.getByText('ROOT_AND_WORKERS_COMPLETE', { exact: true })).toHaveCount(1);
+    // The pane leaves the running state once the host has committed the wake's end.
+    await expect(root.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     expect(rootFinalRequests).toBe(2);
     // The host also titles the thread once: a request that advertises no tools.
     const titleRequests = new Set(

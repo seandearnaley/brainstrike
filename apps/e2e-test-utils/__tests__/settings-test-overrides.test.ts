@@ -2,14 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   __installSettingsTestHooksOnWindowForTests,
   installSettingsTestOverrides,
-  readLocalRuntimeProbeCounts,
-  resetLocalRuntimeProbeCounts,
   updateSettingsTestOverrides,
 } from '../settings-test-overrides';
 
 interface BrowserWindowStub {
   __brainstrike_e2e_enable_settings_test_api__?: boolean;
-  __brainstrikeLocalRuntimeProbeCounts__?: Record<string, number>;
   __brainstrikePendingSettingsTestOverrides__?: unknown;
   __brainstrikeSettingsTestHooks__?: unknown;
 }
@@ -102,34 +99,16 @@ describe('settings test overrides helper', () => {
       modelRegistry: { fetchErrorMessage: 'initial error' },
     });
     await updateSettingsTestOverrides(page as never, {
-      modelRegistry: { snapshot: { downloadedModels: { 'local:test-model': true } } },
+      modelRegistry: { snapshot: { models: [], providers: [] } },
     });
 
     expect(page.browserWindow.__brainstrikePendingSettingsTestOverrides__).toEqual({
       accurateRuntimeAvailable: true,
       modelRegistry: {
         fetchErrorMessage: 'initial error',
-        snapshot: { downloadedModels: { 'local:test-model': true } },
+        snapshot: { models: [], providers: [] },
       },
     });
-  });
-
-  it('reads probe counts, defaulting to an empty record', async () => {
-    const page = createMockPage();
-
-    expect(await readLocalRuntimeProbeCounts(page as never)).toEqual({});
-
-    page.browserWindow.__brainstrikeLocalRuntimeProbeCounts__ = { ollama: 3 };
-    expect(await readLocalRuntimeProbeCounts(page as never)).toEqual({ ollama: 3 });
-  });
-
-  it('resets probe counts', async () => {
-    const page = createMockPage();
-    page.browserWindow.__brainstrikeLocalRuntimeProbeCounts__ = { lmstudio: 2 };
-
-    await resetLocalRuntimeProbeCounts(page as never);
-
-    expect(page.browserWindow.__brainstrikeLocalRuntimeProbeCounts__).toEqual({});
   });
 
   it('throws when the page never installs the hooks', async () => {
@@ -179,34 +158,16 @@ describe('settings test overrides helper', () => {
 
       const current = {
         accurateRuntimeAvailable: true,
-        localRuntime: {
-          statuses: {
-            ollama: {
-              checkedAt: 1,
-              endpoint: 'http://localhost:11434',
-              latencyMs: 10,
-              state: 'available' as const,
-            },
-          },
-        },
         modelRegistry: {
           fetchErrorMessage: 'initial error',
         },
       };
       const updates = {
         accurateRuntimeAvailable: null,
-        localRuntime: {
-          statuses: {
-            lmstudio: {
-              checkedAt: 2,
-              message: 'blocked',
-              state: 'blocked_web' as const,
-            },
-          },
-        },
         modelRegistry: {
           snapshot: {
-            downloadedModels: { 'local:test-model': true },
+            models: [],
+            providers: [],
           },
         },
       };
@@ -216,19 +177,11 @@ describe('settings test overrides helper', () => {
 
       expect(browserWindow.__brainstrikePendingSettingsTestOverrides__).toEqual({
         accurateRuntimeAvailable: null,
-        localRuntime: {
-          statuses: {
-            lmstudio: {
-              checkedAt: 2,
-              message: 'blocked',
-              state: 'blocked_web',
-            },
-          },
-        },
         modelRegistry: {
           fetchErrorMessage: 'initial error',
           snapshot: {
-            downloadedModels: { 'local:test-model': true },
+            models: [],
+            providers: [],
           },
         },
       });

@@ -35,11 +35,8 @@ const memoryCalculatorModule = fileURLToPath(
 const profile = {
   dimensions: 8,
   distance: 'cosine',
-  dtype: 'fp32',
   modelId: 'deterministic-storage-proof',
-  provider: 'local',
-  revision: 'a'.repeat(40),
-  tokenCap: 256,
+  provider: 'openai',
 } as const;
 const vector = [0.125, -0.25, 0.375, -0.5, 0.625, -0.75, 0.875, -1.031_25];
 const scope = { resourceId: 'resource', rootId: 'root', threadId: 'one' };
@@ -813,7 +810,7 @@ it(
     await expect(f.openIndex()).rejects.toMatchObject({ code: 'rebuild-required' });
     expect(await readFile(f.options.dbPath)).toEqual(before);
     const restore = openConnection(f.options.dbPath);
-    restore.prepare('UPDATE index_metadata SET schema_version=15').run();
+    restore.prepare('UPDATE index_metadata SET schema_version=16').run();
     restore.close();
     await f.reopen();
     expect(await f.store.read('one')).toEqual(transcript);

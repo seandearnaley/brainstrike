@@ -1,6 +1,6 @@
+import { NativeIndexSetupRequiredError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
-import { NativeIndexSetupRequiredError } from './native-index-setup-required';
 
 interface Dependencies {
   isShuttingDown(): boolean;

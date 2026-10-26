@@ -149,8 +149,13 @@ describe('resolveCumulativeUsageDisplay', () => {
     const usage: ThreadCumulativeUsage = {
       perModel: [
         entry({ inputTokens: 500, model: 'gpt-5.2', outputTokens: 100, provider: 'openai' }),
-        // local model has no registry pricing
-        entry({ inputTokens: 500, model: 'gemma', outputTokens: 100, provider: 'local' }),
+        // a model without registry pricing
+        entry({
+          inputTokens: 500,
+          model: 'some-vendor/unregistered-model',
+          outputTokens: 100,
+          provider: 'openrouter',
+        }),
       ],
       totalInputTokens: 1000,
       totalOutputTokens: 200,

@@ -1,34 +1,31 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { untrackAppWindow } from '../../app-windows';
 import type { BrowserIpcHandlers } from '../../browser-ipc-handlers';
 import { registerBrowserIpcHandlers } from '../../ipc-browser';
 import { registerShellIpcHandlers } from '../../ipc-shell';
 import type { ShellIpcHandlers } from '../../ipc-shell-handlers';
-import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createAllowlistedSenderFrame,
   createTrustedInvokeEvent,
-  trackTestWindowRole,
+  invokeDesktopIpcFrom,
+  trackTestAppWindow,
 } from '../helpers/desktop-ipc-sender-test-helpers';
-import { mockIpcMain, resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
+import { mockIpcMain } from '../helpers/electron-main-test-harness';
 
 /**
- * BST-1641: every channel these registrars own must be sender-authorized
- * (`registerAuthorizedInvoke`, visible-UI only). The channel list is read
- * back from the harness's `ipcMain.handle` calls rather than typed by hand,
- * so a channel added later with the unauthenticated verb fails the
- * hidden-sender rejection below instead of slipping past a stale allowlist.
+ * BST-1641: every method these registrars own is served only to an app window
+ * whose frame is on the allowlist; the one dispatcher checks both before the
+ * handler runs.
  */
 interface PrivilegedDomainCase {
-  readonly channels: readonly string[];
   readonly domain: string;
+  readonly methods: readonly string[];
   readonly register: (stub: () => unknown) => () => void;
 }
 
-const HIDDEN_SENDER_ID = 8_800_001;
 const UNTRACKED_SENDER_ID = 8_800_002;
 const SPOOFED_SENDER_ID = 8_800_003;
-const VISIBLE_SENDER_ID = 8_800_004;
+const APP_SENDER_ID = 8_800_004;
 
 /** A handler object whose every method is one shared recording mock. */
 function createRecordingStub<T extends object>(): {
@@ -44,12 +41,13 @@ function createRecordingStub<T extends object>(): {
 
 const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
   {
-    channels: ['shell:show-item-in-folder', 'shell:open-path', 'shell:open-external'],
     domain: 'shell',
+    methods: ['shell:show-item-in-folder', 'shell:open-path', 'shell:open-external'],
     register: (stub) => registerShellIpcHandlers(stub() as ShellIpcHandlers),
   },
   {
-    channels: [
+    domain: 'browser',
+    methods: [
       'browser:createTab',
       'browser:closeTab',
       'browser:selectTab',
@@ -61,102 +59,72 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
       'browser:setOccluded',
       'browser:listTabs',
     ],
-    domain: 'browser',
     register: (stub) => registerBrowserIpcHandlers(stub() as BrowserIpcHandlers),
   },
 ];
 
-function registeredChannels(): string[] {
-  return mockIpcMain.handle.mock.calls.map(([channel]) => String(channel));
-}
+let dispose: (() => void) | undefined;
 
-function registeredHandler(channel: string): (event: unknown, ...args: unknown[]) => unknown {
-  const call = mockIpcMain.handle.mock.calls.find(([registered]) => registered === channel);
-  if (!call) {
-    throw new Error(`Channel not registered: ${channel}`);
+afterEach(() => {
+  dispose?.();
+  dispose = undefined;
+  for (const id of [SPOOFED_SENDER_ID, APP_SENDER_ID]) {
+    untrackAppWindow(id);
   }
-  return call[1] as (event: unknown, ...args: unknown[]) => unknown;
-}
+});
 
-describe('privileged desktop IPC domains are visible-UI-only (BST-1641)', () => {
-  beforeEach(() => {
-    resetElectronMainTestHarness();
-    trackTestWindowRole(HIDDEN_SENDER_ID, 'embedding-host');
-    trackTestWindowRole(SPOOFED_SENDER_ID, 'visible-ui');
-  });
-
-  afterEach(() => {
-    for (const id of [HIDDEN_SENDER_ID, SPOOFED_SENDER_ID, VISIBLE_SENDER_ID]) {
-      clearWindowRoleByWebContentsId(id);
-    }
-  });
-
-  describe.each(DOMAIN_CASES)('$domain', ({ channels, register }) => {
-    it('registers exactly the expected invoke channels', () => {
-      const { stub } = createRecordingStub();
-      const dispose = register(() => stub);
-      expect(registeredChannels().sort()).toEqual([...channels].sort());
-      dispose();
-    });
-
-    it.each(channels)('%s accepts the visible UI with an allowlisted frame', async (channel) => {
+describe('privileged desktop IPC domains are app-window-only (BST-1641)', () => {
+  describe.each(DOMAIN_CASES)('$domain', ({ methods, register }) => {
+    it.each(methods)('%s answers an app window with an allowlisted frame', async (method) => {
       const { calls, stub } = createRecordingStub();
-      const dispose = register(() => stub);
-      const event = createTrustedInvokeEvent('visible-ui', VISIBLE_SENDER_ID);
+      dispose = register(() => stub);
+      const event = createTrustedInvokeEvent(APP_SENDER_ID);
 
-      await expect(registeredHandler(channel)(event, { rootId: 'r1' })).resolves.toEqual({
-        ok: true,
-      });
+      await expect(
+        invokeDesktopIpcFrom(mockIpcMain, event, method, { rootId: 'r1' })
+      ).resolves.toEqual({ ok: true });
       expect(calls).toHaveBeenCalledTimes(1);
-      dispose();
     });
 
-    it.each(channels)('%s rejects a hidden embedding-host sender', async (channel) => {
+    it.each(methods)('%s refuses an untracked sender', async (method) => {
       const { calls, stub } = createRecordingStub();
-      const dispose = register(() => stub);
-      const event = {
-        sender: { id: HIDDEN_SENDER_ID },
-        senderFrame: createAllowlistedSenderFrame('embedding-host'),
-      } as unknown as IpcMainInvokeEvent;
-
-      await expect(registeredHandler(channel)(event, { rootId: 'r1' })).rejects.toThrow(
-        `Desktop IPC ${channel} requires sender role visible-ui.`
-      );
-      expect(calls).not.toHaveBeenCalled();
-      dispose();
-    });
-
-    it.each(channels)('%s rejects an untracked sender', async (channel) => {
-      const { calls, stub } = createRecordingStub();
-      const dispose = register(() => stub);
+      dispose = register(() => stub);
       const event = {
         sender: { id: UNTRACKED_SENDER_ID },
-        senderFrame: createAllowlistedSenderFrame('visible-ui'),
-      } as unknown as IpcMainInvokeEvent;
+        senderFrame: createAllowlistedSenderFrame(),
+      };
 
-      await expect(registeredHandler(channel)(event, { rootId: 'r1' })).rejects.toThrow(
-        `Desktop IPC ${channel} requires sender role visible-ui.`
-      );
+      await expect(
+        invokeDesktopIpcFrom(mockIpcMain, event, method, { rootId: 'r1' })
+      ).rejects.toThrow(`Desktop IPC ${method} requires an app window sender.`);
       expect(calls).not.toHaveBeenCalled();
-      dispose();
     });
 
-    it.each(channels)(
-      '%s rejects a visible-UI sender whose frame navigated off the allowlist',
-      async (channel) => {
+    it.each(methods)(
+      '%s refuses an app window whose frame navigated off the allowlist',
+      async (method) => {
         const { calls, stub } = createRecordingStub();
-        const dispose = register(() => stub);
+        dispose = register(() => stub);
+        trackTestAppWindow(SPOOFED_SENDER_ID);
         const event = {
           sender: { id: SPOOFED_SENDER_ID },
           senderFrame: { url: 'https://evil.example/' },
-        } as unknown as IpcMainInvokeEvent;
+        };
 
-        await expect(registeredHandler(channel)(event, { rootId: 'r1' })).rejects.toThrow(
-          `Desktop IPC ${channel} rejected an unrecognized sender frame URL.`
-        );
+        await expect(
+          invokeDesktopIpcFrom(mockIpcMain, event, method, { rootId: 'r1' })
+        ).rejects.toThrow(`Desktop IPC ${method} rejected an unrecognized sender frame URL.`);
         expect(calls).not.toHaveBeenCalled();
-        dispose();
       }
     );
+
+    it.each(methods)('%s is gone once the domain is disposed', async (method) => {
+      const { stub } = createRecordingStub();
+      register(() => stub)();
+
+      await expect(
+        invokeDesktopIpcFrom(mockIpcMain, createTrustedInvokeEvent(APP_SENDER_ID), method)
+      ).rejects.toThrow(`No desktop IPC handler for ${method}.`);
+    });
   });
 });

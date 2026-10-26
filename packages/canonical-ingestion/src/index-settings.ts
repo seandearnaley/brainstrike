@@ -1,12 +1,5 @@
-import {
-  type IndexChunking,
-  type IndexConfig,
-  indexModelLocalSelection,
-} from '@brainstrike/assistant-contract/index-config';
-import type {
-  NativeIndexMode,
-  NativeLocalSelection,
-} from '@brainstrike/indexing-contract/indexer-producer';
+import type { IndexChunking, IndexConfig } from '@brainstrike/assistant-contract/index-config';
+import type { NativeIndexMode } from '@brainstrike/indexing-contract/indexer-producer';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
 
 /** What Main's native index runs, derived from the profile's saved index config. */
@@ -18,7 +11,6 @@ export interface NativeIndexSettings {
   readonly managedCollectionId: string | null;
   readonly mode: NativeIndexMode;
   readonly paused: boolean;
-  readonly selection: NativeLocalSelection | null;
   readonly worktreeOptIns: ReadonlySet<string>;
 }
 
@@ -38,7 +30,6 @@ export function nativeIndexSettingsFromConfig(
     managedCollectionId: model === null ? null : vectorSpaceId,
     mode: model === null ? 'TEXT' : 'VECTOR',
     paused: config.paused,
-    selection: model === null ? null : indexModelLocalSelection(model),
     worktreeOptIns: new Set(
       Object.entries(config.worktrees).flatMap(([rootId, indexed]) => (indexed ? [rootId] : []))
     ),
@@ -53,7 +44,6 @@ export function nativeIndexConfigurationIdentity(settings: NativeIndexSettings):
     settings.indexingPolicyPreset,
     settings.managedCollectionId,
     settings.mode,
-    settings.selection,
     [...settings.worktreeOptIns].sort(),
   ]);
 }

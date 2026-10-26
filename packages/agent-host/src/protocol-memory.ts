@@ -8,7 +8,7 @@ export const HOST_OBSERVER_AWAITING_REASONS = [
   'keys-unknown',
   'model-not-eligible',
   'no-backend',
-  'no-hosted-chat-provider',
+  'no-chat-provider',
 ] as const;
 export type HostObserverAwaitingReason = (typeof HOST_OBSERVER_AWAITING_REASONS)[number];
 const ObservationTokens = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
@@ -68,8 +68,6 @@ export const HostMemoryModelsSchema = Schema.Struct({
     Schema.Struct({
       dimensions: ObservationThreshold,
       distance: Schema.Literals(['cosine', 'l2', 'ip']),
-      /** An on-device embedder's precision, which follows its execution device. */
-      dtype: Schema.optional(Schema.Literals(['q4', 'q8', 'fp16', 'fp32'])),
       modelId: Id,
       provider: Id,
     })

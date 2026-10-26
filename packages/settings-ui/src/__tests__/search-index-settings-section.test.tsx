@@ -12,14 +12,6 @@ import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { makeDbModel, makeDbProvider } from '../settings/models/__tests__/catalog-test-harness';
 import { SearchIndexSettingsSection } from '../settings/system/search-index-settings-section';
 
-vi.mock('@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog', () => ({
-  useLocalRuntimeEmbeddingModelCatalog: () => ({
-    catalog: null,
-    error: null,
-    isLoading: false,
-    refresh: vi.fn(),
-  }),
-}));
 vi.mock('../../../ui/src/theme-provider', () => ({
   useTheme: () => ({ setTheme: vi.fn(), theme: 'light' }),
 }));
@@ -27,11 +19,9 @@ vi.mock('../../../ui/src/theme-provider', () => ({
 const SEMANTIC: IndexConfig = {
   ...DEFAULT_INDEX_CONFIG,
   mode: 'semantic',
-  model: { dimensions: 1536, local: null, modelKey: 'openai::text-embedding-3-small' },
+  model: { dimensions: 1536, modelKey: 'openai::text-embedding-3-small' },
 };
-// The granite catalog row as the model registry store loads it.
-const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
-const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
+const LARGE = { dimensions: 3072, modelKey: 'openai::text-embedding-3-large' } as const;
 const update = vi.fn<(patch: unknown) => Promise<IndexConfig>>();
 
 function show(config: IndexConfig) {
@@ -100,20 +90,14 @@ describe('Search & Indexing', () => {
           providerId: 'openai',
         }),
         makeDbModel({
-          capabilities: {
-            defaultDimension: 384,
-            pooling: 'cls',
-            prompts: { document: '', query: '' },
-            type: 'embedding',
-          },
-          id: GRANITE_ID,
+          capabilities: { defaultDimension: 3072, type: 'embedding' },
+          id: 'text-embedding-3-large',
           isEnabled: true,
-          name: 'Granite Embedding Small R2',
-          parameters: { execution: { wasm: 'q8', webgpu: 'fp16' }, revision: GRANITE_REVISION },
-          providerId: 'local',
+          name: 'OpenAI Large',
+          providerId: 'openai',
         }),
       ],
-      providers: [makeDbProvider('openai', 'OpenAI', 0), makeDbProvider('local', 'On device', 1)],
+      providers: [makeDbProvider('openai', 'OpenAI', 0)],
     });
   });
 
@@ -274,26 +258,6 @@ describe('Search & Indexing', () => {
     expect(screen.getByRole('button', { name: 'Automatic' })).toBeEnabled();
   });
 
-  it('freezes the staged execution while Apply is in flight', async () => {
-    const granite = {
-      dimensions: 384,
-      local: { device: 'wasm', dtype: 'q8', revision: GRANITE_REVISION },
-      modelKey: `local::${GRANITE_ID}`,
-    } as const;
-    const finish = holdUpdate({ ...SEMANTIC, model: granite });
-    show(SEMANTIC);
-    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'Run it on' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'WASM · Q8' }));
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
-    });
-    expect(screen.getByRole('combobox', { name: 'Run it on' })).toBeDisabled();
-    await act(async () => finish());
-    expect(screen.getByRole('combobox', { name: 'Run it on' })).toBeEnabled();
-  });
-
   it('keeps a refused change and says why', async () => {
     update.mockRejectedValueOnce(
       refusalError(
@@ -382,32 +346,20 @@ describe('Search & Indexing', () => {
     );
   });
 
-  it('applies an on-device model only with the execution the user chose', async () => {
+  it('applies the chosen model with its verified dimensions', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
-    expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
-      'Choose how to run the model first.'
-    );
-    expect(screen.getByRole('button', { name: 'Apply and re-index' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('combobox', { name: 'Run it on' }));
-    fireEvent.click(await screen.findByRole('option', { name: 'WASM · Q8' }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Apply and re-index' }));
     });
-    expect(update).toHaveBeenCalledExactlyOnceWith({
-      model: {
-        dimensions: 384,
-        local: { device: 'wasm', dtype: 'q8', revision: GRANITE_REVISION },
-        modelKey: `local::${GRANITE_ID}`,
-      },
-    });
+    expect(update).toHaveBeenCalledExactlyOnceWith({ model: LARGE });
   });
 
   it('stages no model change when the saved model is chosen again', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
     expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
       'Model changes.'
     );
@@ -416,44 +368,17 @@ describe('Search & Indexing', () => {
     expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
   });
 
-  it('stages nothing when the saved on-device model is picked again', async () => {
-    show({
-      ...SEMANTIC,
-      model: {
-        dimensions: 384,
-        local: { device: 'wasm', dtype: 'q8', revision: GRANITE_REVISION },
-        modelKey: `local::${GRANITE_ID}`,
-      },
-    });
+  it('stages nothing when the saved model is picked again', async () => {
+    show({ ...SEMANTIC, model: LARGE });
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
     expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
-  });
-
-  it('keeps the saved plan when the saved on-device model is picked back', async () => {
-    show({
-      ...SEMANTIC,
-      model: {
-        dimensions: 384,
-        local: { device: 'wasm', dtype: 'q8', revision: GRANITE_REVISION },
-        modelKey: `local::${GRANITE_ID}`,
-      },
-    });
-    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Small/ }));
-    expect(screen.getByRole('status', { name: 'Pending changes' })).toHaveTextContent(
-      'Model changes.'
-    );
-    fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
-    expect(screen.queryByRole('status', { name: 'Pending changes' })).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Run it on' })).toHaveTextContent('WASM · Q8');
   });
 
   it('drops a model staged under Semantic when search switches to Text', async () => {
     show(SEMANTIC);
     fireEvent.click(screen.getByRole('combobox', { name: 'Embedding model' }));
-    fireEvent.click(await screen.findByRole('option', { name: /Granite Embedding Small R2/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /OpenAI Large/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^Text/ }));

@@ -1,46 +1,44 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { untrackAppWindow } from '../../app-windows';
 import { registerClipboardIpcHandlers } from '../../ipc-clipboard';
 import { registerContextFilesIpcHandlers } from '../../ipc-context-files';
 import { mcpAppsContract, mcpPathSelectionContract } from '../../ipc-domains/mcp.contract';
 import { registerUserPersonasIpcHandlers } from '../../ipc-user-personas';
 import { createDesktopIpcRegistry, registerDomain } from '../../platform/desktop-ipc-registry';
 import type { Contract, Handlers } from '../../platform/ipc-contract';
-import { clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createAllowlistedSenderFrame,
   createTrustedInvokeEvent,
-  trackTestWindowRole,
+  invokeDesktopIpcFrom,
+  trackTestAppWindow,
 } from '../helpers/desktop-ipc-sender-test-helpers';
-import { mockIpcMain, resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
+import { mockIpcMain } from '../helpers/electron-main-test-harness';
 
 /**
  * BST-1648: every contract-registered leaf domain is sender-authorized BY
- * CONSTRUCTION (`registerDomain` has no unauthenticated path). The channel
- * list is read back from `ipcMain.handle` so a channel added later cannot
- * slip past a stale allowlist.
+ * CONSTRUCTION: the one dispatcher authorizes each call before any handler
+ * or `parseArgs` runs.
  */
 interface ContractDomainCase {
-  readonly channels: readonly string[];
   readonly domain: string;
+  readonly methods: readonly string[];
   readonly register: (sentinel: unknown) => () => void;
 }
 
-const HIDDEN_SENDER_ID = 8_900_001;
 const UNTRACKED_SENDER_ID = 8_900_002;
 const SPOOFED_SENDER_ID = 8_900_003;
-const VISIBLE_SENDER_ID = 8_900_004;
+const APP_SENDER_ID = 8_900_004;
 const SENTINEL = { marker: 'handled' };
 
 const DOMAIN_CASES: readonly ContractDomainCase[] = [
   {
-    channels: ['clipboard:write-text'],
     domain: 'clipboard',
+    methods: ['clipboard:write-text'],
     register: () => registerClipboardIpcHandlers({ writeText: vi.fn() }),
   },
   {
-    channels: ['context-files:scan'],
     domain: 'contextFiles',
+    methods: ['context-files:scan'],
     register: (sentinel) =>
       registerContextFilesIpcHandlers(
         { workspaceRoots: async () => ({ roots: [] }) },
@@ -48,8 +46,8 @@ const DOMAIN_CASES: readonly ContractDomainCase[] = [
       ),
   },
   {
-    channels: ['user-personas:list'],
     domain: 'userPersonas',
+    methods: ['user-personas:list'],
     register: (sentinel) =>
       registerUserPersonasIpcHandlers(
         { workspaceRoots: async () => ({ roots: [] }) },
@@ -63,126 +61,88 @@ const DOMAIN_CASES: readonly ContractDomainCase[] = [
   },
 ];
 
-function registeredChannels(): string[] {
-  return mockIpcMain.handle.mock.calls.map(([channel]) => String(channel));
-}
+let dispose: (() => void) | undefined;
 
-function registeredHandler(channel: string): (event: unknown, ...args: unknown[]) => unknown {
-  const call = mockIpcMain.handle.mock.calls.find(([registered]) => registered === channel);
-  if (!call) {
-    throw new Error(`Channel not registered: ${channel}`);
+afterEach(() => {
+  dispose?.();
+  dispose = undefined;
+  for (const id of [SPOOFED_SENDER_ID, APP_SENDER_ID]) {
+    untrackAppWindow(id);
   }
-  return call[1] as (event: unknown, ...args: unknown[]) => unknown;
-}
+});
 
-describe('contract-registered leaf domains are visible-UI-only by construction (BST-1648)', () => {
-  beforeEach(() => {
-    resetElectronMainTestHarness();
-    trackTestWindowRole(HIDDEN_SENDER_ID, 'embedding-host');
-    trackTestWindowRole(SPOOFED_SENDER_ID, 'visible-ui');
-  });
+describe('contract-registered leaf domains are app-window-only by construction (BST-1648)', () => {
+  describe.each(DOMAIN_CASES)('$domain', ({ methods, register }) => {
+    it.each(methods)('%s answers an app window with the result envelope', async (method) => {
+      dispose = register(SENTINEL);
 
-  afterEach(() => {
-    for (const id of [HIDDEN_SENDER_ID, SPOOFED_SENDER_ID, VISIBLE_SENDER_ID]) {
-      clearWindowRoleByWebContentsId(id);
-    }
-  });
-
-  describe.each(DOMAIN_CASES)('$domain', ({ channels, register }) => {
-    it('registers exactly the expected invoke channels', () => {
-      const dispose = register(SENTINEL);
-      expect(registeredChannels().sort()).toEqual([...channels].sort());
-      dispose();
+      await expect(
+        invokeDesktopIpcFrom(mockIpcMain, createTrustedInvokeEvent(APP_SENDER_ID), method, 'text')
+      ).resolves.toMatchObject({ ok: true });
     });
 
-    it.each(channels)(
-      '%s accepts the visible UI and replies with the result envelope',
-      async (channel) => {
-        const dispose = register(SENTINEL);
-        const event = createTrustedInvokeEvent('visible-ui', VISIBLE_SENDER_ID);
-
-        await expect(registeredHandler(channel)(event, 'text')).resolves.toMatchObject({
-          ok: true,
-        });
-        dispose();
-      }
-    );
-
-    it.each(channels)('%s rejects a hidden embedding-host sender', async (channel) => {
-      const dispose = register(SENTINEL);
-      const event = {
-        sender: { id: HIDDEN_SENDER_ID },
-        senderFrame: createAllowlistedSenderFrame('embedding-host'),
-      } as unknown as IpcMainInvokeEvent;
-
-      await expect(registeredHandler(channel)(event, 'text')).rejects.toThrow(
-        `Desktop IPC ${channel} requires sender role visible-ui.`
-      );
-      dispose();
-    });
-
-    it.each(channels)('%s rejects an untracked sender', async (channel) => {
-      const dispose = register(SENTINEL);
+    it.each(methods)('%s refuses an untracked sender', async (method) => {
+      dispose = register(SENTINEL);
       const event = {
         sender: { id: UNTRACKED_SENDER_ID },
-        senderFrame: createAllowlistedSenderFrame('visible-ui'),
-      } as unknown as IpcMainInvokeEvent;
+        senderFrame: createAllowlistedSenderFrame(),
+      };
 
-      await expect(registeredHandler(channel)(event, 'text')).rejects.toThrow(
-        `Desktop IPC ${channel} requires sender role visible-ui.`
+      await expect(invokeDesktopIpcFrom(mockIpcMain, event, method, 'text')).rejects.toThrow(
+        `Desktop IPC ${method} requires an app window sender.`
       );
-      dispose();
     });
 
-    it.each(channels)(
-      '%s rejects a visible-UI sender whose frame left the allowlist',
-      async (channel) => {
-        const dispose = register(SENTINEL);
-        const event = {
-          sender: { id: SPOOFED_SENDER_ID },
-          senderFrame: { url: 'https://evil.example/' },
-        } as unknown as IpcMainInvokeEvent;
+    it.each(methods)('%s refuses an app window whose frame left the allowlist', async (method) => {
+      dispose = register(SENTINEL);
+      trackTestAppWindow(SPOOFED_SENDER_ID);
+      const event = {
+        sender: { id: SPOOFED_SENDER_ID },
+        senderFrame: { url: 'https://evil.example/' },
+      };
 
-        await expect(registeredHandler(channel)(event, 'text')).rejects.toThrow(
-          `Desktop IPC ${channel} rejected an unrecognized sender frame URL.`
-        );
-        dispose();
-      }
-    );
+      await expect(invokeDesktopIpcFrom(mockIpcMain, event, method, 'text')).rejects.toThrow(
+        `Desktop IPC ${method} rejected an unrecognized sender frame URL.`
+      );
+    });
+
+    it.each(methods)('%s is gone once the domain is disposed', async (method) => {
+      register(SENTINEL)();
+
+      await expect(
+        invokeDesktopIpcFrom(mockIpcMain, createTrustedInvokeEvent(APP_SENDER_ID), method, 'text')
+      ).rejects.toThrow(`No desktop IPC handler for ${method}.`);
+    });
   });
 });
 
-describe('contract-registered MCP invokes are visible-UI-only by construction (BST-996)', () => {
-  const contracts = [mcpPathSelectionContract, mcpAppsContract];
+describe('contract-registered MCP invokes are app-window-only by construction (BST-996)', () => {
+  it.each([mcpPathSelectionContract, mcpAppsContract])(
+    'refuses an untracked sender before parsing every invoke',
+    async (contract) => {
+      const registry = createDesktopIpcRegistry({ ipcMain: mockIpcMain as never });
+      dispose = () => registry.unregisterAll();
+      const handlers = Object.fromEntries(
+        Object.entries(contract)
+          .filter(([, spec]) => spec.kind === 'invoke')
+          .map(([key]) => [key, vi.fn(() => SENTINEL)])
+      ) as Handlers<Contract>;
+      registerDomain(registry, 'mcp', contract, handlers);
+      const event = {
+        sender: { id: UNTRACKED_SENDER_ID },
+        senderFrame: createAllowlistedSenderFrame(),
+      };
 
-  beforeEach(() => {
-    resetElectronMainTestHarness();
-    trackTestWindowRole(HIDDEN_SENDER_ID, 'embedding-host');
-  });
-
-  afterEach(() => {
-    clearWindowRoleByWebContentsId(HIDDEN_SENDER_ID);
-  });
-
-  it.each(contracts)('rejects hidden senders before parsing every invoke', async (contract) => {
-    const registry = createDesktopIpcRegistry({ ipcMain: mockIpcMain as never });
-    const handlers = Object.fromEntries(
-      Object.entries(contract)
-        .filter(([, spec]) => spec.kind === 'invoke')
-        .map(([key]) => [key, vi.fn(() => SENTINEL)])
-    ) as Handlers<Contract>;
-    registerDomain(registry, 'mcp', contract, handlers);
-    const event = {
-      sender: { id: HIDDEN_SENDER_ID },
-      senderFrame: createAllowlistedSenderFrame('embedding-host'),
-    } as unknown as IpcMainInvokeEvent;
-
-    for (const spec of Object.values(contract)) {
-      if (spec.kind === 'invoke') {
-        await expect(registeredHandler(spec.channel)(event, 'malformed')).rejects.toThrow(
-          `Desktop IPC ${spec.channel} requires sender role visible-ui.`
-        );
+      for (const spec of Object.values(contract)) {
+        if (spec.kind === 'invoke') {
+          await expect(
+            invokeDesktopIpcFrom(mockIpcMain, event, spec.channel, 'malformed')
+          ).rejects.toThrow(`Desktop IPC ${spec.channel} requires an app window sender.`);
+        }
+      }
+      for (const handler of Object.values(handlers)) {
+        expect(handler).not.toHaveBeenCalled();
       }
     }
-  });
+  );
 });

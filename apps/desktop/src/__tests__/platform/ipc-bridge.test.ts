@@ -2,7 +2,17 @@ import { EventEmitter } from 'node:events';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { describe, expect, it, vi } from 'vitest';
-import { createBridgeExposer, createIpcBridge } from '../../platform/ipc-bridge';
+import {
+  DESKTOP_IPC_INVOKE_CHANNEL,
+  DESKTOP_IPC_PUSH_CHANNEL,
+  type DesktopIpcPush,
+} from '../../platform/desktop-ipc-channels';
+import {
+  createBridgeExposer,
+  createDesktopIpcTransport,
+  createIpcBridge,
+  type IpcPushEvent,
+} from '../../platform/ipc-bridge';
 import {
   type Contract,
   channel,
@@ -16,38 +26,71 @@ const contract = {
   list: rawChannel<[], { readonly ok: boolean }>({
     channel: 'fixture:list',
     parseArgs: parseNoArgs,
-    roles: ['visible-ui'],
   }),
   writeText: channel<[text: string], number>({
     channel: 'fixture:write-text',
     parseArgs: ([text]) => [String(text)],
-    roles: ['visible-ui'],
   }),
 } satisfies Contract;
 
-function createIpcRenderer() {
+/** Electron's `ipcRenderer` as the preload sees it: Main's pushes arrive through `push`. */
+function createElectronIpcRenderer() {
+  const emitter = new EventEmitter();
   return {
+    emitter,
     invoke: vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>(),
-    on: vi.fn(),
-    removeListener: vi.fn(),
+    on: (channel: string, listener: (event: IpcPushEvent, push: DesktopIpcPush) => void) =>
+      emitter.on(channel, listener),
+    push: (push: DesktopIpcPush, ports: readonly MessagePort[] = []) =>
+      emitter.emit(DESKTOP_IPC_PUSH_CHANNEL, { ports }, push),
   };
 }
 
+describe('createDesktopIpcTransport', () => {
+  it('sends every call on the one invoke channel with the method name first', async () => {
+    const electron = createElectronIpcRenderer();
+    electron.invoke.mockResolvedValueOnce('reply');
+    const transport = createDesktopIpcTransport(electron);
+
+    await expect(transport.invoke('fixture:write-text', 'hello', 2)).resolves.toBe('reply');
+    expect(electron.invoke).toHaveBeenCalledExactlyOnceWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      'fixture:write-text',
+      'hello',
+      2
+    );
+  });
+
+  it('listens on the one push channel and delivers each push only to its method, with its ports', () => {
+    const electron = createElectronIpcRenderer();
+    const transport = createDesktopIpcTransport(electron);
+    const changed = vi.fn();
+    const other = vi.fn();
+    transport.on('fixture:changed', changed);
+    transport.on('fixture:other', other);
+    const port = {} as MessagePort;
+
+    electron.push({ method: 'fixture:changed', payload: { id: 1 } }, [port]);
+
+    expect(electron.emitter.eventNames()).toEqual([DESKTOP_IPC_PUSH_CHANNEL]);
+    expect(electron.emitter.listenerCount(DESKTOP_IPC_PUSH_CHANNEL)).toBe(1);
+    expect(changed).toHaveBeenCalledExactlyOnceWith({ ports: [port] }, { id: 1 });
+    expect(other).not.toHaveBeenCalled();
+
+    transport.removeListener('fixture:changed', changed);
+    electron.push({ method: 'fixture:changed', payload: { id: 2 } });
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+});
+
 // Live smoke 2026-10-16: the renderer warned "MaxListenersExceededWarning: 11
 // forge:prUpdated listeners". Every push subscription added its own
-// ipcRenderer listener, so a dozen mounted PR-cache consumers crossed Node's
-// limit of 10. One listener per channel fans out to every subscription.
+// listener, so a dozen mounted PR-cache consumers crossed Node's limit of 10.
+// One Electron listener serves every push; each subscription is its own entry.
 describe('createIpcBridge push fan-out', () => {
-  it('holds one ipcRenderer listener per channel however many subscribe', () => {
-    const emitter = new EventEmitter();
-    const ipcRenderer = {
-      invoke: vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>(),
-      on: (channel: string, listener: (event: unknown, payload: unknown) => void) =>
-        emitter.on(channel, listener),
-      removeListener: (channel: string, listener: (event: unknown, payload: unknown) => void) =>
-        emitter.removeListener(channel, listener),
-    };
-    const bridge = createIpcBridge(ipcRenderer, contract);
+  it('holds one Electron listener however many subscribe, and fans each push out', () => {
+    const electron = createElectronIpcRenderer();
+    const bridge = createIpcBridge(createDesktopIpcTransport(electron), contract);
     const callbacks = Array.from({ length: 12 }, () => vi.fn());
     const unsubscribes = callbacks.map((callback) => bridge.changed(callback));
     // The same callback twice is two subscriptions.
@@ -57,8 +100,8 @@ describe('createIpcBridge push fan-out', () => {
     }
     const second = bridge.changed(repeated);
 
-    expect(emitter.listenerCount('fixture:changed')).toBe(1);
-    emitter.emit('fixture:changed', {}, { id: 1 });
+    expect(electron.emitter.listenerCount(DESKTOP_IPC_PUSH_CHANNEL)).toBe(1);
+    electron.push({ method: 'fixture:changed', payload: { id: 1 } });
     expect(callbacks.map((callback) => callback.mock.calls.length)).toEqual([
       2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     ]);
@@ -67,27 +110,39 @@ describe('createIpcBridge push fan-out', () => {
     for (const unsubscribe of unsubscribes.slice(1)) {
       unsubscribe();
     }
-    emitter.emit('fixture:changed', {}, { id: 2 });
+    electron.push({ method: 'fixture:changed', payload: { id: 2 } });
     expect(repeated).toHaveBeenLastCalledWith({ id: 2 });
-    expect(emitter.listenerCount('fixture:changed')).toBe(1);
+    expect(callbacks.slice(1).map((callback) => callback.mock.calls.length)).toEqual(
+      Array.from({ length: 11 }, () => 1)
+    );
 
     unsubscribes[0]?.();
-    expect(emitter.listenerCount('fixture:changed')).toBe(0);
+    electron.push({ method: 'fixture:changed', payload: { id: 3 } });
+    expect(repeated).toHaveBeenCalledTimes(3);
+    expect(electron.emitter.listenerCount(DESKTOP_IPC_PUSH_CHANNEL)).toBe(1);
   });
 });
 
 describe('createIpcBridge', () => {
-  it('routes an ipc-result channel and transports the plain envelope unchanged', async () => {
-    const ipcRenderer = createIpcRenderer();
-    ipcRenderer.invoke.mockResolvedValueOnce({ ok: true, value: 7 });
-    const bridge = createIpcBridge(ipcRenderer, contract);
+  function createBridge() {
+    const electron = createElectronIpcRenderer();
+    return { bridge: createIpcBridge(createDesktopIpcTransport(electron), contract), electron };
+  }
+
+  it('routes an ipc-result method and transports the plain envelope unchanged', async () => {
+    const { bridge, electron } = createBridge();
+    electron.invoke.mockResolvedValueOnce({ ok: true, value: 7 });
 
     await expect(bridge.writeText('hello')).resolves.toEqual({ ok: true, value: 7 });
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('fixture:write-text', 'hello');
+    expect(electron.invoke).toHaveBeenCalledWith(
+      DESKTOP_IPC_INVOKE_CHANNEL,
+      'fixture:write-text',
+      'hello'
+    );
   });
 
   it('transports refusal data without throwing inside the contextBridge', async () => {
-    const ipcRenderer = createIpcRenderer();
+    const { bridge, electron } = createBridge();
     const failure = {
       category: 'availability',
       code: 'clipboard.unavailable',
@@ -95,40 +150,33 @@ describe('createIpcBridge', () => {
       message: 'Clipboard is unavailable.',
       remedy: 'Try again.',
     };
-    ipcRenderer.invoke.mockResolvedValueOnce({ error: failure, ok: false });
-    const bridge = createIpcBridge(ipcRenderer, contract);
+    electron.invoke.mockResolvedValueOnce({ error: failure, ok: false });
     await expect(bridge.writeText('hello')).resolves.toEqual({ error: failure, ok: false });
   });
 
-  it('passes a raw channel reply through untouched', async () => {
-    const ipcRenderer = createIpcRenderer();
-    ipcRenderer.invoke.mockResolvedValueOnce({ error: 'domain envelope', ok: false });
-    const bridge = createIpcBridge(ipcRenderer, contract);
+  it('passes a raw method reply through untouched', async () => {
+    const { bridge, electron } = createBridge();
+    electron.invoke.mockResolvedValueOnce({ error: 'domain envelope', ok: false });
 
     await expect(bridge.list()).resolves.toEqual({ error: 'domain envelope', ok: false });
-    expect(ipcRenderer.invoke).toHaveBeenCalledWith('fixture:list');
+    expect(electron.invoke).toHaveBeenCalledWith(DESKTOP_IPC_INVOKE_CHANNEL, 'fixture:list');
   });
 
   it('derives subscribe-returns-unsubscribe for a push event', () => {
-    const ipcRenderer = createIpcRenderer();
-    const bridge = createIpcBridge(ipcRenderer, contract);
+    const { bridge, electron } = createBridge();
     const callback = vi.fn();
 
     const unsubscribe = bridge.changed(callback);
-    const [registeredChannel, listener] = ipcRenderer.on.mock.calls[0] as [
-      string,
-      (event: unknown, payload: unknown) => void,
-    ];
-    expect(registeredChannel).toBe('fixture:changed');
-    listener({}, { id: 3 });
-    expect(callback).toHaveBeenCalledWith({ id: 3 });
+    electron.push({ method: 'fixture:changed', payload: { id: 3 } });
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ id: 3 });
+
     unsubscribe();
-    expect(ipcRenderer.removeListener).toHaveBeenCalledWith('fixture:changed', listener);
+    electron.push({ method: 'fixture:changed', payload: { id: 4 } });
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 
   it('exposes exactly the contract keys and nothing else', () => {
-    const bridge = createIpcBridge(createIpcRenderer(), contract);
-    expect(Object.keys(bridge).sort()).toEqual(Object.keys(contract).sort());
+    expect(Object.keys(createBridge().bridge).sort()).toEqual(Object.keys(contract).sort());
   });
 });
 
@@ -148,7 +196,10 @@ describe('unwrapIpcResult', () => {
 describe('createBridgeExposer', () => {
   it('exposes the derived bridge under the given name', () => {
     const contextBridge = { exposeInMainWorld: vi.fn() };
-    const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer: createIpcRenderer() });
+    const exposeBridge = createBridgeExposer({
+      contextBridge,
+      ipcRenderer: createDesktopIpcTransport(createElectronIpcRenderer()),
+    });
 
     exposeBridge('fixture', contract);
 

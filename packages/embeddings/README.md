@@ -1,10 +1,7 @@
 # @brainstrike/embeddings
 
-Provider adapters, catalog-qualified inference plans, worker orchestration and
-vector validation. Desktop local inference runs in hidden renderer hosts; web
-uses its browser worker runtime. Electron main coordinates capabilities and
-lifetime, never local inference. See the
-[local inference contract](../../docs/agents/local-inference.md).
+Hosted embedding provider adapters (OpenAI, Google, Cohere, Voyage), their API
+key resolution and vector validation.
 
 ## Use the right boundary
 
@@ -12,42 +9,20 @@ lifetime, never local inference. See the
 
 | Subpath | Responsibility |
 | --- | --- |
-| `/inference-plan` | Validate catalog-qualified execution identity |
-| `/provider-core` | Provider/model metadata contracts |
-| `/runtime-config` | Register the owned queue and streaming worker URL |
-| `/backend`, `/factory`, `/service` | Backend, provider factory and service adapters |
-| `/worker` | Durable queue worker/controller and foreground coordination |
+| `/provider-core` | Provider adapters, provider/model metadata contracts and API key resolution |
+| `/factory` | Cached provider factory |
 
 App model metadata comes from the existing provider catalog and authorized model
-choices. The legacy service registry and CLI helpers are not the current desktop
-catalog, default-model policy or a promise of Node-local inference support. Consult
-installed metadata rather than copying model-size/version tables.
+choices. Consult installed metadata rather than copying model tables.
 
-## Runtime setup
+## Hosted embeddings
 
-The renderer composition root registers an explicit queue factory and streaming
-worker URL before local backend initialization. `TransformersBackend` refuses
-when Web Workers or that factory are unavailable; it does not bootstrap a second
-queue or silently run inference in Node. Setup belongs to the hidden
-embedding-host adapters.
-
-Use [`inference-plan.ts`](src/inference-plan.ts) to preserve the selected model,
-optional revision, device, dtype, pooling, prompts and actual dimensions. Inference
-results must validate before publication. An unavailable selected device does not
-authorize a fallback. Genuine GPU device loss retires the existing worker; the
-next explicit request acquires a fresh runtime.
-
-## Native ingestion
-
-Desktop native ingestion uses its canonical producer, scoped index and hidden
-inference owner. Stop, reset and disposal must join the actual owned work. Detaching a
-subscriber does not stop work owned by a longer-lived host. Hosted embeddings use
-their provider adapters and resolved credential boundary, keeping secrets outside
-local worker payloads.
+Each adapter sends its provider's documented request and validates the returned
+dimensions before a vector is published. A missing API key, a rate limit or a
+provider error is a typed result, never a silent fallback. Keys resolve through
+the shared provider key boundary and stay outside request payloads and logs.
 
 ## Development
 
-Use this package's `build`, `type-check` and `test` scripts.
-Model/hardware probes are explicit work and have different prerequisites from
-unit checks. **CI is disabled due to cost; validation must run locally.** Follow
-`pnpm check`.
+Use this package's `type-check` and `test` scripts. **CI is disabled due to cost;
+validation must run locally.** Follow `pnpm check`.

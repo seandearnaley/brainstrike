@@ -5,6 +5,7 @@ import type {
   WebContentsDidStartNavigationEventParams,
 } from 'electron';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
+import { pushToRenderer } from './platform/desktop-ipc-push';
 import type { WorkspaceOpenReadySignal } from './workspace-open-ready-ipc';
 
 export interface FactoryResetRendererReplacementCoordinator {
@@ -120,7 +121,7 @@ export function createFactoryResetRendererReplacementCoordinator({
         }
         resetGenerationPublished = true;
         try {
-          webContents.send(DESKTOP_IPC_CHANNELS.workspace.factoryResetGeneration, {
+          pushToRenderer(webContents, DESKTOP_IPC_CHANNELS.workspace.factoryResetGeneration, {
             resetGeneration,
           });
         } catch (error) {

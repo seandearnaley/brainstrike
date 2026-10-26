@@ -18,24 +18,19 @@ import {
   buildProviderOptions,
   buildProviderOptionsWhenReady,
   formatToolLabel,
-  isLocalRuntimeProvider,
-  type LocalRuntimeModelCatalogMap,
   reconcileProviderSettingsForModel,
   resolveAdvertisedNativeToolIds,
   resolveAssistantOperatingRootBinding,
-  resolveAssistantProviderDisabledNotice,
+  resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveModelNameFromComposite,
   resolveOpenRouterMetadataDisabledReason,
   type SelectedModelBudgetDef,
-  toRuntimeProviderModels,
 } from '../assistant-ui-panel-wrapper-runtime';
 
 describe('assistant runtime helpers', () => {
-  // The advertised set is now a function of the HOST alone. It used to also
-  // branch on the selected provider, to hand the built-in local chat model a
-  // smaller eager-core subset; that model is gone, so every provider on a
-  // desktop host sees the same tools.
+  // The advertised set is a function of the HOST alone, so every provider on
+  // a desktop host sees the same tools.
   it('advertises the full desktop tool set once a desktop bridge is present', () => {
     expect(resolveAdvertisedNativeToolIds({ desktopBridgeAvailable: true })).toEqual(
       DESKTOP_NATIVE_TOOL_IDS
@@ -87,106 +82,6 @@ describe('assistant runtime helpers', () => {
         },
       })
     ).toThrow('Assistant thread operating-root metadata is incomplete.');
-  });
-
-  it('maps loaded local runtime catalogs into LLM provider models', () => {
-    const catalog: LocalRuntimeModelCatalogMap = {
-      ollama: {
-        availability: {
-          checkedAt: 1,
-          endpoint: 'http://localhost',
-          latencyMs: 1,
-          state: 'available',
-        },
-        checkedAt: 1,
-        endpoint: 'http://localhost',
-        freshness: 'live',
-        models: [
-          {
-            capabilities: { embeddings: 'unsupported', llm: true, vision: 'supported' },
-            capabilitySource: 'provider_reported',
-            dimensionsKnown: { state: 'not_applicable' },
-            displayName: 'Llama',
-            endpoint: 'http://localhost',
-            freshness: 'live',
-            modelId: 'llama',
-            modelKey: 'ollama/llama',
-            providerId: 'ollama',
-            runtime: 'ollama',
-            source: 'ollama_api_tags',
-          },
-          {
-            capabilities: { embeddings: 'supported', llm: false, vision: 'unsupported' },
-            capabilitySource: 'provider_reported',
-            dimensionsKnown: { state: 'needs_verification' },
-            displayName: 'Embed',
-            endpoint: 'http://localhost',
-            freshness: 'live',
-            modelId: 'embed',
-            modelKey: 'ollama/embed',
-            providerId: 'ollama',
-            runtime: 'ollama',
-            source: 'ollama_api_tags',
-          },
-        ],
-        runtime: 'ollama',
-        source: 'ollama_api_tags',
-        state: 'loaded_non_empty',
-      },
-    };
-
-    // Vision rides through from the runtime-reported capability so the
-    // composer attachment gate can read it off the synthesized definition.
-    expect(toRuntimeProviderModels('ollama', catalog)).toEqual([
-      expect.objectContaining({ default: true, id: 'llama', vision: 'supported' }),
-    ]);
-  });
-
-  it('declares each discovered Ollama model at the window admission budgets and Ollama allocates (BST-754)', () => {
-    const model = (modelId: string, contextLength?: { state: 'reported'; tokens: number }) => ({
-      capabilities: {
-        embeddings: 'unsupported' as const,
-        llm: true,
-        vision: 'unsupported' as const,
-      },
-      capabilitySource: 'provider_reported' as const,
-      ...(contextLength ? { contextLength: { ...contextLength, key: 'x.context_length' } } : {}),
-      dimensionsKnown: { state: 'not_applicable' as const },
-      displayName: modelId,
-      endpoint: 'http://localhost',
-      freshness: 'live' as const,
-      modelId,
-      modelKey: `ollama/${modelId}`,
-      providerId: 'ollama' as const,
-      runtime: 'ollama' as const,
-      source: 'ollama_api_tags' as const,
-    });
-    const catalog = {
-      ollama: {
-        checkedAt: 0,
-        endpoint: 'http://localhost',
-        freshness: 'live',
-        models: [
-          model('phi4', { state: 'reported', tokens: 16_384 }),
-          model('gemma4:31b', { state: 'reported', tokens: 262_144 }),
-          model('unreported'),
-        ],
-        runtime: 'ollama',
-        source: 'ollama_api_tags',
-        state: 'loaded_non_empty',
-      },
-    } as unknown as Parameters<typeof toRuntimeProviderModels>[1];
-    expect(
-      toRuntimeProviderModels('ollama', catalog).map(({ contextWindow, id }) => [id, contextWindow])
-    ).toEqual([
-      ['phi4', 16_384],
-      ['gemma4:31b', 32_768],
-      ['unreported', 32_768],
-    ]);
-  });
-
-  it('identifies local runtime providers', () => {
-    expect(isLocalRuntimeProvider('lmstudio')).toBe(true);
   });
 
   /**
@@ -437,11 +332,6 @@ describe('assistant runtime helpers', () => {
         googleThinkingLevel: 'minimal',
       })
     ).toEqual({ googleThinkingLevel: 'minimal' });
-    expect(
-      buildProviderOptions('ollama', 'llama', {
-        localRuntimeBaseUrl: ' http://127.0.0.1:11434 ',
-      })
-    ).toEqual({ ollama: { baseUrl: 'http://127.0.0.1:11434' } });
   });
 
   it('builds an OpenRouter thread draft from the same live metadata used by its settings UI', () => {
@@ -486,37 +376,31 @@ describe('assistant runtime helpers', () => {
 
   it('reports provider disabled reasons for unavailable provider states', () => {
     expect(
-      resolveAssistantProviderDisabledNotice({
+      resolveAssistantProviderDisabledReason({
         configuredProviders: [],
         currentModel: null,
-        getProviderLlmModels: () => [],
-        localRuntimeHint: 'Detected Ollama.',
         providerHasEnabledModels: () => false,
         selectedProvider: null,
-      })?.message
-    ).toContain('Detected Ollama.');
+      })
+    ).toBe('Connect an AI provider in Settings → Providers to enable the assistant.');
     expect(
-      resolveAssistantProviderDisabledNotice({
+      resolveAssistantProviderDisabledReason({
         configuredProviders: ['openai'],
         currentModel: 'missing',
-        getProviderLlmModels: () => [],
-        localRuntimeHint: undefined,
         providerHasEnabledModels: () => false,
         selectedProvider: 'openai',
-      })?.message
+      })
     ).toBe('Enable at least one model for OpenAI to continue.');
     expect(
-      resolveAssistantProviderDisabledNotice({
+      resolveAssistantProviderDisabledReason({
         configuredProviders: ['openrouter'],
         currentModel: 'openrouter::openai/gpt-5.4-mini',
-        getProviderLlmModels: () => [],
-        localRuntimeHint: undefined,
         providerHasEnabledModels: () => true,
         providerReadErrors: {
           openrouter: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
         },
         selectedProvider: 'openrouter',
-      })?.message
+      })
     ).toBe('Stored OpenRouter key is unreadable. Re-enter it to repair access.');
   });
 });
@@ -631,8 +515,7 @@ describe('buildAgentLoopSettings input-token budget', () => {
     }
   );
 
-  it('uses conservative floor budget for dynamic local model definitions (32k context)', () => {
-    // toRuntimeProviderModels sets contextWindow: 32_768, no maxOutputTokens
+  it('reserves the default output for a 32k definition that declares no maxOutputTokens', () => {
     // budget = 32_768 − 4_096 (DEFAULT) − max(1024, ceil(32_768 × 0.05)) = 32_768 − 4_096 − 1_639 = 27_033
     const settings = buildAgentLoopSettings(undefined, { contextWindow: 32_768 });
     expect(settings?.inputTokenLimit).toBe(27_033);
@@ -1015,16 +898,9 @@ describe('resolveComposerAttachmentsAvailability', () => {
     expect(availability.reason).toContain('mystery-text-model');
   });
 
-  it('stays optimistic for unknown vision support and unresolved model definitions', () => {
-    // 'unknown' (runtime-discovered model with no capability signal) and a
-    // missing definition (e.g. runtime catalog still loading) both enable the
-    // affordance: a wrong guess surfaces as a visible provider error, never a
-    // silently blocked composer.
-    expect(
-      resolveComposerAttachmentsAvailability({
-        selectedModel: { id: 'mystery-7b', label: 'Mystery 7B', vision: 'unknown' },
-      })
-    ).toEqual({ state: 'enabled' });
+  it('stays optimistic for an unresolved model definition', () => {
+    // A missing definition enables the affordance: a wrong guess surfaces as a
+    // visible provider error, never a silently blocked composer.
     expect(
       resolveComposerAttachmentsAvailability({
         selectedModel: undefined,

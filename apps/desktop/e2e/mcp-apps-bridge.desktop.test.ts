@@ -115,11 +115,12 @@ test('MCP Apps bridge is quiescent in genuinely packaged Electron', {
         '--disable-extensions',
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-features=CalculateNativeWinOcclusion',
       ],
       env: {
         ...electronEnvironment(),
         ['BRAINSTRIKE_DISABLE_FILE_LOGS']: '1',
-        ['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES']: '1',
         ['BRAINSTRIKE_E2E_USER_DATA_DIR']: userDataDir,
         ['BRAINSTRIKE_OPENAI_API_KEY']: 'test-api-key-for-e2e-tests',
         ['ELECTRON_IS_E2E_TEST']: 'true',

@@ -10,10 +10,8 @@ const {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
-  getWorkerpoolBrowserStubAliases,
   getWorkspaceSourceOptimizeDepsInclude,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
@@ -125,7 +123,6 @@ describe('assistant vite helpers', () => {
   test('returns shared startup optimize-deps package ids', () => {
     expect(getCoreAppOptimizeDepsInclude()).toEqual(
       expect.arrayContaining([
-        'idb',
         'minimatch',
         'pino',
         'react-hotkeys-hook',
@@ -168,12 +165,6 @@ describe('assistant vite helpers', () => {
     // human-in-the-loop tools. Prebundling a package nothing imports only
     // duplicated `@ai-sdk/provider` in the lockfile.
     expect(entries.some((entry) => entry.includes('@assistant-ui/react-data-stream'))).toBe(false);
-  });
-
-  test('returns heavy runtime optimize-deps exclusions', () => {
-    expect(getHeavyRuntimeOptimizeDepsExclude()).toEqual(
-      expect.arrayContaining(['@huggingface/transformers'])
-    );
   });
 
   test('returns lazy-surface entry points for the assistant surfaces', () => {
@@ -320,17 +311,6 @@ describe('fullReloadOnCompilerHotspots', () => {
       expect(send).not.toHaveBeenCalled();
       expect(result).toBeUndefined();
     }
-  });
-});
-
-describe('getWorkerpoolBrowserStubAliases', () => {
-  it('returns explicit browser-safe aliases for workerpool node builtins', () => {
-    const baseDir = '/tmp/brainstrike-app';
-    const stubDir = path.resolve(baseDir, '../../packages/build-utils/src/browser-node-stubs');
-    const aliases = getWorkerpoolBrowserStubAliases(baseDir);
-    expect(aliases['child_process']).toBe(toVitePath(path.resolve(stubDir, 'child-process.ts')));
-    expect(aliases['os']).toBe(toVitePath(path.resolve(stubDir, 'os.ts')));
-    expect(aliases['worker_threads']).toBe(toVitePath(path.resolve(stubDir, 'worker-threads.ts')));
   });
 });
 

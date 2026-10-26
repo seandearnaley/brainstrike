@@ -9,13 +9,10 @@ import type {
 } from '@brainstrike/indexer';
 
 export const RECORDED_VECTOR_PROFILE: VectorProfile = {
-  dimensions: 384,
+  dimensions: 1536,
   distance: 'cosine',
-  dtype: 'fp32',
-  modelId: 'deterministic-fixture-384',
-  provider: 'local',
-  revision: 'd'.repeat(40),
-  tokenCap: 512,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 };
 
 /** Call recorder only. It stores no vectors and is not an indexer parity proof. */

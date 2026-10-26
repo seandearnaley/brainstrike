@@ -7,15 +7,9 @@ import type {
   UpdatePromptItemInput,
 } from '@brainstrike/types/prompt-item';
 
-type EmbeddingFields =
-  | 'embeddingError'
-  | 'embeddingProfileId'
-  | 'embeddingRevision'
-  | 'embeddingStatus'
-  | 'embeddingUpdatedAt';
 export type PromptCatalogRecord = Omit<
   PromptItem,
-  EmbeddingFields | 'archivedAt' | 'createdAt' | 'updatedAt' | 'lastUsedAt'
+  'archivedAt' | 'createdAt' | 'updatedAt' | 'lastUsedAt'
 > & {
   readonly archivedAt: string | null;
   readonly createdAt: string;

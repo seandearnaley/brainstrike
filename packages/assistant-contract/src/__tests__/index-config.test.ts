@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_INDEX_CONFIG,
   decodeIndexConfig,
-  decodeIndexLocalExecution,
   indexModelId,
-  indexModelLocalSelection,
   sameIndexChunking,
   sameIndexModel,
 } from '../index-config.js';
@@ -13,13 +11,8 @@ const semantic = {
   ...DEFAULT_INDEX_CONFIG,
   mode: 'semantic',
   model: {
-    dimensions: 768,
-    local: {
-      device: 'webgpu',
-      dtype: 'fp16',
-      revision: '0123456789abcdef0123456789abcdef01234567',
-    },
-    modelKey: 'transformers::jinaai/jina-embeddings-v2-base-code',
+    dimensions: 1536,
+    modelKey: 'openai::text-embedding-3-small',
   },
 } as const;
 
@@ -63,54 +56,21 @@ describe('index config', () => {
   it.each([
     [
       'a model key without its provider',
-      { ...semantic, model: { ...semantic.model, modelKey: 'bge-small' } },
+      { ...semantic, model: { ...semantic.model, modelKey: 'text-embedding-3-small' } },
       '["model"]["modelKey"]',
-    ],
-    [
-      'a local revision that is not a commit SHA',
-      {
-        ...semantic,
-        model: { ...semantic.model, local: { ...semantic.model.local, revision: 'main' } },
-      },
-      '["model"]["local"]["revision"]',
-    ],
-    [
-      'a local dtype no executor runs',
-      {
-        ...semantic,
-        model: { ...semantic.model, local: { ...semantic.model.local, dtype: 'int8' } },
-      },
-      '["model"]["local"]["dtype"]',
     ],
     ['an unknown field', { ...DEFAULT_INDEX_CONFIG, collection: 'x' }, '["collection"]'],
   ])('refuses %s', (_label, input, path) => {
     expect(() => decodeIndexConfig(input)).toThrow(`at ${path}`);
   });
 
-  it('decodes a local execution plan with the config rule', () => {
-    expect(decodeIndexLocalExecution({ device: 'wasm', dtype: 'q8' })).toEqual({
-      device: 'wasm',
-      dtype: 'q8',
-    });
-    expect(() => decodeIndexLocalExecution({ device: 'wasm', dtype: 'int8' })).toThrow(
-      'at ["dtype"]'
-    );
-  });
-
-  it('names the on-device execution the index runs a local model with', () => {
-    expect(indexModelLocalSelection(semantic.model)).toEqual({
-      device: 'webgpu',
-      dimensions: 768,
-      dtype: 'fp16',
-      modelId: 'jinaai/jina-embeddings-v2-base-code',
-      revision: '0123456789abcdef0123456789abcdef01234567',
-    });
-    expect(indexModelLocalSelection({ ...semantic.model, local: null })).toBeNull();
+  it('names the model a key carries', () => {
+    expect(indexModelId(semantic.model)).toBe('text-embedding-3-small');
   });
 
   it('refuses to name a model whose key has no provider', () => {
-    expect(() => indexModelId({ modelKey: 'bge-small' })).toThrow(
-      'Embedding model key "bge-small" names no provider.'
+    expect(() => indexModelId({ modelKey: 'text-embedding-3-small' })).toThrow(
+      'Embedding model key "text-embedding-3-small" names no provider.'
     );
   });
 
@@ -126,10 +86,8 @@ describe('index config', () => {
     ).toBe(false);
   });
 
-  it('compares models by value, including how a local model runs', () => {
-    expect(
-      sameIndexModel(semantic.model, { ...semantic.model, local: { ...semantic.model.local } })
-    ).toBe(true);
-    expect(sameIndexModel(semantic.model, { ...semantic.model, local: null })).toBe(false);
+  it('compares models by value', () => {
+    expect(sameIndexModel(semantic.model, { ...semantic.model })).toBe(true);
+    expect(sameIndexModel(semantic.model, { ...semantic.model, dimensions: 512 })).toBe(false);
   });
 });

@@ -13,7 +13,6 @@ export const promptLibraryContract = {
       assertArgCount(raw, 1, 'Prompt Library');
       return [parsePromptLibraryRequest(raw[0])];
     },
-    roles: ['visible-ui'],
   }),
 };
 /** @internal Compile-time assertion that the runtime contract matches its public wire types. */

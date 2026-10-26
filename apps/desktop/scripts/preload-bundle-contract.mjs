@@ -1,5 +1,5 @@
 /**
- * Post-build contract for the two preload bundles (BST-1648). A preload runs
+ * Post-build contract for the preload bundle (BST-1648). A preload runs
  * in a sandboxed renderer where `require` resolves NOTHING but `electron`;
  * every relative import is inlined by `bundle: true`, so the only
  * `require(...)` calls the emitted file may contain are the allowlisted
@@ -7,7 +7,7 @@
  * gate); `src/__tests__/preload-bundle-contract.test.ts` pins the assertion
  * on a real write:false bundle so it never depends on a stale `dist/`.
  */
-export const PRELOAD_BUNDLE_ENTRY_NAMES = ['preload', 'hidden-preload'];
+export const PRELOAD_BUNDLE_ENTRY_NAMES = ['preload'];
 export const ALLOWED_PRELOAD_REQUIRES = ['electron'];
 
 const REQUIRE_CALL_PATTERN = /\brequire\(\s*(['"])([^'"]+)\1\s*\)/g;

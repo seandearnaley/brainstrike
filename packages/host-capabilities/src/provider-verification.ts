@@ -8,9 +8,6 @@
  * (see the probe table in docs/agents/assistant-providers.md). Routing is
  * authType-driven from the registry, never a provider-name special case:
  *
- * - authType 'none' (local/ollama/lmstudio) → typed `not_applicable`, ZERO
- *   network calls and ZERO credential reads — runtime liveness belongs to the
- *   ipc-runtime probe family.
  * - authType 'api_key' → per-provider probe table below. An api_key provider
  *   WITHOUT a table entry throws (NO SILENT FALLBACKS — a new provider must
  *   declare its probe, never inherit a guess).
@@ -22,10 +19,9 @@
  *   the shared `resolveEnvAwsRegion`, so probe and runtime cannot drift
  *   (PR #2529 finding 3).
  * - authType 'aws' + profile_chain credential → CHAIN RESOLUTION itself
- *   (BST-1353), not an HTTP call. This replaced the old `not_applicable`:
- *   the chain is the credential, so resolving it is the most direct possible
- *   proof, and it answers the question the user actually has ("is my SSO
- *   session still good?"). Verdicts: resolved → verified; expired SSO or an
+ *   (BST-1353), not an HTTP call: the chain is the credential, so resolving
+ *   it is the most direct possible proof, and it answers the question the
+ *   user actually has ("is my SSO session still good?"). Verdicts: resolved → verified; expired SSO or an
  *   empty chain → invalid, with the actionable `aws sso login --profile
  *   <name>` guidance as the detail; an unrecognized SDK failure →
  *   unreachable, preserving "no verdict obtainable".
@@ -349,8 +345,7 @@ function resolveProbe(
     }
     if (credential.mode === 'profile_chain') {
       // BST-1353: the chain IS the credential, so resolving it is the probe —
-      // no network call, and a far more useful verdict than the old
-      // `not_applicable`. It answers the question the user actually has
+      // no network call. It answers the question the user actually has
       // ("will my SSO session work?") before they spend a turn finding out.
       return { resolveChain: credential.profile };
     }
@@ -537,19 +532,6 @@ export function createProviderVerificationService(
       if (!target) {
         throw new UnknownVerificationProviderError();
       }
-      if (target.authType === 'none') {
-        // Keyless local runtimes: liveness is the ipc-runtime probe family's
-        // concern; there is no credential to verify and no network call here.
-        return {
-          freshness: 'live',
-          result: {
-            checkedAt: new Date(now()).toISOString(),
-            detail: 'Keyless local runtime; there is no credential to verify.',
-            status: 'not_applicable',
-          },
-        };
-      }
-
       const credential = await leaveOnAbort(() => readCredential(providerId), signal);
       if (!credential) {
         throw new MissingProviderCredentialError(providerId);

@@ -16,13 +16,10 @@ export const storeId = 'a'.repeat(64);
 export const rootId = 'root-a';
 export const scope = { kind: 'workspace', rootId } as const;
 export const profile = {
-  dimensions: 384,
+  dimensions: 1536,
   distance: 'cosine',
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  provider: 'local',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 256,
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 export const binding = {
   embeddingSetId: 'selected',
@@ -94,11 +91,9 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
   );
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
-    commitFile: unused,
     commitScopedFile: unused,
     commitScopedTextFile: unused,
     commitTextFile: unused,
-    configureVectorProfile: unused,
     coverage: unused,
     coverageBatch,
     coverageScope: async () => ({
@@ -119,7 +114,6 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
     destroy: unused,
     info: async () => ({
       dbPath: '/actual/index.sqlite',
-      embedding: { indexMode: 'text-only' },
       journalMode: 'wal',
       pid: 1,
       readerQueryOnly: 1,
@@ -159,7 +153,7 @@ export function fixture(selectedProfile: VectorProfile | null = null) {
         'embedding_set_id',
         'source_path',
       ],
-      identity: { embedding: { indexMode: 'text-only' }, storeId },
+      identity: { storeId },
       matchedChunks: 1,
       rows: [
         [

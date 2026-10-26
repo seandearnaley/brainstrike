@@ -8,48 +8,26 @@ import {
   fullReloadOnCompilerHotspots,
   getAssistantOptimizeDepsInclude,
   getCoreAppOptimizeDepsInclude,
-  getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
   getTreeSitterGrammarCopyTargets,
-  getWorkerpoolBrowserStubAliases,
   getWorkspaceSourceOptimizeDepsInclude,
   isContextActionSystemModule,
   isSanitizedPersistMergeModule,
   isZustandModule,
   preserveWorkerEntryPlugin,
-  transformersOnnxRuntimeWasmUrlsPlugin,
 } from '@brainstrike/build-utils';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import wasm from 'vite-plugin-wasm';
 import { getDevCSP } from './src/csp-utils';
-import { rendererIsolationHeaders } from './src/desktop-renderer-target';
 import { DESKTOP_DEV_RENDERER_PORT } from './src/desktop-renderer-url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** The dev server applies the built protocol's cross-origin isolation policy (BST-1999). */
-function rendererIsolationPlugin(): Plugin {
-  return {
-    configureServer(server) {
-      server.middlewares.use((request, response, next) => {
-        const url = new URL(request.url ?? '/', 'http://renderer.invalid');
-        for (const [name, value] of Object.entries(
-          rendererIsolationHeaders(url, ['/', '/index.html'])
-        )) {
-          response.setHeader(name, value);
-        }
-        next();
-      });
-    },
-    name: 'brainstrike-renderer-isolation',
-  };
-}
 const require = createRequire(import.meta.url);
 const pinoBrowserPath = require.resolve('pino/browser.js');
-const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
 
 const desktopPackage: { readonly version?: string } = require('./package.json');
 
@@ -70,8 +48,8 @@ export default defineConfig({
   base: './', // Use relative paths for Electron
   build: {
     assetsInlineLimit: 0,
-    // Accept the measured renderer/main, context-preview, bootstrap,
-    // and Transformers chunks while retaining a useful regression ceiling.
+    // Accept the measured renderer/main, context-preview and bootstrap
+    // chunks while retaining a useful regression ceiling.
     // The 2.3 MB o200k table is fetched as an asset only on accurate-token use.
     chunkSizeWarningLimit: 1300,
     emptyOutDir: true,
@@ -109,20 +87,20 @@ export default defineConfig({
   },
   cacheDir: path.resolve(__dirname, '.vite'),
   define: {
-    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),
+    // The renderer has no Node process. Dependencies read `process.env` (assistant-ui's cloud
+    // base URL); the dev client must expose the same empty object a production build inlines.
+    'process.env': '{}',
     // Retained from the PGlite removal; not proven unneeded by other renderer dependencies.
     'process.versions': 'undefined',
   },
   optimizeDeps: {
     entries: [...getLazySurfaceOptimizeDepsEntries(__dirname)],
     exclude: [
-      ...getHeavyRuntimeOptimizeDepsExclude(),
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/assistant-ui',
       '@brainstrike/ui',
       '@brainstrike/utils',
-      '@brainstrike/indexing-contract/workspace-indexing-qos',
       '@brainstrike/file-explorer',
       '@brainstrike/file-explorer-hooks',
       '@brainstrike/file-explorer-ui',
@@ -131,8 +109,6 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
-      '@brainstrike/embeddings', // Pulls embedding-worker and transformers through source aliases
-      '@brainstrike/embedding-worker', // Keep Vite out of the raw worker/runtime graph
       '@brainstrike/token-cache',
       '@brainstrike/token-cache/cache-runtime',
       '@brainstrike/token-cache/background-indexer',
@@ -144,14 +120,8 @@ export default defineConfig({
     ],
   },
   plugins: [
-    rendererIsolationPlugin(),
     // A bare dynamic import fails in the renderer at runtime, never at build (BST-2230).
     browserBareDynamicImportGuardPlugin(),
-    // ONNX Runtime's WASM, emitted from the onnxruntime-web Transformers.js itself depends
-    // on, for the one realm that runs it: the embedding worker (BST-2003, BST-2231).
-    transformersOnnxRuntimeWasmUrlsPlugin([
-      path.resolve(__dirname, '../../packages/embedding-worker'),
-    ]),
     // __BRAINSTRIKE_BUILD_ID__: the packaged app is one build per version.
     buildIdPlugin([
       { name: 'apps/desktop/package.json version', read: () => desktopPackage.version },
@@ -227,10 +197,6 @@ export default defineConfig({
         find: '@brainstrike/workers',
         replacement: path.resolve(__dirname, '../../packages/workers'),
       },
-      ...Object.entries(workerpoolBrowserStubAliases).map(([find, replacement]) => ({
-        find,
-        replacement,
-      })),
       {
         // Force pino to browser build to avoid dynamic require of node libs in renderer
         find: 'pino',

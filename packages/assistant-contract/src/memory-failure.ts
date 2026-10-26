@@ -18,8 +18,6 @@ export const MEMORY_FAILURE_CODES = {
   credentialMissing: 'memory.credential-missing',
   /** The memory embedder failed to embed. */
   embedder: 'memory.embedder-failed',
-  /** The on-device memory embedder has no execution device on this machine (BST-2193). */
-  embedderDeviceUnavailable: 'memory.embedder-device-unavailable',
   /** The memory embedder cannot be reached or is not running. */
   embedderUnavailable: 'memory.embedder-unavailable',
   /** An observational memory observer or reflector model call failed. */
@@ -27,17 +25,6 @@ export const MEMORY_FAILURE_CODES = {
   /** The memory vector store failed to query or store vectors. */
   vectorStore: 'memory.vector-store-failed',
 } as const;
-
-/** What the user can do when the on-device memory embedder cannot run. */
-export const MEMORY_ON_DEVICE_EMBEDDER_REMEDY =
-  'Choose a hosted embedding model in Settings → Assistant Memory, or turn off semantic recall and vector observation retrieval.';
-
-/**
- * What the user can do when the on-device embedder has no execution device:
- * choose one in the Assistant Memory picker (BST-2201), or not run on-device.
- */
-export const MEMORY_EMBEDDER_DEVICE_REMEDY =
-  'Choose a device in Settings → Assistant Memory → On-device embedding device, choose a hosted embedding model there, or turn off semantic recall and vector observation retrieval.';
 
 /** What the user can do when memory's embedding model is not selected or not in the catalog. */
 export const MEMORY_EMBEDDER_SELECTION_REMEDY =

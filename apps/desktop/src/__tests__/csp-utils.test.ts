@@ -21,8 +21,6 @@ describe('Desktop CSP Utils', () => {
       expect(devCSP).toContain('http://127.0.0.1:*');
       expect(devCSP).toContain('ws://127.0.0.1:*');
       expect(devCSP).toContain('wss://localhost:*');
-      expect(devCSP).toContain('https://huggingface.co');
-      expect(devCSP).toContain('https://*.hf.co');
       expect(devCSP).not.toContain('jsdelivr');
       expect(devCSP).toContain("object-src 'none'");
       expect(devCSP).toContain("base-uri 'self'");
@@ -39,12 +37,10 @@ describe('Desktop CSP Utils', () => {
       expect(prodCSP).toContain("style-src 'self' 'unsafe-inline'");
       expect(prodCSP).toContain("img-src 'self' data: blob: brainstrike-asset:");
       expect(prodCSP).toContain("font-src 'self' data:");
-      // Production connect-src allows the local assistant runtime and model hosts
+      // Production connect-src allows the local assistant server
       expect(prodCSP).toContain("connect-src 'self'");
       expect(prodCSP).toContain('http://127.0.0.1:*');
       expect(prodCSP).toContain('http://localhost:*');
-      expect(prodCSP).toContain('https://huggingface.co');
-      expect(prodCSP).toContain('https://*.hf.co');
       expect(prodCSP).not.toContain('jsdelivr');
       expect(prodCSP).toContain("object-src 'none'");
       expect(prodCSP).toContain("base-uri 'self'");
@@ -57,15 +53,18 @@ describe('Desktop CSP Utils', () => {
       expect(prodCSP).not.toContain('wss://localhost:*');
     });
 
-    it('includes embeddings-related domains in connect-src', () => {
-      const devCSP = getCSP('development');
-      const prodCSP = getCSP('production');
+    it('includes the hosted embedding providers in connect-src', () => {
+      const connectSrcOf = (csp: string) =>
+        csp.split(';').find((directive: string) => directive.trim().startsWith('connect-src')) ??
+        '';
 
-      // Both should include Hugging Face domains for embeddings
-      expect(devCSP).toContain('https://huggingface.co');
-      expect(devCSP).toContain('https://*.hf.co');
-      expect(prodCSP).toContain('https://huggingface.co');
-      expect(prodCSP).toContain('https://*.hf.co');
+      // The desktop calls hosted embedding providers directly.
+      for (const csp of [getCSP('development'), getCSP('production')]) {
+        expect(connectSrcOf(csp)).toContain('https://api.openai.com');
+        expect(connectSrcOf(csp)).toContain('https://generativelanguage.googleapis.com');
+        expect(connectSrcOf(csp)).toContain('https://api.cohere.com');
+        expect(connectSrcOf(csp)).toContain('https://api.voyageai.com');
+      }
     });
 
     it('maintains strict security directives for Electron', () => {
@@ -94,8 +93,8 @@ describe('Desktop CSP Utils', () => {
       // WASM needs only wasm-unsafe-eval; production must NOT carry full
       // eval, and no environment script-loads from the CDN (a jsdelivr
       // compromise must never mean code execution in a renderer holding the
-      // secrets/terminal/git bridges — BST-573). ONNX Runtime's WASM is the
-      // app's own file (BST-2003), so no directive allows jsdelivr at all.
+      // secrets/terminal/git bridges — BST-573), and no directive allows
+      // jsdelivr at all.
       expect(devCSP).toContain("'wasm-unsafe-eval'");
       expect(prodCSP).toContain("'wasm-unsafe-eval'");
       expect(prodCSP).not.toContain("'unsafe-eval' ");
@@ -138,7 +137,7 @@ describe('Desktop CSP Utils', () => {
       expect(prodCSP).toContain("worker-src 'self' blob:");
     });
 
-    it('supports blob: script modules for ORT and transformers runtime loading', () => {
+    it('supports blob: script modules', () => {
       const devCSP = getCSP('development');
       const prodCSP = getCSP('production');
 

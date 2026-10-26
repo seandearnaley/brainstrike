@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -23,6 +23,7 @@ test('CLI-created children appear in the GUI and retain their identity through C
 }) => {
   const root = path.join(electron.getUserDataDir(), 'profiles', 'test');
   const workspace = await mkdtemp(path.join(tmpdir(), 'bs-m4-cli-child-'));
+  electron.removeAfterClose(workspace);
   const environment = {
     ...resolveProviderEgressEnvironment(modelProvider, []),
     BRAINSTRIKE_OPENAI_API_KEY: 'offline-cli-first-fixture',
@@ -179,6 +180,5 @@ test('CLI-created children appear in the GUI and retain their identity through C
     if (started) {
       await command(['host', 'stop']);
     }
-    await rm(workspace, { recursive: true });
   }
 });

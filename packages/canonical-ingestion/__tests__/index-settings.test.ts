@@ -7,9 +7,8 @@ import {
 } from '../src/index-settings.js';
 
 const model = {
-  dimensions: 384,
-  local: { device: 'wasm', dtype: 'q8' },
-  modelKey: 'transformers::Xenova/bge-small-en-v1.5',
+  dimensions: 1536,
+  modelKey: 'openai::text-embedding-3-small',
 } as const;
 
 describe('native index settings from the saved config', () => {
@@ -21,40 +20,26 @@ describe('native index settings from the saved config', () => {
       managedCollectionId: null,
       mode: 'TEXT',
       paused: false,
-      selection: null,
       worktreeOptIns: new Set(),
     });
   });
 
-  it('runs semantic search in the vector space Main ensured, on the chosen device', () => {
-    const settings = nativeIndexSettingsFromConfig(
-      { ...DEFAULT_INDEX_CONFIG, mode: 'semantic', model, worktrees: { wt1: true, wt2: false } },
-      'space-1'
-    );
-    expect(settings).toMatchObject({
-      managedCollectionId: 'space-1',
-      mode: 'VECTOR',
-      selection: {
-        device: 'wasm',
-        dimensions: 384,
-        dtype: 'q8',
-        modelId: 'Xenova/bge-small-en-v1.5',
-      },
-      worktreeOptIns: new Set(['wt1']),
-    });
-  });
-
-  it('runs semantic search with a hosted model in its vector space, with no on-device plan', () => {
+  it('runs semantic search with a hosted model in its vector space', () => {
     expect(
       nativeIndexSettingsFromConfig(
         {
           ...DEFAULT_INDEX_CONFIG,
           mode: 'semantic',
-          model: { dimensions: 1536, local: null, modelKey: 'openai::text-embedding-3-small' },
+          model,
+          worktrees: { wt1: true, wt2: false },
         },
         'space-1'
       )
-    ).toMatchObject({ managedCollectionId: 'space-1', mode: 'VECTOR', selection: null });
+    ).toMatchObject({
+      managedCollectionId: 'space-1',
+      mode: 'VECTOR',
+      worktreeOptIns: new Set(['wt1']),
+    });
   });
 
   it('turns indexing off', () => {

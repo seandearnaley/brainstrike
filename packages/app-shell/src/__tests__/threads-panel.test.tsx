@@ -296,15 +296,12 @@ vi.mock('../thread-search-service', () => ({
       Promise.resolve({
         metadata: {
           ftsResultCount: 0,
-          semanticArmUsed: false,
           titleResultCount: 0,
           totalMs: 0,
-          vectorResultCount: 0,
         },
         results: [],
       }),
   }),
-  THREAD_SEARCH_VECTOR_THRESHOLD: 0.35,
 }));
 
 // The branch chips' inventory: `deferInitialLoad` keeps `inventory` null, the
@@ -344,25 +341,6 @@ vi.mock('../changes/use-git-inventory', () => ({
       refresh: vi.fn(),
     };
   },
-}));
-
-vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
-  useEnsureModelRegistry: vi.fn(),
-}));
-
-vi.mock('@brainstrike/app-state/stores/model-registry-store', () => {
-  const registryState = { models: [], providers: [] };
-  return {
-    useModelRegistryStore: (selector?: (state: typeof registryState) => unknown) =>
-      selector ? selector(registryState) : registryState,
-  };
-});
-
-vi.mock('@brainstrike/vector-management', () => ({
-  useSharedSearchEmbedder: () => ({
-    embedDocumentWithRecovery: vi.fn(() => Promise.resolve([])),
-    embedQueryWithRecovery: vi.fn(() => Promise.resolve([])),
-  }),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({

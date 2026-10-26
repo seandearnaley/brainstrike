@@ -130,12 +130,12 @@ export class SqliteSandbox {
       ? ` AND (typeof(ch.content)<>'text' OR ${invalidValue} OR ${contentFilter.predicate})`
       : '';
     const statement = this.#database.prepare(
-      `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ${projection.join(',')} FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id IS ch.root_id WHERE ${scopePredicate}${contentPredicate}) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
+      `SELECT md.schema_version,md.store_id,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ${projection.join(',')} FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id IS ch.root_id WHERE ${scopePredicate}${contentPredicate}) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
     );
     statement.setReturnArrays(true);
     const columns = statement
       .columns()
-      .slice(5)
+      .slice(2)
       .map((column) => column.name);
     const rows: (readonly SqliteValue[])[] = [];
     let matchedChunks = 0;
@@ -147,13 +147,10 @@ export class SqliteSandbox {
     for (const output of statement.iterate(...parameters)) {
       const snapshotRow = decodeRow(output);
       identity ??= decodeIndexIdentityRow({
-        indexMode: snapshotRow[2],
-        profileHash: snapshotRow[4],
-        profileJson: snapshotRow[3],
         schemaVersion: snapshotRow[0],
         storeId: snapshotRow[1],
       });
-      const row = snapshotRow.slice(5);
+      const row = snapshotRow.slice(2);
       if (row[0] === null) {
         continue;
       }

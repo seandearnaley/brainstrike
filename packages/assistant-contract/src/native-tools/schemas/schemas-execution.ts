@@ -95,7 +95,7 @@ const rootRelativePath = (description: string, ...extra: readonly SchemaAST.Chec
  * (`127.0.0.1`, `192.168.1.10`, `169.254.169.254`), and mDNS `.local` names —
  * all of which the escalation card would present as "the internet" while the
  * actual grant is services on the user's own machine or network (a local
- * Ollama, a dev database, a cloud metadata endpoint). Model-authored code
+ * dev server, a dev database, a cloud metadata endpoint). Model-authored code
  * gets no such grant: name a public domain or run offline.
  */
 const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;

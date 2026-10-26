@@ -1,12 +1,11 @@
-import { embeddingProfileHash, fileChunks } from '@brainstrike/indexer';
+import { fileChunks, vectorProfileHash } from '@brainstrike/indexer';
 import { describe, expect, it } from 'vitest';
 
 const profile = {
-  dimensions: 384,
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 512,
+  dimensions: 1536,
+  distance: 'cosine',
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
 } as const;
 const snapshot = {
   chunkLines: 1,
@@ -15,52 +14,38 @@ const snapshot = {
   relativePath: 'src/worker.ts',
   rootId: 'root-a',
 };
-describe('file chunk and embedding identity', () => {
-  it('preserves exact source bytes and positions, with stable ids and content-sensitive embeddings', () => {
-    const chunks = fileChunks(snapshot, profile);
+describe('file chunk and vector profile identity', () => {
+  it('preserves exact source bytes and positions, with stable content-sensitive ids', () => {
+    const chunks = fileChunks(snapshot);
     expect(chunks.map((chunk) => chunk.content).join('')).toBe(snapshot.content);
     expect(chunks.map((chunk) => [chunk.startLine, chunk.endLine])).toEqual([
       [1, 1],
       [2, 2],
     ]);
-    const changed = fileChunks(
-      { ...snapshot, content: 'const reader = openReader();\nawait writer.close();\n' },
-      profile
-    );
+    const changed = fileChunks({
+      ...snapshot,
+      content: 'const reader = openReader();\nawait writer.close();\n',
+    });
     expect(changed.map((chunk) => chunk.chunkId)).toEqual(chunks.map((chunk) => chunk.chunkId));
-    expect(changed[0]?.embeddingHash).toBe(chunks[0]?.embeddingHash);
-    expect(changed[1]?.embeddingHash).not.toBe(chunks[1]?.embeddingHash);
-    expect(fileChunks({ ...snapshot, rootId: 'root-b' }, profile)[0]?.chunkId).not.toBe(
-      chunks[0]?.chunkId
-    );
-    expect(fileChunks({ ...snapshot, content: '' }, profile)).toEqual([]);
+    expect(changed[0]?.contentHash).toBe(chunks[0]?.contentHash);
+    expect(changed[1]?.contentHash).not.toBe(chunks[1]?.contentHash);
+    expect(fileChunks({ ...snapshot, rootId: 'root-b' })[0]?.chunkId).not.toBe(chunks[0]?.chunkId);
+    expect(fileChunks({ ...snapshot, content: '' })).toEqual([]);
   });
   it('hashes every complete profile field and refuses malformed profiles and root paths', () => {
     for (const field of [
-      { modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX' },
-      { revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f' },
-      { dtype: 'fp16' },
+      { provider: 'voyage' },
+      { modelId: 'text-embedding-3-large' },
       { dimensions: 768 },
-      { tokenCap: 256 },
+      { distance: 'l2' },
     ]) {
-      expect(embeddingProfileHash({ ...profile, ...field })).not.toBe(
-        embeddingProfileHash(profile)
-      );
+      expect(vectorProfileHash({ ...profile, ...field })).not.toBe(vectorProfileHash(profile));
     }
-    expect(() => embeddingProfileHash({ ...profile, tokenCap: 0 })).toThrow();
-    expect(() => embeddingProfileHash({ ...profile, extra: 'unreviewed' })).toThrow();
-    expect(() => fileChunks({ ...snapshot, relativePath: '../escape.ts' }, profile)).toThrow();
+    expect(() => vectorProfileHash({ ...profile, dimensions: 0 })).toThrow();
+    expect(() => vectorProfileHash({ ...profile, extra: 'unreviewed' })).toThrow();
+    expect(() => fileChunks({ ...snapshot, relativePath: '../escape.ts' })).toThrow();
   });
-  it('keeps text identity explicit and refuses fabricated configured profile hashes', () => {
-    expect(fileChunks(snapshot, { indexMode: 'text-only' })[0]?.embeddingHash).toBeNull();
-    const configured = {
-      indexMode: 'vector-configured',
-      profile,
-      profileHash: embeddingProfileHash(profile),
-    } as const;
-    expect(fileChunks(snapshot, configured)).toEqual(fileChunks(snapshot, profile));
-    expect(() => fileChunks(snapshot, { ...configured, profileHash: 'f'.repeat(64) })).toThrow(
-      'disagrees'
-    );
+  it('keeps text chunks free of an embedding identity', () => {
+    expect(fileChunks(snapshot)[0]?.embeddingHash).toBeNull();
   });
 });

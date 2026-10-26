@@ -1,16 +1,10 @@
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import type { LocalRuntimeAvailabilityState, LocalRuntimeId } from '@brainstrike/local-runtime';
 import { ASSISTANT_PREFERENCES_STORE_NAME } from './stores/assistant-preferences-store-name.ts';
 import type { DbModel, DbProvider } from './stores/model-registry-store.ts';
 
 export interface ModelRegistrySnapshotOverride {
-  readonly downloadedModels?: Record<string, boolean>;
   readonly models?: DbModel[];
   readonly providers?: DbProvider[];
-}
-
-export interface LocalRuntimeTestOverrides {
-  readonly statuses?: Partial<Record<LocalRuntimeId, LocalRuntimeAvailabilityState>>;
 }
 
 export interface SettingsE2ETestOverrides {
@@ -18,7 +12,6 @@ export interface SettingsE2ETestOverrides {
   readonly assistant?: {
     readonly configuredProviders?: readonly SupportedProvider[];
   };
-  readonly localRuntime?: LocalRuntimeTestOverrides;
   readonly modelRegistry?: {
     readonly fetchErrorMessage?: string | null;
     readonly snapshot?: ModelRegistrySnapshotOverride;
@@ -35,9 +28,6 @@ const SETTINGS_TEST_SUPPORTED_PROVIDERS = new Set<string>([
   'anthropic',
   'cohere',
   'google',
-  'lmstudio',
-  'local',
-  'ollama',
   'openai',
   'openrouter',
   'voyage',
@@ -47,7 +37,6 @@ declare global {
   interface Window {
     // biome-ignore lint/style/useNamingConvention: E2E init-script flag uses double underscores by convention
     __brainstrike_e2e_enable_settings_test_api__?: boolean;
-    __brainstrikeLocalRuntimeProbeCounts__?: Partial<Record<LocalRuntimeId, number>>;
     __brainstrikePendingSettingsTestOverrides__?: SettingsE2ETestOverrides;
   }
 }
@@ -82,10 +71,6 @@ function readSettingsTestOverrides(): SettingsE2ETestOverrides | undefined {
     return;
   }
   return window.__brainstrikePendingSettingsTestOverrides__;
-}
-
-function shouldDisableExternalLocalRuntimeProbesForE2E(): boolean {
-  return globalThis.process?.env?.['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES'] === '1';
 }
 
 function readPersistedAssistantSelectedModelForTests(): string | undefined {
@@ -135,48 +120,6 @@ export function getAssistantConfiguredProvidersTestOverride():
 
   const provider = resolveProviderFromCompositeModel(readPersistedAssistantSelectedModelForTests());
   return provider ? [provider] : undefined;
-}
-
-export function getLocalRuntimeStatusTestOverride(
-  runtimeId: LocalRuntimeId
-): LocalRuntimeAvailabilityState | undefined {
-  const explicitOverride = readSettingsTestOverrides()?.localRuntime?.statuses?.[runtimeId];
-  if (explicitOverride) {
-    return explicitOverride;
-  }
-  if (!(shouldReadSettingsTestOverrides() && shouldDisableExternalLocalRuntimeProbesForE2E())) {
-    return;
-  }
-  return {
-    checkedAt: Date.now(),
-    message: 'External local runtime probing is disabled for deterministic desktop E2E.',
-    state: 'unavailable',
-  };
-}
-
-export function recordLocalRuntimeProbeForTests(runtimeId: LocalRuntimeId): void {
-  if (!readSettingsTestOverrides()?.localRuntime) {
-    return;
-  }
-
-  window.__brainstrikeLocalRuntimeProbeCounts__ = {
-    ...(window.__brainstrikeLocalRuntimeProbeCounts__ ?? {}),
-    [runtimeId]: (window.__brainstrikeLocalRuntimeProbeCounts__?.[runtimeId] ?? 0) + 1,
-  };
-}
-
-export function readLocalRuntimeProbeCountsForTests(): Partial<Record<LocalRuntimeId, number>> {
-  if (typeof window === 'undefined') {
-    return {};
-  }
-  return window.__brainstrikeLocalRuntimeProbeCounts__ ?? {};
-}
-
-export function resetLocalRuntimeProbeCountsForTests(): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  window.__brainstrikeLocalRuntimeProbeCounts__ = {};
 }
 
 export function getModelRegistryFetchErrorTestOverride(): string | null | undefined {

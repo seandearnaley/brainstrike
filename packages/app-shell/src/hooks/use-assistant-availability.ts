@@ -543,7 +543,6 @@ function validateProviderStatusConsistency({
   providers: readonly SupportedProvider[] | undefined;
 }): void {
   // An empty list is a host with no keyed provider. It stays enabled: the
-  // renderer discovers local runtimes (Ollama, LM Studio) itself, and the
   // panel asks for a provider when nothing at all is available.
   for (const provider of providers ?? []) {
     if (!PROVIDER_DEFAULT_MODELS[provider]) {
@@ -555,13 +554,8 @@ function validateProviderStatusConsistency({
     throw new Error('Assistant provider cannot be both available and unreadable');
   }
   const sourcedProviders = new Set(providerKeySources?.map(({ provider }) => provider));
-  if (
-    providerKeySources &&
-    providers?.some(
-      (provider) => providerEnvKeys(provider).length > 0 && !sourcedProviders.has(provider)
-    )
-  ) {
-    throw new Error('Assistant hosted provider is missing its key source');
+  if (providerKeySources && providers?.some((provider) => !sourcedProviders.has(provider))) {
+    throw new Error('Assistant provider is missing its key source');
   }
   // Loop-invariant, so it is built once rather than rescanned per source.
   const providerSet = providers ? new Set(providers) : undefined;

@@ -55,7 +55,7 @@ sensitive content while preserving correlated causes, aggregate failures and
 safe actionable errors. Telemetry is an observation, never authority or a second
 persistent fact. Adding a diagnostic store adds a reset obligation.
 
-Long-lived watchers, command sessions, hidden hosts and background tasks own
+Long-lived watchers, command sessions and background tasks own
 explicit lifetimes. Fence admission synchronously, join late and active resources,
 attempt independent cleanup and report every failure. A timeout, cancellation
 notice, closed transport or deleted row does not prove physical work stopped.
@@ -89,7 +89,6 @@ constant says so in its doc comment. Escalating is a warn, never a failed close:
 - The agent host is asked to close and its exit joined; after 30 s Main calls
   `kill()` and joins the exit. A content clear is never killed: its deletion
   completes under the lease, whose exit is joined without a rung.
-- Hidden renderer hosts are destroyed and their `closed` joined.
 
 Terminal quit prepares Main's workspace mutations before profile retirement; the
 agent host retires its worktree operations, Git inventory, forge, snapshot
@@ -108,13 +107,14 @@ Quit has one terminal reason: the typed native-index refusal of kind `closed`,
 reason `shutdown`. Boundaries keep it as the cause of whatever they rethrow, and a
 log site that classifies it records it at debug, never as an error.
 
-Main's @parcel/watcher owners use the joined producer (`startJoinedParcelWatch`),
+Main's root watch owners use the joined producer (`startJoinedParcelWatch`),
 never `ElectronFileSystemAdapter.watchDirectory`'s fire-and-forget disposer, and
-each joins its subscribes and unsubscribes in a graceful-shutdown step. One still
-on the libuv thread pool when Electron frees Main's Node environment completes
-into a dead JS context and aborts Main (BST-2244). An owner keeps a subscription
-whose unsubscribe failed until a retry succeeds; each terminal dispose retries it
-once and rejects visibly if it fails again (BST-2248).
+each joins its watches in a graceful-shutdown step. The engine is Node's
+recursive `fs.watch`: it arms synchronously, and `close()` is its whole
+retirement, on the event-loop thread. @parcel/watcher was removed because its
+Windows backend freed a subscription while the kernel and its backend thread
+still used it (EXCEPTION_ACCESS_VIOLATION in Main); do not bring back a native
+watcher add-on that runs threads of its own.
 The host's Git inventory service follows the same joined-producer rule; it retains
 its watcher generation through failed stop and refuses restart until retirement
 succeeds.
@@ -148,7 +148,7 @@ document it owns, then unloads the document whatever the answer:
 - a user's window close (window-X, Alt+F4, Cmd+W): Main prevents it, prepares the
   document, then closes the window again past the interception. On Windows and
   Linux the last visible window's close is the app's quit instead, and quit prepares
-  and closes it; hidden renderer hosts never count as visible;
+  and closes it;
 - menu Reload, a renderer's `desktopLifecycle.requestReload` (failed-chunk recovery,
   visible-UI main frame only) and the developer database reset, which flushes the
   documents before it clears their profile. A failed flush is logged and the reload
@@ -164,7 +164,7 @@ Outside quit the same write reaches the relaunched host. Any other rejection fai
 the flush, and the negative ACK names each cause, since the context bridge carries
 only an error's message. The latch belongs to that document
 generation; a reloaded document starts a fresh registry. A page never vetoes an
-unload Main owns. Hidden hosts retain their existing retirement order.
+unload Main owns.
 
 These reloads are deliberately not prepared:
 

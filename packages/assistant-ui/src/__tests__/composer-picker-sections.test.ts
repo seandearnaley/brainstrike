@@ -130,31 +130,6 @@ const providerGroups: ProviderGroupConfig[] = [
     ],
     runtime: 'gateway',
   },
-  {
-    label: 'Local',
-    providers: [
-      {
-        capabilities: {
-          embeddings: false,
-          llm: true,
-          streaming: true,
-          supportsStandardEmbeddingDimension: false,
-        },
-        id: 'ollama',
-        models: [
-          {
-            enabled: false,
-            id: 'llama4:8b',
-            label: 'Llama 4 8B',
-            type: 'llm',
-          },
-        ],
-        name: 'Ollama',
-        runtime: 'local',
-      },
-    ],
-    runtime: 'local',
-  },
 ];
 
 const pickerModels: ModelPickerModel[] = [
@@ -247,7 +222,6 @@ describe('buildComposerPickerSections — empty query', () => {
     const sections = buildComposerPickerSections(base);
     const all = sections.groups.flatMap((group) => keys(group.entries));
     expect(all).not.toContain('openrouter::deepseek/deepseek-v4.1-flash');
-    expect(all).not.toContain('ollama::llama4:8b');
     expect(sections.groups[0]).toMatchObject({ providerId: 'openai', runtimeLabel: 'Hosted' });
     expect(sections.matches).toEqual([]);
     expect(sections.notEnabled).toEqual([]);
@@ -281,11 +255,6 @@ describe('buildComposerPickerSections — with a query', () => {
     const sections = buildComposerPickerSections({ ...base, query: 'deepseek' });
     expect(sections.matches).toEqual([]);
     expect(keys(sections.notEnabled)).toEqual(['openrouter::deepseek/deepseek-v4.1-flash']);
-  });
-
-  it('never offers local-runtime or browser providers under notEnabled', () => {
-    const sections = buildComposerPickerSections({ ...base, query: 'llama' });
-    expect(sections.notEnabled).toEqual([]);
   });
 
   it('matches the provider display name', () => {

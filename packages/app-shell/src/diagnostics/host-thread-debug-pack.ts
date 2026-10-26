@@ -73,7 +73,7 @@ export function formatHostThreadDebugPack(
         'Active runs have only the rows committed so far. Regenerate after they finish for the final record.',
         'Values deeper than 64 levels are replaced with an explicit marker.',
         'Secrets are redacted by key and recognized value shapes. Conversation text, file content and paths may remain private; review locally before sharing.',
-        'hostLog and processCounters exist only on desktop and cover the main process; renderer and hidden-host console output is not in the main log. The counter ring holds the last two hours and is cleared by factory reset.',
+        'hostLog and processCounters exist only on desktop and cover the main process; renderer console output is not in the main log. The counter ring holds the last two hours and is cleared by factory reset.',
       ],
       platform: typeof navigator === 'undefined' ? 'unknown' : navigator.platform,
       redaction,

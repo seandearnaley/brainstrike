@@ -112,10 +112,8 @@ hard payload rule.
   a file the user must go edit.
 
 ### Sender policy
-- Registers with the same fail-closed `{ roles: ['visible-ui'] }` policy as
-  every other secrets channel — hidden renderer hosts (llm/embedding/chunking)
-  and untracked senders are rejected before the handler runs, and the hidden
-  preload exposes no `envBootstrap` bridge (contract test).
+- Every desktop IPC call goes through one dispatcher that rejects untracked
+  senders and unrecognized frames before the handler runs.
 - The handler re-projects the RECORDED bootstrap result; it never re-runs env
   file loading, so this channel cannot be used to make the main process read
   files on renderer demand.
@@ -278,8 +276,8 @@ dials, so a stale or racing frame can never regain a permission or a download.
     never carry a shell scheme, and its main frame always reports
     `isMainFrame`, so the predicate cannot deny it, and nothing is denied at
     all while no sandbox is mounted. Every other requester keeps Electron's
-    default outcome, so the host renderer and the hidden renderer hosts are
-    unchanged; the browser pane has its own partition and its own
+    default outcome, so the host renderer is unchanged; the browser pane has its
+    own partition and its own
     deny-by-default handlers.
   - Each denial is logged at `warn` ONCE per (WebContents, arm, permission).
     A permission status read is synchronous, needs no user gesture, and the
@@ -326,8 +324,7 @@ dials, so a stale or racing frame can never regain a permission or a download.
   and text body are present.
   `window.mcp.apps.prepareShell` / `releaseShell` are the visible-UI-only
   `mcp:apps:prepareShell` / `mcp:apps:releaseShell` channels (strict schemas;
-  per-sender and per-document size limits fail closed). Hidden renderer
-  preloads receive no MCP bridge.
+  per-sender and per-document size limits fail closed).
 - The packaged proof (`test:e2e:lane:packaged-mcp-apps`) mounts an app inside
   the REAL main window — production preload, default session, header CSP — and
   asserts that a `blob:` frame is blocked, the served shell loads and
@@ -348,7 +345,7 @@ download offline. The DMG container itself is deliberately unsigned
   `allow-jit` and `allow-unsigned-executable-memory` for V8, and
   `disable-library-validation` because the bundle loads code not signed by our
   Team ID (the Electron framework, `node-pty` prebuilds,
-  `@brainstrike/secure-fs-native` and `@parcel` addons under
+  `@brainstrike/secure-fs-native` addon under
   `app.asar.unpacked`, and the bundled CPython). The app is NOT App-Sandboxed;
   no `app-sandbox` / `files.*` keys exist and none may be added "just in case".
 - **Bundled CPython ships as loose, signed files.** Apple's notarization

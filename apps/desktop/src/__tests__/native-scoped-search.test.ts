@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
 import { describeBoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
-import { embeddingProfileHash, vectorProfileHash } from '@brainstrike/indexer';
+import { vectorProfileHash } from '@brainstrike/indexer';
 import {
   indexerEmbeddingProfileValues,
   NativeIndexRefusalError,
@@ -87,13 +87,7 @@ it('projects historical native ACK identity independently of newer admission rev
         authorityRevision: 3,
         mutationRevision: 2,
         ownerGeneration: 1,
-        profileHash: embeddingProfileHash({
-          dimensions: profile.dimensions,
-          dtype: profile.dtype,
-          modelId: profile.modelId,
-          revision: profile.revision,
-          tokenCap: profile.tokenCap,
-        }),
+        profileHash: vectorProfileHash(profile),
         requestId: 'scan',
         scanGeneration: 1,
         scope,
@@ -315,21 +309,20 @@ it('refuses coverage under Off with the typed Off refusal, logging nothing', asy
   expect(log).not.toHaveBeenCalled();
 });
 
-it('uses the full saved scoped vector profile while the independent legacy engine is TEXT', async () => {
+it('uses the full saved scoped vector profile for vector search and coverage', async () => {
   const f = fixture(profile);
-  const { provider: _provider, distance: _distance, ...queryProfile } = profile;
   expect(await f.capability.status()).toMatchObject({
     embedding: {
       indexMode: 'vector-configured',
-      profile: queryProfile,
-      profileHash: embeddingProfileHash(queryProfile),
+      profile,
+      profileHash: vectorProfileHash(profile),
     },
   });
-  const vector = Array.from({ length: 384 }, () => 1);
+  const vector = Array.from({ length: profile.dimensions }, () => 1);
   await f.capability.search({
     limit: 100,
     mode: 'vector',
-    profile: queryProfile,
+    profile,
     rootIds: [rootId],
     vector,
   });
@@ -348,31 +341,27 @@ it('uses the full saved scoped vector profile while the independent legacy engin
     f.capability.search({
       limit: 100,
       mode: 'vector',
-      profile: { ...queryProfile, tokenCap: 128 },
+      profile: { ...profile, modelId: 'text-embedding-3-large' },
       rootIds: [rootId],
       vector,
     })
   ).rejects.toThrow('differs');
 });
 
-it('reports a CLS, prompted profile in status with the identity the renderer mirror computes (BST-1993)', async () => {
-  const granite = {
-    dimensions: 384,
-    distance: 'cosine',
-    dtype: 'fp16',
-    modelId: 'onnx-community/granite-embedding-small-english-r2-ONNX',
-    pooling: 'cls',
-    prompts: { document: 'doc: ', query: 'ask: ' },
-    provider: 'local',
-    revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
+it('reports the saved profile in status with the identity the renderer mirror computes', async () => {
+  const voyage = {
+    dimensions: 1024,
+    distance: 'ip',
+    modelId: 'voyage-3',
+    provider: 'voyage',
   } as const;
-  const f = fixture(granite);
+  const f = fixture(voyage);
   const status = await f.capability.status();
   if (status.kind !== 'ready' || status.embedding.indexMode !== 'vector-configured') {
-    throw new Error('A configured granite store must report its vector profile.');
+    throw new Error('A configured vector store must report its vector profile.');
   }
-  expect(status.embedding.profile).toEqual(granite);
-  expect(status.embedding.profileHash).toBe(vectorProfileHash(granite));
+  expect(status.embedding.profile).toEqual(voyage);
+  expect(status.embedding.profileHash).toBe(vectorProfileHash(voyage));
   const mirrored = createHash('sha256')
     .update(JSON.stringify(indexerEmbeddingProfileValues(status.embedding.profile)))
     .digest('hex');
@@ -411,7 +400,7 @@ it('joins the grep reader but refuses its result after canonical source authorit
       'embedding_set_id',
       'source_path',
     ],
-    identity: { embedding: { indexMode: 'text-only' }, storeId },
+    identity: { storeId },
     matchedChunks: 0,
     rows: [],
     truncated: false,
@@ -452,7 +441,7 @@ it.each(['generation', 'root', 'collection', 'profile', 'store'] as const)(
       f.replaceAuthority({ ...authority, collectionId: 'replacement' });
     }
     if (changed === 'profile') {
-      f.replaceAuthority({ ...authority, profile: { ...profile, tokenCap: 128 } });
+      f.replaceAuthority({ ...authority, profile: { ...profile, dimensions: 512 } });
     }
     if (changed === 'store') {
       f.replaceStore();

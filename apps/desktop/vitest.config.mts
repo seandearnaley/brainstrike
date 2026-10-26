@@ -1,6 +1,5 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { transformersOnnxRuntimeWasmUrlsPlugin } from '@brainstrike/build-utils';
 import { getAdjustedTimeout, getExpectPollTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import react from '@vitejs/plugin-react';
@@ -88,13 +87,7 @@ const workspaceRoot = path.resolve(desktopRoot, '../..');
 const require = createRequire(import.meta.url);
 
 export default defineConfig({
-  plugins: [
-    react(),
-    // ONNX Runtime's WASM, as vite.config.mts serves it (BST-2003).
-    transformersOnnxRuntimeWasmUrlsPlugin([
-      path.resolve(import.meta.dirname, '../../packages/embedding-worker'),
-    ]),
-  ],
+  plugins: [react()],
   resolve: {
     // Array form: first match wins, so config-local entries (mocks, curated
     // subpath maps, deliberate overrides) come BEFORE the shared registry
@@ -121,13 +114,6 @@ export default defineConfig({
       // map; they pin renamed entry files and stay first so a registry change
       // cannot silently retarget them).
       {
-        find: '@brainstrike/embeddings/backend',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/backend-entry.ts'
-        ),
-      },
-      {
         find: '@brainstrike/embeddings/factory',
         replacement: path.resolve(
           import.meta.dirname,
@@ -139,27 +125,6 @@ export default defineConfig({
         replacement: path.resolve(
           import.meta.dirname,
           '../../packages/embeddings/src/provider-core.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/runtime-config',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/runtime-config.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/service',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/service-entry.ts'
-        ),
-      },
-      {
-        find: '@brainstrike/embeddings/worker',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/embeddings/src/worker-entry.ts'
         ),
       },
       {
@@ -176,10 +141,6 @@ export default defineConfig({
       {
         find: '@brainstrike/platform-utils',
         replacement: path.resolve(import.meta.dirname, '../../packages/platform-utils/src'),
-      },
-      {
-        find: '@brainstrike/queue/browser',
-        replacement: path.resolve(import.meta.dirname, '../../packages/queue/src/browser.ts'),
       },
       // No @brainstrike/test-utils entry: a blanket string prefix would shadow
       // subpaths that do not live under src/; its own `exports` map resolves

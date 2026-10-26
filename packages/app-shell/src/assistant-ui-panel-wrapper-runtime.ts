@@ -11,7 +11,6 @@ import {
   type GoogleProviderOptions,
   getLlmModelDefinition,
   listProviderLlmModels,
-  localRuntimeContextWindow,
   mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
   type OpenRouterAutoProfileModel,
@@ -43,22 +42,13 @@ import {
   type ProviderModelDefinition,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  getNativeToolDescription,
-  getToolSchemaDisplay,
-} from '@brainstrike/assistant-contract/tool-metadata';
+import { getNativeToolDescription } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantThreadMetadata } from '@brainstrike/assistant-data';
 import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
   ComposerAttachmentsAvailability,
 } from '@brainstrike/assistant-ui';
-import {
-  isLoadedRuntimeModelCatalogState,
-  type LocalRuntimeAvailabilityState,
-  type LocalRuntimeId,
-  type LocalRuntimeModelCatalogState,
-} from '@brainstrike/local-runtime';
 import { getGoogleThinkingLevels } from '@brainstrike/types';
 
 export interface AssistantOperatingRootBinding {
@@ -141,7 +131,7 @@ type ObservationalMemoryAutoUnresolvedReason =
   | 'keys-unknown'
   | 'model-not-eligible'
   | 'no-backend'
-  | 'no-hosted-chat-provider';
+  | 'no-chat-provider';
 
 export interface EffectiveObservationalMemorySettings {
   /**
@@ -163,11 +153,11 @@ export interface EffectiveObservationalMemorySettings {
  * The 'auto' sentinel adapts to the profile under the PRIVACY INVARIANT
  * (review ruling on BST-940): the observer is only ever a Mastra-tested fast
  * model from the SELECTED CHAT PROVIDER — the party already receiving the
- * conversation. A local/keyless chat, an unkeyed hosted chat, or a candidate
- * disabled in the user's model catalog (isTargetEligible) flips enabled→false
- * with an explicit unresolved reason instead. Explicit (non-auto) targets pass
- * through untouched so misconfiguration keeps its loud validation. 'auto' must
- * never reach the provider/model validator.
+ * conversation. An unkeyed chat provider, or a candidate disabled in the
+ * user's model catalog (isTargetEligible), flips enabled→false with an
+ * explicit unresolved reason instead. Explicit (non-auto) targets pass through
+ * untouched so misconfiguration keeps its loud validation. 'auto' must never
+ * reach the provider/model validator.
  */
 export function resolveEffectiveObservationalMemorySettings(args: {
   readonly desktopAssistantBackendAvailable: boolean;
@@ -204,7 +194,7 @@ export function resolveEffectiveObservationalMemorySettings(args: {
     providersWithKeys: args.providerKeySources.map(({ provider }) => provider),
   });
   if (candidates.length === 0) {
-    return unresolved('no-hosted-chat-provider');
+    return unresolved('no-chat-provider');
   }
   // First catalog-eligible candidate wins (candidate order is the Mastra
   // grounding; e.g. OpenRouter's preferred Gemini targets ship
@@ -228,121 +218,46 @@ export function resolveEffectiveObservationalMemorySettings(args: {
   };
 }
 
-export function resolveAssistantProviderDisabledNotice(args: {
+export function resolveAssistantProviderDisabledReason(args: {
   configuredProviders: readonly SupportedProvider[];
   currentModel: string | null | undefined;
-  getProviderLlmModels: (provider: SupportedProvider) => readonly LlmProviderModelDefinition[];
-  localRuntimeHint: string | undefined;
   providerHasEnabledModels: (provider: SupportedProvider) => boolean;
   providerReadErrors?: Partial<Record<SupportedProvider, string>>;
   selectedProvider: SupportedProvider | null;
-}): { kind: 'provider' | 'model-unavailable'; message: string } | undefined {
-  const localRuntimeProviderReason = resolveLocalRuntimeProviderDisabledReason(
-    args.selectedProvider,
-    args.configuredProviders
-  );
-  if (localRuntimeProviderReason) {
-    return { kind: 'provider', message: localRuntimeProviderReason };
-  }
-
+}): string | undefined {
   if (args.configuredProviders.length === 0) {
-    const baseReason = 'Connect an AI provider in Settings → Providers to enable the assistant.';
-    return {
-      kind: 'provider',
-      message: args.localRuntimeHint ? `${baseReason} ${args.localRuntimeHint}` : baseReason,
-    };
+    return 'Connect an AI provider in Settings → Providers to enable the assistant.';
   }
   if (!args.selectedProvider) {
-    return { kind: 'provider', message: 'Select an AI provider to start chatting.' };
+    return 'Select an AI provider to start chatting.';
   }
   const providerReadError = args.providerReadErrors?.[args.selectedProvider];
   if (providerReadError) {
-    return { kind: 'provider', message: providerReadError };
+    return providerReadError;
   }
   if (!args.configuredProviders.includes(args.selectedProvider)) {
-    return { kind: 'provider', message: 'The selected provider is no longer configured.' };
+    return 'The selected provider is no longer configured.';
   }
-
-  const providerModelIds = args
-    .getProviderLlmModels(args.selectedProvider)
-    .map((model) => model.id);
-  const unavailableLocalModelReason = resolveSelectedLocalModelUnavailableReason({
-    providerModelIds,
-    selectedModel: args.currentModel ?? null,
-    selectedProvider: args.selectedProvider,
-  });
-  if (unavailableLocalModelReason) {
-    return { kind: 'model-unavailable', message: unavailableLocalModelReason };
-  }
-
   if (!args.providerHasEnabledModels(args.selectedProvider)) {
     const definition = getProviderDefinition(args.selectedProvider);
-    return {
-      kind: 'provider',
-      message: `Enable at least one model for ${definition.displayName} to continue.`,
-    };
+    return `Enable at least one model for ${definition.displayName} to continue.`;
   }
   if (!args.currentModel) {
-    return { kind: 'provider', message: 'Select a model for the chosen provider to continue.' };
+    return 'Select a model for the chosen provider to continue.';
   }
   return;
 }
 
-export type LocalRuntimeStatusMap = Record<LocalRuntimeId, LocalRuntimeAvailabilityState>;
-export type LocalRuntimeModelCatalogMap = Partial<
-  Record<LocalRuntimeId, LocalRuntimeModelCatalogState>
->;
 export type LlmProviderModelDefinition = ProviderModelDefinition & { type: 'llm' };
-
-export const LOCAL_RUNTIME_PROVIDER_IDS = ['ollama', 'lmstudio'] as const;
-export type LocalRuntimeProviderId = (typeof LOCAL_RUNTIME_PROVIDER_IDS)[number];
-
-export function isLocalRuntimeProvider(
-  providerId: SupportedProvider | null | undefined
-): providerId is LocalRuntimeProviderId {
-  if (!providerId) {
-    return false;
-  }
-  return LOCAL_RUNTIME_PROVIDER_IDS.includes(providerId as LocalRuntimeProviderId);
-}
-
-export function toRuntimeProviderModels(
-  providerId: LocalRuntimeProviderId,
-  catalog: LocalRuntimeModelCatalogMap | null
-): readonly LlmProviderModelDefinition[] {
-  const runtimeState = catalog?.[providerId];
-  if (!isLoadedRuntimeModelCatalogState(runtimeState)) {
-    return [];
-  }
-
-  const llmCandidates = runtimeState.models.filter((model) => model.capabilities.llm);
-  return llmCandidates.map((model, index) => ({
-    // BST-754: the window run admission budgets and Ollama allocates (num_ctx):
-    // the model's reported native context, capped at the documented default,
-    // or that default where the runtime reports none (LM Studio, old Ollama).
-    contextWindow: localRuntimeContextWindow(
-      model.contextLength?.state === 'reported' ? model.contextLength.tokens : undefined
-    ).tokens,
-    default: index === 0,
-    id: model.modelId,
-    label: model.displayName,
-    supportsStreaming: true,
-    type: 'llm' as const,
-    vision: model.capabilities.vision,
-  }));
-}
 
 /**
  * Composer image-attachment gate. Every provider is eligible — the desktop
  * assistant server and the web /api/assistant route share the same image-aware
  * conversion — so the SELECTED MODEL's vision capability is the whole decision:
  * 'enabled', or a visibly 'disabled' button carrying the reason, never a silent
- * hide. (A provider-level gate used to sit in front of this, excluding the
- * text-only built-in local chat model; that model is gone.) 'unknown' vision
- * (runtime-discovered model without a capability signal) and an unresolved
- * definition (e.g. runtime catalog still loading) stay optimistic: a wrong
- * guess surfaces as a visible provider error downstream, whereas guessing
- * 'unsupported' would silently block a capable model.
+ * hide. An unresolved definition stays optimistic: a wrong guess surfaces as
+ * a visible provider error downstream, whereas guessing 'unsupported' would
+ * silently block a capable model.
  */
 export function resolveComposerAttachmentsAvailability(args: {
   readonly selectedModel:
@@ -390,14 +305,10 @@ export function resolveFixedProviderModelSelection(args: {
   return;
 }
 
-export function getRuntimeProviderLlmModels(
+export function getProviderLlmModelDefinitions(
   provider: SupportedProvider,
-  runtimeModels: Partial<Record<LocalRuntimeProviderId, readonly LlmProviderModelDefinition[]>>,
   fixedModels: readonly string[] | undefined
 ): readonly LlmProviderModelDefinition[] {
-  if (isLocalRuntimeProvider(provider)) {
-    return runtimeModels[provider] ?? [];
-  }
   const modelDefinitions = getProviderModelDefinitions(provider).filter(
     (model): model is LlmProviderModelDefinition => model.type === 'llm'
   );
@@ -408,82 +319,13 @@ export function getRuntimeProviderLlmModels(
   return modelDefinitions.filter((model) => fixedModelIds.has(model.id));
 }
 
-function resolveLocalRuntimeProviderDisabledReason(
-  selectedProvider: SupportedProvider | null,
-  configuredProviders: readonly SupportedProvider[]
-): string | undefined {
-  if (
-    selectedProvider &&
-    isLocalRuntimeProvider(selectedProvider) &&
-    (configuredProviders.length === 0 || !configuredProviders.includes(selectedProvider))
-  ) {
-    return 'The selected local runtime is currently unavailable.';
-  }
-  return;
-}
-
-function resolveSelectedLocalModelUnavailableReason(options: {
-  readonly selectedProvider: SupportedProvider;
-  readonly selectedModel: string | null;
-  readonly providerModelIds: readonly string[];
-}): string | undefined {
-  if (!isLocalRuntimeProvider(options.selectedProvider)) {
-    return;
-  }
-  const selectedModelName = resolveModelNameFromComposite(options.selectedModel);
-  if (!(selectedModelName && !options.providerModelIds.includes(selectedModelName))) {
-    return;
-  }
-  return `The selected local model "${selectedModelName}" is unavailable.`;
-}
-
 interface McpToolDescriptor {
   description?: string | undefined;
   enabled: boolean;
   id: string;
-  inputSchema?: unknown;
 }
 
 export type McpToolMap = Record<string, McpToolDescriptor[]>;
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-export function toLocalRuntimeInputSchema(toolId: string): Record<string, unknown> | undefined {
-  const displaySchema = getToolSchemaDisplay(toolId);
-  if (!displaySchema) {
-    return;
-  }
-
-  const properties: Record<string, Record<string, unknown>> = {};
-  const required: string[] = [];
-
-  for (const parameter of displaySchema.parameters) {
-    const schema: Record<string, unknown> = {
-      description: parameter.description,
-      type: parameter.type === 'enum' ? 'string' : parameter.type,
-    };
-    if (parameter.type === 'enum' && parameter.enumValues) {
-      schema['enum'] = parameter.enumValues;
-    }
-    if (parameter.type === 'array' && parameter.arrayItemType) {
-      schema['items'] = {
-        type: parameter.arrayItemType,
-      };
-    }
-    properties[parameter.name] = schema;
-    if (parameter.required) {
-      required.push(parameter.name);
-    }
-  }
-
-  return {
-    properties,
-    type: 'object',
-    ...(required.length > 0 ? { required } : {}),
-  };
-}
 
 export function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuItem[] {
   const items: AssistantToolMenuItem[] = [];
@@ -497,8 +339,6 @@ export function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuI
         id: tool.id,
         label: formatToolLabel(tool.id),
         source: 'mcp',
-        ...(isPlainRecord(tool.inputSchema) ? { inputSchema: tool.inputSchema } : {}),
-        isLocalRuntimeRunnable: true,
       });
     }
   }
@@ -738,9 +578,8 @@ function buildNonNegativeIntegerSetting(value: unknown): number | undefined {
 
 /**
  * Minimal model definition shape needed for input-budget derivation.
- * Matches the required fields on both LlmModelDefinition (static registry)
- * and the synthesised LlmProviderModelDefinition returned by toRuntimeProviderModels
- * (dynamic ollama/lmstudio models), so callers can pass either without a re-lookup.
+ * Matches the required fields on LlmModelDefinition, so callers can pass a
+ * registry definition without a re-lookup.
  */
 export interface SelectedModelBudgetDef {
   contextWindow: number;
@@ -1090,20 +929,6 @@ function buildGoogleOptions(
   return thinkingConfig ? { thinkingConfig } : undefined;
 }
 
-function buildLocalRuntimeOptions(
-  settings: AssistantProviderSettings | undefined
-): { baseUrl?: string } | undefined {
-  const raw = settings?.localRuntimeBaseUrl;
-  if (typeof raw !== 'string') {
-    return;
-  }
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return;
-  }
-  return { baseUrl: trimmed };
-}
-
 export function buildProviderOptions(
   providerId: SupportedProvider | null,
   modelName: string | undefined,
@@ -1134,18 +959,6 @@ export function buildProviderOptions(
     case 'google': {
       const google = buildGoogleOptions(modelName, settings);
       return google ? { google } : undefined;
-    }
-    case 'ollama': {
-      // Forward the user's configured origin to the main-process factory. The
-      // optional bearer token is not set here — the main process reads it from
-      // the encrypted secrets bridge just like other providers so it never
-      // crosses the renderer/server boundary in the request body.
-      const ollama = buildLocalRuntimeOptions(settings);
-      return ollama ? { ollama } : undefined;
-    }
-    case 'lmstudio': {
-      const lmstudio = buildLocalRuntimeOptions(settings);
-      return lmstudio ? { lmstudio } : undefined;
     }
     default:
       return;

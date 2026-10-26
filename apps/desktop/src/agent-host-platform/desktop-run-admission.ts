@@ -1,6 +1,5 @@
 import { homedir } from 'node:os';
 import { type RuntimeData, resolveAssistantResilienceConfig } from '@brainstrike/agent';
-import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import { DEFAULT_AGENT_MAX_STEPS } from '@brainstrike/agent/tool-runtime';
 import type {
   HostDelegation,
@@ -23,6 +22,7 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
+import type { VectorProfile } from '@brainstrike/indexer';
 import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { Schema } from 'effect';
@@ -40,12 +40,10 @@ import {
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import { attachedMentionReader, placeMentionedFiles } from './desktop-mentioned-files';
 import {
-  type DesktopLocalModel,
   desktopInputTokenLimit,
   desktopMemorySelection,
   readDesktopCatalogSelection,
   readDesktopIntent,
-  readDesktopLocalModel,
   readEnabledObservers,
   resolveDesktopMemorySettings,
 } from './desktop-run-preconditions';
@@ -56,12 +54,9 @@ import {
 } from './desktop-tool-descriptors';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
 import { memoryReadinessReason } from './memory-readiness';
-import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
   PlatformAdmittedSkillSchema,
   type PlatformClientConfigurationSchema,
-  type PlatformLocalModel,
-  type PlatformLocalModelSchema,
   type PlatformMemoryReadinessSchema,
   PlatformModelConfigurationSchema,
   type PlatformSelection,
@@ -73,7 +68,7 @@ type RuntimeWorkspaceRoots = NonNullable<RuntimeData['workspaceRoots']>;
 /**
  * What a desktop run's admission reads from the facts Main owns (BST-1930
  * stage e): the model catalog, live roots and their binding leases, the
- * worktree service, and the recall embedder Main's embedding host resolves. The agent host composes the admission from them;
+ * worktree service, and the recall embedder profile. The agent host composes the admission from them;
  * Main serves each read and holds no selection.
  */
 export interface DesktopAdmissionReads {
@@ -102,19 +97,11 @@ export interface DesktopAdmissionReads {
   indexStatus(signal: AbortSignal): Promise<IndexerStatus>;
   /** The profile's mounted workspace roots. */
   liveWorkspaceRoots(signal: AbortSignal): Promise<RuntimeWorkspaceRoots>;
-  /**
-   * BST-754: what the local runtime catalog reads from Ollama's `/api/show`
-   * for the selected model; absent where no catalog serves the desktop.
-   */
-  localRuntimeModel?(
-    target: (typeof PlatformLocalModelSchema)['Type'],
-    signal: AbortSignal
-  ): Promise<PlatformLocalModel>;
-  /** The recall embedder the memory settings select, resolved by Main's embedding host. */
+  /** The recall embedder profile the memory settings select. */
   memoryVectors(
     settings: PlatformSelection['memory']['settings'],
     signal: AbortSignal
-  ): Promise<DesktopMemoryVectorSelection | undefined>;
+  ): Promise<VectorProfile | undefined>;
 }
 /** One admitted desktop run: the selection, its live roots and its release. */
 export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation'> {
@@ -123,10 +110,6 @@ export interface DesktopRunSelection extends Omit<PlatformSelection, 'delegation
   readonly delegation?: HostDelegation | undefined;
   /** The admitted roots revalidated against their live owners, for the host's shared tools. */
   freshWorkspaceRoots(): Promise<RuntimeWorkspaceRoots>;
-  /** An admitted local recall embedder's exact plan, sent with each borrowed query. */
-  readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
-  /** BST-754: an Ollama run's admitted window (Ollama's `num_ctx`) and thinking capability. */
-  readonly localModel?: DesktopLocalModel;
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
 }
 export interface DesktopRunAdmission {
@@ -449,12 +432,7 @@ function desktopNativeRuntime(
 export function createDesktopRunAdmission(
   reads: DesktopAdmissionReads,
   /** The policy the user saved, which the host keeps; undefined when none is saved. */
-  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>,
-  /**
-   * BST-754: the host's credential authority, for the admission's own
-   * provider reads; an Ollama run refuses without it.
-   */
-  resolveProviderAuth?: (provider: string) => Promise<ProviderAuthInput | undefined>
+  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>
 ): DesktopRunAdmission {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -488,19 +466,7 @@ export function createDesktopRunAdmission(
         'Select the model again and retry.'
       );
     }
-    // BST-754: an Ollama model is budgeted at the window it reports, capped.
-    const localModel = await readDesktopLocalModel(
-      reads,
-      configuration,
-      request.signal,
-      resolveProviderAuth ? () => resolveProviderAuth(configuration.provider) : undefined
-    );
-    const catalog = localModel
-      ? {
-          ...selection,
-          definition: { ...selection.definition, contextWindow: localModel.contextWindow },
-        }
-      : selection;
+    const catalog = selection;
     const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
@@ -521,9 +487,7 @@ export function createDesktopRunAdmission(
       configuration,
       inputTokenLimit,
       intent,
-      ...(localModel ? { localModel } : {}),
       memory,
-      memoryVectors,
       observerTarget,
     };
   };
@@ -531,16 +495,8 @@ export function createDesktopRunAdmission(
     request: HostRunAdmissionRequest,
     workspace?: DesktopWorkspaceBindingBorrow
   ): Promise<DesktopRunSelection> => {
-    const {
-      catalog,
-      configuration,
-      inputTokenLimit,
-      intent,
-      localModel,
-      memory,
-      memoryVectors,
-      observerTarget,
-    } = await readPreconditions(request);
+    const { catalog, configuration, inputTokenLimit, intent, memory, observerTarget } =
+      await readPreconditions(request);
     const { definition } = catalog;
     const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     const native = await readDesktopNativeAdmission(
@@ -604,8 +560,6 @@ export function createDesktopRunAdmission(
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory,
-        ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
-        ...(localModel ? { localModel } : {}),
         nativeRuntime: desktopNativeRuntime(
           native.runtime,
           native.retrievalRootsOnly,

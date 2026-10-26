@@ -1,7 +1,7 @@
 import './tree-table-geometry.browser.css';
 import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { TreeTable } from '../tree-table/tree-table';
 import type { TreeNode, TreeTableColumn } from '../tree-table/types';
 
@@ -248,5 +248,89 @@ test('preserves a scrolled window and measures content changed while hidden', as
       96
     );
     expect(viewport.scrollHeight).toBe(3264);
+  });
+});
+
+// TanStack re-reads the offset 150ms after the last scroll event. When the
+// user switches away right after scrolling, that read lands while the route is
+// display:none, where scrollTop reads 0; the browser restores the real offset
+// on show without a scroll event.
+test('shows the scrolled rows again when the list was hidden right after scrolling', async () => {
+  const rows = nodes(100, 32);
+  const view = render(
+    <div style={{ display: 'block' }}>
+      <Fixture rows={rows} />
+    </div>
+  );
+  const viewport = screen.getByTestId('tree-table-viewport');
+  await waitFor(() => expect(viewport.scrollHeight).toBe(3200));
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    await act(async () => {
+      viewport.scrollTop = 2800;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    await act(async () => {
+      view.rerender(
+        <div style={{ display: 'none' }}>
+          <Fixture rows={rows} />
+        </div>
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+  view.rerender(
+    <div style={{ display: 'block' }}>
+      <Fixture rows={rows} />
+    </div>
+  );
+  await waitFor(() => {
+    expect(viewport.scrollTop).toBe(2800);
+    expect(viewport.querySelector('[data-node-id="row-99"]')).not.toBeNull();
+  });
+});
+
+// A scroll whose event is dispatched only after the route went display:none
+// (the user switched away within the same frame), with the idle re-read also
+// landing while hidden: neither read sees the real offset, which the browser
+// restores on show. The shown list must render that offset's rows.
+test('shows the scrolled rows when the scroll event arrived while the list was hidden', async () => {
+  const rows = nodes(100, 32);
+  const view = render(
+    <div style={{ display: 'block' }}>
+      <Fixture rows={rows} />
+    </div>
+  );
+  const viewport = screen.getByTestId('tree-table-viewport');
+  await waitFor(() => expect(viewport.scrollHeight).toBe(3200));
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  try {
+    viewport.scrollTop = 2800;
+    await act(async () => {
+      view.rerender(
+        <div style={{ display: 'none' }}>
+          <Fixture rows={rows} />
+        </div>
+      );
+    });
+    await act(async () => {
+      viewport.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(200);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+  view.rerender(
+    <div style={{ display: 'block' }}>
+      <Fixture rows={rows} />
+    </div>
+  );
+  await waitFor(() => {
+    expect(viewport.scrollTop).toBe(2800);
+    expect(viewport.querySelector('[data-node-id="row-99"]')).not.toBeNull();
   });
 });

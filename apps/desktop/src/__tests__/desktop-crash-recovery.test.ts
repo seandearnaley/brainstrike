@@ -17,7 +17,6 @@ describe('desktop crash recovery diagnostics', () => {
       crashCountInWindow: 1,
       exitCode: 5,
       reason: 'crashed',
-      windowRole: 'visible-ui',
     });
 
     expect(getDesktopCrashRecoverySnapshot()).toMatchObject({
@@ -28,7 +27,7 @@ describe('desktop crash recovery diagnostics', () => {
       suppressedRendererReloadCount: 0,
     });
 
-    recordRendererRecoveryReloadAttempt({ windowRole: 'visible-ui' });
+    recordRendererRecoveryReloadAttempt();
 
     expect(getDesktopCrashRecoverySnapshot()).toMatchObject({
       pendingRendererRecovery: false,
@@ -41,7 +40,6 @@ describe('desktop crash recovery diagnostics', () => {
       crashCountInWindow: 4,
       exitCode: 5,
       reason: 'crashed',
-      windowRole: 'visible-ui',
     });
 
     expect(getDesktopCrashRecoverySnapshot()).toMatchObject({

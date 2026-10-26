@@ -62,9 +62,9 @@ async function shrinkFilesPaneToMinimum(page: Page): Promise<number> {
  *
  * Scope decision: text search only returns rows against INDEXED content
  * (`file_chunks`), and the only path that produces those rows is a real
- * background-indexing round trip (see `full-workspace-index.desktop.test.ts`,
- * skip-by-default + WebGPU + a real root). There is no fast fixture seed for
- * `file_chunks`, so this smoke asserts the feature is fully MOUNTED and WIRED —
+ * background-indexing round trip (see `native-index-semantic-results.desktop.test.ts`).
+ * There is no fast fixture seed for `file_chunks`, so this smoke asserts the
+ * feature is fully MOUNTED and WIRED —
  * the Explorer|Search tab strip toggles, the lazy search panel loads its
  * controls, and typing a query drives the store to an honest terminal state
  * (the error card saying no folder is open on a fresh app) without crashing.

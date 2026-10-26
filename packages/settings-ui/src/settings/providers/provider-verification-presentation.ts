@@ -6,7 +6,7 @@ import type { ProviderVerificationStatus } from '@brainstrike/assistant-contract
  * complete the probe, and a probe that never got an auth verdict at all — so
  * neither is dressed up as success nor condemned as a bad key.
  */
-export type ProviderVerificationTone = 'danger' | 'neutral' | 'success' | 'warning';
+export type ProviderVerificationTone = 'danger' | 'success' | 'warning';
 
 export interface ProviderVerificationPresentation {
   /** One sentence explaining what the status means for the user's next move. */
@@ -28,12 +28,6 @@ export const PROVIDER_VERIFICATION_PRESENTATION: Record<
     description: 'The provider rejected this credential. Replace the key and test again.',
     label: 'Invalid key',
     tone: 'danger',
-  },
-  // biome-ignore lint/style/useNamingConvention: BST-1357 wire status name, matched verbatim to the contract union.
-  not_applicable: {
-    description: 'There is no key to test for this provider.',
-    label: 'Nothing to test',
-    tone: 'neutral',
   },
   unreachable: {
     description:

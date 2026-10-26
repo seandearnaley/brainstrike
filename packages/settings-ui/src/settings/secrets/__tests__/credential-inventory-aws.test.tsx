@@ -182,11 +182,6 @@ const OPENAI_DEFINITION = {
   keyNotes: 'Create a key in the OpenAI dashboard.',
 };
 const GOOGLE_DEFINITION = { authType: 'api_key', displayName: 'Google', id: 'google' };
-const OLLAMA_DEFINITION = {
-  authType: 'none',
-  displayName: 'Ollama (Local Runtime)',
-  id: 'ollama',
-};
 
 const waitForReady = async (): Promise<void> => {
   await waitFor(() => {
@@ -204,7 +199,7 @@ describe('CredentialInventory aws slot', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     __resetSecretsStoreForTests();
-    listProvidersMock.mockReturnValue([OPENAI_DEFINITION, GOOGLE_DEFINITION, OLLAMA_DEFINITION]);
+    listProvidersMock.mockReturnValue([OPENAI_DEFINITION, GOOGLE_DEFINITION]);
     providerVendorEnvKeyMock.mockImplementation((provider: string) =>
       provider === 'openai'
         ? 'OPENAI_API_KEY'

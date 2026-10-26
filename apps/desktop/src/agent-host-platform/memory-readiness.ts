@@ -89,7 +89,7 @@ function memoryCredentialRequirements(
   const profile = memory.vectorProfile;
   const vectors =
     semanticRecall.enabled || (observation.enabled && observation.retrievalMode === 'vector');
-  if (vectors && profile && profile.provider !== 'local' && profile.provider !== 'transformers') {
+  if (vectors && profile) {
     requirements.push({
       need: semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
       provider: profile.provider,

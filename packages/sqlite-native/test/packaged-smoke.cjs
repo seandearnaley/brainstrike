@@ -101,7 +101,6 @@ if (run.status !== 0 && !facts.error) {
 const addons = [];
 for (const [name, probe, args = []] of [
   ['secure-fs-native', path.resolve(__dirname, '../../secure-fs-native/test/packaged-smoke.cjs')],
-  ['parcel-watcher', path.resolve(__dirname, '../../file-system/test/parcel-packaged-smoke.cjs')],
   ['node-pty', path.join(__dirname, 'packaged-pty-probe.cjs')],
   ...(process.platform === 'linux'
     ? [
@@ -133,7 +132,7 @@ for (const [name, probe, args = []] of [
 }
 if (existsSync(ptyOut)) {
   const pty = JSON.parse(readFileSync(ptyOut, 'utf8'));
-  addons[2].facts = pty;
+  addons.find((addon) => addon.name === 'node-pty').facts = pty;
   if (pty.error) {
     failures.push(`packaged node-pty probe failed: ${pty.error}`);
   }

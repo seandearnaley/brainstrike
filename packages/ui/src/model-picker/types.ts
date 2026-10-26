@@ -5,11 +5,8 @@ export interface ModelPickerModel {
     type: 'llm' | 'embedding';
     streaming?: boolean;
     defaultDimension?: number;
-    /**
-     * Image-input support (LLM models). 'unknown' only occurs for
-     * dynamically discovered local-runtime models with no capability signal.
-     */
-    vision?: 'supported' | 'unsupported' | 'unknown';
+    /** Image-input support (LLM models). */
+    vision?: 'supported' | 'unsupported';
     /**
      * Reasoning/thinking support (LLM models), resolved by the
      * assistant-contract `resolveModelReasoningSupport` tri-state. 'unknown'

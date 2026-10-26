@@ -15,7 +15,7 @@ import { Badge, Card, Label, Switch } from '@brainstrike/ui';
 import { BrainCircuit } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { MemoryEmbedderTest, type TestMemoryEmbedder } from './assistant-memory-embedder-test';
-import { MemoryNumberField, OnDeviceEmbeddingDeviceField } from './assistant-memory-fields';
+import { MemoryNumberField } from './assistant-memory-fields';
 import {
   formatMemoryScopeLabel,
   listObservationalMemoryModelOptions,
@@ -46,10 +46,8 @@ function retrievalModeLabel(mode: RuntimeAssistantMemoryRetrievalMode): string {
 
 export interface AssistantMemorySettingsSectionProps {
   readonly assistantMemoryBackendAvailable: boolean;
-  /** The host runs local embedders in its embedding host, whose device the user may choose. */
-  readonly onDeviceEmbedding?: boolean;
   readonly providerKeySources?: readonly ProviderKeySource<SupportedProvider>[];
-  /** The host's test of the selected hosted embedder (BST-2227); absent where it has none. */
+  /** The host's test of the selected embedder (BST-2227); absent where it has none. */
   readonly testEmbedder?: TestMemoryEmbedder;
 }
 
@@ -99,7 +97,7 @@ function ObservationalMemoryModelField({
         >
           Auto observes with a fast, Mastra-recommended model from your active chat provider only
           (e.g. Haiku for Anthropic chats) — the conversation never reaches a provider that is not
-          already receiving it. Local chats keep observations paused.
+          already receiving it.
         </p>
       ) : (
         <p
@@ -133,7 +131,6 @@ function ObservationalMemoryModelField({
 
 export function AssistantMemorySettingsSection({
   assistantMemoryBackendAvailable,
-  onDeviceEmbedding = false,
   providerKeySources,
   testEmbedder,
 }: AssistantMemorySettingsSectionProps) {
@@ -198,10 +195,6 @@ export function AssistantMemorySettingsSection({
     (option) => option.target === semanticRecall.embeddingModelTarget
   );
   const hasEmbeddingModel = semanticRecall.embeddingModelTarget !== null && !!selectedEmbedding;
-  const hostedEmbeddingTarget =
-    selectedEmbedding && selectedEmbedding.providerId !== 'local'
-      ? selectedEmbedding.target
-      : undefined;
   // Recall embeds, and so does vector observation retrieval, even with recall off.
   const embedderInUse =
     semanticRecall.enabled ||
@@ -227,8 +220,7 @@ export function AssistantMemorySettingsSection({
             <Badge variant="outline">Mastra</Badge>
           </div>
           <p className="text-muted-foreground text-sm">
-            Choose the explicit models Mastra uses for observations and semantic memory. Semantic
-            memory can embed on-device; observations need a configured chat provider.
+            Choose the explicit models Mastra uses for observations and semantic memory.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -362,23 +354,17 @@ export function AssistantMemorySettingsSection({
                 </option>
               ))}
             </select>
-            <p className="text-muted-foreground text-xs">
-              Local embedding models run in the hidden embedding host on desktop — no API key
-              required.
-            </p>
             {hasUnavailableEmbeddingModel && (
               <p className="text-destructive text-xs" role="alert">
                 Configured semantic recall embedder {semanticRecall.embeddingModelTarget} is not
-                available. Choose an enabled OpenAI, Google, or local embedding model, or turn off
-                semantic recall and semantic observation recall.
+                available. Choose an enabled OpenAI or Google embedding model, or turn off semantic
+                recall and semantic observation recall.
               </p>
             )}
             {testEmbedder && (
-              <MemoryEmbedderTest target={hostedEmbeddingTarget} testEmbedder={testEmbedder} />
+              <MemoryEmbedderTest target={selectedEmbedding?.target} testEmbedder={testEmbedder} />
             )}
           </div>
-
-          {onDeviceEmbedding && <OnDeviceEmbeddingDeviceField />}
 
           <div className="space-y-2">
             <Label htmlFor="assistant-memory-semantic-scope">Semantic recall scope</Label>

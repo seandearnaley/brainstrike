@@ -6,9 +6,8 @@ import { app } from 'electron';
  * `app.getAppPath()` is launch-mode-dependent: it is the project root under
  * `electron .` but `dist/` itself when Electron is launched with a direct
  * path to `dist/main.js` (Playwright's desktop e2e harness). Every consumer
- * that loads a document or preload from `dist/` — the visible window, the
- * hidden renderer hosts, and the IPC sender-frame allowlist that must agree
- * with them — resolves through this one function so they cannot drift.
+ * that loads a document or preload from `dist/`, including the window and
+ * the IPC sender-frame allowlist, resolves through this function so they agree.
  */
 export function resolveDistRoot(): string {
   const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();

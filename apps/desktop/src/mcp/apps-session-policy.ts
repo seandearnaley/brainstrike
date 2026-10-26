@@ -63,7 +63,7 @@
  *
  * This policy is otherwise deliberately narrow. Every requester that is NOT a
  * sandbox frame keeps Electron's default outcome (granted / not cancelled), so
- * the host renderer and hidden renderer hosts are untouched. The browser pane
+ * the host renderer keeps its default permissions. The browser pane
  * runs on its own partition with its own deny-by-default handlers
  * (`browser/browser-session.ts`) and is never reached from here.
  */
