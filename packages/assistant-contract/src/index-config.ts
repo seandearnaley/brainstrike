@@ -73,6 +73,13 @@ export const decodeIndexConfig = makeThrowingDecoder(IndexConfigSchema, {
   onExcessProperty: 'error',
 });
 
+/**
+ * The refusal code of a saved config this version cannot read (one saved before a field or
+ * model was removed): Reset search settings replaces it with the defaults.
+ */
+export const INDEX_CONFIG_UNREADABLE = 'index-config.unreadable';
+export const INDEX_CONFIG_RESET_REMEDY = 'Reset search settings in Settings → Search & Indexing.';
+
 export const sameIndexChunking = Schema.toEquivalence(IndexChunkingSchema);
 export const sameIndexModel = Schema.toEquivalence(IndexModelSchema);
 
@@ -92,5 +99,7 @@ export function indexModelId(model: Pick<IndexModel, 'modelKey'>): string {
 export interface IndexConfigCapability {
   onConfigChanged(listener: (config: IndexConfig) => void): () => void;
   readConfig(): Promise<IndexConfig>;
+  /** Saves the defaults in place of a saved config that cannot be read, then rebuilds the index. */
+  resetConfig(): Promise<IndexConfig>;
   updateConfig(patch: unknown): Promise<IndexConfig>;
 }

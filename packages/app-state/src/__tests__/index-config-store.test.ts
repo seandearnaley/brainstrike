@@ -23,6 +23,7 @@ function capability() {
           resolveRead = resolve;
           rejectRead = reject;
         }),
+      resetConfig: async () => DEFAULT_INDEX_CONFIG,
       updateConfig: async () => DEFAULT_INDEX_CONFIG,
     },
     publish: (config: IndexConfig) => listener?.(config),
@@ -32,7 +33,9 @@ function capability() {
 }
 
 describe('index config store', () => {
-  beforeEach(() => useIndexConfigStore.setState({ state: { kind: 'loading' }, update: null }));
+  beforeEach(() =>
+    useIndexConfigStore.setState({ reset: null, state: { kind: 'loading' }, update: null })
+  );
 
   it('shows Main’s config once read, then every change Main publishes', async () => {
     const main = capability();

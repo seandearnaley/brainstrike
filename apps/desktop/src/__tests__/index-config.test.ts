@@ -1,6 +1,9 @@
 // @vitest-environment node
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   DEFAULT_INDEX_CONFIG,
+  INDEX_CONFIG_RESET_REMEDY,
+  INDEX_CONFIG_UNREADABLE,
   type IndexConfig,
 } from '@brainstrike/assistant-contract/index-config';
 import type { CollectionRecord, CollectionRequest } from '@brainstrike/state-store';
@@ -69,6 +72,29 @@ describe('Main search index config', () => {
     expect(dependencies.publish).toHaveBeenCalledWith(expect.objectContaining({ paused: true }));
     expect(dependencies.reconfigure).toHaveBeenCalledOnce();
     expect(dependencies.rebuild).not.toHaveBeenCalled();
+  });
+
+  it('resets a saved config it cannot read to the defaults and rebuilds the index', async () => {
+    const { dependencies, owner, saved } = harness({ ...DEFAULT_INDEX_CONFIG, paused: true });
+    const unreadable = refusalError(
+      'configuration',
+      INDEX_CONFIG_UNREADABLE,
+      'The saved search index settings are from another version and cannot be read.',
+      INDEX_CONFIG_RESET_REMEDY
+    );
+    const serve = dependencies.catalog.indexConfig.getMockImplementation();
+    dependencies.catalog.indexConfig.mockImplementation(async (request) => {
+      if (request.operation === 'read' || !serve) {
+        throw unreadable;
+      }
+      return await serve(request);
+    });
+    await expect(owner.read()).rejects.toMatchObject({ cause: unreadable });
+    expect(await owner.reset()).toEqual(DEFAULT_INDEX_CONFIG);
+    expect(saved()).toEqual(DEFAULT_INDEX_CONFIG);
+    expect(dependencies.publish).toHaveBeenCalledExactlyOnceWith(DEFAULT_INDEX_CONFIG);
+    expect(dependencies.rebuild).toHaveBeenCalledOnce();
+    expect(dependencies.reconfigure).not.toHaveBeenCalled();
   });
 
   it('rebuilds once when the chunking changes', async () => {
