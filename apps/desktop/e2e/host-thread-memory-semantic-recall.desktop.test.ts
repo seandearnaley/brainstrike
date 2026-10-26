@@ -310,11 +310,12 @@ test('a recall model of a removed provider names the model and the remedy', asyn
   await enableModel(page);
   await enableSemanticRecall(page, 'local/onnx-community/granite-embedding-small-english-r2-ONNX');
   await page.getByTestId('assistant-new-thread-button').click();
-  await expect(
-    page.getByText('Unsupported semantic recall embedding provider "local"').first()
-  ).toBeVisible({ timeout: 30_000 });
-  await expect(
-    page.getByText('Choose an embedding model in Settings → Assistant Memory.').first()
-  ).toBeVisible();
+  // Each open thread tab renders the refusal; only the selected tab's copy is shown.
+  const refusal = page
+    .getByText(
+      'Unsupported semantic recall embedding provider "local" in model target "local/onnx-community/granite-embedding-small-english-r2-ONNX". Choose an embedding model in Settings → Assistant Memory.'
+    )
+    .filter({ visible: true });
+  await expect(refusal).toHaveCount(1, { timeout: 30_000 });
   await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);
 });
