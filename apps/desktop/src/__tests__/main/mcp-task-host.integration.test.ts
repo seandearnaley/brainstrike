@@ -838,6 +838,50 @@ function hostWithHeldCreate() {
 }
 
 describe('a task create still in flight when the MCP Tasks host stops', () => {
+  it('lets close return while the create is still in flight', async () => {
+    const held = hostWithHeldCreate();
+    await host.close();
+    host = held.host;
+    const server = createFakeServer();
+    await host.connected(createConnection(server));
+    held.hold();
+    const tracking = host.track({
+      configuredServerId: SERVER_ID,
+      result: server.created('t-held'),
+      toolName: 'long_job',
+    });
+    tracking.catch(() => undefined);
+    await held.reached;
+    await host.close();
+    expect(host.snapshot().sessions).toEqual([]);
+    held.release();
+    await expect(tracking).rejects.toBeInstanceOf(McpTaskStoreStoppedError);
+  });
+
+  it('leaves no task row after a content reset that ran while the create was in flight', async () => {
+    const held = hostWithHeldCreate();
+    await host.close();
+    host = held.host;
+    const server = createFakeServer();
+    await host.connected(createConnection(server));
+    held.hold();
+    const tracking = host.track({
+      configuredServerId: SERVER_ID,
+      result: server.created('t-reset'),
+      toolName: 'long_job',
+    });
+    tracking.catch(() => undefined);
+    await held.reached;
+    // The host's reset order: the MCP host closes, then the store deletes its content.
+    await host.close();
+    await store.clearContent();
+    held.release();
+    await expect(tracking).rejects.toBeInstanceOf(McpTaskStoreStoppedError);
+    store = await StateStore.open(root);
+    expect(held.inserts()).toBe(0);
+    await expect(held.row(store, 't-reset')).resolves.toBeNull();
+  });
+
   it('fails with the stopped store error and writes no row', async () => {
     const held = hostWithHeldCreate();
     await host.close();

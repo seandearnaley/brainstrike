@@ -193,7 +193,6 @@ export class McpTaskLifecycle {
   private readonly lifecycleController = new AbortController();
   private readonly limits: McpTaskLifecycleLimits;
   private readonly onUpdate: McpTaskLifecycleOptions['onUpdate'];
-  private readonly pendingCreates = new Set<Promise<McpTrackedTask>>();
   private readonly observationPort: McpTaskObservationPort | undefined;
   private readonly pollWaiters: PollWaiter[] = [];
   private readonly repository: McpTaskStore;
@@ -201,7 +200,6 @@ export class McpTaskLifecycle {
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private readonly releaseObservationAuthority: (() => void) | undefined;
   private activePolls = 0;
-  private stopPromise: Promise<void> | undefined;
   private retirePromise: Promise<void> | undefined;
 
   constructor(options: McpTaskLifecycleOptions) {
@@ -227,7 +225,6 @@ export class McpTaskLifecycle {
    * `threadId` is the host thread whose run created the task, when one did.
    */
   track(task: CreateTaskResult, signal?: AbortSignal, threadId?: string): Promise<McpTrackedTask> {
-    let operation: Promise<McpTrackedTask>;
     try {
       this.requireOpen(signal);
       // Sole-authority guard BEFORE the durable write: a second track() of the
@@ -235,13 +232,10 @@ export class McpTaskLifecycle {
       if (this.active.has(task.taskId)) {
         throw new Error(`MCP task "${task.taskId}" is already tracked by this lifecycle.`);
       }
-      operation = this.persistAndStart(task, signal, threadId);
+      return this.persistAndStart(task, signal, threadId);
     } catch (cause) {
       return Promise.reject(cause);
     }
-    this.pendingCreates.add(operation);
-    void operation.finally(() => this.pendingCreates.delete(operation)).catch(() => undefined);
-    return operation;
   }
 
   private async persistAndStart(
@@ -321,43 +315,41 @@ export class McpTaskLifecycle {
   }
 
   /**
-   * Aborts every poller and drains in-flight creates; that part never rejects
-   * and is memoized. Only `server-removed` and `server-replaced` retire the
-   * authority epoch afterwards: a disconnect, restart, or close leaves the
-   * epoch live so the next `openAuthority` rebinds it and `recover()` resumes
-   * every non-terminal handle, and factory reset deletes the rows outright. A
-   * failed retirement rejects this call but is not memoized, so a later
-   * `stop()` retries the write.
+   * Aborts every poller and stops the store without waiting for anything in
+   * flight: a create or update that has not reached storage yet is refused
+   * with `McpTaskStoreStoppedError` and fails its own caller. Only
+   * `server-removed` and `server-replaced` retire the authority epoch, as the
+   * store's last write: a disconnect, restart, or close leaves the epoch live
+   * so the next `openAuthority` rebinds it and `recover()` resumes every
+   * non-terminal handle, and factory reset deletes the rows outright. A failed
+   * retirement rejects this call but is not memoized, so a later `stop()`
+   * retries the write.
    */
   async stop(reason: McpTaskLifecycleStopReason): Promise<void> {
-    if (!this.stopPromise) {
+    if (!this.lifecycleController.signal.aborted) {
       const failure = new McpTaskLifecycleStoppedError(reason);
       this.lifecycleController.abort(failure);
       this.releaseObservationAuthority?.();
       for (const task of this.active.values()) {
         task.controller.abort(failure);
       }
-      // A create or update still in flight is refused by the store from here on.
-      void this.repository.stop();
-      this.stopPromise = this.drain();
     }
-    await this.stopPromise;
     if (reason === 'server-removed' || reason === 'server-replaced') {
       await this.retire();
+      return;
     }
+    await this.repository.stop();
   }
 
   snapshot(): {
     readonly activePolls: number;
     readonly activeTasks: number;
-    readonly pendingCreates: number;
     readonly queuedPolls: number;
     readonly timers: number;
   } {
     return Object.freeze({
       activePolls: this.activePolls,
       activeTasks: this.active.size,
-      pendingCreates: this.pendingCreates.size,
       queuedPolls: this.pollWaiters.length,
       timers: this.timers.size,
     });
@@ -647,13 +639,6 @@ export class McpTaskLifecycle {
         this.authority
       );
     }
-  }
-
-  private async drain(): Promise<void> {
-    await Promise.allSettled([
-      ...this.pendingCreates,
-      ...[...this.active.values()].map(({ settled }) => settled),
-    ]);
   }
 
   private retire(): Promise<void> {
