@@ -306,13 +306,14 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
   expect(restoredA).toBe(rootA);
   await newThread(returnedA.page);
   await send(returnedA.page, 'A_RETURN_FIRST_SEND');
-  // A's own host committed the first Send after return. The host publishes its
-  // record in the profile's database root, beside Electron's per-profile userData.
-  const runs = await readCommittedRuns(
-    path.join(ordinaryDev.directory, 'database/profiles/incident-a'),
-    await selectedThreadId(returnedA.page)
-  );
-  expect(runs.map((run) => run.status)).toEqual(['completed']);
+  // A's own host commits the first Send after return; the reply streams before
+  // the run's finish is committed. The host publishes its record in the
+  // profile's database root, beside Electron's per-profile userData.
+  const hostRoot = path.join(ordinaryDev.directory, 'database/profiles/incident-a');
+  const threadId = await selectedThreadId(returnedA.page);
+  await expect
+    .poll(async () => (await readCommittedRuns(hostRoot, threadId)).map((run) => run.status))
+    .toEqual(['completed']);
   await expect(returnedA.page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
   expect(ordinaryDev.provider.refusals()).toEqual([]);
   await info.attach('normal-dev-profile-paths', {
