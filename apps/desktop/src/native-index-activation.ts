@@ -590,6 +590,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
             graph?.controller.abort(new TransitionError('Native source authority changed.'));
             if (graph) {
               await closeOwned(action.destroy);
+              // E2E seam: an open replacing a live index waits this long before borrowing a host.
+              await dependencies.lifecycleDelays?.().delay('index-replace');
             }
             await runtime.resume();
             const current = await owner.state();
