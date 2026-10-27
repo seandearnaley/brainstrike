@@ -6,7 +6,10 @@ import {
   useAssistantRunNotifications,
   useBudgetGuardrailBinding,
 } from '@brainstrike/app-shell';
-import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '@brainstrike/app-shell/assistant-thread-host-context';
 import {
   BudgetGuardrailProvider,
   CommittedAssistantConversation,
@@ -52,6 +55,7 @@ import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
 import { bindHostThreadToMainRoot } from './host-thread-root-binding';
 import type { HostThreadRuns } from './host-thread-runs';
+import { NewHostThread } from './new-host-thread';
 import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
@@ -344,10 +348,13 @@ function HostThread({
  * host's client rebinds the view through the same path as a reload; until it
  * arrives, the lost client's view stays mounted and shows the disconnect.
  */
-function ConnectedHostThread({
+function ConnectedHost({
+  children,
   connection,
-  ...thread
-}: Omit<HostThreadProps, 'client' | 'reconnect' | 'replacement'> & {
+}: {
+  readonly children: (
+    bound: Pick<HostThreadProps, 'client' | 'reconnect' | 'replacement'>
+  ) => ReactElement;
   readonly connection: DesktopHostConnection;
 }): ReactElement {
   const state = useSyncExternalStore(
@@ -363,14 +370,7 @@ function ConnectedHostThread({
   if (!client) {
     return <div role="status">Connecting to the agent host…</div>;
   }
-  return (
-    <HostThread
-      {...thread}
-      client={client}
-      reconnect={reconnectFor(state, connection)}
-      replacement={replacement}
-    />
-  );
+  return children({ client, reconnect: reconnectFor(state, connection), replacement });
 }
 
 function reconnectFor(
@@ -403,7 +403,8 @@ function SteeringStatus({
 }
 
 // One lazy client capability per actual renderer frame, independent of React replay.
-const windowThreadCapability = createWindowThreadCapability(
+const connection = windowHostConnection();
+const threadCapability = createWindowThreadCapability(
   ({
     canvases,
     catalogLoaded,
@@ -425,28 +426,43 @@ const windowThreadCapability = createWindowThreadCapability(
     // The agent host is Desktop's only conversation owner: a thread its catalog
     // does not list fails visibly instead of mounting another runtime.
     return owned ? (
-      <ConnectedHostThread
-        agentColor={child?.color}
-        canvases={canvases}
-        child={child !== undefined}
-        connection={connection}
-        // A child's region is named by its call sign, like its workspace tab.
-        label={child?.callSign ?? 'Assistant'}
-        ledger={ledger}
-        onEntryCommitted={onEntryCommitted}
-        onRunningChange={onRunningChange}
-        providerReadErrors={providerReadErrors}
-        runs={runs}
-        threadId={threadId}
-      />
+      <ConnectedHost connection={connection}>
+        {(bound) => (
+          <HostThread
+            {...bound}
+            agentColor={child?.color}
+            canvases={canvases}
+            child={child !== undefined}
+            // A child's region is named by its call sign, like its workspace tab.
+            label={child?.callSign ?? 'Assistant'}
+            ledger={ledger}
+            onEntryCommitted={onEntryCommitted}
+            onRunningChange={onRunningChange}
+            providerReadErrors={providerReadErrors}
+            runs={runs}
+            threadId={threadId}
+          />
+        )}
+      </ConnectedHost>
     ) : (
       <div aria-label="Agent host error" className="p-4 text-destructive text-sm" role="alert">
         This thread is not owned by the agent host.
       </div>
     );
   },
-  windowHostConnection()
+  connection
 );
+// The new-thread composer is this frame's view, over the same host connection.
+const windowThreadCapability: AssistantThreadHostCapability & typeof threadCapability = {
+  ...threadCapability,
+  renderNewThread: (resourceId, providerReadErrors) => (
+    <ConnectedHost connection={connection}>
+      {(bound) => (
+        <NewHostThread {...bound} providerReadErrors={providerReadErrors} resourceId={resourceId} />
+      )}
+    </ConnectedHost>
+  ),
+};
 
 /** New roots hydrate from the committed host; existing history keeps its original owner. */
 export function DesktopHostThreadProvider({

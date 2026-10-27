@@ -2,7 +2,7 @@ import type {
   AssistantThreadCatalogRepository,
   AssistantThreadMetadata,
 } from '@brainstrike/assistant-data';
-import { useAssistantThreadStore } from '@brainstrike/assistant-data';
+import { useAssistantThreadStore, useResourceThread } from '@brainstrike/assistant-data';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarCheckout,
@@ -343,10 +343,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
   const fileSystem = useFileSystem();
   const rootCatalog = getThreadGroupsCapability();
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
-  const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
-  const selectedThread = selectedMemoryThreadId
-    ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
-    : undefined;
+  // The new thread's composer reads its draft binding as an unsent thread's.
+  const selectedThread = useResourceThread(memoryResourceId, selectedMemoryThreadId);
   const checkoutMode = selectedThread?.metadata?.checkoutMode ?? 'local';
   const checkoutLocalRootId = checkoutLocalRootIdFor(checkoutMode, selectedThread?.metadata);
   const threadMetadataSecondaryRootIds = selectedThread?.metadata?.secondaryRootIds;

@@ -67,7 +67,6 @@ import {
   resolveThreadRowStatusState,
 } from './assistant-thread-presentation';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
-import { useCreateThreadInFolderRepository } from './hooks/use-create-thread-in-folder';
 import { useOnScreenThreadId } from './hooks/use-on-screen-thread';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
@@ -1631,7 +1630,7 @@ export function ThreadsPanelCore({
   const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
   const loadStateByResourceId = useAssistantThreadStore((state) => state.loadStateByResourceId);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
-  const createThread = useAssistantThreadStore((state) => state.createThread);
+  const startNewThread = useAssistantThreadStore((state) => state.startNewThread);
   const deleteThread = useAssistantThreadStore((state) => state.deleteThread);
   const deleteThreads = useAssistantThreadStore((state) => state.deleteThreads);
   const renameThread = useAssistantThreadStore((state) => state.renameThread);
@@ -1900,7 +1899,11 @@ export function ThreadsPanelCore({
     },
     [groupsRepository, moveThreadToGroup, resourceId]
   );
-  const handleCreateThreadInFolder = useCreateThreadInFolderRepository(repository);
+  // Opens the new-thread screen bound to the folder; its first send creates the thread.
+  const handleNewThreadInFolder = useCallback(
+    (folder: ThreadFolderRow): void => startNewThread(resourceId, folder),
+    [resourceId, startNewThread]
+  );
   const handleSortByChange = (nextSortBy: ThreadsPanelSortBy): void => {
     if (sortPresentation === 'folder') {
       // Unreachable through the popover, which binds folder mode to
@@ -2025,14 +2028,10 @@ export function ThreadsPanelCore({
               groupBy={groupBy}
               newGroupDisabled={!groupsRepository}
               newThreadDisabled={loadState?.status === 'loading'}
-              newThreadTitle="Create a new Mastra memory thread for this workspace."
+              newThreadTitle="Start a new thread in this workspace."
               onClearThreadFilters={clearThreadFilters}
               onCreateGroup={handleCreateGroup}
-              onCreateThread={() => {
-                createThread(repository, resourceId).catch(() => {
-                  // The store records the explicit error state; no fallback thread source is used.
-                });
-              }}
+              onCreateThread={() => startNewThread(resourceId)}
               onFolderSortByChange={setFolderSortBy}
               onGroupByChange={setGroupBy}
               onSortByChange={handleSortByChange}
@@ -2134,7 +2133,7 @@ export function ThreadsPanelCore({
           onBulkMove={handleBulkMove}
           onDeleteThread={handleDeleteThread}
           onMoveThreadToGroup={handleMoveThreadToGroup}
-          onNewThreadInFolder={handleCreateThreadInFolder}
+          onNewThreadInFolder={handleNewThreadInFolder}
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           onUpdateThreadAppearance={handleUpdateThreadAppearance}

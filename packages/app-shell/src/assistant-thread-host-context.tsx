@@ -200,6 +200,15 @@ export interface AssistantThreadHostCapability {
   /** Commits an owned thread's title through the host; it never reaches history. */
   renameThread(threadId: string, title: string): Promise<void>;
   /**
+   * The new-thread composer (`newThreadId(resourceId)`): the thread's own
+   * composer and controls before the thread exists. Its first send creates
+   * the thread; nothing is created before then.
+   */
+  renderNewThread(
+    resourceId: string,
+    providerReadErrors?: Partial<Record<SupportedProvider, string>>
+  ): ReactNode;
+  /**
    * `onRunningChange` reports the rendered view's own run state, so a tab
    * closed mid-run keeps its view mounted and observing (BST-1844).
    * `providerReadErrors` are the availability status's credential read

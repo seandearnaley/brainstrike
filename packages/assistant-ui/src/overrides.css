@@ -2280,3 +2280,20 @@
     animation: none;
   }
 }
+
+/* A new thread's composer sits centred under its welcome, on the gradient. */
+.bs-new-thread .bs-composer-shell {
+  width: 100%;
+  max-width: 48rem;
+  margin-inline: auto;
+  border-top: 0;
+  background: transparent;
+  padding-inline: 1rem;
+}
+
+@keyframes bs-new-thread-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}

@@ -178,8 +178,8 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
     expect(openThreadIds()).toEqual([]);
-    // The empty state and the hidden running panel coexist.
-    expect(screen.getByTestId('assistant-thread-workspace-state')).toBeInTheDocument();
+    // The new-thread screen and the hidden running panel coexist.
+    expect(screen.getByTestId('new-thread-composer')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-thread-panel-thread-b')).toHaveAttribute('hidden');
     expect(screen.queryByTestId('assistant-thread-panel-thread-a')).not.toBeInTheDocument();
     expect(wrapperLifecycle).toContain('unmount:thread-a');

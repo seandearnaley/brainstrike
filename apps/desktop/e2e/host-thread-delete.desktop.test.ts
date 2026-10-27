@@ -9,6 +9,7 @@ import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { startThread } from './utils/new-thread';
 
 test('deletes a committed host thread from the Threads panel and it stays deleted after reload', async ({
   window: page,
@@ -18,10 +19,9 @@ test('deletes a committed host thread from the Threads panel and it stays delete
   await ensureAssistantShellVisible(page);
   const strip = page.getByRole('tablist', { name: 'Open assistant threads' });
   await expect(strip).toBeVisible({ timeout: 30_000 });
-  const newThread = page.getByTestId('assistant-new-thread-button');
+  // Each thread is created by its first send.
   for (let count = await strip.getByRole('tab').count(); count < 2; count += 1) {
-    await expect(newThread).toBeEnabled({ timeout: 15_000 });
-    await newThread.click();
+    await startThread(page, `Thread ${count + 1}`);
     await expect(strip.getByRole('tab')).toHaveCount(count + 1, { timeout: 15_000 });
   }
 
