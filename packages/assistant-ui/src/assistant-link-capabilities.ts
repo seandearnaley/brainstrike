@@ -37,6 +37,8 @@ export interface AssistantLinkChoices {
   readonly copyLink: (url: string) => Promise<AssistantLinkOpenResult>;
   /** Whether `url` can open in the host's browser; the host owns that policy. */
   readonly offers: (url: string) => boolean;
+  /** Told when a link's menu opens and closes: it can drop over the host's browser pages. */
+  readonly onMenuOpenChange?: ((open: boolean) => void) | undefined;
   readonly openInAppBrowser: (url: string) => Promise<AssistantLinkOpenResult>;
 }
 

@@ -3,6 +3,7 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { AssistantLinkCapabilitiesProvider } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
+import { useWorkspaceTabs } from '@brainstrike/file-explorer-ui/shell';
 import { type ReactElement, type ReactNode, useMemo } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantProviderModelDefaults } from './assistant-provider-model-defaults';
@@ -56,8 +57,9 @@ export function AssistantChatPanel(): ReactElement {
   );
   // Links in thread markdown cannot use the anchor default: the desktop
   // renderer fences navigation and web would tear the SPA down. This is the
-  // host end of that seam (BST-1665).
-  const linkCapabilities = useAssistantLinkCapabilitiesValue();
+  // host end of that seam (BST-1665). A link's menu can drop over a browser
+  // page beside the panel, which hides while the menu is open.
+  const linkCapabilities = useAssistantLinkCapabilitiesValue(useWorkspaceTabs().onMenuOpenChange);
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">

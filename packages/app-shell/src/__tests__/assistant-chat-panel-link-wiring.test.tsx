@@ -1,7 +1,8 @@
 import { useAssistantLinkCapabilities } from '@brainstrike/assistant-ui/assistant-link-capabilities';
+import { WorkspaceTabsContext, type WorkspaceTabsValue } from '@brainstrike/file-explorer-ui/shell';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformBridge } from '../platform-bridge';
 
@@ -49,6 +50,17 @@ const { AssistantChatPanel, AssistantProviderStatusProvider } = await import(
   '../assistant-chat-panel'
 );
 
+/** The panel sits in the workspace, whose menu count its link menus report to. */
+const workspaceTabs = { onMenuOpenChange: () => undefined } as unknown as WorkspaceTabsValue;
+
+function PanelProviders({ children }: { readonly children: ReactNode }) {
+  return (
+    <WorkspaceTabsContext value={workspaceTabs}>
+      <AssistantProviderStatusProvider>{children}</AssistantProviderStatusProvider>
+    </WorkspaceTabsContext>
+  );
+}
+
 describe('AssistantChatPanel link seam wiring', () => {
   afterEach(() => {
     setPlatform(undefined);
@@ -56,7 +68,7 @@ describe('AssistantChatPanel link seam wiring', () => {
   });
 
   it('provides the link seam to the panel subtree', () => {
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(screen.getByRole('button', { name: 'seam-present' })).toBeInTheDocument();
   });
@@ -69,7 +81,7 @@ describe('AssistantChatPanel link seam wiring', () => {
       showItemInFolder: vi.fn(),
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
     await userEvent.click(screen.getByRole('button', { name: 'seam-present' }));
 
     expect(openExternal).toHaveBeenCalledWith('https://example.com/docs');

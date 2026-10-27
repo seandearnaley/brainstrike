@@ -7,6 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './dropdown-menu';
+import { useMenuOpenReporter } from './tab-strip/use-menu-open-reporter';
 
 /** Where a web link can go when the app has a browser of its own. */
 export interface LinkChoices {
@@ -28,17 +29,21 @@ export interface LinkChoices {
 export function LinkChoiceMenu({
   children,
   choices,
+  onOpenChange,
 }: {
   readonly children: ReactElement;
   readonly choices: LinkChoices;
+  /** The menu can drop over a native view, which the host hides while it is open. */
+  readonly onOpenChange?: ((open: boolean) => void) | undefined;
 }): ReactElement {
+  const reportOpenChange = useMenuOpenReporter(onOpenChange);
   const openCtrlClickInDefaultBrowser = (event: MouseEvent): void => {
     if (event.ctrlKey) {
       choices.openInDefaultBrowser();
     }
   };
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={reportOpenChange}>
       <DropdownMenuTrigger asChild onClick={openCtrlClickInDefaultBrowser}>
         {children}
       </DropdownMenuTrigger>

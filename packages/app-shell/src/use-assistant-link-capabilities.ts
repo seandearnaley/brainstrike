@@ -43,12 +43,17 @@ function openCanvasLink(url: string): OpenLinkResult | null {
  * labour the workspace-bar chips use. `openLink` sends http/https/mailto links
  * to the OS browser and opens `canvas://` links in the canvas's workspace tab.
  * With the built-in browser, a web link also offers that browser or the
- * clipboard (`linkChoices`).
+ * clipboard (`linkChoices`). Its menu can drop over a browser page in the
+ * workspace, so it reports opening and closing to `onMenuOpenChange`, the
+ * workspace's menu count, and the page hides while it is open.
  */
-export function useAssistantLinkCapabilitiesValue(): AssistantLinkCapabilities {
-  return useMemo<AssistantLinkCapabilities>(
-    () => ({
-      linkChoices: resolveLinkChoices() ?? undefined,
+export function useAssistantLinkCapabilitiesValue(
+  onMenuOpenChange?: (open: boolean) => void
+): AssistantLinkCapabilities {
+  return useMemo<AssistantLinkCapabilities>(() => {
+    const choices = resolveLinkChoices();
+    return {
+      linkChoices: choices ? { ...choices, onMenuOpenChange } : undefined,
       openLink: async (url: string): Promise<OpenLinkResult> => {
         const canvas = openCanvasLink(url);
         const result = canvas ?? (await openExternalLink(url));
@@ -57,7 +62,6 @@ export function useAssistantLinkCapabilitiesValue(): AssistantLinkCapabilities {
         }
         return result;
       },
-    }),
-    []
-  );
+    };
+  }, [onMenuOpenChange]);
 }

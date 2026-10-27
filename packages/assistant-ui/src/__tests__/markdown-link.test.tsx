@@ -407,11 +407,17 @@ describe('assistant markdown links when the host has its own browser', () => {
     const openLink = vi.fn().mockResolvedValue({ ok: true });
     const copyLink = vi.fn().mockResolvedValue({ ok: true });
     const openInAppBrowser = vi.fn().mockResolvedValue({ ok: true });
+    const onMenuOpenChange = vi.fn();
     const capabilities: AssistantLinkCapabilities = {
-      linkChoices: { copyLink, offers: (url) => url.startsWith('https:'), openInAppBrowser },
+      linkChoices: {
+        copyLink,
+        offers: (url) => url.startsWith('https:'),
+        onMenuOpenChange,
+        openInAppBrowser,
+      },
       openLink,
     };
-    return { capabilities, copyLink, openInAppBrowser, openLink };
+    return { capabilities, copyLink, onMenuOpenChange, openInAppBrowser, openLink };
   }
 
   function renderLink(capabilities: AssistantLinkCapabilities, href: string): HTMLElement {
@@ -442,6 +448,19 @@ describe('assistant markdown links when the host has its own browser', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Copy link' }));
     expect(copyLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
     expect(openInAppBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the host while the choices are open, so a browser page can make room', async () => {
+    const user = userEvent.setup();
+    const { capabilities, onMenuOpenChange } = stubChoices();
+
+    await user.click(renderLink(capabilities, 'https://example.com/docs'));
+    expect(screen.getByRole('menu')).toBeVisible();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
   });
 
   it('opens the choices from the keyboard', async () => {

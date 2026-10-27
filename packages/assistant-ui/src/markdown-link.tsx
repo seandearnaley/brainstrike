@@ -161,6 +161,7 @@ export function MarkdownLink({
         openInAppBrowser: () => handOff(choices.openInAppBrowser, href),
         openInDefaultBrowser: () => handOff(capabilities.openLink, href),
       }}
+      onOpenChange={choices.onMenuOpenChange}
     >
       {anchor}
     </LinkChoiceMenu>

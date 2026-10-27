@@ -1,7 +1,19 @@
+import { WorkspaceTabsContext, type WorkspaceTabsValue } from '@brainstrike/file-explorer-ui/shell';
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantChatPanel, AssistantProviderStatusProvider } from '../assistant-chat-panel';
+
+/** The panel sits in the workspace, whose menu count its link menus report to. */
+const workspaceTabs = { onMenuOpenChange: () => undefined } as unknown as WorkspaceTabsValue;
+
+function PanelProviders({ children }: { readonly children: ReactNode }) {
+  return (
+    <WorkspaceTabsContext value={workspaceTabs}>
+      <AssistantProviderStatusProvider>{children}</AssistantProviderStatusProvider>
+    </WorkspaceTabsContext>
+  );
+}
 
 const {
   assistantProviderModelDefaultsMock,
@@ -59,7 +71,7 @@ describe('AssistantChatPanel', () => {
   it('shows loading indicator while fetching status', () => {
     useAssistantAvailabilityMock.mockReturnValue({ state: 'loading' });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(screen.getByTestId('assistant-panel-loading')).toHaveClass('h-full');
     expect(screen.getByTestId('assistant-panel-loading-tab-strip')).toHaveClass('h-9');
@@ -72,7 +84,7 @@ describe('AssistantChatPanel', () => {
       state: 'disabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(screen.getByText('Assistant disabled')).toBeInTheDocument();
     expect(
@@ -87,7 +99,7 @@ describe('AssistantChatPanel', () => {
       state: 'disabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(
       screen.getByText(
@@ -103,7 +115,7 @@ describe('AssistantChatPanel', () => {
       state: 'disabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(
       screen.getByText('The assistant status endpoint reported that the assistant is disabled.')
@@ -114,7 +126,7 @@ describe('AssistantChatPanel', () => {
   it('renders error callout when status fetch fails', () => {
     useAssistantAvailabilityMock.mockReturnValue({ message: 'boom', state: 'error' });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
     expect(screen.getByText('boom')).toBeInTheDocument();
@@ -126,7 +138,7 @@ describe('AssistantChatPanel', () => {
       state: 'enabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(screen.queryByRole('heading', { name: 'Assistant' })).not.toBeInTheDocument();
     expect(
@@ -153,7 +165,7 @@ describe('AssistantChatPanel', () => {
       state: 'enabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
@@ -180,7 +192,7 @@ describe('AssistantChatPanel', () => {
       state: 'enabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     const owners = screen.getAllByTestId('provider-model-defaults-owner');
@@ -206,7 +218,7 @@ describe('AssistantChatPanel', () => {
       state: 'enabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
@@ -227,7 +239,7 @@ describe('AssistantChatPanel', () => {
       state: 'enabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
@@ -250,7 +262,7 @@ describe('AssistantChatPanel', () => {
       state: 'enabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
@@ -280,7 +292,7 @@ describe('AssistantChatPanel', () => {
     useAssistantAvailabilityMock.mockReturnValue(status);
 
     const { rerender } = render(<AssistantChatPanel />, {
-      wrapper: AssistantProviderStatusProvider,
+      wrapper: PanelProviders,
     });
     const firstModels =
       assistantUiPanelWrapperLazyMock.mock.calls.at(-1)?.[0]['fixedProviderModels'];
@@ -300,7 +312,7 @@ describe('AssistantChatPanel', () => {
       state: 'enabled',
     });
 
-    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
+    render(<AssistantChatPanel />, { wrapper: PanelProviders });
 
     expect(screen.getByText('Assistant unavailable')).toBeInTheDocument();
     expect(
