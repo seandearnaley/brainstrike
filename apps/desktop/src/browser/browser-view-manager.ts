@@ -1,7 +1,12 @@
 /**
- * Main-process manager for the embedded browser pane's `WebContentsView`s
- * (BST-1174) — one view per tab, all attached to the visible window's
- * `contentView`, exactly one shown at a time.
+ * Main-process manager for the embedded browser's `WebContentsView`s
+ * (BST-1174) — one view per page, all attached to the visible window's
+ * `contentView`, at most one shown at a time.
+ *
+ * Each page belongs to one conversation (BST-1271): the workspace shows a
+ * thread's pages as that thread's own tabs, and the renderer names the page
+ * its selected tab shows. The agent drives pages of its own thread only and
+ * never changes which page is shown.
  *
  * WHY A SEPARATE REGISTRY (not `app-windows.ts`): a `WebContentsView` is not a
  * `BrowserWindow`; `app-windows` is keyed on window `webContents` and tracks
@@ -81,13 +86,14 @@ type BrowserPaneViewFactory = (partition: string) => BrowserPaneView;
 export type BrowserTabOwner = 'agent' | 'user';
 
 export interface BrowserTabState {
-  readonly active: boolean;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
   /** True while the tab's main frame is loading — agent navigate polls this. */
   readonly isLoading: boolean;
   readonly owner: BrowserTabOwner;
   readonly tabId: string;
+  /** The conversation whose workspace shows this page as one of its tabs. */
+  readonly threadId: string;
   readonly title: string;
   readonly url: string;
 }
@@ -117,10 +123,13 @@ export interface BrowserViewManagerDeps {
 }
 
 interface TrackedTab {
+  /** When the page was last opened, shown or navigated: its thread's current page is the latest. */
+  lastUsed: number;
   /** Last load failure for this tab (cleared when a new load starts). */
   navigationError: string | null;
   readonly owner: BrowserTabOwner;
   readonly tabId: string;
+  readonly threadId: string;
   readonly view: BrowserPaneView;
 }
 
@@ -128,7 +137,9 @@ const ZERO_RECT: PaneRect = { height: 0, width: 0, x: 0, y: 0 };
 
 export class BrowserViewManager {
   private readonly tabs = new Map<string, TrackedTab>();
-  private activeTabId: string | null = null;
+  /** The page the renderer's selected workspace tab shows, if any. */
+  private shownTabId: string | null = null;
+  private uses = 0;
   private bounds: PaneRect = ZERO_RECT;
   /** True while a renderer modal overlaps the pane — the native view must hide. */
   private occluded = false;
@@ -139,12 +150,16 @@ export class BrowserViewManager {
     this.deps = deps;
   }
 
-  createTab(url?: string, owner: BrowserTabOwner = 'user'): string {
+  /**
+   * Open a page for `threadId`, hidden until the renderer shows it: opening a
+   * page never changes what the workspace shows.
+   */
+  createTab(threadId: string, url?: string, owner: BrowserTabOwner = 'user'): string {
     const tabId = this.deps.mintTabId();
     const view = this.deps.createView(
       owner === 'agent' ? this.deps.agentPartition : this.deps.partition
     );
-    this.wireView(tabId, view, owner);
+    this.wireView(tabId, threadId, view, owner);
     // Attach BEFORE registering: if the host rejects the view, no phantom tab
     // may remain for a later listTabs() resync to paint (2026-08-07 live
     // regression), and the orphaned view's page process must not keep running.
@@ -158,10 +173,19 @@ export class BrowserViewManager {
       }
       throw error;
     }
-    const tab: TrackedTab = { navigationError: null, owner, tabId, view };
+    view.setVisible(false);
+    const tab: TrackedTab = {
+      lastUsed: 0,
+      navigationError: null,
+      owner,
+      tabId,
+      threadId,
+      view,
+    };
+    this.touch(tab);
     this.tabs.set(tabId, tab);
     this.load(tab, normalizeUrl(url));
-    this.setActiveTab(tabId);
+    this.emitTabs();
     return tabId;
   }
 
@@ -174,27 +198,52 @@ export class BrowserViewManager {
     this.tabs.delete(tabId);
     this.deps.hostWindow.contentView.removeChildView(tab.view);
     tab.view.webContents.close();
-    if (this.activeTabId === tabId) {
-      // Activate the most-recently-inserted remaining tab, or clear.
-      const next = [...this.tabs.keys()].at(-1) ?? null;
-      this.activeTabId = null;
-      if (next) {
-        // setActiveTab emits; the empty-list case emits below.
-        this.setActiveTab(next);
-        return true;
-      }
+    // The renderer chooses what shows next; until then no page is drawn.
+    if (this.shownTabId === tabId) {
+      this.shownTabId = null;
     }
     this.emitTabs();
     return true;
   }
 
-  /** @returns `false` when `tabId` names no open tab. */
-  selectTab(tabId: string): boolean {
-    if (!this.tabs.has(tabId)) {
+  /**
+   * Show the page the renderer's selected workspace tab names, hiding every
+   * other, and make it its thread's current page. @returns `false` when
+   * `tabId` names no open tab.
+   */
+  showTab(tabId: string): boolean {
+    const shown = this.tabs.get(tabId);
+    if (!shown) {
       return false;
     }
-    this.setActiveTab(tabId);
+    this.shownTabId = tabId;
+    this.touch(shown);
+    for (const tab of this.tabs.values()) {
+      if (tab === shown) {
+        this.showActive(tab.view);
+      } else {
+        tab.view.setVisible(false);
+      }
+    }
     return true;
+  }
+
+  /**
+   * The thread's current page: the one last opened, shown or navigated, of
+   * `owner` when given. Null when the thread has none.
+   */
+  currentTab(threadId: string, owner?: BrowserTabOwner): string | null {
+    let current: TrackedTab | undefined;
+    for (const tab of this.tabs.values()) {
+      if (
+        tab.threadId === threadId &&
+        (owner === undefined || tab.owner === owner) &&
+        (current === undefined || tab.lastUsed > current.lastUsed)
+      ) {
+        current = tab;
+      }
+    }
+    return current?.tabId ?? null;
   }
 
   /**
@@ -208,6 +257,7 @@ export class BrowserViewManager {
     if (!tab) {
       return false;
     }
+    this.touch(tab);
     this.load(tab, normalizeUrl(url));
     return true;
   }
@@ -308,7 +358,7 @@ export class BrowserViewManager {
   /**
    * Occlusion policy: a `WebContentsView` paints ABOVE all renderer DOM, so
    * `layers.ts` z-index cannot place a dialog/popover/toast over it. When the
-   * renderer reports a modal is open, the active view is hidden so overlays are
+   * renderer reports a modal is open, the shown page is hidden so overlays are
    * never occluded by the pane.
    */
   setOccluded(occluded: boolean): void {
@@ -321,17 +371,9 @@ export class BrowserViewManager {
   }
 
   /**
-   * The active tab's `webContents` id, or null when no tab is open. The CDP
-   * driver's session resolver uses this to always target whichever tab is
-   * active NOW — the manager stays Electron-agnostic and only surfaces the id
-   * it already tracks.
+   * The `webContents` id of one tab, or null when it is gone. The CDP driver
+   * resolves its tab's session through it; the manager stays Electron-agnostic.
    */
-  getActiveWebContentsId(): number | null {
-    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
-    return active ? active.view.webContents.id : null;
-  }
-
-  /** The `webContents` id of one tab, or null when it is gone. */
   getWebContentsId(tabId: string): number | null {
     return this.tabs.get(tabId)?.view.webContents.id ?? null;
   }
@@ -353,7 +395,7 @@ export class BrowserViewManager {
       tab.view.webContents.close();
     }
     this.tabs.clear();
-    this.activeTabId = null;
+    this.shownTabId = null;
     // Reset geometry to a SAFE hidden state. This manager instance is REUSED
     // across a renderer reload / factory reset (dispose runs, then the same
     // manager serves the fresh renderer). Retaining the pre-dispose nonzero
@@ -368,22 +410,16 @@ export class BrowserViewManager {
     this.emitTabs();
   }
 
-  private setActiveTab(tabId: string): void {
-    this.activeTabId = tabId;
-    for (const tab of this.tabs.values()) {
-      if (tab.tabId === tabId) {
-        this.showActive(tab.view);
-      } else {
-        tab.view.setVisible(false);
-      }
-    }
-    this.emitTabs();
+  /** Make `tab` its thread's most recently used page. */
+  private touch(tab: TrackedTab): void {
+    this.uses += 1;
+    tab.lastUsed = this.uses;
   }
 
   private applyActiveVisibility(): void {
-    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
-    if (active) {
-      this.showActive(active.view);
+    const shown = this.shownTabId ? this.tabs.get(this.shownTabId) : undefined;
+    if (shown) {
+      this.showActive(shown.view);
     }
   }
 
@@ -400,15 +436,20 @@ export class BrowserViewManager {
     view.setVisible(visible);
   }
 
-  private wireView(tabId: string, view: BrowserPaneView, owner: BrowserTabOwner): void {
+  private wireView(
+    tabId: string,
+    threadId: string,
+    view: BrowserPaneView,
+    owner: BrowserTabOwner
+  ): void {
     view.webContents.setWindowOpenHandler(({ url }) => {
       // Popups become new tabs, never OS windows — but the url here is fully
       // attacker-controlled (a page can `window.open('file:///…')`), so it is
       // scheme-filtered exactly like a navigation. A blocked popup is dropped.
-      // It keeps its opener's owner: an agent page's popup stays behind the
-      // egress proxy (BST-1238).
+      // It keeps its opener's thread and owner: an agent page's popup stays
+      // behind the egress proxy (BST-1238).
       if (isNavigableUrl(url)) {
-        this.createTab(url, owner);
+        this.createTab(threadId, url, owner);
       }
       return { action: 'deny' };
     });
@@ -455,12 +496,12 @@ export class BrowserViewManager {
 
   private toState(tab: TrackedTab): BrowserTabState {
     return {
-      active: tab.tabId === this.activeTabId,
       canGoBack: tab.view.webContents.canGoBack(),
       canGoForward: tab.view.webContents.canGoForward(),
       isLoading: tab.view.webContents.isLoading(),
       owner: tab.owner,
       tabId: tab.tabId,
+      threadId: tab.threadId,
       title: tab.view.webContents.getTitle(),
       url: tab.view.webContents.getURL(),
     };

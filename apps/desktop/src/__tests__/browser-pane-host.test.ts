@@ -154,7 +154,7 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     const { attached, navListeners, window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
 
-    host.manager.createTab('https://example.com');
+    host.manager.createTab('thread-1', 'https://example.com');
     expect(host.manager.listTabs()).toHaveLength(1);
     expect(attached).toHaveLength(1);
     expect(navListeners).toHaveLength(1);
@@ -177,7 +177,7 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { navListeners, window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
-    host.manager.createTab('https://example.com');
+    host.manager.createTab('thread-1', 'https://example.com');
 
     navListeners[0]?.({ isMainFrame: true, isSameDocument: true }); // hash change
     navListeners[0]?.({ isMainFrame: false, isSameDocument: false }); // subframe
@@ -190,7 +190,7 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     );
     const { window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
-    host.manager.createTab('https://example.com');
+    host.manager.createTab('thread-1', 'https://example.com');
     expect(host.manager.listTabs()).toHaveLength(1);
 
     // Factory reset must close the views BEFORE clearing the partition.
@@ -199,7 +199,7 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
 
     // After host teardown the manager is unregistered — a later reset that
     // recreates a view must not be disposed through a stale registry entry.
-    host.manager.createTab('https://again.example');
+    host.manager.createTab('thread-1', 'https://again.example');
     host.dispose();
     disposeActiveBrowserPaneViews();
     expect(host.manager.listTabs()).toHaveLength(0); // already disposed by host.dispose, not resurrected
@@ -219,8 +219,8 @@ describe('createBrowserPaneHost — dispose after the window closed (BST-1843)',
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { attached, destroy, send, window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
-    host.manager.createTab('https://a.example');
-    host.manager.createTab('https://b.example');
+    host.manager.createTab('thread-1', 'https://a.example');
+    host.manager.createTab('thread-1', 'https://b.example');
     expect(attached).toHaveLength(2);
     const views = attached.slice() as FakeWebContentsView[];
 
@@ -243,7 +243,7 @@ describe('createBrowserPaneHost — dispose after the window closed (BST-1843)',
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { attached, window, windowWebContents } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
-    host.manager.createTab('https://a.example');
+    host.manager.createTab('thread-1', 'https://a.example');
     const [view] = attached as FakeWebContentsView[];
 
     host.dispose();
@@ -274,7 +274,7 @@ describe('createBrowserPaneHost — native view identity', () => {
     const { attached, window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
 
-    const tabId = host.manager.createTab('https://example.com');
+    const tabId = host.manager.createTab('thread-1', 'https://example.com');
     expect(attached).toHaveLength(1);
     expect(attached[0]).toBeInstanceOf(FakeWebContentsView);
 
@@ -288,24 +288,28 @@ describe('createBrowserPaneHost — CDP driver (BST-1176)', () => {
     vi.clearAllMocks();
   });
 
-  it('exposes a driver that reads the active tab over its in-process debugger', async () => {
+  it('drives a page over its in-process debugger', async () => {
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
-    host.manager.createTab('https://example.com');
+    const tabId = host.manager.createTab('thread-1', 'https://example.com');
 
-    const page = await host.driver.getPageText(100);
+    const page = await host.driverFor(tabId).getPageText(100);
     expect(page.text).toBe('PAGE TEXT');
 
-    const snapshot = await host.driver.snapshot({ filter: 'all', maxChars: 1000 });
+    const snapshot = await host.driverFor(tabId).snapshot({ filter: 'all', maxChars: 1000 });
     expect(snapshot.refs).toEqual({ e1: 9 }); // ref → backendDOMNodeId from the canned AX tree
   });
 
-  it('driver rejects when no tab is active (no silent no-op)', async () => {
+  it('a driver for a closed page rejects (no silent no-op)', async () => {
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { window } = fakeHostWindow();
     const host = createBrowserPaneHost(window as never);
-    await expect(host.driver.getPageText(100)).rejects.toThrow('No active browser tab');
+    const tabId = host.manager.createTab('thread-1', 'https://example.com');
+    host.manager.closeTab(tabId);
+    await expect(host.driverFor(tabId).getPageText(100)).rejects.toThrow(
+      `Browser page ${tabId} is no longer open`
+    );
   });
 });
 
@@ -332,8 +336,8 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
     const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
     const { route } = fakeRoute();
     const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
-    host.manager.createTab('https://user.test/');
-    host.manager.createTab('https://agent.test/', 'agent');
+    host.manager.createTab('thread-1', 'https://user.test/');
+    host.manager.createTab('thread-1', 'https://agent.test/', 'agent');
     expect(createdViews.map((view) => view.partition)).toEqual([
       'persist:browser-pane',
       'browser-pane-agent',
@@ -360,7 +364,7 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
     };
     await host.prepareAgentBrowsing(admission);
     expect(route.prepare).toHaveBeenLastCalledWith(expect.any(Function), admission);
-    const tabId = host.manager.createTab('http://public.test/', 'agent');
+    const tabId = host.manager.createTab('thread-1', 'http://public.test/', 'agent');
     const webContentsId = createdViews[0]?.webContents.id;
     // A subresource refusal does not fail the page.
     refuse({
@@ -387,7 +391,7 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
     const { refusals, route } = fakeRoute();
     refusals.set('typo.invalid', { host: 'typo.invalid', reason: 'unresolved' });
     const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
-    const tabId = host.manager.createTab('https://typo.invalid/', 'agent');
+    const tabId = host.manager.createTab('thread-1', 'https://typo.invalid/', 'agent');
     createdViews[0]?.webContents.emit(
       'did-fail-load',
       {},
@@ -412,8 +416,8 @@ describe('createBrowserPaneHost — agent tabs behind the egress proxy (BST-1238
       reason: 'destination',
     });
     const host = createBrowserPaneHost(fakeHostWindow().window as never, route as never);
-    const agentTab = host.manager.createTab('https://a.test/', 'agent');
-    const userTab = host.manager.createTab('https://u.test/');
+    const agentTab = host.manager.createTab('thread-1', 'https://a.test/', 'agent');
+    const userTab = host.manager.createTab('thread-1', 'https://u.test/');
     const [agentView, userView] = createdViews;
     agentView?.webContents.emit(
       'did-fail-load',

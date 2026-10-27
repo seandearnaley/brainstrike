@@ -32,6 +32,13 @@ parent panels, popups above dialogs. Nesting follows lexical ownership. Do not
 transform popup anchors or manufacture dynamic Tailwind classes the scanner cannot
 emit. Layer readiness and visible occlusion matter, not clickability alone.
 
+Browser pages are native views that main draws above the DOM, so no DOM layer
+can cover one. Main owns the page list and each page belongs to one thread; that
+thread's workspace tabs mirror it, and closing a tab closes its page. A page is
+shown only while its tab is selected on the Explorer route and no palette or
+workspace menu is open; a menu that drops over the workspace reports its open
+state through `useMenuOpenReporter`.
+
 ## Reload and presentation
 
 Lazy-chunk failure offers an explicit user reload through AppReloadGate. Preserve

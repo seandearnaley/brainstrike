@@ -26,28 +26,28 @@ type BrowserResult<T = void> =
  */
 export interface BrowserManagerLike {
   closeTab(tabId: string): boolean;
-  createTab(url?: string): string;
+  createTab(threadId: string, url?: string): string;
   goBack(tabId: string): boolean;
   goForward(tabId: string): boolean;
   listTabs(): readonly BrowserTabState[];
   navigate(tabId: string, url: string): boolean;
   reload(tabId: string): boolean;
-  selectTab(tabId: string): boolean;
   setBounds(rect: PaneRect): void;
   setOccluded(occluded: boolean): void;
+  showTab(tabId: string): boolean;
 }
 
 export interface BrowserIpcHandlers {
   closeTab(tabId: unknown): BrowserResult;
-  createTab(url: unknown): BrowserResult<string>;
+  createTab(threadId: unknown, url: unknown): BrowserResult<string>;
   goBack(tabId: unknown): BrowserResult;
   goForward(tabId: unknown): BrowserResult;
   listTabs(): BrowserResult<readonly BrowserTabState[]>;
   navigate(tabId: unknown, url: unknown): BrowserResult;
   reload(tabId: unknown): BrowserResult;
-  selectTab(tabId: unknown): BrowserResult;
   setBounds(rect: unknown): BrowserResult;
   setOccluded(occluded: unknown): BrowserResult;
+  showTab(tabId: unknown): BrowserResult;
 }
 
 function ok<T>(value: T): BrowserResult<T> {
@@ -122,11 +122,14 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
     closeTab(tabId) {
       return tabAction(tabId, 'closeTab', (id) => manager.closeTab(id));
     },
-    createTab(url) {
+    createTab(threadId, url) {
+      if (!isNonEmptyString(threadId)) {
+        return fail('createTab requires the threadId whose workspace shows the page');
+      }
       if (url !== undefined && typeof url !== 'string') {
         return fail('createTab url must be a string or omitted');
       }
-      return ok(manager.createTab(url));
+      return ok(manager.createTab(threadId, url));
     },
     goBack(tabId) {
       return tabAction(tabId, 'goBack', (id) => manager.goBack(id));
@@ -146,9 +149,6 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
     reload(tabId) {
       return tabAction(tabId, 'reload', (id) => manager.reload(id));
     },
-    selectTab(tabId) {
-      return tabAction(tabId, 'selectTab', (id) => manager.selectTab(id));
-    },
     setBounds(rect) {
       const validated = validateRect(rect);
       if (!validated) {
@@ -163,6 +163,9 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
       }
       manager.setOccluded(occluded);
       return ok(undefined);
+    },
+    showTab(tabId) {
+      return tabAction(tabId, 'showTab', (id) => manager.showTab(id));
     },
   };
   // Wrap BY CONSTRUCTION — every key of the implementation object is guarded,

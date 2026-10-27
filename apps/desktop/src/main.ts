@@ -1401,29 +1401,14 @@ if (singleInstanceLockAcquired) {
         })
       );
 
-      const createMainWindow = async () => {
-        // Store is guaranteed to exist after app.whenReady()
-        const store = getSettingsStore();
-        if (!store) {
-          throw new Error('Settings store unavailable after app.ready - this should never happen');
-        }
-        const storedWindowState = readStoredWindowState(store);
-        const win = await createWindow({
-          onBeforeLoad: (window) => {
-            installDocumentUnload(window, documentUnloadOwner());
-            bindWorkspaceOpenWindow(window);
-          },
-          windowState: storedWindowState,
-        });
-        // app.on('activate') recreates this window; dispose the persistence
-        // listeners + debounce timer on close so they don't accumulate per window.
-        const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
-        win.once('closed', disposeWindowStatePersistence);
-        // Embedded browser pane (BST-1174): each window owns its OWN pane host
-        // + IPC registration, so a macOS close→dock-reopen cycle (which calls
-        // createMainWindow again without quitting) rebinds the pane to the new
-        // window instead of leaving `window.browser` calls hitting a disposed
-        // host. The manager attaches views to THIS window's contentView.
+      // Embedded browser pane (BST-1174): each window owns its OWN pane host
+      // + IPC registration, so a macOS close→dock-reopen cycle (which calls
+      // createMainWindow again without quitting) rebinds the pane to the new
+      // window instead of leaving `window.browser` calls hitting a disposed
+      // host. The manager attaches views to THIS window's contentView. Bound
+      // before the document loads: the workspace reads main's page list as
+      // it mounts, which can be before the load finishes.
+      const bindBrowserPane = (win: BrowserWindow): void => {
         const browserPaneHost = createBrowserPaneHost(win);
         // Register for the assistant server's browser tools (BST-1176):
         // executors resolve the ACTIVE host per call through this registry.
@@ -1442,6 +1427,27 @@ if (singleInstanceLockAcquired) {
           browserPaneHost.dispose();
           thisWindowBrowserIpc.dispose();
         });
+      };
+
+      const createMainWindow = async () => {
+        // Store is guaranteed to exist after app.whenReady()
+        const store = getSettingsStore();
+        if (!store) {
+          throw new Error('Settings store unavailable after app.ready - this should never happen');
+        }
+        const storedWindowState = readStoredWindowState(store);
+        const win = await createWindow({
+          onBeforeLoad: (window) => {
+            installDocumentUnload(window, documentUnloadOwner());
+            bindWorkspaceOpenWindow(window);
+            bindBrowserPane(window);
+          },
+          windowState: storedWindowState,
+        });
+        // app.on('activate') recreates this window; dispose the persistence
+        // listeners + debounce timer on close so they don't accumulate per window.
+        const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
+        win.once('closed', disposeWindowStatePersistence);
         return win;
       };
 

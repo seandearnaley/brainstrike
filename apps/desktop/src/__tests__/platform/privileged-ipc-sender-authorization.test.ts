@@ -50,7 +50,7 @@ const DOMAIN_CASES: readonly PrivilegedDomainCase[] = [
     methods: [
       'browser:createTab',
       'browser:closeTab',
-      'browser:selectTab',
+      'browser:showTab',
       'browser:navigate',
       'browser:goBack',
       'browser:goForward',

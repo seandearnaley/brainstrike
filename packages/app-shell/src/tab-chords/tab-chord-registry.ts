@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 const logger = createLogger('TabChordRegistry');
 
 /** The document strips the keyboard chords and ⌘K tab commands can drive (BST-1842). */
-export type TabChordStripId = 'assistant-threads' | 'browser' | 'workspace';
+export type TabChordStripId = 'assistant-threads' | 'workspace';
 
 /**
  * One strip's operations, read live at keystroke time — the ⌘K tab commands'

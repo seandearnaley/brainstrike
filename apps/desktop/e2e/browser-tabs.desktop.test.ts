@@ -1,21 +1,32 @@
 /**
- * Desktop E2E for the browser pane's tab strip (BST-1840): the shared
- * TabStrip's keyboard model against the REAL main-process BrowserViewManager,
- * and native-view occlusion while a strip menu is open.
+ * Desktop E2E for browser pages as workspace tabs (BST-1271): each page opens
+ * in a tab of its own among its conversation's tabs, against the REAL
+ * main-process BrowserViewManager, and only the selected page is drawn.
  *
- * A `WebContentsView` paints above all renderer DOM, so a menu dropping into
- * the pane is only visible if the renderer occludes the view. The DOM cannot
+ * A `WebContentsView` paints above all renderer DOM, so a menu dropping over
+ * the page is only visible if the renderer hides the view. The DOM cannot
  * observe that, so the test reads the views' drawn state in MAIN
  * (`View.getVisible()`), filtered to the pane's dedicated session partition.
  *
- * Pages are `data:` URLs with a <title>, so no network is involved.
+ * Pages are `data:` URLs with a <title>, so no network is involved. A fresh
+ * profile opens on the new-thread screen, so each test starts a conversation
+ * with a scripted reply first.
  *
- * BST-1843: closing the window with a tab open must tear the pane down without
- * a main-process error — `dispose()` runs from the window's `closed` event,
- * when the BrowserWindow is already destroyed.
+ * BST-1843: closing the window with a page open must tear the pane down
+ * without a main-process error — `dispose()` runs from the window's `closed`
+ * event, when the BrowserWindow is already destroyed.
  */
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { configureAssistantProvider } from './utils/assistant-mock';
+import {
+  openBrowserPage,
+  startConversation,
+  titledPage,
+  visibleAddress,
+  workspaceTabs,
+} from './utils/browser-page-helpers';
+import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 /** `BROWSER_PANE_PARTITION` in `src/browser/browser-session.ts`. */
@@ -24,10 +35,6 @@ const PANE_PARTITION = 'persist:browser-pane';
 interface PaneViewState {
   readonly url: string;
   readonly visible: boolean;
-}
-
-function titledPage(title: string): string {
-  return `data:text/html,${encodeURIComponent(`<title>${title}</title><p>${title}</p>`)}`;
 }
 
 /** Every pane `WebContentsView` in main, with whether it is drawn. */
@@ -104,95 +111,90 @@ async function flushMainStdio(app: ElectronApplication): Promise<void> {
     .toContain(sentinel);
 }
 
-async function expectDrawnPaneViews(app: ElectronApplication, drawn: number): Promise<void> {
+/** The urls of the pane views main draws. */
+async function expectDrawnPages(app: ElectronApplication, urls: readonly string[]): Promise<void> {
   await expect
-    .poll(async () => (await readPaneViews(app)).filter((view) => view.visible).length, {
-      timeout: 10_000,
-    })
-    .toBe(drawn);
+    .poll(
+      async () => (await readPaneViews(app)).filter((view) => view.visible).map((view) => view.url),
+      { timeout: 10_000 }
+    )
+    .toEqual(urls);
 }
 
-async function openBrowserRoute(page: Page): Promise<void> {
-  await page
-    .getByRole('navigation', { exact: true, name: 'Main navigation' })
-    .getByRole('button', { exact: true, name: 'Browser' })
-    .click({ timeout: 15_000 });
-  await expect(page.getByTestId('browser-pane')).toBeVisible({ timeout: 15_000 });
-}
-
-async function openTitledTab(page: Page, title: string): Promise<void> {
-  await page.getByTestId('browser-new-tab').click();
-  const address = page.getByTestId('browser-url-input');
-  await expect(address).toHaveValue('about:blank', { timeout: 15_000 });
-  await address.fill(titledPage(title));
-  await address.press('Enter');
-  await expect(page.getByRole('tab', { name: title })).toHaveAttribute('aria-selected', 'true', {
-    timeout: 15_000,
-  });
-}
-
-test.describe('Browser pane tabs (desktop)', () => {
-  test('drives tabs by keyboard and occludes the native view while a strip menu is open', async ({
+test.describe('Browser tabs (desktop)', () => {
+  test("opens pages as the conversation's workspace tabs and draws only the selected one", async ({
     electronApp,
+    modelProvider,
     window: page,
   }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     const app = electronApp.app;
-    await openBrowserRoute(page);
-    const strip = page.getByRole('tablist', { name: 'Browser tabs' });
+    await ensureAssistantShellVisible(page);
+    await configureAssistantProvider(page);
+    await startConversation(page, modelProvider, 'First conversation');
+    const tabs = workspaceTabs(page);
 
-    await openTitledTab(page, 'Alpha');
-    await openTitledTab(page, 'Beta');
-    await expect(strip.getByRole('tab')).toHaveCount(2);
+    const alpha = await openBrowserPage(page, titledPage('Alpha'), 'Alpha');
+    const beta = await openBrowserPage(page, titledPage('Beta'), 'Beta');
     await expect.poll(async () => (await readPaneViews(app)).length).toBe(2);
-    await expectDrawnPaneViews(app, 1);
+    await expectDrawnPages(app, [titledPage('Beta')]);
 
-    // Manual activation: an arrow moves focus only; Enter selects in main.
-    const alpha = strip.getByRole('tab', { name: 'Alpha' });
-    const beta = strip.getByRole('tab', { name: 'Beta' });
-    await beta.focus();
-    await page.keyboard.press('ArrowLeft');
-    await expect(alpha).toBeFocused();
-    await expect(alpha).toHaveAttribute('aria-selected', 'false');
-    await page.keyboard.press('Enter');
-    await expect(alpha).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('browser-url-input')).toHaveValue(/Alpha/);
+    // Selecting a tab shows its page; any other workspace tab hides them all.
+    await alpha.click();
+    await expect(visibleAddress(page)).toHaveValue(titledPage('Alpha'));
+    await expectDrawnPages(app, [titledPage('Alpha')]);
+    await tabs.getByRole('tab', { name: 'Files' }).click();
+    await expectDrawnPages(app, []);
 
-    // Delete closes the focused tab in main and hands focus to its neighbour.
+    // Closing a page's tab closes the page in main.
+    await alpha.click();
     await page.keyboard.press('Delete');
-    await expect(strip.getByRole('tab')).toHaveCount(1);
-    await expect(beta).toBeFocused();
-    await expect(beta).toHaveAttribute('aria-selected', 'true');
-    await expect.poll(async () => (await readPaneViews(app)).length).toBe(1);
-    await expectDrawnPaneViews(app, 1);
+    await expect(alpha).toHaveCount(0);
+    await expect.poll(() => countPaneWebContents(app)).toBe(1);
 
-    // The tab menu drops into the pane: the view hides while it is open.
+    // A strip menu drops over the page: the view hides while it is open.
+    await beta.click();
+    await expectDrawnPages(app, [titledPage('Beta')]);
     await beta.click({ button: 'right' });
-    const menu = page.getByRole('menu');
-    await expect(menu.getByRole('menuitem', { name: 'Duplicate' })).toBeVisible();
-    await expectDrawnPaneViews(app, 0);
-    await page.keyboard.press('Escape');
-    await expect(menu).toHaveCount(0);
-    await expectDrawnPaneViews(app, 1);
-    await expect(beta).toBeFocused();
-
-    // So does the All-tabs menu.
-    await page.getByRole('button', { name: 'All tabs' }).click();
-    await expect(page.getByRole('menuitemradio', { name: 'Beta' })).toBeVisible();
-    await expectDrawnPaneViews(app, 0);
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expectDrawnPages(app, []);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('menu')).toHaveCount(0);
-    await expectDrawnPaneViews(app, 1);
+    await expectDrawnPages(app, [titledPage('Beta')]);
+    // So does the "+" menu.
+    await page.getByTestId('workspace-add-tab').click();
+    await expect(page.getByTestId('workspace-add-tab-new-browser-tab')).toBeVisible();
+    await expectDrawnPages(app, []);
+    await page.keyboard.press('Escape');
+    await expectDrawnPages(app, [titledPage('Beta')]);
+
+    // Another conversation has its own tabs; the page waits for its return.
+    const threads = page.getByRole('tablist', { name: 'Open assistant threads' });
+    const first = threads.getByRole('tab', { selected: true });
+    const firstId = await first.getAttribute('id');
+    await startConversation(page, modelProvider, 'Second conversation');
+    await expect(threads.getByRole('tab')).toHaveCount(2);
+    await expect(tabs.getByRole('tab', { name: 'Beta' })).toHaveCount(0);
+    await expectDrawnPages(app, []);
+    expect(await countPaneWebContents(app)).toBe(1);
+
+    await threads.locator(`[id="${firstId}"]`).click();
+    await expect(tabs.getByRole('tab', { name: 'Beta' })).toBeVisible({ timeout: 15_000 });
+    await tabs.getByRole('tab', { name: 'Beta' }).click();
+    await expectDrawnPages(app, [titledPage('Beta')]);
   });
 
-  test('closing the window with a tab open releases the pane without a main-process error (BST-1843)', async ({
+  test('closing the window with a page open releases the pane without a main-process error (BST-1843)', async ({
     electronApp,
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(120_000);
     const app = electronApp.app;
-    await openBrowserRoute(page);
-    await openTitledTab(page, 'Alpha');
+    await ensureAssistantShellVisible(page);
+    await configureAssistantProvider(page);
+    await startConversation(page, modelProvider, 'A conversation with a page');
+    await openBrowserPage(page, titledPage('Alpha'), 'Alpha');
     await expect.poll(() => countPaneWebContents(app)).toBe(1);
 
     await closePaneHostWindow(app);

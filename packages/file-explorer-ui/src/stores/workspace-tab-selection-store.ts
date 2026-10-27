@@ -32,6 +32,11 @@ export type WorkspaceTabSelection =
 
 interface WorkspaceTabSelectionState {
   /**
+   * Open app tabs WITHOUT selecting them, such as a browser page the agent
+   * opened while another tab is in view. Already open ids are left as they are.
+   */
+  addApps: (appIds: readonly string[]) => void;
+  /**
    * Close an app tab. If it was selected, selection moves to the adjacent open
    * app (the one that slid into its index, else the new last one); with no open
    * apps left the selection becomes `{kind:'empty'}`. Returns the successor
@@ -181,6 +186,13 @@ function withMounted(mountedAppIds: readonly string[], appId: string): readonly 
 export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>()(
   persist(
     (set, get) => ({
+      addApps: (appIds) =>
+        set((state) => {
+          const added = appIds.filter(
+            (appId, index) => !state.openAppIds.includes(appId) && appIds.indexOf(appId) === index
+          );
+          return added.length === 0 ? state : { openAppIds: [...state.openAppIds, ...added] };
+        }),
       closeApp: (appId) => {
         const { mountedAppIds, openAppIds, selection } = get();
         const index = openAppIds.indexOf(appId);

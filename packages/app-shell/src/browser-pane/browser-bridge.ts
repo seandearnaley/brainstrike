@@ -1,9 +1,9 @@
 /**
  * Structural typing + capability resolution for the desktop `window.browser`
- * bridge (BST-1174) — the embedded browser pane.
+ * bridge (BST-1174) — the embedded browser's pages.
  *
  * Capability gating (mirrors `changes/changes-bridge.ts` exactly): a consumer
- * is desktop-only because the pane surface is constructed ONLY when
+ * is desktop-only because browser tabs exist ONLY when
  * `resolveBrowserBridge()` returns a fully-formed bridge. Web never sees it —
  * no `isElectron()` check anywhere. A present-but-malformed bridge logs and
  * stays absent (no silent half-working surface).
@@ -23,7 +23,6 @@ interface BrowserPaneRect {
 }
 
 export interface BrowserTab {
-  readonly active: boolean;
   readonly canGoBack: boolean;
   readonly canGoForward: boolean;
   /** True while the tab's main frame is loading. */
@@ -31,14 +30,16 @@ export interface BrowserTab {
   /** `agent` tabs are the agent's own, browsing behind its egress proxy (BST-1238). */
   readonly owner: 'agent' | 'user';
   readonly tabId: string;
+  /** The conversation whose workspace shows this page as one of its tabs (BST-1271). */
+  readonly threadId: string;
   readonly title: string;
   readonly url: string;
 }
 
 export interface BrowserBridge {
   closeTab: (tabId: string) => Promise<void>;
-  /** Open a new tab (optionally at `url`); resolves the new tabId. */
-  createTab: (url?: string) => Promise<string>;
+  /** Open a hidden page for `threadId` (optionally at `url`); resolves the new tabId. */
+  createTab: (threadId: string, url?: string) => Promise<string>;
   goBack: (tabId: string) => Promise<void>;
   goForward: (tabId: string) => Promise<void>;
   listTabs: () => Promise<readonly BrowserTab[]>;
@@ -48,11 +49,12 @@ export interface BrowserBridge {
   onTabsChanged: (listener: (tabs: readonly BrowserTab[]) => void) => () => void;
   /** Reload preserving both history stacks (not a fresh navigation). */
   reload: (tabId: string) => Promise<void>;
-  selectTab: (tabId: string) => Promise<void>;
-  /** Report the pane's on-screen rect (renderer ResizeObserver → main). */
+  /** Report the shown page's on-screen rect (renderer ResizeObserver → main). */
   setBounds: (rect: BrowserPaneRect) => Promise<void>;
-  /** Hide the native view while a renderer modal overlaps the pane. */
+  /** Hide the native view while no page tab is on screen or an overlay covers it. */
   setOccluded: (occluded: boolean) => Promise<void>;
+  /** Show this page, the selected workspace tab's, and hide every other. */
+  showTab: (tabId: string) => Promise<void>;
 }
 
 // Compile-time exact-set proof (same device as changes-bridge): adding a
@@ -66,9 +68,9 @@ const BROWSER_BRIDGE_REQUIRED_METHOD_SET = {
   navigate: true,
   onTabsChanged: true,
   reload: true,
-  selectTab: true,
   setBounds: true,
   setOccluded: true,
+  showTab: true,
 } as const satisfies Record<keyof BrowserBridge, true>;
 
 /** Exact method set the preload must expose; pinned by the preload contract test. */
@@ -96,13 +98,8 @@ export function resolveBrowserBridge(): BrowserBridge | null {
   }
   const missing = missingBrowserBridgeMethods(bridge);
   if (!isCompleteBrowserBridge(bridge)) {
-    logger.error('window.browser bridge is malformed; browser pane disabled', { missing });
+    logger.error('window.browser bridge is malformed; browser tabs disabled', { missing });
     return null;
   }
   return bridge;
-}
-
-/** True when a fully-formed desktop `window.browser` bridge is present. */
-export function isBrowserBridgeAvailable(): boolean {
-  return resolveBrowserBridge() !== null;
 }

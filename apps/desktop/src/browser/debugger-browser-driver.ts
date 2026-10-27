@@ -1,8 +1,8 @@
 /**
  * {@link BrowserDriver} over a CDP {@link CdpSession} — in production the
- * session wraps the active tab's `webContents.debugger` (BST-1176). A fresh
- * session is resolved PER CALL so the driver always targets whichever tab is
- * active now, never a stale handle from a previous active tab.
+ * session wraps one page's `webContents.debugger` (BST-1176). The session is
+ * resolved PER CALL, so a page closed since the driver was made rejects the
+ * call instead of reaching a stale handle.
  */
 import {
   type AccessibilitySnapshot,

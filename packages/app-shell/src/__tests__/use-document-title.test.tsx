@@ -44,9 +44,9 @@ describe('useDocumentTitle', () => {
     render(<TitleWriter />);
 
     act(() => {
-      usePanelLayoutStore.getState().setActiveTab('browser');
+      usePanelLayoutStore.getState().setActiveTab('artifacts');
     });
-    expect(document.title).toBe('Browser - BrainStrike.ai');
+    expect(document.title).toBe('Artifacts - BrainStrike.ai');
 
     act(() => {
       usePanelLayoutStore.getState().setActiveTab('terminal');
@@ -83,10 +83,10 @@ describe('useDocumentTitle', () => {
     );
 
     act(() => {
-      usePanelLayoutStore.getState().setActiveTab('browser');
+      usePanelLayoutStore.getState().setActiveTab('artifacts');
     });
 
-    expect(readTitles()).toEqual(['Browser - BrainStrike.ai']);
+    expect(readTitles()).toEqual(['Artifacts - BrainStrike.ai']);
     expect(readDescriptions()).toEqual(['Multi-app dashboard']);
   });
 });
