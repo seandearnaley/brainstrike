@@ -401,3 +401,116 @@ describe('assistant markdown links', () => {
     expect(observed?.defaultPrevented).toBe(true);
   });
 });
+
+describe('assistant markdown links when the host has its own browser', () => {
+  function stubChoices() {
+    const openLink = vi.fn().mockResolvedValue({ ok: true });
+    const copyLink = vi.fn().mockResolvedValue({ ok: true });
+    const openInAppBrowser = vi.fn().mockResolvedValue({ ok: true });
+    const onMenuOpenChange = vi.fn();
+    const capabilities: AssistantLinkCapabilities = {
+      linkChoices: {
+        copyLink,
+        offers: (url) => url.startsWith('https:'),
+        onMenuOpenChange,
+        openInAppBrowser,
+      },
+      openLink,
+    };
+    return { capabilities, copyLink, onMenuOpenChange, openInAppBrowser, openLink };
+  }
+
+  function renderLink(capabilities: AssistantLinkCapabilities, href: string): HTMLElement {
+    render(
+      <AssistantLinkCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownLink href={href}>the docs</MarkdownLink>
+      </AssistantLinkCapabilitiesProvider>
+    );
+    return screen.getByRole('link', { name: 'the docs' });
+  }
+
+  it('asks where a web link opens and opens it only where the person picks', async () => {
+    const user = userEvent.setup();
+    const { capabilities, copyLink, openInAppBrowser, openLink } = stubChoices();
+    const link = renderLink(capabilities, 'https://example.com/docs');
+
+    await user.click(link);
+    expect(observed?.defaultPrevented).toBe(true);
+    expect(openLink).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('menuitem', { name: 'Open in Brainstrike browser' }));
+    expect(openInAppBrowser).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+
+    await user.click(link);
+    await user.click(screen.getByRole('menuitem', { name: 'Open in default browser' }));
+    expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+
+    await user.click(link);
+    await user.click(screen.getByRole('menuitem', { name: 'Copy link' }));
+    expect(copyLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+    expect(openInAppBrowser).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the host while the choices are open, so a browser page can make room', async () => {
+    const user = userEvent.setup();
+    const { capabilities, onMenuOpenChange } = stubChoices();
+
+    await user.click(renderLink(capabilities, 'https://example.com/docs'));
+    expect(screen.getByRole('menu')).toBeVisible();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('opens the choices from the keyboard', async () => {
+    const user = userEvent.setup();
+    const { capabilities, openLink } = stubChoices();
+    renderLink(capabilities, 'https://example.com/docs').focus();
+
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByRole('menuitem', { name: 'Open in Brainstrike browser' })).toBeVisible();
+    expect(openLink).not.toHaveBeenCalled();
+  });
+
+  it('sends a middle click straight to the default browser', async () => {
+    const { capabilities, openInAppBrowser, openLink } = stubChoices();
+    const link = renderLink(capabilities, 'https://example.com/docs');
+
+    await userEvent.pointer({ keys: '[MouseMiddle]', target: link });
+
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+    });
+    expect(openInAppBrowser).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('sends a Ctrl-click straight to the default browser', async () => {
+    const user = userEvent.setup();
+    const { capabilities, openInAppBrowser, openLink } = stubChoices();
+    const link = renderLink(capabilities, 'https://example.com/docs');
+
+    await user.keyboard('{Control>}');
+    await user.click(link);
+    await user.keyboard('{/Control}');
+
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+    });
+    expect(observed?.defaultPrevented).toBe(true);
+    expect(openInAppBrowser).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('opens a link the host browser does not take with no question', async () => {
+    const { capabilities, openLink } = stubChoices();
+    await userEvent.click(renderLink(capabilities, 'mailto:team@example.com'));
+
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('mailto:team@example.com');
+    });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+});

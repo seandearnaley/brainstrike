@@ -6,6 +6,7 @@ export {
 } from './assistant-conversation-panel';
 export {
   type AssistantLinkCapabilities,
+  type AssistantLinkChoices,
   type AssistantLinkOpenResult,
   useAssistantLinkCapabilities,
 } from './assistant-link-capabilities';

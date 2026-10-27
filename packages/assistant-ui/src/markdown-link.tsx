@@ -1,11 +1,17 @@
 import { createLogger } from '@brainstrike/logging';
+import { LinkChoiceMenu } from '@brainstrike/ui';
 import {
   type ComponentPropsWithoutRef,
   type MouseEvent,
   type ReactElement,
   useCallback,
 } from 'react';
-import { useAssistantLinkCapabilities } from './assistant-link-capabilities';
+import {
+  type AssistantLinkCapabilities,
+  type AssistantLinkChoices,
+  type AssistantLinkOpenResult,
+  useAssistantLinkCapabilities,
+} from './assistant-link-capabilities';
 
 const logger = createLogger('AssistantMarkdownLink');
 
@@ -23,6 +29,38 @@ const MIDDLE_MOUSE_BUTTON = 1;
  */
 function isSameDocumentHref(href: string): boolean {
   return href.startsWith('#');
+}
+
+/**
+ * Hand `href` to one of the host's destinations. The host owns protocol
+ * policy and the single visible failure; this only keeps a host that throws
+ * or rejects from escaping the click handler.
+ */
+function handOff(open: (url: string) => Promise<AssistantLinkOpenResult>, href: string): void {
+  try {
+    // `Promise.resolve` so a host that throws synchronously is caught by
+    // the same handler as one that rejects.
+    void Promise.resolve(open(href)).catch((error: unknown) => {
+      logger.error('Assistant link host rejected instead of resolving', { error, href });
+    });
+  } catch (error) {
+    logger.error('Assistant link host threw instead of resolving', { error, href });
+  }
+}
+
+/** The host's choices for `href`, when it offers any for this link. */
+function choicesFor(
+  capabilities: AssistantLinkCapabilities | null,
+  href: string | undefined
+): AssistantLinkChoices | null {
+  const choices = capabilities?.linkChoices;
+  return choices && href !== undefined && !isSameDocumentHref(href) && choices.offers(href)
+    ? choices
+    : null;
+}
+
+function preventNavigation(event: MouseEvent<HTMLAnchorElement>): void {
+  event.preventDefault();
 }
 
 /**
@@ -79,15 +117,7 @@ export function MarkdownLink({
       // react-markdown leaves behind when it sanitizes away a `javascript:`
       // URL. Short-circuiting any of them here would restore the silent dead
       // click: only the host can show the user why nothing opened.
-      try {
-        // `Promise.resolve` so a host that throws synchronously is caught by
-        // the same handler as one that rejects.
-        void Promise.resolve(capabilities.openLink(href)).catch((error: unknown) => {
-          logger.error('Assistant link host rejected instead of resolving', { error, href });
-        });
-      } catch (error) {
-        logger.error('Assistant link host threw instead of resolving', { error, href });
-      }
+      handOff(capabilities.openLink, href);
     },
     [capabilities, href]
   );
@@ -105,11 +135,35 @@ export function MarkdownLink({
     [activate]
   );
 
-  return (
+  // A web link the host's own browser can show asks where to open: the menu
+  // opens on activation, so the click only has to stop the navigation. A
+  // middle click or a Ctrl-click still opens it in the default browser.
+  const choices = choicesFor(capabilities, href);
+  const anchor = (
     // Spread FIRST: `href`, `onClick` and `onAuxClick` are the invariants this
     // component exists to guarantee, so upstream props must not overwrite them.
-    <a {...anchorProps} href={href} onAuxClick={handleAuxClick} onClick={activate}>
+    <a
+      {...anchorProps}
+      href={href}
+      onAuxClick={handleAuxClick}
+      onClick={choices ? preventNavigation : activate}
+    >
       {children}
     </a>
+  );
+  if (!(choices && capabilities && href !== undefined)) {
+    return anchor;
+  }
+  return (
+    <LinkChoiceMenu
+      choices={{
+        copyLink: () => handOff(choices.copyLink, href),
+        openInAppBrowser: () => handOff(choices.openInAppBrowser, href),
+        openInDefaultBrowser: () => handOff(capabilities.openLink, href),
+      }}
+      onOpenChange={choices.onMenuOpenChange}
+    >
+      {anchor}
+    </LinkChoiceMenu>
   );
 }

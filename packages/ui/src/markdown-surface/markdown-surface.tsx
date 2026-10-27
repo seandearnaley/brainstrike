@@ -14,6 +14,7 @@ import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { cn } from '../lib/utils';
+import { LinkChoiceMenu, type LinkChoices } from '../link-choice-menu';
 import { extractFrontmatter } from './frontmatter';
 import { FrontmatterBlock } from './frontmatter-block';
 import { MarkdownCodeBlock } from './markdown-code-block';
@@ -24,6 +25,12 @@ export interface MarkdownSurfaceProps {
   /** Accessible label for the scrollable region. */
   readonly ariaLabel?: string;
   readonly initialScrollTop?: number;
+  /**
+   * Optional: where a link the host can also open in its own browser may go.
+   * A link it returns choices for asks first; any other link, or a null
+   * answer, goes straight to `onOpenLink`.
+   */
+  readonly linkChoices?: ((href: string) => LinkChoices | null) | undefined;
   /** Synchronous, surface-bounded DOM selection snapshot taken on `contextmenu`. */
   readonly onContextMenuSelection?:
     | ((selection: MarkdownSurfaceContextMenuSelection) => void)
@@ -70,6 +77,7 @@ function extractFencedCode(children: ReactNode): FencedCode | null {
 export function MarkdownSurface({
   ariaLabel,
   initialScrollTop,
+  linkChoices,
   onContextMenuSelection,
   onOpenLink,
   onScrollTopChange,
@@ -146,19 +154,23 @@ export function MarkdownSurface({
 
   const components = useMemo<Components>(
     () => ({
-      a: ({ children, href }) => (
-        <a
-          href={href ?? '#'}
-          onClick={(event) => {
-            event.preventDefault();
-            if (href) {
-              handleLinkClick(href);
-            }
-          }}
-        >
-          {children}
-        </a>
-      ),
+      a: ({ children, href }) => {
+        const choices = href ? (linkChoices?.(href) ?? null) : null;
+        const anchor = (
+          <a
+            href={href ?? '#'}
+            onClick={(event) => {
+              event.preventDefault();
+              if (href && !choices) {
+                handleLinkClick(href);
+              }
+            }}
+          >
+            {children}
+          </a>
+        );
+        return choices ? <LinkChoiceMenu choices={choices}>{anchor}</LinkChoiceMenu> : anchor;
+      },
       img: ({ alt, src }) =>
         typeof src === 'string' ? (
           <MarkdownImage alt={alt ?? ''} key={src} resolveImageSrc={resolveImageSrc} src={src} />
@@ -174,7 +186,7 @@ export function MarkdownSurface({
         return <MarkdownCodeBlock code={fenced.code} language={fenced.language} />;
       },
     }),
-    [handleLinkClick, resolveImageSrc]
+    [handleLinkClick, linkChoices, resolveImageSrc]
   );
 
   return (
