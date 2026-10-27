@@ -713,3 +713,12 @@
   --pele-series-4: hsl(var(--chart-4));
   --pele-series-5: hsl(var(--chart-5));
 }
+
+/* The full-size view scales the diagram to fit its box (the SVG's own
+   preserveAspectRatio centres it); Pele's zoom then works from that size. Pele
+   writes a responsive inline size on the SVG, hence !important. */
+.bs-diagram-full-size > svg.pele {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+}

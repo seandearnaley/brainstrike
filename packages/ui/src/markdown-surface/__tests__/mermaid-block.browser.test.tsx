@@ -1,8 +1,12 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
-import '../../globals.css';
+import './mermaid-block.browser.css';
+import { TooltipProvider } from '../../tooltip';
+import { DiagramFullSizeContainerContext } from '../diagram-full-size-container';
 import { MarkdownSurface } from '../markdown-surface';
+import { MermaidBlock } from '../mermaid-block';
 
 afterEach(async () => {
   cleanup();
@@ -158,4 +162,88 @@ flowchart LR
       expect.stringMatching(/^\s*javascript:/i)
     );
   }
+});
+
+async function pngPixels(png: Blob) {
+  const bitmap = await createImageBitmap(png);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('No 2D context');
+  }
+  context.drawImage(bitmap, 0, 0);
+  return { context, height: bitmap.height, width: bitmap.width };
+}
+
+function rgb(color: string): [number, number, number] {
+  const channels = color.match(/\d+(\.\d+)?/g)?.map(Number) ?? [];
+  return [channels[0] ?? -1, channels[1] ?? -1, channels[2] ?? -1];
+}
+
+it.each(['light', 'dark'])(
+  'exports a standalone %s-theme diagram as SVG and as a PNG at the chosen scale',
+  async (theme) => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    render(surface('```mermaid\nflowchart LR\n  A[Start] --> B[End]\n```'));
+    const live = await renderedSvg();
+    const svg = live.outerHTML;
+    const { diagramPng, standaloneDiagram } = await import('../mermaid-export');
+    const { width, height } = live.viewBox.baseVal;
+
+    const diagram = await standaloneDiagram(live, { height, svg, width }, 'theme');
+    // Detached from the page, the copy still has the theme's colours.
+    const detached = new DOMParser().parseFromString(diagram.svg, 'image/svg+xml');
+    expect(detached.documentElement.getAttribute('width')).toBe(String(width));
+    expect(detached.documentElement.style.getPropertyValue('--pele-bg')).not.toBe('');
+
+    const png = await diagramPng(diagram, 2);
+    const pixels = await pngPixels(png);
+    expect(pixels.width).toBe(Math.round(width * 2));
+    expect(pixels.height).toBe(Math.round(height * 2));
+    const corner = [...pixels.context.getImageData(1, 1, 1, 1).data.slice(0, 3)];
+    const background = rgb(tokenColor('--background'));
+    corner.forEach((channel, index) => {
+      expect(Math.abs(channel - (background[index] ?? -1))).toBeLessThanOrEqual(2);
+    });
+
+    const transparent = await diagramPng(
+      await standaloneDiagram(live, { height, svg, width }, 'transparent'),
+      1
+    );
+    const clear = await pngPixels(transparent);
+    expect(clear.context.getImageData(1, 1, 1, 1).data[3]).toBe(0);
+  }
+);
+
+it('opens the diagram full size over its container and closes it with Escape', async () => {
+  const user = userEvent.setup();
+  const panel = document.createElement('div');
+  panel.style.cssText = 'position:relative;width:900px;height:600px';
+  document.body.append(panel);
+  render(
+    <TooltipProvider>
+      <DiagramFullSizeContainerContext.Provider value={panel}>
+        <MermaidBlock code={'flowchart LR\n  A[Start] --> B[End]'} />
+      </DiagramFullSizeContainerContext.Provider>
+    </TooltipProvider>
+  );
+  await renderedSvg();
+  const open = screen.getByRole('button', { name: 'Full size' });
+  await user.click(open);
+
+  const view = await screen.findByRole('dialog', { name: 'Diagram' });
+  expect(panel.contains(view)).toBe(true);
+  expect(view.getBoundingClientRect()).toMatchObject({ height: 600, width: 900 });
+  await waitFor(() => expect(view.querySelector('svg.pele')).not.toBeNull());
+
+  // The panel's resize reaches the full-size diagram.
+  panel.style.width = '1200px';
+  await waitFor(() => expect(view.getBoundingClientRect().width).toBe(1200));
+
+  await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(open).toHaveFocus();
+  panel.remove();
 });
