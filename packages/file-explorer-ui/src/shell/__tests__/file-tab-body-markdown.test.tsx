@@ -4,11 +4,12 @@ import {
   type TargetOf,
 } from '@brainstrike/context-actions';
 import { act } from '@brainstrike/test-utils/react-act';
-import { ActionRegistryProvider } from '@brainstrike/ui';
+import { ActionRegistryProvider, type LinkChoices } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface MockMarkdownSurfaceProps {
+  readonly linkChoices?: (href: string) => LinkChoices | null;
   readonly onContextMenuSelection?: (selection: { text: string | null }) => void;
   readonly onOpenLink: (href: string) => void;
   readonly onScrollTopChange?: (scrollTop: number) => void;
@@ -99,7 +100,10 @@ vi.mock('@brainstrike/ui/markdown-surface', () => ({
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
-import { MarkdownPreviewCapabilitiesProvider } from '../../contexts/markdown-preview-capabilities';
+import {
+  type MarkdownLinkChoices,
+  MarkdownPreviewCapabilitiesProvider,
+} from '../../contexts/markdown-preview-capabilities';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
 import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
@@ -123,7 +127,12 @@ const captureViewerTargetAction = defineContextAction({
   },
 });
 
-function renderBody(compositeKey: string, content = '# Hello', withCapabilities = true) {
+function renderBody(
+  compositeKey: string,
+  content = '# Hello',
+  withCapabilities = true,
+  linkChoices?: MarkdownLinkChoices
+) {
   const { path } = decodeFileSelection(compositeKey);
   const { registry, writtenTexts } = createTestActionRegistry({
     actions: [...fileEntryActions, captureViewerTargetAction],
@@ -142,7 +151,7 @@ function renderBody(compositeKey: string, content = '# Hello', withCapabilities 
   const rendered = render(
     <ActionRegistryProvider registry={registry}>
       {withCapabilities ? (
-        <MarkdownPreviewCapabilitiesProvider capabilities={capabilities}>
+        <MarkdownPreviewCapabilitiesProvider capabilities={{ ...capabilities, linkChoices }}>
           {body}
         </MarkdownPreviewCapabilitiesProvider>
       ) : (
@@ -393,6 +402,32 @@ describe('FileTabBody markdown integration', () => {
         );
       });
       expect(openFileInTab).not.toHaveBeenCalled();
+    });
+
+    it('offers the host browser for a web link; the default browser keeps the usual path', async () => {
+      const linkChoices = {
+        copyLink: vi.fn().mockResolvedValue({ ok: true }),
+        offers: (url: string) => url.startsWith('https:'),
+        openInAppBrowser: vi.fn().mockResolvedValue({ ok: true }),
+      };
+      renderBody(MD_KEY, '# Hello', true, linkChoices);
+      await waitFor(() => {
+        expect(screen.getByTestId('markdown-surface')).toBeInTheDocument();
+      });
+
+      expect(mdProps().linkChoices?.('./other.md')).toBeNull();
+      const choices = mdProps().linkChoices?.('https://example.test/page');
+      choices?.openInAppBrowser();
+      choices?.copyLink();
+      act(() => choices?.openInDefaultBrowser());
+
+      expect(linkChoices.openInAppBrowser).toHaveBeenCalledExactlyOnceWith(
+        'https://example.test/page'
+      );
+      expect(linkChoices.copyLink).toHaveBeenCalledExactlyOnceWith('https://example.test/page');
+      expect(capabilities.openExternalLink).toHaveBeenCalledExactlyOnceWith(
+        'https://example.test/page'
+      );
     });
 
     it('toasts destructively for external links when capabilities are absent', async () => {

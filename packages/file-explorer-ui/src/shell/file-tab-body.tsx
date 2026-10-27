@@ -5,6 +5,7 @@ import {
   ActionContextMenu,
   CodeSurface,
   isMarkdownPath,
+  type LinkChoices,
   useIdeFileEditor,
   useToast,
 } from '@brainstrike/ui';
@@ -282,6 +283,23 @@ export function FileTabBody({
     [capabilities, ideEditor.openFileInTab, path, tab.compositeKey, toast]
   );
 
+  // A web link the host's own browser can show asks where to open first; the
+  // default browser keeps the path above. The host reports each outcome.
+  const linkChoicesFor = useCallback(
+    (href: string): LinkChoices | null => {
+      const choices = capabilities?.linkChoices;
+      if (!choices?.offers(href)) {
+        return null;
+      }
+      return {
+        copyLink: () => void choices.copyLink(href),
+        openInAppBrowser: () => void choices.openInAppBrowser(href),
+        openInDefaultBrowser: () => handleOpenLink(href),
+      };
+    },
+    [capabilities, handleOpenLink]
+  );
+
   // One-shot consumption: only clear once `content` is actually a string, i.e.
   // once the surface below has genuinely mounted with whatever target
   // (initialLine/initialSelection) this render read (content loads async —
@@ -351,6 +369,7 @@ export function FileTabBody({
             <MarkdownSurfaceLazy
               ariaLabel={`Markdown preview for ${path}`}
               initialScrollTop={getScrollTop(`preview:${tab.compositeKey}`)}
+              linkChoices={linkChoicesFor}
               onContextMenuSelection={handleMarkdownContextMenuSelection}
               onOpenLink={handleOpenLink}
               onScrollTopChange={handlePreviewScrollTopChange}
