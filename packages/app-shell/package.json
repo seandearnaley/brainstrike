@@ -72,7 +72,7 @@
     "./roots/root-registry": "./src/roots/root-registry.ts",
     "./terminal-panel": "./src/terminal-panel/index.ts",
     "./workspace-connect/workspace-connect-bridge": "./src/workspace-connect/workspace-connect-bridge.ts",
-    "./canvas/canvas-panel": "./src/canvas/canvas-panel.tsx",
+    "./artifacts/artifacts-page": "./src/artifacts/artifacts-page.tsx",
     "./root-layout-content": "./src/root-layout-content.tsx",
     "./types": "./src/types.ts",
     "./use-document-title": "./src/use-document-title.ts",

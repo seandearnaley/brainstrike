@@ -16,9 +16,10 @@ export interface WorkspaceApp {
   readonly label: string;
   /**
    * Where the tab sits in the workspace strip. `pinned`: the non-scrolling,
-   * never-reordered group of singleton surfaces (Files, Changes, Canvas, …),
-   * in registry order. `dynamic`: scrolls ahead of the file tabs (child
-   * conversations). Required so a new app cannot forget to choose.
+   * never-reordered group of singleton surfaces (Files, Changes, …), in
+   * registry order; only these are offered by the "+" menu and the launcher.
+   * `dynamic`: an addressed tab that scrolls ahead of the file tabs (a child
+   * conversation, a canvas). Required so a new app cannot forget to choose.
    */
   readonly placement: 'dynamic' | 'pinned';
   /**
@@ -50,7 +51,6 @@ export const CONTEXT_EXPLORER_APP_ID = 'context-explorer';
  * not string drift that quietly accumulates in persisted state.
  */
 export const CHANGES_APP_ID = 'changes';
-export const CANVAS_APP_ID = 'canvas';
 export const TERMINAL_APP_ID = 'terminal';
 export const WORKTREE_MAP_APP_ID = 'worktree-map';
 /** The thread context map (ADR-0021): what the active thread's model received. */

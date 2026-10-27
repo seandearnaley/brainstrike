@@ -22,6 +22,7 @@ import { Schema } from 'effect';
 import type { JsonSchemaFactory } from './json-value.ts';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.ts';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.ts';
+import { CANVAS_METHOD_SCHEMAS, CANVAS_RESULT_SCHEMAS } from './protocol-canvas.ts';
 import {
   GIT_WORKSPACE_METHOD_SCHEMAS,
   GIT_WORKSPACE_RESULT_SCHEMAS,
@@ -61,6 +62,10 @@ import {
 import { HostStateHealthSchema } from './protocol-state-health.ts';
 import { TERMINAL_METHOD_SCHEMAS, TERMINAL_RESULT_SCHEMAS } from './protocol-terminals.ts';
 import {
+  THREAD_WORKSPACE_METHOD_SCHEMAS,
+  THREAD_WORKSPACE_RESULT_SCHEMAS,
+} from './protocol-thread-workspace.ts';
+import {
   WORKSPACE_DISCOVERY_METHOD_SCHEMAS,
   WORKSPACE_DISCOVERY_RESULT_SCHEMAS,
 } from './protocol-workspace-discovery.ts';
@@ -81,6 +86,7 @@ import {
 } from './workspace-wire.ts';
 
 export * from './mcp-authority-wire.ts';
+export * from './protocol-canvas.ts';
 export * from './protocol-git-workspace.ts';
 export * from './protocol-mcp-content.ts';
 export * from './protocol-mcp-presentation.ts';
@@ -92,6 +98,7 @@ export * from './protocol-search.ts';
 export * from './protocol-selection.ts';
 export * from './protocol-state-health.ts';
 export * from './protocol-terminals.ts';
+export * from './protocol-thread-workspace.ts';
 export * from './protocol-workspace-discovery.ts';
 export * from './run-wire.ts';
 export * from './workspace-wire.ts';
@@ -142,6 +149,7 @@ export * from './workspace-wire.ts';
 // are gone, and a login credential is an API key or an AWS credential. Additions since:
 // `workspace/skills` and `workspace/commands` (ADR-0029 stage 2), new methods.
 // v14 (2026-10-26): `forge/*` and the git history, staging, pull and diff methods are gone.
+// Additions since: `canvas/list` and `canvas/read` (the Artifacts gallery), new methods.
 export const AGENT_HOST_PROTOCOL_VERSION = 14;
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = Schema.String.check(Schema.isMinCodePoints(1));
@@ -368,6 +376,7 @@ export const HostHookTrustSchema = Schema.Struct({
 });
 export type HostHookTrust = (typeof HostHookTrustSchema)['Type'];
 export const HOST_METHOD_SCHEMAS = {
+  ...CANVAS_METHOD_SCHEMAS,
   ...GIT_WORKSPACE_METHOD_SCHEMAS,
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -532,18 +541,7 @@ export const HOST_METHOD_SCHEMAS = {
         : { issue: 'A thread update changes no field', path: [] }
     )
   ),
-  'thread/workspace/binding/read': Schema.Struct(Thread),
-  'thread/workspace/binding/update': Schema.Struct({
-    ...Command,
-    ...Thread,
-    patch: ThreadWorkspaceBindingSchema,
-  }),
-  'thread/workspace/read': Schema.Struct(Thread),
-  'thread/workspace/set': Schema.Struct({
-    ...Command,
-    ...Thread,
-    snapshot: WorkspaceSnapshotSchema,
-  }),
+  ...THREAD_WORKSPACE_METHOD_SCHEMAS,
 } as const;
 export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
 export type HostParams<M extends HostMethod> = (typeof HOST_METHOD_SCHEMAS)[M]['Type'];
@@ -964,6 +962,7 @@ export const HostLogRowSchema = Schema.Struct({
 });
 export type HostLogRow = (typeof HostLogRowSchema)['Type'];
 export const HOST_RESULT_SCHEMAS = {
+  ...CANVAS_RESULT_SCHEMAS,
   ...GIT_WORKSPACE_RESULT_SCHEMAS,
   ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
@@ -1083,11 +1082,6 @@ export const HOST_RESULT_SCHEMAS = {
   ...SELECTION_RESULT_SCHEMAS,
   'thread/start': Schema.Struct(Thread),
   'thread/update': Schema.Struct({ accepted: Schema.Literal(true) }),
-  'thread/workspace/binding/read': Schema.Struct({
-    binding: Schema.NullOr(ThreadWorkspaceBindingSchema),
-  }),
-  'thread/workspace/binding/update': Schema.Struct({ accepted: Schema.Literal(true) }),
-  'thread/workspace/read': Schema.Struct({ snapshot: Schema.NullOr(WorkspaceSnapshotSchema) }),
-  'thread/workspace/set': Schema.Struct({ accepted: Schema.Literal(true) }),
+  ...THREAD_WORKSPACE_RESULT_SCHEMAS,
 } as const;
 export type HostResults = { [M in HostMethod]: (typeof HOST_RESULT_SCHEMAS)[M]['Type'] };

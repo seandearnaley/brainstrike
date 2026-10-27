@@ -15,6 +15,7 @@ import type {
 import { ThreadWorkspaceUnavailableError } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useEffectEvent, useMemo, useRef, useSyncExternalStore } from 'react';
+import { isCanvasWorkspaceTabId } from '../canvas/canvas-workspace-tab';
 import { isDelegatedWorkspaceTabId } from '../delegated-workspace-tab';
 import { isHostChildWorkspaceTabId } from '../host-child-workspace-tab';
 import type { ThreadWorkspaceNavigation } from './thread-workspace-navigation';
@@ -104,8 +105,13 @@ function rejectUnavailableChildNavigation(
   }
 }
 
-function isChildConversationTabId(appId: string): boolean {
-  return isHostChildWorkspaceTabId(appId) || isDelegatedWorkspaceTabId(appId);
+/** A tab of the thread's own tree: a child conversation, or a canvas from its run log. */
+function isThreadOwnedTabId(appId: string): boolean {
+  return (
+    isHostChildWorkspaceTabId(appId) ||
+    isDelegatedWorkspaceTabId(appId) ||
+    isCanvasWorkspaceTabId(appId)
+  );
 }
 
 function hasPendingWorkspaceHydration(
@@ -320,16 +326,16 @@ function prepareHydrationBaseline(
   return { snapshot: captureWorkspaceSnapshot(facade), threadId: activeThreadId };
 }
 
-function readInheritedChildTabs(
+function readInheritedThreadTabs(
   threadId: string,
   baseline: HydrationBaseline | null,
   facade: WorkspaceStateFacade
 ): readonly string[] {
   // The boot baseline spans deferred repository startup. Later tab opens are
-  // incoming intents, not child conversations inherited from the outgoing owner.
+  // incoming intents, not thread-owned tabs inherited from the outgoing owner.
   const apps =
     baseline?.threadId === threadId ? baseline.snapshot.apps.openAppIds : facade.getOpenAppIds();
-  return apps.filter(isChildConversationTabId);
+  return apps.filter(isThreadOwnedTabId);
 }
 
 function shouldPreserveLiveEdits(
@@ -357,7 +363,7 @@ function shouldPreserveLiveEdits(
  *   that point), then hydrates the incoming thread from the in-memory cache
  *   (synchronous) or the repository (async, intent-guarded against a further
  *   switch), INHERITING the current workspace minus the outgoing thread's
- *   child-conversation tabs when no row exists (the new-thread semantic);
+ *   child-conversation and canvas tabs when no row exists (the new-thread semantic);
  * - preloads snapshots for all OPEN thread tabs so switching is instant;
  * - prunes cache entries for threads that are no longer open (delete/close).
  *
@@ -745,7 +751,7 @@ export function useThreadWorkspaceCoordinator({
       hydrate(snapshot);
     };
 
-    const inheritedChildTabs = readInheritedChildTabs(
+    const inheritedThreadTabs = readInheritedThreadTabs(
       activeThreadId,
       hydrationBaselineRef.current,
       facadeRef.current
@@ -777,12 +783,12 @@ export function useThreadWorkspaceCoordinator({
           return;
         }
         // No row: INHERIT the current workspace (new thread). The live stores
-        // already show it; only the outgoing thread's child conversations
-        // stay behind, because they belong to that thread's tree.
-        if (inheritedChildTabs.length > 0) {
+        // already show it; only the outgoing thread's child conversations and
+        // canvases stay behind, because they belong to that thread's tree.
+        if (inheritedThreadTabs.length > 0) {
           hydratingRef.current = true;
           try {
-            facadeRef.current.closeApps(inheritedChildTabs);
+            facadeRef.current.closeApps(inheritedThreadTabs);
           } finally {
             hydratingRef.current = false;
           }
