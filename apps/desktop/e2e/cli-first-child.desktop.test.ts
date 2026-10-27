@@ -142,7 +142,6 @@ test('CLI-created children appear in the GUI and retain their identity through C
     if (await sidebar.isVisible()) {
       await sidebar.click();
     }
-    await window.getByTestId('threads-tab-trigger').click();
     await window
       .getByTestId('threads-panel')
       .getByText('CLI child parent', { exact: true })

@@ -71,7 +71,6 @@ export function createDesktopWorkspaceRootCatalog(
       closing ??= Promise.allSettled([...pending]).then(() => undefined);
       return closing;
     },
-    promptLibrary: (request) => borrow((client) => client.promptLibrary(request)),
     sourceCatalog: (request) => borrow((client) => client.sourceCatalog(request)),
     threadGroups: (request) => borrow((client) => client.threadGroups(request)),
     viewFilterPresets: (request) => borrow((client) => client.viewFilterPresets(request)),

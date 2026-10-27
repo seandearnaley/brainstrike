@@ -27,11 +27,11 @@ describe('AgentWorkspaceLayout', () => {
     ideLayoutProps.length = 0;
   });
 
-  it('gives the Library enough room for database inspection while preserving adjacent panes', () => {
+  it('gives the Threads panel enough room while preserving adjacent panes', () => {
     render(
       <AgentWorkspaceLayout
         assistantContent={<div>Assistant</div>}
-        sidebarContent={<div>Library</div>}
+        sidebarContent={<div>Threads</div>}
         workspaceContent={<div>Workspace</div>}
       />
     );
@@ -52,9 +52,9 @@ describe('AgentWorkspaceLayout', () => {
     };
 
     expect(props.leftPanelChrome).toMatchObject({
-      hideButtonLabel: 'Hide library panel',
-      showButtonLabel: 'Show library panel',
-      title: 'Library',
+      hideButtonLabel: 'Hide threads panel',
+      showButtonLabel: 'Show threads panel',
+      title: 'Threads',
     });
     expect(props.panelConstraints).toEqual({
       leftPanelMaxSize: '70%',
@@ -69,7 +69,7 @@ describe('AgentWorkspaceLayout', () => {
     render(
       <AgentWorkspaceLayout
         assistantContent={<div>Assistant</div>}
-        sidebarContent={<div>Library</div>}
+        sidebarContent={<div>Threads</div>}
         workspaceContent={<div>Workspace</div>}
         workspaceHeaderContent={<div data-testid="strip">Strip</div>}
       />
@@ -86,7 +86,7 @@ describe('AgentWorkspaceLayout', () => {
     render(
       <AgentWorkspaceLayout
         assistantContent={<div>Assistant</div>}
-        sidebarContent={<div>Library</div>}
+        sidebarContent={<div>Threads</div>}
         workspaceContent={<div>Workspace</div>}
       />
     );

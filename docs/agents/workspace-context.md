@@ -19,10 +19,8 @@ references, commands and skills. Respect scoped precedence and hard ignore rules
 report omissions and preserve Unicode boundaries when limiting context. Never
 bypass the host's privacy or token-cap policy with a raw filesystem read.
 
-Canonical prompt revisions are immutable and use their existing owner. Client
-view state does not become another prompt store. Slash commands and MCP prompts
-are explicit selections, not automatic execution. External content supplies text,
-not filesystem or permission authority.
+Slash commands and MCP prompts are explicit selections, not automatic execution.
+External content supplies text, not filesystem or permission authority.
 
 Only the trusted, enabled winning skill can execute its registered script. Verify
 skill/root containment, supported interpreter and declared allowed tools. Spawn

@@ -63,12 +63,12 @@ tabs/newlines, protocol restrictions and credential refusal.
 
 This census counts import files, not schemas. The E05 scope froze 46 owner/consumer
 files at `9e733d679`: 44 declaration/mixed files and two type consumers. Their
-receiving/composition closure moved together. The remaining 14 production imports
+receiving/composition closure moved together. The remaining 13 production imports
 have these owners:
 
 | Category | Files | Reason |
 | --- | --- | --- |
-| Vendor date-time format patterns | 8 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,prompt-library,view-filter-preset,worktree-forge}-store` |
+| Vendor date-time format patterns | 7 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,view-filter-preset,worktree-ledger}-store` |
 | SDK schema/type adapters | 5 | `assistant-contract/{sdk-schema,mcp-host}` invokes/infers actual SDK validation; `mcp-tasks-extension/schema` composes SDK sampling/roots/elicitation validators with JSON extension checks; `agent/providers/provider-tool-schema` adapts genuine third-party Zod inputs; `agent-host/provider-schema-selection` selects that vendor branch |
 | Protocol-lab reference fixture | 1 | `mcp-test-lab/reference-server` uses the SDK/reference schema interface |
 

@@ -126,7 +126,6 @@ describe('validateDesktopBridgeContract', () => {
         }),
       },
       modelCatalog: { read: async () => ({}) },
-      promptLibrary: { request: async () => ({}) },
       threadGroups: { readRoots: async () => [], request: async () => ({}) },
       viewFilterPresets: { request: async () => ({}) },
     });

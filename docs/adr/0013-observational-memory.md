@@ -23,8 +23,7 @@ In the spikes OM wrote no transcript messages, so it is not a second writer.
   each embed call for recall, history indexing or vector observation commits its
   provider-reported tokens as `memory.usage` (`embedding`), priced at the embedder's
   catalog rate (input only).
-- OM residue survives a rewind tombstone. A tombstone is not a deletion and writes no
-  `mind_ops` row.
+- OM residue survives a rewind tombstone. A tombstone is not a deletion.
 
 ## Consequences
 

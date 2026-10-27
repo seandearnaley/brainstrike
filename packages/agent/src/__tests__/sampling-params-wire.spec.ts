@@ -178,10 +178,9 @@ describe('BST-1699 default request carries no sampling params', () => {
 
   /**
    * CHARACTERIZATION, not an endorsement (BST-1699). This pins what happens
-   * TODAY when a user HAS set a sampling param — the Prompt Workbench is the
-   * only surface that can produce one (`buildPromptModelSettings`,
-   * packages/app-shell/src/prompt-workbench-shared.ts) — and the selected
-   * model rejects it.
+   * TODAY when a run command carries a sampling param — no app surface sets
+   * one, but the host's run command still accepts `modelSettings` — and the
+   * selected model rejects it.
    *
    * The installed `@ai-sdk/anthropic` adapter does NOT forward the value and
    * does NOT 400: it DROPS it and reports an `unsupported` entry on

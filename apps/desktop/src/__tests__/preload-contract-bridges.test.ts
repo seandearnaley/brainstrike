@@ -5,7 +5,6 @@ import { contextFilesContract } from '../ipc-domains/context-files.contract';
 import { databasePathContract } from '../ipc-domains/database.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
-import { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import { settingsContract, storageContract } from '../ipc-domains/storage-preferences.contract';
 import { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import { userPersonasContract } from '../ipc-domains/user-personas.contract';
@@ -45,7 +44,6 @@ const CONTRACT_BRIDGES = {
   clipboard: clipboardContract,
   contextFiles: contextFilesContract,
   indexSearch: indexSearchContract,
-  promptLibrary: promptLibraryContract,
   settings: settingsContract,
   threadGroups: threadGroupsContract,
   viewFilterPresets: viewFilterPresetsContract,
@@ -261,33 +259,6 @@ describe('preload contract-derived bridges', () => {
       expect(second.mock.calls).toEqual([[{ marker: name }], [{ marker: 'after' }]]);
     }
   );
-
-  it('passes prompt commands unchanged through the actual sandbox bridge envelope', async () => {
-    const request = { filter: { favoritesOnly: true }, operation: 'list' };
-    const receipt = { accepted: true, items: [], revisions: [] };
-    mockInvoke.mockResolvedValueOnce({ ok: true, value: receipt });
-    await expect(exposedApi('promptLibrary')['request']?.(request)).resolves.toEqual({
-      ok: true,
-      value: receipt,
-    });
-    expect(mockInvoke).toHaveBeenLastCalledWith(
-      DESKTOP_IPC_INVOKE_CHANNEL,
-      DESKTOP_IPC_CHANNELS.promptLibrary.request,
-      request
-    );
-    mockInvoke.mockResolvedValueOnce({
-      error: {
-        category: 'promptLibrary',
-        code: 'prompt_library_failed',
-        message: 'Prompt owner closed',
-      },
-      ok: false,
-    });
-    await expect(exposedApi('promptLibrary')['request']?.(request)).resolves.toMatchObject({
-      error: { code: 'prompt_library_failed' },
-      ok: false,
-    });
-  });
 
   it.each([
     ['assistantPersonas', 'list', DESKTOP_IPC_CHANNELS.userPersonas.list],

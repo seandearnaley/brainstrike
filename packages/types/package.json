@@ -15,7 +15,6 @@
   "exports": {
     ".": "./src/index.ts",
     "./agent-color": "./src/agent-color.ts",
-    "./prompt-item": "./src/prompt-item.ts",
     "./catalog-args": "./src/catalog-args/index.ts"
   },
   "license": "ISC",

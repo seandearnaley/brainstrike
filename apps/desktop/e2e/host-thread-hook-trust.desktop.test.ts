@@ -160,7 +160,6 @@ test('a retired thread cannot start the removed execution path', async ({
   if (await showThreads.isVisible().catch(() => false)) {
     await showThreads.click();
   }
-  await page.getByTestId('threads-tab-trigger').click();
   await expect(page.getByTestId('threads-panel')).toBeVisible();
   await expect(page.getByTestId('thread-row').filter({ hasText: LEGACY_TITLE })).toHaveCount(0);
   scriptRead(modelProvider, 'The current conversation still works.');

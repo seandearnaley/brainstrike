@@ -190,7 +190,7 @@ export function ThreadsPanelSearch({
       className={searchActive ? 'flex min-h-0 flex-1 flex-col' : 'flex min-h-0 shrink-0 flex-col'}
       data-testid="threads-panel-search"
     >
-      <div className="px-3 pb-2">
+      <div className="px-3 py-2">
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           {status === 'searching' ? (

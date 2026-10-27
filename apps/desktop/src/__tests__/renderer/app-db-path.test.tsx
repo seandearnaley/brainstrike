@@ -130,7 +130,6 @@ beforeEach(() => {
 
   Object.assign(window, {
     modelCatalog: { read: vi.fn() },
-    promptLibrary: { request: vi.fn() },
     threadGroups: { readRoots: vi.fn(), request: vi.fn() },
     viewFilterPresets: { request: vi.fn() },
   });
