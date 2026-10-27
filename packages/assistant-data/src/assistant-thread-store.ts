@@ -9,6 +9,7 @@ import {
   assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository.ts';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource.ts';
+import { folderBinding, newThreadId } from './assistant-new-thread.ts';
 import { createUpdateThreadAppearance } from './assistant-thread-appearance.ts';
 import {
   type AssistantThreadLoadState,
@@ -40,6 +41,11 @@ interface AssistantThreadState {
   closeOtherThreadTabs: (resourceId: string, threadId: string) => void;
   closeThreadTab: (resourceId: string, threadId: string) => void;
   closeThreadTabsToRight: (resourceId: string, threadId: string) => void;
+  /**
+   * The first send created the new thread: it takes the new-thread composer's
+   * settings and opens as the active tab.
+   */
+  commitNewThread: (resourceId: string, thread: AssistantMemoryThread) => Promise<void>;
   createThread: (
     repository: Pick<AssistantThreadCatalogRepository, 'createThread'>,
     resourceId: string,
@@ -63,8 +69,8 @@ interface AssistantThreadState {
   lastViewedAtByThreadId: Record<string, number>;
   loadStateByResourceId: Record<string, AssistantThreadLoadState>;
   markThreadViewed: (threadId: string, viewedAt?: number) => void;
-  /** The folder a new thread was started from; its first send binds the thread to it. */
-  newThreadFolderByResourceId: Record<string, ThreadFolderRow>;
+  /** The new thread's draft binding (`newThreadId`), written to the thread its first send creates. */
+  newThreadMetadataByResourceId: Record<string, AssistantThreadMetadata>;
   openThreadIdsByResourceId: Record<string, string[]>;
   openThreadTab: (resourceId: string, threadId: string) => void;
   refreshResourceThreads: (
@@ -481,6 +487,20 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           },
         });
       },
+      commitNewThread: async (resourceId: string, thread: AssistantMemoryThread) => {
+        const draftId = newThreadId(resourceId);
+        set((state) => {
+          const { [draftId]: runtime, ...others } = state.draftRuntimeByThreadId;
+          return {
+            draftRuntimeByThreadId: runtime ? { ...others, [thread.id]: runtime } : others,
+            newThreadMetadataByResourceId: omitRecordKey(
+              state.newThreadMetadataByResourceId,
+              resourceId
+            ),
+          };
+        });
+        await get().createThread({ createThread: async () => thread }, resourceId);
+      },
       createThread: async (
         repository: Pick<AssistantThreadCatalogRepository, 'createThread'>,
         resourceId: string,
@@ -510,10 +530,6 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
                 ...state.loadStateByResourceId,
                 [resourceId]: { status: 'ready' },
               },
-              newThreadFolderByResourceId: omitRecordKey(
-                state.newThreadFolderByResourceId,
-                resourceId
-              ),
               openThreadIdsByResourceId: {
                 ...state.openThreadIdsByResourceId,
                 [resourceId]: openThreadIds(state.openThreadIdsByResourceId[resourceId], thread.id),
@@ -760,7 +776,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           },
         }));
       },
-      newThreadFolderByResourceId: {},
+      newThreadMetadataByResourceId: {},
       openThreadIdsByResourceId: {},
       openThreadTab: (resourceId: string, threadId: string) => {
         set((state) => ({
@@ -768,7 +784,6 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
             ...state.activeThreadIdByResourceId,
             [resourceId]: threadId,
           },
-          newThreadFolderByResourceId: omitRecordKey(state.newThreadFolderByResourceId, resourceId),
           openThreadIdsByResourceId: {
             ...state.openThreadIdsByResourceId,
             [resourceId]: openThreadIds(state.openThreadIdsByResourceId[resourceId], threadId),
@@ -887,9 +902,9 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
       startNewThread: (resourceId: string, folder?: ThreadFolderRow) => {
         set((state) => ({
           activeThreadIdByResourceId: omitRecordKey(state.activeThreadIdByResourceId, resourceId),
-          newThreadFolderByResourceId: folder
-            ? { ...state.newThreadFolderByResourceId, [resourceId]: folder }
-            : omitRecordKey(state.newThreadFolderByResourceId, resourceId),
+          newThreadMetadataByResourceId: folder
+            ? { ...state.newThreadMetadataByResourceId, [resourceId]: folderBinding(folder) }
+            : omitRecordKey(state.newThreadMetadataByResourceId, resourceId),
           selectedThreadByResourceId: omitRecordKey(state.selectedThreadByResourceId, resourceId),
         }));
       },
@@ -904,6 +919,18 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         threadId: string,
         metadata: AssistantThreadMetadata
       ): Promise<void> => {
+        if (threadId === newThreadId(resourceId)) {
+          set((state) => ({
+            newThreadMetadataByResourceId: {
+              ...state.newThreadMetadataByResourceId,
+              [resourceId]: mergeAssistantThreadMetadata(
+                state.newThreadMetadataByResourceId[resourceId],
+                metadata
+              ),
+            },
+          }));
+          return;
+        }
         await repository.updateThreadMetadata(threadId, metadata);
         set((state) => ({
           threadsByResourceId: {
@@ -987,7 +1014,7 @@ export function resetAssistantThreadStore(): void {
     draftRuntimeByThreadId: {},
     lastViewedAtByThreadId: {},
     loadStateByResourceId: {},
-    newThreadFolderByResourceId: {},
+    newThreadMetadataByResourceId: {},
     openThreadIdsByResourceId: {},
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},

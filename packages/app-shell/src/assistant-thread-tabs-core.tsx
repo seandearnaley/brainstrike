@@ -37,7 +37,6 @@ import {
 import type { FixedProviderModels } from './assistant-ui-panel-wrapper-runtime';
 import { usePublishOnScreenThreadId } from './hooks/use-on-screen-thread';
 import { useMarkOnScreenThreadViewed, useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
-import { NewThreadWelcome } from './new-thread-welcome';
 import { ThreadIdentityMark } from './thread-identity-mark';
 import { useAssistantThreadTabChords } from './use-assistant-thread-tab-chords';
 import { useRetainedThreadPanels } from './use-retained-thread-panels';
@@ -125,6 +124,11 @@ interface ThreadTabStatusProjection {
 export interface AssistantThreadTabsCoreProps extends AssistantThreadTabsWorkspaceProps {
   readonly activeThreads: ThreadTabStatusProjection;
   readonly loadingLabel: string;
+  /** The new-thread composer, shown while no thread is active. */
+  readonly renderNewThread: (
+    resourceId: string,
+    providerReadErrors: AssistantThreadPanelProps['providerReadErrors']
+  ) => ReactNode;
   readonly renderThread: (props: AssistantThreadPanelProps) => ReactNode;
   readonly repository: AssistantThreadCatalogRepository;
   readonly threadsAwaitingApproval: ThreadTabStatusProjection;
@@ -138,6 +142,7 @@ export function AssistantThreadTabsCore({
   loadingLabel,
   activeThreads,
   threadsAwaitingApproval,
+  renderNewThread,
   renderThread,
 }: AssistantThreadTabsCoreProps): ReactElement {
   const host = useAssistantThreadHost();
@@ -437,9 +442,7 @@ export function AssistantThreadTabsCore({
           />
         ) : (
           <>
-            {showWelcome ? (
-              <NewThreadWelcome repository={repository} resourceId={resourceId} />
-            ) : null}
+            {showWelcome ? renderNewThread(resourceId, providerReadErrors) : null}
             <ThreadPanels
               activeThreadId={activeThreadId}
               fixedProviderModels={fixedProviderModels}

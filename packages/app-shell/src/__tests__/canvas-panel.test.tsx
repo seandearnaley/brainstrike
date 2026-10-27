@@ -65,6 +65,7 @@ function createHost(
     ownsThread: vi.fn(async () => true),
     readCanvases,
     renameThread: vi.fn(),
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: vi.fn(),
     updateThreadBinding: vi.fn(),
     workspaceRepository: () => {

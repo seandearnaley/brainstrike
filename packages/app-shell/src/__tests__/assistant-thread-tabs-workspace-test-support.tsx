@@ -220,6 +220,7 @@ function createFakeHost(): AssistantThreadHostCapability {
         row['title'] = title;
       }
     }),
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: (threadId, isVisible, onRunningChange, providerReadErrors) => (
       <HostPanel
         isVisible={isVisible}

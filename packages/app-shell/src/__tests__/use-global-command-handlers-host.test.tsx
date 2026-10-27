@@ -40,6 +40,7 @@ describe('useGlobalCommandHandlers new thread', () => {
       listThreads: vi.fn(async () => []),
       ownsThread: vi.fn(),
       renameThread: vi.fn(),
+      renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(),
       workspaceRepository: () => {

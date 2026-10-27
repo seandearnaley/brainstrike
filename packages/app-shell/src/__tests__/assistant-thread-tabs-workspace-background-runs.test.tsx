@@ -179,7 +179,7 @@ describe('AssistantThreadTabsWorkspace closing a running thread', () => {
 
     expect(openThreadIds()).toEqual([]);
     // The new-thread screen and the hidden running panel coexist.
-    expect(screen.getByTestId('new-thread-welcome')).toBeInTheDocument();
+    expect(screen.getByTestId('new-thread-composer')).toBeInTheDocument();
     expect(screen.getByTestId('assistant-thread-panel-thread-b')).toHaveAttribute('hidden');
     expect(screen.queryByTestId('assistant-thread-panel-thread-a')).not.toBeInTheDocument();
     expect(wrapperLifecycle).toContain('unmount:thread-a');

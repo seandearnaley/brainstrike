@@ -354,6 +354,7 @@ function createDefaultHost(): AssistantThreadHostCapability {
     listThreads: hostMocks.listThreads,
     ownsThread: hostMocks.ownsThread,
     renameThread: hostMocks.renameThread,
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: () => null,
     runs: {
       getSnapshot: () => runMocks.runs,
@@ -2366,12 +2367,16 @@ describe('ThreadsPanel folders', () => {
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
     expect(
-      useAssistantThreadStore.getState().newThreadFolderByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toEqual({ displayName: 'workspace-a', path: '/tmp/workspace-a', rootId: 'root-1' });
+      useAssistantThreadStore.getState().newThreadMetadataByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual({
+      operatingRootDisplayName: 'workspace-a',
+      operatingRootId: 'root-1',
+      operatingRootPath: '/tmp/workspace-a',
+    });
     expect(
       useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
     ).toBeUndefined();
-    // The first send creates the thread and commits the binding (new-thread-welcome).
+    // The first send creates the thread and commits the binding.
     expect(hostMocks.createThread).not.toHaveBeenCalled();
     expect(hostMocks.updateThreadBinding).not.toHaveBeenCalled();
   });
@@ -2451,6 +2456,7 @@ it('loads host conversations, retained folders and custom groups', async () => {
     listThreads: vi.fn(async () => [thread]),
     ownsThread: vi.fn(async () => true),
     renameThread: vi.fn(),
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: () => null,
     subscribeChildren: () => () => undefined,
     updateThreadBinding: vi.fn(),

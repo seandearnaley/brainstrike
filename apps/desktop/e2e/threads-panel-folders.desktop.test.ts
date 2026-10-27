@@ -230,7 +230,10 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     // "No folder" — which is exactly what the two section counts report.
     await repoSection.getByTestId('thread-folder-new-thread').click();
     const welcome = page.getByTestId('new-thread-welcome');
-    await expect(welcome.getByTestId('new-thread-folder')).toHaveText(path.basename(repo));
+    // The new thread's composer names the folder it will start in.
+    await expect(welcome.getByTestId('workspace-bar-folder-chip')).toContainText(
+      path.basename(repo)
+    );
     await expect(page.getByTestId('thread-row')).toHaveCount(rowsBefore);
     await startThread(page, 'Start here.');
     await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('3', {

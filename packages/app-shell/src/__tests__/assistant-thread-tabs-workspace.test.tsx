@@ -1,6 +1,5 @@
 import './assistant-thread-tabs-workspace-test-support';
 import * as factoryReset from '@brainstrike/app-state/factory-reset';
-import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantThreadRepository,
   resetAssistantThreadStore,
@@ -31,29 +30,14 @@ import {
 } from './assistant-thread-tabs-workspace-test-support';
 
 describe('AssistantThreadTabsWorkspace', () => {
-  it('recovers an unavailable saved conversation and keeps the message after refused creation', async () => {
-    const current = {
-      createdAt: new Date(),
-      id: 'owned-current',
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      title: 'Current conversation',
-      updatedAt: new Date(),
-    };
+  it('opens the new-thread composer for an unavailable saved conversation, creating nothing', async () => {
     const host: AssistantThreadHostCapability = {
-      createThread: vi
-        .fn()
-        .mockRejectedValueOnce(
-          refusalError(
-            'availability',
-            'workspace.unavailable',
-            'Choose an available workspace folder.'
-          )
-        )
-        .mockResolvedValueOnce(current),
+      createThread: vi.fn(),
       deleteThread: vi.fn(async () => undefined),
       listThreads: vi.fn(async () => []),
       ownsThread: vi.fn(async () => true),
       renameThread: vi.fn(),
+      renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
       renderThread: (threadId) => <div data-testid="host-thread">{threadId}</div>,
       updateThreadBinding: vi.fn(),
       workspaceRepository: () => {
@@ -67,20 +51,10 @@ describe('AssistantThreadTabsWorkspace', () => {
     });
     renderWorkspace({}, host);
     expect(await screen.findByText(/Your saved conversation is unavailable/)).toBeVisible();
-    // An empty catalog is the new-thread screen: nothing is created for it.
-    const input = await screen.findByRole('textbox', { name: 'Message input' });
-    expect(host.createThread).not.toHaveBeenCalled();
-    const user = userEvent.setup();
-    await user.type(input, 'Summarize the repo{Enter}');
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Choose an available workspace folder.'
-    );
-    expect(input).toHaveValue('Summarize the repo');
+    // An empty catalog is the new-thread composer: nothing is created for it.
+    expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
     expect(screen.queryByTestId('host-thread')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Send' }));
-    expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
-    expect(screen.queryByText(/Choose an available workspace folder/)).not.toBeInTheDocument();
-    expect(host.createThread).toHaveBeenCalledTimes(2);
+    expect(host.createThread).not.toHaveBeenCalled();
     expect(host.deleteThread).not.toHaveBeenCalled();
   });
 
@@ -175,6 +149,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       ]),
       ownsThread: vi.fn(async () => false),
       renameThread: vi.fn(),
+      renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
       renderThread,
       updateThreadBinding: vi.fn(),
       workspaceRepository: () => {
@@ -203,19 +178,25 @@ describe('AssistantThreadTabsWorkspace', () => {
     });
     const rowsBefore = threadRows.length;
     await user.click(screen.getByRole('button', { name: 'New assistant thread' }));
-    const input = await screen.findByRole('textbox', { name: 'Message input' });
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
     expect(threadRows).toHaveLength(rowsBefore);
-    await user.type(input, 'Hello{Enter}');
+    expect(activeThreadId()).toBeUndefined();
 
+    // The new-thread composer's first send creates the thread and commits it.
+    await act(() =>
+      useAssistantThreadStore.getState().commitNewThread(WORKSPACE_MEMORY_RESOURCE_ID, {
+        createdAt: new Date(),
+        id: 'thread-sent',
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        title: 'New Thread',
+        updatedAt: new Date(),
+      })
+    );
     await waitFor(() => {
-      expect(screen.getByTestId('assistant-thread-panel-thread-new-2')).toBeVisible();
+      expect(screen.getByTestId('assistant-thread-panel-thread-sent')).toBeVisible();
     });
-    expect(threadRows[0]).toMatchObject({
-      id: 'thread-new-2',
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      title: 'New Thread',
-    });
+    expect(screen.getByRole('tab', { selected: true })).toHaveAccessibleName(/New Thread/);
+    expect(screen.queryByTestId('new-thread-composer')).toBeNull();
   });
 
   it('renders the shared strip with New as trailing chrome outside the tablist', async () => {
@@ -749,7 +730,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     const rowsBefore = threadRows.length;
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'New Thread' }));
 
-    expect(await screen.findByRole('textbox', { name: 'Message input' })).toBeVisible();
+    expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
     expect(activeThreadId()).toBeUndefined();
     expect(threadRows).toHaveLength(rowsBefore);
 

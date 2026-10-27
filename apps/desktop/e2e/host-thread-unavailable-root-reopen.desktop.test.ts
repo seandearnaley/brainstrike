@@ -47,7 +47,7 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
       provider: 'openrouter',
     });
     await ensureAssistantShellVisible(page);
-    // A fresh profile opens on the new-thread screen; its first send creates the thread.
+    // A fresh profile opens on the new thread's composer; its first send creates the thread.
     await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
     await enableAssistantCatalogModel(page, MODEL);
     await send(page, 'BOUND_BEFORE_REOPEN', 'BOUND_SEND_SUCCEEDED');
@@ -82,9 +82,9 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     await reopened.keyboard.press('Escape');
 
     await reopened.getByTestId('assistant-new-thread-button').click();
-    // The new-thread screen names no folder: this send starts an unbound thread.
+    // The new thread's composer names no folder: this send starts an unbound thread.
     await expect(reopened.getByTestId('new-thread-welcome')).toBeVisible();
-    await expect(folder).toHaveCount(0);
+    await expect(folder).toHaveAccessibleName('Choose a folder');
     await send(reopened, 'UNBOUND_AFTER_REOPEN', 'UNBOUND_SEND_SUCCEEDED');
     const after = await withAppHost(userDataDir, (client) =>
       client.request('thread/workspace/binding/read', { threadId: boundThread.threadId })

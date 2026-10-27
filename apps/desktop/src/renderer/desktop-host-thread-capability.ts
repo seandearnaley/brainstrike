@@ -84,7 +84,7 @@ export function createWindowThreadCapability(
     readonly threadId: string;
   }) => ReturnType<AssistantThreadHostCapability['renderThread']>,
   connection: DesktopHostConnection = createDesktopHostConnection(connectDesktopAgentHost)
-): AssistantThreadHostCapability & {
+): Omit<AssistantThreadHostCapability, 'renderNewThread'> & {
   readonly ledger: HostThreadLedger;
   readonly runs: HostThreadRuns;
 } {

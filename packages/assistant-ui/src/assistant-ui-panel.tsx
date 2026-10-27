@@ -52,6 +52,7 @@ import { ComposerModelPicker, modelIdFromCompositeKey } from './composer-model-p
 import { CopyDebugBundleButton } from './copy-debug-bundle-button';
 import { EditComposer } from './edit-composer';
 import { RewindComposerBridge } from './message-rewind-action';
+import { ThreadBody } from './new-thread-welcome';
 import { ThreadDebugPackButton } from './thread-debug-pack-button';
 import { UserMessage } from './user-message';
 
@@ -240,6 +241,7 @@ export const ChatThreadUI = ({
   isReattaching = false,
   threadKey,
   toolMenu,
+  welcome = false,
 }: {
   /**
    * BST-1932: a committed host thread's approvals strip, which counts its
@@ -284,6 +286,8 @@ export const ChatThreadUI = ({
   threadKey?: string | undefined;
   toolMenu?: AssistantToolMenuConfig | undefined;
   workspaceBar?: ReactNode | undefined;
+  /** A new thread: its composer sits centred under a welcome until the first send. */
+  welcome?: boolean | undefined;
 }) => {
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const presentationMode = useThreadPresentationActivityMode(isVisible);
@@ -318,7 +322,6 @@ export const ChatThreadUI = ({
               <ThreadDebugPackButton key={threadKey} />
               <ComposerDraftCommandBridge
                 composerDraftCommand={composerDraftCommand}
-                isComposerDisabled={composerDisabled}
                 onComposerDraftCommandApplied={onComposerDraftCommandApplied}
                 onComposerTextChange={onComposerTextChange}
               />
@@ -347,36 +350,41 @@ export const ChatThreadUI = ({
                  *
                  * See: packages/assistant-ui/src/overrides.css
                  */}
-                <ThreadMessagesRegion
-                  components={THREAD_MESSAGE_COMPONENTS}
-                  {...(disabledReason ? { disabledReason } : {})}
-                  {...(threadKey ? { threadKey } : {})}
-                />
-
-                {/**
-                 * Composer: Fixed at bottom of thread
-                 *
-                 * STRUCTURE: This is a SIBLING to the viewport, not a child
-                 *
-                 * LAYOUT:
-                 * - flex-shrink-0: Never shrinks, always maintains its height
-                 * - Viewport above is flex-1: Grows/shrinks to fill available space
-                 * - This pattern ensures composer stays at bottom regardless of message content
-                 *
-                 * LIBRARY DIFFERENCE:
-                 * The @assistant-ui library expects the composer INSIDE the viewport as:
-                 *   <ThreadPrimitive.Viewport>
-                 *     <Messages />
-                 *     <div className="aui-thread-viewport-footer" style="position: sticky">
-                 *       <Composer />
-                 *     </div>
-                 *   </ThreadPrimitive.Viewport>
-                 *
-                 * We extracted it outside to avoid scrolling with messages.
-                 * This required aggressive CSS overrides (see overrides.css).
-                 */}
-                <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-                  {/* A capability the turn will run WITHOUT (e.g. no durable
+                <ThreadBody
+                  disabledReason={disabledReason}
+                  messages={
+                    <ThreadMessagesRegion
+                      components={THREAD_MESSAGE_COMPONENTS}
+                      {...(disabledReason ? { disabledReason } : {})}
+                      {...(threadKey ? { threadKey } : {})}
+                    />
+                  }
+                  welcome={welcome}
+                >
+                  {/**
+                   * Composer: Fixed at bottom of thread
+                   *
+                   * STRUCTURE: This is a SIBLING to the viewport, not a child
+                   *
+                   * LAYOUT:
+                   * - flex-shrink-0: Never shrinks, always maintains its height
+                   * - Viewport above is flex-1: Grows/shrinks to fill available space
+                   * - This pattern ensures composer stays at bottom regardless of message content
+                   *
+                   * LIBRARY DIFFERENCE:
+                   * The @assistant-ui library expects the composer INSIDE the viewport as:
+                   *   <ThreadPrimitive.Viewport>
+                   *     <Messages />
+                   *     <div className="aui-thread-viewport-footer" style="position: sticky">
+                   *       <Composer />
+                   *     </div>
+                   *   </ThreadPrimitive.Viewport>
+                   *
+                   * We extracted it outside to avoid scrolling with messages.
+                   * This required aggressive CSS overrides (see overrides.css).
+                   */}
+                  <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+                    {/* A capability the turn will run WITHOUT (e.g. no durable
             memory), as opposed to `disabledReason`, which explains why there
             is no turn at all. It is a SEPARATE prop on purpose: a caller can
             set `disabledReason` without setting `disabled` and still mean
@@ -388,77 +396,78 @@ export const ChatThreadUI = ({
             never scrolls, so it stays beside the control it qualifies.
             `disabledReason` keeps its place above the transcript, where
             native scroll anchoring holds a parked reader still. */}
-                  <CapabilityNotice text={capabilityNotice} />
-                  {/* Composer workspace bar (folder · branch) — an app-shell-rendered
+                    <CapabilityNotice text={capabilityNotice} />
+                    {/* Composer workspace bar (folder · branch) — an app-shell-rendered
             SLOT, a SIBLING at the top of the composer stack (never nested
             inside ThreadContextMeter, which is being reworked separately).
             app-shell renders the bar host; assistant-ui stays store-free. */}
-                  {workspaceBar ?? null}
-                  <ThreadContextMeter
-                    contextWindow={contextWindow}
-                    cumulativeUsage={cumulativeUsage}
-                    effectiveInputBudget={effectiveInputBudget}
-                    omSegment={omSegment}
-                    threadKey={threadKey}
-                  />
-                  {/* Last-24h budget burn-down + over-cap send notice (owned module,
+                    {workspaceBar ?? null}
+                    <ThreadContextMeter
+                      contextWindow={contextWindow}
+                      cumulativeUsage={cumulativeUsage}
+                      effectiveInputBudget={effectiveInputBudget}
+                      omSegment={omSegment}
+                      threadKey={threadKey}
+                    />
+                    {/* Last-24h budget burn-down + over-cap send notice (owned module,
             budget-guardrail-control.tsx); renders nothing without a binding. */}
-                  <BudgetGuardrailControl />
-                  <FollowUpQueueChips threadKey={threadKey} />
-                  <ApprovalQueueStrip key={threadKey} />
-                  {approvalStrip ?? null}
-                  <ComposerPrimitive.Root
-                    className="aui-composer-root"
-                    onSubmitCapture={onThreadRunStart}
-                  >
-                    {/* The composer input row, optionally wrapped in a shared
+                    <BudgetGuardrailControl />
+                    <FollowUpQueueChips threadKey={threadKey} />
+                    <ApprovalQueueStrip key={threadKey} />
+                    {approvalStrip ?? null}
+                    <ComposerPrimitive.Root
+                      className="aui-composer-root"
+                      onSubmitCapture={onThreadRunStart}
+                    >
+                      {/* The composer input row, optionally wrapped in a shared
               `Unstable_TriggerPopoverRoot` (see `ComposerInputWithTriggers`).
               The slash popover declares its own trigger char ("/") and reads the
               composer text via that shared root. It is mounted ONLY when its
               seam is present — an unmounted popover means the trigger char does
               nothing special (never an empty menu). Send / Cancel are unchanged. */}
-                    {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
+                      {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
               its preview + Remove button after a switch to a text-only model. */}
-                    {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
-                    <ComposerInputWithTriggers
-                      hideDefaultCancel={hideDefaultCancel}
-                      isComposerDisabled={composerDisabled}
-                      queueControl={
-                        <ComposerRunControls
-                          onSteerActiveRun={onSteerActiveRun}
-                          threadKey={threadKey}
-                        />
-                      }
-                      {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-                      {...(planMode ? { planMode } : {})}
-                      {...(hasSlashCommands
-                        ? {
-                            slashPopover: (
-                              <ComposerTriggerPopover
-                                action={slashAction}
-                                adapter={slashAdapter}
-                                iconMap={slashIconMap}
-                              />
-                            ),
-                          }
-                        : {})}
-                    />
-                    {hasGroupedProviders && (
-                      <ProviderModelHeader
-                        groups={providerGroups}
-                        onEnableModel={onEnableModel}
-                        onModelChange={onModelChange}
-                        onProviderSettingsChange={onProviderSettingsChange}
-                        pickerModels={pickerModels}
-                        providerSettings={providerSettings}
-                        recentModels={recentModels}
-                        selectedModel={selectedModel}
-                        selectedProvider={selectedProvider}
-                        toolMenu={toolMenu}
+                      {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
+                      <ComposerInputWithTriggers
+                        hideDefaultCancel={hideDefaultCancel}
+                        isComposerDisabled={composerDisabled}
+                        queueControl={
+                          <ComposerRunControls
+                            onSteerActiveRun={onSteerActiveRun}
+                            threadKey={threadKey}
+                          />
+                        }
+                        {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+                        {...(planMode ? { planMode } : {})}
+                        {...(hasSlashCommands
+                          ? {
+                              slashPopover: (
+                                <ComposerTriggerPopover
+                                  action={slashAction}
+                                  adapter={slashAdapter}
+                                  iconMap={slashIconMap}
+                                />
+                              ),
+                            }
+                          : {})}
                       />
-                    )}
-                  </ComposerPrimitive.Root>
-                </div>
+                      {hasGroupedProviders && (
+                        <ProviderModelHeader
+                          groups={providerGroups}
+                          onEnableModel={onEnableModel}
+                          onModelChange={onModelChange}
+                          onProviderSettingsChange={onProviderSettingsChange}
+                          pickerModels={pickerModels}
+                          providerSettings={providerSettings}
+                          recentModels={recentModels}
+                          selectedModel={selectedModel}
+                          selectedProvider={selectedProvider}
+                          toolMenu={toolMenu}
+                        />
+                      )}
+                    </ComposerPrimitive.Root>
+                  </div>
+                </ThreadBody>
               </Activity>
             </ApprovalRanksProvider>
           </AnsweredApprovalsProvider>

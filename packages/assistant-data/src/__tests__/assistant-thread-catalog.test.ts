@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+import { newThreadId } from '../assistant-new-thread';
 import { resetAssistantThreadStore, useAssistantThreadStore } from '../assistant-thread-store';
 import { createRepository, workspaceId } from './helpers/assistant-thread-store-fixtures';
 
@@ -23,32 +24,53 @@ it('clears unavailable saved tabs after a successful empty catalog without creat
   expect(repository.deleteThread).not.toHaveBeenCalled();
 });
 
-it('starting a new thread creates nothing and keeps open tabs until a thread is created', async () => {
+it('holds a new thread as a draft until its first send commits it as the active tab', async () => {
   const repository = createRepository([]);
   useAssistantThreadStore.setState({
     activeThreadIdByResourceId: { [workspaceId]: 'thread-a' },
+    draftRuntimeByThreadId: { [newThreadId(workspaceId)]: { model: 'draft-model' } },
     openThreadIdsByResourceId: { [workspaceId]: ['thread-a'] },
     selectedThreadByResourceId: { [workspaceId]: 'thread-a' },
+    threadsByResourceId: { [workspaceId]: [] },
   });
   const folder = { displayName: 'repo', path: '/repo', rootId: 'root-1' };
   useAssistantThreadStore.getState().startNewThread(workspaceId, folder);
   let state = useAssistantThreadStore.getState();
   expect(state.activeThreadIdByResourceId[workspaceId]).toBeUndefined();
-  expect(state.selectedThreadByResourceId[workspaceId]).toBeUndefined();
   expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a']);
-  expect(state.newThreadFolderByResourceId[workspaceId]).toEqual(folder);
+  expect(state.newThreadMetadataByResourceId[workspaceId]).toEqual({
+    operatingRootDisplayName: 'repo',
+    operatingRootId: 'root-1',
+    operatingRootPath: '/repo',
+  });
+
+  // The composer's workspace writes land on the draft; nothing reaches the repository.
+  await state.updateThreadMetadata(repository, workspaceId, newThreadId(workspaceId), {
+    checkoutMode: 'worktree',
+    checkoutWorktreeId: 'wt-1',
+    checkoutWorktreePath: '/repo-wt',
+  });
+  expect(repository.updateThreadMetadata).not.toHaveBeenCalled();
+  expect(useAssistantThreadStore.getState().newThreadMetadataByResourceId[workspaceId]).toEqual(
+    expect.objectContaining({ checkoutMode: 'worktree', operatingRootId: 'root-1' })
+  );
   expect(repository.createThread).not.toHaveBeenCalled();
 
-  // Leaving for an open tab drops the pending folder.
-  state.openThreadTab(workspaceId, 'thread-a');
-  expect(useAssistantThreadStore.getState().newThreadFolderByResourceId).toEqual({});
-
-  useAssistantThreadStore.getState().startNewThread(workspaceId, folder);
-  const thread = await useAssistantThreadStore.getState().createThread(repository, workspaceId);
+  const created = {
+    createdAt: new Date(),
+    id: 'thread-new',
+    resourceId: workspaceId,
+    title: 'New Thread',
+    updatedAt: new Date(),
+  };
+  await useAssistantThreadStore.getState().commitNewThread(workspaceId, created);
   state = useAssistantThreadStore.getState();
-  expect(state.activeThreadIdByResourceId[workspaceId]).toBe(thread.id);
-  expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a', thread.id]);
-  expect(state.newThreadFolderByResourceId).toEqual({});
+  expect(state.activeThreadIdByResourceId[workspaceId]).toBe('thread-new');
+  expect(state.openThreadIdsByResourceId[workspaceId]).toEqual(['thread-a', 'thread-new']);
+  expect(state.newThreadMetadataByResourceId).toEqual({});
+  // The new thread takes the draft's model settings.
+  expect(state.draftRuntimeByThreadId).toEqual({ 'thread-new': { model: 'draft-model' } });
+  expect(repository.createThread).not.toHaveBeenCalled();
 });
 
 it('does not discard saved tabs when the authoritative catalog fails to load', async () => {

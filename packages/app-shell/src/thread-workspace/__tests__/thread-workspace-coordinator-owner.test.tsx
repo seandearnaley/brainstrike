@@ -34,6 +34,7 @@ test('mounts the actual host snapshot repository without a database provider', a
     listThreads: vi.fn(),
     ownsThread: vi.fn(),
     renameThread: vi.fn(),
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: vi.fn(),
     updateThreadBinding: vi.fn(),
     workspaceRepository: () => repository,

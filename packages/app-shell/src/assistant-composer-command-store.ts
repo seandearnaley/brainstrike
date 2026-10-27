@@ -15,8 +15,7 @@ function reportDraftStorageError(error: unknown, title: string): void {
   });
 }
 
-/** `send` puts the text in the draft and sends it once the composer can send. */
-type ComposerDraftMode = 'append' | 'replace' | 'send';
+type ComposerDraftMode = 'append' | 'replace';
 
 export interface AssistantComposerCommand {
   readonly id: string;

@@ -26,6 +26,7 @@ test.each(['empty', 'current'] as const)(
         .mockResolvedValueOnce(result === 'empty' ? [] : [current]),
       ownsThread: vi.fn(async () => true),
       renameThread: vi.fn(),
+      renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
       renderThread: (threadId) => <div data-testid="host-thread">{threadId}</div>,
       updateThreadBinding: vi.fn(),
       workspaceRepository: () => {
@@ -50,7 +51,7 @@ test.each(['empty', 'current'] as const)(
     await user.click(screen.getByRole('button', { name: 'Retry loading conversations' }));
     if (result === 'empty') {
       // An empty catalog opens the new-thread screen; no thread is created for it.
-      expect(await screen.findByRole('textbox', { name: 'Message input' })).toBeVisible();
+      expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
       expect(screen.getByText(/Your saved conversation is unavailable/)).toBeVisible();
     } else {
       expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
