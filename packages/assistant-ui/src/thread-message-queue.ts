@@ -77,7 +77,9 @@ export class ThreadMessageQueue {
           // Unreachable while held; a throw restores the item and pauses.
           throw new Error('The queued message has no conversation to send it.');
         }
-        return this.send(message);
+        // A refused send rejects and the vendor puts the same item back, so
+        // bookkeeping for a dispatched item is dropped only once it was sent.
+        return this.send(message).then(() => this.prune());
       },
     });
     // Held until a mounted conversation binds it with a settled, connected view.
@@ -106,7 +108,11 @@ export class ThreadMessageQueue {
         return inner.items;
       },
       move: inner.move,
-      remove: inner.remove,
+      remove: (itemId: string): void => {
+        inner.remove(itemId);
+        this.queued.delete(itemId);
+        this.changed();
+      },
       steer: track(inner.steer),
       get steerItems() {
         return inner.steerItems;
@@ -206,6 +212,8 @@ export class ThreadMessageQueue {
 
   clear(): void {
     this.controller.clear();
+    this.queued.clear();
+    this.changed();
   }
 
   private lanes(): readonly QueueItemState[] {
@@ -213,14 +221,19 @@ export class ThreadMessageQueue {
     return steerItems.length === 0 ? items : [...steerItems, ...items];
   }
 
-  private changed(): void {
-    const items = this.lanes();
-    const ids = new Set(items.map((item) => item.id));
+  /** Forget items that left both lanes: sent, or cleared by the vendor. */
+  private prune(): void {
+    const ids = new Set(this.lanes().map((item) => item.id));
     for (const itemId of this.queued.keys()) {
       if (!ids.has(itemId)) {
         this.queued.delete(itemId);
       }
     }
+    this.changed();
+  }
+
+  private changed(): void {
+    const items = this.lanes();
     const keys = new Set<string>();
     for (const item of this.queued.values()) {
       if (item.identityKey !== undefined) {

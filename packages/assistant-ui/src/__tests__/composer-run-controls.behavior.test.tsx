@@ -7,7 +7,7 @@
  * Driven through the shipped conversation over a published committed view.
  */
 import '@testing-library/jest-dom/vitest';
-import type { AppendMessage } from '@assistant-ui/react';
+import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
 import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
@@ -243,6 +243,20 @@ describe('composer run controls over the committed queue', () => {
 
     await user.click(screen.getByRole('button', { name: 'Send now: held after stop' }));
     await waitFor(() => expect(host.sent).toEqual(['held after stop']));
+  });
+
+  it('keeps a refused queued message in line and sendable', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    host.onNew.mockRejectedValueOnce(new MessageNotSentError('host busy'));
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'retry me{Enter}');
+
+    await host.endRun();
+    await waitFor(() => expect(host.onNew).toHaveBeenCalledOnce());
+    await waitFor(() => expect(queuedPrompts(THREAD)).toEqual(['retry me']));
+    await user.click(await screen.findByRole('button', { name: 'Send now: retry me' }));
+    await waitFor(() => expect(host.sent).toEqual(['retry me']));
   });
 
   it('drops a queued decision the host answered meanwhile', async () => {
