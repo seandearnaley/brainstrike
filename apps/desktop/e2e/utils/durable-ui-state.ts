@@ -11,7 +11,7 @@ import { getContextExplorerFileExplorerPanel } from './context-explorer-locators
 import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
-import { startThread } from './new-thread';
+import { seedHostThreads } from './seed-threads';
 
 /**
  * The three renderer writers with a write-behind tail (ADR-0026 R1), driven through the real UI
@@ -40,6 +40,8 @@ const PANEL_LAYOUT_KEY = 'panel-layout-store.v1';
  * after the app's exit is joined: removing it while the app still has it mounted fails on
  * Windows (EBUSY).
  */
+const DURABLE_THREAD_TITLE = 'Durable thread';
+
 export async function openDurableUiFixture(
   electron: ElectronHarness,
   seedPage: Page
@@ -68,6 +70,9 @@ export async function openDurableUiFixture(
     { root: rootPath, rootId: ROOT_ID }
   );
   await updateIndexConfig(seedPage, { paused: true });
+  // New creates nothing until a first send, so the thread is created through
+  // the host, without a run.
+  await seedHostThreads(electron.getUserDataDir(), [{ folder: null, title: DURABLE_THREAD_TITLE }]);
   const { window: page } = await electron.restart();
   const { waitForAppReady } = await loadElectronHelpers();
   await waitForAppReady(page);
@@ -75,10 +80,17 @@ export async function openDurableUiFixture(
   await ensureAssistantShellVisible(page);
   await waitForAppHost(page);
   const userDataDir = electron.getUserDataDir();
-  // The first send creates the thread; nothing exists before it.
-  await startThread(page, 'Start a durable thread.');
+  // The thread seeded before the restart opens from its row.
+  const showThreads = page.getByTestId('show-threads-panel');
+  if (await showThreads.isVisible().catch(() => false)) {
+    await showThreads.click();
+  }
+  await page
+    .getByTestId('thread-row')
+    .getByRole('button', { exact: true, name: DURABLE_THREAD_TITLE })
+    .click();
   let threadId: string | null = null;
-  // The sent thread is the active one once the host has stored its workspace.
+  // The opened thread is the active one once the host has stored its workspace.
   await expect
     .poll(async () => {
       threadId = await readActiveThreadId(page);

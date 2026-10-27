@@ -11,6 +11,7 @@ import { readCommittedRunStatus } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+import { startThread } from './utils/new-thread';
 
 /**
  * The app-active signal follows the NATIVE window's focus (BST-1864), end to end
@@ -95,16 +96,15 @@ test('the seen rule follows the native window focus: a run finishing in an unfoc
     await openThreadsPanel(window);
 
     const strip = window.getByRole('tablist', { name: 'Open assistant threads' });
+    // The window has never been focused, and its transcript is on screen: the
+    // first send from the new-thread screen creates and opens the thread.
+    await startThread(window, 'Say the sentence.');
     await expect(strip.getByRole('tab')).toHaveCount(1, { timeout: 30_000 });
     const tabId = (await strip.getByRole('tab').getAttribute('id')) ?? '';
     const threadId = tabId.replace('assistant-thread-tab-', '');
     const panel = window.getByTestId(`assistant-thread-panel-${threadId}`);
     const threadsPanel = window.getByTestId('threads-panel');
     const unseen = threadsPanel.getByTestId('thread-unseen-glyph');
-
-    // The window has never been focused, and its transcript is on screen.
-    await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the sentence.');
-    await panel.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(panel.getByText(REPLY_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
     // The pane leaves the running state once the host has committed the run's end.
     await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);

@@ -1,4 +1,4 @@
-import type { AppendMessage } from '@assistant-ui/react';
+import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostRunSelection } from '@brainstrike/agent-host/protocol';
 import { useBudgetGuardrailBinding } from '@brainstrike/app-shell';
@@ -154,29 +154,39 @@ export function NewHostThread({
         threadId: created,
       });
     };
-    const sendFirst = (message: AppendMessage): Promise<void> => {
+    // One first send creates the thread; another before it opens keeps its text.
+    let sending = false;
+    const sendFirst = async (message: AppendMessage): Promise<void> => {
+      if (sending) {
+        throw new MessageNotSentError('The new thread is still being created.');
+      }
+      sending = true;
       const current = settings.current;
-      return sendNewThreadFirstMessage(
-        {
-          bind,
-          client,
-          commit: (thread) =>
-            useAssistantThreadStore.getState().commitNewThread(resourceId, thread),
-          host,
-          resourceId,
-          runSettings: () =>
-            hostRunSettings({
-              modelId: '',
-              readConfiguration: () =>
-                current.readConfiguration(explorer.getState().currentFolderId),
-              readModelId: current.readModelId,
-              readPlanMode: current.readPlanMode,
-            }),
-          selection: current.selection.selection ?? null,
-          settleLost: (created) => settleLostSend(client, replacement, created),
-        },
-        message
-      );
+      try {
+        return await sendNewThreadFirstMessage(
+          {
+            bind,
+            client,
+            commit: (thread) =>
+              useAssistantThreadStore.getState().commitNewThread(resourceId, thread),
+            host,
+            resourceId,
+            runSettings: () =>
+              hostRunSettings({
+                modelId: '',
+                readConfiguration: () =>
+                  current.readConfiguration(explorer.getState().currentFolderId),
+                readModelId: current.readModelId,
+                readPlanMode: current.readPlanMode,
+              }),
+            selection: current.selection.selection ?? null,
+            settleLost: (created) => settleLostSend(client, replacement, created),
+          },
+          message
+        );
+      } finally {
+        sending = false;
+      }
     };
     return { onNew: sendFirst };
   }, [client, explorer, host, replacement, resourceId]);

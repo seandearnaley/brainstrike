@@ -21,9 +21,8 @@ import {
 import { runViteCache } from './utils/run-vite-cache';
 
 /** Each send here is a thread's first: it creates the thread from the new-thread screen. */
-async function send(page: Page, message: string, beforeReply?: () => Promise<void>): Promise<void> {
+async function send(page: Page, message: string): Promise<void> {
   const conversation = await startThread(page, message);
-  await beforeReply?.();
   await expect(conversation.getByText('DEV_PROFILE_REPLY', { exact: true })).toBeVisible();
   // The reply streams before the host commits the run's end; the pane leaves the
   // running state once that end is committed.
@@ -189,8 +188,9 @@ test('ordinary dev excludes a second app, then reopens A with its first Sends an
 }) => {
   const a = await ordinaryDev.launch('incident-a');
   await configureProvider(a.page, true);
-  // A fresh profile has no model: the new thread holds the message until one is chosen.
-  await send(a.page, 'A_NO_FOLDER', () => chooseModel(a.page));
+  // A fresh profile has no model: the new-thread composer waits for one.
+  await chooseModel(a.page);
+  await send(a.page, 'A_NO_FOLDER');
   await addRoot(a.page);
   await send(a.page, 'A_WITH_FOLDER');
 
@@ -261,8 +261,9 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
 }, info) => {
   const a = await ordinaryDev.launch('incident-a');
   await configureProvider(a.page, true);
-  // A fresh profile has no model: the new thread holds the message until one is chosen.
-  await send(a.page, 'A_NO_FOLDER', () => chooseModel(a.page));
+  // A fresh profile has no model: the new-thread composer waits for one.
+  await chooseModel(a.page);
+  await send(a.page, 'A_NO_FOLDER');
   const rootA = await addRoot(a.page);
   await disconnectRoot(a.page);
   await ordinaryDev.close();
@@ -274,7 +275,8 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
     b.page.getByTestId('assistant-ui-viewport').getByText('A_NO_FOLDER', { exact: true })
   ).toHaveCount(0);
   await configureProvider(b.page, false);
-  await send(b.page, 'B_NO_FOLDER', () => chooseModel(b.page));
+  await chooseModel(b.page);
+  await send(b.page, 'B_NO_FOLDER');
   const rootB = await addRoot(b.page);
   expect(rootB).not.toBe(rootA);
   await send(b.page, 'B_WITH_FOLDER');

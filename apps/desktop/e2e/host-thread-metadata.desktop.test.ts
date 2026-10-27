@@ -4,8 +4,10 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { seedHostThreads } from './utils/seed-threads';
 
 const TITLE = 'Release plan';
+const UNTITLED = 'Untitled thread';
 
 async function openThreadsPanel(page: Page): Promise<void> {
   const showSidebar = page.getByTestId('show-threads-panel');
@@ -27,6 +29,7 @@ async function customize(page: Page, title: string) {
 
 /** Title, colour and icon of a host thread, set through the UI, survive a reload. */
 test('a host thread keeps its title, colour and icon across a reload', async ({
+  electron,
   modelProvider,
   window,
 }) => {
@@ -40,13 +43,20 @@ test('a host thread keeps its title, colour and icon across a reload', async ({
     timeout: 30_000,
   });
   await expect(window.getByTestId('chat-panel')).toHaveCount(0);
+  // New creates nothing until a first send, so the thread is created through the host.
+  await seedHostThreads(electron.getUserDataDir(), [{ folder: null, title: UNTITLED }]);
+  await reloadRenderer(window, 'host-thread-metadata: seed');
+  await ensureAssistantShellVisible(window);
   await openThreadsPanel(window);
   const threads = window.getByTestId('threads-panel');
   const strip = window.getByRole('tablist', { name: 'Open assistant threads' });
-  await expect(strip.getByRole('tab')).toHaveCount(1, { timeout: 30_000 });
-  const untitled = (await strip.getByRole('tab').innerText()).trim();
+  await threads
+    .getByTestId('thread-row')
+    .getByRole('button', { exact: true, name: UNTITLED })
+    .click();
+  await expect(strip.getByRole('tab', { name: UNTITLED })).toHaveCount(1, { timeout: 30_000 });
 
-  await threads.getByRole('button', { exact: true, name: `Thread actions ${untitled}` }).click();
+  await threads.getByRole('button', { exact: true, name: `Thread actions ${UNTITLED}` }).click();
   await window.getByRole('button', { exact: true, name: 'Rename' }).click();
   const titleInput = window.getByRole('textbox', { exact: true, name: 'Thread title' });
   await titleInput.fill(TITLE);

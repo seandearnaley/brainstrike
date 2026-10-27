@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures/electron-fixture';
+import { waitForAppHost } from './utils/agent-host-log';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { seedHostThreads } from './utils/seed-threads';
@@ -10,6 +11,7 @@ test('keeps Threads at the top after Settings ribbon round trips', async ({
   await ensureAssistantShellVisible(page);
   const panel = page.getByTestId('threads-panel');
   // New creates nothing until a first send, so the rows are seeded through the host.
+  await waitForAppHost(page);
   await seedHostThreads(
     electron.getUserDataDir(),
     Array.from({ length: 15 }, (_, index) => ({ folder: null, title: `Thread ${index + 1}` }))

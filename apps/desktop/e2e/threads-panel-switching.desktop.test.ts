@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { readHostThreadTree } from './utils/agent-host-log';
+import { readHostThreadTree, waitForAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -118,6 +118,7 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
     await ensureAssistantShellVisible(page);
     const panel = page.getByTestId('threads-panel');
     // New creates nothing until a first send, so the rows are seeded through the host.
+    await waitForAppHost(page);
     await seedHostThreads(
       electron.getUserDataDir(),
       Array.from({ length: 45 }, (_, index) => ({ folder: null, title: `Thread ${index + 1}` }))
@@ -125,7 +126,8 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
     const { reloadRenderer } = await loadElectronHelpers();
     await reloadRenderer(page, 'threads-panel-switching-seed');
     await ensureAssistantShellVisible(page);
-    await expect(panel.getByTestId('thread-row')).toHaveCount(45, { timeout: 30_000 });
+    // The list is virtualized: the seeded rows show once the catalog has loaded.
+    await expect(panel.getByTestId('thread-row').first()).toBeVisible({ timeout: 30_000 });
     if (expanded) {
       await ensureMockWorkspaceOpen(page);
       await configureAssistantProvider(page);

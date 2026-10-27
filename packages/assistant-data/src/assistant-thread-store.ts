@@ -136,6 +136,7 @@ type PersistedAssistantThreadState = Pick<
   | 'activeThreadIdByResourceId'
   | 'draftRuntimeByThreadId'
   | 'lastViewedAtByThreadId'
+  | 'newThreadMetadataByResourceId'
   | 'openThreadIdsByResourceId'
   | 'selectedThreadByResourceId'
   | 'unseenBaselineAt'
@@ -983,6 +984,8 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         activeThreadIdByResourceId: state.activeThreadIdByResourceId,
         draftRuntimeByThreadId: state.draftRuntimeByThreadId,
         lastViewedAtByThreadId: state.lastViewedAtByThreadId,
+        // The new thread's folder and checkout, like its model settings, survive a reload.
+        newThreadMetadataByResourceId: state.newThreadMetadataByResourceId,
         openThreadIdsByResourceId: state.openThreadIdsByResourceId,
         selectedThreadByResourceId: state.selectedThreadByResourceId,
         unseenBaselineAt: state.unseenBaselineAt,
