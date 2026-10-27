@@ -111,18 +111,7 @@ export {
   useCheckpointForToolCall,
   useCheckpointTurnRevert,
 } from './edit-checkpoint-context';
-export {
-  FollowUpQueueBridge,
-  FollowUpQueueChips,
-  QueueFollowUpButton,
-} from './follow-up-queue';
-export {
-  type FollowUpQueueItem,
-  followUpQueueKey,
-  isDecisionQueued,
-  resetFollowUpQueueStore,
-  useFollowUpQueueStore,
-} from './follow-up-queue-store';
+export { FollowUpQueueChips, QueueFollowUpButton } from './follow-up-queue';
 export { LiveShellOutputs } from './live-shell-outputs';
 export {
   McpTaskBridgeProvider,

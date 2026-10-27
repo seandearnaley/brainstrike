@@ -10,7 +10,7 @@ import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
-import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import { resetThreadMessageQueues } from '../thread-message-queue';
 import { expandApprovalRow } from './approval-row-helpers';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
@@ -103,7 +103,7 @@ function renderNotices(
 
 describe('approval presentation: card vs row', () => {
   beforeEach(() => {
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
     appendMock.mockReset();
     threadMessagesMock.current = [];
     threadRunningMock.isRunning = false;
