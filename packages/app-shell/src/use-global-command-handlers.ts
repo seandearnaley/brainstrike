@@ -1,16 +1,9 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import {
-  type AssistantThreadCatalogRepository,
-  useAssistantThreadStore,
-  WORKSPACE_MEMORY_RESOURCE_ID,
-} from '@brainstrike/assistant-data';
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import type { GlobalCommandHandlers } from '@brainstrike/context-actions/commands';
 import { useTheme } from '@brainstrike/ui';
 import { useCallback, useMemo } from 'react';
-import {
-  createHostAssistantThreadRepository,
-  useAssistantThreadHost,
-} from './assistant-thread-host-context';
+import { useAssistantThreadHost } from './assistant-thread-host-context';
 import { useConnectFolder } from './workspace-connect/use-connect-folder';
 
 /**
@@ -35,26 +28,16 @@ export function useGlobalCommandHandlers(): GlobalCommandHandlers {
   const { openPicker } = useConnectFolder();
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
   const { theme, setTheme } = useTheme();
-  const createThread = useAssistantThreadStore((state) => state.createThread);
+  const startNewThread = useAssistantThreadStore((state) => state.startNewThread);
 
-  // A new thread is created by the host's thread owner.
+  // New Thread opens the new-thread screen; the host's thread owner creates
+  // the thread on its first send. Without a host this is null and the
+  // handler is omitted below.
   const host = useAssistantThreadHost();
-  const repository = useMemo<AssistantThreadCatalogRepository | null>(
-    () => (host ? createHostAssistantThreadRepository(host) : null),
-    [host]
+  const newThread = useMemo<(() => void) | null>(
+    () => (host ? () => startNewThread(WORKSPACE_MEMORY_RESOURCE_ID) : null),
+    [host, startNewThread]
   );
-
-  // Bound only when the repository exists, so the closure captures a non-null
-  // repository (no in-body null guard needed). When there is no host
-  // this is null and the handler is omitted below.
-  const newThread = useMemo<(() => Promise<void>) | null>(() => {
-    if (!repository) {
-      return null;
-    }
-    return async () => {
-      await createThread(repository, WORKSPACE_MEMORY_RESOURCE_ID);
-    };
-  }, [repository, createThread]);
 
   const toggleTheme = useCallback(() => {
     // Resolve `system` toward its effective value, then flip — so a single
@@ -70,7 +53,7 @@ export function useGlobalCommandHandlers(): GlobalCommandHandlers {
 
   return useMemo<GlobalCommandHandlers>(
     () => ({
-      // When there is no host repository, newThread is null and is OMITTED
+      // When there is no thread host, newThread is null and is OMITTED
       // here. createGlobalCommands' isAvailable (`newThread !== undefined`)
       // then HIDES `thread.new` — it is never a faked no-op (the
       // no-silent-fallbacks contract).

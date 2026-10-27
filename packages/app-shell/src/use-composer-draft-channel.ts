@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useLayoutEffect } from 'react';
 import {
   type AssistantComposerCommand,
   useAssistantComposerCommandStore,
@@ -26,6 +26,16 @@ export function useComposerDraftChannel(threadId: string | undefined): ComposerD
   );
   const acknowledgeCommand = useAssistantComposerCommandStore((state) => state.acknowledge);
   const recordDraft = useAssistantComposerCommandStore((state) => state.recordDraft);
+  const restoreDraft = useAssistantComposerCommandStore((state) => state.restoreDraft);
+  // A composer mounts empty, so one mounted again (the new-thread screen after
+  // another tab was open) takes back the text it had not sent. A layout effect,
+  // so the command is queued before the empty composer records its text.
+  // biome-ignore lint/plugin: a mount-time restore into the external draft store, not an event handler
+  useLayoutEffect(() => {
+    if (threadId) {
+      restoreDraft(threadId);
+    }
+  }, [restoreDraft, threadId]);
   const onApplied = useCallback(
     (commandId: string) => {
       if (!command || command.id !== commandId) {

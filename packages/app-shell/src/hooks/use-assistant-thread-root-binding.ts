@@ -1,5 +1,5 @@
 import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
-import { useAssistantThreadStore } from '@brainstrike/assistant-data';
+import { useAssistantThreadStore, useResourceThread } from '@brainstrike/assistant-data';
 import { useCallback } from 'react';
 import {
   type AssistantOperatingRootCandidate,
@@ -48,11 +48,9 @@ export function useAssistantThreadRootBinding({
   memoryResourceId,
   selectedMemoryThreadId,
 }: UseAssistantThreadRootBindingArgs): UseAssistantThreadRootBindingResult {
-  const threadsByResourceId = useAssistantThreadStore((state) => state.threadsByResourceId);
   const updateThreadMetadata = useAssistantThreadStore((state) => state.updateThreadMetadata);
-  const selectedThread = selectedMemoryThreadId
-    ? threadsByResourceId[memoryResourceId]?.find((thread) => thread.id === selectedMemoryThreadId)
-    : undefined;
+  // The new thread's composer reads its draft binding as an unsent thread's.
+  const selectedThread = useResourceThread(memoryResourceId, selectedMemoryThreadId);
   const selectedThreadMetadataPending = Boolean(selectedMemoryThreadId && !selectedThread);
   const threadRootBinding = resolveAssistantOperatingRootBinding({
     ...(selectedThread?.metadata ? { threadMetadata: selectedThread.metadata } : {}),

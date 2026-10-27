@@ -51,6 +51,7 @@ function createHost(
     listThreads: refused,
     ownsThread: refused,
     renameThread: refused,
+    renderNewThread: () => null,
     renderThread: () => null,
     updateThreadBinding: refused,
     workspaceRepository: () => {

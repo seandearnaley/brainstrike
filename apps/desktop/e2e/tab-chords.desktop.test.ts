@@ -13,6 +13,7 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { startThread } from './utils/new-thread';
 
 interface MenuItemShape {
   readonly accelerator: string | null;
@@ -57,10 +58,9 @@ async function openThreeThreads(page: Page): Promise<Locator> {
   await ensureAssistantShellVisible(page);
   const strip = page.getByRole('tablist', { name: 'Open assistant threads' });
   await expect(strip).toBeVisible({ timeout: 30_000 });
-  const newThread = page.getByTestId('assistant-new-thread-button');
+  // Each thread is created by its first send.
   for (let count = await strip.getByRole('tab').count(); count < 3; count += 1) {
-    await expect(newThread).toBeEnabled({ timeout: 15_000 });
-    await newThread.click();
+    await startThread(page, `Thread ${count + 1}`);
     await expect(strip.getByRole('tab')).toHaveCount(count + 1, { timeout: 15_000 });
   }
   return strip;

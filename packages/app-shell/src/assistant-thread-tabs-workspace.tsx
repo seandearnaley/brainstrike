@@ -50,6 +50,9 @@ function HostThreadTabs({
       {...props}
       activeThreads={activeThreads}
       loadingLabel="Loading conversations."
+      renderNewThread={(resourceId, providerReadErrors) =>
+        host.renderNewThread(resourceId, providerReadErrors)
+      }
       renderThread={(panel) => {
         const threadId = panel.memoryThreadId;
         if (!threadId) {
