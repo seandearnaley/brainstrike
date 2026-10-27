@@ -52,11 +52,13 @@ jobs:
     runs-on: ubicloud-standard-4
     # Each shard runs an eighth of the regression project's tests under the
     # lane's own 30m --global-timeout; shard 1 also runs the 2m AI Tools nightly
-    # lane. Setup/build headroom included. Playwright shards single tests
-    # (fullyParallel), so the shards carry even shares, and each shard runs two
-    # tests at once on the runner's 4 vCPUs (the GitHub Actions worker count in
-    # packages/config/src/playwright-environment.ts). File-level shards on one
-    # worker ranged from 3.0 to 9.1 test-min (41 test-min in all).
+    # lane. Setup/build headroom included. Each shard runs two tests at once on
+    # the runner's 4 vCPUs (the GitHub Actions worker count in
+    # packages/config/src/playwright-environment.ts). Playwright cuts shards by
+    # test count in file order, so shard 2 holds the slow delegated, dev-profile
+    # and durable-state specs: in run 40564369748 its tests took 7.4 min and the
+    # other shards' 1.6-3.7 min, and it still finished with the unit and
+    # packaging lanes. On one worker, file-level shards took 3.0-9.1 min.
     timeout-minutes: 40
     strategy:
       fail-fast: false

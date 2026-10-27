@@ -170,8 +170,8 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
   return {
     ...env,
     // Schedule and shard single tests, not whole files: each desktop test owns
-    // its app, profile and workspace root (e2e/fixtures/electron-fixture.ts).
-    // File-level sharding left one shard with almost twice an even share.
+    // its app, profile and workspace root (e2e/fixtures/electron-fixture.ts),
+    // so a file's tests run on every worker instead of one after another.
     // A spec whose tests depend on each other declares `mode: 'serial'`.
     fullyParallel: true,
     globalTimeout: getGlobalTimeout(env),
