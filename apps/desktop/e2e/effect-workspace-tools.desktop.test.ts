@@ -110,7 +110,7 @@ test('Effect workspace and MCP producers retain validation, decisions, progress,
           },
         };
   });
-  await panel.getByRole('button', { name: 'Toggle plan mode' }).click();
+  await panel.getByRole('button', { name: 'Plan mode' }).click();
   await send('Plan, then write planned.txt.');
   const approve = panel.getByRole('button', { exact: true, name: 'Approve plan' });
   await expect(approve).toBeVisible({ timeout: 30_000 });

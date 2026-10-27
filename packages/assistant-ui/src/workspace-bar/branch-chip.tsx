@@ -1,22 +1,16 @@
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  Input,
-} from '@brainstrike/ui';
+import { cn, ModelPickerSearch, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import { Command } from 'cmdk';
 import {
   Check,
   ChevronDown,
+  FolderGit2,
   GitBranch,
   GitBranchPlus,
   RefreshCw,
   SplitSquareHorizontal,
 } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
+import { GROUP_HEADING_CLASS, ROW_CLASS } from '../composer-model-picker';
 import type {
   WorkspaceBarBranchMenu,
   WorkspaceBarBranchRow,
@@ -25,9 +19,6 @@ import type {
 
 const countBadge = (count: number | null, glyph: string): string | null =>
   count !== null && count > 0 ? `${glyph}${count}` : null;
-
-const CHIP_CLASSES =
-  'inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 font-mono text-[11px] text-muted-foreground';
 
 const BranchGlyphs = ({
   ahead,
@@ -41,19 +32,26 @@ const BranchGlyphs = ({
   readonly label: string;
 }): ReactElement => (
   <>
-    <GitBranch aria-hidden="true" className="size-3 shrink-0" />
-    <span className="truncate">{label}</span>
-    {ahead ? <span className="shrink-0 tabular-nums">{ahead}</span> : null}
-    {behind ? <span className="shrink-0 tabular-nums">{behind}</span> : null}
-    {checkout.dirty ? <span className="shrink-0 text-warning">●</span> : null}
+    <GitBranch aria-hidden="true" />
+    <span className="bs-composer-chip-label">{label}</span>
+    {ahead ? <span className="bs-composer-chip-badge">{ahead}</span> : null}
+    {behind ? <span className="bs-composer-chip-badge">{behind}</span> : null}
+    {checkout.dirty ? <span aria-hidden="true" className="bs-composer-dirty-dot" /> : null}
   </>
+);
+
+const BRANCH_ROW_CLASS = cn(
+  ROW_CLASS,
+  'items-start font-mono text-xs data-[disabled=true]:text-muted-foreground data-[disabled=true]:opacity-100'
 );
 
 const BranchMenuRow = ({
   menu,
+  onDone,
   row,
 }: {
   readonly menu: WorkspaceBarBranchMenu;
+  readonly onDone: () => void;
   readonly row: WorkspaceBarBranchRow;
 }): ReactElement => {
   const onSwitchInNewWorktree = menu.onSwitchInNewWorktree;
@@ -65,43 +63,57 @@ const BranchMenuRow = ({
 
   return (
     <>
-      <DropdownMenuItem
-        className="items-start font-mono text-[11px]"
+      <Command.Item
+        className={BRANCH_ROW_CLASS}
         data-testid={`workspace-bar-branch-row-${row.name}`}
         disabled={!row.switchable || menu.pending}
-        onSelect={() => menu.onSwitch(row.name)}
+        onSelect={() => {
+          menu.onSwitch(row.name);
+          onDone();
+        }}
+        value={`branch:${row.name}`}
       >
-        <span className="flex size-3.5 shrink-0 items-center justify-center">
-          {row.current ? <Check aria-hidden="true" className="size-3.5" /> : null}
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {row.current ? (
+            <Check aria-label="Current branch" className="size-3.5" role="img" />
+          ) : null}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-foreground">{row.name}</span>
+          <span className={cn('block truncate', row.current ? 'font-medium' : undefined)}>
+            {row.name}
+          </span>
           {row.disabledReason ? (
             <span
-              className="block whitespace-normal text-[10px] text-muted-foreground"
+              className="block whitespace-normal font-sans text-[11px] text-muted-foreground"
               data-testid={`workspace-bar-branch-reason-${row.name}`}
             >
               {row.disabledReason}
             </span>
           ) : null}
-          {row.worktreeName ? (
-            <span className="block truncate text-[10px] text-muted-foreground">
-              Worktree: {row.worktreeName}
-            </span>
-          ) : null}
         </span>
-      </DropdownMenuItem>
+        {row.worktreeName ? (
+          <span className="flex shrink-0 items-center gap-1 font-sans text-[11px] text-muted-foreground">
+            <FolderGit2 aria-hidden="true" className="size-3" />
+            <span className="sr-only">Checked out in worktree </span>
+            {row.worktreeName}
+          </span>
+        ) : null}
+      </Command.Item>
       {showsWorktreeAction ? (
         // Follow-up: checkout-existing-branch create mode replaces this detached-at-tip stopgap.
-        <DropdownMenuItem
-          className="pl-8 text-[11px]"
+        <Command.Item
+          className={cn(ROW_CLASS, 'pl-8 text-xs')}
           data-testid={`workspace-bar-branch-worktree-${row.name}`}
           disabled={menu.pending}
-          onSelect={() => onSwitchInNewWorktree(row.name)}
+          onSelect={() => {
+            onSwitchInNewWorktree(row.name);
+            onDone();
+          }}
+          value={`worktree:${row.name}`}
         >
           <SplitSquareHorizontal aria-hidden="true" className="size-3.5" />
           Switch in a new worktree (detached at this branch&apos;s tip)
-        </DropdownMenuItem>
+        </Command.Item>
       ) : null}
     </>
   );
@@ -124,7 +136,7 @@ const ReadOnlyBranchChip = ({
 }: BranchChipGlyphProps & { readonly summary: string }): ReactElement => (
   <span
     aria-label={summary}
-    className={CHIP_CLASSES}
+    className="bs-composer-chip bs-composer-chip-long"
     data-dirty={checkout.dirty ? 'true' : 'false'}
     data-testid="workspace-bar-branch-chip"
     role="img"
@@ -134,95 +146,105 @@ const ReadOnlyBranchChip = ({
   </span>
 );
 
-/** The branch switcher's half of the chip menu: filter, rows, create and fetch. */
-const BranchSwitcherSection = ({
+/**
+ * The branch switcher: search first, then local branches, with branches held
+ * by another worktree in their own group so a repository with many worktrees
+ * stays scannable. Typing a name that matches no branch offers to create it,
+ * the GitHub / VS Code idiom, so creation needs no second field. Filtering is
+ * the caller's (`onQueryChange`), so cmdk only navigates.
+ */
+const BranchSwitcher = ({
   branchMenu,
-  newBranchName,
-  onNewBranchNameChange,
+  onDone,
 }: {
   readonly branchMenu: WorkspaceBarBranchMenu;
-  readonly newBranchName: string;
-  readonly onNewBranchNameChange: (name: string) => void;
+  readonly onDone: () => void;
 }): ReactElement => {
-  const trimmedNewBranchName = newBranchName.trim();
-  const createBranch = (): void => {
-    if (branchMenu.pending || trimmedNewBranchName.length === 0) {
-      return;
-    }
-    branchMenu.onCreateBranch(trimmedNewBranchName);
-    onNewBranchNameChange('');
-  };
+  const newBranchName = branchMenu.query.trim();
+  const free = branchMenu.rows.filter((row) => row.worktreeName === null);
+  const elsewhere = branchMenu.rows.filter((row) => row.worktreeName !== null);
+  const canCreate =
+    newBranchName.length > 0 && !branchMenu.rows.some((row) => row.name === newBranchName);
 
   return (
-    <>
-      <div className="p-1">
-        <Input
-          aria-label="Filter branches"
-          className="h-8 font-mono text-xs"
-          data-testid="workspace-bar-branch-search"
-          onChange={(event) => branchMenu.onQueryChange(event.target.value)}
-          onKeyDown={(event) => event.stopPropagation()}
-          placeholder="Filter branches"
-          value={branchMenu.query}
-        />
-      </div>
-      <DropdownMenuLabel className="px-3 py-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-        Local branches
-      </DropdownMenuLabel>
+    <Command className="flex flex-col" label="Branches" loop shouldFilter={false}>
+      <ModelPickerSearch
+        aria-label="Filter branches"
+        data-testid="workspace-bar-branch-search"
+        onValueChange={branchMenu.onQueryChange}
+        placeholder="Switch or create a branch…"
+        value={branchMenu.query}
+      />
       {branchMenu.pending ? (
-        <span className="block px-3 py-1 text-[10px] text-muted-foreground">
+        <span className="block px-3 pt-2 text-[11px] text-muted-foreground" role="status">
           Branch operation in progress.
         </span>
       ) : null}
-      {branchMenu.scopeReason ? (
-        <span
-          className="block px-3 py-2 text-muted-foreground text-xs"
-          data-testid="workspace-bar-branch-scope-reason"
-        >
-          {branchMenu.scopeReason}
-        </span>
-      ) : (
-        branchMenu.rows.map((row) => <BranchMenuRow key={row.name} menu={branchMenu} row={row} />)
-      )}
-      <DropdownMenuSeparator />
-      <div className="flex gap-1 p-1">
-        <Input
-          aria-label="New branch name"
-          className="h-8 font-mono text-xs"
-          data-testid="workspace-bar-branch-new-name"
-          disabled={branchMenu.pending}
-          onChange={(event) => onNewBranchNameChange(event.target.value)}
-          onKeyDown={(event) => event.stopPropagation()}
-          placeholder="New branch name"
-          value={newBranchName}
-        />
-        <Button
-          data-testid="workspace-bar-branch-create"
-          disabled={branchMenu.pending || trimmedNewBranchName.length === 0}
-          onClick={createBranch}
-          size="icon-sm"
-          title="Create branch"
-          type="button"
-          variant="outline"
-        >
-          <GitBranchPlus aria-hidden="true" className="size-3.5" />
-          <span className="sr-only">Create branch</span>
-        </Button>
-      </div>
-      {branchMenu.onFetch ? (
-        <>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            data-testid="workspace-bar-branch-fetch"
-            disabled={branchMenu.pending}
-            onSelect={branchMenu.onFetch}
+      <Command.List className="max-h-[min(50vh,22rem)] overflow-y-auto p-1">
+        {branchMenu.scopeReason ? (
+          <p
+            className="px-2 py-2 text-muted-foreground text-xs"
+            data-testid="workspace-bar-branch-scope-reason"
           >
-            <RefreshCw aria-hidden="true" className="size-3.5" />
-            Fetch
-          </DropdownMenuItem>
-        </>
-      ) : null}
-    </>
+            {branchMenu.scopeReason}
+          </p>
+        ) : (
+          <>
+            <Command.Empty className="px-2 py-6 text-center text-muted-foreground text-sm">
+              No branches match.
+            </Command.Empty>
+            {free.length > 0 ? (
+              <Command.Group className={GROUP_HEADING_CLASS} heading="Local branches">
+                {free.map((row) => (
+                  <BranchMenuRow key={row.name} menu={branchMenu} onDone={onDone} row={row} />
+                ))}
+              </Command.Group>
+            ) : null}
+            {elsewhere.length > 0 ? (
+              <Command.Group className={GROUP_HEADING_CLASS} heading="In other worktrees">
+                {elsewhere.map((row) => (
+                  <BranchMenuRow key={row.name} menu={branchMenu} onDone={onDone} row={row} />
+                ))}
+              </Command.Group>
+            ) : null}
+          </>
+        )}
+        {canCreate || branchMenu.onFetch ? (
+          <Command.Group className={cn(GROUP_HEADING_CLASS, 'border-border/60 border-t')}>
+            {canCreate ? (
+              <Command.Item
+                className={cn(ROW_CLASS, 'text-xs')}
+                data-testid="workspace-bar-branch-create"
+                disabled={branchMenu.pending}
+                onSelect={() => {
+                  branchMenu.onCreateBranch(newBranchName);
+                  branchMenu.onQueryChange('');
+                  onDone();
+                }}
+                value="action:create"
+              >
+                <GitBranchPlus aria-hidden="true" className="size-3.5" />
+                <span className="min-w-0 truncate">
+                  Create branch <span className="font-medium font-mono">{newBranchName}</span>
+                </span>
+              </Command.Item>
+            ) : null}
+            {branchMenu.onFetch ? (
+              <Command.Item
+                className={cn(ROW_CLASS, 'text-xs')}
+                data-testid="workspace-bar-branch-fetch"
+                disabled={branchMenu.pending}
+                onSelect={branchMenu.onFetch}
+                value="action:fetch"
+              >
+                <RefreshCw aria-hidden="true" className="size-3.5" />
+                Fetch from remote
+              </Command.Item>
+            ) : null}
+          </Command.Group>
+        ) : null}
+      </Command.List>
+    </Command>
   );
 };
 
@@ -238,28 +260,40 @@ const BranchMenuChip = ({
   readonly branchMenu: WorkspaceBarBranchMenu;
   readonly summary: string;
 }): ReactElement => {
-  const [newBranchName, setNewBranchName] = useState('');
+  const [open, setOpen] = useState(false);
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label={`Branch: ${summary}`}
-        className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
-        data-dirty={checkout.dirty ? 'true' : 'false'}
-        data-testid="workspace-bar-branch-chip"
-        title={summary}
+    <Popover
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next && branchMenu.query) {
+          branchMenu.onQueryChange('');
+        }
+      }}
+      open={open}
+    >
+      <PopoverTrigger asChild>
+        <button
+          aria-label={`Branch: ${summary}`}
+          className="bs-composer-chip bs-composer-chip-long"
+          data-dirty={checkout.dirty ? 'true' : 'false'}
+          data-testid="workspace-bar-branch-chip"
+          title={summary}
+          type="button"
+        >
+          <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
+          <ChevronDown aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        aria-label="Switch branch"
+        className="w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl p-0"
+        data-testid="workspace-bar-branch-menu"
       >
-        <BranchGlyphs ahead={ahead} behind={behind} checkout={checkout} label={label} />
-        <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-80">
-        <BranchSwitcherSection
-          branchMenu={branchMenu}
-          newBranchName={newBranchName}
-          onNewBranchNameChange={setNewBranchName}
-        />
-      </DropdownMenuContent>
-    </DropdownMenu>
+        <BranchSwitcher branchMenu={branchMenu} onDone={() => setOpen(false)} />
+      </PopoverContent>
+    </Popover>
   );
 };
 
