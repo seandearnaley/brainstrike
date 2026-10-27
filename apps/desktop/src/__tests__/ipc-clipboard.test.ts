@@ -4,6 +4,7 @@ import { createClipboardIpcHandlers } from '../ipc-clipboard-handlers';
 
 function makeClipboard() {
   return {
+    writeImage: vi.fn<(png: Uint8Array) => Promise<void>>().mockResolvedValue(undefined),
     writeText: vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined),
   };
 }
@@ -45,6 +46,26 @@ describe('clipboard IPC handlers', () => {
     clipboard.writeText.mockImplementation(() => Promise.reject(new Error('clipboard locked')));
     const handlers = createClipboardIpcHandlers({ clipboard });
     const result = await handlers.writeText('hello');
+    expect(result).toEqual({
+      error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
+      ok: false,
+    });
+  });
+
+  it('writes PNG bytes to the system clipboard', async () => {
+    const clipboard = makeClipboard();
+    const handlers = createClipboardIpcHandlers({ clipboard });
+    const png = new Uint8Array([137, 80, 78, 71]);
+    const result = await handlers.writeImage(png);
+    expect(clipboard.writeImage).toHaveBeenCalledWith(png);
+    expect(result).toEqual({ ok: true, value: undefined });
+  });
+
+  it('surfaces a rejected image write as the IpcResult failure taxonomy', async () => {
+    const clipboard = makeClipboard();
+    clipboard.writeImage.mockRejectedValue(new Error('clipboard locked'));
+    const handlers = createClipboardIpcHandlers({ clipboard });
+    const result = await handlers.writeImage(new Uint8Array([1]));
     expect(result).toEqual({
       error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
       ok: false,

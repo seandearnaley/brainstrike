@@ -92,3 +92,63 @@ describe('createClipboardService', () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+describe('createClipboardService().writeImage', () => {
+  const png = () =>
+    Promise.resolve(new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }));
+
+  it('sends the PNG bytes through the Electron bridge when present', async () => {
+    const writeImage = vi.fn().mockResolvedValue({ ok: true, value: undefined });
+    (window as unknown as { clipboard: unknown }).clipboard = { writeImage, writeText: vi.fn() };
+    const navigatorWrite = vi.fn();
+    vi.stubGlobal('navigator', { clipboard: { write: navigatorWrite } });
+
+    const outcome = await createClipboardService().writeImage(png());
+
+    expect(outcome).toEqual({ ok: true });
+    expect(writeImage).toHaveBeenCalledWith(new Uint8Array([137, 80, 78, 71]));
+    expect(navigatorWrite).not.toHaveBeenCalled();
+  });
+
+  it('reports a desktop bridge that cannot take images instead of using the web API', async () => {
+    (window as unknown as { clipboard: unknown }).clipboard = { writeText: vi.fn() };
+    const navigatorWrite = vi.fn();
+    vi.stubGlobal('navigator', { clipboard: { write: navigatorWrite } });
+
+    const outcome = await createClipboardService().writeImage(png());
+
+    expect(outcome.ok).toBe(false);
+    expect(navigatorWrite).not.toHaveBeenCalled();
+  });
+
+  it('reports an image that failed to draw', async () => {
+    const writeImage = vi.fn();
+    (window as unknown as { clipboard: unknown }).clipboard = { writeImage };
+
+    const outcome = await createClipboardService().writeImage(
+      Promise.reject(new Error('Canvas is too large'))
+    );
+
+    expect(outcome).toEqual({ error: 'Canvas is too large', ok: false });
+    expect(writeImage).not.toHaveBeenCalled();
+  });
+
+  it('writes a PNG ClipboardItem through navigator.clipboard on web', async () => {
+    const navigatorWrite = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { write: navigatorWrite } });
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        readonly items: Record<string, unknown>;
+        constructor(items: Record<string, unknown>) {
+          this.items = items;
+        }
+      }
+    );
+
+    const outcome = await createClipboardService().writeImage(png());
+
+    expect(outcome).toEqual({ ok: true });
+    expect(Object.keys(navigatorWrite.mock.calls[0]?.[0][0].items)).toEqual(['image/png']);
+  });
+});

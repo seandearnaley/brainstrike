@@ -41,6 +41,7 @@ export const DESKTOP_IPC_CHANNELS = {
     tabsChanged: 'browser:tabsChanged',
   },
   clipboard: {
+    writeImage: 'clipboard:write-image',
     writeText: 'clipboard:write-text',
   },
   commandPalette: {
