@@ -560,14 +560,38 @@ describe('BranchChip menu', () => {
     expect(menu.onFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('creates a branch from the inline field', async () => {
+  it('offers to create the filter text as a branch when no branch has that name', async () => {
     const user = setup();
-    const menu = branchMenu();
+    const menu = branchMenu({ query: ' bs/bright-fox ', rows: [] });
     render(<WorkspaceBar {...baseProps()} branchMenu={menu} checkout={clean} />);
     await user.click(screen.getByTestId('workspace-bar-branch-chip'));
-    await user.type(await screen.findByTestId('workspace-bar-branch-new-name'), 'bs/bright-fox');
-    await user.click(screen.getByTestId('workspace-bar-branch-create'));
+    const create = await screen.findByTestId('workspace-bar-branch-create');
+    expect(create).toHaveTextContent('Create branch bs/bright-fox');
+    await user.click(create);
     expect(menu.onCreateBranch).toHaveBeenCalledWith('bs/bright-fox');
+  });
+
+  it('does not offer to create a branch that already exists', async () => {
+    const user = setup();
+    render(
+      <WorkspaceBar
+        {...baseProps()}
+        branchMenu={branchMenu({ query: 'feature/alpha' })}
+        checkout={clean}
+      />
+    );
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    await screen.findByTestId('workspace-bar-branch-row-feature/alpha');
+    expect(screen.queryByTestId('workspace-bar-branch-create')).toBeNull();
+  });
+
+  it('groups branches held by another worktree apart from free ones', async () => {
+    const user = setup();
+    render(<WorkspaceBar {...baseProps()} branchMenu={branchMenu()} checkout={clean} />);
+    await user.click(screen.getByTestId('workspace-bar-branch-chip'));
+    const elsewhere = await screen.findByRole('group', { name: 'In other worktrees' });
+    expect(within(elsewhere).getByTestId('workspace-bar-branch-row-feature/beta')).toBeVisible();
+    expect(within(elsewhere).queryByTestId('workspace-bar-branch-row-feature/alpha')).toBeNull();
   });
 
   it('stays a read-only image with no menu when branchMenu is absent', () => {
