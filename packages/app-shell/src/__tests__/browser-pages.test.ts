@@ -81,7 +81,7 @@ describe('browser pages', () => {
 
   it('says why no page opened without a conversation or without the desktop browser', async () => {
     useAssistantThreadStore.setState({ activeThreadIdByResourceId: {} });
-    await expect(openBrowserPage()).rejects.toThrow(/Open a conversation first/);
+    await expect(openBrowserPage()).rejects.toThrow(/Send a message first/);
 
     Reflect.deleteProperty(window as Window & { browser?: unknown }, 'browser');
     await expect(openBrowserPage()).rejects.toThrow(/browser is not available/);

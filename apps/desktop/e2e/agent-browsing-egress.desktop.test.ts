@@ -10,7 +10,7 @@
 import type { ElectronApplication } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
-import { openBrowserPage, visibleAddress } from './utils/browser-page-helpers';
+import { openBrowserPage, startConversation, visibleAddress } from './utils/browser-page-helpers';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 const NAVIGATE = 'brainstrike_browserNavigate';
@@ -54,8 +54,10 @@ test('the agent opens its own proxied tab and never drives the user tab (BST-123
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
 
-  // The person's own tab, opened from the workspace.
+  // The person's own tab, opened from the workspace of the conversation the
+  // first send starts.
   await ensureAssistantShellVisible(window);
+  await startConversation(window, modelProvider, 'Get ready to browse.');
   const userTab = await openBrowserPage(window, USER_PAGE, 'User page');
   await expect(window.getByTestId('browser-page-agent').filter({ visible: true })).toHaveCount(0);
 

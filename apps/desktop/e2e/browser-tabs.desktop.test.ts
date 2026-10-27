@@ -8,7 +8,9 @@
  * observe that, so the test reads the views' drawn state in MAIN
  * (`View.getVisible()`), filtered to the pane's dedicated session partition.
  *
- * Pages are `data:` URLs with a <title>, so no network is involved.
+ * Pages are `data:` URLs with a <title>, so no network is involved. A fresh
+ * profile opens on the new-thread screen, so each test starts a conversation
+ * with a scripted reply first.
  *
  * BST-1843: closing the window with a page open must tear the pane down
  * without a main-process error — `dispose()` runs from the window's `closed`
@@ -16,8 +18,10 @@
  */
 import type { ElectronApplication } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import {
   openBrowserPage,
+  startConversation,
   titledPage,
   visibleAddress,
   workspaceTabs,
@@ -120,11 +124,14 @@ async function expectDrawnPages(app: ElectronApplication, urls: readonly string[
 test.describe('Browser tabs (desktop)', () => {
   test("opens pages as the conversation's workspace tabs and draws only the selected one", async ({
     electronApp,
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(180_000);
     const app = electronApp.app;
     await ensureAssistantShellVisible(page);
+    await configureAssistantProvider(page);
+    await startConversation(page, modelProvider, 'First conversation');
     const tabs = workspaceTabs(page);
 
     const alpha = await openBrowserPage(page, titledPage('Alpha'), 'Alpha');
@@ -165,7 +172,7 @@ test.describe('Browser tabs (desktop)', () => {
     const threads = page.getByRole('tablist', { name: 'Open assistant threads' });
     const first = threads.getByRole('tab', { selected: true });
     const firstId = await first.getAttribute('id');
-    await page.getByTestId('assistant-new-thread-button').click();
+    await startConversation(page, modelProvider, 'Second conversation');
     await expect(threads.getByRole('tab')).toHaveCount(2);
     await expect(tabs.getByRole('tab', { name: 'Beta' })).toHaveCount(0);
     await expectDrawnPages(app, []);
@@ -179,11 +186,14 @@ test.describe('Browser tabs (desktop)', () => {
 
   test('closing the window with a page open releases the pane without a main-process error (BST-1843)', async ({
     electronApp,
+    modelProvider,
     window: page,
   }) => {
     test.setTimeout(120_000);
     const app = electronApp.app;
     await ensureAssistantShellVisible(page);
+    await configureAssistantProvider(page);
+    await startConversation(page, modelProvider, 'A conversation with a page');
     await openBrowserPage(page, titledPage('Alpha'), 'Alpha');
     await expect.poll(() => countPaneWebContents(app)).toBe(1);
 

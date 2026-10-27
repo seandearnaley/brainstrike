@@ -29,7 +29,7 @@ export async function openBrowserPage(url?: string): Promise<void> {
   }
   const threadId = activeBrowserThreadId();
   if (threadId === null) {
-    throw new Error('Open a conversation first: each browser tab belongs to one.');
+    throw new Error('Send a message first: each browser tab belongs to a conversation.');
   }
   await bridge.createTab(threadId, url);
   usePanelLayoutStore.getState().setActiveTab('explorer');

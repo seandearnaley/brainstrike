@@ -248,7 +248,7 @@ describe('workspace strip — closed-tab history (BST-1842)', () => {
   it('recreates a closed tab that left the registry through its own reopen, retrying a failure', async () => {
     const reopenPage = vi
       .fn<() => Promise<void>>()
-      .mockRejectedValueOnce(new Error('Open a conversation first'))
+      .mockRejectedValueOnce(new Error('Send a message first'))
       .mockResolvedValue(undefined);
     const pageApp: WorkspaceApp = {
       ...CHILD_CEDAR_APP,
@@ -261,7 +261,7 @@ describe('workspace strip — closed-tab history (BST-1842)', () => {
     act(() => workspace().onCloseTab(pageApp.id));
     view.rerender(<Harness apps={[FILES_APP, CHANGES_APP, CHILD_CEDAR_APP]} />);
 
-    expect(await reopen()).toEqual({ error: 'Open a conversation first', ok: false });
+    expect(await reopen()).toEqual({ error: 'Send a message first', ok: false });
     expect(await reopen()).toEqual({ ok: true });
     expect(reopenPage).toHaveBeenCalledTimes(2);
     expect(await reopen()).toEqual(NO_CLOSED_TAB_OUTCOME);
