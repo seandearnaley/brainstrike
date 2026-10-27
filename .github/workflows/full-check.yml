@@ -1,0 +1,28 @@
+# Runs the merge queue's own lanes on a pull request merged with main, when the
+# PR carries the `full-check` label (owner decision 2026-10-27). The queue stays
+# the gate; this is an opt-in run for a large or risky change before queueing.
+# Adding the label starts a run, and each push to a labelled PR starts another;
+# remove the label to stop. A pull_request run checks out the PR merged with
+# main, so it tests what the queue would.
+
+name: Full Check
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+# A called workflow can only narrow these, and merge-queue.yml asks for both.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  full-check:
+    name: Full check
+    if: >-
+      github.repository == 'seandearnaley/brainstrike' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'full-check') ||
+      (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'full-check')))
+    uses: ./.github/workflows/merge-queue.yml
+    secrets: inherit

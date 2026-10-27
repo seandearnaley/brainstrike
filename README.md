@@ -38,8 +38,11 @@ Current boundaries are documented in [subsystem contracts](docs/agents/).
 
 ## Checks and contributions
 
-**Per-PR CI is off; run `pnpm check` locally before queueing.** Documentation
-changes need review and link checks, not app regressions.
+**The merge queue is the gate.** Every queue batch runs every check, including
+the full desktop regression, on hosted runners. Before opening a PR, run the
+checks for what you changed; add the `full-check` label to a PR to run the whole
+gate on it before queueing. Documentation changes need review and link checks,
+not app regressions.
 
 Useful root commands:
 
@@ -55,8 +58,8 @@ Scope package commands with `pnpm --filter @brainstrike/<package> <script>`.
 Use the [desktop](apps/desktop/e2e/README.md) E2E guide for focused runs.
 
 Branch from current main, keep the change coherent and report actual validation
-and omissions in the PR. Hosted workflows, automated reviews and releases need
-owner authorization. Follow [agent/contribution policy](AGENTS.md).
+and omissions in the PR. Other hosted workflows, automated reviews and releases
+need owner authorization. Follow [agent/contribution policy](AGENTS.md).
 
 Dependency versions are owned by workspace catalogs and overrides in
 `pnpm-workspace.yaml`; use `workspace:*` for local packages. After version changes,
