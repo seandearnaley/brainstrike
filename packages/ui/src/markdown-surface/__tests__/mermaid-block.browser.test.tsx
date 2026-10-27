@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
+import '../../globals.css';
 import { MarkdownSurface } from '../markdown-surface';
 
 afterEach(async () => {
@@ -39,9 +40,19 @@ async function renderedSvg(): Promise<SVGSVGElement> {
   );
   const svg = screen.getByTestId('mermaid-diagram').querySelector('svg');
   if (!svg) {
-    throw new Error('The real Mermaid renderer returned no SVG');
+    throw new Error('Pele drew no SVG');
   }
   return svg;
+}
+
+/** The computed color an app theme token resolves to right now. */
+function tokenColor(token: string): string {
+  const probe = document.createElement('span');
+  probe.style.color = `hsl(var(${token}))`;
+  document.body.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
 }
 
 it.each([
@@ -61,8 +72,9 @@ it.each([
     expect(svg.textContent).toContain('Result');
     expect(svg.getBoundingClientRect().width).toBeGreaterThan(0);
     expect(svg.getBoundingClientRect().height).toBeGreaterThan(0);
-    // Chromium takes Mermaid's native MathML path; test its actual output.
-    expect(svg.querySelector('.katex math')?.getBoundingClientRect().width).toBeGreaterThan(0);
+    // The label's math is KaTeX MathML, measured and placed by Pele.
+    expect(svg.querySelector('math')?.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(svg.textContent).not.toContain('$$');
     for (const selector of ['p .katex', '.katex-display .katex']) {
       const math = view.container.querySelector(selector);
       if (!math) {
@@ -90,6 +102,35 @@ it.each([
     ).toBeGreaterThan(0);
   }
 );
+
+it('colors the diagram from the app theme and follows a theme switch without redrawing', async () => {
+  render(surface('```mermaid\nflowchart LR\n  A[Start] --> B[End]\n```'));
+  const svg = await renderedSvg();
+  const node = svg.querySelector('rect');
+  const label = svg.querySelector('text');
+  if (!(node && label)) {
+    throw new Error('Pele drew no node');
+  }
+  expect(getComputedStyle(label).fill).toBe(tokenColor('--foreground'));
+  expect(getComputedStyle(node).fill).toBe(tokenColor('--muted'));
+  const lightText = getComputedStyle(label).fill;
+
+  document.documentElement.classList.add('dark');
+  expect(screen.getByTestId('mermaid-diagram').querySelector('svg')).toBe(svg);
+  expect(getComputedStyle(label).fill).toBe(tokenColor('--foreground'));
+  expect(getComputedStyle(node).fill).toBe(tokenColor('--muted'));
+  expect(getComputedStyle(label).fill).not.toBe(lightText);
+});
+
+it('shows why a malformed diagram cannot be drawn', async () => {
+  render(surface('```mermaid\nflowchart LR\n  A --> \n```'));
+  await waitFor(() => {
+    expect(screen.getByTestId('mermaid-diagram').textContent).toContain('Parse error on line 2');
+  });
+  const host = screen.getByTestId('mermaid-diagram');
+  expect(host.querySelector('svg')).toBeNull();
+  expect(host.getBoundingClientRect().height).toBeGreaterThan(0);
+});
 
 it('shows malformed math and keeps untrusted math extensions inert', () => {
   const view = render(

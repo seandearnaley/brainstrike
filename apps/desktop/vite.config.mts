@@ -68,7 +68,7 @@ export default defineConfig({
                 // Co-locate the context-action/command system (chunk-init TDZ
                 // guard — see isContextActionSystemModule in build-utils).
                 // Everything else uses rolldown's default reachability-based
-                // splitting so dynamically-imported vendors (mermaid, shiki,
+                // splitting so dynamically-imported vendors (pele, shiki,
                 // katex, codemirror, …) stay OFF the startup critical path.
                 if (isZustandModule(moduleId)) {
                   return 'zustand';
