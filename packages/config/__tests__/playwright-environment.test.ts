@@ -59,7 +59,7 @@ describe('playwright-environment helpers', () => {
     expect(getRetryCount({ isCI: false, isCodex: false, isGitHubActions: false })).toBe(0);
   });
 
-  it('keeps GitHub Actions on two workers without same-file parallelism', () => {
+  it('runs GitHub Actions on two workers that schedule single tests', () => {
     const originalCI = process.env['CI'];
     const originalGH = process.env['GITHUB_ACTIONS'];
     const originalCodex = process.env['CODEX_ENV'];
@@ -72,7 +72,7 @@ describe('playwright-environment helpers', () => {
       const cfg = getEnvironmentConfig();
 
       expect(cfg.workers).toBe(2);
-      expect(cfg.fullyParallel).toBe(false);
+      expect(cfg.fullyParallel).toBe(true);
     } finally {
       if (typeof originalCI === 'string') {
         process.env['CI'] = originalCI;

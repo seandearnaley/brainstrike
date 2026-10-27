@@ -322,7 +322,6 @@
       "includes": [
         "**/e2e/performance/**",
         "**/e2e/**/performance-*",
-        "**/e2e/ipc-communication.test.ts",
         "**/e2e/report-folder-summary.test.ts",
         "**/e2e/layout-persistence.test.ts",
         "**/e2e/utils/performance-config.ts",

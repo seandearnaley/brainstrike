@@ -27,8 +27,9 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Fail the build on CI if you accidentally left test.only in the source code
   forbidOnly: config.isCI,
 
-  // Keep file-level scheduling controlled in CI; suites that are explicitly safe
-  // to split can opt into test.describe.configure({ mode: 'parallel' }).
+  // Tests, not files, are the unit of scheduling and sharding: each test owns its
+  // app and profile. A spec whose tests depend on each other declares
+  // test.describe.configure({ mode: 'serial' }).
   fullyParallel: config.fullyParallel,
 
   // Global setup for Electron app
