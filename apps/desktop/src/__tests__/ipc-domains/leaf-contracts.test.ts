@@ -42,6 +42,18 @@ describe('leaf IPC contracts', () => {
     }
   });
 
+  it('parses clipboard.writeImage input in main and throws unless it is PNG bytes', () => {
+    const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+    expect(clipboardContract.writeImage.parseArgs([png])).toEqual([png]);
+    const notPng = new Uint8Array([255, 216, 255, 224, 0, 16, 74, 70, 73]);
+    for (const payload of [new Uint8Array(), notPng, 'png', [137, 80], null, undefined]) {
+      expect(() => clipboardContract.writeImage.parseArgs([payload])).toThrow(
+        'clipboard writeImage requires PNG bytes'
+      );
+    }
+    expect(() => clipboardContract.writeImage.parseArgs([png, png])).toThrow();
+  });
+
   it('parses the no-argument scans and lists to an empty tuple', () => {
     expect(userPersonasContract.list.parseArgs([])).toEqual([]);
     expect(contextFilesContract.scan.parseArgs([])).toEqual([]);

@@ -1,0 +1,8 @@
+/*
+ * Real Tailwind for the browser lane, so the diagram toolbar and full-size
+ * view are painted with the classes the app emits. See tab-strip.browser.css
+ * for what this lane does and does not cover.
+ */
+@import "tailwindcss";
+@import "../../globals.css";
+@source "../";

@@ -46,5 +46,6 @@ export {
   defineContextAction,
   type FileContextIdentity,
   type PlatformFsService,
+  type SystemClipboard,
   type TargetOf,
 } from './types.js';

@@ -15,7 +15,7 @@ import type {
   AssistantRunEvent,
   AssistantToolApprovalRequest,
 } from '@brainstrike/assistant-contract';
-import { Activity, type ReactNode, use, useMemo } from 'react';
+import { Activity, type ReactNode, use, useMemo, useState } from 'react';
 import { AnsweredApprovalsProvider } from './answered-approvals-index';
 import { ApprovalRanksProvider } from './approval-presentation-context';
 import { ApprovalQueueStrip } from './approval-queue-strip';
@@ -23,6 +23,7 @@ import { AssistantDataRendererRegistration } from './assistant-data-renderer-reg
 import { useThreadPresentationActivityMode } from './use-thread-presentation-activity-mode';
 import './overrides.css';
 import type { ModelPickerModel, ModelPickerProvider } from '@brainstrike/ui';
+import { DiagramFullSizeContainerContext } from '@brainstrike/ui/diagram-full-size-container';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { AssistantActionBar } from './assistant-action-bar';
 import { AssistantActivityParts } from './assistant-activity-parts';
@@ -308,6 +309,8 @@ export const ChatThreadUI = ({
   const { adapter: slashAdapter, action: slashAction } =
     useSlashCommandAdapter(slashAdapterOptions);
   const slashIconMap = useMemo(() => buildSlashCommandIconMap(slashCommands), [slashCommands]);
+  // A diagram's full-size view fills the thread (messages and composer).
+  const [threadRoot, setThreadRoot] = useState<HTMLDivElement | null>(null);
 
   return (
     <ActiveThreadKeyContext.Provider value={threadKey}>
@@ -315,76 +318,80 @@ export const ChatThreadUI = ({
           scroller to it, and the follow-up queue bridge fires its BST-1039
           dispatch re-pin through it (thread-scroll-follow.tsx). */}
       <ThreadScrollFollowProvider>
-        <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
-          <AnsweredApprovalsProvider>
-            <ApprovalRanksProvider>
-              <AssistantDataRendererRegistration />
-              <ThreadDebugPackButton key={threadKey} />
-              <ComposerDraftCommandBridge
-                composerDraftCommand={composerDraftCommand}
-                onComposerDraftCommandApplied={onComposerDraftCommandApplied}
-                onComposerTextChange={onComposerTextChange}
-              />
-              {onRunningChange && threadKey ? (
-                <RunningStateBridge onRunningChange={onRunningChange} threadKey={threadKey} />
-              ) : null}
-              <RunLifecycleNotificationBridge
-                {...(onRunEditActivity ? { onRunEditActivity } : {})}
-                {...(onRunFailed ? { onRunFailed } : {})}
-                {...(onRunFinished ? { onRunFinished } : {})}
-                {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
-                {...(threadKey ? { threadKey } : {})}
-              />
-              <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
-              {/* Drains a successful rewind's target prompt back into the composer
+        <ThreadPrimitive.Root
+          className="aui-root aui-thread-root bs-thread relative flex h-full min-h-0 flex-col"
+          ref={setThreadRoot}
+        >
+          <DiagramFullSizeContainerContext.Provider value={threadRoot}>
+            <AnsweredApprovalsProvider>
+              <ApprovalRanksProvider>
+                <AssistantDataRendererRegistration />
+                <ThreadDebugPackButton key={threadKey} />
+                <ComposerDraftCommandBridge
+                  composerDraftCommand={composerDraftCommand}
+                  onComposerDraftCommandApplied={onComposerDraftCommandApplied}
+                  onComposerTextChange={onComposerTextChange}
+                />
+                {onRunningChange && threadKey ? (
+                  <RunningStateBridge onRunningChange={onRunningChange} threadKey={threadKey} />
+                ) : null}
+                <RunLifecycleNotificationBridge
+                  {...(onRunEditActivity ? { onRunEditActivity } : {})}
+                  {...(onRunFailed ? { onRunFailed } : {})}
+                  {...(onRunFinished ? { onRunFinished } : {})}
+                  {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
+                  {...(threadKey ? { threadKey } : {})}
+                />
+                <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
+                {/* Drains a successful rewind's target prompt back into the composer
             (Amendment 2). Mounted here rather than on the message, whose own
             button is unmounted by the rewind that hides it. */}
-              <RewindComposerBridge />
-              <Activity mode={presentationMode}>
-                {/**
-                 * Messages viewport + scroll region + jump-to-latest button, all owned by
-                 * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
-                 * between the CSS-containment tier and the end-anchored virtualized tier
-                 * by message count and publishes the choice as `data-thread-render-tier`.
-                 * Both tiers render THIS components map, so message markup never forks.
-                 *
-                 * See: packages/assistant-ui/src/overrides.css
-                 */}
-                <ThreadBody
-                  disabledReason={disabledReason}
-                  messages={
-                    <ThreadMessagesRegion
-                      components={THREAD_MESSAGE_COMPONENTS}
-                      {...(disabledReason ? { disabledReason } : {})}
-                      {...(threadKey ? { threadKey } : {})}
-                    />
-                  }
-                  welcome={welcome}
-                >
+                <RewindComposerBridge />
+                <Activity mode={presentationMode}>
                   {/**
-                   * Composer: Fixed at bottom of thread
+                   * Messages viewport + scroll region + jump-to-latest button, all owned by
+                   * the two-tier thread renderer (assistant-thread-messages.tsx). It picks
+                   * between the CSS-containment tier and the end-anchored virtualized tier
+                   * by message count and publishes the choice as `data-thread-render-tier`.
+                   * Both tiers render THIS components map, so message markup never forks.
                    *
-                   * STRUCTURE: This is a SIBLING to the viewport, not a child
-                   *
-                   * LAYOUT:
-                   * - flex-shrink-0: Never shrinks, always maintains its height
-                   * - Viewport above is flex-1: Grows/shrinks to fill available space
-                   * - This pattern ensures composer stays at bottom regardless of message content
-                   *
-                   * LIBRARY DIFFERENCE:
-                   * The @assistant-ui library expects the composer INSIDE the viewport as:
-                   *   <ThreadPrimitive.Viewport>
-                   *     <Messages />
-                   *     <div className="aui-thread-viewport-footer" style="position: sticky">
-                   *       <Composer />
-                   *     </div>
-                   *   </ThreadPrimitive.Viewport>
-                   *
-                   * We extracted it outside to avoid scrolling with messages.
-                   * This required aggressive CSS overrides (see overrides.css).
+                   * See: packages/assistant-ui/src/overrides.css
                    */}
-                  <div className="bs-composer-shell" data-testid="assistant-composer-shell">
-                    {/* A capability the turn will run WITHOUT (e.g. no durable
+                  <ThreadBody
+                    disabledReason={disabledReason}
+                    messages={
+                      <ThreadMessagesRegion
+                        components={THREAD_MESSAGE_COMPONENTS}
+                        {...(disabledReason ? { disabledReason } : {})}
+                        {...(threadKey ? { threadKey } : {})}
+                      />
+                    }
+                    welcome={welcome}
+                  >
+                    {/**
+                     * Composer: Fixed at bottom of thread
+                     *
+                     * STRUCTURE: This is a SIBLING to the viewport, not a child
+                     *
+                     * LAYOUT:
+                     * - flex-shrink-0: Never shrinks, always maintains its height
+                     * - Viewport above is flex-1: Grows/shrinks to fill available space
+                     * - This pattern ensures composer stays at bottom regardless of message content
+                     *
+                     * LIBRARY DIFFERENCE:
+                     * The @assistant-ui library expects the composer INSIDE the viewport as:
+                     *   <ThreadPrimitive.Viewport>
+                     *     <Messages />
+                     *     <div className="aui-thread-viewport-footer" style="position: sticky">
+                     *       <Composer />
+                     *     </div>
+                     *   </ThreadPrimitive.Viewport>
+                     *
+                     * We extracted it outside to avoid scrolling with messages.
+                     * This required aggressive CSS overrides (see overrides.css).
+                     */}
+                    <div className="bs-composer-shell" data-testid="assistant-composer-shell">
+                      {/* A capability the turn will run WITHOUT (e.g. no durable
             memory), as opposed to `disabledReason`, which explains why there
             is no turn at all. It is a SEPARATE prop on purpose: a caller can
             set `disabledReason` without setting `disabled` and still mean
@@ -396,91 +403,95 @@ export const ChatThreadUI = ({
             never scrolls, so it stays beside the control it qualifies.
             `disabledReason` keeps its place above the transcript, where
             native scroll anchoring holds a parked reader still. */}
-                    <CapabilityNotice text={capabilityNotice} />
-                    {/* The composer toolbar: one line of workspace orientation
+                      <CapabilityNotice text={capabilityNotice} />
+                      {/* The composer toolbar: one line of workspace orientation
             (folder · branch · worktree, an app-shell-rendered slot so
             assistant-ui stays store-free) balanced by the context ring on
             the far right. */}
-                    <div className="bs-composer-toolbar" data-testid="assistant-composer-toolbar">
-                      {workspaceBar ?? null}
-                      <ThreadContextMeter
-                        contextWindow={contextWindow}
-                        cumulativeUsage={cumulativeUsage}
-                        effectiveInputBudget={effectiveInputBudget}
-                        omSegment={omSegment}
+                      <div className="bs-composer-toolbar" data-testid="assistant-composer-toolbar">
+                        {workspaceBar ?? null}
+                        <ThreadContextMeter
+                          contextWindow={contextWindow}
+                          cumulativeUsage={cumulativeUsage}
+                          effectiveInputBudget={effectiveInputBudget}
+                          omSegment={omSegment}
+                          threadKey={threadKey}
+                        />
+                      </div>
+                      {/* Last-24h budget burn-down + over-cap send notice (owned module,
+            budget-guardrail-control.tsx); renders nothing without a binding. */}
+                      <BudgetGuardrailControl />
+                      <FollowUpQueueChips
+                        onSteerActiveRun={onSteerActiveRun}
                         threadKey={threadKey}
                       />
-                    </div>
-                    {/* Last-24h budget burn-down + over-cap send notice (owned module,
-            budget-guardrail-control.tsx); renders nothing without a binding. */}
-                    <BudgetGuardrailControl />
-                    <FollowUpQueueChips onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
-                    <ApprovalQueueStrip key={threadKey} />
-                    {approvalStrip ?? null}
-                    <ComposerPrimitive.Root
-                      className="aui-composer-root"
-                      onSubmitCapture={onThreadRunStart}
-                    >
-                      {/* The composer input row, optionally wrapped in a shared
+                      <ApprovalQueueStrip key={threadKey} />
+                      {approvalStrip ?? null}
+                      <ComposerPrimitive.Root
+                        className="aui-composer-root"
+                        onSubmitCapture={onThreadRunStart}
+                      >
+                        {/* The composer input row, optionally wrapped in a shared
               `Unstable_TriggerPopoverRoot` (see `ComposerInputWithTriggers`).
               The slash popover declares its own trigger char ("/") and reads the
               composer text via that shared root. It is mounted ONLY when its
               seam is present — an unmounted popover means the trigger char does
               nothing special (never an empty menu). Send / Cancel are unchanged. */}
-                      {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
+                        {/* Mounted on PRESENCE (enabled or disabled): a staged image keeps
               its preview + Remove button after a switch to a text-only model. */}
-                      {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
-                      <ComposerInputWithTriggers
-                        hideDefaultCancel={hideDefaultCancel}
-                        isComposerDisabled={composerDisabled}
-                        onSteerActiveRun={onSteerActiveRun}
-                        threadKey={threadKey}
-                        {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-                        {...(planMode ? { planMode } : {})}
-                        {...(hasSlashCommands
-                          ? {
-                              slashPopover: (
-                                <ComposerTriggerPopover
-                                  action={slashAction}
-                                  adapter={slashAdapter}
-                                  iconMap={slashIconMap}
-                                />
-                              ),
-                            }
-                          : {})}
-                        {...(hasGroupedProviders
-                          ? {
-                              footerEnd: (
-                                <ControlsMenu
-                                  modelName={modelIdFromCompositeKey(selectedModel)}
-                                  onProviderSettingsChange={onProviderSettingsChange}
-                                  providerSettings={providerSettings}
-                                  selectedProvider={selectedProvider}
-                                  toolMenu={toolMenu}
-                                />
-                              ),
-                              footerStart: (
-                                <ProviderModelControls
-                                  groups={providerGroups}
-                                  onEnableModel={onEnableModel}
-                                  onModelChange={onModelChange}
-                                  onProviderSettingsChange={onProviderSettingsChange}
-                                  pickerModels={pickerModels}
-                                  providerSettings={providerSettings}
-                                  recentModels={recentModels}
-                                  selectedModel={selectedModel}
-                                  selectedProvider={selectedProvider}
-                                />
-                              ),
-                            }
-                          : {})}
-                      />
-                    </ComposerPrimitive.Root>
-                  </div>
-                </ThreadBody>
-              </Activity>
-            </ApprovalRanksProvider>
-          </AnsweredApprovalsProvider>
+                        {attachmentsAvailability ? <ComposerAttachmentsBar /> : null}
+                        <ComposerInputWithTriggers
+                          hideDefaultCancel={hideDefaultCancel}
+                          isComposerDisabled={composerDisabled}
+                          onSteerActiveRun={onSteerActiveRun}
+                          threadKey={threadKey}
+                          {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+                          {...(planMode ? { planMode } : {})}
+                          {...(hasSlashCommands
+                            ? {
+                                slashPopover: (
+                                  <ComposerTriggerPopover
+                                    action={slashAction}
+                                    adapter={slashAdapter}
+                                    iconMap={slashIconMap}
+                                  />
+                                ),
+                              }
+                            : {})}
+                          {...(hasGroupedProviders
+                            ? {
+                                footerEnd: (
+                                  <ControlsMenu
+                                    modelName={modelIdFromCompositeKey(selectedModel)}
+                                    onProviderSettingsChange={onProviderSettingsChange}
+                                    providerSettings={providerSettings}
+                                    selectedProvider={selectedProvider}
+                                    toolMenu={toolMenu}
+                                  />
+                                ),
+                                footerStart: (
+                                  <ProviderModelControls
+                                    groups={providerGroups}
+                                    onEnableModel={onEnableModel}
+                                    onModelChange={onModelChange}
+                                    onProviderSettingsChange={onProviderSettingsChange}
+                                    pickerModels={pickerModels}
+                                    providerSettings={providerSettings}
+                                    recentModels={recentModels}
+                                    selectedModel={selectedModel}
+                                    selectedProvider={selectedProvider}
+                                  />
+                                ),
+                              }
+                            : {})}
+                        />
+                      </ComposerPrimitive.Root>
+                    </div>
+                  </ThreadBody>
+                </Activity>
+              </ApprovalRanksProvider>
+            </AnsweredApprovalsProvider>
+          </DiagramFullSizeContainerContext.Provider>
         </ThreadPrimitive.Root>
       </ThreadScrollFollowProvider>
     </ActiveThreadKeyContext.Provider>
