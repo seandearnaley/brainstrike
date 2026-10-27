@@ -3,6 +3,7 @@ import type { BlobContent } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { acceptHostChildInput } from './child-input.ts';
 import { HostContextCompactions } from './context-compaction.ts';
+import { hostCanvases } from './core-canvases.ts';
 import { type HostChildRunPort, HostChildRuns, hostDeliveryPosition } from './core-child-runs.ts';
 import { hostMcpTaskOwner } from './core-mcp-owner.ts';
 import { readHostThreadMemory } from './core-memory-read.ts';
@@ -188,6 +189,8 @@ export class HostCore {
         }
       }),
   });
+  /** The Artifacts gallery's canvas reads, across every thread Core holds. */
+  readonly canvases = hostCanvases(this.records, this.children, this.threads);
   /** Restore to before a message (`thread-rewind.ts`): preview, rewind, and redo. */
   readonly rewinds = new HostThreadRewinds({
     accept: (threadId, method, params, result, events) =>

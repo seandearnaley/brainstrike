@@ -28,7 +28,7 @@ async function enableModel(page: Page): Promise<void> {
   await enableAssistantCatalogModel(page, `openrouter::${MODEL}`);
 }
 
-test('an open Canvas panel shows the canvas a host run commits, without a thread switch', async ({
+test('a canvas a host run commits opens in its own tab and is saved to Artifacts', async ({
   electron,
   modelProvider,
   window: page,
@@ -70,14 +70,7 @@ test('an open Canvas panel shows the canvas a host run commits, without a thread
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText(FIRST_REPLY)).toBeVisible({ timeout: 90_000 });
 
-  // Open the Canvas panel on this thread before any canvas exists.
-  await page.getByTestId('workspace-add-tab').click();
-  await page.getByTestId('workspace-add-tab-canvas').click();
-  // The empty state stands in for the populated panel until a canvas exists.
-  await expect(page.getByText(/No canvases in this thread yet/u)).toBeVisible({
-    timeout: 30_000,
-  });
-  const panel = page.getByTestId('canvas-panel');
+  await expect(page.getByTestId('canvas-document')).toHaveCount(0);
 
   drawing = true;
   await input.fill('Draw it.');
@@ -88,8 +81,23 @@ test('an open Canvas panel shows the canvas a host run commits, without a thread
   await approve.click();
   await expect(region.getByText(SECOND_REPLY)).toBeVisible({ timeout: 90_000 });
 
-  // The open panel re-read the thread's committed canvases on its own.
-  await expect(panel.getByText(CANVAS_TITLE, { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(panel.getByTestId('canvas-version-label')).toHaveText('v1 / 1');
+  // The committed canvas opened in a workspace tab of its own, named after it.
+  const canvasTab = page.getByRole('tab', { name: CANVAS_TITLE });
+  await expect(canvasTab).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+  const canvas = page.getByTestId('canvas-document');
+  await expect(canvas.getByTestId('canvas-title')).toHaveText(CANVAS_TITLE);
+  await expect(canvas.getByTestId('canvas-version-label')).toHaveText('v1 / 1');
+
+  // The Artifacts page lists it, and opening it from there selects its tab again.
+  await page.getByRole('tab', { name: /^Files/u }).click();
+  await page
+    .getByRole('navigation', { exact: true, name: 'Main navigation' })
+    .getByRole('button', { exact: true, name: 'Artifacts' })
+    .click();
+  const gallery = page.getByTestId('artifacts-grid');
+  await expect(gallery.getByTestId('artifact-card')).toHaveCount(1, { timeout: 30_000 });
+  await gallery.getByRole('button', { name: new RegExp(`^${CANVAS_TITLE}`, 'u') }).click();
+  await expect(canvasTab).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+  await expect(canvas.getByTestId('canvas-version-label')).toHaveText('v1 / 1');
   expect(modelProvider.refusals()).toEqual([]);
 });

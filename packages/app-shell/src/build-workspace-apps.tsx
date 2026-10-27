@@ -1,5 +1,4 @@
 import {
-  CANVAS_APP_ID,
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   LOGS_APP_ID,
@@ -8,25 +7,17 @@ import {
   WORKTREE_MAP_APP_ID,
   type WorkspaceApp,
 } from '@brainstrike/file-explorer-ui/shell';
-import {
-  Files,
-  GitCompare,
-  PanelsTopLeft,
-  ScanSearch,
-  ScrollText,
-  SquareTerminal,
-  Trees,
-} from 'lucide-react';
+import { Files, GitCompare, ScanSearch, ScrollText, SquareTerminal, Trees } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 /**
  * The workspace app registry (BST-1258, Terminal added in BST-1270, Logs in BST-1791).
- * Canonical display order: Files, Changes, Context, Worktrees, Canvas, Terminal, Logs. Optional
+ * Canonical display order: Files, Changes, Context, Worktrees, Terminal, Logs. Optional
  * surfaces register only when their content exists — capability gating by
- * omission, never a stub (web passes none of the optional contents).
+ * omission, never a stub (web passes none of the optional contents). Canvases
+ * are not here: each opens as a dynamic tab of its own (`useCanvasWorkspaceApps`).
  */
 export function buildWorkspaceApps(args: {
-  readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
   readonly filesContent: ReactNode;
   readonly logsPageContent?: ReactNode;
@@ -35,7 +26,6 @@ export function buildWorkspaceApps(args: {
   readonly worktreeMapPageContent?: ReactNode;
 }): readonly WorkspaceApp[] {
   const {
-    canvasPanelContent,
     changesPageContent,
     filesContent,
     logsPageContent,
@@ -78,15 +68,6 @@ export function buildWorkspaceApps(args: {
       label: 'Worktrees',
       placement: 'pinned',
       render: () => worktreeMapPageContent,
-    });
-  }
-  if (canvasPanelContent) {
-    apps.push({
-      icon: PanelsTopLeft,
-      id: CANVAS_APP_ID,
-      label: 'Canvas',
-      placement: 'pinned',
-      render: () => canvasPanelContent,
     });
   }
   if (terminalPageContent) {

@@ -26,6 +26,7 @@ export type DocumentMetaByRoute = Readonly<Record<PanelTab, DocumentMeta>>;
  * to Browser or Terminal used to leave the title reading "Home".
  */
 const DOCUMENT_META: DocumentMetaByRoute = {
+  artifacts: { description: APP_DESCRIPTION, title: 'Artifacts - BrainStrike.ai' },
   browser: { description: APP_DESCRIPTION, title: 'Browser - BrainStrike.ai' },
   explorer: { description: 'BrainStrike.ai Home Dashboard', title: 'BrainStrike.ai - Home' },
   settings: {

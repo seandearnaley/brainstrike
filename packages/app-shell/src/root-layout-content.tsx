@@ -62,6 +62,7 @@ import { AssistantChatPanel, AssistantProviderStatusProvider } from './assistant
 import { IndexingActivityCoordinator } from './background-indexing/indexing-activity-coordinator';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { buildWorkspaceApps } from './build-workspace-apps';
+import { useCanvasAutoOpen } from './canvas/use-canvas-auto-open';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useRewindStore } from './changes/rewind-store';
 import { RewindConfirmDialogLazy } from './changes/ui/rewind-confirm-dialog-lazy';
@@ -128,17 +129,23 @@ function FileTreeWrapper({
 
 export interface RootLayoutContentProps {
   /**
+   * Optional Artifacts gallery route: every canvas the agent host's threads
+   * hold, presence-gated on a host that lists them. When absent, no
+   * Artifacts nav-rail entry or route renders.
+   */
+  readonly artifactsPageContent?: ReactNode;
+  /**
    * Optional embedded browser pane surface (BST-1174), presence-gated on the
    * desktop `window.browser` bridge (absent on web — no stub). Its own
    * component reports native-view bounds/occlusion.
    */
   readonly browserPageContent?: ReactNode;
   /**
-   * Optional Canvas surface (BST-1173), presence-gated like
-   * `changesPageContent`. Each app constructs it with its platform-specific
-   * shell URL; available on both targets.
+   * URL of the trusted Canvas shell (BST-1173), presence-gated like
+   * `changesPageContent`: each canvas opens in a workspace tab of its own,
+   * framed by this platform-specific shell. When absent, no canvas tab opens.
    */
-  readonly canvasPanelContent?: ReactNode;
+  readonly canvasShellSrc?: string;
   /**
    * Optional Changes surface (desktop-only). Supplied by the desktop wrapper
    * when the Changes bridge is present; web never constructs it
@@ -196,6 +203,7 @@ export interface RootLayoutContentProps {
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
+  '/artifacts': 'artifacts',
   '/browser': 'browser',
   '/settings': 'settings',
   // '/terminal' intentionally absent (BST-1270): Terminal is a workspace app
@@ -450,7 +458,7 @@ function FilesAppSurface(): ReactElement {
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
-  canvasPanelContent,
+  canvasShellSrc,
   changesPageContent,
   logsPageContent,
   terminalPageContent,
@@ -458,7 +466,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   worktreeMapPageContent,
   nativeIndexSearch,
 }: {
-  readonly canvasPanelContent?: ReactNode;
+  readonly canvasShellSrc?: string | undefined;
   readonly changesPageContent?: ReactNode;
   readonly logsPageContent?: ReactNode;
   readonly terminalPageContent?: ReactNode;
@@ -476,6 +484,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // not isElectron); file tab bodies consume this via the nullable hook. Hoisted
   // above the whole layout because file bodies now render at the workspace level.
   const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
+  useCanvasAutoOpen(canvasShellSrc !== undefined);
 
   // The workspace app registry (BST-1258; Terminal joined as a workspace app
   // in BST-1270, replacing its nav route). Construction is the pure
@@ -485,7 +494,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   const workspaceApps = useMemo<readonly WorkspaceApp[]>(
     () =>
       buildWorkspaceApps({
-        ...(canvasPanelContent ? { canvasPanelContent } : {}),
         ...(changesPageContent ? { changesPageContent } : {}),
         filesContent: <FilesAppSurface />,
         ...(logsPageContent ? { logsPageContent } : {}),
@@ -495,7 +503,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       }),
     [
       changesPageContent,
-      canvasPanelContent,
       logsPageContent,
       terminalPageContent,
       threadContextPageContent,
@@ -514,7 +521,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           {/* One read of the host's provider status for the root panel and the
               child conversations its workspace tabs render. */}
           <AssistantProviderStatusProvider>
-            <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
+            <DelegatedWorkspaceTabsProvider apps={workspaceApps} canvasShellSrc={canvasShellSrc}>
               {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
@@ -563,8 +570,9 @@ export function RootLayoutContent({
   nativeIndexSearch,
   stateHealth,
   deleteRootData,
+  artifactsPageContent,
   browserPageContent,
-  canvasPanelContent,
+  canvasShellSrc,
   changesPageContent,
   settingsPageContent,
   logsPageContent,
@@ -685,7 +693,7 @@ export function RootLayoutContent({
                     onChange={handlePanelLayoutChange}
                   >
                     <ExplorerAppSurface
-                      canvasPanelContent={canvasPanelContent}
+                      canvasShellSrc={canvasShellSrc}
                       changesPageContent={changesPageContent}
                       logsPageContent={logsPageContent}
                       nativeIndexSearch={nativeIndexSearch ?? null}
@@ -706,6 +714,13 @@ export function RootLayoutContent({
                 <McpPromptComposerHost />
                 {/* Each keeps its content mounted-but-hidden once first opened — see
                     KeepMountedRoute's own doc comment for why. */}
+                {/* The Artifacts gallery: every thread's canvases. */}
+                <KeepMountedRoute
+                  content={artifactsPageContent}
+                  mountedTabs={mountedTabs}
+                  shellTab={shellTab}
+                  tab="artifacts"
+                />
                 {/* Embedded browser pane (BST-1174). The native
                     WebContentsView follows this route's show/hide via the
                     surface's own occlusion reporting — see BrowserPaneContent. */}

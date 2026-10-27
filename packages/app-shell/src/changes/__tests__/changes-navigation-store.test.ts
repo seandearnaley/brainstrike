@@ -20,7 +20,6 @@ describe('useChangesNavigationStore', () => {
     useChangesNavigationStore.setState({
       activeChangeset: null,
       activeThreadIdentity: null,
-      focusedCanvasId: null,
       handoffThreadIdentity: null,
       isOnLastTurn: false,
     });
@@ -284,44 +283,6 @@ describe('useChangesNavigationStore', () => {
         kind: 'app',
       });
       expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
-    });
-  });
-
-  describe('openCanvasPanel', () => {
-    it('opens and activates the Canvas workspace app tab', () => {
-      useChangesNavigationStore.getState().openCanvasPanel();
-
-      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toContain('canvas');
-      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-        appId: 'canvas',
-        kind: 'app',
-      });
-    });
-  });
-
-  describe('openCanvas / selectCanvas', () => {
-    it('openCanvas focuses the canvas AND opens the Canvas workspace app tab', () => {
-      useChangesNavigationStore.getState().openCanvas('canvas-7');
-
-      expect(useChangesNavigationStore.getState().focusedCanvasId).toBe('canvas-7');
-      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toContain('canvas');
-      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-        appId: 'canvas',
-        kind: 'app',
-      });
-    });
-
-    it('selectCanvas focuses without touching the workspace tab (the panel picker)', () => {
-      useChangesNavigationStore.getState().selectCanvas('canvas-8');
-
-      expect(useChangesNavigationStore.getState().focusedCanvasId).toBe('canvas-8');
-      expect(useWorkspaceTabSelectionStore.getState().openAppIds).not.toContain('canvas');
-    });
-
-    it('reset clears the focused canvas (factory-reset invariant)', () => {
-      useChangesNavigationStore.getState().selectCanvas('canvas-9');
-      useChangesNavigationStore.getState().reset();
-      expect(useChangesNavigationStore.getState().focusedCanvasId).toBeNull();
     });
   });
 

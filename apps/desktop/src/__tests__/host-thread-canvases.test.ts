@@ -1,4 +1,11 @@
-import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+// @vitest-environment jsdom
+import type { HostClient } from '@brainstrike/agent-host/browser';
+import {
+  type HostLogRow,
+  HostLogRowSchema,
+  type HostMethod,
+  type HostResults,
+} from '@brainstrike/agent-host/protocol';
 import { canvasStateKey } from '@brainstrike/host-capabilities/canvas-state';
 import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { Schema } from 'effect';
@@ -7,7 +14,8 @@ import { createWindowThreadCapability } from '../renderer/desktop-host-thread-ca
 import { HostThreadCanvases } from '../renderer/host-thread-canvases';
 import type { CommittedHostRunSource } from '../renderer/host-thread-runs';
 
-vi.mock('../renderer/agent-host-client', () => ({ connectDesktopAgentHost: vi.fn() }));
+const connect = vi.hoisted(() => vi.fn<() => Promise<HostClient>>());
+vi.mock('../renderer/agent-host-client', () => ({ connectDesktopAgentHost: connect }));
 const rich = richRecording.map((row) =>
   Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })(row)
 );
@@ -17,15 +25,15 @@ if (!runId) {
   throw new Error('The recording has no run');
 }
 /** A canvas version as the host canvas store commits it: one tool state key per canvas. */
-function canvasRow(seq: number, version: number): HostLogRow {
+function canvasRow(seq: number, version: number, canvasId = 'canvas-1'): HostLogRow {
   return Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
     event: {
-      key: canvasStateKey('canvas-1'),
+      key: canvasStateKey(canvasId),
       runId,
       toolCallId: `call-${version}`,
       type: 'tool.state.updated',
       value: {
-        canvasId: 'canvas-1',
+        canvasId,
         createdAt: '2026-10-08T12:00:00.000Z',
         createdBy: 'assistant',
         html: `<p>v${version}</p>`,
@@ -50,8 +58,9 @@ class Source implements CommittedHostRunSource {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
-  publish(rows: readonly HostLogRow[]): void {
-    this.snapshot = { isLoading: false, replayedThrough: rows.at(-1)?.seq, rows };
+  /** `replayedThrough` is where the view's replay ended; later rows were committed live. */
+  publish(rows: readonly HostLogRow[], replayedThrough = rows.at(-1)?.seq): void {
+    this.snapshot = { isLoading: false, replayedThrough, rows };
     for (const listener of this.listeners) {
       listener();
     }
@@ -112,4 +121,55 @@ test("the window capability's canvas subscribers hear its rendered views", () =>
   canvases.observe(threadId, source);
   source.publish([...rich, canvasRow((rich.at(-1)?.seq ?? 0) + 1, 1)]);
   expect(listener).toHaveBeenCalledTimes(1);
+});
+test('only a canvas version committed while the view watches is announced as a commit', () => {
+  const canvases = new HostThreadCanvases();
+  const source = new Source();
+  const commits = vi.fn();
+  const release = canvases.subscribeCommits(commits);
+  canvases.observe(threadId, source);
+  const replayEnd = (rich.at(-1)?.seq ?? 0) + 1;
+  // Reopening a thread replays its canvases: they open no tab.
+  const replayed = [...rich, canvasRow(replayEnd, 1, 'replayed')];
+  source.publish(replayed);
+  expect(commits).not.toHaveBeenCalled();
+
+  source.publish([...replayed, canvasRow(replayEnd + 1, 1, 'live')], replayEnd);
+  expect(commits).toHaveBeenCalledTimes(1);
+  expect(commits).toHaveBeenCalledWith({ canvasId: 'live', threadId });
+
+  release();
+  source.publish(
+    [...replayed, canvasRow(replayEnd + 1, 1, 'live'), canvasRow(replayEnd + 2, 2, 'live')],
+    replayEnd
+  );
+  expect(commits).toHaveBeenCalledTimes(1);
+});
+test("a subagent's canvases are read from the host, whose catalog lists top-level threads only", async () => {
+  const replies: Partial<Record<HostMethod, unknown>> = {
+    'ledger/read': { threads: [] },
+    'thread/list': { threads: [] },
+    'thread/read': { rows: [...rich, canvasRow((rich.at(-1)?.seq ?? 0) + 1, 1)] },
+  };
+  connect.mockResolvedValue({
+    get catalog(): HostClient['catalog'] {
+      throw new Error('This fixture does not borrow the host catalog');
+    },
+    close: async () => undefined,
+    closed: new Promise<void>(() => undefined),
+    onChildrenChanged: () => () => undefined,
+    onEvent: () => () => undefined,
+    onGitWorkspace: () => () => undefined,
+    onMcpPresentation: () => () => undefined,
+    onMcpSettings: () => () => undefined,
+    onTelemetry: () => () => undefined,
+    onTerminal: () => () => undefined,
+    request: async <Method extends HostMethod>(method: Method): Promise<HostResults[Method]> =>
+      replies[method] as HostResults[Method],
+  });
+  const capability = createWindowThreadCapability(() => undefined);
+
+  const canvases = await capability.readCanvases?.(threadId);
+
+  expect(canvases?.get('canvas-1')?.map(({ version }) => version)).toEqual([1]);
 });

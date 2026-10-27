@@ -6,7 +6,6 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileEntryActions } from '../context-actions';
 import {
-  CANVAS_APP_ID,
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   TERMINAL_APP_ID,
@@ -188,7 +187,6 @@ describe('workspace tab strip on the shared TabStrip', () => {
       for (const appId of [
         CONTEXT_EXPLORER_APP_ID,
         CHANGES_APP_ID,
-        CANVAS_APP_ID,
         TERMINAL_APP_ID,
         WORKTREE_MAP_APP_ID,
       ]) {
