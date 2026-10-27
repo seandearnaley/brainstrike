@@ -522,6 +522,37 @@ describe('main workspace-open lifecycle', () => {
     );
   });
 
+  it('answers the browser page list the renderer reads before its initial load resolves', async () => {
+    const answers: unknown[] = [];
+    mockBrowserWindow.mockImplementationOnce(function (this: Record<string, unknown>) {
+      const instance = createMockWindowInstance();
+      Object.assign(this, instance);
+      const window = this as unknown as MockWindowInstance;
+      mockWindowInstances.push(window);
+      window.loadURL.mockImplementation(() => {
+        // The workspace reads main's browser pages as it mounts, which can be
+        // while the document still has resources loading.
+        invokeDesktopIpcFrom(
+          mockIpcMain,
+          { sender: window.webContents, senderFrame: createAllowlistedSenderFrame() },
+          DESKTOP_IPC_CHANNELS.browser.listTabs
+        ).then(
+          (answer) => answers.push(answer),
+          (error: unknown) => answers.push(String(error))
+        );
+        fireHandlersRegisteredSoFar(window.webContents.on, 'did-finish-load');
+        fireHandlersRegisteredSoFar(window.webContents.on, 'did-stop-loading');
+        return Promise.resolve();
+      });
+    });
+
+    await import('../../main');
+
+    await vi.waitFor(() => {
+      expect(answers).toEqual([{ ok: true, value: [] }]);
+    });
+  });
+
   it('does not enqueue or show a second-instance request after renderer shutdown begins', async () => {
     await import('../../main');
     await vi.waitFor(() => expect(mockWindowInstances).toHaveLength(1));
