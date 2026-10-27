@@ -74,8 +74,10 @@ function appTabItem(app: WorkspaceApp): TabStripItem {
     panelDomId: `workspace-app-panel-${app.id}`,
     // Only file tabs reorder; child conversations share the scroll group but stay put.
     reorderable: false,
+    status: app.status,
     tabDomId: `workspace-app-tab-${app.id}`,
     testId: `workspace-app-tab-${app.id}`,
+    tooltip: app.tooltip,
   };
   const { tabAppearance } = app;
   if (!tabAppearance) {
@@ -139,6 +141,7 @@ export function WorkspaceTabStrip(): ReactElement {
     apps,
     getTabStatusMessage,
     hasClosedTabs,
+    launchActions,
     loadingFiles,
     onActivateTab,
     onCloseAllFileTabs,
@@ -148,6 +151,7 @@ export function WorkspaceTabStrip(): ReactElement {
     onCloseFileTabsToRight,
     onCloseOtherFileTabs,
     onCloseTab,
+    onMenuOpenChange,
     onOpenApp,
     onReopenClosedTab,
     onReorderFileTabs,
@@ -291,11 +295,19 @@ export function WorkspaceTabStrip(): ReactElement {
       }
       onActivate={onActivateTab}
       onClose={onCloseTab}
+      onMenuOpenChange={onMenuOpenChange}
       onReorder={onReorderFileTabs}
       pinnedItems={pinnedItems}
       scrollTestId="workspace-tab-scroll"
       testId="workspace-tab-strip"
-      trailing={<WorkspaceAddTabMenu apps={apps} onOpenApp={onOpenApp} />}
+      trailing={
+        <WorkspaceAddTabMenu
+          apps={apps}
+          launchActions={launchActions}
+          onMenuOpenChange={onMenuOpenChange}
+          onOpenApp={onOpenApp}
+        />
+      }
     />
   );
 }

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   BROWSER_BRIDGE_REQUIRED_METHODS,
   type BrowserBridge,
-  isBrowserBridgeAvailable,
   resolveBrowserBridge,
 } from '../browser-pane/browser-bridge';
 
@@ -16,9 +15,9 @@ function fullBridge(): BrowserBridge {
     navigate: () => Promise.resolve(),
     onTabsChanged: () => () => undefined,
     reload: () => Promise.resolve(),
-    selectTab: () => Promise.resolve(),
     setBounds: () => Promise.resolve(),
     setOccluded: () => Promise.resolve(),
+    showTab: () => Promise.resolve(),
   };
 }
 
@@ -29,13 +28,11 @@ afterEach(() => {
 describe('resolveBrowserBridge', () => {
   it('returns null when window.browser is absent (web)', () => {
     expect(resolveBrowserBridge()).toBeNull();
-    expect(isBrowserBridgeAvailable()).toBe(false);
   });
 
   it('resolves a fully-formed bridge', () => {
     (window as Window & { browser?: BrowserBridge }).browser = fullBridge();
     expect(resolveBrowserBridge()).not.toBeNull();
-    expect(isBrowserBridgeAvailable()).toBe(true);
   });
 
   it('treats a bridge missing ANY required method as absent (no half-working surface)', () => {
@@ -57,9 +54,9 @@ describe('resolveBrowserBridge', () => {
       'navigate',
       'onTabsChanged',
       'reload',
-      'selectTab',
       'setBounds',
       'setOccluded',
+      'showTab',
     ]);
   });
 });

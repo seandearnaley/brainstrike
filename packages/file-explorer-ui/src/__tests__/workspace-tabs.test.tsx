@@ -2,7 +2,7 @@ import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { LayoutGrid } from 'lucide-react';
+import { Globe, LayoutGrid } from 'lucide-react';
 import { type CSSProperties, useEffect } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
@@ -13,7 +13,13 @@ import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '../stores/workspace-tab-selection-store';
-import { CANVAS_APP, CHANGES_APP, FILES_APP, renderWorkspace } from './workspace-tabs-test-support';
+import {
+  CANVAS_APP,
+  CHANGES_APP,
+  CHILD_CEDAR_APP,
+  FILES_APP,
+  renderWorkspace,
+} from './workspace-tabs-test-support';
 
 // File tabs mount the explorer pane by default (BST-1318); the real one
 // requires a FileSystemProvider — stub it, pane tests cover its behavior.
@@ -194,6 +200,50 @@ describe('workspace tabs — apps, launcher, selection', () => {
       'aria-selected',
       'true'
     );
+  });
+
+  it('the launcher and the + menu offer launch actions after the apps', async () => {
+    const user = userEvent.setup();
+    const run = vi.fn();
+    useWorkspaceTabSelectionStore.getState().closeApp('context-explorer');
+    renderWorkspace([FILES_APP], {
+      launchActions: [
+        { description: 'Browse the web', icon: Globe, id: 'new-page', label: 'New page', run },
+      ],
+    });
+
+    await user.click(await screen.findByTestId('workspace-launcher-open-new-page'));
+    expect(run).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('button', { name: 'Add workspace tab' }));
+    await user.click(screen.getByRole('menuitem', { name: 'New page' }));
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a strip menu open until its last menu closes', async () => {
+    const user = userEvent.setup();
+    function MenuProbe() {
+      const { isMenuOpen } = useWorkspaceTabs();
+      return <div data-testid="menu-probe">{isMenuOpen ? 'open' : 'closed'}</div>;
+    }
+    renderWorkspace([FILES_APP], { probe: <MenuProbe /> });
+
+    expect(screen.getByTestId('menu-probe')).toHaveTextContent('closed');
+    await user.click(screen.getByRole('button', { name: 'Add workspace tab' }));
+    expect(screen.getByTestId('menu-probe')).toHaveTextContent('open');
+    await user.keyboard('{Escape}');
+    expect(screen.getByTestId('menu-probe')).toHaveTextContent('closed');
+  });
+
+  it("shows a dynamic app tab's tooltip and busy status", async () => {
+    renderWorkspace([
+      FILES_APP,
+      { ...CHILD_CEDAR_APP, status: 'loading', tooltip: 'https://example.com/' },
+    ]);
+    useWorkspaceTabSelectionStore.getState().addApps([CHILD_CEDAR_APP.id]);
+
+    const tab = await screen.findByTestId(`workspace-app-tab-${CHILD_CEDAR_APP.id}`);
+    expect(tab).toHaveAttribute('title', 'https://example.com/');
+    expect(tab).toHaveAccessibleName(/Cedar.*loading/i);
   });
 
   it('the launcher only offers registered apps (web shows Files only)', async () => {

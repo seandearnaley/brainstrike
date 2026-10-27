@@ -39,16 +39,16 @@ declare global {
      */
     assistantPersonas?: TransportBridge<typeof userPersonasContract>;
     /**
-     * Embedded browser pane bridge (BST-1174). Desktop-only; absent on web.
+     * Embedded browser bridge (BST-1174). Desktop-only; absent on web.
      * MUST stay in sync with `BrowserBridge` in
      * `@brainstrike/app-shell` `browser-pane/browser-bridge.ts` — a method
-     * present on one side only disables the whole pane surface via
+     * present on one side only disables every browser tab via
      * `resolveBrowserBridge()`.
      */
     browser?: {
-      createTab: (url?: string) => Promise<string>;
+      createTab: (threadId: string, url?: string) => Promise<string>;
       closeTab: (tabId: string) => Promise<void>;
-      selectTab: (tabId: string) => Promise<void>;
+      showTab: (tabId: string) => Promise<void>;
       navigate: (tabId: string, url: string) => Promise<void>;
       goBack: (tabId: string) => Promise<void>;
       goForward: (tabId: string) => Promise<void>;

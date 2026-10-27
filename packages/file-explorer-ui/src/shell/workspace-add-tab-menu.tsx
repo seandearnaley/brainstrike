@@ -3,32 +3,44 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
   formatShortcut,
   TAB_STRIP_ICON_BUTTON_CLASS_NAME,
+  useMenuOpenReporter,
 } from '@brainstrike/ui';
 import { Plus } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { workspaceAddMenuItems } from './workspace-add-menu';
-import type { WorkspaceApp } from './workspace-app';
+import type { WorkspaceApp, WorkspaceLaunchAction } from './workspace-app';
 
 /**
  * The "+" add-tab menu (BST-1270). Lives OUTSIDE the tablist (APG
  * composition: it is not a tab) and lists one entry per REGISTERED pinned app —
  * registration is the capability gate, so web shows Files only while desktop
  * adds Changes/Terminal. Picking an entry activates the app through
- * the singleton open-or-focus contract.
+ * the singleton open-or-focus contract. The shell's launch actions (New
+ * browser tab) follow the apps.
  */
 export interface WorkspaceAddTabMenuProps {
   readonly apps: readonly WorkspaceApp[];
+  readonly launchActions: readonly WorkspaceLaunchAction[];
+  /** The menu drops over the panel body: a native view there hides while it is open. */
+  readonly onMenuOpenChange: (open: boolean) => void;
   readonly onOpenApp: (appId: string) => void;
 }
 
-export function WorkspaceAddTabMenu({ apps, onOpenApp }: WorkspaceAddTabMenuProps): ReactElement {
+export function WorkspaceAddTabMenu({
+  apps,
+  launchActions,
+  onMenuOpenChange,
+  onOpenApp,
+}: WorkspaceAddTabMenuProps): ReactElement {
   const items = workspaceAddMenuItems(apps);
+  const reportOpenChange = useMenuOpenReporter(onMenuOpenChange);
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={reportOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           aria-label="Add workspace tab"
@@ -56,6 +68,20 @@ export function WorkspaceAddTabMenu({ apps, onOpenApp }: WorkspaceAddTabMenuProp
               {item.shortcut ? (
                 <DropdownMenuShortcut>{formatShortcut(item.shortcut)}</DropdownMenuShortcut>
               ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+        {launchActions.length > 0 ? <DropdownMenuSeparator /> : null}
+        {launchActions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <DropdownMenuItem
+              data-testid={`workspace-add-tab-${action.id}`}
+              key={action.id}
+              onSelect={action.run}
+            >
+              <Icon className="mr-2 h-4 w-4" />
+              {action.label}
             </DropdownMenuItem>
           );
         })}

@@ -8,3 +8,4 @@ export type {
   TabStripItem,
   TabStripProps,
 } from './types';
+export { useMenuOpenReporter } from './use-menu-open-reporter';

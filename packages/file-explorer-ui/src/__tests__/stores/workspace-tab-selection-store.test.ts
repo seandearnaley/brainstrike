@@ -109,6 +109,20 @@ describe('workspace-tab-selection-store', () => {
         kind: 'app',
       });
     });
+
+    it('addApps opens new tabs once, in order, without moving the selection', () => {
+      useWorkspaceTabSelectionStore.getState().addApps(['page-a', 'context-explorer', 'page-b']);
+      useWorkspaceTabSelectionStore.getState().addApps(['page-b', 'page-a']);
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([
+        'context-explorer',
+        'page-a',
+        'page-b',
+      ]);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'context-explorer',
+        kind: 'app',
+      });
+    });
   });
 
   describe('closeApp', () => {

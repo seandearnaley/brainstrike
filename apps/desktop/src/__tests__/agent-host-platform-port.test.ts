@@ -456,7 +456,8 @@ it('drives the browser pane, re-parsing the tool input', async () => {
       title: 'Example',
       url: 'https://example.com/',
     });
-    expect(browser.navigate).toHaveBeenCalledWith({ url: 'https://example.com' });
+    // The run's thread rides along: the agent browses among its conversation's pages.
+    expect(browser.navigate).toHaveBeenCalledWith({ url: 'https://example.com' }, 'thread');
     // A hallucinated parameter fails Main's strict catalog schema too.
     await expect(
       h.client.sendRequest('platform/browser/navigate', {

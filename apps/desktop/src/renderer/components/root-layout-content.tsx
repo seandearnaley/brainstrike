@@ -1,6 +1,4 @@
 import { ArtifactsPage } from '@brainstrike/app-shell/artifacts/artifacts-page';
-import { isBrowserBridgeAvailable } from '@brainstrike/app-shell/browser-pane/availability';
-import { BrowserPaneContent } from '@brainstrike/app-shell/browser-pane/browser-pane-content';
 import { McpContentCapabilityProvider } from '@brainstrike/app-shell/mcp-content-capability';
 import { McpStatusCapabilityProvider } from '@brainstrike/app-shell/mcp-status-capability';
 import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
@@ -20,7 +18,7 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
-import { Globe, Shapes } from 'lucide-react';
+import { Shapes } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
@@ -45,7 +43,6 @@ import TerminalPageContent from './terminal-page-content';
 import { ThreadContextPageContent } from './thread-context-page-content';
 import { WorktreeMapPageContent } from './worktree-map-page-content';
 
-const BROWSER_NAVIGATION_ITEM: NavigationItem = { icon: Globe, name: 'Browser', path: '/browser' };
 const ARTIFACTS_NAVIGATION_ITEM: NavigationItem = {
   icon: Shapes,
   name: 'Artifacts',
@@ -101,9 +98,6 @@ export default function RootLayoutContent() {
   const workspaceTerminals = useMemo(() => resolveDesktopWorkspaceTerminalServices(), []);
   const terminalAvailable = workspaceTerminals.terminal !== null;
   const worktreesAvailable = workspaceGit.worktrees !== null;
-  // Capability gate: only surface the Browser tab when the desktop
-  // `window.browser` bridge is present (no isElectron check). Resolved once.
-  const browserAvailable = useMemo(() => isBrowserBridgeAvailable(), []);
   // Capability port (BST-1566): live MCP task status for the thread's task
   // cards comes from the agent host (BST-1930 c5c); `null` keeps the cards on
   // their persisted snapshot with a visible note. Resolved once.
@@ -120,13 +114,10 @@ export default function RootLayoutContent() {
   // ...and the prompt content those affordances read.
   const mcpContentCapability = useMemo(() => resolveDesktopMcpContent(), []);
   const mcpAppsEnabled = useMcpAppsEnablement(mcpStatusCapability);
-  const navigationConfig = useMemo<NavigationItem[]>(() => {
-    const items = [...navigationItems, ARTIFACTS_NAVIGATION_ITEM];
-    if (browserAvailable) {
-      items.push(BROWSER_NAVIGATION_ITEM);
-    }
-    return items;
-  }, [browserAvailable]);
+  const navigationConfig = useMemo<NavigationItem[]>(
+    () => [...navigationItems, ARTIFACTS_NAVIGATION_ITEM],
+    []
+  );
   // BST-1880: the damaged-store notice's health read and recovery actions.
   const stateHealth = useMemo(() => createDesktopStateHealth(), []);
   const sharedProps: RootLayoutContentProps = {
@@ -150,7 +141,6 @@ export default function RootLayoutContent() {
     // Every desktop thread is a committed host conversation, so the context map
     // always has a fold; without the index bridge it draws files by line bands.
     threadContextPageContent: <ThreadContextPageContent chunkBounds={nativeSearch} />,
-    ...(browserAvailable ? { browserPageContent: <BrowserPaneContent /> } : {}),
     ...(changesAvailable ? { changesPageContent: <ChangesPageContent /> } : {}),
     ...(terminalAvailable ? { terminalPageContent: <TerminalPageContent /> } : {}),
     ...(worktreesAvailable ? { worktreeMapPageContent: <WorktreeMapPageContent /> } : {}),

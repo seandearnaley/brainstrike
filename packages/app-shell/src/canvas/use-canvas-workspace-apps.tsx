@@ -4,6 +4,7 @@ import { PanelsTopLeft } from 'lucide-react';
 import { useMemo } from 'react';
 import { CanvasDocumentView } from './canvas-document-view';
 import { type CanvasWorkspaceTab, readCanvasWorkspaceTab } from './canvas-workspace-tab';
+import { openCanvasTab } from './open-canvas-tab';
 import { useThreadCanvasReads } from './use-thread-canvas-reads';
 
 const icon: WorkspaceApp['icon'] = ({ className }) => <PanelsTopLeft className={className} />;
@@ -67,6 +68,11 @@ export function useCanvasWorkspaceApps(shellSrc: string | undefined): readonly W
           label: title?.trim() || FALLBACK_LABEL,
           placement: 'dynamic',
           render: () => <CanvasDocumentView read={read} shellSrc={shellSrc} tab={tab} />,
+          // A closed canvas tab leaves this registry, so Reopen Closed Tab opens it again here.
+          reopen: () => {
+            openCanvasTab(tab);
+            return Promise.resolve();
+          },
         };
       }),
     [addresses, reads, shellSrc]

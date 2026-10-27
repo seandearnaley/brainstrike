@@ -50,7 +50,7 @@ function makeServices() {
 
 describe('changesActions', () => {
   beforeEach(() => {
-    usePanelLayoutStore.setState({ activeTab: 'browser' });
+    usePanelLayoutStore.setState({ activeTab: 'artifacts' });
   });
 
   it('exports every Changes surface action with a globally unique id', () => {
@@ -144,7 +144,7 @@ describe('changesActions', () => {
   });
 
   it('"Add as Workspace Root" switches to the Explorer tab and says what to click next', async () => {
-    expect(usePanelLayoutStore.getState().activeTab).toBe('browser');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('artifacts');
     const outcome = await addWorktreeAsRootAction.run(outsideRootWorktreeTarget, {});
     expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
     expect(outcome).toEqual({

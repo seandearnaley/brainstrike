@@ -45,12 +45,17 @@ export class ThreadWorkspaceNavigation {
     }
   }
 
+  /** The coordinator has applied this thread's stored workspace to the live stores. */
+  isReady(resourceId: string, threadId: string): boolean {
+    return this.ready?.resourceId === resourceId && this.ready.threadId === threadId;
+  }
+
   /**
    * Joins the coordinator's report that this thread's stored workspace is applied to the live
    * stores: resolves on its `complete`, rejects with the error on its `failed` (BST-2288).
    */
   whenReady(resourceId: string, threadId: string): Promise<void> {
-    if (this.ready?.resourceId === resourceId && this.ready.threadId === threadId) {
+    if (this.isReady(resourceId, threadId)) {
       return Promise.resolve();
     }
     if (this.failure?.resourceId === resourceId && this.failure.threadId === threadId) {

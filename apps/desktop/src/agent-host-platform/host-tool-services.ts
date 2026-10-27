@@ -11,7 +11,7 @@ import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
-import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
+import type { MainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import { isActionableHostedEmbeddingError } from '../hosted-embedding-error';
@@ -31,8 +31,8 @@ import {
 
 /** The Main-owned stores and services the host's tools read through Main. */
 export interface HostToolServiceCapabilities {
-  /** The window-bound browser pane's reads, driven in Main for a host run. */
-  readonly browser?: BrowserToolRunner;
+  /** The window-bound browser's pages, driven in Main for a host run's thread. */
+  readonly browser?: MainBrowserToolRunner;
   /** The diagnostic events store, projected and scrubbed before a row leaves Main. */
   readonly diagnostics?: DiagnosticsReader;
   /** Main's workspace index (search, grep, coverage); it stays Main-owned in M3. */
@@ -94,7 +94,7 @@ export function serveHostToolServices(
   serveRetrievalReads(connection, execute, services);
 }
 
-/** `platform/browser/*`: the active pane, which only Main's window can drive. */
+/** `platform/browser/*`: the run thread's pages, which only Main's window can drive. */
 function serveBrowserCalls(
   connection: MessageConnection,
   execute: Execute,
@@ -103,19 +103,28 @@ function serveBrowserCalls(
   connection.onRequest('platform/browser/navigate', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const request = parseBrowserNavigateRequest(input);
-      return await required(services?.browser, 'browser pane').navigate(request.input);
+      return await required(services?.browser, 'browser pane').navigate(
+        request.input,
+        request.threadId
+      );
     })
   );
   connection.onRequest('platform/browser/read-page', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const request = parseBrowserReadPageRequest(input);
-      return await required(services?.browser, 'browser pane').readPage(request.input);
+      return await required(services?.browser, 'browser pane').readPage(
+        request.input,
+        request.threadId
+      );
     })
   );
   connection.onRequest('platform/browser/page-text', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const request = parseBrowserPageTextRequest(input);
-      return await required(services?.browser, 'browser pane').getPageText(request.input);
+      return await required(services?.browser, 'browser pane').getPageText(
+        request.input,
+        request.threadId
+      );
     })
   );
 }

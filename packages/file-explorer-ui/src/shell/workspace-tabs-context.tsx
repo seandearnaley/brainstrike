@@ -36,14 +36,19 @@ import {
   WorkspaceTabsContext,
   type WorkspaceTabsValue,
 } from './use-workspace-tabs';
-import type { WorkspaceApp } from './workspace-app';
+import type { WorkspaceApp, WorkspaceLaunchAction } from './workspace-app';
 import { getFileName, getTabRootPath } from './workspace-tab-utils';
 
 const logger = createLogger('WorkspaceTabs');
 
 /** A closed workspace tab, remembered for Reopen Closed Tab (session-only). */
 type WorkspaceClosedTab =
-  | { readonly appId: string; readonly kind: 'app'; readonly label: string }
+  | {
+      readonly appId: string;
+      readonly kind: 'app';
+      readonly label: string;
+      readonly reopen: WorkspaceApp['reopen'];
+    }
   | { readonly compositeKey: string; readonly kind: 'file'; readonly name: string };
 
 function liveFileTabIds(): readonly string[] {
@@ -72,7 +77,11 @@ export interface WorkspaceTabsProviderProps {
    */
   readonly apps: readonly WorkspaceApp[];
   readonly children: ReactNode;
+  /** Entries after the apps in the "+" menu and the launcher, such as New browser tab. */
+  readonly launchActions?: readonly WorkspaceLaunchAction[];
 }
+
+const NO_LAUNCH_ACTIONS: readonly WorkspaceLaunchAction[] = [];
 
 function canAutoLoadFileContent(
   canLoadWithoutTree: boolean,
@@ -102,7 +111,15 @@ function canAutoLoadFileContent(
 export function WorkspaceTabsProvider({
   apps,
   children,
+  launchActions = NO_LAUNCH_ACTIONS,
 }: WorkspaceTabsProviderProps): ReactElement {
+  // A COUNT, not a flag: opening the All-tabs menu straight from an open tab
+  // menu reports the new open before the old close (Radix reports from commit
+  // effects, child before parent), so a flag would read closed while one is open.
+  const [openMenuCount, setOpenMenuCount] = useState(0);
+  const handleMenuOpenChange = useCallback((open: boolean): void => {
+    setOpenMenuCount((count) => count + (open ? 1 : -1));
+  }, []);
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
@@ -366,7 +383,12 @@ export function WorkspaceTabsProvider({
         const open = new Set(useWorkspaceTabSelectionStore.getState().openAppIds);
         return apps.flatMap((app): OpenTab<WorkspaceClosedTab>[] =>
           open.has(app.id)
-            ? [{ id: app.id, tab: { appId: app.id, kind: 'app', label: app.label } }]
+            ? [
+                {
+                  id: app.id,
+                  tab: { appId: app.id, kind: 'app', label: app.label, reopen: app.reopen },
+                },
+              ]
             : []
         );
       };
@@ -645,30 +667,36 @@ export function WorkspaceTabsProvider({
   // is dropped; an unexpected failure puts the entry back (reopenLastClosed).
   const handleReopenClosedTab = useCallback(
     (): Promise<ActionOutcome> =>
-      reopenLastClosed(closedTabs, ({ index, tab: entry }): ReopenAttempt => {
-        if (entry.kind === 'app') {
-          if (!apps.some((app) => app.id === entry.appId)) {
+      reopenLastClosed(
+        closedTabs,
+        ({ index, tab: entry }): ReopenAttempt | Promise<ReopenAttempt> => {
+          if (entry.kind === 'app') {
+            if (apps.some((app) => app.id === entry.appId)) {
+              handleOpenApp(entry.appId);
+              return { status: 'reopened' };
+            }
+            if (entry.reopen) {
+              return entry.reopen().then((): ReopenAttempt => ({ status: 'reopened' }));
+            }
             return {
               error: `${entry.label} can no longer be reopened: it is not available`,
               status: 'stale',
             };
           }
-          handleOpenApp(entry.appId);
+          if (getTabRootPath(entry, rootDescriptors) === null) {
+            return {
+              error: `"${entry.name}" can no longer be reopened: its folder is not connected`,
+              status: 'stale',
+            };
+          }
+          const wasOpen = liveFileTabIds().includes(entry.compositeKey);
+          handleOpenFileInTab(entry.compositeKey);
+          if (!wasOpen) {
+            reorderTabs(placeTabAtIndex(liveFileTabIds(), entry.compositeKey, index));
+          }
           return { status: 'reopened' };
         }
-        if (getTabRootPath(entry, rootDescriptors) === null) {
-          return {
-            error: `"${entry.name}" can no longer be reopened: its folder is not connected`,
-            status: 'stale',
-          };
-        }
-        const wasOpen = liveFileTabIds().includes(entry.compositeKey);
-        handleOpenFileInTab(entry.compositeKey);
-        if (!wasOpen) {
-          reorderTabs(placeTabAtIndex(liveFileTabIds(), entry.compositeKey, index));
-        }
-        return { status: 'reopened' };
-      }),
+      ),
     [apps, closedTabs, handleOpenApp, handleOpenFileInTab, reorderTabs, rootDescriptors]
   );
 
@@ -694,7 +722,9 @@ export function WorkspaceTabsProvider({
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
       hasClosedTabs,
+      isMenuOpen: openMenuCount > 0,
       isRestoring,
+      launchActions,
       loadingFiles,
       mountedAppIds,
       onActivateTab: handleActivateTab,
@@ -705,6 +735,7 @@ export function WorkspaceTabsProvider({
       onCloseFileTabsToRight: handleCloseFileTabsToRight,
       onCloseOtherFileTabs: handleCloseOtherFileTabs,
       onCloseTab: handleCloseTab,
+      onMenuOpenChange: handleMenuOpenChange,
       onOpenApp: handleOpenApp,
       onReopenClosedTab: handleReopenClosedTab,
       // Reordering never writes selection, so it leaves a pending permission-prompt
@@ -727,8 +758,10 @@ export function WorkspaceTabsProvider({
       handleOpenFileInTab,
       hasClosedTabs,
       isRestoring,
+      launchActions,
       loadingFiles,
       mountedAppIds,
+      openMenuCount,
       handleActivateTab,
       handleCloseAllFileTabs,
       handleCloseApp,
@@ -737,6 +770,7 @@ export function WorkspaceTabsProvider({
       handleCloseFileTabsToRight,
       handleCloseOtherFileTabs,
       handleCloseTab,
+      handleMenuOpenChange,
       handleOpenApp,
       handleReopenClosedTab,
       handleRetryFileContent,

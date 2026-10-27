@@ -2,7 +2,7 @@ import type { ActionRegistry } from '@brainstrike/context-actions';
 import { type RenderResult, render } from '@testing-library/react';
 import { GitCompare, LayoutGrid, MessageSquare, PanelsTopLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { WorkspaceApp } from '../shell/workspace-app';
+import type { WorkspaceApp, WorkspaceLaunchAction } from '../shell/workspace-app';
 import { WorkspaceBody } from '../shell/workspace-body';
 import { WorkspaceTabStrip } from '../shell/workspace-tab-strip';
 import { WorkspaceOpenFileBridge, WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
@@ -61,15 +61,22 @@ export const CHILD_FLINT_APP: WorkspaceApp = {
 export interface WorkspaceHarnessOptions {
   /** Registry whose global actions join the strip menus (default: none). */
   readonly actionRegistry?: ActionRegistry;
+  /** "+" menu and launcher entries after the apps (default: none). */
+  readonly launchActions?: readonly WorkspaceLaunchAction[];
+  /** Rendered inside the provider, beside the strip. */
+  readonly probe?: ReactNode;
 }
 
 function WorkspaceHarness({
   actionRegistry,
   apps,
+  launchActions,
+  probe,
 }: WorkspaceHarnessOptions & { readonly apps: readonly WorkspaceApp[] }): ReactNode {
   return (
     <FileExplorerTestWrapper {...(actionRegistry ? { actionRegistry } : {})}>
-      <WorkspaceTabsProvider apps={apps}>
+      <WorkspaceTabsProvider apps={apps} {...(launchActions ? { launchActions } : {})}>
+        {probe}
         <div data-testid="header-slot">
           <WorkspaceTabStrip />
         </div>
