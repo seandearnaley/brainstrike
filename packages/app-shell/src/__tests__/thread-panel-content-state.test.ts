@@ -93,6 +93,20 @@ describe('resolveThreadPanelContentState', () => {
       name: 'no threads and no groups to show',
       overrides: { threads: [], view: EMPTY_FLAT },
     },
+    {
+      expected: {
+        description: 'Send a message to start your first thread.',
+        kind: 'card',
+        testId: 'threads-placeholder-card',
+        title: 'No threads found',
+        variant: 'muted',
+      },
+      name: 'no threads in the default date view',
+      overrides: {
+        threads: [],
+        view: { kind: 'dates', pinned: null, sections: [] } as ThreadListView,
+      },
+    },
   ])('stands a card in for the treegrid: $name', ({ expected, overrides }) => {
     expect(resolve(overrides)).toEqual(expected);
   });
@@ -116,7 +130,7 @@ describe('resolveThreadPanelContentState', () => {
   });
 
   it('keeps the treegrid for an empty grouped view so the group sections stay reachable', () => {
-    // The empty-state card is flat-only: grouped views render their (possibly
+    // The empty-state card is for flat and date views: grouped views render their (possibly
     // empty) sections rather than claiming there are no threads.
     expect(resolve({ threads: [], view: EMPTY_GROUPED })).toEqual({ kind: 'tree' });
   });

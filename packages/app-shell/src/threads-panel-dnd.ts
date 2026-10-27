@@ -71,6 +71,19 @@ function resolveThreadOnThreadDrop({
     return NONE;
   }
   const destinationGroupId = view.kind === 'flat' ? null : target.groupId;
+  // A grouped section lists its pinned members under Pinned instead, so it is
+  // PARTIAL like a filtered one: rewriting the ranks of what it shows would
+  // leave the pinned members on their old ranks, and unpinning would reveal
+  // an order the user never chose. Moving a thread to another group is still
+  // a complete write.
+  if (
+    view.kind === 'grouped' &&
+    view.pinned?.threads.some(
+      (thread) => (groupIdByThreadId.get(thread.id) ?? null) === destinationGroupId
+    )
+  ) {
+    return NONE;
+  }
   const currentIds = sectionThreadIds(
     view,
     view.kind === 'flat' ? null : destinationGroupId
