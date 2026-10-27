@@ -487,9 +487,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       await expect.poll(() => readFolders(window)).toEqual([[], []]);
       await homePage.leaveSettings();
       for (const index of roots.keys()) {
-        await expect(window.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(
-          0
-        );
+        await expect(window.getByText(`reset-folder-${index}.txt`, { exact: true })).toHaveCount(0);
       }
       // The replacement window loaded while the profile was closed; it learns the fresh
       // profile's config from Main once the profile reopens, without a restart.
