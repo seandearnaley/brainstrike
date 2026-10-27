@@ -22,17 +22,18 @@ import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-lo
 /**
  * Harness surface the seeding helpers need.
  *
- * `closeForStateSeeding` is mandatory: the harness registers every process it
- * launches with `ElectronProcessExitGuard`, so closing a harness-owned app any
- * other way (e.g. `closeElectronApp` directly) records the exit as unexpected
- * and fails the test before it reaches its first assertion (BST-1087).
+ * The helpers write Main's storage into the harness's own userData directory
+ * (the app's `userData` path, BRAINSTRIKE_E2E_USER_DATA_DIR) before the app
+ * first launches, so a restore spec boots once instead of twice.
+ * `closeForStateSeeding` is mandatory when an app is running: the harness
+ * registers every process it launches with `ElectronProcessExitGuard`, so
+ * closing a harness-owned app any other way (e.g. `closeElectronApp` directly)
+ * records the exit as unexpected and fails the test before it reaches its first
+ * assertion (BST-1087). With no app running it does nothing.
  */
 export interface SeedableElectronHarness {
   closeForStateSeeding: () => Promise<void>;
-  ensureContext: () => Promise<{
-    app: ElectronApplication;
-    window: Page;
-  }>;
+  getUserDataDir: () => string;
 }
 
 interface ElectronE2eFileSystemFixture {
@@ -644,8 +645,7 @@ export async function seedRestoredExplicitSelectionState(args: {
     rootPath,
     selectedFilePaths,
   });
-  const currentContext = await electronHarness.ensureContext();
-  const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
+  const userDataDir = electronHarness.getUserDataDir();
 
   await electronHarness.closeForStateSeeding();
 
@@ -668,6 +668,7 @@ export async function seedRestoredExplicitSelectionState(args: {
     [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 
+  await mkdir(userDataDir, { recursive: true });
   await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
 }
 
@@ -687,8 +688,7 @@ export async function seedRestoredQuerySelectionState(args: {
   const { electronHarness, ...snapshot } = args;
   const { rootPath } = snapshot;
   const persistedState = createRestoredQuerySelectionSnapshot(snapshot);
-  const currentContext = await electronHarness.ensureContext();
-  const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
+  const userDataDir = electronHarness.getUserDataDir();
 
   await electronHarness.closeForStateSeeding();
 
@@ -711,6 +711,7 @@ export async function seedRestoredQuerySelectionState(args: {
     [FILE_EXPLORER_STORAGE_KEY]: JSON.stringify(persistedState),
   };
 
+  await mkdir(userDataDir, { recursive: true });
   await writeFile(storagePath, JSON.stringify(nextStorage, null, 2), 'utf8');
 }
 
