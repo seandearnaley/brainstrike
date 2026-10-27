@@ -73,6 +73,9 @@ test('a host thread keeps its title, colour and icon across a reload', async ({
     customization.getByRole('button', { exact: true, name: 'Use Emerald color' })
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(window.getByRole('alert')).toHaveCount(0);
+  // The open conversation takes the thread's colour, its agent replies included.
+  const conversation = window.getByRole('region', { exact: true, name: 'Assistant' });
+  await expect(conversation).toHaveAttribute('data-agent-color', 'emerald');
 
   await reloadRenderer(window, 'host-thread-metadata: reload');
   await ensureAssistantShellVisible(window);
@@ -85,5 +88,6 @@ test('a host thread keeps its title, colour and icon across a reload', async ({
   await expect(
     customization.getByRole('button', { exact: true, name: 'Use Emerald color' })
   ).toHaveAttribute('aria-pressed', 'true');
+  await expect(conversation).toHaveAttribute('data-agent-color', 'emerald');
   expect(modelProvider.refusals()).toEqual([]);
 });
