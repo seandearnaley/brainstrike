@@ -1,5 +1,5 @@
 import { Copy, ExternalLink, Globe } from 'lucide-react';
-import type { ReactElement } from 'react';
+import type { MouseEvent, ReactElement } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +20,10 @@ export interface LinkChoices {
  * browser, or the clipboard. `children` is the link itself, which stays a
  * real anchor so it keeps its focus order and hover preview; activating it
  * opens the menu, and the anchor must prevent its own navigation.
+ *
+ * The menu does not open on a Ctrl-click, which macOS treats as a right
+ * click, so a Ctrl-click opens the link in the default browser, as a middle
+ * click does.
  */
 export function LinkChoiceMenu({
   children,
@@ -28,9 +32,16 @@ export function LinkChoiceMenu({
   readonly children: ReactElement;
   readonly choices: LinkChoices;
 }): ReactElement {
+  const openCtrlClickInDefaultBrowser = (event: MouseEvent): void => {
+    if (event.ctrlKey) {
+      choices.openInDefaultBrowser();
+    }
+  };
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
+      <DropdownMenuTrigger asChild onClick={openCtrlClickInDefaultBrowser}>
+        {children}
+      </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuItem onSelect={choices.openInAppBrowser}>
           <Globe aria-hidden="true" />

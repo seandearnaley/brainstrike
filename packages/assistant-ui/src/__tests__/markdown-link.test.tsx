@@ -468,6 +468,23 @@ describe('assistant markdown links when the host has its own browser', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('sends a Ctrl-click straight to the default browser', async () => {
+    const user = userEvent.setup();
+    const { capabilities, openInAppBrowser, openLink } = stubChoices();
+    const link = renderLink(capabilities, 'https://example.com/docs');
+
+    await user.keyboard('{Control>}');
+    await user.click(link);
+    await user.keyboard('{/Control}');
+
+    await waitFor(() => {
+      expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+    });
+    expect(observed?.defaultPrevented).toBe(true);
+    expect(openInAppBrowser).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('opens a link the host browser does not take with no question', async () => {
     const { capabilities, openLink } = stubChoices();
     await userEvent.click(renderLink(capabilities, 'mailto:team@example.com'));

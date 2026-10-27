@@ -137,7 +137,7 @@ export function MarkdownLink({
 
   // A web link the host's own browser can show asks where to open: the menu
   // opens on activation, so the click only has to stop the navigation. A
-  // middle click still opens it in the default browser.
+  // middle click or a Ctrl-click still opens it in the default browser.
   const choices = choicesFor(capabilities, href);
   const anchor = (
     // Spread FIRST: `href`, `onClick` and `onAuxClick` are the invariants this

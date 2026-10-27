@@ -105,6 +105,24 @@ describe('MarkdownSurface', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('sends a Ctrl-click on a link with choices straight to the default browser', async () => {
+    const user = userEvent.setup();
+    const choices = {
+      copyLink: vi.fn(),
+      openInAppBrowser: vi.fn(),
+      openInDefaultBrowser: vi.fn(),
+    };
+    renderSurface('[site](https://example.com)\n', { linkChoices: () => choices });
+
+    await user.keyboard('{Control>}');
+    await user.click(screen.getByRole('link', { name: 'site' }));
+    await user.keyboard('{/Control}');
+
+    expect(choices.openInDefaultBrowser).toHaveBeenCalledOnce();
+    expect(choices.openInAppBrowser).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('shows an explicit placeholder when image resolution rejects', async () => {
     const resolveImageSrc = vi.fn().mockRejectedValue(new Error('outside root'));
     renderSurface('![diagram](./missing.png)\n', { resolveImageSrc });
