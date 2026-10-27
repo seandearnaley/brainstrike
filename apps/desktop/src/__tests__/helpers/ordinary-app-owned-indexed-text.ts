@@ -394,40 +394,15 @@ export async function qualifyOrdinaryAppIndexedText(
     });
     await ensureAssistantShellVisible(page);
     checkpoint('ordinary-native-text-publication-ready');
-    // The startup thread is already open and visible; New Thread's own thread
-    // is the one that was not there before the click.
-    await page.getByRole('textbox', { name: 'Message input' }).waitFor();
-    const threadsBeforeClick = new Set(
-      await page.evaluate(() =>
-        [...document.querySelectorAll('[data-testid^="assistant-thread-panel-"]')].map((panel) =>
-          panel.getAttribute('data-testid')?.slice('assistant-thread-panel-'.length)
-        )
-      )
-    );
-    await page.getByTestId('assistant-new-thread-button').click();
-    let discoveredThreadId: string | undefined;
-    await expect
-      .poll(async () => {
-        const catalog = await client?.request('thread/list', {});
-        const candidate = catalog?.threads.at(-1)?.threadId;
-        if (
-          candidate &&
-          !threadsBeforeClick.has(candidate) &&
-          (await page.getByTestId(`assistant-thread-panel-${candidate}`).isVisible())
-        ) {
-          discoveredThreadId = candidate;
-          return true;
-        }
-        return false;
-      })
-      .toBe(true);
-    const threadId = discoveredThreadId;
-    if (!threadId) {
-      throw new Error('Ordinary New Thread or mounted workspace has no committed identity');
-    }
-    activeThreadId = threadId;
-    checkpoint('ordinary-indexed-text-new-thread-rendered');
+    // New creates nothing until its first send: the CLI drives a thread started
+    // through the host, and the UI's first send creates its own thread.
+    const prompt = 'Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.';
+    let threadId: string;
     if (options.cliGrep) {
+      threadId = (await client.request('thread/start', { commandId: crypto.randomUUID() }))
+        .threadId;
+      activeThreadId = threadId;
+      checkpoint('ordinary-indexed-text-thread-started');
       const require = createRequire(import.meta.url);
       const bin = join(
         dirname(require.resolve('@brainstrike/host-capabilities')),
@@ -446,7 +421,7 @@ export async function qualifyOrdinaryAppIndexedText(
           '--model',
           'openrouter::anthropic/claude-sonnet-4.6',
           '--prompt',
-          'Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.',
+          prompt,
         ],
         {
           env: {
@@ -460,10 +435,23 @@ export async function qualifyOrdinaryAppIndexedText(
       await writeFile(join(evidence, 'cli-send.json'), JSON.stringify(result, null, 2));
     } else {
       const input = page
-        .getByTestId(`assistant-thread-panel-${threadId}`)
+        .getByTestId('new-thread-welcome')
         .getByRole('textbox', { name: 'Message input' });
-      await input.fill('Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.');
+      await input.fill(prompt);
       await input.press('Enter');
+      let sentThreadId: string | undefined;
+      await expect
+        .poll(async () => {
+          sentThreadId = (await client?.request('thread/list', {}))?.threads.at(-1)?.threadId;
+          return sentThreadId !== undefined;
+        })
+        .toBe(true);
+      if (!sentThreadId) {
+        throw new Error('The first send committed no thread');
+      }
+      threadId = sentThreadId;
+      activeThreadId = threadId;
+      checkpoint('ordinary-indexed-text-thread-started');
     }
     await expect
       .poll(

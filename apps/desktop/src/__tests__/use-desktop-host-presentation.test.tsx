@@ -335,6 +335,7 @@ describe("the host composer's OpenRouter reasoning effort", () => {
       ownsThread: unused,
       providers: { readOpenRouterModel: read, readStatus: unused, verifyProvider: unused },
       renameThread: unused,
+      renderNewThread: () => null,
       renderThread: unused,
       updateThreadBinding: unused,
       workspaceRepository: unused,

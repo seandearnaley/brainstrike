@@ -4,6 +4,7 @@ export {
   committedConversationIdentity,
   createCommittedHostThread,
   hostErrorCode,
+  startCommittedTurn,
 } from './committed-host-thread';
 export {
   type HostCatalogEntry,

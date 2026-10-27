@@ -125,7 +125,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
   return activePage;
 }
 
-/** The index holds no folder, and the thread list shows only the fresh start's thread. */
+/** The index holds no folder, and a fresh start shows the new-thread screen with no threads. */
 async function verifyClearedDesktopContent(page: Page): Promise<void> {
   await expect
     .poll(
@@ -139,7 +139,8 @@ async function verifyClearedDesktopContent(page: Page): Promise<void> {
     )
     .toEqual({ folders: 0, kind: 'ready' });
   await ensureAssistantShellVisible(page);
-  await expect(page.getByTestId('threads-panel').getByTestId('thread-row')).toHaveCount(1);
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('threads-panel').getByTestId('thread-row')).toHaveCount(0);
 }
 
 async function resolveActivePage(page: Page): Promise<Page> {

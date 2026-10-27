@@ -15,6 +15,7 @@ function hostFixture(deleteOwned: AssistantThreadHostCapability['deleteThread'])
     listThreads: vi.fn(),
     ownsThread: vi.fn(async (threadId: string) => OWNED.has(threadId)),
     renameThread: vi.fn(async () => undefined),
+    renderNewThread: () => null,
     renderThread: vi.fn(),
     updateThreadBinding: vi.fn(async () => undefined),
     workspaceRepository: () => {

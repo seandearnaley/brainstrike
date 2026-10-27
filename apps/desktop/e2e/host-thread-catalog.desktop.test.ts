@@ -36,12 +36,15 @@ async function activeConversation(page: Page): Promise<Locator> {
   return panel;
 }
 
+/** New opens the new-thread screen, the Assistant before its first send creates the thread. */
 async function newConversation(page: Page): Promise<Locator> {
   await page.getByTestId('assistant-new-thread-button').click();
-  await expect(
-    page.getByRole('tab', { exact: true, name: 'New Thread', selected: true })
-  ).toBeVisible();
-  return await activeConversation(page);
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible();
+  return assistant(page);
+}
+
+function assistant(page: Page): Locator {
+  return page.getByRole('region', { exact: true, name: 'Assistant' });
 }
 
 async function send(panel: Locator, prompt: string, reply: string): Promise<void> {
@@ -73,7 +76,13 @@ test('@smoke every offered chat opens, New sends, and current conversations surv
   modelProvider.setScript(({ requestBody }) => ({
     finalText: (requestBody as { stream?: unknown }).stream === true ? reply : title,
   }));
-  await send(await activeConversation(page), 'First current message.', reply);
+  // A fresh profile opens on the new-thread screen: no thread exists until this send.
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
+  await expect(
+    page.getByRole('tablist', { name: 'Open assistant threads' }).getByRole('tab')
+  ).toHaveCount(0);
+  await send(assistant(page), 'First current message.', reply);
+  await expect(await activeConversation(page)).toBeVisible();
   await expect(page.getByRole('tab', { exact: true, name: title })).toBeVisible({
     timeout: 30_000,
   });

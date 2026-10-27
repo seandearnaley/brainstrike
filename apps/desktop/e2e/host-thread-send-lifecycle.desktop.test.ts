@@ -4,6 +4,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { startThread } from './utils/new-thread';
 
 async function openHostThread(page: Page): Promise<void> {
   const { mockFileSystemOperations } = await loadElectronHelpers();
@@ -36,12 +37,19 @@ test('a second send while the first is being admitted keeps its draft and starts
     if (toolNames.length === 0) {
       return { finalText: 'Send lifecycle' };
     }
-    return JSON.stringify(messages).includes('Second message')
-      ? { finalText: 'SECOND_REPLY' }
-      : { beforeFinalText: hold.promise, finalText: 'FIRST_REPLY' };
+    const sent = JSON.stringify(messages);
+    if (sent.includes('Second message')) {
+      return { finalText: 'SECOND_REPLY' };
+    }
+    return sent.includes('First message')
+      ? { beforeFinalText: hold.promise, finalText: 'FIRST_REPLY' }
+      : { finalText: 'OPENED_REPLY' };
   });
+  // The sends race on an existing thread; the new-thread screen's first send creates it.
+  await startThread(page, 'Open the thread');
   const { input, region } = assistantRegion(page);
-  await expect(input).toBeVisible({ timeout: 30_000 });
+  await expect(region.getByText('OPENED_REPLY', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
   await input.fill('First message');
   // Two Enters milliseconds apart, as a fast typist sends them.
   await input.press('Enter');

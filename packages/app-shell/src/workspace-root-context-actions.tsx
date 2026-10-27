@@ -5,20 +5,20 @@
  * not — and must not — depend on `@brainstrike/app-shell`.
  *
  * Both are capability-gated by ABSENCE. "Open in Terminal" exists only when
- * `useTerminalBridge()` returns a provided bridge, and `useCreateThreadInFolder()` returns `null` until the thread
- * repository resolves — so web renders neither item and a booting desktop
+ * `useTerminalBridge()` returns a provided bridge, and `useStartThreadInFolder()` returns `null` until the thread
+ * host attaches — so web renders neither item and a booting desktop
  * renders no dead "New thread here".
  */
 import { type AnyContextAction, defineContextAction } from '@brainstrike/context-actions';
 import { MessageSquarePlus, SquareTerminal } from 'lucide-react';
 import { useMemo } from 'react';
-import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
+import { useStartThreadInFolder } from './hooks/use-start-thread-in-folder';
 import { useTerminalTargetStore } from './stores/terminal-target-store';
 import { useTerminalBridge } from './workspace-terminal-services';
 
 export function useWorkspaceRootActions(): readonly AnyContextAction[] {
   const terminalAvailable = useTerminalBridge() !== null;
-  const createThreadInFolder = useCreateThreadInFolder();
+  const startThreadInFolder = useStartThreadInFolder();
   return useMemo(() => {
     const actions: AnyContextAction[] = [];
     if (terminalAvailable) {
@@ -46,7 +46,7 @@ export function useWorkspaceRootActions(): readonly AnyContextAction[] {
         })
       );
     }
-    if (createThreadInFolder) {
+    if (startThreadInFolder) {
       actions.push(
         defineContextAction<'workspace-root'>({
           appliesTo: ['workspace-root'],
@@ -55,11 +55,11 @@ export function useWorkspaceRootActions(): readonly AnyContextAction[] {
           id: 'workspace-root.new-thread-here',
           label: 'New Thread Here',
           run: (target) => {
-            // `ThreadFolderBinding.path` is REQUIRED `string | null` — pass
+            // `ThreadFolderRow.path` is REQUIRED `string | null` — pass
             // `target.path` directly (already `string | null` on a
             // `workspace-root` target), never a conditional spread that
             // would drop the key when null.
-            createThreadInFolder({
+            startThreadInFolder({
               displayName: target.displayName,
               path: target.path,
               rootId: target.rootId,
@@ -70,5 +70,5 @@ export function useWorkspaceRootActions(): readonly AnyContextAction[] {
       );
     }
     return actions;
-  }, [createThreadInFolder, terminalAvailable]);
+  }, [startThreadInFolder, terminalAvailable]);
 }

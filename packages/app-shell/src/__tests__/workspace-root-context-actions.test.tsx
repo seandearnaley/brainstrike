@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceRootActions } from '../workspace-root-context-actions';
 import { TerminalHost as wrapper } from './helpers/workspace-terminal-services-wrapper';
 
-const { createThreadInFolderMock, openTerminalAtMock, useCreateThreadInFolderMock } = vi.hoisted(
+const { startThreadInFolderMock, openTerminalAtMock, useStartThreadInFolderMock } = vi.hoisted(
   () => ({
-    createThreadInFolderMock: vi.fn(),
     openTerminalAtMock: vi.fn(),
-    useCreateThreadInFolderMock: vi.fn(),
+    startThreadInFolderMock: vi.fn(),
+    useStartThreadInFolderMock: vi.fn(),
   })
 );
 
@@ -16,8 +16,8 @@ vi.mock('../stores/terminal-target-store', () => ({
   useTerminalTargetStore: { getState: () => ({ openTerminalAt: openTerminalAtMock }) },
 }));
 
-vi.mock('../hooks/use-create-thread-in-folder', () => ({
-  useCreateThreadInFolder: useCreateThreadInFolderMock,
+vi.mock('../hooks/use-start-thread-in-folder', () => ({
+  useStartThreadInFolder: useStartThreadInFolderMock,
 }));
 
 const desktopRoot: ContextTarget = {
@@ -39,7 +39,7 @@ const webRoot: ContextTarget = {
 describe('useWorkspaceRootActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useCreateThreadInFolderMock.mockReturnValue(createThreadInFolderMock);
+    useStartThreadInFolderMock.mockReturnValue(startThreadInFolderMock);
   });
 
   it('opens the terminal at the root itself — cwd IS the root path', async () => {
@@ -51,7 +51,7 @@ describe('useWorkspaceRootActions', () => {
       cwd: '/Users/dev/GitHub/brainstrike',
       rootId: 'root-1',
     });
-    expect(createThreadInFolderMock).not.toHaveBeenCalled();
+    expect(startThreadInFolderMock).not.toHaveBeenCalled();
   });
 
   it('omits Open in Terminal entirely when the terminal bridge is absent', () => {
@@ -73,7 +73,7 @@ describe('useWorkspaceRootActions', () => {
 
     await newThread?.run(desktopRoot, {});
 
-    expect(createThreadInFolderMock).toHaveBeenCalledExactlyOnceWith({
+    expect(startThreadInFolderMock).toHaveBeenCalledExactlyOnceWith({
       displayName: 'brainstrike',
       path: '/Users/dev/GitHub/brainstrike',
       rootId: 'root-1',
@@ -86,7 +86,7 @@ describe('useWorkspaceRootActions', () => {
 
     await newThread?.run(webRoot, {});
 
-    expect(createThreadInFolderMock).toHaveBeenCalledExactlyOnceWith({
+    expect(startThreadInFolderMock).toHaveBeenCalledExactlyOnceWith({
       displayName: 'notes',
       path: null,
       rootId: 'root-web-1',
@@ -94,7 +94,7 @@ describe('useWorkspaceRootActions', () => {
   });
 
   it('omits New thread here while the thread repository is unresolved', () => {
-    useCreateThreadInFolderMock.mockReturnValueOnce(null);
+    useStartThreadInFolderMock.mockReturnValueOnce(null);
 
     expect(
       renderHook(() => useWorkspaceRootActions(), { wrapper }).result.current.map(

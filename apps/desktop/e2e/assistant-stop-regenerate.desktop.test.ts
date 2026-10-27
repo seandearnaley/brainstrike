@@ -3,6 +3,7 @@ import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest } from './utils/model-provider-shim';
+import { startThread } from './utils/new-thread';
 
 /**
  * Stop and regenerate over one host thread: a reply stopped mid-stream, the
@@ -68,18 +69,15 @@ test('stops the owned generation, regenerates the prompt and stops a long respon
     const input = panel.getByRole('textbox', { name: 'Message input' });
     const send = panel.getByRole('button', { exact: true, name: 'Send' });
     const stop = panel.getByRole('button', { exact: true, name: 'Stop' });
-    await expect(input).toBeVisible({ timeout: 30_000 });
+    // Turn 1: sent from the new-thread screen, which creates the thread, and
+    // stopped while its partial reply is on screen.
+    await startThread(window, PROMPT);
     const threadId = (
       (await window
         .getByRole('tablist', { name: 'Open assistant threads' })
-        .getByRole('tab')
-        .first()
+        .getByRole('tab', { selected: true })
         .getAttribute('id')) ?? ''
     ).replace('assistant-thread-tab-', '');
-
-    // Turn 1: stopped while its partial reply is on screen.
-    await input.fill(PROMPT);
-    await send.click();
     await expect(panel.getByText(PARTIAL, { exact: true })).toBeVisible({ timeout: 60_000 });
     await stop.click();
     await expect(stop).toHaveCount(0, { timeout: 30_000 });

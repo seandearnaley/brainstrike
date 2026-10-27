@@ -7,6 +7,7 @@ import { readCommittedRunStatus } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
+import { startThread } from './utils/new-thread';
 
 /**
  * Closing the tab of a RUNNING thread hides it (BST-1844), on desktop as on
@@ -79,6 +80,9 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     await openThreadsPanel(window);
 
     const strip = window.getByRole('tablist', { name: 'Open assistant threads' });
+    // Turn 1 starts the thread from the new-thread screen and runs to
+    // completion in the foreground, and the thread gets its title.
+    await startThread(window, 'Say the first sentence.');
     await expect(strip.getByRole('tab')).toHaveCount(1, { timeout: 30_000 });
     const tab = strip.getByRole('tab');
     const tabId = (await tab.getAttribute('id')) ?? '';
@@ -86,10 +90,6 @@ test('closing a running second turn of a titled thread hides it: no cancel, the 
     const panel = window.getByTestId(`assistant-thread-panel-${threadId}`);
     const threadsPanel = window.getByTestId('threads-panel');
     const spinners = threadsPanel.getByTestId('thread-active-spinner');
-
-    // Turn 1 runs to completion in the foreground, and the thread gets its title.
-    await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the first sentence.');
-    await panel.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(panel.getByText(FIRST_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
     // The pane leaves the running state once the host has committed the run's end.
     await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);

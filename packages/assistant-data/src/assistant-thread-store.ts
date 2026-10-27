@@ -9,6 +9,7 @@ import {
   assertBulkThreadMetadataPatch,
 } from './assistant-memory-repository.ts';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource.ts';
+import { folderBinding, newThreadId } from './assistant-new-thread.ts';
 import { createUpdateThreadAppearance } from './assistant-thread-appearance.ts';
 import {
   type AssistantThreadLoadState,
@@ -22,6 +23,13 @@ import {
   mergeAssistantThreadMetadata,
   mergeRefreshedThreadMetadata,
 } from './assistant-thread-metadata-merge.ts';
+import {
+  assertExactOpenThreadOrder,
+  hasSameOrder,
+  openThreadIds,
+  reconcileOpenThreadIds,
+} from './assistant-thread-open-order.ts';
+import type { ThreadFolderRow } from './thread-list-sections.ts';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
 
@@ -33,6 +41,11 @@ interface AssistantThreadState {
   closeOtherThreadTabs: (resourceId: string, threadId: string) => void;
   closeThreadTab: (resourceId: string, threadId: string) => void;
   closeThreadTabsToRight: (resourceId: string, threadId: string) => void;
+  /**
+   * The first send created the new thread: it takes the new-thread composer's
+   * settings and opens as the active tab.
+   */
+  commitNewThread: (resourceId: string, thread: AssistantMemoryThread) => Promise<void>;
   createThread: (
     repository: Pick<AssistantThreadCatalogRepository, 'createThread'>,
     resourceId: string,
@@ -56,6 +69,8 @@ interface AssistantThreadState {
   lastViewedAtByThreadId: Record<string, number>;
   loadStateByResourceId: Record<string, AssistantThreadLoadState>;
   markThreadViewed: (threadId: string, viewedAt?: number) => void;
+  /** The new thread's draft binding (`newThreadId`), written to the thread its first send creates. */
+  newThreadMetadataByResourceId: Record<string, AssistantThreadMetadata>;
   openThreadIdsByResourceId: Record<string, string[]>;
   openThreadTab: (resourceId: string, threadId: string) => void;
   refreshResourceThreads: (
@@ -72,6 +87,8 @@ interface AssistantThreadState {
   selectedThreadByResourceId: Record<string, string>;
   selectThread: (resourceId: string, threadId: string) => void;
   setThreadDraftRuntime: (threadId: string, config: AssistantThreadDraftRuntime) => void;
+  /** Show the new-thread screen; nothing is created until its first send (`createThread`). */
+  startNewThread: (resourceId: string, folder?: ThreadFolderRow) => void;
   threadIdsByResourceId: Record<string, string[]>;
   threadsByResourceId: Record<string, AssistantMemoryThread[]>;
   unavailableSavedThreadByResourceId: Record<string, string>;
@@ -119,6 +136,7 @@ type PersistedAssistantThreadState = Pick<
   | 'activeThreadIdByResourceId'
   | 'draftRuntimeByThreadId'
   | 'lastViewedAtByThreadId'
+  | 'newThreadMetadataByResourceId'
   | 'openThreadIdsByResourceId'
   | 'selectedThreadByResourceId'
   | 'unseenBaselineAt'
@@ -188,52 +206,6 @@ function selectExistingThread(
     return currentSelectedThreadId;
   }
   return threads[0]?.id;
-}
-
-function openThreadIds(
-  currentOpenThreadIds: readonly string[] | undefined,
-  threadId: string
-): string[] {
-  if (!currentOpenThreadIds) {
-    return [threadId];
-  }
-  if (currentOpenThreadIds.includes(threadId)) {
-    return [...currentOpenThreadIds];
-  }
-  return [...currentOpenThreadIds, threadId];
-}
-
-function reconcileOpenThreadIds(
-  currentOpenThreadIds: readonly string[] | undefined,
-  loadedThreadIds: ReadonlySet<string>,
-  selectedThreadId: string | undefined
-): string[] {
-  const openIds = (currentOpenThreadIds ?? []).filter((threadId) => loadedThreadIds.has(threadId));
-  if (selectedThreadId && !openIds.includes(selectedThreadId)) {
-    openIds.push(selectedThreadId);
-  }
-  return openIds;
-}
-
-function assertExactOpenThreadOrder(
-  currentOpenThreadIds: readonly string[],
-  orderedThreadIds: readonly string[]
-): void {
-  const orderedIdSet = new Set(orderedThreadIds);
-  const containsEveryOpenThread = currentOpenThreadIds.every((threadId) =>
-    orderedIdSet.has(threadId)
-  );
-  if (
-    orderedThreadIds.length !== currentOpenThreadIds.length ||
-    orderedIdSet.size !== currentOpenThreadIds.length ||
-    !containsEveryOpenThread
-  ) {
-    throw new Error('Assistant thread tab order must contain every open thread exactly once.');
-  }
-}
-
-function hasSameOrder(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((threadId, index) => threadId === right[index]);
 }
 
 function selectActiveThreadAfterClose(
@@ -377,11 +349,7 @@ async function loadResourceThreadsForGeneration(
   useAssistantThreadStore.setState((state) =>
     restoreThreadCatalog(state, resourceId, loadedThreads)
   );
-  const threads =
-    loadedThreads.length > 0
-      ? loadedThreads
-      : [serializeThread(await repository.createThread(resourceId))];
-  return loadGeneration === resourceThreadLoadGeneration ? threads : null;
+  return loadedThreads;
 }
 
 function recordResourceThreadLoadError(
@@ -519,6 +487,20 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
             [resourceId]: nextActiveThreadId,
           },
         });
+      },
+      commitNewThread: async (resourceId: string, thread: AssistantMemoryThread) => {
+        const draftId = newThreadId(resourceId);
+        set((state) => {
+          const { [draftId]: runtime, ...others } = state.draftRuntimeByThreadId;
+          return {
+            draftRuntimeByThreadId: runtime ? { ...others, [thread.id]: runtime } : others,
+            newThreadMetadataByResourceId: omitRecordKey(
+              state.newThreadMetadataByResourceId,
+              resourceId
+            ),
+          };
+        });
+        await get().createThread({ createThread: async () => thread }, resourceId);
       },
       createThread: async (
         repository: Pick<AssistantThreadCatalogRepository, 'createThread'>,
@@ -795,6 +777,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           },
         }));
       },
+      newThreadMetadataByResourceId: {},
       openThreadIdsByResourceId: {},
       openThreadTab: (resourceId: string, threadId: string) => {
         set((state) => ({
@@ -917,6 +900,15 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
           },
         }));
       },
+      startNewThread: (resourceId: string, folder?: ThreadFolderRow) => {
+        set((state) => ({
+          activeThreadIdByResourceId: omitRecordKey(state.activeThreadIdByResourceId, resourceId),
+          newThreadMetadataByResourceId: folder
+            ? { ...state.newThreadMetadataByResourceId, [resourceId]: folderBinding(folder) }
+            : omitRecordKey(state.newThreadMetadataByResourceId, resourceId),
+          selectedThreadByResourceId: omitRecordKey(state.selectedThreadByResourceId, resourceId),
+        }));
+      },
       threadIdsByResourceId: {},
       threadsByResourceId: {},
       unavailableSavedThreadByResourceId: {},
@@ -928,6 +920,18 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         threadId: string,
         metadata: AssistantThreadMetadata
       ): Promise<void> => {
+        if (threadId === newThreadId(resourceId)) {
+          set((state) => ({
+            newThreadMetadataByResourceId: {
+              ...state.newThreadMetadataByResourceId,
+              [resourceId]: mergeAssistantThreadMetadata(
+                state.newThreadMetadataByResourceId[resourceId],
+                metadata
+              ),
+            },
+          }));
+          return;
+        }
         await repository.updateThreadMetadata(threadId, metadata);
         set((state) => ({
           threadsByResourceId: {
@@ -980,6 +984,8 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         activeThreadIdByResourceId: state.activeThreadIdByResourceId,
         draftRuntimeByThreadId: state.draftRuntimeByThreadId,
         lastViewedAtByThreadId: state.lastViewedAtByThreadId,
+        // The new thread's folder and checkout, like its model settings, survive a reload.
+        newThreadMetadataByResourceId: state.newThreadMetadataByResourceId,
         openThreadIdsByResourceId: state.openThreadIdsByResourceId,
         selectedThreadByResourceId: state.selectedThreadByResourceId,
         unseenBaselineAt: state.unseenBaselineAt,
@@ -1011,6 +1017,7 @@ export function resetAssistantThreadStore(): void {
     draftRuntimeByThreadId: {},
     lastViewedAtByThreadId: {},
     loadStateByResourceId: {},
+    newThreadMetadataByResourceId: {},
     openThreadIdsByResourceId: {},
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},

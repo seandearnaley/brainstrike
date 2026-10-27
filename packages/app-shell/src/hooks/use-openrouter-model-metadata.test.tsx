@@ -16,6 +16,7 @@ const host: AssistantThreadHostCapability = {
   ownsThread: vi.fn(async () => true),
   providers: { readOpenRouterModel, readStatus: vi.fn(), verifyProvider: vi.fn() },
   renameThread: vi.fn(),
+  renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
   renderThread: vi.fn(),
   updateThreadBinding: vi.fn(),
   workspaceRepository: () => {

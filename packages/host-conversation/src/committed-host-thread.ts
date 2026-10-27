@@ -133,6 +133,56 @@ export interface CommittedHostThread {
   readonly source: CommittedThreadSession;
   readonly store: CommittedAssistantLogStore;
 }
+/**
+ * A send, a send from a selected branch, and an edit: a new user message
+ * after the vendor's explicit parent (null: the thread root), started as a
+ * run of the thread.
+ */
+export async function startCommittedTurn(
+  options: Omit<CommittedHostThreadOptions, 'onEntryCommitted'>,
+  message: AppendMessage
+): Promise<void> {
+  const { client, settleLost, threadId } = options;
+  if (message.content.some((part) => part.type !== 'text')) {
+    throw new Error('This host command requires text input');
+  }
+  const attachments = (message.attachments ?? []).map(hostImageAttachment);
+  const prompt = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+  const commandId = crypto.randomUUID();
+  // BST-2004: a send whose host was lost before it answered, or before the
+  // send left, is settled from the replacement's committed log; nothing is resent.
+  try {
+    await options.beforeStart?.();
+  } catch (cause) {
+    if (settleLost && isConnectionLoss(cause)) {
+      return await settleLost(commandId);
+    }
+    throw cause;
+  }
+  try {
+    await client.request('run/start', {
+      ...(attachments.length > 0 ? { attachments } : {}),
+      commandId,
+      ...options.runSettings(),
+      parentMessageId: message.parentId,
+      prompt,
+      threadId,
+    });
+  } catch (cause) {
+    if (settleLost && isConnectionLoss(cause)) {
+      return await settleLost(commandId);
+    }
+    // BST-1990 (D4): logged with the host's code (the user reads its text).
+    logger.warn('The agent host refused a run command', {
+      code: hostErrorCode(cause),
+      method: 'run/start',
+      threadId,
+    });
+    // Not sent: the vendor gives the composer its draft back.
+    throw isRunNotAdmitted(cause) ? new MessageNotSentError(describeBoundaryError(cause)) : cause;
+  }
+}
+
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostThread(
   options: CommittedHostThreadOptions
@@ -160,51 +210,7 @@ export function createCommittedHostThread(
     liveShellOutputs.accept(telemetry.chunk);
     store.acceptTelemetry(telemetry.runId, telemetry.chunk);
   });
-  const { settleLost } = options;
-  // A send, a send from a selected branch, and an edit all start a new user
-  // message after the vendor's explicit parent (null: the thread root).
-  const startTurn = async (message: AppendMessage): Promise<void> => {
-    if (message.content.some((part) => part.type !== 'text')) {
-      throw new Error('This host command requires text input');
-    }
-    const attachments = (message.attachments ?? []).map(hostImageAttachment);
-    const prompt = message.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join('\n');
-    const commandId = crypto.randomUUID();
-    // BST-2004: a send whose host was lost before it answered, or before the
-    // send left, is settled from the replacement's committed log; nothing is resent.
-    try {
-      await options.beforeStart?.();
-    } catch (cause) {
-      if (settleLost && isConnectionLoss(cause)) {
-        return await settleLost(commandId);
-      }
-      throw cause;
-    }
-    try {
-      await client.request('run/start', {
-        ...(attachments.length > 0 ? { attachments } : {}),
-        commandId,
-        ...options.runSettings(),
-        parentMessageId: message.parentId,
-        prompt,
-        threadId,
-      });
-    } catch (cause) {
-      if (settleLost && isConnectionLoss(cause)) {
-        return await settleLost(commandId);
-      }
-      // BST-1990 (D4): logged with the host's code (the user reads its text).
-      logger.warn('The agent host refused a run command', {
-        code: hostErrorCode(cause),
-        method: 'run/start',
-        threadId,
-      });
-      // Not sent: the vendor gives the composer its draft back.
-      throw isRunNotAdmitted(cause) ? new MessageNotSentError(describeBoundaryError(cause)) : cause;
-    }
-  };
+  const startTurn = (message: AppendMessage): Promise<void> => startCommittedTurn(options, message);
   // The thread's catalog entry: its title, colour and icon, and the workspace
   // it is bound to, which the host moves when the thread enters a worktree.
   let entrySeq = -1;

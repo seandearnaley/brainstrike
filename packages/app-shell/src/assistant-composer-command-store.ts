@@ -37,6 +37,8 @@ interface AssistantComposerCommandState {
   readonly enqueue: (input: EnqueueAssistantComposerCommand) => AssistantComposerCommand;
   readonly recordDraft: (threadId: string, text: string) => void;
   readonly reset: () => void;
+  /** Gives a remounted composer back the unsent text it recorded. */
+  readonly restoreDraft: (threadId: string) => void;
 }
 
 function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -54,7 +56,7 @@ function isDraftRecord(value: unknown): value is Record<string, string> {
 
 export const useAssistantComposerCommandStore = create<AssistantComposerCommandState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       acknowledge: (threadId, commandId) => {
         set((state) => {
           const commands = state.commandsByThreadId[threadId];
@@ -108,6 +110,12 @@ export const useAssistantComposerCommandStore = create<AssistantComposerCommandS
       },
       reset: () => {
         set({ commandsByThreadId: {}, draftTextByThreadId: {} });
+      },
+      restoreDraft: (threadId) => {
+        const text = get().draftTextByThreadId[threadId];
+        if (text?.trim() && !get().commandsByThreadId[threadId]) {
+          get().enqueue({ mode: 'replace', text, threadId });
+        }
       },
     }),
     {

@@ -70,6 +70,26 @@ export interface CommittedHostConversation {
   /** The thread's committed run verdicts, recorded through the host. */
   readonly verdicts: CommittedHostVerdicts;
 }
+/**
+ * BST-2004: settles a send whose host was lost before it answered, or before
+ * the send left, from the replacement's committed log. Only that log says
+ * whether the turn was admitted; nothing is resent.
+ */
+export function settleLostSend(
+  client: HostClient,
+  replacement: (lost: HostClient) => Promise<HostClient>,
+  threadId: string
+): (commandId: string) => Promise<void> {
+  return async (commandId) => {
+    const next = await replacement(client);
+    const { rows } = await next.request('thread/read', { fromSeq: 0, threadId });
+    if (
+      !rows.some(({ event }) => event.type === 'command.accepted' && event.commandId === commandId)
+    ) {
+      throw new MessageNotSentError(HOST_RESTARTED_NOT_SENT);
+    }
+  };
+}
 /** What the next run this view starts takes from the composer's current settings. */
 export interface HostRunSettingsSource {
   readonly modelId: string;
@@ -124,21 +144,7 @@ export function createCommittedHostConversation(
     // BST-2004: a send whose host was lost before it answered, or before the
     // send left, is settled from the replacement's committed log. Only that log
     // says whether the turn was admitted; nothing is resent.
-    ...(replacement
-      ? {
-          settleLost: async (commandId: string) => {
-            const next = await replacement(client);
-            const { rows } = await next.request('thread/read', { fromSeq: 0, threadId });
-            if (
-              !rows.some(
-                ({ event }) => event.type === 'command.accepted' && event.commandId === commandId
-              )
-            ) {
-              throw new MessageNotSentError(HOST_RESTARTED_NOT_SENT);
-            }
-          },
-        }
-      : {}),
+    ...(replacement ? { settleLost: settleLostSend(client, replacement, threadId) } : {}),
     threadId,
   });
   const { source, store } = thread;
