@@ -271,7 +271,10 @@ describe('ArtifactsPage', () => {
     vi.stubGlobal(
       'ResizeObserver',
       class {
-        constructor(private readonly callback: () => void) {}
+        readonly callback: () => void;
+        constructor(callback: () => void) {
+          this.callback = callback;
+        }
         observe(): void {
           this.callback();
         }
