@@ -50,11 +50,13 @@ jobs:
     name: Desktop Full Regression (shard ${{ matrix.shard }})
     if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
     runs-on: ubicloud-standard-4
-    # Each shard runs an eighth of the regression project under the lane's own
-    # 30m --global-timeout; shard 1 also runs the 2m AI Tools nightly lane.
-    # Setup/build headroom included. Four shards on ubuntu-latest took 13-16 min
-    # of tests each (run 40076152111, about 59 min of work); eight on the
-    # runner the other E2E lanes use keep each shard under about 8 min.
+    # Each shard runs an eighth of the regression project's tests under the
+    # lane's own 30m --global-timeout; shard 1 also runs the 2m AI Tools nightly
+    # lane. Setup/build headroom included. Playwright shards single tests
+    # (fullyParallel), so the shards carry even shares, and each shard runs two
+    # tests at once on the runner's 4 vCPUs (the GitHub Actions worker count in
+    # packages/config/src/playwright-environment.ts). File-level shards on one
+    # worker ranged from 3.0 to 9.1 test-min (41 test-min in all).
     timeout-minutes: 40
     strategy:
       fail-fast: false
