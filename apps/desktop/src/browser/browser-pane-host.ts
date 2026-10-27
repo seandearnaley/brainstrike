@@ -102,8 +102,8 @@ function createPaneView(partition: string): BuiltPaneView {
 
 export interface BrowserPaneHost {
   dispose(): void;
-  /** Agent-facing CDP driver for the active tab (BST-1176). */
-  readonly driver: BrowserDriver;
+  /** Agent-facing CDP driver for one page (BST-1176); a closed page rejects its calls. */
+  driverFor(tabId: string): BrowserDriver;
   readonly manager: BrowserViewManager;
   /**
    * Start the egress proxy and route agent tabs through it; call before
@@ -258,33 +258,34 @@ export function createBrowserPaneHost(
     partition: BROWSER_PANE_PARTITION,
   });
 
-  // The driver always targets whichever tab is active NOW: resolve the active
-  // tab's WebContents, then reuse (or lazily attach) its in-process CDP session.
-  const resolveSession: CdpSessionResolver = () => {
-    const id = manager.getActiveWebContentsId();
-    if (id === null) {
-      return Promise.reject(new Error('No active browser tab to drive'));
-    }
-    const webContents = webContentsById.get(id);
-    if (!webContents) {
-      return Promise.reject(new Error(`No WebContents registered for active tab ${id}`));
-    }
-    let session = sessionsById.get(id);
-    if (!session) {
-      session = createDebuggerCdpSession(webContents.debugger as unknown as DebuggerLike);
-      sessionsById.set(id, session);
-    }
-    return Promise.resolve(session);
-  };
-  const driver = new DebuggerBrowserDriver(resolveSession);
+  // A driver targets the one page it was made for: resolve that page's
+  // WebContents per call, then reuse (or lazily attach) its CDP session.
+  const sessionFor =
+    (tabId: string): CdpSessionResolver =>
+    () => {
+      const id = manager.getWebContentsId(tabId);
+      if (id === null) {
+        return Promise.reject(new Error(`Browser page ${tabId} is no longer open`));
+      }
+      const webContents = webContentsById.get(id);
+      if (!webContents) {
+        return Promise.reject(new Error(`No WebContents registered for browser page ${tabId}`));
+      }
+      let session = sessionsById.get(id);
+      if (!session) {
+        session = createDebuggerCdpSession(webContents.debugger as unknown as DebuggerLike);
+        sessionsById.set(id, session);
+      }
+      return Promise.resolve(session);
+    };
 
   // When the VISIBLE renderer itself navigates/reloads (Reload menu, crash
   // recovery, or a factory reset's `window.location.reload()`), the old
-  // BrowserPaneContent is gone and cannot re-report occlusion or re-adopt its
-  // tabs. Dispose every tab so (a) no orphaned WebContentsView keeps painting
-  // over the fresh renderer's Explorer route, and (b) a factory reset actually
-  // clears open tabs, not just the renderer mirror + session storage. The
-  // fresh renderer re-seeds from an empty list.
+  // workspace is gone and cannot re-report occlusion or re-adopt its pages.
+  // Dispose every page so (a) no orphaned WebContentsView keeps painting over
+  // the fresh renderer, and (b) a factory reset actually clears open pages,
+  // not just the renderer mirror + session storage. The fresh renderer
+  // re-seeds from an empty list.
   const onHostNavigation = (
     details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>
   ) => {
@@ -316,7 +317,7 @@ export function createBrowserPaneHost(
       webContentsById.clear();
       manager.dispose();
     },
-    driver,
+    driverFor: (tabId) => new DebuggerBrowserDriver(sessionFor(tabId)),
     manager,
     prepareAgentBrowsing: (loopback) => agentRoute.prepare(recordRefusedResponse, loopback ?? null),
   };

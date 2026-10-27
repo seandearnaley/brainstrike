@@ -5,7 +5,7 @@
  */
 
 import { fireEvent, render, screen } from '@testing-library/react';
-import { FileText, TerminalSquare } from 'lucide-react';
+import { FileText, Globe, TerminalSquare } from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceAddTabMenu } from '../workspace-add-tab-menu';
 import { CONTEXT_EXPLORER_APP_ID, TERMINAL_APP_ID, type WorkspaceApp } from '../workspace-app';
@@ -29,7 +29,14 @@ const APPS: WorkspaceApp[] = [
 
 describe('WorkspaceAddTabMenu', () => {
   it('opens from the + trigger and lists registered apps with shortcut chips', () => {
-    render(<WorkspaceAddTabMenu apps={APPS} onOpenApp={vi.fn()} />);
+    render(
+      <WorkspaceAddTabMenu
+        apps={APPS}
+        launchActions={[]}
+        onMenuOpenChange={vi.fn()}
+        onOpenApp={vi.fn()}
+      />
+    );
 
     const trigger = screen.getByRole('button', { name: 'Add workspace tab' });
     fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, pointerType: 'mouse' });
@@ -45,7 +52,14 @@ describe('WorkspaceAddTabMenu', () => {
 
   it('activates the picked app (open-or-focus singleton contract)', () => {
     const onOpenApp = vi.fn();
-    render(<WorkspaceAddTabMenu apps={APPS} onOpenApp={onOpenApp} />);
+    render(
+      <WorkspaceAddTabMenu
+        apps={APPS}
+        launchActions={[]}
+        onMenuOpenChange={vi.fn()}
+        onOpenApp={onOpenApp}
+      />
+    );
 
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Add workspace tab' }), {
       button: 0,
@@ -55,5 +69,33 @@ describe('WorkspaceAddTabMenu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Terminal/ }));
 
     expect(onOpenApp).toHaveBeenCalledExactlyOnceWith(TERMINAL_APP_ID);
+  });
+
+  it('runs a launch action picked after the apps and reports the menu open and closed', () => {
+    const run = vi.fn();
+    const onMenuOpenChange = vi.fn();
+    render(
+      <WorkspaceAddTabMenu
+        apps={APPS}
+        launchActions={[
+          { description: 'Browse the web', icon: Globe, id: 'new-page', label: 'New page', run },
+        ]}
+        onMenuOpenChange={onMenuOpenChange}
+        onOpenApp={vi.fn()}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add workspace tab' }), {
+      button: 0,
+      pointerId: 1,
+      pointerType: 'mouse',
+    });
+    expect(onMenuOpenChange).toHaveBeenLastCalledWith(true);
+    const items = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    expect(items.at(-1)).toBe('New page');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New page' }));
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(onMenuOpenChange).toHaveBeenLastCalledWith(false);
   });
 });

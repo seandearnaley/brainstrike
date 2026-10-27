@@ -5,7 +5,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest, ModelProviderScript } from './utils/model-provider-shim';
 
-const destinations = ['Browser', 'Settings'] as const;
+const destinations = ['Artifacts', 'Settings'] as const;
 const CHILD_TASK = 'SWITCH_MATRIX_CHILD';
 const GRAND_TASK = 'SWITCH_MATRIX_GRANDCHILD';
 

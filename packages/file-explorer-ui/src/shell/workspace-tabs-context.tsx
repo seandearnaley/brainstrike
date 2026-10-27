@@ -36,7 +36,7 @@ import {
   WorkspaceTabsContext,
   type WorkspaceTabsValue,
 } from './use-workspace-tabs';
-import type { WorkspaceApp } from './workspace-app';
+import type { WorkspaceApp, WorkspaceLaunchAction } from './workspace-app';
 import { getFileName, getTabRootPath } from './workspace-tab-utils';
 
 const logger = createLogger('WorkspaceTabs');
@@ -72,7 +72,11 @@ export interface WorkspaceTabsProviderProps {
    */
   readonly apps: readonly WorkspaceApp[];
   readonly children: ReactNode;
+  /** Entries after the apps in the "+" menu and the launcher, such as New browser tab. */
+  readonly launchActions?: readonly WorkspaceLaunchAction[];
 }
+
+const NO_LAUNCH_ACTIONS: readonly WorkspaceLaunchAction[] = [];
 
 function canAutoLoadFileContent(
   canLoadWithoutTree: boolean,
@@ -102,7 +106,15 @@ function canAutoLoadFileContent(
 export function WorkspaceTabsProvider({
   apps,
   children,
+  launchActions = NO_LAUNCH_ACTIONS,
 }: WorkspaceTabsProviderProps): ReactElement {
+  // A COUNT, not a flag: opening the All-tabs menu straight from an open tab
+  // menu reports the new open before the old close (Radix reports from commit
+  // effects, child before parent), so a flag would read closed while one is open.
+  const [openMenuCount, setOpenMenuCount] = useState(0);
+  const handleMenuOpenChange = useCallback((open: boolean): void => {
+    setOpenMenuCount((count) => count + (open ? 1 : -1));
+  }, []);
   const { tabs, openTab, closeTab, setActiveTab, clearTabs } = useTabManager();
   const closeOtherTabs = useTabManagerStore((state) => state.closeOtherTabs);
   const closeTabsToRight = useTabManagerStore((state) => state.closeTabsToRight);
@@ -694,7 +706,9 @@ export function WorkspaceTabsProvider({
       getTabStatusMessage: getStatusMessage,
       handleOpenFileInTab,
       hasClosedTabs,
+      isMenuOpen: openMenuCount > 0,
       isRestoring,
+      launchActions,
       loadingFiles,
       mountedAppIds,
       onActivateTab: handleActivateTab,
@@ -705,6 +719,7 @@ export function WorkspaceTabsProvider({
       onCloseFileTabsToRight: handleCloseFileTabsToRight,
       onCloseOtherFileTabs: handleCloseOtherFileTabs,
       onCloseTab: handleCloseTab,
+      onMenuOpenChange: handleMenuOpenChange,
       onOpenApp: handleOpenApp,
       onReopenClosedTab: handleReopenClosedTab,
       // Reordering never writes selection, so it leaves a pending permission-prompt
@@ -727,8 +742,10 @@ export function WorkspaceTabsProvider({
       handleOpenFileInTab,
       hasClosedTabs,
       isRestoring,
+      launchActions,
       loadingFiles,
       mountedAppIds,
+      openMenuCount,
       handleActivateTab,
       handleCloseAllFileTabs,
       handleCloseApp,
@@ -737,6 +754,7 @@ export function WorkspaceTabsProvider({
       handleCloseFileTabsToRight,
       handleCloseOtherFileTabs,
       handleCloseTab,
+      handleMenuOpenChange,
       handleOpenApp,
       handleReopenClosedTab,
       handleRetryFileContent,

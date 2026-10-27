@@ -283,14 +283,14 @@ describe('RootLayoutContent', () => {
     vi.stubGlobal('PerformanceObserver', MockPerformanceObserver);
 
     const view = renderComponent({
-      browserPageContent: <div data-testid="browser-page">Browser</div>,
+      artifactsPageContent: <div data-testid="artifacts-page">Artifacts</div>,
     });
     expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'unavailable',
     });
     view.rerender(
       <RootLayoutContent
-        browserPageContent={<div data-testid="browser-page">Browser</div>}
+        artifactsPageContent={<div data-testid="artifacts-page">Artifacts</div>}
         deleteRootData={async () => undefined}
         diagnosticFeatureFlags={['diagnostics-v2']}
         navigationItems={navigationItems}
@@ -302,7 +302,7 @@ describe('RootLayoutContent', () => {
       sampleCount: 0,
     });
     act(() => {
-      mockHandlers.onNavigationClick('/browser');
+      mockHandlers.onNavigationClick('/artifacts');
     });
 
     expect(callbacks).toHaveLength(1);
@@ -317,7 +317,7 @@ describe('RootLayoutContent', () => {
     expect(rendererLongTaskTelemetry.getSnapshot()).toMatchObject({
       featureFlagContextAvailability: 'available',
       featureFlags: [{ count: 1, flag: 'diagnostics-v2' }],
-      routes: [{ count: 1, route: 'browser' }],
+      routes: [{ count: 1, route: 'artifacts' }],
     });
 
     view.unmount();
@@ -339,7 +339,7 @@ describe('RootLayoutContent', () => {
     expect(settingsRoute).toHaveAttribute('aria-hidden', 'false');
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
     // A tab, not an overlay: nothing is layered, and the explorer is hidden
-    // underneath exactly like it is behind the browser.
+    // underneath exactly like it is behind Artifacts.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
     expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
@@ -373,13 +373,13 @@ describe('RootLayoutContent', () => {
       navigationItems: [
         { icon: () => <div />, name: 'Context Explorer', path: '/' },
         { icon: () => <div />, name: 'Settings', path: '/settings' },
-        { icon: () => <div />, name: 'Browser', path: '/browser' },
+        { icon: () => <div />, name: 'Artifacts', path: '/artifacts' },
       ],
     });
 
     // The wrappers append capability-gated routes AFTER the shared list, so
     // the shell owns the rule that Settings is the last rail item.
-    expect(mockHandlers.navigationPaths).toEqual(['/', '/browser', '/settings']);
+    expect(mockHandlers.navigationPaths).toEqual(['/', '/artifacts', '/settings']);
   });
 
   it('refuses a navigation list without the settings rail item instead of hiding Settings', () => {
@@ -395,21 +395,21 @@ describe('RootLayoutContent', () => {
   });
 
   it('switches between settings and another shell tab without unmounting either', () => {
-    usePanelLayoutStore.setState({ activeTab: 'browser' });
-    renderComponent({ browserPageContent: <div data-testid="browser-page">Browser</div> });
+    usePanelLayoutStore.setState({ activeTab: 'artifacts' });
+    renderComponent({ artifactsPageContent: <div data-testid="artifacts-page">Artifacts</div> });
 
     act(() => {
       usePanelLayoutStore.getState().openSettings();
     });
     expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
-    expect(screen.getByTestId('browser-route')).toHaveClass('hidden');
+    expect(screen.getByTestId('artifacts-route')).toHaveClass('hidden');
 
     act(() => {
-      mockHandlers.onNavigationClick('/browser');
+      mockHandlers.onNavigationClick('/artifacts');
     });
 
-    expect(usePanelLayoutStore.getState().activeTab).toBe('browser');
-    expect(screen.getByTestId('browser-route')).not.toHaveClass('hidden');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('artifacts');
+    expect(screen.getByTestId('artifacts-route')).not.toHaveClass('hidden');
     // Keep-mounted contract: hidden, not gone.
     const settingsRoute = screen.getByTestId('settings-route');
     expect(settingsRoute).toHaveClass('hidden');
@@ -419,12 +419,12 @@ describe('RootLayoutContent', () => {
 
   it('keeps threads mounted on every hidden outer route', () => {
     renderComponent({
-      browserPageContent: <div>Browser</div>,
+      artifactsPageContent: <div>Artifacts</div>,
     });
 
     const threadsPanel = screen.getByTestId('threads-shell');
 
-    for (const path of ['/browser']) {
+    for (const path of ['/artifacts']) {
       act(() => {
         mockHandlers.onNavigationClick(path);
       });
@@ -478,7 +478,7 @@ describe('RootLayoutContent', () => {
     await act(async () => mockHandlers.onOpenSettings());
 
     // The modal unmounted its content on close; a keep-mounted route keeps
-    // in-progress edits exactly like the browser surface does.
+    // in-progress edits exactly like the Artifacts surface does.
     expect(screen.getByTestId('settings-route')).not.toHaveClass('hidden');
     expect(screen.getByTestId('settings-input')).toHaveValue('persist me');
   });

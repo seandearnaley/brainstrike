@@ -7,14 +7,18 @@ const APP_DESCRIPTIONS: Readonly<Record<string, string>> = {
   terminal: 'Run shell commands in the workspace',
 };
 
+const CARD_CLASS_NAME =
+  'flex w-40 flex-col items-start gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none';
+
 /**
  * The workspace empty state (BST-1262): one launcher card per REGISTERED pinned
- * app. Registration is the capability gate, so web shows only Files while
- * desktop shows Files, Changes, … — never a stubbed or disabled card. Dynamic
- * tabs (child conversations, canvases) open from where they live.
+ * app, then one per launch action (New browser tab). Registration is the
+ * capability gate, so web shows only Files while desktop shows Files,
+ * Changes, … — never a stubbed or disabled card. Other dynamic tabs (child
+ * conversations, canvases) open from where they live.
  */
 export function WorkspaceLauncher(): ReactElement {
-  const { apps, onOpenApp } = useWorkspaceTabs();
+  const { apps, launchActions, onOpenApp } = useWorkspaceTabs();
 
   return (
     <div
@@ -35,7 +39,7 @@ export function WorkspaceLauncher(): ReactElement {
           const Icon = app.icon;
           return (
             <button
-              className="flex w-40 flex-col items-start gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className={CARD_CLASS_NAME}
               data-testid={`workspace-launcher-open-${app.id}`}
               key={app.id}
               onClick={() => onOpenApp(app.id)}
@@ -46,6 +50,22 @@ export function WorkspaceLauncher(): ReactElement {
               <span className="text-muted-foreground text-xs">
                 {APP_DESCRIPTIONS[app.id] ?? `Open the ${app.label} surface`}
               </span>
+            </button>
+          );
+        })}
+        {launchActions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <button
+              className={CARD_CLASS_NAME}
+              data-testid={`workspace-launcher-open-${action.id}`}
+              key={action.id}
+              onClick={action.run}
+              type="button"
+            >
+              <Icon className="size-8 text-primary" />
+              <span className="font-medium text-foreground text-sm">{action.label}</span>
+              <span className="text-muted-foreground text-xs">{action.description}</span>
             </button>
           );
         })}

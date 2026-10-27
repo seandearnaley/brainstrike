@@ -61,6 +61,8 @@ import { AppLayout } from './app-layout';
 import { AssistantChatPanel, AssistantProviderStatusProvider } from './assistant-chat-panel';
 import { IndexingActivityCoordinator } from './background-indexing/indexing-activity-coordinator';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
+import { resolveBrowserBridge } from './browser-pane/browser-bridge';
+import { useBrowserPageSync } from './browser-pane/use-browser-page-sync';
 import { buildWorkspaceApps } from './build-workspace-apps';
 import { useCanvasAutoOpen } from './canvas/use-canvas-auto-open';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
@@ -135,12 +137,6 @@ export interface RootLayoutContentProps {
    */
   readonly artifactsPageContent?: ReactNode;
   /**
-   * Optional embedded browser pane surface (BST-1174), presence-gated on the
-   * desktop `window.browser` bridge (absent on web — no stub). Its own
-   * component reports native-view bounds/occlusion.
-   */
-  readonly browserPageContent?: ReactNode;
-  /**
    * URL of the trusted Canvas shell (BST-1173), presence-gated like
    * `changesPageContent`: each canvas opens in a workspace tab of its own,
    * framed by this platform-specific shell. When absent, no canvas tab opens.
@@ -204,7 +200,6 @@ export interface RootLayoutContentProps {
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/artifacts': 'artifacts',
-  '/browser': 'browser',
   '/settings': 'settings',
   // '/terminal' intentionally absent (BST-1270): Terminal is a workspace app
   // now. activeTab is SESSION-ONLY (panel-layout-store partializes it away)
@@ -220,7 +215,7 @@ const SETTINGS_NAV_PATH = '/settings';
 
 /**
  * Nav-rail order: every route the wrappers contribute, then Settings last.
- * The wrappers append their capability-gated routes (browser) AFTER
+ * The wrappers append their capability-gated routes (Artifacts) AFTER
  * the shared `navigationItems` list, which places Settings second; the shell
  * owns the rail, so it owns the rule that Settings closes the list.
  *
@@ -240,7 +235,7 @@ function orderNavigationItems(items: readonly NavigationItem[]): NavigationItem[
 }
 
 /**
- * A shell route (browser/settings) that, once first opened, STAYS
+ * A shell route (Artifacts, Settings) that, once first opened, STAYS
  * mounted and only toggles hidden — so its watchers/scan state/scroll
  * position/in-progress edits survive later tab switches. `content` is
  * `undefined` when the app wrapper never constructed the surface at all
@@ -280,12 +275,12 @@ function KeepMountedRoute({
  * surface to navigate to. A dedicated hook (rather than inlined in
  * `RootLayoutContent`) purely to keep that already-large component's
  * cognitive complexity under the lint budget — the logic itself is a
- * straight capability-presence gate, same shape as `browserPageContent`/etc.
+ * straight capability-presence gate, same shape as `terminalPageContent`/etc.
  *
  * The Changes surface lives as a closable singleton workspace app tab
  * (BST-1258 unified workspace tab panel), not its own top-level route, so
  * opening it from here is two steps: bring the shell back to the `explorer`
- * route (in case the user is on Settings/Browser/etc — the workspace panel only
+ * route (in case the user is on Settings/Artifacts — the workspace panel only
  * exists on that route), and hand the changeset to `openChangeset`, which
  * opens/activates the Changes app tab through
  * `useWorkspaceTabSelectionStore.openApp` (see that store action's doc
@@ -485,6 +480,10 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // above the whole layout because file bodies now render at the workspace level.
   const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
   useCanvasAutoOpen(canvasShellSrc !== undefined);
+  // The preload bridge exists before React mounts, so the desktop browser's
+  // presence at first render holds for the window's lifetime (BST-1271).
+  const browser = useMemo(() => resolveBrowserBridge(), []);
+  useBrowserPageSync(browser);
 
   // The workspace app registry (BST-1258; Terminal joined as a workspace app
   // in BST-1270, replacing its nav route). Construction is the pure
@@ -521,7 +520,11 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           {/* One read of the host's provider status for the root panel and the
               child conversations its workspace tabs render. */}
           <AssistantProviderStatusProvider>
-            <DelegatedWorkspaceTabsProvider apps={workspaceApps} canvasShellSrc={canvasShellSrc}>
+            <DelegatedWorkspaceTabsProvider
+              apps={workspaceApps}
+              browser={browser}
+              canvasShellSrc={canvasShellSrc}
+            >
               {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
@@ -571,7 +574,6 @@ export function RootLayoutContent({
   stateHealth,
   deleteRootData,
   artifactsPageContent,
-  browserPageContent,
   canvasShellSrc,
   changesPageContent,
   settingsPageContent,
@@ -594,7 +596,7 @@ export function RootLayoutContent({
   // useMemo with [] is correct: the preload bridge exists before React mounts,
   // so capability detection at first render is stable for the window's lifetime.
   const actionRegistry = useMemo(() => createAppActionRegistry(), []);
-  // Capability gate mirrors browserPageContent/terminalPageContent:
+  // Capability gate mirrors terminalPageContent:
   // the desktop wrapper only passes changesPageContent when the Changes bridge
   // exists, so its presence IS the capability check here — the "→ Review"
   // footer link (packages/ui, gated on this same context) renders null without it.
@@ -667,7 +669,7 @@ export function RootLayoutContent({
         {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
-          gating as the browser nav item. */}
+          gating as the Artifacts nav item. */}
         <ChangesReviewProvider value={changesReviewValue}>
           <ContextMapLinkContext value={contextMapLinkValue}>
             {/* Binds the assistant panel's "Restore to before this message"
@@ -720,15 +722,6 @@ export function RootLayoutContent({
                   mountedTabs={mountedTabs}
                   shellTab={shellTab}
                   tab="artifacts"
-                />
-                {/* Embedded browser pane (BST-1174). The native
-                    WebContentsView follows this route's show/hide via the
-                    surface's own occlusion reporting — see BrowserPaneContent. */}
-                <KeepMountedRoute
-                  content={browserPageContent}
-                  mountedTabs={mountedTabs}
-                  shellTab={shellTab}
-                  tab="browser"
                 />
                 {/* Settings is a full shell tab (BST-1668): same keep-mounted
                     contract as the routes above, so in-progress edits survive

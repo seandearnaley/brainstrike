@@ -19,6 +19,7 @@ import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking'
 import type { ThreadContextRecord } from '@brainstrike/assistant-ui/thread-context-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
+import { closeBrowserPagesOf } from './browser-pane/browser-pages';
 import type { RewindPort } from './changes/rewind-port';
 import { readHostChildWorkspaceTab } from './host-child-workspace-tab';
 import type { ThreadSearchExtraArms } from './thread-search-service';
@@ -321,6 +322,7 @@ export function createHostAssistantThreadRepository(
       throw new Error('This conversation is not owned by the attached agent host.');
     }
     closeDeletedChildTabs(deleted);
+    closeBrowserPagesOf(new Set(deleted));
   };
   return {
     createThread: (resourceId) => host.createThread(resourceId),

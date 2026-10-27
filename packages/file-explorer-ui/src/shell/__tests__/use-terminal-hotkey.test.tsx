@@ -30,13 +30,13 @@ describe('useTerminalHotkey', () => {
 
   it('opens the Terminal app on mod+t when registered on desktop, revealing the workspace route', () => {
     Reflect.set(window, 'electronAPI', {});
-    usePanelLayoutStore.setState({ activeTab: 'browser' });
+    usePanelLayoutStore.setState({ activeTab: 'artifacts' });
     const onOpenApp = vi.fn();
     renderHook(() => useTerminalHotkey([TERMINAL_APP], onOpenApp));
 
     pressModT();
     expect(onOpenApp).toHaveBeenCalledExactlyOnceWith(TERMINAL_APP_ID);
-    // From a non-workspace shell route (Browser) the workspace
+    // From a non-workspace shell route (Artifacts) the workspace
     // surface is mounted-but-hidden — the chord must reveal it too.
     expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
   });

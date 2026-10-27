@@ -33,6 +33,8 @@ export interface WorkspaceApp {
    * that component (with `useEffect`/`useMemo`) rather than in `render()` itself.
    */
   readonly render: () => ReactNode;
+  /** Optional busy mark in the tab, such as a browser page while it loads. */
+  readonly status?: 'loading' | undefined;
   /** Optional identity tint for an app that represents a colored conversation. */
   readonly tabAppearance?: {
     readonly accentClassName: string;
@@ -42,6 +44,21 @@ export interface WorkspaceApp {
     readonly selectedClassName: string;
     readonly style?: CSSProperties;
   };
+  /** Optional tab tooltip, such as a browser page's address; the label otherwise. */
+  readonly tooltip?: string | undefined;
+}
+
+/**
+ * A "+" menu and launcher entry that opens something new rather than a
+ * registered app, such as a browser page. The shell that offers it runs it.
+ */
+export interface WorkspaceLaunchAction {
+  /** One line on the launcher card. */
+  readonly description: string;
+  readonly icon: ComponentType<{ className?: string }>;
+  readonly id: string;
+  readonly label: string;
+  readonly run: () => void;
 }
 
 export const CONTEXT_EXPLORER_APP_ID = 'context-explorer';

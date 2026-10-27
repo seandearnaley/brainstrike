@@ -382,7 +382,7 @@ if (shouldExposeBridge('platform')) {
   });
 }
 
-// Embedded browser pane bridge (BST-1174). Every invoke returns the main-side
+// Embedded browser bridge (BST-1174). Every invoke returns the main-side
 // `{ ok, value } | { ok: false, error }` result; the bridge UNWRAPS it and
 // throws on `ok: false` — the renderer only ever passes well-formed args, so a
 // rejection is a programming error worth surfacing, never a silent no-op.
@@ -402,9 +402,9 @@ if (shouldExposeBridge('browser')) {
       ipcRenderer
         .invoke(DESKTOP_IPC_CHANNELS.browser.closeTab, tabId)
         .then(unwrapBrowserResult<void>),
-    createTab: (url?: string) =>
+    createTab: (threadId: string, url?: string) =>
       ipcRenderer
-        .invoke(DESKTOP_IPC_CHANNELS.browser.createTab, url)
+        .invoke(DESKTOP_IPC_CHANNELS.browser.createTab, threadId, url)
         .then(unwrapBrowserResult<string>),
     goBack: (tabId: string) =>
       ipcRenderer
@@ -435,10 +435,6 @@ if (shouldExposeBridge('browser')) {
       ipcRenderer
         .invoke(DESKTOP_IPC_CHANNELS.browser.reload, tabId)
         .then(unwrapBrowserResult<void>),
-    selectTab: (tabId: string) =>
-      ipcRenderer
-        .invoke(DESKTOP_IPC_CHANNELS.browser.selectTab, tabId)
-        .then(unwrapBrowserResult<void>),
     setBounds: (rect: { height: number; width: number; x: number; y: number }) =>
       ipcRenderer
         .invoke(DESKTOP_IPC_CHANNELS.browser.setBounds, rect)
@@ -446,6 +442,10 @@ if (shouldExposeBridge('browser')) {
     setOccluded: (occluded: boolean) =>
       ipcRenderer
         .invoke(DESKTOP_IPC_CHANNELS.browser.setOccluded, occluded)
+        .then(unwrapBrowserResult<void>),
+    showTab: (tabId: string) =>
+      ipcRenderer
+        .invoke(DESKTOP_IPC_CHANNELS.browser.showTab, tabId)
         .then(unwrapBrowserResult<void>),
   });
 }

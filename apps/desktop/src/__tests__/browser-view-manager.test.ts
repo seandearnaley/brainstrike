@@ -7,6 +7,9 @@ import {
   type PaneRect,
 } from '../browser/browser-view-manager';
 
+/** The conversation the tests' pages belong to. */
+const T = 'thread-1';
+
 interface FakeView extends BrowserPaneView {
   readonly calls: {
     bounds: PaneRect[];
@@ -201,8 +204,8 @@ describe('BrowserViewManager.dispose — host window lifecycle (BST-1843)', () =
 
   it('live window (renderer reload / factory reset): detaches every view AND releases its page', () => {
     const { created, host, manager, onTabsChanged } = setupWithElectronLikeWindow();
-    manager.createTab('a.com');
-    manager.createTab('b.com');
+    manager.createTab(T, 'a.com');
+    manager.createTab(T, 'b.com');
     expect(host.attached).toHaveLength(2);
 
     manager.dispose();
@@ -216,8 +219,8 @@ describe('BrowserViewManager.dispose — host window lifecycle (BST-1843)', () =
 
   it('destroyed window (win "closed"): does not touch the dead contentView, still releases every page', () => {
     const { created, host, manager, onTabsChanged } = setupWithElectronLikeWindow();
-    manager.createTab('a.com');
-    manager.createTab('b.com');
+    manager.createTab(T, 'a.com');
+    manager.createTab(T, 'b.com');
     host.destroy();
 
     // `closed` fires AFTER the BrowserWindow is destroyed; Electron does NOT
@@ -227,53 +230,51 @@ describe('BrowserViewManager.dispose — host window lifecycle (BST-1843)', () =
 
     expect(created.map((view) => view.calls.closed)).toEqual([true, true]);
     expect(manager.listTabs()).toEqual([]);
-    expect(manager.getActiveWebContentsId()).toBeNull();
+    expect(manager.currentTab(T)).toBeNull();
     expect(onTabsChanged).toHaveBeenLastCalledWith([]);
   });
 });
 
 describe('BrowserViewManager', () => {
-  it('creates a tab: attaches the view, loads the url, makes it active and visible', () => {
+  it("opens a page hidden under its thread: it shows only when the renderer's tab names it", () => {
     const { added, created, manager } = setup();
-    const tabId = manager.createTab('example.com');
+    const tabId = manager.createTab(T, 'example.com');
 
     expect(added).toHaveLength(1);
     expect(created[0]?.calls.loaded).toEqual(['https://example.com']);
-    const tabs = manager.listTabs();
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0]).toMatchObject({ active: true, tabId });
+    expect(manager.listTabs()).toEqual([expect.objectContaining({ tabId, threadId: T })]);
+    expect(created[0]?.calls.visible).toEqual([false]);
+
+    expect(manager.showTab(tabId)).toBe(true);
     expect(created[0]?.calls.visible.at(-1)).toBe(true);
   });
 
-  it('shows only the active tab; selecting hides the rest', () => {
+  it('shows only the page the renderer names, hiding the rest', () => {
     const { created, manager } = setup();
-    manager.createTab('a.com');
-    const second = manager.createTab('b.com');
+    const first = manager.createTab(T, 'a.com');
+    const second = manager.createTab('thread-2', 'b.com');
 
-    // Second is active now → first invisible, second visible.
-    expect(created[0]?.calls.visible.at(-1)).toBe(false);
-    expect(created[1]?.calls.visible.at(-1)).toBe(true);
+    manager.showTab(second);
+    expect(created.map((view) => view.calls.visible.at(-1))).toEqual([false, true]);
 
-    manager.selectTab(manager.listTabs()[0]?.tabId ?? '');
-    expect(created[0]?.calls.visible.at(-1)).toBe(true);
-    expect(created[1]?.calls.visible.at(-1)).toBe(false);
-    expect(manager.listTabs().find((tab) => tab.tabId === second)?.active).toBe(false);
+    manager.showTab(first);
+    expect(created.map((view) => view.calls.visible.at(-1))).toEqual([true, false]);
   });
 
-  it('applies the reported bounds to the active view and re-applies on activation', () => {
+  it('applies the reported bounds to the shown view and re-applies when another is shown', () => {
     const { created, manager } = setup();
-    manager.createTab('a.com');
+    manager.showTab(manager.createTab(T, 'a.com'));
     const rect = { height: 400, width: 600, x: 10, y: 20 };
     manager.setBounds(rect);
     expect(created[0]?.calls.bounds.at(-1)).toEqual(rect);
 
-    manager.createTab('b.com');
+    manager.showTab(manager.createTab(T, 'b.com'));
     expect(created[1]?.calls.bounds.at(-1)).toEqual(rect);
   });
 
-  it('occludes the active view (modal open) and restores it, without touching geometry while hidden', () => {
+  it('occludes the shown view (modal open) and restores it, without touching geometry while hidden', () => {
     const { created, manager } = setup();
-    manager.createTab('a.com');
+    manager.showTab(manager.createTab(T, 'a.com'));
     manager.setBounds({ height: 400, width: 600, x: 0, y: 0 });
     const boundsCallsBefore = created[0]?.calls.bounds.length ?? 0;
 
@@ -287,33 +288,35 @@ describe('BrowserViewManager', () => {
     expect(created[0]?.calls.bounds.length).toBe(boundsCallsBefore + 1);
   });
 
-  it('keeps a newly created tab hidden if a modal is currently occluding the pane', () => {
+  it('keeps a newly shown page hidden if a modal is currently occluding the pane', () => {
     const { created, manager } = setup();
-    manager.createTab('a.com');
+    manager.showTab(manager.createTab(T, 'a.com'));
     manager.setOccluded(true);
-    manager.createTab('b.com');
-    // The new active tab must NOT paint over the open modal.
+    manager.showTab(manager.createTab(T, 'b.com'));
+    // The newly shown page must NOT paint over the open modal.
     expect(created[1]?.calls.visible.at(-1)).toBe(false);
   });
 
   it('turns http/https popups into new tabs instead of OS windows', () => {
     const { added, created, manager } = setup();
-    manager.createTab('a.com');
+    manager.createTab(T, 'a.com');
     const handler = (
       created[0] as unknown as { __openHandler: (d: { url: string }) => { action: string } }
     ).__openHandler;
     const result = handler({ url: 'https://popup.example' });
 
     expect(result.action).toBe('deny');
-    expect(manager.listTabs()).toHaveLength(2);
+    // The popup joins its opener's conversation, hidden until its tab shows it.
+    expect(manager.listTabs().map(({ threadId }) => threadId)).toEqual([T, T]);
     expect(added).toHaveLength(2);
     expect(created[1]?.calls.loaded).toEqual(['https://popup.example']);
+    expect(created[1]?.calls.visible).toEqual([false]);
   });
 
   it("opens the user's tabs on the pane partition and the agent's on its own (BST-1238)", () => {
     const { manager, partitions } = setup();
-    manager.createTab('a.com');
-    manager.createTab('b.com', 'agent');
+    manager.createTab(T, 'a.com');
+    manager.createTab(T, 'b.com', 'agent');
     expect(partitions).toEqual(['persist:browser-pane-test', 'browser-pane-agent-test']);
     expect(manager.listTabs().map(({ owner, tabId }) => ({ owner, tabId }))).toEqual([
       { owner: 'user', tabId: 'tab-1' },
@@ -323,7 +326,7 @@ describe('BrowserViewManager', () => {
 
   it("keeps an agent page's popup behind the egress proxy: it opens as an agent tab", () => {
     const { created, manager, partitions } = setup();
-    manager.createTab('a.com', 'agent');
+    manager.createTab(T, 'a.com', 'agent');
     const handler = (
       created[0] as unknown as { __openHandler: (d: { url: string }) => { action: string } }
     ).__openHandler;
@@ -334,7 +337,7 @@ describe('BrowserViewManager', () => {
 
   it('records a later main-frame failure (a client redirect) so it never reads as a blank page', () => {
     const { created, manager } = setup();
-    const tabId = manager.createTab('https://a.test/', 'agent');
+    const tabId = manager.createTab(T, 'https://a.test/', 'agent');
     created[0]?.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     // A subframe failure and a superseded load (ERR_ABORTED) are not the page's failure.
     created[0]?.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://ad.test/', false);
@@ -362,7 +365,7 @@ describe('BrowserViewManager', () => {
         errorCode === -111 && owner === 'agent' ? `blocked_destination: ${url}` : null
     );
     const { created, manager } = setup(describe);
-    const tabId = manager.createTab('https://a.test/', 'agent');
+    const tabId = manager.createTab(T, 'https://a.test/', 'agent');
     created[0]?.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
     created[0]?.emit('did-fail-load', {}, -111, 'ERR_TUNNEL', 'https://internal.test/', true);
     expect(describe).toHaveBeenCalledWith({
@@ -382,7 +385,7 @@ describe('BrowserViewManager', () => {
 
   it('drops a dangerous-scheme popup (window.open("file:///...")) — no new tab', () => {
     const { manager, created } = setup();
-    manager.createTab('a.com');
+    manager.createTab(T, 'a.com');
     const handler = (
       created[0] as unknown as { __openHandler: (d: { url: string }) => { action: string } }
     ).__openHandler;
@@ -393,7 +396,7 @@ describe('BrowserViewManager', () => {
 
   it('refuses to load a blocked scheme, showing about:blank instead', () => {
     const { created, manager } = setup();
-    const tabId = manager.createTab('a.com');
+    const tabId = manager.createTab(T, 'a.com');
     manager.navigate(tabId, 'file:///etc/passwd');
     expect(created[0]?.calls.loaded.at(-1)).toBe('about:blank');
   });
@@ -420,23 +423,23 @@ describe('BrowserViewManager', () => {
       onTabsChanged: () => undefined,
       partition: 'persist:test',
     });
-    manager.createTab('bad.example');
+    manager.createTab(T, 'bad.example');
     await Promise.resolve();
     expect(errors.at(-1)?.error).toContain('ERR_NAME_NOT_RESOLVED');
   });
 
   it('returns false for tab-targeting ops on an unknown tab id', () => {
     const { manager } = setup();
-    manager.createTab('a.com');
+    manager.createTab(T, 'a.com');
     expect(manager.closeTab('nope')).toBe(false);
-    expect(manager.selectTab('nope')).toBe(false);
+    expect(manager.showTab('nope')).toBe(false);
     expect(manager.navigate('nope', 'x.com')).toBe(false);
     expect(manager.closeTab(manager.listTabs()[0]?.tabId ?? '')).toBe(true);
   });
 
   it('navigate loads urls ONLY — "back"/"forward" are searched, not history commands', () => {
     const { created, manager } = setup();
-    const tabId = manager.createTab('a.com');
+    const tabId = manager.createTab(T, 'a.com');
     manager.navigate(tabId, 'other.com');
     expect(created[0]?.calls.loaded.at(-1)).toBe('https://other.com');
     // Typing "back" in the URL bar must search, not move history.
@@ -447,7 +450,7 @@ describe('BrowserViewManager', () => {
 
   it('goBack/goForward only move history when it allows; reload preserves both stacks', () => {
     const { created, manager } = setup();
-    const tabId = manager.createTab('a.com');
+    const tabId = manager.createTab(T, 'a.com');
 
     manager.goBack(tabId);
     expect(created[0]?.webContents.goBack).not.toHaveBeenCalled();
@@ -492,7 +495,7 @@ describe('BrowserViewManager', () => {
       partition: 'persist:test',
     });
     // No setBounds yet → the view must stay hidden, not paint at 0×0.
-    manager.createTab('a.com');
+    manager.showTab(manager.createTab(T, 'a.com'));
     expect(created[0]?.calls.visible.at(-1)).toBe(false);
     manager.setBounds({ height: 200, width: 300, x: 0, y: 0 });
     expect(created[0]?.calls.visible.at(-1)).toBe(true);
@@ -500,29 +503,32 @@ describe('BrowserViewManager', () => {
     expect(created[0]?.calls.bounds.at(-1)).toEqual({ height: 200, width: 300, x: 0, y: 0 });
   });
 
-  it('closing the active tab activates the most recent remaining tab', () => {
-    const { manager, removed } = setup();
-    const first = manager.createTab('a.com');
-    const second = manager.createTab('b.com');
-    manager.createTab('c.com'); // active
+  it('closing the shown page shows no other until the renderer names one', () => {
+    const { created, manager, removed } = setup();
+    const first = manager.createTab(T, 'a.com');
+    const second = manager.createTab(T, 'b.com');
+    const third = manager.createTab(T, 'c.com');
+    manager.showTab(third);
 
-    manager.closeTab(manager.listTabs().find((t) => t.active)?.tabId ?? '');
+    manager.closeTab(third);
     expect(removed).toHaveLength(1);
-    const active = manager.listTabs().find((tab) => tab.active);
-    expect(active?.tabId).toBe(second);
     expect(manager.listTabs().map((t) => t.tabId)).toEqual([first, second]);
+    expect(created.slice(0, 2).map((view) => view.calls.visible.at(-1))).toEqual([false, false]);
+    // Geometry no longer reveals a page nobody named.
+    manager.setBounds({ height: 100, width: 100, x: 0, y: 0 });
+    expect(created.slice(0, 2).map((view) => view.calls.visible.at(-1))).toEqual([false, false]);
   });
 
   it('closing the last tab leaves no active tab and no crash', () => {
     const { manager } = setup();
-    const only = manager.createTab('a.com');
+    const only = manager.createTab(T, 'a.com');
     manager.closeTab(only);
     expect(manager.listTabs()).toEqual([]);
   });
 
   it('re-emits tab state when a view navigates or its title changes', () => {
     const { created, manager, onTabsChanged } = setup();
-    manager.createTab('a.com');
+    manager.createTab(T, 'a.com');
     onTabsChanged.mockClear();
     created[0]!.navState.title = 'Example';
     created[0]?.emit('page-title-updated');
@@ -558,7 +564,7 @@ describe('BrowserViewManager', () => {
       partition: 'persist:browser-pane-test',
     });
 
-    expect(() => manager.createTab('https://example.com')).toThrow('conversion failure');
+    expect(() => manager.createTab(T, 'https://example.com')).toThrow('conversion failure');
     expect(manager.listTabs()).toEqual([]);
     // The orphaned view's page process must not keep running either.
     expect(created[0]?.calls.closed).toBe(true);
@@ -566,7 +572,7 @@ describe('BrowserViewManager', () => {
 
   it('records a navigation error per tab (blocked scheme + failed load) and clears it on the next load', async () => {
     const { created, manager } = setup();
-    const tabId = manager.createTab('https://ok.example');
+    const tabId = manager.createTab(T, 'https://ok.example');
     expect(manager.getNavigationError(tabId)).toBeNull();
 
     // Blocked scheme: shown as about:blank AND queryable — never a silent ok.
@@ -593,7 +599,7 @@ describe('BrowserViewManager', () => {
 
   it('re-emits tab state on load start/stop so pushed isLoading never latches', () => {
     const { created, manager, onTabsChanged } = setup();
-    manager.createTab('https://x.example');
+    manager.createTab(T, 'https://x.example');
     const before = onTabsChanged.mock.calls.length;
     created[0]?.emit('did-start-loading');
     created[0]?.emit('did-stop-loading');
@@ -602,23 +608,30 @@ describe('BrowserViewManager', () => {
 
   it('dispose destroys every view and detaches it', () => {
     const { manager, removed } = setup();
-    manager.createTab('a.com');
-    manager.createTab('b.com');
+    manager.createTab(T, 'a.com');
+    manager.createTab(T, 'b.com');
     manager.dispose();
     expect(removed).toHaveLength(2);
     expect(manager.listTabs()).toEqual([]);
   });
 
-  it('getActiveWebContentsId returns the active tab webContents id, null when empty', () => {
+  it("a thread's current page is the one it last opened, showed or navigated", () => {
     const { manager } = setup();
-    expect(manager.getActiveWebContentsId()).toBeNull();
-    manager.createTab('a.com'); // view 1
-    manager.createTab('b.com'); // view 2, now active
-    expect(manager.getActiveWebContentsId()).toBe(2);
-    manager.selectTab(manager.listTabs()[0]?.tabId ?? '');
-    expect(manager.getActiveWebContentsId()).toBe(1);
-    manager.dispose();
-    expect(manager.getActiveWebContentsId()).toBeNull();
+    expect(manager.currentTab(T)).toBeNull();
+    const userPage = manager.createTab(T, 'a.com');
+    const agentPage = manager.createTab(T, 'b.com', 'agent');
+    const elsewhere = manager.createTab('thread-2', 'c.com');
+    expect(manager.currentTab(T)).toBe(agentPage);
+    expect(manager.currentTab(T, 'user')).toBe(userPage);
+
+    manager.showTab(userPage);
+    expect(manager.currentTab(T)).toBe(userPage);
+    expect(manager.currentTab(T, 'agent')).toBe(agentPage);
+
+    manager.navigate(agentPage, 'd.com');
+    expect(manager.currentTab(T)).toBe(agentPage);
+    expect(manager.currentTab('thread-2')).toBe(elsewhere);
+    expect(manager.getWebContentsId(userPage)).toBe(1);
   });
 
   it('dispose resets geometry so a reused manager never reveals a new tab at the stale rect', () => {
@@ -627,11 +640,11 @@ describe('BrowserViewManager', () => {
     // created before the new renderer reports geometry must stay hidden, not
     // paint at the pre-dispose rect.
     const { created, manager } = setup(); // seeds bounds 400×300
-    manager.createTab('a.com');
+    manager.showTab(manager.createTab(T, 'a.com'));
     expect(created[0]?.calls.visible.at(-1)).toBe(true); // shown at seeded bounds
 
     manager.dispose();
-    manager.createTab('b.com'); // before any new setBounds/setOccluded
+    manager.showTab(manager.createTab(T, 'b.com')); // before any new setBounds/setOccluded
 
     const reused = created.at(-1);
     expect(reused?.calls.visible).not.toContain(true);

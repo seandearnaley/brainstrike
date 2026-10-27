@@ -12,7 +12,6 @@ const PRODUCT = 'BrainStrike Desktop';
 
 export const DESKTOP_DOCUMENT_META: DocumentMetaByRoute = {
   artifacts: { description: `${PRODUCT} Artifacts`, title: `${PRODUCT} - Artifacts` },
-  browser: { description: PRODUCT, title: `${PRODUCT} - Browser` },
   explorer: { description: `${PRODUCT} Home Dashboard`, title: `${PRODUCT} - Home` },
   settings: { description: `${PRODUCT} Settings`, title: `${PRODUCT} - Settings` },
   terminal: { description: PRODUCT, title: `${PRODUCT} - Terminal` },

@@ -15,12 +15,11 @@ export function registerBrowserIpcHandlers(handlers: BrowserIpcHandlers): () => 
   const registry = createDesktopIpcRegistry({ ipcMain });
   const channels = DESKTOP_IPC_CHANNELS.browser;
 
-  registry.handle('browser', channels.createTab, (_event, url: unknown) => handlers.createTab(url));
+  registry.handle('browser', channels.createTab, (_event, threadId: unknown, url: unknown) =>
+    handlers.createTab(threadId, url)
+  );
   registry.handle('browser', channels.closeTab, (_event, tabId: unknown) =>
     handlers.closeTab(tabId)
-  );
-  registry.handle('browser', channels.selectTab, (_event, tabId: unknown) =>
-    handlers.selectTab(tabId)
   );
   registry.handle('browser', channels.navigate, (_event, tabId: unknown, url: unknown) =>
     handlers.navigate(tabId, url)
@@ -36,6 +35,7 @@ export function registerBrowserIpcHandlers(handlers: BrowserIpcHandlers): () => 
   registry.handle('browser', channels.setOccluded, (_event, occluded: unknown) =>
     handlers.setOccluded(occluded)
   );
+  registry.handle('browser', channels.showTab, (_event, tabId: unknown) => handlers.showTab(tabId));
   registry.handle('browser', channels.listTabs, () => handlers.listTabs());
 
   return () => {

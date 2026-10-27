@@ -25,7 +25,7 @@ export const DESKTOP_IPC_CHANNELS = {
     prepareClose: 'agent:prepare-close',
     showDataFolder: 'agent:show-data-folder',
   },
-  // Embedded browser pane (BST-1174). Invoke methods drive the main-process
+  // Embedded browser (BST-1174). Invoke methods drive the main-process
   // BrowserViewManager; `tabsChanged` is a main→renderer push.
   browser: {
     closeTab: 'browser:closeTab',
@@ -35,9 +35,9 @@ export const DESKTOP_IPC_CHANNELS = {
     listTabs: 'browser:listTabs',
     navigate: 'browser:navigate',
     reload: 'browser:reload',
-    selectTab: 'browser:selectTab',
     setBounds: 'browser:setBounds',
     setOccluded: 'browser:setOccluded',
+    showTab: 'browser:showTab',
     tabsChanged: 'browser:tabsChanged',
   },
   clipboard: {

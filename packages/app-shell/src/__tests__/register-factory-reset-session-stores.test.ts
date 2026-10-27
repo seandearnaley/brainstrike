@@ -92,12 +92,12 @@ describe('register-factory-reset-session-stores', () => {
       .getState()
       .requestAdd({ displayName: 'bravo', path: '/ws/bravo', rootId: 'r-2', threadId: 'thread-1' });
     const browserTab: BrowserTab = {
-      active: true,
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
       owner: 'user',
       tabId: 'browser-tab-1',
+      threadId: 'thread-1',
       title: 'Before reset',
       url: 'https://example.com',
     };

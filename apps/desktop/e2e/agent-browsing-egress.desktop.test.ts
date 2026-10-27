@@ -5,10 +5,12 @@
 // proxy credential and gets the proxy's refusal back as a typed failure. The
 // user's own tab is never touched, and only the agent partition is proxied,
 // loopback included. The first call to the host asks a person (BST-1178),
-// answered here with Allow once.
-import type { ElectronApplication, Page } from '@playwright/test';
+// answered here with Allow once. The agent's page opens among its
+// conversation's workspace tabs (BST-1271).
+import type { ElectronApplication } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
+import { openBrowserPage, visibleAddress } from './utils/browser-page-helpers';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 const NAVIGATE = 'brainstrike_browserNavigate';
@@ -19,12 +21,14 @@ function streaming(value: unknown): boolean {
   return typeof value === 'object' && value !== null && 'stream' in value && value.stream === true;
 }
 
-async function openBrowserRoute(page: Page): Promise<void> {
-  await page
-    .getByRole('navigation', { exact: true, name: 'Main navigation' })
-    .getByRole('button', { exact: true, name: 'Browser' })
-    .click({ timeout: 15_000 });
-  await expect(page.getByTestId('browser-pane')).toBeVisible({ timeout: 15_000 });
+/** Live pages in one browser partition. */
+function countPartitionPages(app: ElectronApplication, partition: string): Promise<number> {
+  return app.evaluate(({ session, webContents }, name) => {
+    const target = session.fromPartition(name);
+    return webContents
+      .getAllWebContents()
+      .filter((contents) => !contents.isDestroyed() && contents.session === target).length;
+  }, partition);
 }
 
 /** The proxy Chromium would use for `url` in each pane partition. */
@@ -50,15 +54,10 @@ test('the agent opens its own proxied tab and never drives the user tab (BST-123
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
 
-  // The user's own tab, opened from the pane.
-  await openBrowserRoute(window);
-  await window.getByTestId('browser-new-tab').click();
-  const address = window.getByTestId('browser-url-input');
-  await expect(address).toHaveValue('about:blank', { timeout: 15_000 });
-  await address.fill(USER_PAGE);
-  await address.press('Enter');
-  const userTab = window.getByRole('tab', { name: 'User page' });
-  await expect(userTab).toHaveAttribute('data-tab-owner', 'user', { timeout: 15_000 });
+  // The person's own tab, opened from the workspace.
+  await ensureAssistantShellVisible(window);
+  const userTab = await openBrowserPage(window, USER_PAGE, 'User page');
+  await expect(window.getByTestId('browser-page-agent').filter({ visible: true })).toHaveCount(0);
 
   modelProvider.setScript(({ requestBody }) =>
     streaming(requestBody)
@@ -90,16 +89,18 @@ test('the agent opens its own proxied tab and never drives the user tab (BST-123
   expect(requests).toContain('load_failed');
   expect(requests).toContain(`agent browsing could not resolve ${UNRESOLVABLE}`);
 
-  await openBrowserRoute(window);
-  const agentTabs = window.locator('[role="tab"][data-tab-owner="agent"]');
-  await expect(agentTabs).toHaveCount(1);
-  await expect(agentTabs.first()).toHaveAttribute('title', /^Agent tab/u);
-  // The user's tab is still theirs, on their page.
-  await expect(userTab).toHaveAttribute('data-tab-owner', 'user');
+  // The agent's page opened in a tab of its own in this conversation, and
+  // was selected as it opened, with the person watching.
+  const app = (await electron.ensureContext()).app;
+  await expect.poll(() => countPartitionPages(app, 'browser-pane-agent')).toBe(1);
+  await expect(window.getByTestId('browser-page-agent').filter({ visible: true })).toBeVisible();
+  // The person's tab is still theirs, on their page.
   await expect(userTab).toHaveAttribute('title', USER_PAGE);
+  await userTab.click();
+  await expect(visibleAddress(window)).toHaveValue(USER_PAGE);
+  await expect(window.getByTestId('browser-page-agent').filter({ visible: true })).toHaveCount(0);
 
   // Only the agent partition is proxied, and loopback goes through the proxy too.
-  const app = (await electron.ensureContext()).app;
   for (const url of ['http://127.0.0.1:9/', 'http://localhost:9/', 'https://example.com/']) {
     const proxies = await resolveProxies(app, url);
     expect(proxies.agent, url).toMatch(/^PROXY 127\.0\.0\.1:\d+$/u);

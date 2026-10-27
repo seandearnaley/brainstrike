@@ -1,6 +1,8 @@
 /**
- * Executors for the embedded-browser-pane agent tools (BST-1176 PR2):
- * navigate / read a11y tree / read page text, over the ACTIVE pane tab.
+ * Executors for the embedded-browser agent tools (BST-1176 PR2): navigate /
+ * read a11y tree / read page text, over the calling thread's current page
+ * (BST-1271). A run's tools carry its admitting thread, so a subagent browses
+ * among its top-level conversation's pages.
  *
  * Every executor returns a STRUCTURED result ({ok:true,…} | {ok:false,error,
  * hint}) — a missing pane, an unsettled load, or a driver failure is model-
@@ -23,21 +25,19 @@ import type { BrowserDriver } from '../browser/browser-driver';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import { agentNavigationTarget, type LoopbackAdmission } from '../browser/browser-url';
 import type { BrowserTabOwner, BrowserTabState } from '../browser/browser-view-manager';
-import type { BrowserToolRunner } from './native-tool-executors-browser';
 
 const logger = createLogger('BrowserAgentTools');
 
 /** The slice of {@link BrowserPaneHost} the executors drive (fake-able). */
 export interface BrowserPaneHostLike {
-  readonly driver: Pick<BrowserDriver, 'getPageText' | 'snapshot'>;
+  driverFor(tabId: string): Pick<BrowserDriver, 'getPageText' | 'snapshot'>;
   readonly manager: {
-    createTab(url?: string, owner?: BrowserTabOwner): string;
-    getActiveWebContentsId(): number | null;
+    createTab(threadId: string, url?: string, owner?: BrowserTabOwner): string;
+    currentTab(threadId: string, owner?: BrowserTabOwner): string | null;
     getWebContentsId(tabId: string): number | null;
     getNavigationError(tabId: string): string | null;
     listTabs(): readonly BrowserTabState[];
     navigate(tabId: string, url: string): boolean;
-    selectTab(tabId: string): boolean;
   };
   prepareAgentBrowsing(loopback?: LoopbackAdmission): Promise<void>;
 }
@@ -98,23 +98,27 @@ const SETTLE_GRACE_MS = 600;
 /** The prefix the pane host gives a navigation the egress proxy refused. */
 const BLOCKED_DESTINATION = 'blocked_destination:';
 
+/** The thread's current agent page, if it has one. */
+function currentAgentTab(host: BrowserPaneHostLike, threadId: string): BrowserTabState | undefined {
+  const tabId = host.manager.currentTab(threadId, 'agent');
+  return host.manager.listTabs().find((tab) => tab.tabId === tabId);
+}
+
 /**
- * Pin the TARGET tab now — polling "the active tab" would report whatever
- * tab the user (or a popup interception) activated mid-wait as the result
- * of this navigation. The agent drives only its own tabs, never one the
- * user opened: the active agent tab, else the latest one, else a new one.
+ * Pin the TARGET tab now — polling "the current page" would report whatever
+ * page the person showed mid-wait as the result of this navigation. The
+ * agent drives only its own pages in its own thread, never one the person
+ * opened: the thread's current agent page, else a new one. It never changes
+ * which page the workspace shows.
  */
 function startAgentNavigation(
   host: BrowserPaneHostLike,
+  threadId: string,
   url: string
 ): { readonly preNavUrl: string | null; readonly tabId: string } | BrowserToolFailure {
-  const agentTabs = host.manager.listTabs().filter((tab) => tab.owner === 'agent');
-  const existing = agentTabs.find((tab) => tab.active) ?? agentTabs.at(-1);
+  const existing = currentAgentTab(host, threadId);
   if (existing === undefined) {
-    return { preNavUrl: null, tabId: host.manager.createTab(url, 'agent') };
-  }
-  if (!existing.active) {
-    host.manager.selectTab(existing.tabId);
+    return { preNavUrl: null, tabId: host.manager.createTab(threadId, url, 'agent') };
   }
   if (!host.manager.navigate(existing.tabId, url)) {
     return {
@@ -133,14 +137,11 @@ function startAgentNavigation(
  */
 async function startLoopbackNavigation(
   host: BrowserPaneHostLike,
+  threadId: string,
   target: { readonly loopback: string; readonly origin: string; readonly url: string }
 ): Promise<{ readonly preNavUrl: string | null; readonly tabId: string } | BrowserToolFailure> {
-  const agentTabs = host.manager.listTabs().filter((tab) => tab.owner === 'agent');
-  const existing = agentTabs.find((tab) => tab.active) ?? agentTabs.at(-1);
-  const tabId = existing?.tabId ?? host.manager.createTab('about:blank', 'agent');
-  if (existing !== undefined && !existing.active) {
-    host.manager.selectTab(existing.tabId);
-  }
+  const existing = currentAgentTab(host, threadId);
+  const tabId = existing?.tabId ?? host.manager.createTab(threadId, 'about:blank', 'agent');
   const vanished: BrowserToolFailure = {
     error: 'navigate_failed',
     hint: `Tab ${tabId} vanished mid-call; retry to open a fresh tab.`,
@@ -191,6 +192,7 @@ const navigations = new WeakMap<BrowserPaneHostLike, Promise<unknown>>();
 
 export function runBrowserNavigate(
   input: BrowserNavigateInput,
+  threadId: string,
   host: BrowserPaneHostLike | null,
   options?: BrowserNavigateOptions
 ): Promise<BrowserNavigateResult> {
@@ -198,7 +200,7 @@ export function runBrowserNavigate(
     return Promise.resolve(UNAVAILABLE);
   }
   const navigation = (navigations.get(host) ?? Promise.resolve()).then(() =>
-    navigateOnce(input, host, options)
+    navigateOnce(input, threadId, host, options)
   );
   navigations.set(
     host,
@@ -209,6 +211,7 @@ export function runBrowserNavigate(
 
 async function navigateOnce(
   input: BrowserNavigateInput,
+  threadId: string,
   host: BrowserPaneHostLike,
   options?: BrowserNavigateOptions
 ): Promise<BrowserNavigateResult> {
@@ -231,9 +234,9 @@ async function navigateOnce(
     const { loopback } = target;
     if (loopback === undefined) {
       await host.prepareAgentBrowsing();
-      started = startAgentNavigation(host, target.url);
+      started = startAgentNavigation(host, threadId, target.url);
     } else {
-      started = await startLoopbackNavigation(host, { ...target, loopback });
+      started = await startLoopbackNavigation(host, threadId, { ...target, loopback });
     }
   } catch (error) {
     return {
@@ -284,9 +287,8 @@ async function navigateOnce(
 
 /**
  * Last a11y snapshot's ref map per webContents id. Bounded (closed tabs never
- * unregister here), keyed by the id captured BEFORE the snapshot await — the
- * driver resolves the active tab's session at call time, so a mid-await tab
- * switch must not file tab A's node ids under tab B. PR3's act-by-ref MUST
+ * unregister here), keyed by the page the snapshot was read from. PR3's
+ * act-by-ref MUST
  * additionally validate the document is unchanged before resolving a handle
  * (backendDOMNodeIds are per-document; navigation silently invalidates them).
  */
@@ -311,18 +313,35 @@ function cacheSnapshotRefs(webContentsId: number, refs: AccessibilitySnapshot['r
   }
 }
 
+/**
+ * The page a read targets: the thread's current page, whoever opened it, so
+ * the agent can read what the person is looking at in its conversation.
+ */
+function readTarget(host: BrowserPaneHostLike, threadId: string): string | BrowserToolFailure {
+  return (
+    host.manager.currentTab(threadId) ?? {
+      error: 'driver_failed',
+      hint: 'No browser page is open in this conversation. Open one with browserNavigate first.',
+      ok: false,
+    }
+  );
+}
+
 export async function runBrowserReadPage(
   input: BrowserReadPageInput,
+  threadId: string,
   host: BrowserPaneHostLike | null
 ): Promise<BrowserReadPageResult> {
   if (!host) {
     return UNAVAILABLE;
   }
-  // Captured BEFORE the await: this is the tab the driver's session resolver
-  // will target, regardless of what becomes active while the snapshot runs.
-  const webContentsId = host.manager.getActiveWebContentsId();
+  const tabId = readTarget(host, threadId);
+  if (typeof tabId !== 'string') {
+    return tabId;
+  }
+  const webContentsId = host.manager.getWebContentsId(tabId);
   try {
-    const snapshot = await host.driver.snapshot({
+    const snapshot = await host.driverFor(tabId).snapshot({
       filter: input.filter,
       maxChars: input.maxChars,
     });
@@ -338,13 +357,18 @@ export async function runBrowserReadPage(
 
 export async function runBrowserGetPageText(
   input: BrowserGetPageTextInput,
+  threadId: string,
   host: BrowserPaneHostLike | null
 ): Promise<BrowserGetPageTextResult> {
   if (!host) {
     return UNAVAILABLE;
   }
+  const tabId = readTarget(host, threadId);
+  if (typeof tabId !== 'string') {
+    return tabId;
+  }
   try {
-    const page = await host.driver.getPageText(input.maxChars);
+    const page = await host.driverFor(tabId).getPageText(input.maxChars);
     return { ok: true, text: page.text, truncated: page.truncated };
   } catch (error) {
     logger.warn('browserGetPageText driver call failed', { error });
@@ -356,9 +380,16 @@ function driverFailure(error: unknown): BrowserToolFailure {
   const message = error instanceof Error ? error.message : String(error);
   return {
     error: 'driver_failed',
-    hint: `${message}. Open a page with browserNavigate first if no tab is active.`,
+    hint: `${message}. Open a page with browserNavigate first if this conversation has none.`,
     ok: false,
   };
+}
+
+/** The browser tools as Main runs them for a host run: each call names its thread. */
+export interface MainBrowserToolRunner {
+  getPageText(input: BrowserGetPageTextInput, threadId: string): Promise<BrowserGetPageTextResult>;
+  navigate(input: BrowserNavigateInput, threadId: string): Promise<BrowserNavigateResult>;
+  readPage(input: BrowserReadPageInput, threadId: string): Promise<BrowserReadPageResult>;
 }
 
 /**
@@ -367,8 +398,9 @@ function driverFailure(error: unknown): BrowserToolFailure {
  * window returns the structured browser_unavailable failure instead of a
  * stale handle.
  */
-export const mainBrowserToolRunner: BrowserToolRunner = {
-  getPageText: (input) => runBrowserGetPageText(input, getActiveBrowserPaneHost()),
-  navigate: (input) => runBrowserNavigate(input, getActiveBrowserPaneHost()),
-  readPage: (input) => runBrowserReadPage(input, getActiveBrowserPaneHost()),
+export const mainBrowserToolRunner: MainBrowserToolRunner = {
+  getPageText: (input, threadId) =>
+    runBrowserGetPageText(input, threadId, getActiveBrowserPaneHost()),
+  navigate: (input, threadId) => runBrowserNavigate(input, threadId, getActiveBrowserPaneHost()),
+  readPage: (input, threadId) => runBrowserReadPage(input, threadId, getActiveBrowserPaneHost()),
 };

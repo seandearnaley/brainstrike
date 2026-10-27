@@ -17,12 +17,12 @@ describe('app-shell session-store test isolation', () => {
       threadId: 'thread-stale',
     });
     const browserTab: BrowserTab = {
-      active: true,
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
       owner: 'user',
       tabId: 'stale-tab',
+      threadId: 'thread-1',
       title: 'Stale tab',
       url: 'https://example.com',
     };
