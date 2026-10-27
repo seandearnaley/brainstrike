@@ -172,6 +172,7 @@ function createFakeHostRuns(): NonNullable<AssistantThreadHostCapability['runs']
         next.set(String(row['threadId']), {
           completedAt: null,
           needsInput: false,
+          startedAt: null,
           status: 'running',
         });
       }
@@ -179,6 +180,7 @@ function createFakeHostRuns(): NonNullable<AssistantThreadHostCapability['runs']
         next.set(String(row['threadId']), {
           completedAt: null,
           needsInput: true,
+          startedAt: null,
           status: 'running',
         });
       }

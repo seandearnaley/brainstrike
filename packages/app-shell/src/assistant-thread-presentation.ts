@@ -1,5 +1,5 @@
 import type { AssistantThreadColorId, AssistantThreadIconId } from '@brainstrike/assistant-data';
-import { getAgentColorStyles } from '@brainstrike/types/agent-color';
+import { type AgentColor, getAgentColorStyles } from '@brainstrike/types/agent-color';
 import {
   Bug,
   ClipboardList,
@@ -9,6 +9,7 @@ import {
   Rocket,
   Search,
 } from 'lucide-react';
+import type { CSSProperties } from 'react';
 
 export interface AssistantThreadIconPresentation {
   readonly iconComponent: LucideIcon;
@@ -43,7 +44,6 @@ export function getAssistantThreadIconPresentation(
 
 export interface AssistantThreadColorPresentation {
   readonly accentClassName: string;
-  readonly groupSurfaceClassName: string;
   readonly idleClassName: string;
   readonly label: string;
   readonly markClassName: string;
@@ -51,9 +51,9 @@ export interface AssistantThreadColorPresentation {
 }
 
 /**
- * Rows keep a quiet tint; compact solid marks carry the durable color. The
- * selected state retains an inset ring without an accent stripe;
- * `accentClassName` remains solely the solid swatch used by color pickers.
+ * Tabs keep a quiet tint; compact solid marks carry the durable color on the
+ * surfaces outside the Threads panel (`getThreadTint` paints the panel).
+ * `accentClassName` is the solid swatch used by color pickers.
  */
 function solidMark(color: AssistantThreadColorId, fill: string): string {
   const ink = getAgentColorStyles(color)['--agent-ink-light'];
@@ -69,8 +69,6 @@ function solidMark(color: AssistantThreadColorId, fill: string): string {
 export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   amber: {
     accentClassName: 'bg-amber-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-amber-50/60 hover:[&>td]:bg-amber-50/80 dark:[&>td]:bg-amber-950/20 dark:hover:[&>td]:bg-amber-950/30',
     idleClassName:
       'bg-amber-100/45 hover:bg-amber-100/75 dark:bg-amber-950/25 dark:hover:bg-amber-950/40',
     label: 'Amber',
@@ -80,8 +78,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   blue: {
     accentClassName: 'bg-sky-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-sky-50/60 hover:[&>td]:bg-sky-50/80 dark:[&>td]:bg-sky-950/20 dark:hover:[&>td]:bg-sky-950/30',
     idleClassName: 'bg-sky-100/45 hover:bg-sky-100/75 dark:bg-sky-950/25 dark:hover:bg-sky-950/40',
     label: 'Blue',
     markClassName: solidMark('blue', 'bg-sky-500'),
@@ -90,8 +86,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   cyan: {
     accentClassName: 'bg-cyan-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-cyan-50/60 hover:[&>td]:bg-cyan-50/80 dark:[&>td]:bg-cyan-950/20 dark:hover:[&>td]:bg-cyan-950/30',
     idleClassName:
       'bg-cyan-100/45 hover:bg-cyan-100/75 dark:bg-cyan-950/25 dark:hover:bg-cyan-950/40',
     label: 'Cyan',
@@ -101,8 +95,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   emerald: {
     accentClassName: 'bg-emerald-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-emerald-50/60 hover:[&>td]:bg-emerald-50/80 dark:[&>td]:bg-emerald-950/20 dark:hover:[&>td]:bg-emerald-950/30',
     idleClassName:
       'bg-emerald-100/45 hover:bg-emerald-100/75 dark:bg-emerald-950/25 dark:hover:bg-emerald-950/40',
     label: 'Emerald',
@@ -112,8 +104,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   fuchsia: {
     accentClassName: 'bg-fuchsia-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-fuchsia-50/60 hover:[&>td]:bg-fuchsia-50/80 dark:[&>td]:bg-fuchsia-950/20 dark:hover:[&>td]:bg-fuchsia-950/30',
     idleClassName:
       'bg-fuchsia-100/45 hover:bg-fuchsia-100/75 dark:bg-fuchsia-950/25 dark:hover:bg-fuchsia-950/40',
     label: 'Fuchsia',
@@ -123,8 +113,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   green: {
     accentClassName: 'bg-green-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-green-50/60 hover:[&>td]:bg-green-50/80 dark:[&>td]:bg-green-950/20 dark:hover:[&>td]:bg-green-950/30',
     idleClassName:
       'bg-green-100/45 hover:bg-green-100/75 dark:bg-green-950/25 dark:hover:bg-green-950/40',
     label: 'Green',
@@ -134,8 +122,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   indigo: {
     accentClassName: 'bg-indigo-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-indigo-50/60 hover:[&>td]:bg-indigo-50/80 dark:[&>td]:bg-indigo-950/20 dark:hover:[&>td]:bg-indigo-950/30',
     idleClassName:
       'bg-indigo-100/45 hover:bg-indigo-100/75 dark:bg-indigo-950/25 dark:hover:bg-indigo-950/40',
     label: 'Indigo',
@@ -145,8 +131,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   lime: {
     accentClassName: 'bg-lime-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-lime-50/60 hover:[&>td]:bg-lime-50/80 dark:[&>td]:bg-lime-950/20 dark:hover:[&>td]:bg-lime-950/30',
     idleClassName:
       'bg-lime-100/45 hover:bg-lime-100/75 dark:bg-lime-950/25 dark:hover:bg-lime-950/40',
     label: 'Lime',
@@ -156,8 +140,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   orange: {
     accentClassName: 'bg-orange-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-orange-50/60 hover:[&>td]:bg-orange-50/80 dark:[&>td]:bg-orange-950/20 dark:hover:[&>td]:bg-orange-950/30',
     idleClassName:
       'bg-orange-100/45 hover:bg-orange-100/75 dark:bg-orange-950/25 dark:hover:bg-orange-950/40',
     label: 'Orange',
@@ -167,8 +149,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   pink: {
     accentClassName: 'bg-pink-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-pink-50/60 hover:[&>td]:bg-pink-50/80 dark:[&>td]:bg-pink-950/20 dark:hover:[&>td]:bg-pink-950/30',
     idleClassName:
       'bg-pink-100/45 hover:bg-pink-100/75 dark:bg-pink-950/25 dark:hover:bg-pink-950/40',
     label: 'Pink',
@@ -178,8 +158,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   purple: {
     accentClassName: 'bg-purple-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-purple-50/60 hover:[&>td]:bg-purple-50/80 dark:[&>td]:bg-purple-950/20 dark:hover:[&>td]:bg-purple-950/30',
     idleClassName:
       'bg-purple-100/45 hover:bg-purple-100/75 dark:bg-purple-950/25 dark:hover:bg-purple-950/40',
     label: 'Purple',
@@ -189,8 +167,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   red: {
     accentClassName: 'bg-red-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-red-50/60 hover:[&>td]:bg-red-50/80 dark:[&>td]:bg-red-950/20 dark:hover:[&>td]:bg-red-950/30',
     idleClassName: 'bg-red-100/45 hover:bg-red-100/75 dark:bg-red-950/25 dark:hover:bg-red-950/40',
     label: 'Red',
     markClassName: solidMark('red', 'bg-red-500'),
@@ -199,8 +175,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   rose: {
     accentClassName: 'bg-rose-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-rose-50/60 hover:[&>td]:bg-rose-50/80 dark:[&>td]:bg-rose-950/20 dark:hover:[&>td]:bg-rose-950/30',
     idleClassName:
       'bg-rose-100/45 hover:bg-rose-100/75 dark:bg-rose-950/25 dark:hover:bg-rose-950/40',
     label: 'Rose',
@@ -210,8 +184,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   slate: {
     accentClassName: 'bg-slate-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-slate-100/55 hover:[&>td]:bg-slate-100/75 dark:[&>td]:bg-slate-900/25 dark:hover:[&>td]:bg-slate-900/35',
     idleClassName:
       'bg-slate-100/55 hover:bg-slate-100/85 dark:bg-slate-900/30 dark:hover:bg-slate-900/45',
     label: 'Slate',
@@ -221,8 +193,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   teal: {
     accentClassName: 'bg-teal-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-teal-50/60 hover:[&>td]:bg-teal-50/80 dark:[&>td]:bg-teal-950/20 dark:hover:[&>td]:bg-teal-950/30',
     idleClassName:
       'bg-teal-100/45 hover:bg-teal-100/75 dark:bg-teal-950/25 dark:hover:bg-teal-950/40',
     label: 'Teal',
@@ -232,8 +202,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   violet: {
     accentClassName: 'bg-violet-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-violet-50/60 hover:[&>td]:bg-violet-50/80 dark:[&>td]:bg-violet-950/20 dark:hover:[&>td]:bg-violet-950/30',
     idleClassName:
       'bg-violet-100/45 hover:bg-violet-100/75 dark:bg-violet-950/25 dark:hover:bg-violet-950/40',
     label: 'Violet',
@@ -243,8 +211,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   yellow: {
     accentClassName: 'bg-yellow-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-yellow-50/60 hover:[&>td]:bg-yellow-50/80 dark:[&>td]:bg-yellow-950/20 dark:hover:[&>td]:bg-yellow-950/30',
     idleClassName:
       'bg-yellow-100/45 hover:bg-yellow-100/75 dark:bg-yellow-950/25 dark:hover:bg-yellow-950/40',
     label: 'Yellow',
@@ -254,8 +220,6 @@ export const ASSISTANT_THREAD_COLOR_PRESENTATION = {
   },
   zinc: {
     accentClassName: 'bg-zinc-500',
-    groupSurfaceClassName:
-      '[&>td]:bg-zinc-50/60 hover:[&>td]:bg-zinc-50/80 dark:[&>td]:bg-zinc-950/20 dark:hover:[&>td]:bg-zinc-950/30',
     idleClassName:
       'bg-zinc-100/45 hover:bg-zinc-100/75 dark:bg-zinc-950/25 dark:hover:bg-zinc-950/40',
     label: 'Zinc',
@@ -282,8 +246,6 @@ export const ASSISTANT_THREAD_COLOR_PALETTES = [
  */
 export const UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION = {
   accentClassName: 'bg-muted-foreground/40',
-  groupSurfaceClassName:
-    '[&>td]:bg-muted/30 hover:[&>td]:bg-muted/45 dark:[&>td]:bg-muted/20 dark:hover:[&>td]:bg-muted/30',
   idleClassName: 'bg-muted/45 hover:bg-muted/70 dark:bg-muted/30 dark:hover:bg-muted/50',
   label: 'Unassigned',
   markClassName:
@@ -304,15 +266,46 @@ export const THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME = 'min-h-7';
 export const THREAD_CONTROL_ROW_PITCH_PX = THREAD_CONTROL_HEIGHT_PX + 4;
 export const THREAD_CONTROL_TITLE_CLASS_NAME = 'min-w-0 truncate font-medium text-xs leading-4';
 /**
- * Pairs with `markClassName`, never `idleClassName`/`selectedClassName`: both
- * surfaces are tinted with the thread color, so a solid mark provides the
- * strongest identity cue. A transparent border preserves the control geometry.
+ * The identity chip every Threads-panel row leads with — section, thread and
+ * child alike — and the thread tabs reuse. 20px in a 28px row leaves 4px above
+ * and below; rows pad 4px at the leading edge so the chip is inset evenly.
  *
  * `size-5` rather than `h-5 w-5`: shared button base rules guard on
  * `:not([class*=size-])`, so the paired utilities lose to a 16px base rule.
  */
 export const THREAD_CONTROL_MARK_CLASS_NAME =
-  'flex size-5 shrink-0 items-center justify-center rounded-sm border';
+  'flex size-5 shrink-0 items-center justify-center rounded-md';
+
+/**
+ * How a coloured identity paints in the Threads panel: the soft mark and the
+ * leading-edge wash in `globals.css`, from the one CSS variable pair that
+ * `getAgentColorStyles` sets. A thread's own colour and a child's family colour
+ * go through it alike. No colour paints nothing: the row stays the explorer's
+ * plain row and the glyph its muted icon.
+ */
+export function getThreadTint(color: AgentColor | null | undefined): {
+  readonly markClassName: string;
+  readonly style: CSSProperties | undefined;
+  readonly washClassName: string;
+} {
+  if (!color) {
+    return { markClassName: 'text-muted-foreground', style: undefined, washClassName: '' };
+  }
+  return {
+    markClassName: 'bs-thread-tint bs-thread-mark',
+    style: getAgentColorStyles(color) as CSSProperties,
+    washClassName: 'bs-thread-tint bs-thread-wash',
+  };
+}
+
+/**
+ * The row surface every Threads-panel row shares, as the explorer's rows share
+ * theirs: no fill at rest, the accent fill on hover and selection, a focus ring
+ * drawn inside the row. 4px at the leading and trailing edges matches the 4px
+ * the 20px chip leaves above and below it in the 28px row.
+ */
+export const THREAD_PANEL_ROW_CLASS_NAME =
+  'my-0.5 flex min-h-7 min-w-0 rounded-md px-1 transition-colors hover:bg-accent/60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-inset data-[selected=true]:bg-accent motion-reduce:transition-none';
 
 /**
  * Secondary affordances that sit *inside* a thread row — its expand and
@@ -323,9 +316,9 @@ export const THREAD_CONTROL_MARK_CLASS_NAME =
  * than a button. 20px leaves 4px above and below. The `after` inset restores a
  * 28px pointer target, keeping it above the 24px guidance.
  *
- * `hover:bg-foreground/10` rather than `bg-muted`/`bg-accent` for the same
- * reason the mark uses `markClassName`: these now sit on a tinted surface, and
- * an opaque neutral fill paints a grey blotch into the tint.
+ * `hover:bg-foreground/10` rather than `bg-muted`/`bg-accent`: these sit on
+ * the row's accent fill or its colour wash, and an opaque neutral fill would
+ * paint a grey blotch into either.
  */
 export const THREAD_CONTROL_ACTION_CLASS_NAME =
   "relative size-5 shrink-0 rounded-sm after:absolute after:-inset-1 after:content-[''] hover:bg-foreground/10 hover:text-foreground";

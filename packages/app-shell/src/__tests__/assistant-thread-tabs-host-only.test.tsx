@@ -76,7 +76,7 @@ test('a missing host renderer refuses rather than mounting a panel', async () =>
 test('host run notifications update tab status and unsubscribe', async () => {
   const listeners = new Set<() => void>();
   let runs = new Map<string, AssistantThreadHostRun>([
-    ['owned-current', { completedAt: null, needsInput: false, status: 'running' }],
+    ['owned-current', { completedAt: null, needsInput: false, startedAt: null, status: 'running' }],
   ]);
   const host = hostCatalog();
   renderWorkspace(
@@ -96,7 +96,12 @@ test('host run notifications update tab status and unsubscribe', async () => {
   );
   expect(await screen.findByRole('tab', { name: /Current conversation.*running/ })).toBeVisible();
   act(() => {
-    runs = new Map([['owned-current', { completedAt: null, needsInput: true, status: 'running' }]]);
+    runs = new Map([
+      [
+        'owned-current',
+        { completedAt: null, needsInput: true, startedAt: null, status: 'running' },
+      ],
+    ]);
     for (const listener of listeners) {
       listener();
     }

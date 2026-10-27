@@ -2,6 +2,7 @@ import type {
   AgentSemanticColor,
   AssistantThreadGroup,
   AssistantThreadIconId,
+  AssistantThreadPin,
   AssistantThreadPlacement,
   ThreadGroupsRequest,
 } from '../index.ts';
@@ -83,6 +84,15 @@ function placement(value: unknown): AssistantThreadPlacement {
     threadId: text(row['threadId']),
   };
 }
+function pin(value: unknown): AssistantThreadPin {
+  const row = parseRecord(value, 'Thread pin');
+  assertSupportedKeys(row, ['threadId', 'resourceId', 'pinnedAt'], 'Thread pin');
+  const pinnedAt = row['pinnedAt'];
+  if (typeof pinnedAt !== 'number' || !Number.isSafeInteger(pinnedAt) || pinnedAt < 0) {
+    throw new Error('Thread pin time must be a nonnegative integer');
+  }
+  return { pinnedAt, resourceId: text(row['resourceId']), threadId: text(row['threadId']) };
+}
 function array<T>(value: unknown, parse: (item: unknown) => T): T[] {
   if (!Array.isArray(value)) {
     throw new Error('Thread group entries must be an array');
@@ -124,6 +134,12 @@ export function parseThreadGroupsRequest(value: unknown): ThreadGroupsRequest {
     case 'placements':
       keys(['placements']);
       return { operation, placements: array(row['placements'], placement) };
+    case 'pin':
+      keys(['pin']);
+      return { operation, pin: pin(row['pin']) };
+    case 'unpin':
+      keys(['threadId']);
+      return { operation, threadId: text(row['threadId']) };
     case 'clear':
       keys(['threadIds']);
       return { operation, threadIds: array(row['threadIds'], text) };

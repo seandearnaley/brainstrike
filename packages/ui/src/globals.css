@@ -648,6 +648,50 @@
   background: var(--agent-accent);
 }
 
+/*
+ * Threads panel identity: a soft tinted mark and a wash that fades out from the
+ * row's leading edge, both read from the --agent-accent-light/-dark pair that
+ * getAgentColorStyles sets, so a thread's colour and a child's family colour
+ * paint alike. The glyph mixes toward the foreground to keep 3:1 against its
+ * tint in both themes; the wash only ever sits under text at a low strength.
+ */
+.bs-thread-tint {
+  --thread-accent: var(--agent-accent-light);
+}
+.dark .bs-thread-tint {
+  --thread-accent: var(--agent-accent-dark);
+}
+.bs-thread-mark {
+  color: color-mix(in oklab, var(--thread-accent) 62%, hsl(var(--foreground)));
+  background-color: color-mix(in oklab, var(--thread-accent) 16%, transparent);
+}
+.dark .bs-thread-mark {
+  color: color-mix(in oklab, var(--thread-accent) 78%, hsl(var(--foreground)));
+  background-color: color-mix(in oklab, var(--thread-accent) 22%, transparent);
+}
+.bs-thread-wash {
+  background-image: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--thread-accent) 11%, transparent),
+    transparent 75%
+  );
+}
+.bs-thread-wash:hover,
+.bs-thread-wash[data-selected='true'] {
+  background-image: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--thread-accent) 18%, transparent),
+    transparent 85%
+  );
+}
+@media (forced-colors: active) {
+  .bs-thread-wash,
+  .bs-thread-wash:hover,
+  .bs-thread-wash[data-selected='true'] {
+    background-image: none;
+  }
+}
+
 /* Mermaid diagrams drawn by Pele (markdown-surface/mermaid-block.tsx). Pele
    reads these variables at paint time, so a light, dark or high-contrast switch
    restyles a drawn diagram without re-rendering it. `.pele` also marks the

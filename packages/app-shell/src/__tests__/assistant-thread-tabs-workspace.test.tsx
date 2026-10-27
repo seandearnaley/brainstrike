@@ -343,7 +343,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
     // The tab body is tinted, so the mark must not reuse that same fill or it
     // vanishes into the control it identifies.
-    expect(mark).toHaveClass(...ASSISTANT_THREAD_COLOR_PRESENTATION.rose.markClassName.split(' '));
+    expect(mark).toHaveClass('bs-thread-mark');
     expect(mark).not.toHaveClass('bg-rose-100');
   });
 

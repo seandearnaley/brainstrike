@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   AssistantThreadGroup,
   AssistantThreadGroupsRepository,
+  AssistantThreadPin,
   AssistantThreadPlacement,
 } from '../assistant-thread-groups-repository';
 import {
@@ -24,6 +25,7 @@ function makeGroup(overrides: { id: string; name?: string; rank: string }): Assi
 
 function makeRepository(overrides?: {
   groups?: readonly AssistantThreadGroup[];
+  pins?: readonly AssistantThreadPin[];
   placements?: readonly AssistantThreadPlacement[];
 }): AssistantThreadGroupsRepository {
   let groupCounter = 0;
@@ -43,7 +45,9 @@ function makeRepository(overrides?: {
     }),
     deleteGroup: vi.fn(async () => undefined),
     listGroups: vi.fn(async () => overrides?.groups ?? []),
+    listPins: vi.fn(async () => overrides?.pins ?? []),
     listPlacements: vi.fn(async () => overrides?.placements ?? []),
+    pinThread: vi.fn(async () => undefined),
     renameGroup: vi.fn(async () => undefined),
     setGroupColor: vi.fn(async () => undefined),
     setGroupIcon: vi.fn(async () => undefined),
@@ -51,6 +55,7 @@ function makeRepository(overrides?: {
     setGroupRanks: vi.fn(async () => undefined),
     setThreadPlacement: vi.fn(async () => undefined),
     setThreadPlacements: vi.fn(async () => undefined),
+    unpinThread: vi.fn(async () => undefined),
   };
 }
 
@@ -675,6 +680,28 @@ describe('useAssistantThreadGroupsStore', () => {
     });
   });
 
+  it('loads pins, pins and unpins a thread, and forgets the pin of a deleted thread', async () => {
+    const repository = makeRepository({
+      pins: [{ pinnedAt: 7, resourceId: RESOURCE_ID, threadId: 'thread-a' }],
+    });
+    const store = useAssistantThreadGroupsStore.getState();
+    await store.ensureGroups(repository, RESOURCE_ID);
+    expect(useAssistantThreadGroupsStore.getState().pinnedAtByThreadId).toEqual({ 'thread-a': 7 });
+
+    await store.setThreadPinned(repository, RESOURCE_ID, 'thread-b', true);
+    const pinnedAt = useAssistantThreadGroupsStore.getState().pinnedAtByThreadId['thread-b'];
+    expect(repository.pinThread).toHaveBeenCalledWith({
+      pinnedAt,
+      resourceId: RESOURCE_ID,
+      threadId: 'thread-b',
+    });
+
+    await store.setThreadPinned(repository, RESOURCE_ID, 'thread-a', false);
+    expect(repository.unpinThread).toHaveBeenCalledWith('thread-a');
+    store.pruneDeletedThreadPlacements(['thread-b']);
+    expect(useAssistantThreadGroupsStore.getState().pinnedAtByThreadId).toEqual({});
+  });
+
   it('reset restores defaults', async () => {
     const repository = makeRepository({ groups: [makeGroup({ id: 'group-1', rank: 'a0' })] });
     const store = useAssistantThreadGroupsStore.getState();
@@ -693,7 +720,8 @@ describe('useAssistantThreadGroupsStore', () => {
     expect(state.flatSortBy).toBe('recency');
     expect(state.groupedSortBy).toBe('recency');
     expect(state.folderSortBy).toBe('recency');
-    expect(state.groupBy).toBe('custom-groups');
+    expect(state.groupBy).toBe('date');
+    expect(state.pinnedAtByThreadId).toEqual({});
     expect(state.collapsedGroupIds).toEqual({});
     expect(state.threadFilters).toEqual({
       needsYou: false,

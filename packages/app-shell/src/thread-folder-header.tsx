@@ -14,6 +14,9 @@ import type { ThreadFolderRow } from '@brainstrike/assistant-data';
 import { Button } from '@brainstrike/ui';
 import { Folder, FolderX, Plus } from 'lucide-react';
 import type { ReactElement } from 'react';
+import { THREAD_CONTROL_ACTION_CLASS_NAME } from './assistant-thread-presentation';
+import { ThreadMarkChip } from './thread-identity-mark';
+import { ThreadSectionHeader } from './thread-section-header';
 
 /**
  * Why the header offers no way to move a thread between folders. Rendered as
@@ -36,31 +39,12 @@ export function ThreadFolderHeader({
 }): ReactElement {
   const displayName = folder?.displayName ?? 'No folder';
   return (
-    <div className="min-w-0" data-testid="thread-folder-header" title={THREAD_FOLDER_GROUPING_HINT}>
-      <div className="flex min-h-10 min-w-0 items-center gap-2 px-2">
-        <span
-          className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/55 text-muted-foreground"
-          data-testid={folder ? 'thread-folder-icon' : 'thread-folder-unassigned-icon'}
-        >
-          {folder ? <Folder className="size-3.5" /> : <FolderX className="size-3.5" />}
-        </span>
-        <span
-          className="min-w-0 flex-1 truncate font-medium text-[13px] leading-4"
-          // The path, when the root has one: a display name is not an identity
-          // and two roots can share it. FSA roots have no path and get none.
-          title={folder?.path ?? undefined}
-        >
-          {displayName}
-        </span>
-        <span
-          className="shrink-0 rounded-full border border-border bg-background px-1.5 text-[10px] text-muted-foreground"
-          data-testid="thread-folder-count"
-        >
-          {threadCount}
-        </span>
-        {folder && onNewThreadHere ? (
+    <ThreadSectionHeader
+      actions={
+        folder && onNewThreadHere ? (
           <Button
             aria-label={`New thread in ${displayName}`}
+            className={THREAD_CONTROL_ACTION_CLASS_NAME}
             data-testid="thread-folder-new-thread"
             onClick={(event) => {
               event.stopPropagation();
@@ -73,8 +57,30 @@ export function ThreadFolderHeader({
           >
             <Plus className="size-3.5" />
           </Button>
-        ) : null}
-      </div>
-    </div>
+        ) : null
+      }
+      count={threadCount}
+      countTestId="thread-folder-count"
+      label={
+        <span
+          className="min-w-0 flex-1 truncate font-medium text-xs leading-4"
+          // The path, when the root has one: a display name is not an identity
+          // and two roots can share it. FSA roots have no path and get none.
+          title={folder?.path ?? undefined}
+        >
+          {displayName}
+        </span>
+      }
+      mark={
+        <ThreadMarkChip
+          color={null}
+          testId={folder ? 'thread-folder-icon' : 'thread-folder-unassigned-icon'}
+        >
+          {folder ? <Folder className="size-3" /> : <FolderX className="size-3" />}
+        </ThreadMarkChip>
+      }
+      testId="thread-folder-header"
+      title={THREAD_FOLDER_GROUPING_HINT}
+    />
   );
 }
