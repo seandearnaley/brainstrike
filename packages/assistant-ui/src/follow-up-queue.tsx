@@ -33,9 +33,10 @@
  */
 import { useAui, useAuiEvent, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
-import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
+import { ArrowUpIcon, CornerDownRightIcon, PencilIcon, XIcon, ZapIcon } from 'lucide-react';
 import { use, useEffect, useRef, useState } from 'react';
 import { useAnsweredApprovals } from './answered-approvals-context';
+import { requestSteer, steerShortcutLabel, useComposerRunActions } from './composer-run-actions';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import {
   dequeueDispatchable,
@@ -205,43 +206,38 @@ export function FollowUpQueueBridge({
 }
 
 /**
- * The running-branch composer control: queue the current draft for dispatch
- * after this run. Disabled for whitespace-only drafts (the store would refuse
- * them anyway — this keeps the refusal out of reach instead of throwing).
+ * The running-branch primary action: queue the current draft for dispatch
+ * after this run (Enter does the same). Disabled for whitespace-only drafts
+ * (the store would refuse them anyway — this keeps the refusal out of reach
+ * instead of throwing).
  */
 export function QueueFollowUpButton({ threadKey }: { readonly threadKey?: string | undefined }) {
-  const aui = useAui();
-  const draft = useAuiState((state) => state.composer.text);
-  const enqueue = useFollowUpQueueStore((state) => state.enqueue);
-  const canQueue = draft.trim().length > 0;
-
+  const actions = useComposerRunActions({ threadKey });
+  const canQueue = useAuiState((state) => state.composer.text.trim().length > 0);
+  if (!actions) {
+    return null;
+  }
   return (
     <button
+      aria-keyshortcuts="Enter"
       aria-label="Queue message to send after this run"
-      className="aui-button aui-button-primary aui-composer-send"
+      className="aui-composer-send bs-composer-queue"
       data-testid="assistant-queue-follow-up"
       disabled={!canQueue}
-      onClick={() => {
-        enqueue(followUpQueueKey(threadKey), draft);
-        aui.composer().setText('');
-      }}
-      title="Queue message to send after this run"
+      onClick={actions.queue}
+      title="Queue: sends after this run (Enter)"
       type="button"
     >
-      <ListPlusIcon className="size-4" />
+      <ArrowUpIcon aria-hidden="true" />
     </button>
   );
 }
 
 /**
- * Mid-run steering (BST-588): the composer's RUNNING-branch "Steer now"
- * control. Enqueues the draft at the FRONT of the follow-up queue (the user
- * interrupted the run FOR this message), then asks the server to end the run
- * gracefully at the next step boundary via `onSteerRequest` (the app shell
- * supplies the transport; absence of the prop = steering unavailable, so the
- * panel simply does not render this button — capability-gated, never stubbed).
- * A failed control request never loses the message: it stays queued and
- * dispatches whenever the run ends naturally.
+ * Mid-run steering (BST-588): sends the draft now. It joins the FRONT of the
+ * follow-up queue (the user interrupted the run FOR this message), then asks
+ * the server to end the run gracefully at the next step boundary. Absent a
+ * transport the button is not rendered — capability-gated, never stubbed.
  */
 export function SteerRunButton({
   onSteerRequest,
@@ -250,51 +246,34 @@ export function SteerRunButton({
   readonly onSteerRequest: () => Promise<boolean>;
   readonly threadKey?: string | undefined;
 }) {
-  const aui = useAui();
-  const draft = useAuiState((state) => state.composer.text);
-  const enqueueFront = useFollowUpQueueStore((state) => state.enqueueFront);
-  // Double-click guard (review P3): both clicks of a fast double-click see the
-  // same rendered draft, so without this a steer front-enqueues twice.
-  const steerInFlightRef = useRef(false);
-  const canSteer = draft.trim().length > 0;
-
+  const actions = useComposerRunActions({ onSteerActiveRun: onSteerRequest, threadKey });
+  const canSteer = useAuiState((state) => state.composer.text.trim().length > 0);
+  if (!actions?.steer) {
+    return null;
+  }
+  const shortcut = steerShortcutLabel();
   return (
     <button
+      aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter"
       aria-label="Steer: send now, stopping the run at the next step"
-      className="aui-button aui-button-primary aui-composer-send"
+      className="bs-composer-chip bs-composer-steer"
       data-testid="assistant-steer-run"
       disabled={!canSteer}
-      onClick={() => {
-        if (steerInFlightRef.current) {
-          return;
-        }
-        steerInFlightRef.current = true;
-        enqueueFront(followUpQueueKey(threadKey), draft);
-        aui.composer().setText('');
-        onSteerRequest()
-          .then((accepted) => {
-            if (!accepted) {
-              // The run already finished (404 from the control endpoint) — the
-              // queued message dispatches via the normal run-end bridge.
-              logger.info('Steer control found no active run; message stays queued');
-            }
-          })
-          .catch((error: unknown) => {
-            logger.warn('Steer control request failed; message stays queued', { error });
-          });
-      }}
-      title="Steer: send now, stopping the run at the next step"
+      onClick={actions.steer}
+      title={`Steer: send now, stopping the run after its current step (${shortcut})`}
       type="button"
     >
-      <Redo2Icon className="size-4" />
+      <ZapIcon aria-hidden="true" />
+      <span>Steer</span>
+      <kbd className="bs-composer-kbd">{shortcut}</kbd>
     </button>
   );
 }
 
 /**
- * The composer's complete RUNNING-branch control cluster: Queue always, Steer
- * only when the app shell supplied a transport (BST-588). Extracted so the
- * panel root stays a one-line composition site.
+ * The composer's complete RUNNING-branch control cluster: Steer when the app
+ * shell supplied a transport (BST-588), then Queue. Extracted so the panel
+ * root stays a one-line composition site.
  */
 export function ComposerRunControls({
   onSteerActiveRun,
@@ -309,49 +288,106 @@ export function ComposerRunControls({
   }
   return (
     <>
-      <QueueFollowUpButton threadKey={threadKey} />
       {onSteerActiveRun ? (
         <SteerRunButton onSteerRequest={onSteerActiveRun} threadKey={threadKey} />
       ) : null}
+      <QueueFollowUpButton threadKey={threadKey} />
     </>
   );
 }
 
-/** Removable "queued" chips above the composer; hidden when nothing is queued. */
-export function FollowUpQueueChips({ threadKey }: { readonly threadKey?: string | undefined }) {
+/**
+ * The queued messages, stacked on the composer's top edge in send order. Each
+ * row can be steered (sent next, ending the run after its current step), pulled
+ * back into an empty composer to edit, or removed; a removed row is never
+ * dispatched. Queued tool decisions carry a prepared message, so they can be
+ * steered or removed but not edited as text. Hidden when nothing is queued.
+ */
+export function FollowUpQueueChips({
+  onSteerActiveRun,
+  threadKey,
+}: {
+  readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
+  readonly threadKey?: string | undefined;
+}) {
   const ownsQueue = use(FollowUpQueueOwnershipContext);
+  const aui = useAui();
   const queueKey = followUpQueueKey(threadKey);
   const items = useFollowUpQueueStore((state) => state.queuedByThread[queueKey]);
-  const remove = useFollowUpQueueStore((state) => state.remove);
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  const draftIsEmpty = useAuiState(
+    (state) => state.composer.text.trim().length === 0 && state.composer.attachments.length === 0
+  );
 
   if (!(ownsQueue && items?.length)) {
     return null;
   }
+  const store = useFollowUpQueueStore.getState;
   return (
-    <ul
+    <ol
       aria-label="Queued follow-up messages"
-      className="m-0 flex list-none flex-wrap gap-1.5 px-1 pb-0.5"
+      className="bs-composer-queue-list"
       data-testid="assistant-follow-up-queue"
     >
       {items.map((item) => (
         <li
-          className="inline-flex max-w-full items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-muted-foreground text-xs"
+          className="bs-composer-queue-item"
           data-testid="assistant-follow-up-chip"
           key={item.id}
           title={`Queued: sends when the current run ends — ${item.text}`}
         >
-          <span className="truncate">{item.text}</span>
+          <CornerDownRightIcon aria-hidden="true" className="bs-composer-queue-glyph" />
+          <span className="bs-composer-queue-text">{item.text}</span>
+          {onSteerActiveRun && isRunning ? (
+            <button
+              aria-label={`Steer now: ${item.text}`}
+              className="bs-composer-chip"
+              data-testid="assistant-follow-up-chip-steer"
+              onClick={() => {
+                store().promote(queueKey, item.id);
+                requestSteer(onSteerActiveRun);
+              }}
+              title="Send now: stops the run after its current step"
+              type="button"
+            >
+              <ZapIcon aria-hidden="true" />
+              <span>Steer</span>
+            </button>
+          ) : null}
+          {item.message === undefined ? (
+            <button
+              aria-label={`Edit queued message: ${item.text}`}
+              className="bs-composer-icon-button bs-composer-icon-button-sm"
+              data-testid="assistant-follow-up-chip-edit"
+              disabled={!draftIsEmpty}
+              onClick={(event) => {
+                store().remove(queueKey, item.id);
+                aui.composer().setText(item.text);
+                // The row unmounts with its button: hand focus to the input
+                // that now holds the text.
+                event.currentTarget
+                  .closest('.bs-composer-shell')
+                  ?.querySelector<HTMLElement>('.aui-composer-input')
+                  ?.focus();
+              }}
+              title={draftIsEmpty ? 'Edit in the composer' : 'Send or clear your draft to edit'}
+              type="button"
+            >
+              <PencilIcon aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             aria-label="Remove queued message"
-            className="shrink-0 rounded-full p-0.5 hover:bg-background/60"
+            className="bs-composer-icon-button bs-composer-icon-button-sm"
             data-testid="assistant-follow-up-chip-remove"
-            onClick={() => remove(queueKey, item.id)}
+            onClick={() => store().remove(queueKey, item.id)}
+            title="Remove from the queue"
             type="button"
           >
-            <XIcon className="size-3" />
+            <XIcon aria-hidden="true" />
           </button>
         </li>
       ))}
-    </ul>
+    </ol>
   );
 }

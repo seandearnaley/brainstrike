@@ -328,10 +328,9 @@
 }
 
 .bs-composer-input-frame {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  align-items: end;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
   /* Anchor the floating "/" slash-command popover to the input frame. */
   position: relative;
 }
@@ -355,13 +354,6 @@
 
 .aui-composer-input::placeholder {
   color: hsl(var(--muted-foreground) / 0.72);
-}
-
-.bs-composer-primary-actions {
-  align-items: center;
-  display: flex;
-  gap: 0.375rem;
-  padding-bottom: 0.125rem;
 }
 
 /*
@@ -463,52 +455,350 @@
   opacity: 0.8;
 }
 
-.aui-composer-send,
-.aui-composer-cancel {
+/*
+ * COMPOSER CONTROL GRAMMAR. Every control around the composer is one of three
+ * shapes, so the toolbar, the footer and the queue read as one family:
+ *
+ *  - `.bs-composer-chip`: a borderless 1.75rem pill — icon, label, optional
+ *    chevron or key hint. Folder, branch, worktree, context, model, effort,
+ *    Controls, Plan and Steer all use it.
+ *  - `.bs-composer-icon-button`: the same surface as a 2rem circle with one
+ *    icon (attach, queue row actions).
+ *  - `.aui-composer-send` / `.aui-composer-cancel`: the filled primary circle.
+ *
+ * Resting chips carry no fill or border (no grid of grey boxes); hover and
+ * an open menu share one accent wash; keyboard focus always draws a ring; a
+ * pressed toggle adds a tinted fill AND a visible label, never colour alone.
+ */
+.bs-composer-chip,
+.bs-composer-icon-button {
   align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 1 auto;
+  font-size: 0.75rem;
+  font-weight: 500;
+  justify-content: center;
+  line-height: 1rem;
+  min-width: 0;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+  white-space: nowrap;
+}
+
+span.bs-composer-chip {
+  cursor: default;
+}
+
+.bs-composer-chip {
+  border-radius: 0.5rem;
+  gap: 0.375rem;
+  height: 1.75rem;
+  max-width: 16rem;
+  padding-inline: 0.5rem;
+}
+
+.bs-composer-icon-button {
   aspect-ratio: 1;
   border-radius: 999px;
-  display: inline-flex;
+  flex-shrink: 0;
   height: 2rem;
-  justify-content: center;
   padding: 0;
   width: 2rem;
 }
 
-.bs-composer-control-dock {
-  border-top: 1px solid hsl(var(--border) / 0.62);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-  padding-top: 0.5rem;
+.bs-composer-icon-button-sm {
+  height: 1.5rem;
+  width: 1.5rem;
 }
 
-/*
- * Model picker + effort readout on the left, Controls on the right. Flex with
- * wrap replaces the old 3-column grid + container query. The slots keep their
- * content-based size (NO min-width: 0 — that would let them shrink under
- * their nowrap buttons and overlap on a shared line); when a line can't fit,
- * whole chips wrap onto the next row. Chips sharing a row share one 2rem-tall
- * centered line (pinned by the e2e alignment check, which is row-aware).
- */
-.bs-composer-primary-controls {
+.bs-composer-chip > svg.lucide,
+.bs-composer-icon-button > svg.lucide {
+  flex-shrink: 0;
+  height: 1rem;
+  width: 1rem;
+}
+
+.bs-composer-chip > svg.lucide {
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+.bs-composer-icon-button-sm > svg.lucide {
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+/* A chip's trailing chevron is quieter than its leading icon. */
+.bs-composer-chip > svg.lucide-chevron-down {
+  height: 0.75rem;
+  opacity: 0.6;
+  width: 0.75rem;
+}
+
+.bs-composer-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:is(button.bs-composer-chip, .bs-composer-icon-button):is(:hover, [data-state="open"]):not(
+    :disabled,
+    [aria-disabled="true"]
+  ) {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+:is(.bs-composer-chip, .bs-composer-icon-button, .aui-composer-send, .aui-composer-cancel):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+:is(.bs-composer-chip, .bs-composer-icon-button):is(:disabled, [aria-disabled="true"]) {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.bs-composer-chip[aria-pressed="true"] {
+  background: hsl(var(--primary) / 0.12);
+  border-color: hsl(var(--primary) / 0.28);
+  color: hsl(var(--primary));
+}
+
+.bs-composer-chip[aria-pressed="true"]:hover {
+  background: hsl(var(--primary) / 0.18);
+  color: hsl(var(--primary));
+}
+
+.bs-composer-kbd {
+  color: hsl(var(--muted-foreground) / 0.8);
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.aui-composer-send,
+.aui-composer-cancel {
+  align-items: center;
+  aspect-ratio: 1;
+  background: hsl(var(--foreground));
+  border: 0;
+  border-radius: 999px;
+  color: hsl(var(--background));
+  cursor: pointer;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 2rem;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
+  width: 2rem;
+}
+
+.aui-composer-send > svg,
+.aui-composer-cancel > svg {
+  height: 1rem;
+  width: 1rem;
+}
+
+.aui-composer-cancel > svg {
+  height: 0.75rem;
+  width: 0.75rem;
+}
+
+:is(.aui-composer-send, .aui-composer-cancel):hover:not(:disabled) {
+  opacity: 0.86;
+}
+
+:is(.aui-composer-send, .aui-composer-cancel):disabled {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground) / 0.7);
+  cursor: not-allowed;
+}
+
+/* While a typed draft can be queued, Queue is the primary circle and Stop
+   steps back to a tinted one beside it. */
+.bs-composer-footer-end:has(.bs-composer-queue:not(:disabled)) .aui-composer-cancel {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+/* The toolbar above the card: workspace orientation on the left, the context
+   ring on the far right, ONE line. Chips shrink and truncate rather than
+   wrap; only the critical context notice takes a second line. */
+.bs-composer-toolbar {
+  container: bs-composer-toolbar / inline-size;
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.25rem;
+  margin-bottom: 0.375rem;
+  min-width: 0;
+  padding-inline: 0.125rem;
+}
+
+.bs-composer-toolbar:empty {
+  display: none;
+}
+
+/* Folder, branch and worktree chips share whatever the context ring leaves;
+   each truncates its own label instead of pushing the row onto two lines. */
+.bs-composer-workspace,
+.bs-composer-workspace-drop {
+  align-items: center;
+  border-radius: 0.5rem;
+  display: flex;
+  flex: 1 1 0;
+  gap: 0.125rem;
   min-width: 0;
 }
 
-.bs-composer-controls-slot {
-  display: flex;
-  justify-content: flex-end;
+.bs-composer-workspace-drop > .bs-composer-workspace {
+  flex-basis: auto;
+}
+
+/* In a narrow panel the chips drop their chevrons and secondary badges (the
+   chip is still the menu button, and its accessible name keeps the counts)
+   so the labels keep their room. */
+@container bs-composer-toolbar (max-width: 30rem) {
+  .bs-composer-toolbar .bs-composer-chip > svg.lucide-chevron-down,
+  .bs-composer-workspace .bs-composer-chip-badge,
+  .bs-composer-context-badge {
+    display: none;
+  }
+}
+
+/* Branch names run longest, so the branch chip gives up room first. */
+.bs-composer-chip-long {
+  flex-shrink: 3;
+}
+
+.bs-composer-chip-badge {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.bs-composer-dirty-dot {
+  background: hsl(var(--warning));
+  border-radius: 999px;
+  flex-shrink: 0;
+  height: 0.375rem;
+  width: 0.375rem;
+}
+
+.bs-composer-context {
+  display: contents;
+}
+
+.bs-composer-context-trigger {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
   margin-left: auto;
 }
 
-.bs-composer-model-picker :where(button, [role="combobox"]) {
+.bs-composer-context-notice {
+  color: hsl(var(--destructive));
+  flex-basis: 100%;
+  font-size: 0.6875rem;
+  text-align: right;
+}
+
+/* Below the textarea: attach, plan, model and effort on the left; Controls
+   and the send/stop cluster on the right. */
+.bs-composer-input-frame {
+  container: bs-composer / inline-size;
+}
+
+@container bs-composer (max-width: 34rem) {
+  .bs-composer-kbd {
+    display: none;
+  }
+}
+
+.bs-composer-footer {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.bs-composer-footer-start {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.bs-composer-footer-end {
+  align-items: center;
+  display: flex;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+.bs-composer-status {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  gap: 0.5rem;
+}
+
+/* Queued messages sit on the composer card's top edge, in send order. */
+.bs-composer-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  list-style: none;
+  margin: 0 0.5rem;
+  padding: 0.25rem;
+  border: 1px solid hsl(var(--border) / 0.72);
+  border-bottom: 0;
+  border-radius: 0.75rem 0.75rem 0 0;
+  background: hsl(var(--muted) / 0.5);
+}
+
+.bs-composer-queue-item {
+  align-items: center;
+  border-radius: 0.5rem;
+  color: hsl(var(--foreground));
+  display: flex;
+  font-size: 0.75rem;
+  gap: 0.375rem;
   min-height: 1.75rem;
-  width: 100%;
+  padding-left: 0.375rem;
+}
+
+.bs-composer-queue-item:hover,
+.bs-composer-queue-item:focus-within {
+  background: hsl(var(--background) / 0.7);
+}
+
+.bs-composer-queue-glyph {
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+.bs-composer-queue-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Message content sizing */

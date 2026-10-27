@@ -3,13 +3,18 @@ import { Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface ModelPickerSearchProps {
+  'aria-label'?: string;
   className?: string;
+  'data-testid'?: string;
   onValueChange?: (value: string) => void;
   placeholder?: string;
   value?: string;
 }
 
+/** The search field of a search-first picker (Popover + cmdk). */
 export function ModelPickerSearch({
+  'aria-label': ariaLabel,
+  'data-testid': testId,
   value,
   onValueChange,
   placeholder,
@@ -22,6 +27,8 @@ export function ModelPickerSearch({
     >
       <Search className="mr-2 size-4 shrink-0 text-muted-foreground" />
       <Command.Input
+        {...(ariaLabel ? { 'aria-label': ariaLabel } : {})}
+        {...(testId ? { 'data-testid': testId } : {})}
         className={cn(
           'flex h-10 w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
           className

@@ -6,8 +6,9 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  Input,
 } from '@brainstrike/ui';
-import type { ReactElement, RefObject } from 'react';
+import { type ReactElement, type RefObject, useState } from 'react';
 import type { WorkspaceBarWorktreeOption, WorkspaceBarWorktreePicker } from './workspace-bar';
 
 const TOOL_LABELS: Record<NonNullable<WorkspaceBarWorktreeOption['externalTool']>, string> = {
@@ -85,9 +86,22 @@ const PickerRow = ({
   );
 };
 
+/** A worktree matches when every word appears in its name, branch, repository or path. */
+function matchesQuery(option: WorkspaceBarWorktreeOption, query: string): boolean {
+  const haystack = [option.name, option.branch ?? '', option.repositoryName, option.path]
+    .join(' ')
+    .toLowerCase();
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .every((word) => haystack.includes(word));
+}
+
 /**
  * Shows every supplied worktree, including unusable entries, so worktrees the
  * app can observe never look nonexistent merely because they cannot be used.
+ * A filter keeps a long inventory scannable; it narrows the list, never hides
+ * a worktree that matches.
  */
 export function WorktreePickerDialog({
   picker,
@@ -96,8 +110,21 @@ export function WorktreePickerDialog({
   readonly picker: WorkspaceBarWorktreePicker;
   readonly triggerRef?: RefObject<HTMLButtonElement | null>;
 }): ReactElement {
+  const [query, setQuery] = useState('');
+  const trimmed = query.trim();
+  const visible = trimmed
+    ? picker.options.filter((option) => matchesQuery(option, trimmed))
+    : picker.options;
   return (
-    <Dialog onOpenChange={picker.onOpenChange} open={picker.open}>
+    <Dialog
+      onOpenChange={(open) => {
+        if (!open) {
+          setQuery('');
+        }
+        picker.onOpenChange(open);
+      }}
+      open={picker.open}
+    >
       <DialogContent
         className="sm:max-w-2xl"
         data-testid="worktree-picker-dialog"
@@ -128,8 +155,23 @@ export function WorktreePickerDialog({
             No worktrees yet — create one from this chip.
           </p>
         ) : null}
-        <ul className="max-h-96 space-y-2 overflow-y-auto">
-          {picker.options.map((option) => (
+        {picker.options.length > 0 ? (
+          <Input
+            aria-label="Filter worktrees"
+            data-testid="worktree-picker-filter"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter by name, branch or path"
+            type="search"
+            value={query}
+          />
+        ) : null}
+        {trimmed && visible.length === 0 ? (
+          <p className="text-muted-foreground text-sm" role="status">
+            No worktrees match “{trimmed}”.
+          </p>
+        ) : null}
+        <ul aria-label="Worktrees" className="max-h-96 space-y-2 overflow-y-auto">
+          {visible.map((option) => (
             <PickerRow
               key={option.path}
               onGrantAccess={picker.onGrantAccess}

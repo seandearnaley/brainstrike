@@ -259,7 +259,7 @@ test.describe('Worktree mode (desktop)', () => {
     // arrived stays open and gains the branch rows when they load.
     const chip = page.getByRole('button', { name: /^Branch:/ });
     await expect(chip).toContainText('main', { timeout: 30_000 });
-    await expect(chip).toHaveAttribute('aria-haspopup', 'menu');
+    await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
     await chip.click();
     await page.getByTestId('workspace-bar-branch-row-feature/alpha').click();
     await expect(chip).toContainText('feature/alpha', { timeout: 60_000 });

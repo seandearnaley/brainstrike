@@ -21,7 +21,7 @@ import type {
   AssistantProviderSettingsMap,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
-import { Button, Popover, PopoverContent, PopoverTrigger, Switch } from '@brainstrike/ui';
+import { Popover, PopoverContent, PopoverTrigger, Switch } from '@brainstrike/ui';
 import { Brain, ChevronDown } from 'lucide-react';
 import { useCallback } from 'react';
 import { modelIdFromCompositeKey } from './composer-picker-sections';
@@ -178,19 +178,18 @@ export const ComposerEffortControl = ({
         {/* No aria-label: the accessible name must contain the visible text
             (WCAG 2.5.3 Label in Name — speech input says "click Effort High").
             The sr-only qualifier keeps the name a superset, never a rewrite. */}
-        <Button
-          className="h-8 gap-1.5 rounded-full border-border/70 bg-background/85 px-3 text-xs"
+        <button
+          className="bs-composer-chip"
           data-testid="composer-effort-trigger"
           disabled={!onProviderSettingsChange}
-          size="sm"
-          variant="outline"
+          type="button"
         >
-          <Brain aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <Brain aria-hidden />
           {readout.label === 'Effort' ? <span className="sr-only">Reasoning</span> : null}
-          <span className="text-muted-foreground">{readout.label}</span>
-          <span className="max-w-24 truncate font-medium">{readout.value}</span>
-          <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-        </Button>
+          <span className="font-normal">{readout.label}</span>
+          <span className="bs-composer-chip-label text-foreground">{readout.value}</span>
+          <ChevronDown aria-hidden />
+        </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"

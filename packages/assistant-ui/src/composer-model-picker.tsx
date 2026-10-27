@@ -7,7 +7,6 @@
  * Effort/Thinking controls stay OUT of this picker (BST-948).
  */
 import {
-  Button,
   formatContextWindow,
   getProviderColor,
   type ModelPickerModel,
@@ -37,10 +36,11 @@ export interface ComposerModelPickerProps {
   selectedModel?: string | undefined;
 }
 
-const GROUP_HEADING_CLASS =
+/** Shared by the composer's search-first pickers (models, branches). */
+export const GROUP_HEADING_CLASS =
   '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide';
 
-const ROW_CLASS =
+export const ROW_CLASS =
   'flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled=true]:opacity-50';
 
 function triggerLabel(selectedEntry: ComposerPickerEntry | undefined, hasOptions: boolean): string {
@@ -266,18 +266,17 @@ export function ComposerModelPicker({
   return (
     <Popover onOpenChange={handleOpenChange} open={open}>
       <PopoverTrigger asChild>
-        <Button
+        <button
           aria-label={`Selected model: ${selectedEntry?.modelLabel ?? 'none'}`}
-          className="h-8 gap-2 rounded-full border-border/70 bg-background/85 px-3 text-xs"
+          className="bs-composer-chip"
           data-testid="composer-model-menu-trigger"
           disabled={!canSelect}
-          size="sm"
-          variant="outline"
+          type="button"
         >
           {selectedEntry ? <ProviderDot providerId={selectedEntry.providerId} /> : null}
-          <span className="max-w-44 truncate">{triggerText}</span>
-          <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-        </Button>
+          <span className="bs-composer-chip-label">{triggerText}</span>
+          <ChevronDown aria-hidden />
+        </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
