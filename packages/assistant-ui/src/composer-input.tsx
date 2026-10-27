@@ -1,9 +1,11 @@
 import { ComposerPrimitive, ThreadPrimitive, useAui, useAuiState } from '@assistant-ui/react';
-import { ArrowUpIcon, ClipboardListIcon, ImageIcon, SquareIcon } from 'lucide-react';
+import { ArrowUpIcon, ImagePlusIcon, ListChecksIcon, SquareIcon } from 'lucide-react';
 import { type ClipboardEvent, type KeyboardEvent, type ReactNode, useId } from 'react';
 import { useActiveConversationInput } from './active-conversation-input-context';
 import { collectImageFilesFromClipboard } from './attachment-adapter';
 import { useBudgetSendGate } from './budget-guardrail-control';
+import { type ComposerRunActions, useComposerRunActions } from './composer-run-actions';
+import { ComposerRunControls } from './follow-up-queue';
 
 /**
  * Composer plan-mode toggle controls, threaded from the app-shell wrapper down
@@ -30,6 +32,21 @@ export type ComposerAttachmentsAvailability =
   | { readonly state: 'enabled' }
   | { readonly reason: string; readonly state: 'disabled' };
 
+interface ComposerInputRowProps {
+  attachmentsAvailability?: ComposerAttachmentsAvailability | undefined;
+  /** Trailing footer controls, before Send (e.g. the Controls menu). */
+  footerEnd?: ReactNode;
+  /** Leading footer controls, after attach and plan (e.g. model and effort). */
+  footerStart?: ReactNode;
+  hideDefaultCancel?: boolean | undefined;
+  isComposerDisabled: boolean;
+  /** Steering transport; absent ⇒ no Steer control (capability-gated). */
+  onSteerActiveRun?: (() => Promise<boolean>) | undefined;
+  planMode?: PlanModeComposerControls | undefined;
+  slashPopover?: ReactNode;
+  threadKey?: string | undefined;
+}
+
 /**
  * The composer input row (textarea + Send/Cancel), defined ONCE so both the
  * trigger-enabled and plain composer paths share it — only the optional
@@ -45,21 +62,15 @@ export type ComposerAttachmentsAvailability =
  */
 const ComposerInputRow = ({
   attachmentsAvailability,
+  footerEnd,
+  footerStart,
   isComposerDisabled,
   hideDefaultCancel,
+  onSteerActiveRun,
   planMode,
-  queueControl,
   slashPopover,
-}: {
-  attachmentsAvailability?: ComposerAttachmentsAvailability;
-  isComposerDisabled: boolean;
-  hideDefaultCancel?: boolean | undefined;
-  planMode?: PlanModeComposerControls;
-  /** Rendered in the RUNNING branch (where Send is unmounted) so a draft can
-   * be queued for after the run — see follow-up-queue.tsx. */
-  queueControl?: ReactNode;
-  slashPopover?: ReactNode;
-}) => {
+  threadKey,
+}: ComposerInputRowProps) => {
   // Last-24h budget cap gate (see budget-guardrail-control.tsx): while over
   // cap without a session override, BOTH send paths are disabled — the Send
   // button and the textarea (a disabled textarea cannot submit via Enter, so
@@ -72,6 +83,8 @@ const ComposerInputRow = ({
   const hasDraft = useAuiState(
     (state) => state.composer.text.trim().length > 0 || state.composer.attachments.length > 0
   );
+  const isRunning = useAuiState((state) => state.thread.isRunning);
+  const runActions = useComposerRunActions({ onSteerActiveRun, threadKey });
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
   const sendDisabled = isComposerDisabled || budgetSendBlocked || activeInput?.canSend === false;
@@ -85,111 +98,84 @@ const ComposerInputRow = ({
         className="aui-composer-input"
         disabled={isComposerDisabled || budgetSendBlocked}
         id={inputId}
-        onKeyDown={(event) => sendActiveDraftOnEnter(event, activeInput, sendDisabled, hasDraft)}
-        placeholder="Ask BrainStrike anything..."
+        onKeyDown={(event) => {
+          if (activeInput) {
+            sendActiveDraftOnEnter(event, activeInput, sendDisabled, hasDraft);
+          } else if (isRunning && runActions && !sendDisabled) {
+            queueOrSteerOnEnter(event, runActions);
+          }
+        }}
+        placeholder={isRunning ? 'Queue a follow-up, or steer…' : 'Ask BrainStrike anything…'}
         rows={1}
       />
       {slashPopover}
-      <div className="bs-composer-primary-actions">
-        {attachmentsAvailability?.state === 'enabled' ? (
-          <ComposerPrimitive.AddAttachment
-            aria-label="Attach image"
-            className="aui-button aui-button-ghost"
-            data-testid="assistant-attach-image"
-            disabled={sendDisabled}
-            multiple
-            title="Attach an image (you can also paste one)"
-          >
-            <ImageIcon className="size-4" />
-          </ComposerPrimitive.AddAttachment>
-        ) : null}
-        {attachmentsAvailability?.state === 'disabled' ? (
-          // A plain disabled button (not the AddAttachment primitive): adds
-          // are blocked in this state while the adapter stays registered for
-          // already-staged attachments, and the reason must stay visible
-          // rather than the affordance silently vanishing.
-          <button
-            aria-label="Attach image (unavailable)"
-            className="aui-button aui-button-ghost"
-            data-testid="assistant-attach-image"
-            disabled
-            title={attachmentsAvailability.reason}
-            type="button"
-          >
-            <ImageIcon className="size-4" />
-          </button>
-        ) : null}
-        {planMode ? (
-          <button
-            aria-label="Toggle plan mode"
-            aria-pressed={planMode.enabled}
-            className="aui-button aui-button-ghost"
-            data-testid="assistant-plan-mode-toggle"
-            onClick={planMode.onToggle}
-            title="Plan mode: investigate read-only and propose a plan for approval before any changes."
-            type="button"
-          >
-            <ClipboardListIcon className={planMode.enabled ? 'size-4 text-info' : 'size-4'} />
-          </button>
-        ) : null}
-        <ThreadPrimitive.If running={false}>
-          {activeInput ? (
-            <button
-              aria-label="Send"
-              className="aui-button aui-button-primary aui-composer-send"
-              data-testid="assistant-composer-send"
-              disabled={sendDisabled || !hasDraft}
-              onClick={() => {
-                void activeInput.send();
-              }}
-              title="Send"
-              type="button"
-            >
-              <ArrowUpIcon className="size-4" />
-            </button>
-          ) : (
-            <ComposerPrimitive.Send
-              aria-label="Send"
-              className="aui-button aui-button-primary aui-composer-send"
-              data-testid="assistant-composer-send"
-              disabled={sendDisabled}
-              title="Send"
-            >
-              <ArrowUpIcon className="size-4" />
-            </ComposerPrimitive.Send>
-          )}
-        </ThreadPrimitive.If>
-        <ThreadPrimitive.If running>
-          {activeInput ? (
-            <button
-              aria-label="Send to child"
-              className="aui-button aui-button-primary aui-composer-send"
-              disabled={sendDisabled || !hasDraft}
-              onClick={() => {
-                void activeInput.send();
-              }}
-              title="Send to child"
-              type="button"
-            >
-              <ArrowUpIcon className="size-4" />
-            </button>
-          ) : (
-            queueControl
-          )}
-          {!hideDefaultCancel && (
-            <ComposerPrimitive.Cancel
-              aria-label="Stop"
-              className="aui-button aui-button-primary aui-composer-cancel"
-              disabled={isComposerDisabled}
-              title="Stop"
-            >
-              <SquareIcon className="size-3.5 fill-current" />
-            </ComposerPrimitive.Cancel>
-          )}
-        </ThreadPrimitive.If>
+      <div className="bs-composer-footer" data-testid="assistant-composer-controls">
+        <div className="bs-composer-footer-start">
+          <AttachImageButton availability={attachmentsAvailability} disabled={sendDisabled} />
+          {planMode ? <PlanModeToggle planMode={planMode} /> : null}
+          {footerStart}
+        </div>
+        <div className="bs-composer-footer-end">
+          {footerEnd}
+          <ThreadPrimitive.If running={false}>
+            {activeInput ? (
+              <button
+                aria-label="Send"
+                className="aui-composer-send"
+                data-testid="assistant-composer-send"
+                disabled={sendDisabled || !hasDraft}
+                onClick={() => {
+                  void activeInput.send();
+                }}
+                title="Send (Enter)"
+                type="button"
+              >
+                <ArrowUpIcon aria-hidden="true" />
+              </button>
+            ) : (
+              <ComposerPrimitive.Send
+                aria-label="Send"
+                className="aui-composer-send"
+                data-testid="assistant-composer-send"
+                disabled={sendDisabled}
+                title="Send (Enter)"
+              >
+                <ArrowUpIcon aria-hidden="true" />
+              </ComposerPrimitive.Send>
+            )}
+          </ThreadPrimitive.If>
+          <ThreadPrimitive.If running>
+            {activeInput ? (
+              <button
+                aria-label="Send to child"
+                className="aui-composer-send"
+                disabled={sendDisabled || !hasDraft}
+                onClick={() => {
+                  void activeInput.send();
+                }}
+                title="Send to child"
+                type="button"
+              >
+                <ArrowUpIcon aria-hidden="true" />
+              </button>
+            ) : (
+              <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
+            )}
+            {!hideDefaultCancel && (
+              <ComposerPrimitive.Cancel
+                aria-label="Stop"
+                className="aui-composer-cancel"
+                disabled={isComposerDisabled}
+                title="Stop (Esc)"
+              >
+                <SquareIcon aria-hidden="true" className="fill-current" />
+              </ComposerPrimitive.Cancel>
+            )}
+          </ThreadPrimitive.If>
+        </div>
       </div>
       {activeInput?.busy && (
-        <div>
+        <div className="bs-composer-status">
           <span role="status">Sending to child…</span>
           <button className="text-sm underline" onClick={activeInput.stopWaiting} type="button">
             Stop waiting
@@ -197,7 +183,7 @@ const ComposerInputRow = ({
         </div>
       )}
       {activeInput?.error !== undefined && (
-        <div>
+        <div className="bs-composer-status">
           <p data-testid="child-input-delivery" role="alert">
             {activeInput.error}
           </p>
@@ -215,6 +201,70 @@ const ComposerInputRow = ({
   );
 };
 
+/**
+ * Image attach. Absent availability ⇒ no affordance at all. 'disabled' keeps
+ * a visibly disabled button carrying the reason (per-model vision gate) rather
+ * than silently vanishing: adds are blocked while the adapter stays registered
+ * so already-staged attachments remain removable.
+ */
+const AttachImageButton = ({
+  availability,
+  disabled,
+}: {
+  availability: ComposerAttachmentsAvailability | undefined;
+  disabled: boolean;
+}) => {
+  if (availability?.state === 'enabled') {
+    return (
+      <ComposerPrimitive.AddAttachment
+        aria-label="Attach image"
+        className="bs-composer-icon-button"
+        data-testid="assistant-attach-image"
+        disabled={disabled}
+        multiple
+        title="Attach images (or paste one)"
+      >
+        <ImagePlusIcon aria-hidden="true" />
+      </ComposerPrimitive.AddAttachment>
+    );
+  }
+  if (availability?.state === 'disabled') {
+    return (
+      <button
+        aria-label="Attach image (unavailable)"
+        className="bs-composer-icon-button"
+        data-testid="assistant-attach-image"
+        disabled
+        title={availability.reason}
+        type="button"
+      >
+        <ImagePlusIcon aria-hidden="true" />
+      </button>
+    );
+  }
+  return null;
+};
+
+/**
+ * Plan mode is a toggle, so its state must read without colour: when on it
+ * grows a visible "Plan" label beside the highlighted icon, and `aria-pressed`
+ * carries the same state to assistive tech.
+ */
+const PlanModeToggle = ({ planMode }: { planMode: PlanModeComposerControls }) => (
+  <button
+    aria-label="Plan mode"
+    aria-pressed={planMode.enabled}
+    className="bs-composer-chip bs-composer-toggle"
+    data-testid="assistant-plan-mode-toggle"
+    onClick={planMode.onToggle}
+    title="Plan mode: investigate read-only and propose a plan for approval before any changes"
+    type="button"
+  >
+    <ListChecksIcon aria-hidden="true" />
+    {planMode.enabled ? <span>Plan</span> : null}
+  </button>
+);
+
 /** The child receipt path owns Enter instead of the ordinary root append action. */
 function sendActiveDraftOnEnter(
   event: KeyboardEvent<HTMLTextAreaElement>,
@@ -230,6 +280,35 @@ function sendActiveDraftOnEnter(
     return;
   }
   void input.send();
+}
+
+/**
+ * While a run is active, Enter queues the draft and Shift+Ctrl/⌘+Enter steers
+ * — assistant-ui's own composer bindings for a queue-capable thread. An open
+ * "/" popover keeps Enter for its own selection.
+ */
+function queueOrSteerOnEnter(
+  event: KeyboardEvent<HTMLTextAreaElement>,
+  actions: ComposerRunActions
+): void {
+  if (
+    event.key !== 'Enter' ||
+    event.nativeEvent.isComposing ||
+    event.currentTarget.getAttribute('aria-expanded') === 'true'
+  ) {
+    return;
+  }
+  const modifier = event.ctrlKey || event.metaKey;
+  if (event.shiftKey && modifier && actions.steer) {
+    event.preventDefault();
+    actions.steer();
+    return;
+  }
+  if (event.shiftKey || modifier) {
+    return;
+  }
+  event.preventDefault();
+  actions.queue();
 }
 
 const PlainInputFrame = ({ children }: { children: ReactNode; disabled: boolean }) => (
@@ -291,32 +370,9 @@ const AttachmentPasteFrame = ({
  * When it is absent the bare input row renders, so the trigger char does
  * nothing special (never an empty menu).
  */
-export const ComposerInputWithTriggers = ({
-  attachmentsAvailability,
-  isComposerDisabled,
-  hideDefaultCancel,
-  slashPopover,
-  planMode,
-  queueControl,
-}: {
-  attachmentsAvailability?: ComposerAttachmentsAvailability;
-  isComposerDisabled: boolean;
-  hideDefaultCancel?: boolean | undefined;
-  slashPopover?: ReactNode;
-  planMode?: PlanModeComposerControls;
-  queueControl?: ReactNode;
-}) => {
-  const row = (
-    <ComposerInputRow
-      hideDefaultCancel={hideDefaultCancel}
-      isComposerDisabled={isComposerDisabled}
-      {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-      {...(slashPopover ? { slashPopover } : {})}
-      {...(planMode ? { planMode } : {})}
-      {...(queueControl ? { queueControl } : {})}
-    />
-  );
-  if (!slashPopover) {
+export const ComposerInputWithTriggers = (props: ComposerInputRowProps) => {
+  const row = <ComposerInputRow {...props} />;
+  if (!props.slashPopover) {
     return row;
   }
   return (

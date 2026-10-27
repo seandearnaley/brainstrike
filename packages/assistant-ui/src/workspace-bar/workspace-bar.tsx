@@ -254,7 +254,7 @@ export const WorkspaceBar = ({
     // accessible name, and an extra grouping level would only add noise to
     // the composer's screen-reader path.
     <div
-      className="mx-3 flex flex-wrap items-center gap-1.5"
+      className="bs-composer-workspace"
       data-checkout-state={checkoutState}
       data-testid="workspace-bar"
     >

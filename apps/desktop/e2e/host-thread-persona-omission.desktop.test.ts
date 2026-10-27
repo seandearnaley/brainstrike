@@ -57,7 +57,7 @@ test('personas are omitted in plan mode and for a persona disabled in Settings',
   });
 
   // Plan mode: the planning run is offered no edit tool and no persona.
-  const toggle = panel.getByRole('button', { name: 'Toggle plan mode' });
+  const toggle = panel.getByRole('button', { name: 'Plan mode' });
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   const planning = await probePersonaTools(panel, modelProvider, 'PERSONA_PROBE_PLAN');
