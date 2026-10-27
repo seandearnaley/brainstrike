@@ -27,7 +27,7 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Fail the build on CI if you accidentally left test.only in the source code
   forbidOnly: config.isCI,
 
-  // Tests, not files, are the unit of scheduling and sharding: each test owns its
+  // A shard's workers take single tests, not whole files: each test owns its
   // app and profile. A spec whose tests depend on each other declares
   // test.describe.configure({ mode: 'serial' }).
   fullyParallel: config.fullyParallel,
@@ -55,10 +55,10 @@ const playwrightConfig: PlaywrightTestConfig = {
     },
   ],
 
-  // Reporter configuration
+  // Reporter configuration. file-shards assigns whole files to --shard runs.
   reporter: config.isCI
-    ? [['blob', { outputDir: 'blob-report' }], ['list']]
-    : [['html', { open: 'never' }], ['list']],
+    ? [['blob', { outputDir: 'blob-report' }], ['list'], ['./e2e/file-shards.ts']]
+    : [['html', { open: 'never' }], ['list'], ['./e2e/file-shards.ts']],
 
   // Retry strategy based on environment
   retries: config.retries,
