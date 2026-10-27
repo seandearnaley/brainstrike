@@ -81,6 +81,7 @@
     "./use-toast": "./src/use-toast.ts",
     "./code-block": "./src/code-block/index.ts",
     "./markdown-surface": "./src/markdown-surface/index.ts",
+    "./mermaid-block": "./src/markdown-surface/mermaid-block.tsx",
     "./globals.css": "./src/globals.css",
     "./styles.css": "./styles.css",
     "./icons": "./icons/index.ts",
