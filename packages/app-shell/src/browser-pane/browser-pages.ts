@@ -1,9 +1,7 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
-import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createLogger } from '@brainstrike/logging';
 import { resolveBrowserBridge } from './browser-bridge';
-import { browserPageTabId } from './browser-page-tab';
 import { liveBrowserTabs } from './browser-tabs-store';
 
 const logger = createLogger('BrowserPages');
@@ -17,9 +15,12 @@ export function activeBrowserThreadId(): string | null {
 }
 
 /**
- * Open a page in a tab of its own among the shown conversation's tabs, and
- * show it: the person asked for it. Rejects without the desktop browser or
- * an open conversation, so the caller can say why nothing opened.
+ * Open a page among the shown conversation's tabs and go to the workspace.
+ * The page's tab comes from main's page list (`useBrowserPageSync`), which
+ * selects a new page only while its own conversation is shown: a switch
+ * during the round trip leaves the page with its conversation. Rejects
+ * without the desktop browser or an open conversation, so the caller can say
+ * why nothing opened.
  */
 export async function openBrowserPage(url?: string): Promise<void> {
   const bridge = resolveBrowserBridge();
@@ -30,9 +31,8 @@ export async function openBrowserPage(url?: string): Promise<void> {
   if (threadId === null) {
     throw new Error('Open a conversation first: each browser tab belongs to one.');
   }
-  const tabId = await bridge.createTab(threadId, url);
+  await bridge.createTab(threadId, url);
   usePanelLayoutStore.getState().setActiveTab('explorer');
-  useWorkspaceTabSelectionStore.getState().openApp(browserPageTabId({ tabId, threadId }));
 }
 
 /** A deleted conversation's pages close with it: nothing else would ever show them again. */

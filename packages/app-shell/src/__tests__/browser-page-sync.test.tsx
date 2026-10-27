@@ -16,6 +16,7 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';
 import { browserPageTabId } from '../browser-pane/browser-page-tab';
+import { openBrowserPage } from '../browser-pane/browser-pages';
 import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
 import { useBrowserPageSync } from '../browser-pane/use-browser-page-sync';
 import { threadWorkspaceNavigation } from '../thread-workspace/live-thread-workspace-navigation';
@@ -101,6 +102,35 @@ describe('browser page tabs', () => {
 
     expect(workspace().openAppIds).toContain(tabOf('p1'));
     expect(workspace().selection).toEqual({ appId: tabOf('p1'), kind: 'app' });
+  });
+
+  it('selects a page the person opens, unless they switched conversations while it opened', async () => {
+    Object.assign(window, { browser: bridge });
+    await mount();
+    bridge.createTab.mockImplementationOnce(() => {
+      pushPages([page('mine')]);
+      return Promise.resolve('mine');
+    });
+    await act(() => openBrowserPage('https://mine.test/'));
+    expect(workspace().selection).toEqual({ appId: tabOf('mine'), kind: 'app' });
+
+    let answer = (): void => undefined;
+    bridge.createTab.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = () => {
+            pushPages([page('mine'), page('late')]);
+            resolve('late');
+          };
+        })
+    );
+    const opening = openBrowserPage();
+    show('thread-b');
+    answer();
+    await act(() => opening);
+
+    expect(workspace().openAppIds).not.toContain(tabOf('late'));
+    Reflect.deleteProperty(window, 'browser');
   });
 
   it("keeps another conversation's pages out of the shown workspace", async () => {

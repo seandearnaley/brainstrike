@@ -8,11 +8,13 @@ import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserBridge, BrowserTab } from '../browser-pane/browser-bridge';
 import { browserPageTabId, readBrowserPageTab } from '../browser-pane/browser-page-tab';
 import { closeBrowserPagesOf, openBrowserPage } from '../browser-pane/browser-pages';
 import { useBrowserTabsStore } from '../browser-pane/browser-tabs-store';
+import { useBrowserWorkspaceApps } from '../browser-pane/use-browser-workspace-apps';
 
 const bridge = {
   closeTab: vi.fn(() => Promise.resolve()),
@@ -58,15 +60,23 @@ afterEach(() => {
 });
 
 describe('browser pages', () => {
-  it("opens a new page as the shown conversation's selected tab, on the Explorer route", async () => {
+  it('opens a new page in the shown conversation and goes to the workspace', async () => {
     await openBrowserPage('https://a.test/');
 
     expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('thread-a', 'https://a.test/');
     expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
-    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      appId: browserPageTabId({ tabId: 'new-page', threadId: 'thread-a' }),
-      kind: 'app',
-    });
+  });
+
+  it('reopens a closed page tab as a new page at its address', async () => {
+    useBrowserTabsStore.getState().setTabs([{ ...page('a1', 'thread-a'), url: 'https://a.test/' }]);
+    const id = browserPageTabId({ tabId: 'a1', threadId: 'thread-a' });
+    useWorkspaceTabSelectionStore.getState().openApp(id);
+    const { result } = renderHook(() => useBrowserWorkspaceApps(bridge));
+    const app = result.current.find((candidate) => candidate.id === id);
+
+    await app?.reopen?.();
+
+    expect(bridge.createTab).toHaveBeenCalledExactlyOnceWith('thread-a', 'https://a.test/');
   });
 
   it('says why no page opened without a conversation or without the desktop browser', async () => {

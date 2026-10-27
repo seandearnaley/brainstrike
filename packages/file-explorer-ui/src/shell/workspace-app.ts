@@ -33,6 +33,12 @@ export interface WorkspaceApp {
    * that component (with `useEffect`/`useMemo`) rather than in `render()` itself.
    */
   readonly render: () => ReactNode;
+  /**
+   * Optional: how Reopen Closed Tab brings the tab back once closing it has
+   * also removed it from the registry, such as a browser page reopened at its
+   * address. Without it, a closed app reopens only while it is registered.
+   */
+  readonly reopen?: (() => Promise<void>) | undefined;
   /** Optional busy mark in the tab, such as a browser page while it loads. */
   readonly status?: 'loading' | undefined;
   /** Optional identity tint for an app that represents a colored conversation. */

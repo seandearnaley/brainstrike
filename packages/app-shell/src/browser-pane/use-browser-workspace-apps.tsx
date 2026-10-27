@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import type { BrowserBridge, BrowserTab } from './browser-bridge';
 import { type BrowserPageTab, readBrowserPageTab } from './browser-page-tab';
 import { BrowserPageView } from './browser-page-view';
+import { openBrowserPage } from './browser-pages';
 import { browserTabLabel, useBrowserTabsStore } from './browser-tabs-store';
 
 const pageIcon: WorkspaceApp['icon'] = ({ className }) => <Globe className={className} />;
@@ -50,6 +51,8 @@ function pageApp(
     label: page ? browserTabLabel(page) : FALLBACK_LABEL,
     placement: 'dynamic',
     render: () => <BrowserPageView bridge={bridge} tab={shown} />,
+    // Closing the tab closes the page, so reopening it opens a new page at its address.
+    reopen: page ? () => openBrowserPage(page.url) : undefined,
     status: page?.isLoading ? 'loading' : undefined,
     tooltip: page?.url || undefined,
   };
