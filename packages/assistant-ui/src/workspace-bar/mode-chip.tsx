@@ -9,22 +9,21 @@ import {
 import {
   Archive,
   ChevronDown,
+  FolderGit2,
   FolderOpen,
   FolderSearch,
   GitBranchPlus,
   Home,
-  Layers,
+  Laptop,
   Plus,
   TerminalSquare,
+  TriangleAlert,
 } from 'lucide-react';
 import { type ReactElement, useLayoutEffect, useRef, useState } from 'react';
 import type { WorkspaceBarMode, WorkspaceBarWorktreeSummary } from './workspace-bar';
 import { WorktreeArchiveConfirmationDialog } from './worktree-archive-confirmation-dialog';
 import { WorktreeCreateDialog } from './worktree-create-dialog';
 import { WorktreePickerDialog } from './worktree-picker-dialog';
-
-const CHIP_CLASSES =
-  'inline-flex h-6 max-w-56 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 text-[11px] text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60';
 
 /** The current worktree's identity, branch, and setup reason (when it has one). */
 const WorktreeInfo = ({
@@ -149,16 +148,16 @@ const DiagnosticOnlyModeChip = ({
           ? `Worktree unavailable: ${label} — ${reason}`
           : `Checkout mode unavailable: ${reason}`
       }
-      className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
+      className="bs-composer-chip"
       data-setup={mode.worktree?.setupStatus ?? 'none'}
       data-testid="workspace-bar-mode-chip"
       title={reason}
       type="button"
     >
-      <Layers aria-hidden="true" className="size-3 shrink-0" />
-      <span className="truncate">{label}</span>
-      <span className="shrink-0 text-warning">!</span>
-      <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+      <FolderGit2 aria-hidden="true" />
+      <span className="bs-composer-chip-label">{label}</span>
+      <TriangleAlert aria-hidden="true" className="text-warning" />
+      <ChevronDown aria-hidden="true" />
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" className="w-80">
       <DropdownMenuLabel>Checkout mode unavailable</DropdownMenuLabel>
@@ -206,18 +205,18 @@ export const ModeChip = ({ mode }: { readonly mode: WorkspaceBarMode }): ReactEl
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={worktree ? `Worktree: ${worktree.name}` : 'Checkout mode: Local'}
-          className={`${CHIP_CLASSES} hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground`}
+          className="bs-composer-chip"
           data-setup={worktree?.setupStatus ?? 'none'}
           data-testid="workspace-bar-mode-chip"
           ref={chipTriggerRef}
           title={title}
         >
-          <Layers aria-hidden="true" className="size-3 shrink-0" />
-          <span className="truncate">{label}</span>
+          {worktree ? <FolderGit2 aria-hidden="true" /> : <Laptop aria-hidden="true" />}
+          <span className="bs-composer-chip-label">{label}</span>
           {worktree?.setupStatus === 'failed' ? (
-            <span className="shrink-0 text-warning">!</span>
+            <TriangleAlert aria-hidden="true" className="text-warning" />
           ) : null}
-          <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+          <ChevronDown aria-hidden="true" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-80">
           <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">

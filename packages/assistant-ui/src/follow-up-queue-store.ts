@@ -45,6 +45,8 @@ interface FollowUpQueueState {
       readonly text: string;
     }
   ) => void;
+  /** Steer an already-queued item: it moves to the FRONT so it dispatches next. */
+  promote: (threadKey: string, itemId: string) => void;
   queuedByThread: Record<string, readonly FollowUpQueueItem[]>;
   remove: (threadKey: string, itemId: string) => void;
   /** Put a failed dispatch back at the FRONT so retry preserves user order. */
@@ -123,6 +125,19 @@ export const useFollowUpQueueStore = create<FollowUpQueueState>((set, get) => ({
       },
     }));
   },
+  promote: (threadKey, itemId) =>
+    set((state) => {
+      const queue = state.queuedByThread[threadKey] ?? [];
+      const item = queue.find((candidate) => candidate.id === itemId);
+      return item
+        ? {
+            queuedByThread: {
+              ...state.queuedByThread,
+              [threadKey]: [item, ...queue.filter((candidate) => candidate.id !== itemId)],
+            },
+          }
+        : state;
+    }),
   queuedByThread: {},
   remove: (threadKey, itemId) =>
     set((state) => ({
