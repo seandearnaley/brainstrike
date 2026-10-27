@@ -11,8 +11,8 @@ function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
       calls.push(`close:${tabId}`);
       return known(tabId);
     },
-    createTab: (url) => {
-      calls.push(`create:${url ?? ''}`);
+    createTab: (threadId, url) => {
+      calls.push(`create:${threadId}:${url ?? ''}`);
       return 'tab-1';
     },
     goBack: (tabId) => {
@@ -27,12 +27,12 @@ function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
       calls.push('list');
       return [
         {
-          active: true,
           canGoBack: false,
           canGoForward: false,
           isLoading: false,
           owner: 'user',
           tabId: 'tab-1',
+          threadId: 'thread-1',
           title: 'T',
           url: 'https://x',
         },
@@ -46,30 +46,32 @@ function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
       calls.push(`reload:${tabId}`);
       return known(tabId);
     },
-    selectTab: (tabId) => {
-      calls.push(`select:${tabId}`);
-      return known(tabId);
-    },
     setBounds: (rect) => calls.push(`bounds:${rect.x},${rect.y},${rect.width},${rect.height}`),
     setOccluded: (occluded) => calls.push(`occl:${occluded}`),
+    showTab: (tabId) => {
+      calls.push(`show:${tabId}`);
+      return known(tabId);
+    },
   };
 }
 
 describe('createBrowserIpcHandlers — validation at the boundary', () => {
-  it('createTab accepts a string or undefined, rejects other types', () => {
+  it('createTab files the page under a thread and accepts a url string or none', () => {
     const manager = fakeManager();
     const handlers = createBrowserIpcHandlers(manager);
-    expect(handlers.createTab('example.com')).toEqual({ ok: true, value: 'tab-1' });
-    expect(handlers.createTab(undefined)).toEqual({ ok: true, value: 'tab-1' });
-    expect(handlers.createTab(42)).toMatchObject({ ok: false });
-    expect(manager.calls).toEqual(['create:example.com', 'create:']);
+    expect(handlers.createTab('thread-1', 'example.com')).toEqual({ ok: true, value: 'tab-1' });
+    expect(handlers.createTab('thread-1', undefined)).toEqual({ ok: true, value: 'tab-1' });
+    expect(handlers.createTab('thread-1', 42)).toMatchObject({ ok: false });
+    expect(handlers.createTab('', 'example.com')).toMatchObject({ ok: false });
+    expect(handlers.createTab(undefined, 'example.com')).toMatchObject({ ok: false });
+    expect(manager.calls).toEqual(['create:thread-1:example.com', 'create:thread-1:']);
   });
 
-  it('closeTab/selectTab require a non-empty string tabId', () => {
+  it('closeTab/showTab require a non-empty string tabId', () => {
     const manager = fakeManager();
     const handlers = createBrowserIpcHandlers(manager);
     expect(handlers.closeTab('')).toMatchObject({ ok: false });
-    expect(handlers.selectTab(7)).toMatchObject({ ok: false });
+    expect(handlers.showTab(7)).toMatchObject({ ok: false });
     expect(handlers.closeTab('tab-1')).toEqual({ ok: true, value: undefined });
     expect(manager.calls).toEqual(['close:tab-1']);
   });
@@ -80,7 +82,7 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
       error: expect.stringContaining('unknown tab'),
       ok: false,
     });
-    expect(handlers.selectTab('no-such-tab')).toMatchObject({ ok: false });
+    expect(handlers.showTab('no-such-tab')).toMatchObject({ ok: false });
     expect(handlers.navigate('no-such-tab', 'x.com')).toMatchObject({ ok: false });
   });
 
@@ -165,15 +167,15 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
     const handlers = createBrowserIpcHandlers(throwingManager);
     const validArgs: Record<string, unknown[]> = {
       closeTab: ['tab-1'],
-      createTab: ['https://x'],
+      createTab: ['thread-1', 'https://x'],
       goBack: ['tab-1'],
       goForward: ['tab-1'],
       listTabs: [],
       navigate: ['tab-1', 'x.com'],
       reload: ['tab-1'],
-      selectTab: ['tab-1'],
       setBounds: [{ height: 10, width: 20, x: 0, y: 0 }],
       setOccluded: [true],
+      showTab: ['tab-1'],
     };
     for (const [verb, args] of Object.entries(validArgs)) {
       const run = handlers[verb as keyof typeof handlers] as (...a: unknown[]) => unknown;
@@ -190,7 +192,7 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
   it('never throws for malformed input — always a structured result', () => {
     const handlers = createBrowserIpcHandlers(fakeManager());
     for (const call of [
-      () => handlers.createTab({}),
+      () => handlers.createTab({}, undefined),
       () => handlers.navigate(null, null),
       () => handlers.setBounds('nope'),
       () => handlers.setOccluded(undefined),

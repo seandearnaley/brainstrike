@@ -63,8 +63,6 @@ const CTRL_PAGE_DOWN: KeyboardEventInit = { ctrlKey: true, key: 'PageDown' };
 describe('useTabChords', () => {
   let assistantPanel: HTMLElement;
   let assistantInput: HTMLTextAreaElement;
-  let browserPanel: HTMLElement;
-  let browserInput: HTMLInputElement;
   let outside: HTMLButtonElement;
   let strips: Record<TabChordStripId, FakeStrip>;
   let unregister: (() => void)[];
@@ -78,14 +76,10 @@ describe('useTabChords', () => {
     assistantPanel = document.createElement('div');
     assistantInput = document.createElement('textarea');
     assistantPanel.append(assistantInput);
-    browserPanel = document.createElement('div');
-    browserInput = document.createElement('input');
-    browserPanel.append(browserInput);
     outside = document.createElement('button');
-    document.body.append(assistantPanel, browserPanel, outside);
+    document.body.append(assistantPanel, outside);
     strips = {
       'assistant-threads': fakeStrip(['t1', 't2', 't3'], 't1', assistantPanel),
-      browser: fakeStrip(['b1', 'b2'], 'b2', browserPanel),
       workspace: fakeStrip(['files', 'a.ts', 'b.ts'], 'b.ts', null),
     };
     unregister = (Object.keys(strips) as TabChordStripId[]).map((id) =>
@@ -98,7 +92,6 @@ describe('useTabChords', () => {
       release();
     }
     assistantPanel.remove();
-    browserPanel.remove();
     outside.remove();
   });
 
@@ -112,18 +105,6 @@ describe('useTabChords', () => {
       expect(event.defaultPrevented).toBe(true);
       expect(strips['assistant-threads'].activate).toHaveBeenCalledWith('t2');
       expect(strips.workspace.activate).not.toHaveBeenCalled();
-      expect(strips.browser.activate).not.toHaveBeenCalled();
-    });
-
-    it('acts on the browser strip when focus is inside the browser pane', () => {
-      mount({ claimWindowChords: false, isMac: false });
-      browserInput.focus();
-
-      press(browserInput, CTRL_PAGE_DOWN);
-
-      expect(strips.browser.activate).toHaveBeenCalledWith('b1');
-      expect(strips.workspace.activate).not.toHaveBeenCalled();
-      expect(strips['assistant-threads'].activate).not.toHaveBeenCalled();
     });
 
     it('acts on the workspace strip when focus is in no panel', () => {
@@ -133,7 +114,6 @@ describe('useTabChords', () => {
       press(outside, { ctrlKey: true, key: 'PageUp' });
 
       expect(strips.workspace.activate).toHaveBeenCalledWith('a.ts');
-      expect(strips.browser.activate).not.toHaveBeenCalled();
       expect(strips['assistant-threads'].activate).not.toHaveBeenCalled();
     });
 
@@ -277,25 +257,25 @@ describe('useTabChords', () => {
       nextTab.setAttribute('role', 'tab');
       nextTab.setAttribute('aria-selected', 'false');
       tablist.append(nextTab);
-      browserPanel.prepend(tablist);
+      assistantPanel.prepend(tablist);
       let finishClose: () => void = () => undefined;
-      strips.browser.close.mockImplementation(
+      strips['assistant-threads'].close.mockImplementation(
         () =>
           new Promise<void>((resolve) => {
             finishClose = () => {
-              // Main closed the tab: the strip re-renders without the focused tab.
-              browserInput.remove();
+              // The host closed the tab: the strip re-renders without the focused tab.
+              assistantInput.remove();
               nextTab.setAttribute('aria-selected', 'true');
               resolve();
             };
           })
       );
       mount({ claimWindowChords: true, isMac: true });
-      browserInput.focus();
+      assistantInput.focus();
 
-      press(browserInput, { key: 'w', metaKey: true });
+      press(assistantInput, { key: 'w', metaKey: true });
       await new Promise((resolve) => requestAnimationFrame(resolve));
-      expect(document.activeElement).toBe(browserInput);
+      expect(document.activeElement).toBe(assistantInput);
       finishClose();
 
       await vi.waitFor(() => expect(document.activeElement).toBe(nextTab));
@@ -499,12 +479,12 @@ describe('useTabChords', () => {
 
     it('⌘⇧T reopens the last closed tab of the focus-scoped strip', () => {
       mount({ claimWindowChords: true, isMac: true });
-      browserInput.focus();
+      assistantInput.focus();
 
-      const event = press(browserInput, { key: 'T', metaKey: true, shiftKey: true });
+      const event = press(assistantInput, { key: 'T', metaKey: true, shiftKey: true });
 
       expect(event.defaultPrevented).toBe(true);
-      expect(strips.browser.reopenClosed).toHaveBeenCalledOnce();
+      expect(strips['assistant-threads'].reopenClosed).toHaveBeenCalledOnce();
       expect(strips.workspace.reopenClosed).not.toHaveBeenCalled();
     });
 
@@ -728,12 +708,12 @@ describe('registerTabChordStrip', () => {
 
   it('a stale release never removes a newer registration', () => {
     const first = fakeStrip([], null, null);
-    const releaseFirst = registerTabChordStrip('browser', first);
+    const releaseFirst = registerTabChordStrip('assistant-threads', first);
     releaseFirst();
     const second = fakeStrip([], null, null);
-    const releaseSecond = registerTabChordStrip('browser', second);
+    const releaseSecond = registerTabChordStrip('assistant-threads', second);
     releaseFirst();
-    expect(getTabChordStrip('browser')).toBe(second);
+    expect(getTabChordStrip('assistant-threads')).toBe(second);
     releaseSecond();
   });
 });

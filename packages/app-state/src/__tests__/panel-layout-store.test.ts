@@ -53,22 +53,22 @@ describe('panel-layout-store', () => {
     store.getState().setActiveTab('settings');
     expect(store.getState().activeTab).toBe('settings');
 
-    store.getState().setActiveTab('browser');
-    expect(store.getState().activeTab).toBe('browser');
+    store.getState().setActiveTab('artifacts');
+    expect(store.getState().activeTab).toBe('artifacts');
   });
 
   it('routes openSettings to the settings tab like any other shell route (BST-1668)', () => {
     // Settings is a full shell tab again, not an overlay: the ONLY state it
     // needs is `activeTab`, so opening it replaces the current surface and
     // navigating elsewhere leaves it the same way every other tab does.
-    store.getState().setActiveTab('browser');
+    store.getState().setActiveTab('artifacts');
     store.getState().openSettings();
 
     expect(store.getState().activeTab).toBe('settings');
     expect('settingsOpen' in store.getState()).toBe(false);
 
-    store.getState().setActiveTab('browser');
-    expect(store.getState().activeTab).toBe('browser');
+    store.getState().setActiveTab('artifacts');
+    expect(store.getState().activeTab).toBe('artifacts');
   });
 
   it('normalizes sizes and preserves tuple shape', () => {

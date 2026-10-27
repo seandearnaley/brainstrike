@@ -5,7 +5,7 @@ import type { OpenFileInTab } from '@brainstrike/ui';
 import { createContext, useContext } from 'react';
 import type { FileTab } from '../hooks/use-tab-manager';
 import type { WorkspaceTabSelection } from '../stores/workspace-tab-selection-store';
-import type { WorkspaceApp } from './workspace-app';
+import type { WorkspaceApp, WorkspaceLaunchAction } from './workspace-app';
 
 /** A workspace strip tab by id and label, app or file. */
 export interface WorkspaceTabRef {
@@ -25,7 +25,14 @@ export interface WorkspaceTabsValue {
   readonly handleOpenFileInTab: OpenFileInTab;
   /** Whether the strip's closed-tab history has an entry to reopen. */
   readonly hasClosedTabs: () => boolean;
+  /**
+   * A strip menu (a tab's, All tabs or "+") is open. It drops over the panel
+   * body, so a native view painted there, a browser page, must hide.
+   */
+  readonly isMenuOpen: boolean;
   readonly isRestoring: boolean;
+  /** Entries after the apps in the "+" menu and the launcher, such as New browser tab. */
+  readonly launchActions: readonly WorkspaceLaunchAction[];
   readonly loadingFiles: Set<string>;
   /** Apps activated at least once this session — rendered hidden-but-mounted. */
   readonly mountedAppIds: ReadonlySet<string>;
@@ -40,6 +47,8 @@ export interface WorkspaceTabsValue {
   readonly onCloseOtherFileTabs: (tabId: string) => void;
   /** Close any strip tab by id, app or file. */
   readonly onCloseTab: (id: string) => void;
+  /** A strip menu opened or closed: each menu's reports strictly alternate. */
+  readonly onMenuOpenChange: (open: boolean) => void;
   readonly onOpenApp: (appId: string) => void;
   /**
    * Reopen the most recently closed tab at its old index (or the end) and

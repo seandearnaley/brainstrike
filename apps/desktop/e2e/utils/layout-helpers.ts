@@ -96,9 +96,7 @@ export async function ensureMockWorkspaceOpen(page: Page): Promise<void> {
 
   // The real toolbar button is FileExplorerStrings.addFolderToWorkspace
   // ('Add Folder to Workspace'); '^browse$' is a legacy exact-match fallback.
-  // It MUST stay anchored: an unanchored /browse/i also matches the 'Browser'
-  // nav-rail item (BST-1174), and .first() would then click Browser and
-  // navigate away from the explorer instead of adding a root.
+  // It stays anchored so .first() can only ever pick a folder picker.
   const selectRootButton = page
     .getByRole('button', { name: /add folder to workspace|^browse$/i })
     .first();

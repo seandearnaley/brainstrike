@@ -1,6 +1,5 @@
 /**
- * Driver-agnostic contract for agent-driving the active browser-pane tab
- * (BST-1176). The tool layer speaks ONLY this interface; the concrete backend
+ * Driver-agnostic contract for agent-driving one browser page (BST-1176). The tool layer speaks ONLY this interface; the concrete backend
  * is {@link DebuggerBrowserDriver} over Electron's in-process
  * `webContents.debugger` (raw CDP) — chosen over playwright-core + an
  * app-level remote-debugging-port so nothing exposes an unauthenticated CDP
@@ -48,7 +47,7 @@ export interface CdpSession {
   send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T>;
 }
 
-/** Resolves an attached CDP session for the CURRENTLY active pane tab. */
+/** Resolves an attached CDP session for the driver's page. */
 export type CdpSessionResolver = () => Promise<CdpSession>;
 
 export interface BrowserDriver {
