@@ -215,7 +215,7 @@ function useToast() {
 /**
  * Drop every toast and its pending auto-dismiss timer.
  *
- * TEST HYGIENE SEAM, mirroring `resetFollowUpQueueStore`/`resetContextUsageStore`.
+ * TEST HYGIENE SEAM, mirroring `resetThreadMessageQueues`/`resetContextUsageStore`.
  * `memoryState` is module-scope, so toasts raised by one test are still mounted
  * during the next one — and a test that clicks "the toast's action button"
  * then silently drives the PREVIOUS test's closure instead of its own. That

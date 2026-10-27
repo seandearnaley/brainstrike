@@ -16,7 +16,6 @@ import { AssistantPanelErrorBoundary } from './assistant-panel-error-boundary';
 import { PlanModeExitProvider } from './assistant-tool-suspend-notice';
 import { ChatThreadUI } from './assistant-ui-panel';
 import { type DecisionRoute, DecisionRouteContext } from './decision-route-context';
-import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
 import { type RewindContextValue, RewindProvider } from './rewind-context';
 
@@ -27,13 +26,7 @@ export type AssistantConversationPanelProps = Partial<
   readonly openRouterModelMetadataLookup?: OpenRouterModelMetadataLookup | undefined;
   readonly onProviderSettingsValidationChange?: ((reason: string | undefined) => void) | undefined;
   readonly allowIdleInput?: boolean;
-  /**
-   * True when this surface owns its thread's commands (a root conversation),
-   * so it offers and dispatches the thread's follow-up queue. A delegated
-   * child's view never does: its runtime belongs to another owner.
-   */
-  readonly ownsFollowUpQueue?: boolean;
-  /** Steering is a queue control: only an owning surface offers it. */
+  /** Steering is a queue control: offered only while the thread has a queue. */
   readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   readonly onSendActiveInput?: SendActiveConversationInput | undefined;
   readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
@@ -65,7 +58,6 @@ export function AssistantConversationPanel({
   agentColor,
   decisionRoute,
   allowIdleInput = false,
-  ownsFollowUpQueue = false,
   onSendActiveInput,
   prepareActiveInput,
   label,
@@ -104,28 +96,26 @@ export function AssistantConversationPanel({
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
               <RewindProvider value={rewind}>
                 <DecisionRouteContext value={decisionRoute ?? null}>
-                  <FollowUpQueueOwnershipContext value={ownsFollowUpQueue}>
-                    <AssistantPanelErrorBoundary>
-                      <ApprovalOwnerThreadContext value={ownerThread ?? null}>
-                        <ChatThreadUI
-                          capabilityNotice={undefined}
-                          disabledReason={undefined}
-                          hasGroupedProviders={providerGroups.length > 0}
-                          isComposerDisabled={isComposerDisabled}
-                          onEnableModel={undefined}
-                          onModelChange={undefined}
-                          pickerModels={pickerModels}
-                          providerGroups={providerGroups}
-                          recentModels={undefined}
-                          selectedModel={undefined}
-                          selectedProvider={undefined}
-                          slashCommands={slashCommands}
-                          {...props}
-                          threadKey={threadKey}
-                        />
-                      </ApprovalOwnerThreadContext>
-                    </AssistantPanelErrorBoundary>
-                  </FollowUpQueueOwnershipContext>
+                  <AssistantPanelErrorBoundary>
+                    <ApprovalOwnerThreadContext value={ownerThread ?? null}>
+                      <ChatThreadUI
+                        capabilityNotice={undefined}
+                        disabledReason={undefined}
+                        hasGroupedProviders={providerGroups.length > 0}
+                        isComposerDisabled={isComposerDisabled}
+                        onEnableModel={undefined}
+                        onModelChange={undefined}
+                        pickerModels={pickerModels}
+                        providerGroups={providerGroups}
+                        recentModels={undefined}
+                        selectedModel={undefined}
+                        selectedProvider={undefined}
+                        slashCommands={slashCommands}
+                        {...props}
+                        threadKey={threadKey}
+                      />
+                    </ApprovalOwnerThreadContext>
+                  </AssistantPanelErrorBoundary>
                 </DecisionRouteContext>
               </RewindProvider>
             </PlanModeExitProvider>
