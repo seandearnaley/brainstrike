@@ -17,7 +17,6 @@ import type {
   ViewFilterPresetReply,
   ViewFilterPresetRequest,
 } from '@brainstrike/types';
-import type { PromptLibraryReply, PromptLibraryRequest } from '@brainstrike/types/prompt-item';
 import type { CollectionReply, CollectionRequest } from './collection-types.ts';
 import { ThreadDamagedError, ThreadReadOnlyError } from './errors.ts';
 import {
@@ -35,7 +34,6 @@ import type {
   ModelChoiceResult,
   ModelChoiceSnapshot,
 } from './model-choice-types.ts';
-import type { PromptCatalogReply } from './prompt-catalog-types.ts';
 import { withSeq } from './run-log-format.mjs';
 import type { AppendItem, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';
 import type { SourceCatalogReply, SourceCatalogRequest } from './source-catalog-types.ts';
@@ -524,17 +522,6 @@ export class StateStore implements MemoryDomainPort {
     return ['get', 'by-path', 'list-active', 'list-repository'].includes(request.operation)
       ? execute()
       : this.run(execute);
-  }
-
-  /** Prompt Library operations, on the writer chain. */
-  promptLibrary(request: PromptLibraryRequest): Promise<PromptLibraryReply> {
-    return this.run(async () => {
-      const reply = await this.call({ op: 'prompt-catalog', request });
-      return {
-        items: reply['items'] as PromptCatalogReply['items'],
-        revisions: reply['revisions'] as PromptCatalogReply['revisions'],
-      };
-    });
   }
 
   collections(request: CollectionRequest): Promise<CollectionReply> {

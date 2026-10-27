@@ -13,7 +13,6 @@ function fixture() {
     collections: vi.fn<HostCatalog['collections']>(unexpected),
     indexConfig: vi.fn<HostCatalog['indexConfig']>(unexpected),
     modelChoices: vi.fn<HostCatalog['modelChoices']>(unexpected),
-    promptLibrary: vi.fn<HostCatalog['promptLibrary']>(unexpected),
     sourceCatalog: vi.fn<HostCatalog['sourceCatalog']>(unexpected),
     threadGroups: vi.fn<HostCatalog['threadGroups']>(unexpected),
     viewFilterPresets: vi.fn<HostCatalog['viewFilterPresets']>(unexpected),

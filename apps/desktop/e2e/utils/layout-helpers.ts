@@ -139,7 +139,6 @@ async function verifyClearedDesktopContent(page: Page): Promise<void> {
     )
     .toEqual({ folders: 0, kind: 'ready' });
   await ensureAssistantShellVisible(page);
-  await page.getByTestId('threads-tab-trigger').click();
   await expect(page.getByTestId('threads-panel').getByTestId('thread-row')).toHaveCount(1);
 }
 

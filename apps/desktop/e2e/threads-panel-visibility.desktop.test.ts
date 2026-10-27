@@ -3,11 +3,10 @@ import { ensureAssistantShellVisible } from './utils/layout-helpers';
 
 test('keeps Threads at the top after Settings ribbon round trips', async ({ window: page }) => {
   await ensureAssistantShellVisible(page);
-  await page.getByTestId('threads-tab-trigger').click();
   const panel = page.getByTestId('threads-panel');
   await expect(panel.getByTestId('thread-row')).toHaveCount(1);
   for (let index = 0; index < 14; index++) {
-    await panel.getByRole('button', { exact: true, name: 'New thread' }).click();
+    await page.getByRole('button', { exact: true, name: 'New thread' }).click();
   }
   // A click returns before the host's async creation has populated the row.
   // Join the final creation before capturing the settled layout baseline.

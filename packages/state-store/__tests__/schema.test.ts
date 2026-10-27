@@ -11,15 +11,12 @@ afterEach(() => cleanupDirs());
 const C_SMALL = [
   'brainstrike_mcp_task_authorities',
   'brainstrike_mcp_tasks',
-  'brainstrike_mind_ops',
   'brainstrike_worktrees',
 ];
 const DESKTOP_CATALOG = [
   'embedding_sets',
   'file_records',
   'model_choices',
-  'prompt_item_revisions',
-  'prompt_items',
   'provider_choices',
   'roots',
   'source_blob_gc',
@@ -113,21 +110,6 @@ describe('state DB migrations', () => {
       );
       db.prepare("DELETE FROM brainstrike_mcp_task_authorities WHERE authority_epoch = 'e1'").run();
       expect(db.prepare('SELECT count(*) FROM brainstrike_mcp_tasks').pluck().get()).toBe(0);
-    } finally {
-      db.close();
-    }
-  });
-
-  test('mind_ops seq is never reused after the newest row is deleted (BIGSERIAL semantics)', async () => {
-    const { db } = await openDb();
-    try {
-      const ins = db.prepare(
-        "INSERT INTO brainstrike_mind_ops (entity_kind, entity_id, op) VALUES ('thread', ?, 'delete')"
-      );
-      const a = Number(ins.run('a').lastInsertRowid);
-      db.prepare('DELETE FROM brainstrike_mind_ops WHERE seq = ?').run(a);
-      const b = Number(ins.run('b').lastInsertRowid);
-      expect(b).toBeGreaterThan(a);
     } finally {
       db.close();
     }

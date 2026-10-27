@@ -6,7 +6,7 @@ import {
 
 /** One thread's composer draft channel, as the panel consumes it. */
 export interface ComposerDraftChannel {
-  /** The prompt-library command waiting for this thread, if any. */
+  /** The composer command waiting for this thread, if any. */
   readonly command: AssistantComposerCommand | undefined;
   /** Acknowledges a command only once its text is in the draft. */
   readonly onApplied: (commandId: string) => void;
@@ -15,7 +15,7 @@ export interface ComposerDraftChannel {
 }
 
 /**
- * The per-thread composer draft channel: the queued prompt-library command,
+ * The per-thread composer draft channel: the queued composer command,
  * its acknowledgement and the live-draft recorder. One unit because they share the same
  * thread-scoped store and the same lifetime; extracted from
  * `assistant-ui-panel-wrapper.tsx`, which owns none of this state itself.

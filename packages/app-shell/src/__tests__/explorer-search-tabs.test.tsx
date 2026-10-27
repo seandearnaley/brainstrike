@@ -55,7 +55,7 @@ describe('ExplorerSearchTabs', () => {
     const explorerTab = screen.getByRole('tab', { name: 'Explorer' });
     const searchTab = screen.getByRole('tab', { name: 'Search' });
     expect(screen.getByTestId('explorer-search-tab-strip')).toHaveClass('h-9');
-    // Converged on the same shared segmented Tabs primitive the Library uses.
+    // The shared segmented Tabs primitive.
     expect(explorerTab).toHaveAttribute('data-slot', 'tabs-trigger');
     expect(searchTab).toHaveAttribute('data-slot', 'tabs-trigger');
     // Geometry comes from the shared panel-header (sm) variant.

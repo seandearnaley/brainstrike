@@ -50,7 +50,6 @@ import { exportJsonl, readJsonl } from './jsonl.mjs';
 import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
 import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
 import { executeModelChoiceRequest } from './model-choice-domain.mjs';
-import { executePromptCatalogRequest } from './prompt-catalog-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
 import { migrate } from './schema.mjs';
@@ -308,11 +307,6 @@ async function handle(m) {
       return executeWorktreeLedgerRequest(
         db,
         /** @type {import('./worktree-ledger-types.ts').WorktreeLedgerRequest} */ (m['request'])
-      );
-    case 'prompt-catalog':
-      return executePromptCatalogRequest(
-        db,
-        /** @type {import('./prompt-catalog-types.ts').PromptCatalogRequest} */ (m['request'])
       );
     case 'collections':
       return executeCollectionRequest(

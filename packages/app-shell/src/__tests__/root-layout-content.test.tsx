@@ -89,8 +89,6 @@ const mockHandlers = {
   onNavigationClick: (_path: string) => {},
   onOpenSettings: () => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
-  promptManagerSuspended: false,
-  promptManagerSuspense: new Promise<never>(() => {}),
 };
 
 vi.mock('../app-layout', () => ({
@@ -198,30 +196,6 @@ vi.mock('../thread-workspace/thread-workspace-coordinator', () => ({
   ThreadWorkspaceCoordinator: () => null,
 }));
 
-vi.mock('../agent-sidebar-panel', () => ({
-  AgentSidebarPanel: ({
-    threadsContent,
-    promptsContent,
-  }: {
-    threadsContent: React.ReactNode;
-    promptsContent: React.ReactNode;
-  }) => (
-    <div data-testid="agent-sidebar-shell">
-      <div data-testid="threads-tab-content">{threadsContent}</div>
-      <div data-testid="prompts-tab-content">{promptsContent}</div>
-    </div>
-  ),
-}));
-
-vi.mock('../connected-prompt-manager-lazy', () => ({
-  ConnectedPromptManagerLazy: () => {
-    if (mockHandlers.promptManagerSuspended) {
-      throw mockHandlers.promptManagerSuspense;
-    }
-    return <div data-testid="connected-prompt-manager" />;
-  },
-}));
-
 vi.mock('../threads-panel', () => ({
   ThreadsPanel: () => <div data-testid="threads-shell" />,
 }));
@@ -234,7 +208,6 @@ describe('RootLayoutContent', () => {
     mockHandlers.onOpenSettings = vi.fn();
     mockHandlers.ideLayoutProps = [];
     mockHandlers.panelLayoutChanges = [];
-    mockHandlers.promptManagerSuspended = false;
     usePanelLayoutStore.setState({
       activeTab: 'explorer',
       showConsole: false,
@@ -279,12 +252,7 @@ describe('RootLayoutContent', () => {
     renderComponent();
 
     expect(screen.getByTestId('app-layout')).toBeInTheDocument();
-    expect(screen.getByTestId('agent-sidebar-shell')).toBeInTheDocument();
     expect(screen.getByTestId('threads-shell')).toBeInTheDocument();
-    expect(screen.getByTestId('connected-prompt-manager')).toBeInTheDocument();
-    expect(screen.getByTestId('connected-prompt-manager')).toBe(
-      screen.getByTestId('prompts-tab-content').firstElementChild
-    );
     expect(screen.getByTestId('assistant-chat-shell')).toBeInTheDocument();
     expect(screen.getByTestId('indexing-activity-coordinator')).toBeInTheDocument();
     expect(screen.getByTestId('explorer-section')).not.toHaveClass('hidden');
@@ -355,17 +323,6 @@ describe('RootLayoutContent', () => {
 
     view.unmount();
     expect(disconnect).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows a stable prompt-workbench fallback while the lazy panel graph loads', () => {
-    mockHandlers.promptManagerSuspended = true;
-
-    renderComponent();
-
-    expect(screen.getByTestId('prompt-workbench-lazy-fallback')).toHaveTextContent(
-      'Opening Prompt Workbench…'
-    );
-    expect(screen.queryByTestId('connected-prompt-manager')).not.toBeInTheDocument();
   });
 
   it('routes settings as a full shell tab that replaces the explorer surface (BST-1668)', () => {
@@ -461,12 +418,12 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
-  it('keeps prompts mounted on every hidden outer route', () => {
+  it('keeps threads mounted on every hidden outer route', () => {
     renderComponent({
       browserPageContent: <div>Browser</div>,
     });
 
-    const promptManager = screen.getByTestId('connected-prompt-manager');
+    const threadsPanel = screen.getByTestId('threads-shell');
 
     for (const path of ['/browser']) {
       act(() => {
@@ -474,14 +431,14 @@ describe('RootLayoutContent', () => {
       });
 
       expect(screen.getByTestId('explorer-route')).toHaveClass('hidden');
-      expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
+      expect(screen.getByTestId('threads-shell')).toBe(threadsPanel);
 
       act(() => {
         mockHandlers.onNavigationClick('/');
       });
 
       expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
-      expect(screen.getByTestId('connected-prompt-manager')).toBe(promptManager);
+      expect(screen.getByTestId('threads-shell')).toBe(threadsPanel);
     }
   });
 

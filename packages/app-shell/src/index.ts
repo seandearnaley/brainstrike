@@ -1,4 +1,3 @@
-export * from './agent-sidebar-panel';
 export * from './agent-workspace-layout';
 export * from './app-config';
 export * from './app-layout';
@@ -18,8 +17,6 @@ export {
   resolveAssistantProviderDisabledReason,
   resolveComposerAttachmentsAvailability,
 } from './assistant-ui-panel-wrapper-runtime';
-export * from './connected-prompt-manager';
-export * from './connected-prompt-manager-lazy';
 export * from './diagnostics';
 export * from './hooks/use-assistant-availability';
 export { useAssistantModelChange } from './hooks/use-assistant-model-change';

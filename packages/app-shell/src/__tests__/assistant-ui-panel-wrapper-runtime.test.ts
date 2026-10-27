@@ -92,9 +92,7 @@ describe('assistant runtime helpers', () => {
    * run, so this is where a sampling default would enter every provider's
    * request at once. It must stay an output-budget-only projection: the key
    * SET is asserted, not just the values, so a new sampling key cannot be
-   * added without this failing. (A user CAN still set `temperature`/`topP`
-   * deliberately through a Prompt Workbench prompt item — that path is
-   * explicit and separate.)
+   * added without this failing.
    */
   it('projects only the output budget into model settings (no sampling params)', () => {
     const populated = {

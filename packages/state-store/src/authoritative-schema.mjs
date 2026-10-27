@@ -1,7 +1,7 @@
 // @ts-check
 // SQLite port of the authoritative tables that a StateStore domain owns, from the PostgreSQL migrations.
 // JSONB -> validated JSON TEXT; booleans -> checked INTEGER; UTC timestamps -> TEXT; UUIDs -> caller-minted TEXT.
-// BIGSERIAL -> AUTOINCREMENT. The MCP authority FK is complete and enabled on the writer.
+// The MCP authority FK is complete and enabled on the writer.
 export const AUTHORITATIVE_SCHEMA = `
 CREATE TABLE threads (
   id TEXT PRIMARY KEY NOT NULL,
@@ -10,19 +10,6 @@ CREATE TABLE threads (
   updated_at REAL NOT NULL
 ) STRICT;
 INSERT INTO threads SELECT thread_id, max(seq), min(created_at), max(created_at) FROM run_events GROUP BY thread_id;
-
--- PostgreSQL migrations 79
-CREATE TABLE IF NOT EXISTS brainstrike_mind_ops (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),
-      entity_id TEXT NOT NULL,
-      op TEXT NOT NULL CHECK (op = 'delete'),
-      resource_id TEXT,
-      occurred_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-    ) STRICT;
-
-    CREATE INDEX IF NOT EXISTS brainstrike_mind_ops_entity_idx
-      ON brainstrike_mind_ops (entity_kind, entity_id);
 
 -- PostgreSQL migrations 109
 CREATE TABLE IF NOT EXISTS brainstrike_worktrees (

@@ -12,7 +12,6 @@ async function openThreadsPanel(page: Page): Promise<void> {
   if (await showSidebar.isVisible().catch(() => false)) {
     await showSidebar.click();
   }
-  await page.getByTestId('threads-tab-trigger').click();
   await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
 }
 

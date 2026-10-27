@@ -122,7 +122,6 @@ import {
   suspendMcpSurfacesForContentClear,
 } from './ipc-mcp';
 import { registerModelCatalogIpc } from './ipc-model-catalog';
-import { registerPromptLibraryIpc } from './ipc-prompt-library';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
 import { registerThreadGroupsIpc } from './ipc-thread-groups';
@@ -853,7 +852,6 @@ ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
 ipcDisposers.add('hooks', registerHooksIpcHandlers(desktopHookTrust, workspaceRootCatalog));
 ipcDisposers.add('context-files', registerContextFilesIpcHandlers(workspaceRootCatalog));
-ipcDisposers.add('prompt-library', registerPromptLibraryIpc(workspaceRootCatalog));
 ipcDisposers.add('thread-groups', registerThreadGroupsIpc(workspaceRootCatalog));
 ipcDisposers.add('view-filter-presets', registerViewFilterPresetsIpc(workspaceRootCatalog));
 ipcDisposers.add('model-catalog', registerModelCatalogIpc(modelCatalog));

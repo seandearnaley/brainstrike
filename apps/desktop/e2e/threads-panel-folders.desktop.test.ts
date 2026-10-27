@@ -89,7 +89,7 @@ async function seedWorkspace(page: Page, rootPath: string): Promise<void> {
  * Bring the Threads panel on screen. `setupAssistantMock` runs AFTER the last
  * reload on purpose: it installs through `page.evaluate`, so a reload would
  * wipe it — and without an available assistant the workspace shell that hosts
- * the library sidebar never renders.
+ * the Threads panel never renders.
  */
 async function openThreadsPanel(page: Page): Promise<void> {
   await setupAssistantMock(page);
@@ -98,7 +98,6 @@ async function openThreadsPanel(page: Page): Promise<void> {
   if (await showSidebar.isVisible().catch(() => false)) {
     await showSidebar.click();
   }
-  await page.getByTestId('threads-tab-trigger').click();
   await expect(page.getByTestId('threads-panel')).toBeVisible({ timeout: 30_000 });
 }
 

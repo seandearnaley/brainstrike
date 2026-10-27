@@ -13,7 +13,6 @@ import type { clipboardContract } from '../ipc-domains/clipboard.contract';
 import type { contextFilesContract } from '../ipc-domains/context-files.contract';
 import type { McpBridge } from '../ipc-domains/mcp.contract';
 import type { modelCatalogContract } from '../ipc-domains/model-catalog.contract';
-import type { promptLibraryContract } from '../ipc-domains/prompt-library.contract';
 import type { settingsContract } from '../ipc-domains/storage-preferences.contract';
 import type { threadGroupsContract } from '../ipc-domains/thread-groups.contract';
 import type { userPersonasContract } from '../ipc-domains/user-personas.contract';
@@ -144,7 +143,6 @@ declare global {
       openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
       showItemInFolder: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
     };
-    promptLibrary?: TransportBridge<typeof promptLibraryContract>;
     /**
      * Secure secrets bridge (BST-1348). The shape is defined ONCE in
      * `@brainstrike/assistant-contract/secrets-bridge` — the preload

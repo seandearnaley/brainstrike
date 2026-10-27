@@ -13,7 +13,6 @@ import {
 import { type Contract, type Handlers, type IpcResult, ipcFailure, ipcOk } from './ipc-contract';
 
 export type DesktopIpcDomain =
-  | 'promptLibrary'
   | 'threadGroups'
   | 'viewFilterPresets'
   | 'agent'
