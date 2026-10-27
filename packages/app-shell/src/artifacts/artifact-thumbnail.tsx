@@ -87,13 +87,16 @@ export function ArtifactThumbnail({
     }
     requested.current = key;
     let cancelled = false;
+    let settled = false;
     artifacts.read(threadId, canvasId).then(
       (canvas) => {
+        settled = true;
         if (!cancelled) {
           setPreview(canvas ? { html: canvas.html, status: 'ready' } : { status: 'missing' });
         }
       },
       (error: unknown) => {
+        settled = true;
         if (!cancelled) {
           requested.current = null;
           setPreview({ error: getErrorMessage(error), status: 'error' });
@@ -102,6 +105,10 @@ export function ArtifactThumbnail({
     );
     return () => {
       cancelled = true;
+      // A read abandoned in flight (the card scrolled away) is asked again.
+      if (!settled) {
+        requested.current = null;
+      }
     };
   }, [artifacts, canvasId, near, threadId, version]);
 

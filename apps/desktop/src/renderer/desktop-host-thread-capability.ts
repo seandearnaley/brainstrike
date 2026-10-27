@@ -249,13 +249,12 @@ export function createWindowThreadCapability(
       verifyProvider: async (provider) =>
         await (await client()).request('providers/verify', { provider }),
     },
-    readCanvases: async (threadId) => {
-      const host = await threadClient(threadId);
-      if (!host) {
-        return;
-      }
-      return foldHostCanvases((await host.request('thread/read', { fromSeq: 0, threadId })).rows);
-    },
+    // The host decides which threads exist, a nested child's included (the
+    // catalog lists top-level threads only), and refuses an unknown one.
+    readCanvases: async (threadId) =>
+      foldHostCanvases(
+        (await (await client()).request('thread/read', { fromSeq: 0, threadId })).rows
+      ),
     renameThread: async (threadId, title) => {
       const host = await threadClient(threadId);
       if (!host) {

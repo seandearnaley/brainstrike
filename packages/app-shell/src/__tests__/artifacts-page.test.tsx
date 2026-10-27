@@ -256,6 +256,59 @@ describe('ArtifactsPage', () => {
     });
   });
 
+  it('previews a card whose read was abandoned when it scrolled away and back', async () => {
+    const onScreen = new Set<(near: boolean) => void>();
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(callback: (entries: readonly { isIntersecting: boolean }[]) => void) {
+          onScreen.add((near) => callback([{ isIntersecting: near }]));
+        }
+        observe(): void {}
+        disconnect(): void {}
+      }
+    );
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private readonly callback: () => void) {}
+        observe(): void {
+          this.callback();
+        }
+        disconnect(): void {}
+      }
+    );
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(256);
+    type Read = Awaited<ReturnType<AssistantThreadHostArtifacts['read']>>;
+    const pending: ((canvas: Read) => void)[] = [];
+    const read = vi.fn(() => new Promise<Read>((resolve) => pending.push(resolve)));
+    const scroll = (near: boolean): void =>
+      act(() => {
+        for (const report of onScreen) {
+          report(near);
+        }
+      });
+    try {
+      renderPage(createHost({ artifacts: { list: async () => LISTED.slice(0, 1), read } }));
+      await screen.findByRole('list', { name: 'Artifacts' });
+
+      scroll(true);
+      scroll(false);
+      scroll(true);
+      expect(read).toHaveBeenCalledTimes(2);
+      const canvas = await artifacts(async () => []).read('thread-sales', 'chart');
+      await act(async () => {
+        for (const resolve of pending) {
+          resolve(canvas);
+        }
+      });
+
+      expect(screen.getByTitle('Canvas')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('is unavailable until the agent host is connected', async () => {
     renderPage(createHost());
 
