@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   type HostLogRow,
