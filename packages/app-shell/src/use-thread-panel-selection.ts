@@ -17,6 +17,14 @@ export interface ThreadPanelSelection {
   readonly replaceSelection: (nextIds: ReadonlySet<string>) => void;
   readonly selectedThreadIds: ReadonlySet<string>;
   readonly selectGroup: (groupId: string | null, nextState: 'checked' | 'unchecked') => void;
+  /**
+   * Selection mode: the rows show their checkboxes. Off by default, as in mail
+   * and chat apps; on while the toolbar toggle is pressed or anything is
+   * selected (a modifier-click selects without the toggle).
+   */
+  readonly selecting: boolean;
+  /** Turning selection mode off also clears the selection. */
+  readonly setSelecting: (selecting: boolean) => void;
   readonly toggleVisibleSelection: () => void;
   readonly visibleRows: ThreadPanelVisibleRowsResult;
 }
@@ -42,6 +50,7 @@ export function useThreadPanelSelection({
     {}
   );
   const [selectedThreadIds, setSelectedThreadIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [selectionModeOn, setSelectionModeOn] = useState(false);
 
   const visibleRows = useMemo(
     () => buildThreadPanelVisibleRows({ collapsedGroupIds, limitsBySectionKey, view }),
@@ -92,6 +101,12 @@ export function useThreadPanelSelection({
   );
 
   const clearSelection = useCallback((): void => setSelectedThreadIds(new Set()), []);
+  const setSelecting = useCallback((selecting: boolean): void => {
+    setSelectionModeOn(selecting);
+    if (!selecting) {
+      setSelectedThreadIds(new Set());
+    }
+  }, []);
 
   const allVisibleSelected =
     visibleRows.visibleThreadIds.length > 0 &&
@@ -126,6 +141,8 @@ export function useThreadPanelSelection({
     replaceSelection,
     selectedThreadIds: selectedAvailableThreadIds,
     selectGroup,
+    selecting: selectionModeOn || selectedAvailableThreadIds.size > 0,
+    setSelecting,
     toggleVisibleSelection,
     visibleRows,
   };
