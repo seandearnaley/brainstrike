@@ -45,8 +45,12 @@ export function createNativeThreadGroupsRepository(
       await request({ groupId, operation: 'delete' });
     },
     listGroups: async (resourceId) => (await request({ operation: 'list', resourceId })).groups,
+    listPins: async (resourceId) => (await request({ operation: 'list', resourceId })).pins,
     listPlacements: async (resourceId) =>
       (await request({ operation: 'list', resourceId })).placements,
+    pinThread: async (pin) => {
+      await request({ operation: 'pin', pin });
+    },
     renameGroup: async (groupId, name) => {
       await request({ groupId, name, operation: 'rename' });
     },
@@ -67,6 +71,9 @@ export function createNativeThreadGroupsRepository(
     },
     setThreadPlacements: async (placements) => {
       await request({ operation: 'placements', placements });
+    },
+    unpinThread: async (threadId) => {
+      await request({ operation: 'unpin', threadId });
     },
   };
 }

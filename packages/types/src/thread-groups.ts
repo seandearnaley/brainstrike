@@ -23,6 +23,13 @@ export interface AssistantThreadPlacement {
   readonly resourceId: string;
   readonly threadId: string;
 }
+/** A thread pinned to the top of the Threads panel, newest pin first. */
+export interface AssistantThreadPin {
+  /** Epoch ms of the pin; the Pinned section lists newer pins first. */
+  readonly pinnedAt: number;
+  readonly resourceId: string;
+  readonly threadId: string;
+}
 export interface AssistantThreadGroupRankEntry {
   readonly groupId: string;
   readonly rank: string;
@@ -44,9 +51,13 @@ export type ThreadGroupsRequest =
     }
   | { readonly operation: 'ranks'; readonly entries: readonly AssistantThreadGroupRankEntry[] }
   | { readonly operation: 'placements'; readonly placements: readonly AssistantThreadPlacement[] }
+  | { readonly operation: 'pin'; readonly pin: AssistantThreadPin }
+  | { readonly operation: 'unpin'; readonly threadId: string }
+  /** Forgets the threads' placements and pins: the threads were deleted. */
   | { readonly operation: 'clear'; readonly threadIds: readonly string[] };
 export interface ThreadGroupsReply {
   readonly groups: readonly AssistantThreadGroup[];
+  readonly pins: readonly AssistantThreadPin[];
   readonly placements: readonly AssistantThreadPlacement[];
 }
 export interface ThreadGroupsPort {

@@ -1,9 +1,14 @@
 import { getAgentColorStyles, isAgentColor } from '@brainstrike/types/agent-color';
 import type { CSSProperties, ReactElement } from 'react';
-import { getDelegatedColorPresentation } from './agent-color-presentation';
-import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
+import {
+  ASSISTANT_THREAD_ICON_PRESENTATION,
+  getThreadTint,
+  THREAD_CONTROL_TITLE_CLASS_NAME,
+  THREAD_PANEL_ROW_CLASS_NAME,
+} from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 import { hostChildWorkspaceTabId } from './host-child-workspace-tab';
+import { ThreadMarkChip } from './thread-identity-mark';
 import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
 
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
@@ -11,7 +16,9 @@ const STATUS_LABEL = { idle: 'Child', 'needs-input': 'Needs input', working: 'Wo
 
 /**
  * BST-1932 (F19–F21): an agent host child's row: its mark, call sign, parent's
- * colour cue, unread dot and status, as the shipped child rows show them.
+ * colour cue, unread dot and status, in the same row shape, chip and wash as
+ * the thread rows above it: its family colour derives from the parent's, so
+ * recolouring a thread recolours its children.
  * Clicking it opens the child's own tab in its root's workspace, opening that
  * root first, as a delegated child's row does.
  */
@@ -24,10 +31,10 @@ export function HostChildSidebarCell({
   if (!isAgentColor(child.color)) {
     throw new Error('The child conversation colour is not an agent colour.');
   }
-  const appearance = getDelegatedColorPresentation(child.color);
+  const tint = getThreadTint(child.color);
   return (
     <button
-      className={`flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs ${appearance.idleClassName}`}
+      className={`${THREAD_PANEL_ROW_CLASS_NAME} w-full items-center gap-2 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${tint.washClassName}`}
       data-agent-color={child.color}
       onClick={() =>
         threadWorkspaceNavigation.open(
@@ -36,15 +43,13 @@ export function HostChildSidebarCell({
           hostChildWorkspaceTabId(child)
         )
       }
-      style={appearance.style}
+      style={tint.style}
       type="button"
     >
-      <span
-        className={`flex size-5 shrink-0 items-center justify-center rounded-md border ${appearance.markClassName}`}
-      >
-        <Icon aria-hidden="true" className="size-3.5" />
-      </span>
-      <span className="truncate">{child.callSign}</span>
+      <ThreadMarkChip color={child.color}>
+        <Icon aria-hidden="true" className="size-3" />
+      </ThreadMarkChip>
+      <span className={THREAD_CONTROL_TITLE_CLASS_NAME}>{child.callSign}</span>
       {row.parentColor ? (
         <span
           aria-hidden="true"
@@ -54,11 +59,15 @@ export function HostChildSidebarCell({
         />
       ) : null}
       {row.unread ? (
-        <span aria-label="Unread child activity" className="shrink-0 text-xs" role="img">
-          •
-        </span>
+        <span
+          aria-label="Unread child activity"
+          className="size-1.5 shrink-0 rounded-full bg-primary"
+          role="img"
+        />
       ) : null}
-      <span className="ml-auto shrink-0 text-muted-foreground">{STATUS_LABEL[child.status]}</span>
+      <span className="ml-auto shrink-0 pr-1 text-[11px] text-muted-foreground">
+        {STATUS_LABEL[child.status]}
+      </span>
     </button>
   );
 }

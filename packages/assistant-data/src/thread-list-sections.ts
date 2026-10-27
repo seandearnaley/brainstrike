@@ -4,7 +4,7 @@ import type {
   AssistantThreadPlacement,
 } from './assistant-thread-groups-repository.ts';
 
-export type ThreadsPanelGroupBy = 'custom-groups' | 'folder' | 'none';
+export type ThreadsPanelGroupBy = 'custom-groups' | 'date' | 'folder' | 'none';
 export type ThreadsPanelSortBy = 'custom' | 'name' | 'recency';
 /** Folder sections have no manual order, so `custom` is not offered there. */
 export type ThreadsPanelFolderSortBy = 'name' | 'recency';
@@ -18,6 +18,40 @@ export interface ThreadFolderRow {
   readonly displayName: string;
   readonly path: string | null;
   readonly rootId: string;
+}
+
+/** The run times a thread's activity is read from: its latest run, if it has one. */
+export interface ThreadActivityRun {
+  readonly completedAt: Date | null;
+  readonly startedAt: Date | null;
+}
+
+/**
+ * When the thread last had conversation activity: its latest run's start or
+ * finish, or its creation. NOT `updatedAt`, which is the catalog's last append
+ * of any kind, so a rename, a colour or a folder move would reorder the list
+ * while a conversation that just ran stayed put.
+ */
+export function getThreadLastActivityAt(
+  thread: Pick<AssistantMemoryThread, 'createdAt'>,
+  latestRun: ThreadActivityRun | undefined
+): number {
+  return Math.max(
+    thread.createdAt.getTime(),
+    latestRun?.startedAt?.getTime() ?? 0,
+    latestRun?.completedAt?.getTime() ?? 0
+  );
+}
+
+/**
+ * What every grouping needs to order threads: their activity times and their
+ * pins. Pinned threads leave their section for the Pinned section, newest pin
+ * first; the flat list has no sections, so it lists them first instead.
+ */
+export interface ThreadListOrdering {
+  readonly lastActivityAt: (thread: AssistantMemoryThread) => number;
+  /** Epoch ms of each pin; a thread absent here is not pinned. */
+  readonly pinnedAtByThreadId: Readonly<Record<string, number>>;
 }
 
 /** A user-created group section (custom-groups mode). */
@@ -34,9 +68,20 @@ export interface ThreadListFolderHeader {
 export interface ThreadListUnassignedHeader {
   readonly kind: 'unassigned';
 }
+/** A recency section (date mode): Today, Yesterday, Previous 7 days, a month. */
+export interface ThreadListDateHeader {
+  readonly kind: 'date';
+  readonly label: string;
+}
+/** Pinned threads, above every other section. */
+export interface ThreadListPinnedHeader {
+  readonly kind: 'pinned';
+}
 export type ThreadListSectionHeader =
+  | ThreadListDateHeader
   | ThreadListFolderHeader
   | ThreadListGroupHeader
+  | ThreadListPinnedHeader
   | ThreadListUnassignedHeader;
 
 interface ThreadListSectionBase {
@@ -51,16 +96,44 @@ export interface ThreadListGroupSection extends ThreadListSectionBase {
 export interface ThreadListFolderSection extends ThreadListSectionBase {
   readonly header: ThreadListFolderHeader | ThreadListUnassignedHeader;
 }
-export type ThreadListSection = ThreadListFolderSection | ThreadListGroupSection;
+/** `id` is `date:${bucket}`: `date:today`, `date:2026-08` and so on. */
+export interface ThreadListDateSection extends ThreadListSectionBase {
+  readonly header: ThreadListDateHeader;
+}
+/** `id` is {@link PINNED_SECTION_ID}. */
+export interface ThreadListPinnedSection extends ThreadListSectionBase {
+  readonly header: ThreadListPinnedHeader;
+}
+export type ThreadListSection =
+  | ThreadListDateSection
+  | ThreadListFolderSection
+  | ThreadListGroupSection
+  | ThreadListPinnedSection;
 
+/** Every sectioned view carries its Pinned section, `null` while nothing is pinned. */
+interface PinnedView {
+  readonly pinned: ThreadListPinnedSection | null;
+}
 export type ThreadListView =
   | { readonly kind: 'flat'; readonly threads: readonly AssistantMemoryThread[] }
-  | {
+  | (PinnedView & {
       readonly kind: 'grouped';
       readonly sections: readonly ThreadListGroupSection[];
       readonly ungrouped: readonly AssistantMemoryThread[];
-    }
-  | { readonly kind: 'folders'; readonly sections: readonly ThreadListFolderSection[] };
+    })
+  | (PinnedView & {
+      readonly kind: 'folders';
+      readonly sections: readonly ThreadListFolderSection[];
+    })
+  | (PinnedView & {
+      readonly kind: 'dates';
+      readonly sections: readonly ThreadListDateSection[];
+    });
+
+/** Section id of the Pinned section, in every mode that has sections. */
+export const PINNED_SECTION_ID = 'pinned';
+/** The prefix every date section id carries. */
+export const DATE_SECTION_ID_PREFIX = 'date:';
 
 /**
  * Section id of the trailing "No folder" bucket in folder mode. Deliberately
@@ -109,9 +182,13 @@ function projectThreadIds(threads: readonly AssistantMemoryThread[]): readonly s
   return threads.length === 0 ? EMPTY_THREAD_IDS : threads.map((thread) => thread.id);
 }
 
-function compareByRecency(left: AssistantMemoryThread, right: AssistantMemoryThread): number {
-  const byUpdatedAt = right.updatedAt.getTime() - left.updatedAt.getTime();
-  return byUpdatedAt === 0 ? left.id.localeCompare(right.id) : byUpdatedAt;
+type ThreadComparator = (left: AssistantMemoryThread, right: AssistantMemoryThread) => number;
+
+function byRecency(ordering: ThreadListOrdering): ThreadComparator {
+  return (left, right) => {
+    const byActivity = ordering.lastActivityAt(right) - ordering.lastActivityAt(left);
+    return byActivity === 0 ? left.id.localeCompare(right.id) : byActivity;
+  };
 }
 
 function compareByName(left: AssistantMemoryThread, right: AssistantMemoryThread): number {
@@ -122,8 +199,10 @@ function compareByName(left: AssistantMemoryThread, right: AssistantMemoryThread
 function sortSection(
   threads: readonly AssistantMemoryThread[],
   sortBy: ThreadsPanelSortBy,
-  rankByThreadId: ReadonlyMap<string, string>
+  rankByThreadId: ReadonlyMap<string, string>,
+  ordering: ThreadListOrdering
 ): AssistantMemoryThread[] {
+  const compareByRecency = byRecency(ordering);
   if (sortBy === 'name') {
     return [...threads].sort(compareByName);
   }
@@ -163,11 +242,10 @@ interface FolderBucket {
  * An unresolved root id is NOT an error here - the builder stays pure and the
  * calling hook logs it.
  */
-function buildFolderSections({
-  folderRowsByRootId,
-  folderSortBy,
-  threads,
-}: BuildThreadListSectionsFolderInput): ThreadListFolderSection[] {
+function buildFolderSections(
+  { folderRowsByRootId, folderSortBy, ordering }: BuildThreadListSectionsFolderInput,
+  threads: readonly AssistantMemoryThread[]
+): ThreadListFolderSection[] {
   // The bucket carries the row that opened it, so the section pass never has to
   // look the row up a second time (a lookup that could only ever succeed).
   const bucketsByRootId = new Map<string, FolderBucket>();
@@ -187,7 +265,7 @@ function buildFolderSections({
     bucket.threads.push(thread);
   }
 
-  const compareThreads = folderSortBy === 'name' ? compareByName : compareByRecency;
+  const compareThreads = folderSortBy === 'name' ? compareByName : byRecency(ordering);
   const sections: ThreadListFolderSection[] = [...bucketsByRootId.values()]
     .map((bucket) => ({
       header: { folder: bucket.folder, kind: 'folder' as const },
@@ -242,37 +320,139 @@ export interface BuildThreadListSectionsFolderInput {
   readonly folderRowsByRootId: ReadonlyMap<string, ThreadFolderRow>;
   readonly folderSortBy: ThreadsPanelFolderSortBy;
   readonly groupBy: 'folder';
+  readonly ordering: ThreadListOrdering;
   readonly threads: readonly AssistantMemoryThread[];
 }
 
 /** Group/flat grouping's inputs. Folder rows are meaningless in these modes. */
 export interface BuildThreadListSectionsGroupInput {
-  readonly groupBy: Exclude<ThreadsPanelGroupBy, 'folder'>;
+  readonly groupBy: 'custom-groups' | 'none';
   readonly groups: readonly AssistantThreadGroup[];
+  readonly ordering: ThreadListOrdering;
   readonly placements: readonly AssistantThreadPlacement[];
   readonly sortBy: ThreadsPanelSortBy;
   readonly threads: readonly AssistantMemoryThread[];
 }
 
 /**
+ * Date grouping's inputs: recency is the order, so there is no sort to choose.
+ * `now` places the day boundaries, in the local time zone.
+ */
+export interface BuildThreadListSectionsDateInput {
+  readonly groupBy: 'date';
+  readonly now: Date;
+  readonly ordering: ThreadListOrdering;
+  readonly threads: readonly AssistantMemoryThread[];
+}
+
+/**
  * Discriminated on `groupBy` so the compiler - not a runtime throw - enforces
- * that folder grouping arrives with its folder rows and folder sort, and that
- * the other modes arrive with their groups, placements, and `sortBy`.
+ * that each grouping arrives with exactly the inputs it reads.
  */
 export type BuildThreadListSectionsInput =
+  | BuildThreadListSectionsDateInput
   | BuildThreadListSectionsFolderInput
   | BuildThreadListSectionsGroupInput;
+
+const DAY_LABELS = {
+  'previous-7-days': 'Previous 7 days',
+  'previous-30-days': 'Previous 30 days',
+  today: 'Today',
+  yesterday: 'Yesterday',
+} as const;
+
+/** Local midnight `days` days before `now`'s day, DST-safe. */
+function startOfDay(now: Date, days: number): number {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - days).getTime();
+}
+
+/**
+ * The recency section of one activity time: Today, Yesterday, Previous 7 days,
+ * Previous 30 days, then one section per calendar month. A time after `now`
+ * (another machine's clock) is Today rather than an invented future section.
+ */
+export function getThreadDateSection(
+  activityAt: number,
+  now: Date
+): { readonly id: string; readonly label: string } {
+  const recent =
+    activityAt >= startOfDay(now, 0)
+      ? 'today'
+      : activityAt >= startOfDay(now, 1)
+        ? 'yesterday'
+        : activityAt >= startOfDay(now, 7)
+          ? 'previous-7-days'
+          : activityAt >= startOfDay(now, 30)
+            ? 'previous-30-days'
+            : null;
+  if (recent !== null) {
+    return { id: `${DATE_SECTION_ID_PREFIX}${recent}`, label: DAY_LABELS[recent] };
+  }
+  const date = new Date(activityAt);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const label = new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  }).format(date);
+  return { id: `${DATE_SECTION_ID_PREFIX}${date.getFullYear()}-${month}`, label };
+}
+
+/** Threads sorted newest first are already in section order, so one pass buckets them. */
+function buildDateSections(
+  { now, ordering }: BuildThreadListSectionsDateInput,
+  threads: readonly AssistantMemoryThread[]
+): ThreadListDateSection[] {
+  const sections: { header: ThreadListDateHeader; id: string; threads: AssistantMemoryThread[] }[] =
+    [];
+  for (const thread of [...threads].sort(byRecency(ordering))) {
+    const { id, label } = getThreadDateSection(ordering.lastActivityAt(thread), now);
+    const current = sections.at(-1);
+    if (current?.id === id) {
+      current.threads.push(thread);
+      continue;
+    }
+    sections.push({ header: { kind: 'date', label }, id, threads: [thread] });
+  }
+  return sections;
+}
+
+/** Lifts pinned threads out of the list: the Pinned section, and the rest. */
+function partitionPinned(
+  threads: readonly AssistantMemoryThread[],
+  { pinnedAtByThreadId }: ThreadListOrdering
+): {
+  readonly pinned: ThreadListPinnedSection | null;
+  readonly rest: readonly AssistantMemoryThread[];
+} {
+  const pinnedThreads = threads.filter((thread) => pinnedAtByThreadId[thread.id] !== undefined);
+  if (pinnedThreads.length === 0) {
+    return { pinned: null, rest: threads };
+  }
+  const pinnedAt = (thread: AssistantMemoryThread): number => pinnedAtByThreadId[thread.id] ?? 0;
+  pinnedThreads.sort(
+    (left, right) => pinnedAt(right) - pinnedAt(left) || left.id.localeCompare(right.id)
+  );
+  return {
+    pinned: { header: { kind: 'pinned' }, id: PINNED_SECTION_ID, threads: pinnedThreads },
+    rest: threads.filter((thread) => pinnedAtByThreadId[thread.id] === undefined),
+  };
+}
 
 /**
  * Pure grouping/sorting core for the Threads panel. Placements referencing
  * unknown threads are ignored; placements referencing deleted groups fall back
  * to Ungrouped. Groups are ordered by their fractional rank; the Ungrouped
- * section always renders last (after every group). Folder grouping is a
- * separate mode with its own view kind and its own input arm.
+ * section always renders last (after every group). Pinned threads lead every
+ * view: as their own section where there are sections, first in the flat list.
  */
 export function buildThreadListSections(input: BuildThreadListSectionsInput): ThreadListView {
+  const { ordering } = input;
+  const { pinned, rest } = partitionPinned(input.threads, ordering);
   if (input.groupBy === 'folder') {
-    return { kind: 'folders', sections: buildFolderSections(input) };
+    return { kind: 'folders', pinned, sections: buildFolderSections(input, rest) };
+  }
+  if (input.groupBy === 'date') {
+    return { kind: 'dates', pinned, sections: buildDateSections(input, rest) };
   }
 
   const { groupBy, groups, placements, sortBy, threads } = input;
@@ -287,17 +467,20 @@ export function buildThreadListSections(input: BuildThreadListSectionsInput): Th
   }
 
   if (groupBy === 'none' || groups.length === 0) {
-    return { kind: 'flat', threads: sortSection(threads, sortBy, rankByThreadId) };
+    return {
+      kind: 'flat',
+      threads: [...(pinned?.threads ?? []), ...sortSection(rest, sortBy, rankByThreadId, ordering)],
+    };
   }
 
-  const membership = buildThreadMembership({ groups, placements, threads });
+  const membership = buildThreadMembership({ groups, placements, threads: rest });
   const threadsByGroupId = new Map<string, AssistantMemoryThread[]>(
     groups.map((group) => [group.id, []])
   );
   const ungroupedThreads: AssistantMemoryThread[] = [];
 
   // Bucket once instead of rescanning every thread for every rendered group.
-  for (const thread of threads) {
+  for (const thread of rest) {
     const groupId = membership.get(thread.id);
     if (groupId === undefined) {
       throw new Error(`Missing thread membership for ${thread.id}`);
@@ -324,11 +507,11 @@ export function buildThreadListSections(input: BuildThreadListSectionsInput): Th
     return {
       header: { group, kind: 'group' as const },
       id: group.id,
-      threads: sortSection(groupThreads, sortBy, rankByThreadId),
+      threads: sortSection(groupThreads, sortBy, rankByThreadId, ordering),
     };
   });
-  const ungrouped = sortSection(ungroupedThreads, sortBy, rankByThreadId);
-  return { kind: 'grouped', sections, ungrouped };
+  const ungrouped = sortSection(ungroupedThreads, sortBy, rankByThreadId, ordering);
+  return { kind: 'grouped', pinned, sections, ungrouped };
 }
 
 function resolveSectionThreads(
@@ -344,7 +527,8 @@ function resolveSectionThreads(
 
 /**
  * Thread ids belonging to ONE section, addressed by `section.id` (a group id in
- * custom-groups mode, `folder:${rootId}` / `folder-unassigned` in folder mode).
+ * custom-groups mode, `folder:${rootId}` / `folder-unassigned` in folder mode,
+ * `date:…` in date mode, {@link PINNED_SECTION_ID} for the Pinned section).
  * `null` addresses the custom-groups Ungrouped section, which has no section id
  * of its own; folder mode has no such section and answers empty.
  */
@@ -357,10 +541,13 @@ export function getGroupMemberIds(
   }
   let cache = groupMemberIdsByView.get(view);
   if (cache === undefined) {
+    const sections: readonly ThreadListSection[] = view.pinned
+      ? [view.pinned, ...view.sections]
+      : view.sections;
     cache = {
       memberIdsBySectionId: new Map(),
       threadsBySectionId: new Map(
-        view.sections.map((section) => [section.id, section.threads] as const)
+        sections.map((section) => [section.id, section.threads] as const)
       ),
     };
     groupMemberIdsByView.set(view, cache);

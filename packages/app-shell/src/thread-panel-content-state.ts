@@ -154,7 +154,8 @@ export function resolveThreadPanelContentState({
       variant: 'muted',
     };
   }
-  if (threads.length === 0 && view.kind === 'flat') {
+  // Custom groups render even when empty; a flat or date list has nothing to show.
+  if (threads.length === 0 && (view.kind === 'flat' || view.kind === 'dates')) {
     return {
       description: 'Send a message to start your first thread.',
       kind: 'card',

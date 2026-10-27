@@ -6,6 +6,13 @@ CREATE TABLE thread_placements (thread_id TEXT PRIMARY KEY, resource_id TEXT NOT
 CREATE INDEX thread_groups_resource ON thread_groups(resource_id,rank,id);
 CREATE INDEX thread_placements_resource ON thread_placements(resource_id);
 `;
+/** Pins are their own rows: a placement write never touches a pin, nor a pin a placement. */
+export const THREAD_PINS_SCHEMA = `
+CREATE TABLE thread_pins (thread_id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, pinned_at INTEGER NOT NULL CHECK (pinned_at >= 0)) STRICT;
+CREATE INDEX thread_pins_resource ON thread_pins(resource_id);
+`;
+/** @type {import('@brainstrike/types').ThreadGroupsReply} */
+const EMPTY_REPLY = Object.freeze({ groups: [], pins: [], placements: [] });
 /** @param {string} value */
 function required(value) {
   if (typeof value !== 'string' || !value.trim()) {
@@ -69,6 +76,67 @@ function clearPlacements(db, ids) {
   }
   for (const id of ids) {
     db.prepare('DELETE FROM thread_placements WHERE thread_id=?').run(required(id));
+    db.prepare('DELETE FROM thread_pins WHERE thread_id=?').run(id);
+  }
+}
+/** @param {import('better-sqlite3').Database} db @param {string} resourceId @returns {import('@brainstrike/types').ThreadGroupsReply} */
+function listThreadGroups(db, resourceId) {
+  return {
+    groups: /** @type {import('@brainstrike/types').AssistantThreadGroup[]} */ (
+      db
+        .prepare(
+          'SELECT id,resource_id AS resourceId,name,rank,color,icon FROM thread_groups WHERE resource_id=? ORDER BY rank,id'
+        )
+        .all(required(resourceId))
+    ),
+    pins: /** @type {import('@brainstrike/types').AssistantThreadPin[]} */ (
+      db
+        .prepare(
+          'SELECT thread_id AS threadId,resource_id AS resourceId,pinned_at AS pinnedAt FROM thread_pins WHERE resource_id=? ORDER BY pinned_at DESC,thread_id'
+        )
+        .all(resourceId)
+    ),
+    placements: /** @type {import('@brainstrike/types').AssistantThreadPlacement[]} */ (
+      db
+        .prepare(
+          'SELECT thread_id AS threadId,resource_id AS resourceId,group_id AS groupId,rank,flat_rank AS flatRank FROM thread_placements WHERE resource_id=? ORDER BY thread_id'
+        )
+        .all(resourceId)
+    ),
+  };
+}
+/** @param {import('better-sqlite3').Database} db @param {import('@brainstrike/types').AssistantThreadPin} pin */
+function writePin(db, pin) {
+  if (!Number.isSafeInteger(pin.pinnedAt) || pin.pinnedAt < 0) {
+    throw new Error('Thread pin time must be a nonnegative integer');
+  }
+  db.prepare(
+    'INSERT INTO thread_pins VALUES (?,?,?) ON CONFLICT(thread_id) DO UPDATE SET resource_id=excluded.resource_id,pinned_at=excluded.pinned_at'
+  ).run(required(pin.threadId), required(pin.resourceId), pin.pinnedAt);
+}
+/** @param {import('better-sqlite3').Database} db @param {Extract<import('@brainstrike/types').ThreadGroupsRequest, { groupId: string }>} request */
+function writeGroup(db, request) {
+  group(db, request.groupId);
+  if (request.operation === 'delete') {
+    db.prepare('DELETE FROM thread_groups WHERE id=?').run(request.groupId);
+  }
+  if (request.operation === 'rename') {
+    db.prepare('UPDATE thread_groups SET name=? WHERE id=?').run(
+      required(request.name).trim(),
+      request.groupId
+    );
+  }
+  if (request.operation === 'color') {
+    db.prepare('UPDATE thread_groups SET color=? WHERE id=?').run(
+      choice(request.color, AGENT_SEMANTIC_COLOR_IDS),
+      request.groupId
+    );
+  }
+  if (request.operation === 'icon') {
+    db.prepare('UPDATE thread_groups SET icon=? WHERE id=?').run(
+      choice(request.icon, ASSISTANT_THREAD_ICON_IDS),
+      request.groupId
+    );
   }
 }
 /** @param {import('better-sqlite3').Database} db @param {import('@brainstrike/types').ThreadGroupsRequest} request @returns {import('@brainstrike/types').ThreadGroupsReply} */
@@ -76,22 +144,7 @@ export function executeThreadGroups(db, request) {
   return db.transaction(
     /** @returns {import('@brainstrike/types').ThreadGroupsReply} */ () => {
       if (request.operation === 'list') {
-        return {
-          groups: /** @type {import('@brainstrike/types').AssistantThreadGroup[]} */ (
-            db
-              .prepare(
-                'SELECT id,resource_id AS resourceId,name,rank,color,icon FROM thread_groups WHERE resource_id=? ORDER BY rank,id'
-              )
-              .all(required(request.resourceId))
-          ),
-          placements: /** @type {import('@brainstrike/types').AssistantThreadPlacement[]} */ (
-            db
-              .prepare(
-                'SELECT thread_id AS threadId,resource_id AS resourceId,group_id AS groupId,rank,flat_rank AS flatRank FROM thread_placements WHERE resource_id=? ORDER BY thread_id'
-              )
-              .all(request.resourceId)
-          ),
-        };
+        return listThreadGroups(db, request.resourceId);
       }
       if (request.operation === 'create') {
         const g = request.group;
@@ -103,43 +156,30 @@ export function executeThreadGroups(db, request) {
           choice(g.color, AGENT_SEMANTIC_COLOR_IDS),
           choice(g.icon, ASSISTANT_THREAD_ICON_IDS)
         );
-        return { groups: [{ ...g, name: g.name.trim() }], placements: [] };
+        return { ...EMPTY_REPLY, groups: [{ ...g, name: g.name.trim() }] };
       }
       if (request.operation === 'placements') {
         writePlacements(db, request.placements);
-        return { groups: [], placements: [] };
+        return EMPTY_REPLY;
+      }
+      if (request.operation === 'pin') {
+        writePin(db, request.pin);
+        return EMPTY_REPLY;
+      }
+      if (request.operation === 'unpin') {
+        db.prepare('DELETE FROM thread_pins WHERE thread_id=?').run(required(request.threadId));
+        return EMPTY_REPLY;
       }
       if (request.operation === 'clear') {
         clearPlacements(db, request.threadIds);
-        return { groups: [], placements: [] };
+        return EMPTY_REPLY;
       }
       if (request.operation === 'ranks') {
         writeRanks(db, request.entries);
-        return { groups: [], placements: [] };
+        return EMPTY_REPLY;
       }
-      group(db, request.groupId);
-      if (request.operation === 'delete') {
-        db.prepare('DELETE FROM thread_groups WHERE id=?').run(request.groupId);
-      }
-      if (request.operation === 'rename') {
-        db.prepare('UPDATE thread_groups SET name=? WHERE id=?').run(
-          required(request.name).trim(),
-          request.groupId
-        );
-      }
-      if (request.operation === 'color') {
-        db.prepare('UPDATE thread_groups SET color=? WHERE id=?').run(
-          choice(request.color, AGENT_SEMANTIC_COLOR_IDS),
-          request.groupId
-        );
-      }
-      if (request.operation === 'icon') {
-        db.prepare('UPDATE thread_groups SET icon=? WHERE id=?').run(
-          choice(request.icon, ASSISTANT_THREAD_ICON_IDS),
-          request.groupId
-        );
-      }
-      return { groups: [], placements: [] };
+      writeGroup(db, request);
+      return EMPTY_REPLY;
     }
   )();
 }

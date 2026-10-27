@@ -18,7 +18,6 @@ import {
   AssistantThreadHostContext,
 } from '../assistant-thread-host-context';
 import {
-  ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
@@ -72,6 +71,7 @@ const {
   gitMocks,
   groupRows,
   hostMocks,
+  pinRows,
   placementRows,
   rootRows,
   runMocks,
@@ -110,6 +110,7 @@ const {
     renameThread: vi.fn<AssistantThreadHostCapability['renameThread']>(),
     updateThreadBinding: vi.fn<AssistantThreadHostCapability['updateThreadBinding']>(),
   },
+  pinRows: [] as Record<string, unknown>[],
   placementRows: [] as Record<string, unknown>[],
   rootRows: [] as Record<string, unknown>[],
   // The host's committed runs, as its run-state snapshot reports them.
@@ -120,6 +121,7 @@ const {
       {
         completedAt: Date | null;
         needsInput: boolean;
+        startedAt: Date | null;
         status: 'running';
       }
     >(),
@@ -199,7 +201,12 @@ function setHostRuns(running: readonly string[], needsInput: readonly string[] =
   runMocks.runs = new Map(
     running.map((threadId) => [
       threadId,
-      { completedAt: null, needsInput: needsInput.includes(threadId), status: 'running' as const },
+      {
+        completedAt: null,
+        needsInput: needsInput.includes(threadId),
+        startedAt: null,
+        status: 'running' as const,
+      },
     ])
   );
   for (const listener of runMocks.listeners) {
@@ -211,7 +218,11 @@ function setHostRuns(running: readonly string[], needsInput: readonly string[] =
 async function handleThreadGroupsRequest(input: {
   readonly operation: string;
   readonly [key: string]: unknown;
-}): Promise<{ groups: Record<string, unknown>[]; placements: Record<string, unknown>[] }> {
+}): Promise<{
+  groups: Record<string, unknown>[];
+  pins: Record<string, unknown>[];
+  placements: Record<string, unknown>[];
+}> {
   const groupById = (groupId: unknown) => groupRows.find((row) => row['id'] === groupId);
   switch (input.operation) {
     case 'create':
@@ -268,6 +279,23 @@ async function handleThreadGroupsRequest(input: {
         }
       }
       break;
+    case 'pin': {
+      const pin = input['pin'] as Record<string, unknown>;
+      pinRows.splice(
+        0,
+        pinRows.length,
+        ...pinRows.filter((row) => row['threadId'] !== pin['threadId'])
+      );
+      pinRows.push({ ...pin });
+      break;
+    }
+    case 'unpin':
+      pinRows.splice(
+        0,
+        pinRows.length,
+        ...pinRows.filter((row) => row['threadId'] !== input['threadId'])
+      );
+      break;
     case 'clear': {
       const threadIds = input['threadIds'] as readonly string[];
       for (let index = placementRows.length - 1; index >= 0; index -= 1) {
@@ -282,6 +310,7 @@ async function handleThreadGroupsRequest(input: {
   }
   return {
     groups: groupRows.map((row) => ({ ...row })),
+    pins: pinRows.map((row) => ({ ...row })),
     placements: placementRows.map((row) => ({ ...row })),
   };
 }
@@ -449,7 +478,11 @@ beforeEach(() => {
   resetToastStore();
   groupRows.splice(0, groupRows.length);
   placementRows.splice(0, placementRows.length);
+  pinRows.splice(0, pinRows.length);
   useAssistantThreadGroupsStore.getState().reset();
+  // Most cases here exercise custom groups and the flat list; the date default
+  // has its own describe below.
+  useAssistantThreadGroupsStore.setState({ groupBy: 'custom-groups' });
   // Session-scoped and previously never reset here: a test that types into the
   // search box left every later test rendering search results.
   useThreadSearchStore.getState().clearSearch();
@@ -723,9 +756,11 @@ describe('ThreadsPanel', () => {
     expect(viewport?.parentElement?.parentElement).not.toHaveClass('overflow-y-auto');
     expect(screen.getByTestId('threads-panel')).toHaveClass('@container/threads', 'h-full');
 
+    // A coloured row carries a soft wash of its colour over the explorer's
+    // plain row: no fill of its own, no border, no ring.
     const idleThread = screen.getByText('First thread').closest('[data-testid="thread-row"]');
-    expect(idleThread).toHaveClass('bg-emerald-100/45', 'hover:bg-emerald-100/75');
-    expect(idleThread).not.toHaveClass('hover:bg-accent/35');
+    expect(idleThread).toHaveClass('bs-thread-wash', 'hover:bg-accent/60');
+    expect(idleThread).not.toHaveClass('bg-emerald-100/45', 'ring-1', 'border');
   });
 
   it('keeps row action chips inside the row instead of filling its full height', async () => {
@@ -761,13 +796,13 @@ describe('ThreadsPanel', () => {
     });
     await user.click(screen.getByRole('button', { name: /Show thread details First thread/ }));
 
-    // The row supplies px-2 horizontally and no vertical padding (vertical
+    // The row supplies px-1 horizontally and no vertical padding (vertical
     // padding would push the collapsed control past the tab's 28px). So the
-    // block itself has to carry a matching 8px below, or it sits flush against
-    // the row's bottom edge while both sides are inset.
+    // block itself carries a matching 4px below, or it sits flush against the
+    // row's bottom edge while both sides are inset.
     const details = await screen.findByTestId('thread-expanded-details');
-    expect(details).toHaveClass('mb-2');
-    expect(details.closest('[data-testid="thread-row"]')).toHaveClass('px-2');
+    expect(details).toHaveClass('mb-1');
+    expect(details.closest('[data-testid="thread-row"]')).toHaveClass('px-1');
   });
 
   it('sizes rows from the shared thread control density contract', async () => {
@@ -803,12 +838,9 @@ describe('ThreadsPanel', () => {
     const mark = within(row).getByTestId('thread-color-emerald');
     expect(mark).toHaveClass(...THREAD_CONTROL_MARK_CLASS_NAME.split(' '));
     expect(mark).not.toHaveClass('size-6');
-    // The row is tinted with the same token family; the mark keeps its own
-    // lighter fill and border so it stays visible on idle and selected rows.
-    expect(mark).toHaveClass(
-      ...ASSISTANT_THREAD_COLOR_PRESENTATION.emerald.markClassName.split(' ')
-    );
-    expect(mark).not.toHaveClass('bg-emerald-100');
+    // A soft tint of the thread colour, not a solid swatch.
+    expect(mark).toHaveClass('bs-thread-mark');
+    expect(mark).not.toHaveClass('bg-emerald-500');
   });
 
   it('mounts only the virtual window for a large disclosed collection', async () => {
@@ -1190,7 +1222,7 @@ describe('ThreadsPanel', () => {
     expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
   });
 
-  it('uses tinted idle pills, an inset-ring active treatment, and breathing room around each thread', async () => {
+  it('selects with the explorer fill and keeps colour to a wash, with breathing room around each thread', async () => {
     renderThreadsPanel();
 
     await waitFor(() => {
@@ -1198,22 +1230,21 @@ describe('ThreadsPanel', () => {
     });
     const [activeThread, idleThread] = screen.getAllByTestId('thread-row');
 
-    // Selected rows read through a stronger fill plus an inset ring — no border,
-    // no accent stripe. Idle rows keep a visible tint of their thread color.
+    // The selected row takes the explorer's accent fill under its colour wash:
+    // no outline, no ring, no border. Idle rows keep only the wash.
+    expect(activeThread).toHaveAttribute('data-selected', 'true');
     expect(activeThread).toHaveClass(
       'my-0.5',
       THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
-      'bg-sky-100',
-      'ring-1',
-      'ring-inset',
-      'ring-sky-500/80',
-      'shadow-xs'
+      'data-[selected=true]:bg-accent',
+      'bs-thread-wash'
     );
-    expect(activeThread).not.toHaveClass('border', 'border-sky-500');
+    expect(activeThread).not.toHaveClass('ring-1', 'shadow-xs', 'border');
+    expect(idleThread).toHaveAttribute('data-selected', 'false');
     expect(idleThread).toHaveClass(
       'my-0.5',
       THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
-      'bg-emerald-100/45'
+      'bs-thread-wash'
     );
     expect(idleThread).not.toHaveClass('shadow-xs', 'border');
 
@@ -1379,20 +1410,15 @@ describe('ThreadsPanel groups', () => {
     });
   }
 
-  it('estimates group headers at their own height, not the thread pitch', async () => {
+  it('sizes group headers at the thread pitch so the levels read as one tree', async () => {
     seedGroup('group-research', 'Research', 'a0');
     seedPlacement('thread-b', 'group-research', 'a0');
 
     renderThreadsPanel();
     await screen.findByTestId('thread-group-section');
 
-    // Group headers paint 40px while thread rows paint 32px. Estimating every
-    // node at the thread pitch under-sizes each header by 8px, so first-paint
-    // scrollbar length and scrollToIndex drift by an amount that grows with
-    // group count — and grouped is the default view.
     expect(virtualizerState.estimatedSizes).toContain(getThreadPanelRowHeightPx('group'));
-    expect(virtualizerState.estimatedSizes).toContain(getThreadPanelRowHeightPx('thread'));
-    expect(getThreadPanelRowHeightPx('group')).not.toBe(getThreadPanelRowHeightPx('thread'));
+    expect(getThreadPanelRowHeightPx('group')).toBe(getThreadPanelRowHeightPx('thread'));
   });
 
   it('renders group sections with the ungrouped section below', async () => {
@@ -1403,7 +1429,7 @@ describe('ThreadsPanel groups', () => {
 
     const section = await screen.findByTestId('thread-group-section');
     expect(within(section).getByText('Research')).toBeVisible();
-    expect(within(section).getByText('Research')).toHaveClass('text-[13px]', 'leading-4');
+    expect(within(section).getByText('Research')).toHaveClass('text-xs', 'leading-4');
     // Group headers share the thread rows' 8px chip-to-text rhythm so group
     // names start at exactly the same x as thread titles.
     expect(within(section).getByText('Research').parentElement).toHaveClass('gap-2');
@@ -1415,7 +1441,7 @@ describe('ThreadsPanel groups', () => {
     });
     const ungrouped = screen.getByTestId('threads-ungrouped-section');
     expect(ungrouped.closest('tr')).not.toHaveClass('[&_[role=gridcell]>div]:pl-7');
-    expect(within(ungrouped).getByTestId('threads-ungrouped-icon')).toHaveClass('size-6');
+    expect(within(ungrouped).getByTestId('threads-ungrouped-icon')).toHaveClass('size-5');
     expect(within(ungrouped).getByText('Ungrouped')).toBeVisible();
     expect(screen.getByText('First thread').closest('tr')).toHaveAttribute('data-depth', '1');
     const sectionOrder = Array.from(
@@ -1517,63 +1543,20 @@ describe('ThreadsPanel groups', () => {
     await waitFor(() => {
       expect(screen.getByTestId('thread-group-color-rose')).toBeVisible();
     });
-    const groupHeaderRow = screen.getByText('Research').closest('tr');
-    const firstGroupedThreadRow = screen.getByText('First thread').closest('tr');
-    const groupSurfaceRows = Array.from(document.querySelectorAll('tr.thread-group-surface'));
-    const lastGroupSurfaceRow = groupSurfaceRows.at(-1);
-    expect(groupSurfaceRows).toHaveLength(3);
-    expect(screen.getByRole('treegrid', { name: 'Workspace threads' })).toHaveClass(
-      'border-separate',
-      'border-spacing-0'
-    );
-    expect(screen.getByTestId('thread-group-color-rose')).toHaveClass(
-      'bs-agent-solid-mark',
-      'bg-rose-500',
-      'text-black'
-    );
-    // Group surfaces are soft tinted fills only — the hairline outline borders
-    // are gone so grouped threads read as one calm slab.
-    expect(groupHeaderRow).toHaveClass(
-      'thread-group-surface',
-      '[&>td]:bg-rose-50/60',
-      '[&>td]:rounded-t-lg'
-    );
-    expect(groupHeaderRow).not.toHaveClass('[&>td]:border-rose-200/60', '[&>td]:border-t');
-    expect(firstGroupedThreadRow).toHaveClass('thread-group-surface', '[&>td]:bg-rose-50/60');
-    expect(firstGroupedThreadRow).not.toHaveClass(
-      '[&>td]:rounded-t-lg',
-      '[&>td]:rounded-b-lg',
-      '[&>td]:border-x',
-      '[&>td]:border-rose-200/60'
-    );
-    expect(lastGroupSurfaceRow).toHaveClass(
-      'thread-group-surface',
-      '[&>td]:bg-rose-50/60',
-      '[&>td]:rounded-b-lg'
-    );
-    expect(lastGroupSurfaceRow).not.toHaveClass('[&>td]:border-rose-200/60', '[&>td]:border-b');
-    const groupContentLane = within(groupHeaderRow as HTMLElement).getByTestId(
-      'thread-panel-content-lane'
-    );
-    const threadContentLane = within(firstGroupedThreadRow as HTMLElement).getByTestId(
-      'thread-panel-content-lane'
-    );
-    expect(groupContentLane).toHaveClass('mx-1');
-    expect(threadContentLane).toHaveClass('mx-1');
-    expect(groupContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
-    expect(threadContentLane).not.toHaveClass('before:-left-1', 'before:bg-rose-500');
+    // A colour tints the chip only: no gray slab, outline or chassis wraps
+    // the grouped rows.
+    expect(screen.getByTestId('thread-group-color-rose')).toHaveClass('bs-thread-mark');
+    expect(document.querySelector('tr.thread-group-surface')).toBeNull();
     expect(groupRows[0]).toMatchObject({ color: 'rose', id: 'group-research' });
 
     fireEvent.click(
-      within(groupHeaderRow as HTMLElement).getByRole('button', { name: 'Collapse' })
+      within(screen.getByText('Research').closest('tr') as HTMLElement).getByRole('button', {
+        name: 'Collapse',
+      })
     );
     await waitFor(() => {
       expect(screen.queryByText('First thread')).not.toBeInTheDocument();
       expect(screen.queryByText('Second thread')).not.toBeInTheDocument();
-      expect(screen.getByText('Research').closest('tr')).toHaveClass(
-        'thread-group-surface',
-        '[&>td]:rounded-lg'
-      );
     });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Clear color for Research' }));
@@ -1793,6 +1776,74 @@ describe('ThreadsPanel groups', () => {
     });
     expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('none');
+  });
+});
+
+describe('ThreadsPanel dates and pins', () => {
+  beforeEach(() => {
+    useAssistantThreadGroupsStore.setState({ groupBy: 'date' });
+  });
+
+  it('groups by date by default, newest conversation first', async () => {
+    useAssistantThreadGroupsStore.getState().reset();
+    threadRows.unshift({
+      createdAt: new Date(),
+      id: 'thread-today',
+      metadata: null,
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: 'Fresh thread',
+      updatedAt: new Date(),
+    });
+
+    renderThreadsPanel();
+
+    await screen.findByText('Fresh thread');
+    expect(useAssistantThreadGroupsStore.getState().groupBy).toBe('date');
+    const sections = screen.getAllByTestId('thread-date-section');
+    expect(sections.map((section) => section.textContent)).toEqual([
+      expect.stringContaining('Today'),
+      expect.stringContaining('April'),
+    ]);
+    const titles = screen
+      .getAllByTestId('thread-row')
+      .map((row) => within(row).getByText(/thread/i).textContent);
+    expect(titles).toEqual(['Fresh thread', 'Second thread', 'First thread']);
+  });
+
+  it('pins a thread above the dates durably, and unpins it back into its date', async () => {
+    renderThreadsPanel();
+
+    await screen.findByText('First thread');
+    expect(screen.queryByTestId('threads-pinned-section')).toBeNull();
+    fireEvent.contextMenu(screen.getByText('First thread'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Pin' }));
+
+    const pinned = await screen.findByTestId('threads-pinned-section');
+    expect(pinned).toHaveTextContent('Pinned');
+    const titles = screen
+      .getAllByTestId('thread-row')
+      .map((row) => within(row).getByText(/thread/i).textContent);
+    expect(titles).toEqual(['First thread', 'Second thread']);
+    expect(
+      within(screen.getByText('First thread').closest('tr') as HTMLElement).getByTestId(
+        'thread-pinned-marker'
+      )
+    ).toHaveAccessibleName('Pinned');
+    expect(pinRows).toEqual([
+      expect.objectContaining({ resourceId: WORKSPACE_MEMORY_RESOURCE_ID, threadId: 'thread-a' }),
+    ]);
+
+    fireEvent.contextMenu(screen.getByText('First thread'));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Unpin' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('threads-pinned-section')).toBeNull();
+    });
+    expect(pinRows).toEqual([]);
+    const after = screen
+      .getAllByTestId('thread-row')
+      .map((row) => within(row).getByText(/thread/i).textContent);
+    expect(after).toEqual(['Second thread', 'First thread']);
   });
 });
 
@@ -2262,6 +2313,8 @@ describe('ThreadsPanel folders', () => {
   // The filtered-empty card told the user to "clear the filters in view
   // options" while the popover offered only the three individual boxes.
   it('offers the clear-filters control its filtered-empty card points at', async () => {
+    // The default view, so only the filter can light the view options dot.
+    useAssistantThreadGroupsStore.setState({ groupBy: 'date' });
     renderThreadsPanel();
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
@@ -2475,6 +2528,7 @@ it('loads host conversations, retained folders and custom groups', async () => {
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
       },
     ],
+    pins: [],
     placements: [
       {
         flatRank: null,

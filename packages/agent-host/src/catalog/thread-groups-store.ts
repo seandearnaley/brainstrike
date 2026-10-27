@@ -21,8 +21,14 @@ const ThreadPlacement = Schema.Struct({
   resourceId: Text,
   threadId: Text,
 });
+const ThreadPin = Schema.Struct({
+  pinnedAt: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  resourceId: Text,
+  threadId: Text,
+});
 const Reply = Schema.Struct({
   groups: Schema.mutable(Schema.Array(ThreadGroup)),
+  pins: Schema.mutable(Schema.Array(ThreadPin)),
   placements: Schema.mutable(Schema.Array(ThreadPlacement)),
 });
 const METHOD = 'host/thread-groups';

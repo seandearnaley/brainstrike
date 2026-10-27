@@ -18,6 +18,11 @@ const placement = {
   resourceId: group.resourceId,
   threadId: 'current-thread',
 };
+const pin = {
+  pinnedAt: 1_790_000_000_000,
+  resourceId: group.resourceId,
+  threadId: 'current-thread',
+};
 
 test('existing group identity, presentation and placement ranks survive actual writer reopen', async () => {
   const root = freshDir('thread-groups');
@@ -29,20 +34,24 @@ test('existing group identity, presentation and placement ranks survive actual w
     await store.threadGroups({ entries: [{ groupId: group.id, rank: 'a1' }], operation: 'ranks' });
     await store.threadGroups({ color: 'blue', groupId: group.id, operation: 'color' });
     await store.threadGroups({ groupId: group.id, icon: 'rocket', operation: 'icon' });
+    await store.threadGroups({ operation: 'pin', pin });
     await store.close();
     store = await StateStore.open(root);
     expect(await store.threadGroups({ operation: 'list', resourceId: group.resourceId })).toEqual({
       groups: [{ ...group, color: 'blue', icon: 'rocket', name: 'Renamed work', rank: 'a1' }],
+      pins: [pin],
       placements: [placement],
     });
     await store.threadGroups({ groupId: group.id, operation: 'delete' });
     expect(await store.threadGroups({ operation: 'list', resourceId: group.resourceId })).toEqual({
       groups: [],
+      pins: [pin],
       placements: [{ ...placement, groupId: null }],
     });
     await store.threadGroups({ operation: 'clear', threadIds: [placement.threadId] });
     expect(await store.threadGroups({ operation: 'list', resourceId: group.resourceId })).toEqual({
       groups: [],
+      pins: [],
       placements: [],
     });
   } finally {
@@ -77,6 +86,33 @@ test('group reorder and bulk placement failure preserve the complete prior snaps
     expect(await store.threadGroups({ operation: 'list', resourceId: group.resourceId })).toEqual(
       before
     );
+  } finally {
+    await store.close();
+  }
+});
+
+test('a pin survives reopen apart from its placement, and unpinning forgets only the pin', async () => {
+  const root = freshDir('thread-pins');
+  let store = await StateStore.open(root);
+  try {
+    const older = { ...pin, pinnedAt: pin.pinnedAt - 1, threadId: 'older-thread' };
+    await store.threadGroups({
+      operation: 'placements',
+      placements: [{ ...placement, groupId: null }],
+    });
+    await store.threadGroups({ operation: 'pin', pin: older });
+    await store.threadGroups({ operation: 'pin', pin });
+    await store.close();
+    store = await StateStore.open(root);
+    expect(
+      (await store.threadGroups({ operation: 'list', resourceId: group.resourceId })).pins
+    ).toEqual([pin, older]);
+    await store.threadGroups({ operation: 'unpin', threadId: pin.threadId });
+    expect(await store.threadGroups({ operation: 'list', resourceId: group.resourceId })).toEqual({
+      groups: [],
+      pins: [older],
+      placements: [{ ...placement, groupId: null }],
+    });
   } finally {
     await store.close();
   }
