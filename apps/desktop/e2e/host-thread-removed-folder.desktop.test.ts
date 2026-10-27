@@ -68,10 +68,13 @@ function chip(region: Locator): Locator {
 /**
  * Open a thread folder's submenu in the chip. A previous menu selection is
  * still dismissing (exit animation, then focus returns to its trigger); a
- * reopen inside that window is closed by the returning focus, so wait for it.
+ * reopen inside that window is closed by the returning focus. The focus moves
+ * a task after the menu unmounts, later still on a loaded runner, so wait for
+ * the focus itself, not only for the menu to be gone.
  */
 async function openRootMenu(page: Page, region: Locator, rootId: string): Promise<Locator> {
   await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(chip(region)).toBeFocused();
   await chip(region).click();
   const row = page.getByTestId(`workspace-bar-root-${rootId}`);
   await row.click();

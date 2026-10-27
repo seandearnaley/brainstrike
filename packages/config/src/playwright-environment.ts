@@ -169,9 +169,11 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
 
   return {
     ...env,
-    // Keep multiple workers in CI, but do not run tests from the same file concurrently.
-    // Stateful browser specs share expensive origin-level surfaces like OPFS and app boot.
-    fullyParallel: !env.isCI,
+    // Schedule and shard single tests, not whole files: each desktop test owns
+    // its app, profile and workspace root (e2e/fixtures/electron-fixture.ts),
+    // so a file's tests run on every worker instead of one after another.
+    // A spec whose tests depend on each other declares `mode: 'serial'`.
+    fullyParallel: true,
     globalTimeout: getGlobalTimeout(env),
     // Always use headless mode for reliability in all environments
     // This prevents X server/display issues in containerized CI environments

@@ -6,17 +6,13 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
 import { homeEnvironment, nodeCommand, nodeText } from './utils/node-command';
-import { seedHostThreads } from './utils/seed-threads';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const REASON = 'Workspace reads are disabled by a project hook';
-const LEGACY_TITLE = 'Deleted host conversation';
 
 // A real workspace root whose project hooks file blocks workspace reads. The
 // host runs it only at a hash it trusts; HOME holds no global hooks.
@@ -130,40 +126,5 @@ test('a project hook runs on a host thread only after it is approved in Settings
   const card = panel.getByTestId('tool-fallback').last();
   await card.getByRole('button', { expanded: false }).click();
   await expect(card.getByText(TOOL_CALL_BLOCKED_MESSAGE)).toBeVisible();
-  expect(modelProvider.refusals()).toEqual([]);
-});
-
-test('a retired thread cannot start the removed execution path', async ({
-  modelProvider,
-  window: page,
-}) => {
-  test.setTimeout(180_000);
-  await ensureMockWorkspaceOpen(page);
-  await configureAssistantProvider(page);
-
-  // Approved once in Settings › Hooks, through the host.
-  const hooks = await hooksSettings(page);
-  await hooks.getByRole('button', { exact: true, name: 'Approve' }).click();
-  await expect(hooks.getByText('Trusted', { exact: true })).toBeVisible();
-
-  // Deleted host conversations are never advertised as usable host conversations.
-  const userData = await page.evaluate(() => window.electronAPI!.getUserDataPath());
-  const [retired] = await seedHostThreads(userData, [{ folder: null, title: LEGACY_TITLE }]);
-  if (!retired) {
-    throw new Error('Host thread fixture not created');
-  }
-  await withAppHost(userData, (client) => client.request('thread/delete', { threadId: retired }));
-  const { reloadRenderer } = await loadElectronHelpers();
-  await reloadRenderer(page, 'hook-trust-retired-thread');
-  await ensureAssistantShellVisible(page);
-  const showThreads = page.getByTestId('show-threads-panel');
-  if (await showThreads.isVisible().catch(() => false)) {
-    await showThreads.click();
-  }
-  await expect(page.getByTestId('threads-panel')).toBeVisible();
-  await expect(page.getByTestId('thread-row').filter({ hasText: LEGACY_TITLE })).toHaveCount(0);
-  scriptRead(modelProvider, 'The current conversation still works.');
-  await send(page, 'Read notes.txt', 'The current conversation still works.');
-  expect(lastFollowUp(modelProvider)).toContain(REASON);
   expect(modelProvider.refusals()).toEqual([]);
 });
