@@ -59,7 +59,7 @@
     "./context-usage-store": "./src/context-usage-store.ts",
     "./thread-context-store": "./src/thread-context-store.ts",
     "./thread-context-fold": "./src/thread-context-fold.ts",
-    "./follow-up-queue-store": "./src/follow-up-queue-store.ts",
+    "./thread-message-queue": "./src/thread-message-queue.ts",
     "./mcp-task-bridge-context": "./src/mcp-task-bridge-context.tsx",
     "./mcp-task-status-card": "./src/mcp-task-status-card.tsx",
     "./rewind-composer-store": "./src/rewind-composer-store.ts",

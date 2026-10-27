@@ -1,9 +1,6 @@
-import { useAui } from '@assistant-ui/react';
+import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { isMacPlatform } from '@brainstrike/ui';
-import { use } from 'react';
-import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
-import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
 
 const logger = createLogger('FollowUpQueue');
 
@@ -14,13 +11,13 @@ const logger = createLogger('FollowUpQueue');
 export const steerShortcutLabel = (): string => (isMacPlatform() ? '⇧⌘↵' : 'Ctrl+Shift+Enter');
 
 /**
- * What the composer can do with a draft while a run is active: queue it for
- * after the run, and steer (send it now, ending the run at its next step) when
- * the app shell supplied a steering transport (BST-588). Both read the LIVE
- * composer draft, never a rendered copy, so a double click or a held key sends
- * the draft once: the first action clears it and the second finds nothing.
- * A failed steer request never loses the message; it stays queued and
- * dispatches when the run ends.
+ * What the composer can do with a draft while a run is active, through
+ * assistant-ui's own send: queue it for after the run, and steer it (first in
+ * line, and the run is asked to end at its next step) when the app shell
+ * supplied a steering transport (BST-588). The vendor send takes the draft
+ * and its images and clears the composer, so a double click or a held key
+ * sends once. A failed steer request never loses the message; it stays first
+ * in line and sends when the run ends.
  */
 export interface ComposerRunActions {
   readonly queue: () => void;
@@ -29,37 +26,28 @@ export interface ComposerRunActions {
 
 export function useComposerRunActions({
   onSteerActiveRun,
-  threadKey,
 }: {
   readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
-  readonly threadKey?: string | undefined;
 }): ComposerRunActions | undefined {
-  const ownsQueue = use(FollowUpQueueOwnershipContext);
   const aui = useAui();
-  if (!ownsQueue) {
+  const hasQueue = useAuiState((state) => state.thread.capabilities.queue);
+  if (!hasQueue) {
     return;
   }
-  const queueKey = followUpQueueKey(threadKey);
-  const takeDraft = (): string | undefined => {
-    const text = aui.composer().getState().text;
-    if (!text.trim()) {
-      return;
-    }
-    aui.composer().setText('');
-    return text;
+  const sendable = (): boolean => {
+    const composer = aui.composer().getState();
+    return composer.canSend && !composer.isEmpty;
   };
   return {
     queue: () => {
-      const text = takeDraft();
-      if (text !== undefined) {
-        useFollowUpQueueStore.getState().enqueue(queueKey, text);
+      if (sendable()) {
+        aui.composer().send({ steer: false });
       }
     },
     steer: onSteerActiveRun
       ? () => {
-          const text = takeDraft();
-          if (text !== undefined) {
-            useFollowUpQueueStore.getState().enqueueFront(queueKey, text);
+          if (sendable()) {
+            aui.composer().send({ steer: true });
             requestSteer(onSteerActiveRun);
           }
         }
@@ -72,7 +60,7 @@ export function requestSteer(onSteerRequest: () => Promise<boolean>): void {
     .then((accepted) => {
       if (!accepted) {
         // The run already finished (404 from the control endpoint) — the
-        // queued message dispatches via the normal run-end bridge.
+        // queue sends the message at that run end.
         logger.info('Steer control found no active run; message stays queued');
       }
     })

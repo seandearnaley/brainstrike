@@ -69,7 +69,7 @@ import {
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
-import { FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
+import { FollowUpQueueChips, QueuedDecisionPruner } from './follow-up-queue';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
 import { RunningStateBridge } from './running-state-bridge';
@@ -239,7 +239,6 @@ export const ChatThreadUI = ({
   workspaceBar,
   planMode,
   attachmentsAvailability,
-  isReattaching = false,
   threadKey,
   toolMenu,
   welcome = false,
@@ -277,7 +276,6 @@ export const ChatThreadUI = ({
   onThreadRunStart?: (() => void) | undefined;
   onToolApprovalRequired?: ((request: AssistantToolApprovalRequest) => void) | undefined;
   isComposerDisabled: boolean;
-  isReattaching?: boolean;
   hideDefaultCancel?: boolean | undefined;
   disabledReason: string | undefined;
   capabilityNotice: string | undefined;
@@ -342,7 +340,7 @@ export const ChatThreadUI = ({
                   {...(onToolApprovalRequired ? { onToolApprovalRequired } : {})}
                   {...(threadKey ? { threadKey } : {})}
                 />
-                <FollowUpQueueBridge isReattaching={isReattaching} threadKey={threadKey} />
+                <QueuedDecisionPruner threadKey={threadKey} />
                 {/* Drains a successful rewind's target prompt back into the composer
             (Amendment 2). Mounted here rather than on the message, whose own
             button is unmounted by the rewind that hides it. */}
@@ -444,7 +442,6 @@ export const ChatThreadUI = ({
                           hideDefaultCancel={hideDefaultCancel}
                           isComposerDisabled={composerDisabled}
                           onSteerActiveRun={onSteerActiveRun}
-                          threadKey={threadKey}
                           {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                           {...(planMode ? { planMode } : {})}
                           {...(hasSlashCommands

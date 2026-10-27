@@ -13,12 +13,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ThreadScrollRegion, ThreadScrollToBottom } from '../assistant-ui-panel';
-import { FollowUpQueueBridge, FollowUpQueueChips } from '../follow-up-queue';
-import {
-  followUpQueueKey,
-  resetFollowUpQueueStore,
-  useFollowUpQueueStore,
-} from '../follow-up-queue-store';
+import { FollowUpQueueChips } from '../follow-up-queue';
 import {
   ThreadScrollFollowProvider,
   useThreadFollowScrollerRef,
@@ -32,7 +27,7 @@ import '../overrides.css';
  *
  * The failure this pins (observed live in the web assistant-state E2E while
  * diagnosing BST-1036): while the thread is pinned, the queue chip row sits in
- * the composer area BELOW the viewport. When the run ends, the bridge
+ * the composer area BELOW the viewport. When the run ends, the queue
  * dispatches the queued message and the chip row unmounts in the same breath —
  * the viewport gets taller, the browser clamps `scrollTop` down, and the
  * follow engine's scroll bookkeeping (thread-scroll-follow.tsx) could read
@@ -44,13 +39,12 @@ import '../overrides.css';
  * viewport, so chip mount/unmount resizes the viewport exactly as the real
  * composer does. The run is held open by a deferred adapter so the enqueue
  * happens mid-run and the dispatch fires on the real run-end transition via
- * the REAL `FollowUpQueueBridge`.
+ * assistant-ui's own queue (`unstable_enableMessageQueue`).
  */
 
 const MESSAGE_HEIGHT_PX = 90;
 const MESSAGE_COUNT = 12;
 const COLUMN_HEIGHT_PX = 320;
-const THREAD_KEY = 'repin-test-thread';
 
 const initialMessages: readonly ThreadMessageLike[] = Array.from(
   { length: MESSAGE_COUNT },
@@ -173,6 +167,23 @@ function ScrollRequestProbe() {
   return null;
 }
 
+/** Queues a follow-up through the composer, as the composer's Queue control does. */
+function QueueFollowUpButton() {
+  const aui = useAui();
+  return (
+    <button
+      data-testid="queue-follow-up"
+      onClick={() => {
+        aui.composer().setText('queued follow-up');
+        aui.composer().send({ steer: false });
+      }}
+      type="button"
+    >
+      queue
+    </button>
+  );
+}
+
 function StartRunButton() {
   const aui = useAui();
   return (
@@ -196,14 +207,15 @@ function ScrollerWithFollow({ children }: { children: React.ReactNode }) {
 }
 
 function RepinHarness({ adapter }: { adapter: ChatModelAdapter }) {
-  const runtime = useLocalRuntime(adapter, { initialMessages });
+  // assistant-ui's own queue, as the committed runtime provides one.
+  const runtime = useLocalRuntime(adapter, { initialMessages, unstable_enableMessageQueue: true });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadScrollFollowProvider>
         <StartRunButton />
+        <QueueFollowUpButton />
         <ScrollRequestProbe />
-        <FollowUpQueueBridge threadKey={THREAD_KEY} />
         <div className="assistant-ui-panel">
           <div
             className="bs-thread"
@@ -229,7 +241,7 @@ function RepinHarness({ adapter }: { adapter: ChatModelAdapter }) {
             </div>
             {/* The real chip row: mounting/unmounting it resizes the viewport,
                 exactly like the panel's composer area. */}
-            <FollowUpQueueChips threadKey={THREAD_KEY} />
+            <FollowUpQueueChips />
           </div>
         </div>
       </ThreadScrollFollowProvider>
@@ -252,7 +264,7 @@ const dispatchRunEvent = async (dispatch: () => void): Promise<void> => {
 
 const enqueueFollowUp = async (): Promise<void> => {
   await act(async () => {
-    useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
+    fireEvent.click(screen.getByTestId('queue-follow-up'));
   });
 };
 
@@ -268,7 +280,6 @@ const waitForPinnedThread = async (): Promise<HTMLElement> => {
 
 afterEach(() => {
   cleanup();
-  resetFollowUpQueueStore();
   scrollToBottomRequests.length = 0;
   document.body.replaceChildren();
 });
