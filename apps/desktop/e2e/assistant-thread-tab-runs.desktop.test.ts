@@ -5,6 +5,7 @@ import { readCommittedRunStatus, readCommittedRuns } from './utils/agent-host-lo
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
+import { startThread } from './utils/new-thread';
 
 /**
  * Thread tabs vs. runs in flight (BST-1838 characterisation; BST-1844 made
@@ -43,6 +44,8 @@ const FIRST_TEXT = 'TAB_RUNS_FIRST_TURN';
 const FINAL_TEXT = 'TAB_RUNS_HELD_TURN_COMPLETE';
 const HELD_PROMPT = 'Say the held sentence.';
 const THREAD_TITLE = 'Tab gestures over a running thread';
+const EXTRA_PROMPT = 'Open another thread.';
+const EXTRA_TITLE = 'Another thread';
 
 interface HeldRunFixture {
   readonly panel: Locator;
@@ -67,8 +70,9 @@ async function openThreadsPanel(page: Page): Promise<void> {
  * A titled thread whose SECOND turn is held open at the provider, with the
  * Threads panel showing.
  *
- * `extraThreads` opens that many further empty threads first, so the held
- * thread is the one the tab strip lists first.
+ * `extraThreads` starts that many further threads after its first turn, so
+ * the held thread is the one the tab strip lists first. A thread exists only
+ * once its first message is sent, so each of them has a finished turn too.
  */
 async function startHeldSecondTurn(
   electron: ElectronHarness,
@@ -77,15 +81,14 @@ async function startHeldSecondTurn(
 ): Promise<{ readonly held: HeldRunFixture; readonly window: Page }> {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  let rootTurns = 0;
-  modelProvider.setScript(({ toolNames }) => {
+  modelProvider.setScript(({ requestBody, toolNames }) => {
+    const request = JSON.stringify(requestBody);
     // Title generation runs without tools; only root turns carry them.
     if (toolNames.length === 0) {
-      return { finalText: THREAD_TITLE };
+      return { finalText: request.includes(EXTRA_PROMPT) ? EXTRA_TITLE : THREAD_TITLE };
     }
-    rootTurns += 1;
-    // The first root turn completes at once; the second is the one held.
-    if (rootTurns === 1) {
+    // Every turn completes at once except the held one.
+    if (!request.includes(HELD_PROMPT)) {
       return { finalText: FIRST_TEXT };
     }
     entered.resolve();
@@ -105,27 +108,29 @@ async function startHeldSecondTurn(
   await openThreadsPanel(window);
 
   const strip = window.getByRole('tablist', { name: 'Open assistant threads' });
-  await expect(strip.getByRole('tab')).toHaveCount(1, { timeout: 30_000 });
-  for (let opened = 0; opened < (options.extraThreads ?? 0); opened += 1) {
-    await window.getByTestId('assistant-new-thread-button').click();
-    await expect(strip.getByRole('tab')).toHaveCount(opened + 2, { timeout: 30_000 });
-  }
-  const tab = strip.getByRole('tab').first();
-  await tab.click();
-  await expect(tab).toHaveAttribute('aria-selected', 'true');
-  const threadId = ((await tab.getAttribute('id')) ?? '').replace('assistant-thread-tab-', '');
+  // Turn 1 is the first send, which creates the thread; it runs to completion
+  // in the foreground, and the thread gets its title.
+  const started = await startThread(window, 'Say the first sentence.');
+  const threadId = ((await started.getAttribute('id')) ?? '').replace(
+    'assistant-thread-panel-',
+    ''
+  );
+  const tab = window.locator(`[id="assistant-thread-tab-${threadId}"]`);
   const panel = window.getByTestId(`assistant-thread-panel-${threadId}`);
   const threadsPanel = window.getByTestId('threads-panel');
   const spinners = threadsPanel.getByTestId('thread-active-spinner');
-
-  // Turn 1 runs to completion in the foreground, and the thread gets its title.
-  await panel.getByRole('textbox', { name: 'Message input' }).fill('Say the first sentence.');
-  await panel.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(panel.getByText(FIRST_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
   // The pane leaves the running state once the host has committed the run's end.
   await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
   expect(await readCommittedRunStatus(electron.getUserDataDir(), threadId)).toBe('completed');
   await expect(strip.getByRole('tab', { name: THREAD_TITLE })).toHaveCount(1, { timeout: 30_000 });
+  for (let opened = 0; opened < (options.extraThreads ?? 0); opened += 1) {
+    const extra = await startThread(window, `${EXTRA_PROMPT} ${opened + 1}`);
+    await expect(extra.getByText(FIRST_TEXT, { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(extra.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+  }
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
 
   // Turn 2 is held open at the provider, so every gesture below lands mid-run.
   await panel.getByRole('textbox', { name: 'Message input' }).fill(HELD_PROMPT);

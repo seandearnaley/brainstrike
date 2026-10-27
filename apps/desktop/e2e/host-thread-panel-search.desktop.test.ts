@@ -58,7 +58,7 @@ test('the Threads panel searches only usable host threads by content and title',
   // A real deleted host conversation must not survive as an unusable search hit.
   await send(`Water the ${WORD} beds at dawn.`, HISTORY_TITLE);
   await page.getByTestId('assistant-new-thread-button').click();
-  await expect(strip.getByRole('tab', { name: 'New Thread', selected: true })).toBeVisible();
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible();
   await withAppHost(electron.getUserDataDir(), async (client) => {
     const old = (await client.request('thread/list', {})).threads.find(
       (thread) => thread.title === HISTORY_TITLE
@@ -76,9 +76,7 @@ test('the Threads panel searches only usable host threads by content and title',
   const newThread = page.getByTestId('assistant-new-thread-button');
   await expect(newThread).toBeEnabled({ timeout: 15_000 });
   await newThread.click();
-  await expect(strip.getByRole('tab', { name: 'New Thread', selected: true })).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
   await send('Hello there.', TITLE_MATCH);
 
   await openThreadsPanel(page);
@@ -145,7 +143,7 @@ test('a committed decision and tool result are searchable and open their origina
   const strip = page.getByRole('tablist', { name: 'Open assistant threads' });
   await expect(strip.getByRole('tab', { name: title })).toHaveCount(1);
   await page.getByTestId('assistant-new-thread-button').click();
-  await expect(strip.getByRole('tab', { name: 'New Thread', selected: true })).toBeVisible();
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible();
   await openThreadsPanel(page);
   await page.getByRole('combobox', { name: 'Search threads' }).fill('Canary');
   // Neither the prompt nor the assistant's prose contains this answer.

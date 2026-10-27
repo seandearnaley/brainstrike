@@ -79,7 +79,7 @@ describe('resolveThreadPanelContentState', () => {
     },
     {
       expected: {
-        description: 'Create a new Mastra memory thread for this workspace.',
+        description: 'Send a message to start your first thread.',
         kind: 'card',
         testId: 'threads-placeholder-card',
         title: 'No threads found',

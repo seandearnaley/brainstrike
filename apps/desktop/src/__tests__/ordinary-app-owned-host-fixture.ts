@@ -12,6 +12,7 @@ import {
   encodeFileMentionId,
   serializeFileMentionDirective,
 } from '@brainstrike/assistant-contract';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import {
   joinProcessExit,
@@ -297,17 +298,6 @@ setInterval(() => {}, 1000);
       await ensureAssistantShellVisible(page);
       workspaceRootId = await addWorkspaceFolder(page, workspace);
       checkpoint('ordinary-assistant-visible');
-      // The startup thread is already open and visible; New Thread's own thread
-      // is the one that was not there before the click.
-      const threadsBeforeClick = new Set(
-        await page.evaluate(() =>
-          [...document.querySelectorAll('[data-testid^="assistant-thread-panel-"]')].map((panel) =>
-            panel.getAttribute('data-testid')?.slice('assistant-thread-panel-'.length)
-          )
-        )
-      );
-      await page.getByTestId('assistant-new-thread-button').click();
-      checkpoint('ordinary-new-thread-clicked');
       const record = decodeHostRecord(
         JSON.parse(await readFile(join(profile, 'host.json'), 'utf8'))
       );
@@ -318,54 +308,42 @@ setInterval(() => {}, 1000);
         owners.push({ kind: 'child', pid: record.pid, start });
       }
       client = await attachAgentHost(record);
-      let discoveredThreadId: string | undefined;
-      await expect
-        .poll(async () => {
-          const catalog = await client?.request('thread/list', {});
-          const candidate = catalog?.threads.at(-1)?.threadId;
-          // Visible means New Thread's createThread has made it the active tab;
-          // a raw draft write and reload before then is overwritten by that call.
-          if (
-            candidate &&
-            !threadsBeforeClick.has(candidate) &&
-            (await page.getByTestId(`assistant-thread-panel-${candidate}`).isVisible())
-          ) {
-            discoveredThreadId = candidate;
-            return true;
-          }
-          return false;
-        })
-        .toBe(true);
-      const threadId = discoveredThreadId;
-      if (!threadId) {
-        throw new Error('New Thread has no committed Root identity');
-      }
-      checkpoint('ordinary-new-thread-rendered');
+      // New creates nothing until its first send, so the thread this run drives
+      // is started through the host and opened as the active tab below.
+      const { threadId } = await client.request('thread/start', {
+        commandId: crypto.randomUUID(),
+      });
+      checkpoint('ordinary-thread-started');
       const mountedRootId = workspaceRootId;
       if (!mountedRootId) {
         throw new Error('The ordinary workspace has no mounted root');
       }
-      await page.evaluate((threadId) => {
-        const previous = JSON.parse(
-          localStorage.getItem('brainstrike-assistant-threads-v1') ?? '{"state":{},"version":4}'
-        ) as { state: Record<string, unknown>; version: number };
-        localStorage.setItem(
-          'brainstrike-assistant-threads-v1',
-          JSON.stringify({
-            ...previous,
-            state: {
-              ...previous.state,
-              draftRuntimeByThreadId: {
-                [threadId]: {
-                  model: 'anthropic/claude-sonnet-4.6',
-                  modelSettings: { maxOutputTokens: 733, temperature: 0.35 },
-                  provider: 'openrouter',
+      await page.evaluate(
+        ({ resourceId, threadId }) => {
+          const previous = JSON.parse(
+            localStorage.getItem('brainstrike-assistant-threads-v1') ?? '{"state":{},"version":4}'
+          ) as { state: Record<string, unknown>; version: number };
+          localStorage.setItem(
+            'brainstrike-assistant-threads-v1',
+            JSON.stringify({
+              ...previous,
+              state: {
+                ...previous.state,
+                activeThreadIdByResourceId: { [resourceId]: threadId },
+                draftRuntimeByThreadId: {
+                  [threadId]: {
+                    model: 'anthropic/claude-sonnet-4.6',
+                    modelSettings: { maxOutputTokens: 733, temperature: 0.35 },
+                    provider: 'openrouter',
+                  },
                 },
+                openThreadIdsByResourceId: { [resourceId]: [threadId] },
               },
-            },
-          })
-        );
-      }, threadId);
+            })
+          );
+        },
+        { resourceId: WORKSPACE_MEMORY_RESOURCE_ID, threadId }
+      );
       await page.reload();
       await ensureAssistantShellVisible(page);
       const panel = page.getByTestId(`assistant-thread-panel-${threadId}`);

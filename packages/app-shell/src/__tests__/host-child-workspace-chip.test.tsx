@@ -43,6 +43,7 @@ const host: AssistantThreadHostCapability = {
   listThreads: refused,
   ownsThread: refused,
   renameThread: refused,
+  renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
   renderThread: () => undefined,
   resolveChildThread: async (threadId) => {
     const found = tree.get(threadId);

@@ -138,7 +138,16 @@ async function activeThreadId(page: Page): Promise<string> {
  * "New thread here" must open a NEW thread created by the agent host: the
  * committed conversation renders it, never the legacy history panel.
  */
-async function expectNewCommittedThread(page: Page, previousThreadId: string): Promise<void> {
+/** The active thread, or null on the new-thread screen (a fresh profile has no thread). */
+async function currentThreadId(page: Page): Promise<string | null> {
+  const panel = page.locator(ACTIVE_THREAD_PANEL);
+  return (await panel.count()) === 1 ? await activeThreadId(page) : null;
+}
+
+async function expectNewCommittedThread(
+  page: Page,
+  previousThreadId: string | null
+): Promise<void> {
   await expect.poll(() => activeThreadId(page), { timeout: 30_000 }).not.toBe(previousThreadId);
   const panel = page.locator(ACTIVE_THREAD_PANEL);
   await expect(panel.getByTestId('assistant-conversation-panel')).toBeVisible({ timeout: 30_000 });
@@ -377,13 +386,12 @@ test.describe('Worktree Map (desktop)', () => {
 
     const newThread = externalCard.getByTestId('worktree-map-new-thread');
     await expect(newThread).toBeEnabled({ timeout: 30_000 });
-    const previousThreadId = await activeThreadId(page);
+    const previousThreadId = await currentThreadId(page);
     await newThread.click();
     await expectNewCommittedThread(page, previousThreadId);
-    // Two thread tabs are open at this point (the original "New Thread" plus
-    // the one just opened for the adopted worktree) and each carries its own
-    // mode chip, so the bare testid resolves to two elements — scope to the
-    // one that's actually visible (the newly active tab).
+    // Other thread tabs may be open beside the one just opened for the adopted
+    // worktree, each with its own mode chip — scope to the one that's actually
+    // visible (the newly active tab).
     await expect(
       page.getByTestId('workspace-bar-mode-chip').filter({ visible: true })
     ).toContainText(path.basename(worktree), { timeout: 90_000 });
@@ -426,7 +434,7 @@ test.describe('Worktree Map (desktop)', () => {
 
     const newThread = nestedCard.getByTestId('worktree-map-new-thread');
     await expect(newThread).toBeEnabled({ timeout: 30_000 });
-    const previousThreadId = await activeThreadId(page);
+    const previousThreadId = await currentThreadId(page);
     await newThread.click();
     await expectNewCommittedThread(page, previousThreadId);
     // The mount is the step the old rule refused; a bound mode chip proves
