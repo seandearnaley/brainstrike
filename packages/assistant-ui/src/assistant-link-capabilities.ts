@@ -11,10 +11,10 @@ export interface AssistantLinkOpenResult {
  * How the assistant panel asks its host to open a link.
  *
  * Named `openLink` rather than `openExternalLink` on purpose: the panel states
- * the INTENT ("open this"), and the host decides the destination. Today that is
- * the OS browser via the validated `shell.openExternal` bridge on desktop and
- * `window.open` on web. When the in-app browser pane ships, only the host
- * implementation changes — nothing in this package moves.
+ * the INTENT ("open this"), and the host decides the destination: the OS
+ * browser via the validated `shell.openExternal` bridge on desktop and
+ * `window.open` on web. A host with a browser of its own also offers
+ * `linkChoices`, and the panel then asks where a web link should go.
  *
  * The host also owns link POLICY (which protocols may open) and the single
  * visible failure, matching the seam idiom used by the workspace bar chips.
@@ -22,8 +22,24 @@ export interface AssistantLinkOpenResult {
  * that could drift from the one the main process actually enforces.
  */
 export interface AssistantLinkCapabilities {
+  /**
+   * Present when the host has a browser of its own. A link it `offers` then
+   * asks where to open: in that browser, in the default browser (`openLink`),
+   * or copied. Absent, every link goes straight to `openLink`.
+   */
+  readonly linkChoices?: AssistantLinkChoices | undefined;
   /** Open a link. Resolves `{ ok: false, error }` on refusal or failure — the host surfaces it. Must never reject. */
   readonly openLink: (url: string) => Promise<AssistantLinkOpenResult>;
+}
+
+/** The host's other destinations for a web link. Each surfaces its own outcome and never rejects. */
+export interface AssistantLinkChoices {
+  readonly copyLink: (url: string) => Promise<AssistantLinkOpenResult>;
+  /** Whether `url` can open in the host's browser; the host owns that policy. */
+  readonly offers: (url: string) => boolean;
+  /** Told when a link's menu opens and closes: it can drop over the host's browser pages. */
+  readonly onMenuOpenChange?: ((open: boolean) => void) | undefined;
+  readonly openInAppBrowser: (url: string) => Promise<AssistantLinkOpenResult>;
 }
 
 /** Consumed via the hook below; the provider component lives in its own module

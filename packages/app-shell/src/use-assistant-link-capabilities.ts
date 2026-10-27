@@ -2,45 +2,11 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { parseCanvasLink } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import type { AssistantLinkCapabilities } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
-import { createLogger } from '@brainstrike/logging';
-import { toast } from '@brainstrike/ui';
 import { useMemo } from 'react';
 import { openCanvasTab } from './canvas/open-canvas-tab';
+import { resolveLinkChoices } from './link-choices';
+import { reportLinkFailure } from './link-failure';
 import { type OpenLinkResult, openExternalLink } from './open-external-link';
-
-const MAX_TOASTED_URL_LENGTH = 120;
-const logger = createLogger('AssistantLinkCapabilities');
-
-/** Model-authored URLs are untrusted and can be arbitrarily long; a toast is
- * not the place to render one in full. */
-function truncate(url: string): string {
-  return url.length > MAX_TOASTED_URL_LENGTH ? `${url.slice(0, MAX_TOASTED_URL_LENGTH)}…` : url;
-}
-
-/**
- * Report a link failure to the user.
- *
- * Without this the click is indistinguishable from the bug being fixed:
- * something the user clicked, and nothing happened. The REASON matters too —
- * "unsupported protocol" and "the shell failed" call for different reactions,
- * and the URL alone distinguishes neither.
- */
-function reportFailure(result: OpenLinkResult, url: string): void {
-  try {
-    toast({
-      // Joined rather than interpolated: a sanitized-away href arrives here as
-      // '', and "<reason> — " with nothing after it reads like a rendering bug
-      // rather than an explanation.
-      description: [result.error, truncate(url)].filter(Boolean).join(' — '),
-      title: 'Could not open link',
-      variant: 'destructive',
-    });
-  } catch (error) {
-    // `openLink` promises never to reject, and that has to hold even when the
-    // only thing left to fail is the failure reporter itself.
-    logger.error('Failed to surface a link failure to the user', { error, url });
-  }
-}
 
 /**
  * `canvas://<canvasId>` opens IN the app: open/activate that canvas's own
@@ -74,23 +40,28 @@ function openCanvasLink(url: string): OpenLinkResult | null {
  *
  * The panel decides only that a link was activated; this decides where it goes
  * and is the ONE place a link failure becomes visible — the same division of
- * labour the workspace-bar chips use. Every http/https/mailto link goes to the
- * OS browser; `canvas://` links open the canvas's workspace tab in-app. When the
- * in-app browser pane ships, the routing choice belongs here, and
- * `packages/assistant-ui` does not change.
+ * labour the workspace-bar chips use. `openLink` sends http/https/mailto links
+ * to the OS browser and opens `canvas://` links in the canvas's workspace tab.
+ * With the built-in browser, a web link also offers that browser or the
+ * clipboard (`linkChoices`). Its menu can drop over a browser page in the
+ * workspace, so it reports opening and closing to `onMenuOpenChange`, the
+ * workspace's menu count, and the page hides while it is open.
  */
-export function useAssistantLinkCapabilitiesValue(): AssistantLinkCapabilities {
-  return useMemo<AssistantLinkCapabilities>(
-    () => ({
+export function useAssistantLinkCapabilitiesValue(
+  onMenuOpenChange?: (open: boolean) => void
+): AssistantLinkCapabilities {
+  return useMemo<AssistantLinkCapabilities>(() => {
+    const choices = resolveLinkChoices();
+    return {
+      linkChoices: choices ? { ...choices, onMenuOpenChange } : undefined,
       openLink: async (url: string): Promise<OpenLinkResult> => {
         const canvas = openCanvasLink(url);
         const result = canvas ?? (await openExternalLink(url));
         if (!result.ok) {
-          reportFailure(result, url);
+          reportLinkFailure('Could not open link', result, url);
         }
         return result;
       },
-    }),
-    []
-  );
+    };
+  }, [onMenuOpenChange]);
 }
