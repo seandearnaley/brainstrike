@@ -647,3 +647,25 @@
 .bs-agent-family-accent {
   background: var(--agent-accent);
 }
+
+/* Mermaid diagrams drawn by Pele (markdown-surface/mermaid-block.tsx). Pele
+   reads these variables at paint time, so a light, dark or high-contrast switch
+   restyles a drawn diagram without re-rendering it. `.pele` also marks the
+   error Pele shows in place of a diagram it cannot draw. */
+.pele {
+  --pele-bg: hsl(var(--background));
+  --pele-fg: hsl(var(--foreground));
+  --pele-muted: hsl(var(--muted-foreground));
+  --pele-line: hsl(var(--foreground));
+  --pele-surface: hsl(var(--muted));
+  --pele-surface-alt: hsl(var(--accent));
+  --pele-border: hsl(var(--muted-foreground));
+  --pele-accent: hsl(var(--primary));
+  --pele-critical: hsl(var(--destructive));
+  --pele-error: hsl(var(--destructive));
+  --pele-series-1: hsl(var(--chart-1));
+  --pele-series-2: hsl(var(--chart-2));
+  --pele-series-3: hsl(var(--chart-3));
+  --pele-series-4: hsl(var(--chart-4));
+  --pele-series-5: hsl(var(--chart-5));
+}
