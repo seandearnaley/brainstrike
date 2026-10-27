@@ -56,7 +56,7 @@ import {
   X,
 } from 'lucide-react';
 import type { KeyboardEvent, ReactElement, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   type AssistantThreadHostCapability,
@@ -1492,12 +1492,15 @@ function ThreadsPanelToolbar({
   readonly treeOnScreen: boolean;
 }): ReactElement {
   const visibleThreadCount = selection.visibleRows.visibleThreadIds.length;
+  const selectToggleRef = useRef<HTMLButtonElement>(null);
   const exitSelectionOnEscape = (event: KeyboardEvent<HTMLButtonElement>): void => {
     if (event.defaultPrevented || event.key !== 'Escape' || !selection.selecting) {
       return;
     }
     event.preventDefault();
     selection.setSelecting(false);
+    // Leaving selection mode unmounts the select-visible button; keep focus in the toolbar.
+    selectToggleRef.current?.focus();
   };
   // One header row: it carries the live visible count and the select-visible
   // toggle too, so no band under the search field holds them.
@@ -1549,6 +1552,7 @@ function ThreadsPanelToolbar({
             data-testid="threads-select-toggle"
             onClick={() => selection.setSelecting(!selection.selecting)}
             onKeyDown={exitSelectionOnEscape}
+            ref={selectToggleRef}
             size="icon-xs"
             title={selection.selecting ? 'Done selecting' : 'Select threads'}
             type="button"

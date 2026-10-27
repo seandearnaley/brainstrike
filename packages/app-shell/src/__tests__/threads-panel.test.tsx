@@ -942,12 +942,13 @@ describe('ThreadsPanel', () => {
       '50 selected'
     );
 
-    fireEvent.keyDown(screen.getByRole('button', { name: 'Clear 50 visible threads' }), {
-      key: 'Escape',
-    });
+    const clearVisible = screen.getByRole('button', { name: 'Clear 50 visible threads' });
+    clearVisible.focus();
+    fireEvent.keyDown(clearVisible, { key: 'Escape' });
     expect(
       screen.queryByRole('toolbar', { name: 'Thread selection actions' })
     ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select threads' })).toHaveFocus();
   });
 
   it('offers staged bulk color and delete actions while retaining selection on failure', async () => {
