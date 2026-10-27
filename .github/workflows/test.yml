@@ -1073,10 +1073,10 @@ jobs:
     runs-on: ubicloud-standard-4
     timeout-minutes: 25
     # Playwright splits the lane across three runners (--shard); fail-fast stays
-    # off so every part reports. Playwright balances shards by test count, not
-    # time, and this lane's slow cases sit late in file order: on two runners
-    # run 40083132273 took 101 s and 136 s; three split the same cases into
-    # about 77, 83 and 77 s.
+    # off so every part reports. Shards take whole files by test count, not
+    # time (apps/desktop/e2e/file-shards.ts). This lane's slow cases sit late in
+    # file order: two test-count shards took 101 s and 136 s (run 40083132273);
+    # three split the same cases into about 77, 83 and 77 s.
     strategy:
       fail-fast: false
       matrix:
