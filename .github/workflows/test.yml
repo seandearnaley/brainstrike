@@ -1054,8 +1054,6 @@ jobs:
   # 337 s for every other spec, so each lane gets its own runner and 900 s
   # ceiling. The required `Desktop E2E` check is the fan-in after them, so the
   # ruleset is unchanged.
-  # Lane spec lists and this job graph are pinned by
-  # scripts/__tests__/ai-tools-e2e-pr-gate-contract.test.mjs.
   desktop-e2e-smoke:
     name: Desktop E2E (smoke)
     if: >-
@@ -1076,7 +1074,9 @@ jobs:
     # off so every part reports. Shards take whole files by test count, not
     # time (apps/desktop/e2e/file-shards.ts). This lane's slow cases sit late in
     # file order: two test-count shards took 101 s and 136 s (run 40083132273);
-    # three split the same cases into about 77, 83 and 77 s.
+    # three split the same cases into about 77, 83 and 77 s. Each shard runs two
+    # tests at once on the runner's 4 vCPUs (the GitHub Actions worker count in
+    # packages/config/src/playwright-environment.ts), as the regression shards do.
     strategy:
       fail-fast: false
       matrix:
@@ -1162,6 +1162,7 @@ jobs:
     # (runs 40084219035 and 40085006964: one shard each ran all its tests 1.3x
     # and 1.7x slower, so 83 s became 112 s and 144 s). Three runners give each
     # about 5 tests (~60 s) instead of 7 or 8 (~85 s), so a slow one costs less.
+    # Each shard runs two of its tests at once, like the smoke lane.
     strategy:
       fail-fast: false
       matrix:
