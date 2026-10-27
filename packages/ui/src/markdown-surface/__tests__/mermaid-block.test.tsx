@@ -1,60 +1,23 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const renderMock = vi.hoisted(() => vi.fn());
-const initializeMock = vi.hoisted(() => vi.fn());
-vi.mock('mermaid', () => ({
-  default: { initialize: initializeMock, render: renderMock },
-}));
-
+import { describe, expect, it } from 'vitest';
 import { MermaidBlock } from '../mermaid-block';
 
 describe('MermaidBlock', () => {
-  beforeEach(() => {
-    renderMock.mockReset();
-    initializeMock.mockReset();
-  });
-
-  it('renders the diagram svg on success', async () => {
-    renderMock.mockResolvedValue({ svg: '<svg data-diagram="ok"></svg>' });
-    render(<MermaidBlock code="graph TD; a-->b;" />);
+  it('draws the diagram as svg', async () => {
+    render(<MermaidBlock code={'flowchart LR\n  A[Draft] --> B[Published]'} />);
     await waitFor(() => {
-      expect(screen.getByTestId('mermaid-diagram').innerHTML).toContain('data-diagram="ok"');
+      expect(screen.getByTestId('mermaid-diagram').querySelector('svg')).not.toBeNull();
     });
-    expect(initializeMock).toHaveBeenCalledWith({
-      layout: 'dagre',
-      look: 'classic',
-      securityLevel: 'strict',
-      startOnLoad: false,
-      theme: 'default',
-    });
+    expect(screen.getByTestId('mermaid-diagram')).toHaveTextContent('Published');
   });
 
-  it('shows the error AND the fenced source on parse failure', async () => {
-    renderMock.mockRejectedValue(new Error('Parse error on line 1'));
+  it('shows why a malformed diagram cannot be drawn, with the offending line', async () => {
     render(<MermaidBlock code="graph TD; a-->" />);
     await waitFor(() => {
-      expect(screen.getByTestId('mermaid-error')).toHaveTextContent('Parse error on line 1');
+      expect(screen.getByTestId('mermaid-diagram')).toHaveTextContent('Parse error on line 1');
     });
-    expect(screen.getByText('graph TD; a-->')).toBeInTheDocument();
-  });
-
-  it('passes mermaid a CSS-selector-safe render id', async () => {
-    // mermaid/d3 query-select `#<id>` internally; React 19's useId emits '«»'
-    // (React 18 used ':'), which throws in querySelector unless stripped.
-    renderMock.mockResolvedValue({ svg: '<svg></svg>' });
-    render(<MermaidBlock code="graph TD; a-->b;" />);
-    await waitFor(() => {
-      expect(renderMock).toHaveBeenCalled();
-    });
-    const id = renderMock.mock.calls[0]?.[0] as string;
-    expect(id).toMatch(/^[A-Za-z][A-Za-z0-9_-]*$/);
-    expect(() => document.querySelector(`#${id}`)).not.toThrow();
-  });
-
-  it('shows a loading state before render resolves', () => {
-    renderMock.mockReturnValue(new Promise(() => undefined));
-    render(<MermaidBlock code="graph TD; a-->b;" />);
-    expect(screen.getByText(/rendering diagram/i)).toBeInTheDocument();
+    const host = screen.getByTestId('mermaid-diagram');
+    expect(host.querySelector('svg')).toBeNull();
+    expect(host.textContent).toContain('graph TD; a-->');
   });
 });

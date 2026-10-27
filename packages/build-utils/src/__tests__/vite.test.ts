@@ -101,7 +101,7 @@ describe('assistant vite helpers', () => {
     expect(entries).toEqual(
       expect.arrayContaining([
         '@brainstrike/ui > @codemirror/view',
-        '@brainstrike/ui > mermaid',
+        '@brainstrike/ui > pele/lazy',
         '@brainstrike/utils > ignore',
         '@brainstrike/settings-ui > @tanstack/react-table',
         'zustand/vanilla',
