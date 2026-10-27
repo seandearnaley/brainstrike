@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -15,18 +14,21 @@ const PROMPT_TEXT = 'Find relevant context';
 // new thread runs on the agent host, so these cards come from a real context
 // tool the host runs: reading a workspace file, scripted at the provider.
 const TOOL = 'brainstrike.readWorkspaceFile';
-const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-assistant-retrieval-'));
-writeFileSync(join(workspace, 'context.txt'), 'const answer = 42;\n');
-// A missing file is the model's to correct (BST-1996); an unreadable one is a
-// genuine filesystem fault, which the tool guard keeps redacted.
-const unreadable = join(workspace, 'unreadable.txt');
-writeFileSync(unreadable, 'private\n');
-makeUnreadable(unreadable);
 
-test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace } });
-test.afterAll(() => {
-  rmSync(workspace, { force: true, recursive: true });
-});
+/**
+ * Seeds the files into the test's own workspace, the folder the harness mounts
+ * and removes after the app closes. A module-level folder removed in `afterAll`
+ * was gone when the same worker ran this file's next test: under fullyParallel
+ * the hook runs after every test (queue run 40594815061).
+ */
+function seedWorkspace(workspace: string): void {
+  writeFileSync(join(workspace, 'context.txt'), 'const answer = 42;\n');
+  // A missing file is the model's to correct (BST-1996); an unreadable one is a
+  // genuine filesystem fault, which the tool guard keeps redacted.
+  const unreadable = join(workspace, 'unreadable.txt');
+  writeFileSync(unreadable, 'private\n');
+  makeUnreadable(unreadable);
+}
 
 async function openAssistantChat(window: Page): Promise<void> {
   const assistantChatCard = await ensureAssistantShellVisible(window);
@@ -72,7 +74,8 @@ function scriptContextRead(modelProvider: ModelProviderShim, path: string, answe
 }
 
 test.describe('Assistant retrieval (desktop)', () => {
-  test.beforeEach(async ({ window }) => {
+  test.beforeEach(async ({ electron, window }) => {
+    seedWorkspace(electron.getWorkspaceRoot());
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window);
   });
