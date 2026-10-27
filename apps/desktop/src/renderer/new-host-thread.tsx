@@ -12,6 +12,7 @@ import {
   type CommittedAssistantCommands,
   CommittedAssistantConversation,
   type CommittedAssistantLogSource,
+  type CommittedAssistantLogSourceSnapshot,
   CommittedAssistantLogStore,
 } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -34,12 +35,48 @@ import {
 } from './use-desktop-host-presentation';
 import type { HostThreadSelectionBinding } from './use-host-thread-selection';
 
-/** A thread that does not exist yet has no committed rows to show. */
-const NO_ROWS: CommittedAssistantLogSource = {
-  getSnapshot: () => NO_ROWS_SNAPSHOT,
-  subscribe: () => () => undefined,
-};
-const NO_ROWS_SNAPSHOT = { connected: true, error: undefined, isLoading: false, rows: [] };
+/**
+ * A thread that does not exist yet has no committed rows to show; it is
+ * connected while the host client it would be created through is open, so a
+ * lost host offers Reconnect as an existing thread does.
+ */
+class NewThreadSource implements CommittedAssistantLogSource {
+  private client: HostClient | undefined;
+  private readonly listeners = new Set<() => void>();
+  private snapshot: CommittedAssistantLogSourceSnapshot = {
+    connected: true,
+    error: undefined,
+    isLoading: false,
+    rows: [],
+  };
+  readonly getSnapshot = (): CommittedAssistantLogSourceSnapshot => this.snapshot;
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+  follow(client: HostClient): void {
+    if (client === this.client) {
+      return;
+    }
+    this.client = client;
+    this.publish(true);
+    const closed = (): void => {
+      if (this.client === client) {
+        this.publish(false);
+      }
+    };
+    client.closed.then(closed, closed);
+  }
+  private publish(connected: boolean): void {
+    if (connected === this.snapshot.connected) {
+      return;
+    }
+    this.snapshot = { ...this.snapshot, connected };
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+}
 
 /** ADR-0019: the composer's pick, held until the first send commits it as the thread's selection. */
 function useNewThreadSelection(): HostThreadSelectionBinding {
@@ -85,16 +122,18 @@ export function NewHostThread({
   useLayoutEffect(() => {
     settings.current = { readConfiguration, readModelId, readPlanMode, selection };
   }, [readConfiguration, readModelId, readPlanMode, selection]);
+  const [source] = useState(() => new NewThreadSource());
   const [store] = useState(
     () =>
       new CommittedAssistantLogStore({
         identifyRun: () => {
           throw new Error('A new thread has no committed runs.');
         },
-        source: NO_ROWS,
+        source,
         threadId,
       })
   );
+  useEffect(() => source.follow(client), [client, source]);
   useEffect(() => () => store.dispose(), [store]);
   const commands = useMemo<CommittedAssistantCommands>(() => {
     if (!host) {

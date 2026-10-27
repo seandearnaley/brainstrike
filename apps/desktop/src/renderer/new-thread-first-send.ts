@@ -54,7 +54,15 @@ export async function sendNewThreadFirstMessage(
   send: NewThreadFirstSend,
   message: AppendMessage
 ): Promise<void> {
-  const thread = await send.host.createThread(send.resourceId);
+  let thread: AssistantMemoryThread;
+  try {
+    thread = await send.host.createThread(send.resourceId);
+  } catch (cause) {
+    // Nothing ran, so the composer keeps the message.
+    throw isMessageNotSentError(cause)
+      ? cause
+      : new MessageNotSentError(describeBoundaryError(cause));
+  }
   let dispatched = false;
   try {
     await send.bind(thread.id);

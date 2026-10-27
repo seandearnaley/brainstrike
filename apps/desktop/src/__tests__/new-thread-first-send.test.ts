@@ -109,6 +109,22 @@ describe('the new thread’s first send', () => {
     expect(send.commit).not.toHaveBeenCalled();
   });
 
+  it('gives the composer its message back when the thread cannot be created', async () => {
+    const { send, steps } = scripted();
+    vi.mocked(send.host.createThread).mockRejectedValueOnce(
+      refusalError('availability', 'host.unavailable', 'The agent host is unavailable.')
+    );
+
+    const refused = await sendNewThreadFirstMessage(send, message('Hello')).catch(
+      (cause: unknown) => cause
+    );
+
+    expect(isMessageNotSentError(refused)).toBe(true);
+    expect((refused as Error).message).toContain('The agent host is unavailable.');
+    expect(steps).toEqual([]);
+    expect(send.commit).not.toHaveBeenCalled();
+  });
+
   it('removes the thread when its folder cannot be bound, before any run starts', async () => {
     const { send, steps } = scripted();
     vi.mocked(send.bind).mockRejectedValueOnce(
