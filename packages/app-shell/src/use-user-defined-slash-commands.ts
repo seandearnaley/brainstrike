@@ -1,3 +1,4 @@
+import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import {
   expandUserCommandTemplate,
   extractUserCommandArgString,
@@ -115,7 +116,9 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
   const generationRef = useRef(0);
 
   const reload = useCallback(() => {
-    if (!discovery) {
+    // Factory reset preparation is terminal for this renderer: its replacement
+    // loads the list, so this one starts no load once preparation began.
+    if (!discovery || hasFactoryResetPreparationStarted()) {
       return () => {
         // no-op cleanup when no host scans commands (web)
       };
@@ -130,7 +133,10 @@ export function useUserDefinedSlashCommands(threadId: string | undefined): reado
         }
       })
       .catch((error: unknown) => {
-        logger.error('Failed to load user-defined slash commands', { error });
+        // The reset stops the host under a load it overtook (ADR-0015).
+        if (!hasFactoryResetPreparationStarted()) {
+          logger.error('Failed to load user-defined slash commands', { error });
+        }
       });
     return () => {
       generationRef.current += 1;

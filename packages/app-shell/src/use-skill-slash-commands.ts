@@ -15,6 +15,7 @@
  * empties the menu entirely.
  */
 
+import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import { useSkillsPreferencesStore } from '@brainstrike/app-state/stores/skills-preferences-store';
 import {
   type SkillScanEntrySummary,
@@ -116,7 +117,9 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
   const generationRef = useRef(0);
 
   const reload = useCallback(() => {
-    if (!discovery) {
+    // Factory reset preparation is terminal for this renderer: its replacement
+    // loads the list, so this one starts no load once preparation began.
+    if (!discovery || hasFactoryResetPreparationStarted()) {
       return () => {
         // no-op cleanup when no host scans skills (web)
       };
@@ -131,7 +134,10 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
         }
       })
       .catch((error: unknown) => {
-        logger.error('Failed to load skills for the slash menu', { error });
+        // The reset stops the host under a load it overtook (ADR-0015).
+        if (!hasFactoryResetPreparationStarted()) {
+          logger.error('Failed to load skills for the slash menu', { error });
+        }
       });
     return () => {
       generationRef.current += 1;
