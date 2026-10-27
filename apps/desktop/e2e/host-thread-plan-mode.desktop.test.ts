@@ -54,7 +54,7 @@ test('approving a plan in plan mode continues into a follow-up run that edits', 
   const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
   const input = panel.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
-  const toggle = panel.getByRole('button', { name: 'Toggle plan mode' });
+  const toggle = panel.getByRole('button', { name: 'Plan mode' });
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await input.fill('Plan, then write planned.txt.');

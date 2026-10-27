@@ -415,20 +415,20 @@ export const FolderChip = ({
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={accessibleName}
-        className="inline-flex h-6 max-w-64 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted data-[state=open]:text-foreground"
+        className="bs-composer-chip"
         data-testid="workspace-bar-folder-chip"
         {...(primaryRoot?.path ? { title: primaryRoot.path } : {})}
       >
         {primaryRoot?.removed ? (
-          <FolderX aria-hidden="true" className="size-3 shrink-0 text-destructive" />
+          <FolderX aria-hidden="true" className="text-destructive" />
         ) : (
-          <Folder aria-hidden="true" className="size-3 shrink-0" />
+          <Folder aria-hidden="true" />
         )}
-        <span className="truncate">{label}</span>
+        <span className="bs-composer-chip-label">{label}</span>
         {secondaryCount > 0 ? (
-          <span className="shrink-0 tabular-nums opacity-80">{`+${secondaryCount}`}</span>
+          <span className="bs-composer-chip-badge">{`+${secondaryCount}`}</span>
         ) : null}
-        <ChevronDown aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+        <ChevronDown aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
         {primaryRoot || secondaryRoots.length > 0 ? (

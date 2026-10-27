@@ -52,6 +52,23 @@ const picker = (
 });
 
 describe('WorktreePickerDialog', () => {
+  it('narrows a long inventory by name, branch or path words', async () => {
+    const user = setup();
+    const options = [
+      option('alpha'),
+      option('beta', { branch: 'feature/search-ui' }),
+      option('gamma', { path: '/elsewhere/search-ui-copy' }),
+    ];
+    render(<WorktreePickerDialog picker={picker({ options })} />);
+    await user.type(screen.getByRole('searchbox', { name: 'Filter worktrees' }), 'search ui');
+    expect(screen.queryByTestId('worktree-picker-row-worktree-alpha')).toBeNull();
+    expect(screen.getByTestId('worktree-picker-row-worktree-beta')).toBeVisible();
+    expect(screen.getByTestId('worktree-picker-row-worktree-gamma')).toBeVisible();
+    await user.clear(screen.getByRole('searchbox', { name: 'Filter worktrees' }));
+    await user.type(screen.getByRole('searchbox', { name: 'Filter worktrees' }), 'nothing');
+    expect(screen.getByRole('status')).toHaveTextContent('No worktrees match “nothing”.');
+  });
+
   it('renders every supplied worktree, including unusable options', () => {
     const options = [
       option('local'),

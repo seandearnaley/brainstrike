@@ -68,7 +68,7 @@ import {
   type OmMeterState,
   ThreadContextMeter,
 } from './context-usage-meter';
-import { ComposerRunControls, FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
+import { FollowUpQueueBridge, FollowUpQueueChips } from './follow-up-queue';
 import { RunLifecycleNotificationBridge } from './run-lifecycle-notifications';
 import { RunVerdictControl } from './run-verdict-control';
 import { RunningStateBridge } from './running-state-bridge';
@@ -397,22 +397,24 @@ export const ChatThreadUI = ({
             `disabledReason` keeps its place above the transcript, where
             native scroll anchoring holds a parked reader still. */}
                     <CapabilityNotice text={capabilityNotice} />
-                    {/* Composer workspace bar (folder · branch) — an app-shell-rendered
-            SLOT, a SIBLING at the top of the composer stack (never nested
-            inside ThreadContextMeter, which is being reworked separately).
-            app-shell renders the bar host; assistant-ui stays store-free. */}
-                    {workspaceBar ?? null}
-                    <ThreadContextMeter
-                      contextWindow={contextWindow}
-                      cumulativeUsage={cumulativeUsage}
-                      effectiveInputBudget={effectiveInputBudget}
-                      omSegment={omSegment}
-                      threadKey={threadKey}
-                    />
+                    {/* The composer toolbar: one line of workspace orientation
+            (folder · branch · worktree, an app-shell-rendered slot so
+            assistant-ui stays store-free) balanced by the context ring on
+            the far right. */}
+                    <div className="bs-composer-toolbar" data-testid="assistant-composer-toolbar">
+                      {workspaceBar ?? null}
+                      <ThreadContextMeter
+                        contextWindow={contextWindow}
+                        cumulativeUsage={cumulativeUsage}
+                        effectiveInputBudget={effectiveInputBudget}
+                        omSegment={omSegment}
+                        threadKey={threadKey}
+                      />
+                    </div>
                     {/* Last-24h budget burn-down + over-cap send notice (owned module,
             budget-guardrail-control.tsx); renders nothing without a binding. */}
                     <BudgetGuardrailControl />
-                    <FollowUpQueueChips threadKey={threadKey} />
+                    <FollowUpQueueChips onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
                     <ApprovalQueueStrip key={threadKey} />
                     {approvalStrip ?? null}
                     <ComposerPrimitive.Root
@@ -431,12 +433,8 @@ export const ChatThreadUI = ({
                       <ComposerInputWithTriggers
                         hideDefaultCancel={hideDefaultCancel}
                         isComposerDisabled={composerDisabled}
-                        queueControl={
-                          <ComposerRunControls
-                            onSteerActiveRun={onSteerActiveRun}
-                            threadKey={threadKey}
-                          />
-                        }
+                        onSteerActiveRun={onSteerActiveRun}
+                        threadKey={threadKey}
                         {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
                         {...(planMode ? { planMode } : {})}
                         {...(hasSlashCommands
@@ -450,21 +448,33 @@ export const ChatThreadUI = ({
                               ),
                             }
                           : {})}
+                        {...(hasGroupedProviders
+                          ? {
+                              footerEnd: (
+                                <ControlsMenu
+                                  modelName={modelIdFromCompositeKey(selectedModel)}
+                                  onProviderSettingsChange={onProviderSettingsChange}
+                                  providerSettings={providerSettings}
+                                  selectedProvider={selectedProvider}
+                                  toolMenu={toolMenu}
+                                />
+                              ),
+                              footerStart: (
+                                <ProviderModelControls
+                                  groups={providerGroups}
+                                  onEnableModel={onEnableModel}
+                                  onModelChange={onModelChange}
+                                  onProviderSettingsChange={onProviderSettingsChange}
+                                  pickerModels={pickerModels}
+                                  providerSettings={providerSettings}
+                                  recentModels={recentModels}
+                                  selectedModel={selectedModel}
+                                  selectedProvider={selectedProvider}
+                                />
+                              ),
+                            }
+                          : {})}
                       />
-                      {hasGroupedProviders && (
-                        <ProviderModelHeader
-                          groups={providerGroups}
-                          onEnableModel={onEnableModel}
-                          onModelChange={onModelChange}
-                          onProviderSettingsChange={onProviderSettingsChange}
-                          pickerModels={pickerModels}
-                          providerSettings={providerSettings}
-                          recentModels={recentModels}
-                          selectedModel={selectedModel}
-                          selectedProvider={selectedProvider}
-                          toolMenu={toolMenu}
-                        />
-                      )}
                     </ComposerPrimitive.Root>
                   </div>
                 </ThreadBody>
@@ -543,7 +553,7 @@ const AssistantMessage = () => {
   );
 };
 
-interface ProviderModelHeaderProps {
+interface ProviderModelControlsProps {
   groups: ProviderGroupConfig[];
   onEnableModel?: ((providerId: string, modelId: string) => Promise<boolean>) | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
@@ -555,10 +565,10 @@ interface ProviderModelHeaderProps {
   recentModels?: readonly string[] | undefined;
   selectedModel?: string | undefined;
   selectedProvider?: string | undefined;
-  toolMenu?: AssistantToolMenuConfig | undefined;
 }
 
-const ProviderModelHeader = ({
+/** The model menu and, beside it, the always-visible reasoning readout. */
+const ProviderModelControls = ({
   groups,
   onEnableModel,
   pickerModels,
@@ -568,47 +578,29 @@ const ProviderModelHeader = ({
   selectedProvider,
   selectedModel,
   onModelChange,
-  toolMenu,
-}: ProviderModelHeaderProps) => {
-  // Bare model id for the Output & Limits menu (display/model-scoped
-  // constraints only — selection itself stays composite end-to-end).
-  const modelName = modelIdFromCompositeKey(selectedModel);
-
-  return (
-    <div className="bs-composer-control-dock" data-testid="assistant-composer-controls">
-      <div className="bs-composer-primary-controls">
-        <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
-          <ComposerModelPicker
-            onEnableModel={onEnableModel}
-            onModelChange={onModelChange}
-            pickerModels={pickerModels}
-            providerGroups={groups}
-            recentModels={recentModels}
-            selectedModel={selectedModel}
-          />
-        </div>
-        {/* Always-visible reasoning readout/control — one click, never nested
-            inside the model menu (BST-948). Renders nothing for models
-            without reasoning controls. */}
-        <ComposerEffortControl
-          onProviderSettingsChange={onProviderSettingsChange}
-          providerSettings={providerSettings}
-          selectedModel={selectedModel}
-          selectedProvider={selectedProvider}
-        />
-        <div className="bs-composer-controls-slot">
-          <ControlsMenu
-            modelName={modelName}
-            onProviderSettingsChange={onProviderSettingsChange}
-            providerSettings={providerSettings}
-            selectedProvider={selectedProvider}
-            toolMenu={toolMenu}
-          />
-        </div>
-      </div>
+}: ProviderModelControlsProps) => (
+  <>
+    <div className="bs-composer-model-slot" data-testid="assistant-model-dropdown">
+      <ComposerModelPicker
+        onEnableModel={onEnableModel}
+        onModelChange={onModelChange}
+        pickerModels={pickerModels}
+        providerGroups={groups}
+        recentModels={recentModels}
+        selectedModel={selectedModel}
+      />
     </div>
-  );
-};
+    {/* Always-visible reasoning readout/control — one click, never nested
+        inside the model menu (BST-948). Renders nothing for models without
+        reasoning controls. */}
+    <ComposerEffortControl
+      onProviderSettingsChange={onProviderSettingsChange}
+      providerSettings={providerSettings}
+      selectedModel={selectedModel}
+      selectedProvider={selectedProvider}
+    />
+  </>
+);
 
 export { ProviderSettingsPanel } from './provider-settings-panel';
 /** Re-exported at their original home so consumers/tests keep one import path. */
