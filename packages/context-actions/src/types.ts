@@ -155,6 +155,12 @@ export interface ClipboardService {
   writeText: (text: string) => Promise<ActionOutcome>;
 }
 
+/** The system clipboard: text for actions, plus images for surfaces that copy them. */
+export interface SystemClipboard extends ClipboardService {
+  /** Copies a PNG; the promise lets a caller start the write before it finishes drawing. */
+  writeImage: (png: Promise<Blob>) => Promise<ActionOutcome>;
+}
+
 export interface PlatformFsService {
   openPath: (absolutePath: string) => Promise<ActionOutcome>;
   showItemInFolder: (absolutePath: string) => Promise<ActionOutcome>;
