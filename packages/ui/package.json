@@ -1,5 +1,5 @@
 {
-  "//": "Keep the KaTeX stylesheet and shared Markdown/Mermaid renderers on 0.19.0 together: 0.18 renamed internal CSS classes. Parent-scoped overrides qualify the older Mermaid/rehype/micromark/CLI ranges; dependency and browser tests protect CSS parity and the trust-bypass fix (GHSA-238p-pmpm-9mq7).",
+  "//": "Keep the KaTeX stylesheet, the shared Markdown renderers and diagram math (typeset with this katex) on 0.19.0 together: 0.18 renamed internal CSS classes. Parent-scoped overrides qualify the older rehype/micromark/CLI ranges; dependency and browser tests protect CSS parity and the trust-bypass fix (GHSA-238p-pmpm-9mq7).",
   "name": "@brainstrike/ui",
   "description": "UI component library with Shadcn UI components",
   "version": "1.0.0",
@@ -42,7 +42,7 @@
     "cmdk": "^1.1.1",
     "katex": "^0.19.0",
     "lucide-react": "catalog:",
-    "mermaid": "catalog:",
+    "pele": "catalog:",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "catalog:",
     "react-shiki": "catalog:",
