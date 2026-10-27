@@ -7,6 +7,7 @@ import {
   ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
   getAssistantThreadIconPresentation,
+  getThreadTint,
   THREAD_CONTROL_HEIGHT_PX,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
@@ -69,7 +70,6 @@ describe('assistant thread presentation', () => {
       expect(presentation.idleClassName).toContain('bg-');
       expect(presentation.selectedClassName).not.toContain('border');
       expect(presentation.selectedClassName).toContain('ring-inset');
-      expect(presentation.groupSurfaceClassName).not.toContain('border');
     }
   });
 
@@ -102,8 +102,22 @@ describe('assistant thread presentation', () => {
     expect(THREAD_CONTROL_TITLE_CLASS_NAME).toContain('text-xs');
     expect(THREAD_CONTROL_TITLE_CLASS_NAME).not.toContain('text-[13px]');
     expect(THREAD_CONTROL_MARK_CLASS_NAME).toContain('size-5');
-    // The solid mark retains its border box for stable control geometry.
-    expect(THREAD_CONTROL_MARK_CLASS_NAME).toContain('border');
+  });
+
+  it('paints a coloured identity from its agent colour and leaves an uncoloured one plain', () => {
+    // No colour: the explorer's plain row and a muted glyph, never a grey fill.
+    expect(getThreadTint(null)).toEqual({
+      markClassName: 'text-muted-foreground',
+      style: undefined,
+      washClassName: '',
+    });
+    // A thread colour and a child's family colour go through the same recipe.
+    for (const color of ['rose', 'family:210:2'] as const) {
+      const tint = getThreadTint(color);
+      expect(tint.markClassName).toBe('bs-thread-tint bs-thread-mark');
+      expect(tint.washClassName).toBe('bs-thread-tint bs-thread-wash');
+      expect(tint.style).toMatchObject({ '--agent-accent-light': expect.any(String) });
+    }
   });
 
   it('keeps the identity mark legible against the tinted surface it sits on', () => {

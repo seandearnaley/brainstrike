@@ -30,6 +30,8 @@ export interface AssistantThreadHostRun {
   readonly completedAt: Date | null;
   /** The run is waiting on its user: an approval, question or plan is unanswered. */
   readonly needsInput: boolean;
+  /** The committed start time; null when the host recorded none. */
+  readonly startedAt: Date | null;
   readonly status: Exclude<AssistantThreadRunStatus, 'cancelling'>;
 }
 

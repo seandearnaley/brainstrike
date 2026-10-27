@@ -459,21 +459,27 @@ describe("a thread's latest root run", () => {
       completedAt: null,
       needsInput: false,
       seq: open.findLast((row) => row.event.type === 'interaction.responded')?.seq,
+      startedAt: null,
       status: 'running',
     });
     expect(latest(untimed)).toEqual({
       completedAt: null,
       needsInput: false,
       seq: untimed[indexOf(untimed, 'run.finished')]?.seq,
+      startedAt: null,
       status: 'completed',
     });
   });
-  test('the latest of several runs decides; its finish time is the committed row time', () => {
+  test('the latest of several runs decides; its start and finish are committed row times', () => {
     const second = rows.findLastIndex((row) => row.event.type === 'run.started');
-    expect(latest(rows.slice(0, second + 1))?.status).toBe('running');
+    expect(latest(rows.slice(0, second + 1))).toMatchObject({
+      startedAt: rows[second]?.ts,
+      status: 'running',
+    });
     expect(latest(finishedAs('failed', rows))).toMatchObject({
       completedAt: BASE,
       needsInput: false,
+      startedAt: rows[second]?.ts,
       status: 'failed',
     });
   });

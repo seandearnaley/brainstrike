@@ -18,6 +18,8 @@ export const HostLatestRunSchema = Schema.Struct({
   completedAt: Schema.NullOr(CommitTime),
   needsInput: Schema.Boolean,
   seq: Seq,
+  /** When the run started: the thread's latest conversation activity while it runs. */
+  startedAt: Schema.NullOr(CommitTime),
   status: LedgerRunStatus,
 });
 export type HostLatestRun = (typeof HostLatestRunSchema)['Type'];

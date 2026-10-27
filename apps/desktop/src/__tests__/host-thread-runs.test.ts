@@ -69,11 +69,15 @@ class Source implements CommittedHostRunSource {
 test("Core's latest run reads as the thread badge's run, its finish time a date", () => {
   const runs = new HostThreadRuns();
   runs.seed([
-    [threadId, { completedAt: committedAt, needsInput: false, seq: 9, status: 'failed' }],
+    [
+      threadId,
+      { completedAt: committedAt, needsInput: false, seq: 9, startedAt: 1, status: 'failed' },
+    ],
   ]);
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: new Date(committedAt),
     needsInput: false,
+    startedAt: new Date(1),
     status: 'failed',
   });
 });
@@ -86,12 +90,30 @@ test('an older catalog read never replaces a newer observed run state', () => {
   const finishedSeq = approved[indexOf(approved, 'run.finished')]?.seq ?? 0;
   // A catalog read taken before the run finished.
   runs.seed([
-    [threadId, { completedAt: null, needsInput: true, seq: finishedSeq - 1, status: 'running' }],
+    [
+      threadId,
+      {
+        completedAt: null,
+        needsInput: true,
+        seq: finishedSeq - 1,
+        startedAt: null,
+        status: 'running',
+      },
+    ],
   ]);
   expect(runs.getSnapshot()).toBe(finished);
   // A later read wins: the thread's next run started after the view's last row.
   runs.seed([
-    [threadId, { completedAt: null, needsInput: false, seq: finishedSeq + 5, status: 'running' }],
+    [
+      threadId,
+      {
+        completedAt: null,
+        needsInput: false,
+        seq: finishedSeq + 5,
+        startedAt: null,
+        status: 'running',
+      },
+    ],
   ]);
   expect(runs.getSnapshot().get(threadId)?.status).toBe('running');
   stop();
@@ -106,9 +128,12 @@ test('only rows committed after the replay notify; a replayed approval never doe
   expect(runs.getSnapshot().has(threadId)).toBe(false);
   // Replayed through the approval request; the run waits on its user.
   source.replay(approved.slice(0, indexOf(approved, 'interaction.requested') + 1));
+  const startedTs = approved[indexOf(approved, 'run.started')]?.ts;
+  const startedAt = startedTs === undefined ? null : new Date(startedTs);
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: null,
     needsInput: true,
+    startedAt,
     status: 'running',
   });
   expect(onNotification).not.toHaveBeenCalled();
@@ -116,6 +141,7 @@ test('only rows committed after the replay notify; a replayed approval never doe
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: new Date(committedAt),
     needsInput: false,
+    startedAt,
     status: 'completed',
   });
   const started = approved[indexOf(approved, 'run.started')]?.event;
