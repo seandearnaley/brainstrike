@@ -25,6 +25,7 @@ const GROUP_B = makeGroup('group-b', 'a1');
 
 const GROUPED_VIEW: ThreadListView = {
   kind: 'grouped',
+  pinned: null,
   sections: [
     {
       header: { group: GROUP_A, kind: 'group' },
@@ -107,6 +108,49 @@ describe('resolveThreadsPanelDrop', () => {
       orderedEntries: [
         { groupId: 'group-a', threadId: 'thread-2' },
         { groupId: 'group-a', threadId: 'thread-1' },
+      ],
+    });
+  });
+
+  it('keeps a group with a pinned member from being renumbered, but still moves into it', () => {
+    // thread-6 belongs to group-a but renders under Pinned, so group-a's rows
+    // are not its whole manual order.
+    const view: ThreadListView = {
+      ...GROUPED_VIEW,
+      pinned: { header: { kind: 'pinned' }, id: 'pinned', threads: [makeThread('thread-6')] },
+    };
+    const membership = new Map([...MEMBERSHIP, ['thread-6', 'group-a']]);
+    expect(
+      resolveThreadsPanelDrop({
+        filtersActive: false,
+        groupIdByThreadId: membership,
+        source: { groupId: 'group-a', threadId: 'thread-2', type: 'thread-row' },
+        target: { edge: 'top', groupId: 'group-a', threadId: 'thread-1', type: 'thread-row' },
+        view,
+      })
+    ).toEqual({ kind: 'none' });
+    expect(
+      resolveThreadsPanelDrop({
+        filtersActive: false,
+        groupIdByThreadId: membership,
+        source: { groupId: null, threadId: 'thread-4', type: 'thread-row' },
+        target: { groupId: 'group-a', type: 'group-header' },
+        view,
+      })
+    ).toEqual({ groupId: 'group-a', kind: 'move-thread-to-group', threadId: 'thread-4' });
+    expect(
+      resolveThreadsPanelDrop({
+        filtersActive: false,
+        groupIdByThreadId: membership,
+        source: { groupId: 'group-a', threadId: 'thread-1', type: 'thread-row' },
+        target: { edge: 'top', groupId: 'group-b', threadId: 'thread-3', type: 'thread-row' },
+        view,
+      })
+    ).toEqual({
+      kind: 'apply-thread-order',
+      orderedEntries: [
+        { groupId: 'group-b', threadId: 'thread-1' },
+        { groupId: 'group-b', threadId: 'thread-3' },
       ],
     });
   });
@@ -208,6 +252,7 @@ describe('resolveThreadsPanelDrop', () => {
   it('resolves every drop to none in folder grouping instead of throwing at the user', () => {
     const foldersView: ThreadListView = {
       kind: 'folders',
+      pinned: null,
       sections: [
         {
           header: {

@@ -4,7 +4,7 @@ import type {
   ThreadListSectionHeader,
   ThreadListView,
 } from '@brainstrike/assistant-data';
-import { UNASSIGNED_FOLDER_SECTION_ID } from '@brainstrike/assistant-data';
+import { PINNED_SECTION_ID, UNASSIGNED_FOLDER_SECTION_ID } from '@brainstrike/assistant-data';
 import { THREAD_CONTROL_ROW_PITCH_PX } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
 
@@ -20,7 +20,9 @@ const THREAD_PANEL_UNGROUPED_NODE_ID = 'group:ungrouped' as const;
  * membership.
  */
 type ThreadPanelSectionNodeId =
+  | typeof PINNED_SECTION_ID
   | typeof UNASSIGNED_FOLDER_SECTION_ID
+  | `date:${string}`
   | `folder:${string}`
   | `group:${string}`;
 
@@ -78,7 +80,9 @@ export function getThreadPanelMemberSectionId(row: ThreadPanelGroupRow): string 
       return row.header.group.id;
     case 'ungrouped':
       return null;
+    case 'date':
     case 'folder':
+    case 'pinned':
     case 'unassigned':
       return row.id;
     default: {
@@ -95,7 +99,9 @@ export function getThreadPanelCollapseId(row: ThreadPanelGroupRow): string {
       return row.header.group.id;
     case 'ungrouped':
       return THREAD_PANEL_UNGROUPED_NODE_ID;
+    case 'date':
     case 'folder':
+    case 'pinned':
     case 'unassigned':
       return row.id;
     default: {
@@ -111,18 +117,18 @@ export function getThreadPanelCollapseId(row: ThreadPanelGroupRow): string {
  * `scrollToIndex` accuracy into an unmeasured region — but one blanket estimate
  * gets three of the four kinds wrong, and the error scales with group count.
  *
- * Measured in the running renderer, not derived from the Tailwind classes:
- * group header 40, drop-zone/empty 40, show-more 36, thread 28 + 2px margin
- * either side — the same values at 303.5px and 218.5px panel width. The empty
- * and show-more rows carry text that can wrap at extreme widths, so those two
- * are their unwrapped min-height; re-measurement corrects the rest.
+ * Every row that names something — a section, a thread, a child — shares the
+ * one row pitch: a 28px control with 2px either side, as the explorer's rows
+ * share theirs. The empty drop zone and the child loading state carry text
+ * that can wrap at extreme widths, so those are their unwrapped min-height;
+ * re-measurement corrects the rest.
  */
 const THREAD_PANEL_ROW_HEIGHT_PX = {
-  'delegated-state': 36,
+  'delegated-state': THREAD_CONTROL_ROW_PITCH_PX,
   empty: 40,
-  group: 40,
+  group: THREAD_CONTROL_ROW_PITCH_PX,
   'host-child': THREAD_CONTROL_ROW_PITCH_PX,
-  'show-more': 36,
+  'show-more': THREAD_CONTROL_ROW_PITCH_PX,
   thread: THREAD_CONTROL_ROW_PITCH_PX,
 } as const satisfies Record<ThreadPanelVisibleRow['kind'], number>;
 
@@ -235,30 +241,65 @@ function appendGroupedSection({
 /**
  * Re-derives the section id as a node id WITHOUT a cast, so a section id this
  * module cannot address fails loudly here instead of silently becoming an
- * unreachable treegrid node. The two shapes are the ones
- * `thread-list-sections.ts` mints (`folder:${rootId}` and the deliberately
- * unemittable `folder-unassigned` sentinel).
+ * unreachable treegrid node. The shapes are the ones `thread-list-sections.ts`
+ * mints: `folder:${rootId}`, the deliberately unemittable `folder-unassigned`
+ * sentinel, `date:${bucket}` and the Pinned section's id.
  */
-function requireFolderSectionNodeId(
+function requireViewSectionNodeId(
   sectionId: string
-): typeof UNASSIGNED_FOLDER_SECTION_ID | `folder:${string}` {
+): Exclude<ThreadPanelSectionNodeId, `group:${string}`> {
   if (sectionId === UNASSIGNED_FOLDER_SECTION_ID) {
     return UNASSIGNED_FOLDER_SECTION_ID;
   }
-  const prefix = 'folder:';
-  if (sectionId.startsWith(prefix)) {
-    return `folder:${sectionId.slice(prefix.length)}`;
+  if (sectionId === PINNED_SECTION_ID) {
+    return PINNED_SECTION_ID;
   }
-  throw new Error(`Unknown thread folder section id: ${sectionId}.`);
+  for (const prefix of ['folder:', 'date:'] as const) {
+    if (sectionId.startsWith(prefix)) {
+      return `${prefix}${sectionId.slice(prefix.length)}`;
+    }
+  }
+  throw new Error(`Unknown thread view section id: ${sectionId}.`);
+}
+
+function appendViewSections({
+  collapsedGroupIds,
+  limitsBySectionKey,
+  rows,
+  sections,
+  visibleThreadIds,
+}: {
+  readonly collapsedGroupIds: Readonly<Record<string, true>>;
+  readonly limitsBySectionKey: Readonly<Record<string, number>>;
+  readonly rows: ThreadPanelVisibleRow[];
+  readonly sections: readonly {
+    readonly header: ThreadPanelSectionHeader;
+    readonly id: string;
+    readonly threads: readonly AssistantMemoryThread[];
+  }[];
+  readonly visibleThreadIds: string[];
+}): void {
+  for (const section of sections) {
+    const nodeId = requireViewSectionNodeId(section.id);
+    appendViewSection({
+      collapsed: Boolean(collapsedGroupIds[nodeId]),
+      header: section.header,
+      limitsBySectionKey,
+      nodeId,
+      rows,
+      threads: section.threads,
+      visibleThreadIds,
+    });
+  }
 }
 
 /**
- * A folder section never renders the empty drop-zone row a custom group does:
- * `buildThreadListSections` only creates a bucket for folders that HAVE
- * threads, and a folder is not a drop target (re-binding happens through the
- * composer's folder chip, not a drag).
+ * A view section — folder, date or Pinned — never renders the empty drop-zone
+ * row a custom group does: `buildThreadListSections` only creates a section
+ * that HAS threads, and none of them is a drop target (a folder is re-bound
+ * through the composer's folder chip, a date is the thread's activity).
  */
-function appendFolderSection({
+function appendViewSection({
   collapsed,
   header,
   limitsBySectionKey,
@@ -270,7 +311,7 @@ function appendFolderSection({
   readonly collapsed: boolean;
   readonly header: ThreadPanelSectionHeader;
   readonly limitsBySectionKey: Readonly<Record<string, number>>;
-  readonly nodeId: typeof UNASSIGNED_FOLDER_SECTION_ID | `folder:${string}`;
+  readonly nodeId: Exclude<ThreadPanelSectionNodeId, `group:${string}`>;
   readonly rows: ThreadPanelVisibleRow[];
   readonly threads: readonly AssistantMemoryThread[];
   readonly visibleThreadIds: string[];
@@ -320,19 +361,12 @@ export function buildThreadPanelVisibleRows({
     });
     return { rows, visibleThreadIds };
   }
-  if (view.kind === 'folders') {
-    for (const section of view.sections) {
-      const nodeId = requireFolderSectionNodeId(section.id);
-      appendFolderSection({
-        collapsed: Boolean(collapsedGroupIds[nodeId]),
-        header: section.header,
-        limitsBySectionKey,
-        nodeId,
-        rows,
-        threads: section.threads,
-        visibleThreadIds,
-      });
-    }
+  const sectionInput = { collapsedGroupIds, limitsBySectionKey, rows, visibleThreadIds };
+  if (view.pinned) {
+    appendViewSections({ ...sectionInput, sections: [view.pinned] });
+  }
+  if (view.kind === 'folders' || view.kind === 'dates') {
+    appendViewSections({ ...sectionInput, sections: view.sections });
     return { rows, visibleThreadIds };
   }
 

@@ -7,6 +7,7 @@ const CONTENT_TABLES = [
   'brainstrike_memory_entities',
   'brainstrike_memory_scopes',
   'brainstrike_worktrees',
+  'thread_pins',
   'thread_placements',
   'thread_groups',
   'threads',

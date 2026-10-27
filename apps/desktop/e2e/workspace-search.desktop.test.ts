@@ -27,34 +27,48 @@ async function searchControlLayout(page: Page) {
   });
 }
 
-/**
- * Drags the Files pane's separator until the pane sits at its minimum width,
- * 15% of the layout: the narrowest the Search panel gets. Returns the layout's
- * width.
- */
-async function shrinkFilesPaneToMinimum(page: Page): Promise<number> {
-  const drag = await page.getByTestId('explorer-search-panel-search').evaluate((panel) => {
+/** The Files pane's width and its group's, as laid out now. */
+async function filesPaneWidths(page: Page): Promise<{ layoutWidth: number; paneWidth: number }> {
+  return await page.getByTestId('explorer-search-panel-search').evaluate((panel) => {
     const pane = panel.closest('[data-panel]');
-    const separator = pane?.previousElementSibling;
     const group = pane?.parentElement;
-    if (!(pane && group && separator?.getAttribute('role') === 'separator')) {
-      throw new Error('The Files pane has no resize separator');
+    if (!(pane && group)) {
+      throw new Error('The Search panel is not inside a resizable pane');
     }
-    const handle = separator.getBoundingClientRect();
-    const layout = group.getBoundingClientRect();
     return {
-      layoutWidth: layout.width,
-      // Past the minimum but short of the collapse threshold, so the pane stops at its minimum.
-      targetX: layout.right - layout.width * 0.12,
-      x: handle.left + handle.width / 2,
-      y: handle.top + handle.height / 2,
+      layoutWidth: group.getBoundingClientRect().width,
+      paneWidth: pane.getBoundingClientRect().width,
     };
   });
-  await page.mouse.move(drag.x, drag.y);
-  await page.mouse.down();
-  await page.mouse.move(drag.targetX, drag.y, { steps: 10 });
-  await page.mouse.up();
-  return drag.layoutWidth;
+}
+
+/**
+ * Narrows the Files pane to its minimum width, 15% of the layout: the narrowest
+ * the Search panel gets. Returns the layout's width.
+ *
+ * Resizes with the separator's keyboard steps (5% each), as a keyboard user
+ * would, and waits for each step to lay out. A coordinate drag computed before
+ * the layout settled was sometimes dropped, which left the pane at its default
+ * width (BST-2301). It stops at the minimum, since one more step from the
+ * minimum collapses the pane.
+ */
+async function shrinkFilesPaneToMinimum(page: Page): Promise<number> {
+  const separator = page
+    .getByTestId('explorer-search-panel-search')
+    .locator('xpath=ancestor::*[@data-panel][1]/preceding-sibling::*[@role="separator"][1]');
+  await separator.focus();
+  let { layoutWidth, paneWidth } = await filesPaneWidths(page);
+  while (paneWidth > layoutWidth * 0.16) {
+    const before = paneWidth;
+    await separator.press('ArrowRight');
+    await expect
+      .poll(async () => (await filesPaneWidths(page)).paneWidth, {
+        message: 'The Files pane narrows by one keyboard step',
+      })
+      .toBeLessThan(before);
+    ({ layoutWidth, paneWidth } = await filesPaneWidths(page));
+  }
+  return layoutWidth;
 }
 
 /**

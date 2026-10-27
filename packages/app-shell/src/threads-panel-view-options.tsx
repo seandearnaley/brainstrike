@@ -20,6 +20,7 @@ import { hasActiveThreadFilters } from './thread-panel-content-state';
 
 const GROUP_BY_OPTIONS: readonly { readonly label: string; readonly value: ThreadsPanelGroupBy }[] =
   [
+    { label: 'Date', value: 'date' },
     { label: 'Custom groups', value: 'custom-groups' },
     { label: 'Folder', value: 'folder' },
     { label: 'No grouping', value: 'none' },
@@ -153,11 +154,13 @@ export function ThreadsViewOptionsPopover({
   readonly threadFilters: ThreadFilters;
 }): ReactElement {
   const folderGrouping = groupBy === 'folder';
+  // Date sections ARE the recency order, so date grouping offers no sort.
+  const dateGrouping = groupBy === 'date';
   const filtersActive = hasActiveThreadFilters(threadFilters);
   // The dot answers "is the list you see the default list", so an active filter
   // lights it exactly like a non-default grouping does: a narrowed list with no
   // visible marker is the panel silently hiding threads.
-  const hasNonDefaultView = groupBy !== 'custom-groups' || sortBy !== 'recency' || filtersActive;
+  const hasNonDefaultView = groupBy !== 'date' || filtersActive;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -192,28 +195,30 @@ export function ThreadsViewOptionsPopover({
               />
             ))}
           </div>
-          <div aria-label="Sort by" role="radiogroup">
-            <div className="px-2 pb-1 text-[11px] text-muted-foreground">Sort by</div>
-            {folderGrouping
-              ? FOLDER_SORT_BY_OPTIONS.map((option) => (
-                  <ViewOptionRadio
-                    checked={folderSortBy === option.value}
-                    groupName={RADIO_GROUP_NAMES.folderSort}
-                    key={option.value}
-                    label={option.label}
-                    onSelect={() => onFolderSortByChange(option.value)}
-                  />
-                ))
-              : SORT_BY_OPTIONS.map((option) => (
-                  <ViewOptionRadio
-                    checked={sortBy === option.value}
-                    groupName={RADIO_GROUP_NAMES.sort}
-                    key={option.value}
-                    label={option.label}
-                    onSelect={() => onSortByChange(option.value)}
-                  />
-                ))}
-          </div>
+          {dateGrouping ? null : (
+            <div aria-label="Sort by" role="radiogroup">
+              <div className="px-2 pb-1 text-[11px] text-muted-foreground">Sort by</div>
+              {folderGrouping
+                ? FOLDER_SORT_BY_OPTIONS.map((option) => (
+                    <ViewOptionRadio
+                      checked={folderSortBy === option.value}
+                      groupName={RADIO_GROUP_NAMES.folderSort}
+                      key={option.value}
+                      label={option.label}
+                      onSelect={() => onFolderSortByChange(option.value)}
+                    />
+                  ))
+                : SORT_BY_OPTIONS.map((option) => (
+                    <ViewOptionRadio
+                      checked={sortBy === option.value}
+                      groupName={RADIO_GROUP_NAMES.sort}
+                      key={option.value}
+                      label={option.label}
+                      onSelect={() => onSortByChange(option.value)}
+                    />
+                  ))}
+            </div>
+          )}
           {/* A fieldset, not a div with role="group": same semantics, and the
               legend-free label stays honest to assistive tech. */}
           <fieldset aria-label="Show only" className="min-w-0">

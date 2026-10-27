@@ -9,7 +9,7 @@ export function DelegatedSidebarCell({
 }) {
   return (
     <div
-      className={`flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 text-xs ${row.isError ? 'text-destructive' : 'text-muted-foreground'}`}
+      className={`my-0.5 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs ${row.isError ? 'text-destructive' : 'text-muted-foreground'}`}
       role={row.isError ? 'alert' : 'status'}
     >
       <span>{row.label}</span>

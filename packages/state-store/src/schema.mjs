@@ -1,6 +1,6 @@
 import { COLLECTION_SCHEMA } from './collection-domain.mjs';
 import { MODEL_CHOICE_SCHEMA } from './model-choice-domain.mjs';
-import { THREAD_GROUPS_SCHEMA } from './thread-groups-domain.mjs';
+import { THREAD_GROUPS_SCHEMA, THREAD_PINS_SCHEMA } from './thread-groups-domain.mjs';
 import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-preset-domain.mjs';
 // @ts-check
 // The state DB schema and its upgrader. `PRAGMA user_version` is the schema version; `UPGRADES[v - 1]` takes the DB from
@@ -12,7 +12,7 @@ import { seedViewFilterPresets, VIEW_FILTER_PRESET_SCHEMA } from './view-filter-
 //   purge_intent  a purge in progress, replayed at open after a crash (M0-A2 src/host.ts)
 // Version 6 adds `run_events.hydrate`: 0 keeps a row (a streamed text delta) out of the hydration read, which walks the
 // partial index of the rows that keep it. Version 13's tables are retired: the step creates nothing, so a DB that reached
-// it still opens.
+// it still opens. Version 14 adds `thread_pins`, the Threads panel's pinned threads.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
@@ -20,7 +20,7 @@ import { MEMORY_SCHEMA } from './memory-domain.mjs';
 import { SOURCE_CATALOG_SCHEMA } from './source-catalog-schema.mjs';
 import { WORKSPACE_ROOT_SCHEMA } from './workspace-root-schema.mjs';
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -69,6 +69,7 @@ export const UPGRADES = [
   VIEW_FILTER_PRESET_SCHEMA,
   THREAD_GROUPS_SCHEMA,
   '',
+  THREAD_PINS_SCHEMA,
 ];
 
 /**

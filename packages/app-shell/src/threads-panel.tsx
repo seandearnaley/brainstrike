@@ -11,9 +11,11 @@ import {
   buildThreadListSections,
   buildThreadMembership,
   getGroupMemberIds,
+  getThreadLastActivityAt,
   getThreadPrimaryRootId,
   type ThreadFilters,
   type ThreadFolderRow,
+  type ThreadListOrdering,
   type ThreadListView,
   type ThreadOrderPresentation,
   type ThreadsPanelFolderSortBy,
@@ -37,6 +39,7 @@ import {
 } from '@brainstrike/ui';
 import {
   ArrowLeft,
+  CalendarDays,
   Check,
   Folder,
   FolderMinus,
@@ -45,6 +48,7 @@ import {
   MoreHorizontal,
   Palette,
   Pencil,
+  Pin,
   Plus,
   SwatchBook,
   Trash2,
@@ -63,8 +67,9 @@ import {
   ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
-  getAssistantThreadColorSurface,
   resolveThreadRowStatusState,
+  THREAD_CONTROL_ACTION_CLASS_NAME,
+  THREAD_PANEL_ROW_CLASS_NAME,
 } from './assistant-thread-presentation';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
 import { useOnScreenThreadId } from './hooks/use-on-screen-thread';
@@ -80,6 +85,7 @@ import {
   createNativeThreadGroupsRepository,
   getThreadGroupsCapability,
 } from './thread-groups-capability';
+import { ThreadMarkChip } from './thread-identity-mark';
 import {
   filterThreadsByThreadFilters,
   hasActiveThreadFilters,
@@ -96,8 +102,9 @@ import {
   type ThreadPanelGroupRow,
   type ThreadPanelVisibleRow,
 } from './thread-panel-visible-rows';
-import { type ThreadMoveTarget, ThreadRow } from './thread-row';
+import { type ThreadMoveTarget, type ThreadPinHandler, ThreadRow } from './thread-row';
 import { useThreadSearchStore } from './thread-search-store';
+import { ThreadSectionHeader } from './thread-section-header';
 import {
   resolveThreadsPanelDrop,
   type ThreadsPanelDragSource,
@@ -219,33 +226,27 @@ function ThreadGroupHeader({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const colorConfig = getAssistantThreadColorSurface(group.color);
   const GroupIcon = group.icon
     ? ASSISTANT_THREAD_ICON_PRESENTATION[group.icon].iconComponent
     : Folder;
+  const mark = (
+    <ThreadMarkChip
+      color={group.color}
+      testId={`thread-group-color-${group.color ?? 'unassigned'}`}
+    >
+      <GroupIcon className="size-3" data-testid={`thread-group-icon-${group.icon ?? 'folder'}`} />
+    </ThreadMarkChip>
+  );
   return (
     <div className="min-w-0" data-testid="thread-group-header">
-      <div className="group/thread-group flex min-h-10 min-w-0 items-center gap-2 px-2">
-        <span
-          className={`flex size-6 shrink-0 items-center justify-center rounded-md border ${colorConfig.markClassName}`}
-          data-testid={`thread-group-color-${group.color ?? 'unassigned'}`}
-        >
-          <GroupIcon
-            className="size-3.5"
-            data-testid={`thread-group-icon-${group.icon ?? 'folder'}`}
-          />
-        </span>
-        {renameForm ?? (
-          <>
-            <span className="min-w-0 flex-1 truncate font-medium text-[13px] leading-4">
-              {group.name}
-            </span>
-            <span
-              className="shrink-0 rounded-full border border-border bg-background px-1.5 text-[10px] text-muted-foreground"
-              data-testid="thread-group-count"
-            >
-              {threadCount}
-            </span>
+      {renameForm ? (
+        <div className={`${THREAD_PANEL_ROW_CLASS_NAME} items-center gap-2`}>
+          {mark}
+          {renameForm}
+        </div>
+      ) : (
+        <ThreadSectionHeader
+          actions={
             <Popover
               onOpenChange={(open) => {
                 setActionsOpen(open);
@@ -258,6 +259,7 @@ function ThreadGroupHeader({
               <PopoverTrigger asChild>
                 <Button
                   aria-label={`Group actions ${group.name}`}
+                  className={THREAD_CONTROL_ACTION_CLASS_NAME}
                   onClick={(event) => event.stopPropagation()}
                   size="icon-xs"
                   type="button"
@@ -446,9 +448,14 @@ function ThreadGroupHeader({
                 )}
               </PopoverContent>
             </Popover>
-          </>
-        )}
-      </div>
+          }
+          count={threadCount}
+          countTestId="thread-group-count"
+          label={group.name}
+          mark={mark}
+          testId="thread-group-header-row"
+        />
+      )}
       {confirmingDelete ? (
         <div className="mx-1 mb-1 rounded-lg border border-destructive/30 bg-destructive/5 p-2">
           <p className="text-[11px] text-destructive">Delete folder {group.name}?</p>
@@ -527,56 +534,6 @@ function buildThreadPanelTreeNodes(
   }));
 }
 
-type ThreadGroupChassisPosition = 'end' | 'middle' | 'single' | 'start';
-
-interface ThreadGroupChassisPresentation {
-  readonly color: AssistantThreadColorId;
-  readonly position: ThreadGroupChassisPosition;
-}
-
-function getThreadPanelRowGroupId(row: ThreadPanelVisibleRow): string | null {
-  if (row.kind === 'group') {
-    // Only a CUSTOM group tints a chassis: folder sections have no color of
-    // their own (a folder is not a curated object).
-    return row.header.kind === 'group' ? row.header.group.id : null;
-  }
-  return row.groupId;
-}
-
-function buildThreadGroupChassisByRowId(
-  rows: readonly ThreadPanelVisibleRow[],
-  colorByGroupId: ReadonlyMap<string, AssistantThreadColorId>
-): ReadonlyMap<string, ThreadGroupChassisPresentation> {
-  const chassisByRowId = new Map<string, ThreadGroupChassisPresentation>();
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    if (!row) {
-      continue;
-    }
-    const groupId = getThreadPanelRowGroupId(row);
-    if (!groupId) {
-      continue;
-    }
-    const color = colorByGroupId.get(groupId);
-    if (!color) {
-      continue;
-    }
-    const previousRow = rows[index - 1];
-    const nextRow = rows[index + 1];
-    const startsGroup = !previousRow || getThreadPanelRowGroupId(previousRow) !== groupId;
-    const endsGroup = !nextRow || getThreadPanelRowGroupId(nextRow) !== groupId;
-    const position: ThreadGroupChassisPosition = startsGroup
-      ? endsGroup
-        ? 'single'
-        : 'start'
-      : endsGroup
-        ? 'end'
-        : 'middle';
-    chassisByRowId.set(row.id, { color, position });
-  }
-  return chassisByRowId;
-}
-
 /** Accessible name of a section, whatever kind of section it is. */
 function getThreadPanelSectionLabel(row: ThreadPanelGroupRow): string {
   switch (row.header.kind) {
@@ -586,6 +543,10 @@ function getThreadPanelSectionLabel(row: ThreadPanelGroupRow): string {
       return row.header.folder.displayName;
     case 'unassigned':
       return 'No folder';
+    case 'date':
+      return row.header.label;
+    case 'pinned':
+      return 'Pinned';
     default:
       return 'Ungrouped';
   }
@@ -621,11 +582,17 @@ interface ThreadRowContextProps {
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
+  readonly onSetThreadPinned: ThreadPinHandler | null;
   readonly onUpdateThreadAppearance: (
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
-  /** False for folder grouping and while a Show-only filter narrows the list. */
+  readonly pinnedAtByThreadId: Readonly<Record<string, number>>;
+  /**
+   * False for folder and date grouping and while a Show-only filter narrows
+   * the list. A pinned row never drags: the Pinned section has no order to
+   * rewrite and no membership to change.
+   */
   readonly rowsDraggable: boolean;
   readonly selectedThreadId: string | undefined;
   readonly unseenThreadIds: ReadonlySet<string>;
@@ -649,15 +616,6 @@ function resolveThreadPanelBranch(
   return branch && (branch.branch || branch.detached) ? branch : null;
 }
 
-// Group surfaces are borderless tinted slabs; only the rounded caps vary by
-// the row's position inside the visible chassis.
-const THREAD_GROUP_SURFACE_POSITION_CLASS_NAMES = {
-  end: '[&>td]:rounded-b-lg',
-  middle: '',
-  single: '[&>td]:rounded-lg',
-  start: '[&>td]:rounded-t-lg',
-} satisfies Record<ThreadGroupChassisPosition, string>;
-
 function ThreadPanelContentLane({ children }: { readonly children: ReactNode }): ReactElement {
   return (
     <div className="relative mx-1 min-w-0" data-testid="thread-panel-content-lane">
@@ -675,10 +633,10 @@ function ThreadPanelShowMoreCell({
 }): ReactElement {
   const disclosureCount = Math.min(THREAD_PANEL_DISCLOSURE_INCREMENT, row.remainingCount);
   return (
-    <div className="flex min-h-9 items-center justify-between gap-3 px-2 py-1">
+    <div className="my-0.5 flex min-h-7 items-center justify-between gap-3 pr-1">
       <Button
         aria-label={`Show ${disclosureCount} more threads`}
-        className="h-7 px-2 text-xs"
+        className="h-7 px-1 text-muted-foreground text-xs hover:text-foreground"
         onClick={(event) => {
           event.stopPropagation();
           onShowMore(row.sectionKey);
@@ -689,7 +647,7 @@ function ThreadPanelShowMoreCell({
       >
         Show {disclosureCount} more
       </Button>
-      <span className="shrink-0 text-[10px] text-muted-foreground">
+      <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
         {row.remainingCount} remaining
       </span>
     </div>
@@ -726,6 +684,25 @@ function ThreadPanelGroupCell({
   readonly row: ThreadPanelGroupRow;
 }): ReactElement {
   const header = row.header;
+  if (header.kind === 'date' || header.kind === 'pinned') {
+    const pinnedSection = header.kind === 'pinned';
+    return (
+      <div data-testid="thread-group-section">
+        <ThreadSectionHeader
+          count={row.totalCount}
+          countTestId="thread-section-count"
+          label={pinnedSection ? 'Pinned' : header.label}
+          mark={
+            <ThreadMarkChip color={null}>
+              {pinnedSection ? <Pin className="size-3" /> : <CalendarDays className="size-3" />}
+            </ThreadMarkChip>
+          }
+          muted={!pinnedSection}
+          testId={pinnedSection ? 'threads-pinned-section' : 'thread-date-section'}
+        />
+      </div>
+    );
+  }
   if (header.kind === 'folder' || header.kind === 'unassigned') {
     return (
       <div data-testid="thread-group-section">
@@ -740,24 +717,18 @@ function ThreadPanelGroupCell({
   if (header.kind === 'ungrouped') {
     return (
       <UngroupedSectionDndShell>
-        <div
-          className="flex min-h-10 items-center gap-2 px-2"
-          data-testid="threads-ungrouped-section"
-        >
-          <span
-            className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/55 text-muted-foreground"
-            data-testid="threads-ungrouped-icon"
-          >
-            <Folder className="size-3.5" />
-          </span>
-          <span className="font-medium text-muted-foreground text-xs">Ungrouped</span>
-          <span
-            className="rounded-full border border-border bg-background px-1.5 text-[10px] text-muted-foreground"
-            data-testid="threads-ungrouped-count"
-          >
-            {row.totalCount}
-          </span>
-        </div>
+        <ThreadSectionHeader
+          count={row.totalCount}
+          countTestId="threads-ungrouped-count"
+          label="Ungrouped"
+          mark={
+            <ThreadMarkChip color={null} testId="threads-ungrouped-icon">
+              <Folder className="size-3" />
+            </ThreadMarkChip>
+          }
+          muted
+          testId="threads-ungrouped-section"
+        />
       </UngroupedSectionDndShell>
     );
   }
@@ -813,10 +784,11 @@ function ThreadPanelCell({
     const groupId = rowsProps.folderMode
       ? null
       : (rowsProps.membershipByThreadId.get(row.thread.id) ?? null);
+    const pinned = rowsProps.pinnedAtByThreadId[row.thread.id] !== undefined;
     content = (
       <ThreadRow
         branch={resolveThreadPanelBranch(row.thread, rowsProps.branchLookup)}
-        draggable={rowsProps.rowsDraggable}
+        draggable={rowsProps.rowsDraggable && !pinned}
         groupId={groupId}
         // Row-local mutation state must never survive a virtual cell changing
         // identity; the key makes that lifetime contract explicit.
@@ -826,7 +798,9 @@ function ThreadPanelCell({
         onMoveThreadToGroup={rowsProps.onMoveThreadToGroup}
         onRenameThread={rowsProps.onRenameThread}
         onSelectThread={rowsProps.onSelectThread}
+        onSetThreadPinned={rowsProps.onSetThreadPinned}
         onUpdateThreadAppearance={rowsProps.onUpdateThreadAppearance}
+        pinned={pinned}
         selected={rowsProps.selectedThreadId === row.thread.id}
         status={resolveThreadRowStatusState({
           failedUnseen: rowsProps.failedUnseenThreadIds.has(row.thread.id),
@@ -1098,7 +1072,9 @@ function ThreadPanelTree({
   onNewThreadInFolder,
   onRenameThread,
   onSelectThread,
+  onSetThreadPinned,
   onUpdateThreadAppearance,
+  pinnedAtByThreadId,
   selectedThreadId,
   selection,
   threadFiltersActive,
@@ -1123,10 +1099,12 @@ function ThreadPanelTree({
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
+  readonly onSetThreadPinned: ThreadPinHandler | null;
   readonly onUpdateThreadAppearance: (
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
+  readonly pinnedAtByThreadId: Readonly<Record<string, number>>;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
   /** Withdraws the row drag affordance — see {@link ThreadRowDragScope}. */
@@ -1135,6 +1113,8 @@ function ThreadPanelTree({
   readonly view: ThreadListView;
 }): ReactElement {
   const folderMode = view.kind === 'folders';
+  // Neither a folder nor a date is an order a drag could rewrite.
+  const viewOrdered = view.kind === 'folders' || view.kind === 'dates';
   const {
     clearSelection,
     onShowMore: handleShowMore,
@@ -1149,23 +1129,6 @@ function ThreadPanelTree({
   const nodes = useMemo(
     () => buildThreadPanelTreeNodes(panelRows, hostChildren.hasChildren),
     [panelRows, hostChildren.hasChildren]
-  );
-  const colorByGroupId = useMemo(
-    () =>
-      new Map(
-        view.kind === 'grouped'
-          ? view.sections.flatMap((section) =>
-              section.header.group.color
-                ? ([[section.header.group.id, section.header.group.color]] as const)
-                : ([] as const)
-            )
-          : []
-      ),
-    [view]
-  );
-  const groupChassisByRowId = useMemo(
-    () => buildThreadGroupChassisByRowId(visibleRows.rows, colorByGroupId),
-    [colorByGroupId, visibleRows.rows]
   );
   const expandedGroupIds = useMemo(
     () =>
@@ -1201,8 +1164,10 @@ function ThreadPanelTree({
       onMoveThreadToGroup,
       onRenameThread,
       onSelectThread,
+      onSetThreadPinned,
       onUpdateThreadAppearance,
-      rowsDraggable: !(folderMode || threadFiltersActive),
+      pinnedAtByThreadId,
+      rowsDraggable: !(viewOrdered || threadFiltersActive),
       selectedThreadId,
       unseenThreadIds,
     }),
@@ -1218,10 +1183,13 @@ function ThreadPanelTree({
       onMoveThreadToGroup,
       onRenameThread,
       onSelectThread,
+      onSetThreadPinned,
       onUpdateThreadAppearance,
+      pinnedAtByThreadId,
       selectedThreadId,
       threadFiltersActive,
       unseenThreadIds,
+      viewOrdered,
     ]
   );
   const columns = useMemo<TreeTableColumn<ThreadPanelVisibleRow>[]>(
@@ -1310,18 +1278,13 @@ function ThreadPanelTree({
           }
           groupHandlers.onToggleGroupCollapsed(getThreadPanelCollapseId(row));
         }}
-        rowClassName={(node) => {
-          const row = node.data;
-          const chassis = groupChassisByRowId.get(row.id);
-          if (chassis) {
-            const threadClassName = row.kind === 'thread' ? 'group/thread-tree-row' : '';
-            return `thread-group-surface ${threadClassName} border-0 bg-transparent ${ASSISTANT_THREAD_COLOR_PRESENTATION[chassis.color].groupSurfaceClassName} ${THREAD_GROUP_SURFACE_POSITION_CLASS_NAMES[chassis.position]}`;
-          }
-          if (row.kind === 'thread') {
-            return 'group/thread-tree-row border-0 bg-transparent hover:bg-transparent';
-          }
-          return 'border-0 bg-transparent hover:bg-muted/20';
-        }}
+        // Every row paints its own surface (`THREAD_PANEL_ROW_CLASS_NAME`), so
+        // the treegrid row stays bare: no stripe, no fill, no grid.
+        rowClassName={(node) =>
+          node.data.kind === 'thread'
+            ? 'group/thread-tree-row border-0 bg-transparent hover:bg-transparent'
+            : 'border-0 bg-transparent hover:bg-transparent'
+        }
         rowHeight={(node) => getThreadPanelRowHeightPx(node.data.kind)}
         selectionMode="multi"
         selectOnRowClick={false}
@@ -1350,10 +1313,11 @@ function ThreadPanelTree({
  * `flat` and `grouped` are the two presentations that own a MANUAL order and
  * therefore a persisted `ThreadsPanelSortBy`, while `folder` sorts by its own
  * `folderSortBy` (name/recency only — a folder section has nowhere to persist a
- * drag). Exhaustive over ThreadsPanelGroupBy so a future group-by value fails
+ * drag), and `date` is ordered by activity alone. Exhaustive over
+ * ThreadsPanelGroupBy so a future group-by value fails
  * loudly here instead of silently landing on `'grouped'`.
  */
-type ThreadPanelSortPresentation = ThreadOrderPresentation | 'folder';
+type ThreadPanelSortPresentation = ThreadOrderPresentation | 'date' | 'folder';
 
 function resolveSortPresentation(groupBy: ThreadsPanelGroupBy): ThreadPanelSortPresentation {
   switch (groupBy) {
@@ -1361,6 +1325,8 @@ function resolveSortPresentation(groupBy: ThreadsPanelGroupBy): ThreadPanelSortP
       return 'flat';
     case 'custom-groups':
       return 'grouped';
+    case 'date':
+      return 'date';
     case 'folder':
       return 'folder';
     default: {
@@ -1388,7 +1354,9 @@ function ThreadsPanelContent({
   onNewThreadInFolder,
   onRenameThread,
   onSelectThread,
+  onSetThreadPinned,
   onUpdateThreadAppearance,
+  pinnedAtByThreadId,
   selectedThreadId,
   selection,
   threadFiltersActive,
@@ -1416,10 +1384,12 @@ function ThreadsPanelContent({
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
+  readonly onSetThreadPinned: ThreadPinHandler | null;
   readonly onUpdateThreadAppearance: (
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
+  readonly pinnedAtByThreadId: Readonly<Record<string, number>>;
   readonly selectedThreadId: string | undefined;
   readonly selection: ThreadPanelSelection;
   readonly threadFiltersActive: boolean;
@@ -1461,7 +1431,9 @@ function ThreadsPanelContent({
       onNewThreadInFolder={onNewThreadInFolder}
       onRenameThread={onRenameThread}
       onSelectThread={onSelectThread}
+      onSetThreadPinned={onSetThreadPinned}
       onUpdateThreadAppearance={onUpdateThreadAppearance}
+      pinnedAtByThreadId={pinnedAtByThreadId}
       selectedThreadId={selectedThreadId}
       selection={selection}
       threadFiltersActive={threadFiltersActive}
@@ -1616,6 +1588,20 @@ export interface ThreadsPanelSources {
     readonly threadIds: ReadonlySet<string>;
   };
 }
+/**
+ * Now, refreshed at each local midnight, so date sections roll over while the
+ * panel stays open. Day precision is all the sections read.
+ */
+function useLocalDay(): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const timer = setTimeout(() => setNow(new Date()), nextMidnight.getTime() - Date.now());
+    return () => clearTimeout(timer);
+  }, [now]);
+  return now;
+}
+
 export function ThreadsPanelCore({
   host,
   repository,
@@ -1642,6 +1628,8 @@ export function ThreadsPanelCore({
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
   const groupsByResourceId = useAssistantThreadGroupsStore((state) => state.groupsByResourceId);
   const placementsByThreadId = useAssistantThreadGroupsStore((state) => state.placementsByThreadId);
+  const pinnedAtByThreadId = useAssistantThreadGroupsStore((state) => state.pinnedAtByThreadId);
+  const setThreadPinned = useAssistantThreadGroupsStore((state) => state.setThreadPinned);
   const groupsLoadStateByResourceId = useAssistantThreadGroupsStore(
     (state) => state.loadStateByResourceId
   );
@@ -1774,27 +1762,53 @@ export function ThreadsPanelCore({
     () => buildThreadMembership({ groups, placements, threads: filteredThreads }),
     [filteredThreads, groups, placements]
   );
-  // The section builder's input is discriminated on `groupBy`: folder grouping
-  // takes the folder rows and folder sort and no group inputs at all, so the
-  // two modes are separate calls rather than one over-wide argument.
-  const view = useMemo(
-    () =>
-      groupBy === 'folder'
-        ? buildThreadListSections({
-            folderRowsByRootId: folderRows.rowsByRootId,
-            folderSortBy,
-            groupBy,
-            threads: filteredThreads,
-          })
-        : buildThreadListSections({
-            groupBy,
-            groups,
-            placements,
-            sortBy,
-            threads: filteredThreads,
-          }),
-    [filteredThreads, folderRows.rowsByRootId, folderSortBy, groupBy, groups, placements, sortBy]
+  // Recency is conversation activity, read from the live run projection, so a
+  // thread that just ran moves up and a rename or a recolor moves nothing.
+  const hostRuns = useAssistantThreadHostRuns();
+  const ordering = useMemo<ThreadListOrdering>(
+    () => ({
+      lastActivityAt: (thread) =>
+        getThreadLastActivityAt(thread, hostRuns.get(thread.id) ?? thread.latestRun),
+      pinnedAtByThreadId,
+    }),
+    [hostRuns, pinnedAtByThreadId]
   );
+  const now = useLocalDay();
+  // The section builder's input is discriminated on `groupBy`: each grouping
+  // takes exactly the inputs it reads, so the modes are separate calls rather
+  // than one over-wide argument.
+  const view = useMemo(() => {
+    if (groupBy === 'folder') {
+      return buildThreadListSections({
+        folderRowsByRootId: folderRows.rowsByRootId,
+        folderSortBy,
+        groupBy,
+        ordering,
+        threads: filteredThreads,
+      });
+    }
+    if (groupBy === 'date') {
+      return buildThreadListSections({ groupBy, now, ordering, threads: filteredThreads });
+    }
+    return buildThreadListSections({
+      groupBy,
+      groups,
+      ordering,
+      placements,
+      sortBy,
+      threads: filteredThreads,
+    });
+  }, [
+    filteredThreads,
+    folderRows.rowsByRootId,
+    folderSortBy,
+    groupBy,
+    groups,
+    now,
+    ordering,
+    placements,
+    sortBy,
+  ]);
   const moveTargets = useMemo(
     () => groups.map((group) => ({ id: group.id, name: group.name })),
     [groups]
@@ -1860,10 +1874,22 @@ export function ThreadsPanelCore({
     await deleteThread(repository, resourceId, threadId);
     // The placement row is inert once the thread is gone; clear it so the
     // placements table does not accumulate orphans.
-    if (groupsRepository && placementsByThreadId[threadId]) {
+    if (
+      groupsRepository &&
+      (placementsByThreadId[threadId] || pinnedAtByThreadId[threadId] !== undefined)
+    ) {
       await removeThreadPlacement(groupsRepository, threadId);
     }
   };
+  const handleSetThreadPinned = useCallback(
+    async (threadId: string, pinned: boolean): Promise<void> => {
+      if (!groupsRepository) {
+        throw new Error('Assistant thread groups database unavailable.');
+      }
+      await setThreadPinned(groupsRepository, resourceId, threadId, pinned);
+    },
+    [groupsRepository, resourceId, setThreadPinned]
+  );
   const handleUpdateThreadAppearance = async (
     threadId: string,
     patch: AssistantThreadAppearancePatch
@@ -1905,10 +1931,11 @@ export function ThreadsPanelCore({
     [resourceId, startNewThread]
   );
   const handleSortByChange = (nextSortBy: ThreadsPanelSortBy): void => {
-    if (sortPresentation === 'folder') {
+    if (sortPresentation === 'folder' || sortPresentation === 'date') {
       // Unreachable through the popover, which binds folder mode to
-      // `setFolderSortBy`. Loud rather than silently writing the grouped sort.
-      throw new Error('Folder grouping sorts through setFolderSortBy, not setSortBy.');
+      // `setFolderSortBy` and offers date mode no sort at all. Loud rather than
+      // silently writing the grouped sort.
+      throw new Error(`${sortPresentation} grouping does not sort through setSortBy.`);
     }
     setSortBy(sortPresentation, nextSortBy);
   };
@@ -2136,7 +2163,9 @@ export function ThreadsPanelCore({
           onNewThreadInFolder={handleNewThreadInFolder}
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
+          onSetThreadPinned={groupsRepository ? handleSetThreadPinned : null}
           onUpdateThreadAppearance={handleUpdateThreadAppearance}
+          pinnedAtByThreadId={pinnedAtByThreadId}
           selectedThreadId={selectedThreadId}
           selection={selection}
           threadFiltersActive={threadFiltersActive}

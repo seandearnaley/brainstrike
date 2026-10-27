@@ -89,6 +89,8 @@ interface AssistantThreadGroupsState {
     threadId: string,
     groupId: string | null
   ) => Promise<void>;
+  /** Epoch ms each pinned thread was pinned; an absent thread is not pinned. */
+  pinnedAtByThreadId: Record<string, number>;
   placementsByThreadId: Record<string, AssistantThreadPlacement>;
   pruneDeletedThreadPlacements: (threadIds: readonly string[]) => void;
   /**
@@ -142,6 +144,12 @@ interface AssistantThreadGroupsState {
   ) => Promise<void>;
   setSortBy: (presentation: ThreadOrderPresentation, sortBy: ThreadsPanelSortBy) => void;
   setThreadFilter: (filter: keyof ThreadFilters, enabled: boolean) => void;
+  setThreadPinned: (
+    repository: AssistantThreadGroupsRepository,
+    resourceId: string,
+    threadId: string,
+    pinned: boolean
+  ) => Promise<void>;
   threadFilters: ThreadFilters;
   toggleGroupCollapsed: (groupId: string) => void;
 }
@@ -153,6 +161,13 @@ function sortGroups(groups: readonly AssistantThreadGroup[]): AssistantThreadGro
   return [...groups].sort((left, right) =>
     left.rank < right.rank ? -1 : left.rank > right.rank ? 1 : left.id.localeCompare(right.id)
   );
+}
+
+function omitRecordKeys<T>(
+  record: Record<string, T>,
+  keysToOmit: ReadonlySet<string>
+): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([key]) => !keysToOmit.has(key)));
 }
 
 function omitRecordKey<T>(record: Record<string, T>, keyToOmit: string): Record<string, T> {
@@ -186,7 +201,7 @@ const DEFAULT_VIEW_STATE = {
   collapsedGroupIds: {} as Record<string, true>,
   flatSortBy: 'recency' as ThreadsPanelSortBy,
   folderSortBy: 'recency' as ThreadsPanelFolderSortBy,
-  groupBy: 'custom-groups' as ThreadsPanelGroupBy,
+  groupBy: 'date' as ThreadsPanelGroupBy,
   groupedSortBy: 'recency' as ThreadsPanelSortBy,
   threadFilters: DEFAULT_THREAD_FILTERS,
 };
@@ -203,7 +218,7 @@ function requirePersistedSort(value: unknown): ThreadsPanelSortBy {
 }
 
 function requirePersistedGroupBy(value: unknown): ThreadsPanelGroupBy {
-  if (value === 'custom-groups' || value === 'folder' || value === 'none') {
+  if (value === 'custom-groups' || value === 'date' || value === 'folder' || value === 'none') {
     return value;
   }
   throw new Error(`Invalid persisted thread grouping: ${String(value)}.`);
@@ -367,9 +382,10 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
             },
           }));
           try {
-            const [groups, placements] = await Promise.all([
+            const [groups, placements, pins] = await Promise.all([
               repository.listGroups(resourceId),
               repository.listPlacements(resourceId),
+              repository.listPins(resourceId),
             ]);
             if (loadGeneration !== resourceGroupsLoadGeneration) {
               return;
@@ -382,6 +398,10 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
               loadStateByResourceId: {
                 ...state.loadStateByResourceId,
                 [resourceId]: { status: 'ready' },
+              },
+              pinnedAtByThreadId: {
+                ...state.pinnedAtByThreadId,
+                ...Object.fromEntries(pins.map((pin) => [pin.threadId, pin.pinnedAt])),
               },
               placementsByThreadId: {
                 ...state.placementsByThreadId,
@@ -506,6 +526,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
           },
         }));
       },
+      pinnedAtByThreadId: {},
       placementsByThreadId: {},
       pruneDeletedThreadPlacements: (threadIds: readonly string[]): void => {
         requireThreadIds(threadIds);
@@ -514,11 +535,8 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         }
         const deletedThreadIds = new Set(threadIds);
         set((state) => ({
-          placementsByThreadId: Object.fromEntries(
-            Object.entries(state.placementsByThreadId).filter(
-              ([threadId]) => !deletedThreadIds.has(threadId)
-            )
-          ),
+          pinnedAtByThreadId: omitRecordKeys(state.pinnedAtByThreadId, deletedThreadIds),
+          placementsByThreadId: omitRecordKeys(state.placementsByThreadId, deletedThreadIds),
         }));
       },
       pruneFolderCollapseIds: (liveRootIds: readonly string[]): void => {
@@ -542,6 +560,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       ): Promise<void> => {
         await repository.clearThreadPlacement(threadId);
         set((state) => ({
+          pinnedAtByThreadId: omitRecordKey(state.pinnedAtByThreadId, threadId),
           placementsByThreadId: omitRecordKey(state.placementsByThreadId, threadId),
         }));
       },
@@ -556,11 +575,8 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
         await repository.clearThreadPlacements(threadIds);
         const removedThreadIds = new Set(threadIds);
         set((state) => ({
-          placementsByThreadId: Object.fromEntries(
-            Object.entries(state.placementsByThreadId).filter(
-              ([threadId]) => !removedThreadIds.has(threadId)
-            )
-          ),
+          pinnedAtByThreadId: omitRecordKeys(state.pinnedAtByThreadId, removedThreadIds),
+          placementsByThreadId: omitRecordKeys(state.placementsByThreadId, removedThreadIds),
         }));
       },
       renameGroup: async (
@@ -613,6 +629,7 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
           ...DEFAULT_VIEW_STATE,
           groupsByResourceId: {},
           loadStateByResourceId: {},
+          pinnedAtByThreadId: {},
           placementsByThreadId: {},
         });
       },
@@ -659,6 +676,25 @@ export const useAssistantThreadGroupsStore = create<AssistantThreadGroupsState>(
       },
       setThreadFilter: (filter: keyof ThreadFilters, enabled: boolean) => {
         set((state) => ({ threadFilters: { ...state.threadFilters, [filter]: enabled } }));
+      },
+      setThreadPinned: async (
+        repository: AssistantThreadGroupsRepository,
+        resourceId: string,
+        threadId: string,
+        pinned: boolean
+      ): Promise<void> => {
+        if (!pinned) {
+          await repository.unpinThread(threadId);
+          set((state) => ({
+            pinnedAtByThreadId: omitRecordKey(state.pinnedAtByThreadId, threadId),
+          }));
+          return;
+        }
+        const pinnedAt = Date.now();
+        await repository.pinThread({ pinnedAt, resourceId, threadId });
+        set((state) => ({
+          pinnedAtByThreadId: { ...state.pinnedAtByThreadId, [threadId]: pinnedAt },
+        }));
       },
       toggleGroupCollapsed: (groupId: string) => {
         set((state) => {

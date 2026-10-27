@@ -27,7 +27,7 @@ it('decodes committed group and root envelopes into one stable repository capabi
   const transport: BoundaryTransport<ThreadGroupsCapability> = {
     readRoots: vi.fn(async () => structuredClone({ ok: true as const, value: [root] })),
     request: vi.fn(async () =>
-      structuredClone({ ok: true as const, value: { groups: [group], placements: [] } })
+      structuredClone({ ok: true as const, value: { groups: [group], pins: [], placements: [] } })
     ),
   };
   Object.defineProperty(window, 'threadGroups', { configurable: true, value: transport });

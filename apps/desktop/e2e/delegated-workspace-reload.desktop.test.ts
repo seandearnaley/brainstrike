@@ -391,7 +391,7 @@ test('restores distinct child tabs and native transcripts without executing a ru
   );
   await sidebarCedar.getByRole('button', { name: /Expand/ }).click();
   const wrenRow = childRow(grand.callSign);
-  await expect(wrenRow).toHaveAttribute('aria-level', '3');
+  await expect(wrenRow).toHaveAttribute('aria-level', '4');
   const wrenButton = wrenRow.getByRole('button', { exact: true, name: `${grand.callSign} Child` });
   await wrenButton.focus();
   await wrenButton.press('Enter');

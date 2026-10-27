@@ -21,6 +21,7 @@ const DESKTOP_CATALOG = [
   'roots',
   'source_blob_gc',
   'thread_groups',
+  'thread_pins',
   'thread_placements',
   'view_filter_presets',
 ];
