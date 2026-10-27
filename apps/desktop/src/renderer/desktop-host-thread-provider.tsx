@@ -10,6 +10,7 @@ import {
   type AssistantThreadHostCapability,
   AssistantThreadHostContext,
 } from '@brainstrike/app-shell/assistant-thread-host-context';
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import {
   BudgetGuardrailProvider,
   CommittedAssistantConversation,
@@ -154,6 +155,23 @@ interface HostThreadProps {
   readonly threadId: string;
 }
 
+/**
+ * A child's family colour, or else the colour the thread's catalog entry
+ * carries, so a recolour in the Threads panel repaints the open conversation.
+ */
+function useConversationColor(
+  threadId: string,
+  childColor: string | undefined
+): string | undefined {
+  const threadColor = useAssistantThreadStore(
+    (state) =>
+      state.threadsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]?.find(
+        (thread) => thread.id === threadId
+      )?.metadata?.color
+  );
+  return childColor ?? threadColor;
+}
+
 function HostThread({
   agentColor,
   canvases,
@@ -170,6 +188,7 @@ function HostThread({
   threadId,
 }: HostThreadProps): ReactElement {
   const explorer = useFileExplorerStoreContext();
+  const conversationColor = useConversationColor(threadId, agentColor);
   // ADR-0019: the composer's model is the host thread's selection.
   const selection = useHostThreadSelection(client, threadId);
   const readSelectionFolderId = useCallback(() => explorer.getState().currentFolderId, [explorer]);
@@ -299,7 +318,7 @@ function HostThread({
                         <CommittedAssistantConversation
                           {...withMemoryGate(presentation, memory)}
                           {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
-                          agentColor={agentColor}
+                          agentColor={conversationColor}
                           approvalStrip={
                             <HostApprovalStrip
                               client={client}
