@@ -2,6 +2,7 @@
 import { useMessagePartText } from '@assistant-ui/react';
 import {
   type CodeHeaderProps,
+  type ComponentsByLanguage,
   type StreamdownTextComponents,
   StreamdownTextPrimitive,
   type SyntaxHighlighterProps,
@@ -15,9 +16,16 @@ import remarkGfm from 'remark-gfm';
 import 'streamdown/styles.css';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { MarkdownLink } from './markdown-link';
+import { MermaidHighlighterComponent } from './mermaid-highlighter';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 
 const REMARK_PLUGINS = [remarkGfm];
+
+// Module scope: a stable identity, so finished blocks keep their memo.
+const COMPONENTS_BY_LANGUAGE = {
+  // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
+  mermaid: { SyntaxHighlighter: MermaidHighlighterComponent },
+} satisfies ComponentsByLanguage;
 
 // Module scope: a stable identity for the reveal options.
 const REVEAL = { animation: 'fadeIn', sep: 'word' } as const;
@@ -52,6 +60,7 @@ function MarkdownTextImpl({ preprocess }: { preprocess?: ((text: string) => stri
       caret="circle"
       className="aui-md"
       components={defaultComponents}
+      componentsByLanguage={COMPONENTS_BY_LANGUAGE}
       controls={false}
       // Spread rather than `preprocess={preprocess}`: under
       // exactOptionalPropertyTypes an explicit `undefined` is not assignable to

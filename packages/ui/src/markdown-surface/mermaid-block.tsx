@@ -39,7 +39,7 @@ export function MermaidBlock({ code }: { readonly code: string }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Remounted per `code` (keyed in markdown-surface), so each mount draws one source.
+  // Remounted per `code` (callers key it), so each mount draws one source.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) {
