@@ -11,9 +11,10 @@ import { CodeBlockBody, CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
-import { userEvent as browserUserEvent } from 'vitest/browser';
+import { userEvent as browserUserEvent, page } from 'vitest/browser';
 import { ActivityTrace } from '../activity-trace';
 import type { ActivitySummary } from '../activity-trace-model';
+import { agentColorStyle } from '../agent-color-style';
 import { UserMessage } from '../assistant-ui-panel';
 // Theme variables (colors, shimmer, tints) so screenshots render faithfully.
 import '@brainstrike/ui/globals.css';
@@ -33,6 +34,11 @@ const PREFLIGHT_RESET = `
   @layer base {
     *, ::before, ::after { margin: 0; padding: 0; }
     ul, ol { list-style: none; }
+  }
+  /* The Tailwind theme swatches the app's build emits for semantic thread colours. */
+  :root {
+    --color-yellow-500: oklch(79.5% 0.184 86.047);
+    --color-indigo-500: oklch(58.5% 0.233 277.117);
   }
 `;
 
@@ -181,6 +187,102 @@ describe('message vertical rhythm (real browser)', () => {
     expect(getComputedStyle(screen.getByTestId('user-root')).marginBottom).toBe('4px');
     expect(getComputedStyle(screen.getByTestId('user-root-last')).marginBottom).toBe('12px');
   });
+});
+
+/** WCAG relative luminance of an sRGB colour given as 0-255 channels. */
+function luminance([red, green, blue]: readonly number[]): number {
+  const [r, g, b] = [red, green, blue].map((channel = 0) => {
+    const value = channel / 255;
+    return value <= 0.039_28 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+}
+
+/** The painted pixel at CSS point (x, y) of an element, as the screen shows it. */
+async function paintedPixel(
+  element: HTMLElement,
+  x: number,
+  y: number
+): Promise<readonly number[]> {
+  const base64 = await page.elementLocator(element).screenshot({ save: false });
+  const image = new Image();
+  image.src = `data:image/png;base64,${base64}`;
+  await image.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2d canvas unavailable');
+  }
+  context.drawImage(image, 0, 0);
+  const scale = image.width / element.getBoundingClientRect().width;
+  return [
+    ...context.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data.slice(0, 3),
+  ];
+}
+
+function renderAgentReply(agentColor: string | undefined): void {
+  render(
+    <div
+      className="assistant-ui-panel"
+      data-agent-color={agentColor}
+      style={{ ...agentColorStyle(agentColor), width: 480 }}
+    >
+      <div className="bs-thread">
+        <div className="aui-assistant-message-content" data-testid="agent-reply">
+          The agent's reply, in this thread's colour.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A coloured thread's agent replies carry its colour, so a reply reads as that
+ * thread's; the wash stays quiet enough that the reply's text keeps AA
+ * contrast where the tint is strongest, in both themes.
+ */
+describe('agent reply tint (real browser)', () => {
+  afterEach(() => {
+    document.documentElement.classList.remove('dark');
+  });
+
+  test('a thread with no colour leaves its agent replies untinted', () => {
+    renderAgentReply(undefined);
+
+    expect(getComputedStyle(screen.getByTestId('agent-reply')).backgroundImage).toBe('none');
+  });
+
+  test.each([
+    ['yellow', 'light'],
+    ['yellow', 'dark'],
+    ['indigo', 'light'],
+    ['indigo', 'dark'],
+    ['family:1375:540', 'light'],
+    ['family:1375:540', 'dark'],
+  ] as const)(
+    'a %s thread tints its agent replies with AA text in %s mode',
+    async (color, theme) => {
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      renderAgentReply(color);
+      const reply = screen.getByTestId('agent-reply');
+      // The leading edge, inside the padding and clear of the rounded corners,
+      // is where the wash is strongest.
+      const tinted = await paintedPixel(reply, 4, reply.getBoundingClientRect().height / 2);
+      const text = getComputedStyle(reply)
+        .color.match(/\d+(\.\d+)?/g)
+        ?.slice(0, 3)
+        .map(Number);
+      if (!text) {
+        throw new Error('unreadable text colour');
+      }
+      const [lighter, darker] = [luminance(text), luminance(tinted)].sort((a, b) => b - a);
+
+      expect(getComputedStyle(reply).backgroundImage).toContain('linear-gradient');
+      expect(((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05)).toBeGreaterThanOrEqual(4.5);
+    }
+  );
 });
 
 /**
