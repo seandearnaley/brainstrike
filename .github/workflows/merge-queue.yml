@@ -1,5 +1,7 @@
 # Runs the fast tier on each Mergify merge-queue batch for main (BST-2188).
-# Per-push and per-PR CI stays off: no pull request starts this workflow.
+# Per-push CI stays off: no push but a queue batch starts this workflow. A pull
+# request runs it only through full-check.yml, when the PR carries the
+# `full-check` label (owner decision 2026-10-27).
 
 name: Merge Queue
 
@@ -18,6 +20,10 @@ on:
   push:
     branches: ['mergify/merge-queue/**']
   workflow_dispatch:
+  # full-check.yml calls these same lanes on a labelled pull request. A called
+  # job's check is named after its caller's job ("Full check / Merge Queue
+  # Gate"), so it never satisfies the ruleset's required Merge Queue Gate.
+  workflow_call:
 
 # A called workflow can only narrow these, and test.yml asks for both.
 permissions:
