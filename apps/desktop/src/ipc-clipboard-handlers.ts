@@ -3,6 +3,7 @@ import { settleIpcResult } from './platform/desktop-ipc-registry';
 import type { Handlers } from './platform/ipc-contract';
 
 export interface ClipboardLike {
+  writeImage: (png: Uint8Array) => Promise<void>;
   writeText: (text: string) => Promise<void>;
 }
 
@@ -12,13 +13,17 @@ interface ClipboardIpcDependencies {
 
 /**
  * Main-side handlers for the clipboard contract. Input validation lives in
- * the contract's `parseArgs` (a non-string payload never reaches here); a
+ * the contract's `parseArgs` (a malformed payload never reaches here); a
  * clipboard write rejection settles as the `IpcResult` failure taxonomy.
  */
 export function createClipboardIpcHandlers({
   clipboard,
 }: ClipboardIpcDependencies): Handlers<typeof clipboardContract> {
   return {
+    writeImage: (png) =>
+      settleIpcResult({ category: 'clipboard', code: 'clipboard.write-failed' }, () =>
+        clipboard.writeImage(png)
+      ),
     writeText: (text) =>
       settleIpcResult({ category: 'clipboard', code: 'clipboard.write-failed' }, () =>
         clipboard.writeText(text)

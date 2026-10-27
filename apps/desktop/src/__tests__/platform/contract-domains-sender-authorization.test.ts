@@ -34,7 +34,7 @@ const DOMAIN_CASES: readonly ContractDomainCase[] = [
   {
     domain: 'clipboard',
     methods: ['clipboard:write-text'],
-    register: () => registerClipboardIpcHandlers({ writeText: vi.fn() }),
+    register: () => registerClipboardIpcHandlers({ writeImage: vi.fn(), writeText: vi.fn() }),
   },
   {
     domain: 'contextFiles',
