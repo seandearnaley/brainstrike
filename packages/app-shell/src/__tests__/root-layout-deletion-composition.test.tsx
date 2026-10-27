@@ -30,7 +30,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async () => {
     '@brainstrike/file-explorer-ui/shell/root-data-deletion-context'
   );
   return {
-    CANVAS_APP_ID: 'canvas',
     CHANGES_APP_ID: 'changes',
     CONTEXT_EXPLORER_APP_ID: 'context-explorer',
     ExplorerContextExportAction: () => null,

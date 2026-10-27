@@ -1,11 +1,12 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { useChangesNavigationStore } from '../changes/changes-navigation-store';
+import { canvasWorkspaceTabId } from '../canvas/canvas-workspace-tab';
 import type { PlatformBridge } from '../platform-bridge';
 import { useAssistantLinkCapabilitiesValue } from '../use-assistant-link-capabilities';
 
@@ -34,14 +35,17 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     toastMock.mockClear();
     vi.restoreAllMocks();
     __resetWorkspaceTabSelectionStoreForTests();
-    useChangesNavigationStore.getState().reset();
+    useAssistantThreadStore.setState({ activeThreadIdByResourceId: {} });
     usePanelLayoutStore.getState().setActiveTab('explorer');
   });
 
-  it('routes a canvas:// link to the Canvas workspace tab, never to the OS browser', async () => {
+  it('opens a canvas:// link in that canvas\u2019s own tab on the active thread, never in the OS browser', async () => {
     const openExternal = vi.fn();
     setPlatform(fullBridge({ openExternal }));
     usePanelLayoutStore.getState().setActiveTab('settings');
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-1' },
+    });
 
     const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
 
@@ -52,11 +56,11 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     // "Blocked protocol: canvas:".
     expect(openExternal).not.toHaveBeenCalled();
     expect(toastMock).not.toHaveBeenCalled();
-    expect(useChangesNavigationStore.getState().focusedCanvasId).toBe(
-      '019a0b3c-4d5e-7f60-8a1b-2c3d4e5f6071'
-    );
     expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      appId: 'canvas',
+      appId: canvasWorkspaceTabId({
+        canvasId: '019a0b3c-4d5e-7f60-8a1b-2c3d4e5f6071',
+        threadId: 'thread-1',
+      }),
       kind: 'app',
     });
     // The workspace panel only exists on the explorer route (same pairing as
@@ -64,15 +68,29 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
   });
 
+  it('reports a canvas link with no thread to open it in', async () => {
+    setPlatform(fullBridge());
+
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    const outcome = await result.current.openLink('canvas://019a0b3c-4d5e-7f60-8a1b-2c3d4e5f6071');
+
+    expect(outcome).toEqual({ error: 'Open the canvas from its thread', ok: false });
+    expect(toastMock).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['context-explorer']);
+  });
+
   it('reports a malformed canvas link instead of failing silently', async () => {
     setPlatform(fullBridge());
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-1' },
+    });
 
     const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
     const outcome = await result.current.openLink('canvas://');
 
     expect(outcome).toEqual({ error: 'Canvas link has no usable canvas id', ok: false });
     expect(toastMock).toHaveBeenCalledTimes(1);
-    expect(useChangesNavigationStore.getState().focusedCanvasId).toBeNull();
+    expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['context-explorer']);
   });
 
   it('opens an http link through the desktop bridge', async () => {

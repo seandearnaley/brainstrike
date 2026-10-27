@@ -66,7 +66,7 @@ export function WorkspaceOpenFileBridge(): null {
 
 export interface WorkspaceTabsProviderProps {
   /**
-   * App registry in canonical display order (e.g. Files, Changes, Canvas).
+   * App registry in canonical display order (e.g. Files, Changes, Terminal).
    * Capability gating happens at the call site by omission — an app absent
    * from this list has no tab, no launcher card, and no stub.
    */

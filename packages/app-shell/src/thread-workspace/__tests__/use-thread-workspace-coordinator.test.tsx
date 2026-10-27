@@ -10,6 +10,7 @@ import {
   within,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { canvasWorkspaceTabId } from '../../canvas/canvas-workspace-tab';
 import { delegatedWorkspaceTabId } from '../../delegated-workspace-tab';
 import { hostChildWorkspaceTabId } from '../../host-child-workspace-tab';
 import { createHarness } from './fixtures/thread-workspace-harness';
@@ -534,7 +535,7 @@ describe('useThreadWorkspaceCoordinator', () => {
     expect(harness.facade.applyFileTabs).not.toHaveBeenCalled();
   });
 
-  it('a new thread inherits the workspace without the outgoing thread child conversations', async () => {
+  it('a new thread inherits the workspace without the outgoing thread child conversations or canvases', async () => {
     const harness = createHarness();
     const hostChild = hostChildWorkspaceTabId({ persona: 'researcher', threadId: 'child-a' });
     const delegated = delegatedWorkspaceTabId({
@@ -542,7 +543,8 @@ describe('useThreadWorkspaceCoordinator', () => {
       rootThreadId: 'thread-a',
       threadId: 'child-b',
     });
-    harness.state.openAppIds = ['context-explorer', hostChild, delegated];
+    const canvas = canvasWorkspaceTabId({ canvasId: 'canvas-1', threadId: 'thread-a' });
+    harness.state.openAppIds = ['context-explorer', hostChild, delegated, canvas];
     harness.state.selection = { appId: hostChild, kind: 'app' };
     const { rerender } = render(harness, 'thread-a');
 
@@ -560,6 +562,7 @@ describe('useThreadWorkspaceCoordinator', () => {
       'context-explorer',
       hostChild,
       delegated,
+      canvas,
     ]);
   });
 

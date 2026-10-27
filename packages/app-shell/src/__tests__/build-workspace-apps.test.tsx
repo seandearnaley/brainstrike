@@ -6,7 +6,6 @@
  */
 
 import {
-  CANVAS_APP_ID,
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   LOGS_APP_ID,
@@ -23,9 +22,8 @@ describe('buildWorkspaceApps', () => {
     expect(apps.map((app) => app.id)).toEqual([CONTEXT_EXPLORER_APP_ID]);
   });
 
-  it('desktop shape: canonical order Files, Changes, Canvas, Terminal', () => {
+  it('desktop shape: canonical order Files, Changes, Terminal', () => {
     const apps = buildWorkspaceApps({
-      canvasPanelContent: 'canvas',
       changesPageContent: 'changes',
       filesContent: 'files',
       terminalPageContent: 'terminal',
@@ -33,19 +31,17 @@ describe('buildWorkspaceApps', () => {
     expect(apps.map((app) => app.id)).toEqual([
       CONTEXT_EXPLORER_APP_ID,
       CHANGES_APP_ID,
-      CANVAS_APP_ID,
       TERMINAL_APP_ID,
     ]);
     expect(apps.at(-1)?.label).toBe('Terminal');
     expect(apps.at(-1)?.render()).toBe('terminal');
   });
 
-  it('places the Worktree Map after Changes and before Canvas when EVERY app is registered', () => {
-    // All four optional contents present, deliberately: an ordering assertion
-    // with only two of them cannot tell "after Changes" from "appended last",
-    // which is exactly the mistake a new push() at the end of the builder makes.
+  it('places the Worktree Map after Changes and before Terminal when EVERY app is registered', () => {
+    // All optional contents present, deliberately: an ordering assertion with
+    // only two of them cannot tell "after Changes" from "appended last", which
+    // is exactly the mistake a new push() at the end of the builder makes.
     const apps = buildWorkspaceApps({
-      canvasPanelContent: <div>canvas</div>,
       changesPageContent: <div>changes</div>,
       filesContent: <div>files</div>,
       terminalPageContent: <div>terminal</div>,
@@ -56,7 +52,6 @@ describe('buildWorkspaceApps', () => {
       CONTEXT_EXPLORER_APP_ID,
       CHANGES_APP_ID,
       WORKTREE_MAP_APP_ID,
-      CANVAS_APP_ID,
       TERMINAL_APP_ID,
     ]);
     expect(apps.find((app) => app.id === WORKTREE_MAP_APP_ID)?.label).toBe('Worktrees');
@@ -64,7 +59,6 @@ describe('buildWorkspaceApps', () => {
 
   it('pins every singleton app in the strip (BST-1839): none scrolls with the file tabs', () => {
     const apps = buildWorkspaceApps({
-      canvasPanelContent: <div>canvas</div>,
       changesPageContent: <div>changes</div>,
       filesContent: <div>files</div>,
       terminalPageContent: <div>terminal</div>,
@@ -75,7 +69,6 @@ describe('buildWorkspaceApps', () => {
       [CONTEXT_EXPLORER_APP_ID, 'pinned'],
       [CHANGES_APP_ID, 'pinned'],
       [WORKTREE_MAP_APP_ID, 'pinned'],
-      [CANVAS_APP_ID, 'pinned'],
       [TERMINAL_APP_ID, 'pinned'],
     ]);
   });
