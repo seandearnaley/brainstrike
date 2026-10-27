@@ -69,8 +69,8 @@ Give it its own temporary directory, port, data root or clock, or declare the
 missing input in turbo `inputs`/`env`. Never uncache or serialize to make it pass.
 
 - Iterate on the narrowest check that covers the change: `vitest run <file>`,
-  then `pnpm --filter <package> test`, then `pnpm test:affected`. Run the full
-  `pnpm check` once, right before queueing, never as an edit loop.
+  then `pnpm --filter <package> test`, then `pnpm test:affected`. The full
+  `pnpm check` is optional before a PR and never an edit loop.
 - Never rerun a lane that passed. After a failure, rerun only the failing files.
 - Start anything longer than about two minutes in the background and keep
   working; do not wait on it or poll it.
@@ -81,12 +81,45 @@ missing input in turbo `inputs`/`env`. Never uncache or serialize to make it pas
 
 ## Validation and delivery
 
-`pnpm check` must pass before a change is queued. Hosted CI runs nightly on main;
-main lands only through Mergify's merge queue: enqueue with
-`gh pr comment <number> --body '@mergifyio queue'`. Do not enable workflows,
-dispatch hosted checks, request automated reviews, sign or publish without the
-owner's authorization. Report actual checks and failures; never describe a
-partial run as a full pass.
+The merge queue is the gate (owner decision 2026-10-27). Main lands only through
+Mergify, and every queue batch runs every lane on hosted runners: lint,
+type-check, unit, build, browser, smoke, packaged Electron and the full desktop
+regression. Do not repeat that gate locally before a PR.
+
+- Before opening a PR, run the narrow checks for what changed: lint, type-check
+  and tests of the packages you touched (`pnpm test:affected`), plus the E2E
+  specs for the feature you changed. Report exactly what ran.
+- Open the PR ready for review, not as a draft, so the automated review runs
+  while the queue does. Queue it as soon as those checks pass: comment
+  `@mergifyio queue`, or tick "Queue this pull request" in Mergify's comment.
+- Never wait for the automated review. If it reports a real defect before the
+  PR merges, convert the PR to a draft (that dequeues it), fix it and requeue.
+- Hold a PR out of the queue only while it depends on another open PR. Mergify
+  orders, batches and speculatively checks the rest.
+- For a large or risky change, add the `full-check` label. The Full Check
+  workflow then runs the queue's own lanes on the PR merged with main, on
+  hosted runners, and again on each push while the label stays.
+- A red batch is a finding. Fix this PR's failure and requeue; fix a flaky test
+  at its cause (it is never retried or skipped) and record it in Linear.
+
+Do not enable other workflows, dispatch other hosted checks, request automated
+reviews, sign or publish without the owner's authorization. Report actual checks
+and failures; never describe a partial run as a full pass.
+
+### Time budgets
+
+A step that runs past its stop line is a defect to report, not a normal step.
+Stop, tell the owner the measured time and its cause, and do not record the slow
+path as a procedure.
+
+| Step | Budget | Stop line |
+| --- | --- | --- |
+| One unit test file (`vitest run <file>`) | under 30 s | 1 min |
+| One E2E spec | under 1 min | 2 min |
+| One package's tests | under 2 min | 4 min |
+| Narrow checks before a PR | 10 min | 20 min |
+| Queue batch (the full gate) | 12 min | 20 min |
+| Small fix, from report to merged | 45 min | 90 min |
 
 ## Find specialist context when needed
 
