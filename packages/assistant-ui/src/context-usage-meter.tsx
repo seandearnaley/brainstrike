@@ -390,11 +390,9 @@ export const ContextUsageMeter = ({
   });
 
   return (
-    <div
-      className="mx-3 mt-1.5 mb-1 flex flex-col gap-0.5 text-xs"
-      data-state={state}
-      data-testid="context-usage-meter"
-    >
+    // Laid out by the composer toolbar (`.bs-composer-context`): the trigger
+    // takes the row's far end and the critical notice wraps beneath it.
+    <div className="bs-composer-context" data-state={state} data-testid="context-usage-meter">
       {/* Opens on activation, never on hover or focus: a pointer left resting
           where a layout shift moves the trigger would otherwise hold the panel
           open over the composer and the controls beneath it. */}
@@ -406,7 +404,7 @@ export const ContextUsageMeter = ({
               same story; the full model window lives in the popover + title. */}
           <button
             aria-label={trigger.ariaLabel}
-            className="flex w-fit items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="bs-composer-chip bs-composer-context-trigger"
             data-testid="context-usage-trigger"
             title={`context ${formatCompact(usedTokens)} / ${formatCompact(effectiveInputBudget)} · model window ${formatTokenCount(contextWindow)}`}
             type="button"
@@ -433,13 +431,13 @@ export const ContextUsageMeter = ({
               </span>
             )}
             {trigger.badge && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground/70 uppercase tracking-wide">
+              <span className="bs-composer-context-badge rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
                 {trigger.badge}
               </span>
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 p-3" data-testid="context-usage-popover">
+        <PopoverContent align="end" className="w-80 p-3" data-testid="context-usage-popover">
           <ContextUsagePopoverContent
             breakdownState={breakdownState}
             contextWindow={contextWindow}
@@ -462,7 +460,7 @@ export const ContextUsageMeter = ({
       {/* Critical trimming-risk notice — INLINE next to the ring, never hidden
           inside the popover (visibility rule). */}
       {state === 'critical' && (
-        <p className="text-[11px] text-destructive/80" data-testid="context-usage-critical-notice">
+        <p className="bs-composer-context-notice" data-testid="context-usage-critical-notice">
           Approaching input budget; older messages may be trimmed.
         </p>
       )}

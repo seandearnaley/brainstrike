@@ -5,7 +5,6 @@ import type {
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
 import {
-  Button,
   createDraftFieldScope,
   type DraftFieldScope,
   DraftFieldScopeContext,
@@ -407,15 +406,10 @@ export const ControlsMenu = ({
   return (
     <Popover onOpenChange={handleOpenChange} open={open}>
       <PopoverTrigger asChild>
-        <Button
-          aria-label="Open assistant controls"
-          className="h-8 gap-1.5 rounded-full border-border/70 bg-background/85 px-3 text-xs"
-          size="sm"
-          variant="outline"
-        >
-          <SlidersHorizontal aria-hidden className="size-3.5 text-muted-foreground" />
+        <button aria-label="Open assistant controls" className="bs-composer-chip" type="button">
+          <SlidersHorizontal aria-hidden />
           <span>Controls</span>
-        </Button>
+        </button>
       </PopoverTrigger>
       {/* A closed draft scope must retire in this commit. Keeping the content
           mounted for an exit animation leaves its dialog and dismissal handlers
