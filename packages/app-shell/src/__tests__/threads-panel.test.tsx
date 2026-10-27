@@ -703,6 +703,33 @@ describe('ThreadsPanel', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('stays in selection mode after a keyboard selection is unchecked', async () => {
+    threadRows.splice(1);
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(1);
+    });
+    fireEvent.keyDown(screen.getByRole('treegrid', { name: 'Workspace threads' }), {
+      ctrlKey: true,
+      key: 'a',
+    });
+    expect(screen.getByRole('button', { name: 'Select threads' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+
+    const checkbox = screen.getByRole('checkbox', { name: /^Select thread / });
+    expect(checkbox).toBeChecked();
+    checkbox.focus();
+    fireEvent.click(checkbox);
+    expect(
+      screen.queryByRole('toolbar', { name: 'Thread selection actions' })
+    ).not.toBeInTheDocument();
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox).toHaveFocus();
+  });
+
   it('reads the visible count as singular when one thread is disclosed', async () => {
     threadRows.splice(1);
 
