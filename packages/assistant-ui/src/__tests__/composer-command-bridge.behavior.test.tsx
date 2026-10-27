@@ -117,6 +117,56 @@ describe('assistant composer command bridge', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it('sends a send command exactly once, through the composer', async () => {
+    run.mockClear();
+    const onApplied = vi.fn();
+    const onTextChange = vi.fn();
+    const command = { id: 'send-1', mode: 'send', text: 'Plan the release.' } as const;
+    const { rerender } = renderPanel(command, { onApplied, onTextChange });
+
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('textbox', { name: 'Message input' })).toHaveValue('');
+    expect(await screen.findByText('Plan the release.')).toBeVisible();
+    expect(onApplied).toHaveBeenCalledExactlyOnceWith('send-1');
+
+    rerender(
+      <LocalConversationPanel
+        adapter={NOOP_ADAPTER}
+        composerDraftCommand={command}
+        onComposerDraftCommandApplied={onApplied}
+        onComposerTextChange={onTextChange}
+      />
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onApplied).toHaveBeenCalledOnce();
+  });
+
+  it('holds a send command behind the send gate with its text in the draft', async () => {
+    run.mockClear();
+    const onApplied = vi.fn();
+    const onTextChange = vi.fn();
+    const command = { id: 'send-2', mode: 'send', text: 'Plan the release.' } as const;
+    const panel = (disabled: boolean) => (
+      <LocalConversationPanel
+        adapter={NOOP_ADAPTER}
+        composerDraftCommand={command}
+        isComposerDisabled={disabled}
+        onComposerDraftCommandApplied={onApplied}
+        onComposerTextChange={onTextChange}
+      />
+    );
+    const { rerender } = render(panel(true), { wrapper: TooltipProvider });
+    const input = await screen.findByRole('textbox', { name: 'Message input' });
+
+    await waitFor(() => expect(input).toHaveValue('Plan the release.'));
+    expect(run).not.toHaveBeenCalled();
+    expect(onApplied).not.toHaveBeenCalled();
+
+    rerender(panel(false));
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(onApplied).toHaveBeenCalledExactlyOnceWith('send-2');
+  });
+
   it('reports the authoritative empty draft after a send clears the composer', async () => {
     const user = userEvent.setup();
     const onApplied = vi.fn();

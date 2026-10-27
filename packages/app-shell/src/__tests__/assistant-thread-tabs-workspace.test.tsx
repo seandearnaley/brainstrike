@@ -1,5 +1,6 @@
 import './assistant-thread-tabs-workspace-test-support';
 import * as factoryReset from '@brainstrike/app-state/factory-reset';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantThreadRepository,
   resetAssistantThreadStore,
@@ -30,7 +31,7 @@ import {
 } from './assistant-thread-tabs-workspace-test-support';
 
 describe('AssistantThreadTabsWorkspace', () => {
-  it('recovers an unavailable saved conversation and keeps New available after refused creation', async () => {
+  it('recovers an unavailable saved conversation and keeps the message after refused creation', async () => {
     const current = {
       createdAt: new Date(),
       id: 'owned-current',
@@ -41,7 +42,13 @@ describe('AssistantThreadTabsWorkspace', () => {
     const host: AssistantThreadHostCapability = {
       createThread: vi
         .fn()
-        .mockRejectedValueOnce(new Error('Choose an available workspace folder.'))
+        .mockRejectedValueOnce(
+          refusalError(
+            'availability',
+            'workspace.unavailable',
+            'Choose an available workspace folder.'
+          )
+        )
         .mockResolvedValueOnce(current),
       deleteThread: vi.fn(async () => undefined),
       listThreads: vi.fn(async () => []),
@@ -60,13 +67,20 @@ describe('AssistantThreadTabsWorkspace', () => {
     });
     renderWorkspace({}, host);
     expect(await screen.findByText(/Your saved conversation is unavailable/)).toBeVisible();
-    expect(screen.getByText('Choose an available workspace folder.')).toBeVisible();
+    // An empty catalog is the new-thread screen: nothing is created for it.
+    const input = await screen.findByRole('textbox', { name: 'Message input' });
+    expect(host.createThread).not.toHaveBeenCalled();
+    const user = userEvent.setup();
+    await user.type(input, 'Summarize the repo{Enter}');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Choose an available workspace folder.'
+    );
+    expect(input).toHaveValue('Summarize the repo');
     expect(screen.queryByTestId('host-thread')).not.toBeInTheDocument();
-    const newChat = screen.getByRole('button', { name: 'New assistant thread' });
-    expect(newChat).toBeEnabled();
-    await userEvent.setup().click(newChat);
+    await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
-    expect(screen.queryByText('Choose an available workspace folder.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Choose an available workspace folder/)).not.toBeInTheDocument();
+    expect(host.createThread).toHaveBeenCalledTimes(2);
     expect(host.deleteThread).not.toHaveBeenCalled();
   });
 
@@ -180,14 +194,19 @@ describe('AssistantThreadTabsWorkspace', () => {
     );
   });
 
-  it('creates durable threads as focused tabs', async () => {
+  it('creates a durable thread as a focused tab only when its first message is sent', async () => {
     const user = userEvent.setup();
     renderWorkspace();
 
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /Purchasing app search log/ })).toBeVisible();
     });
+    const rowsBefore = threadRows.length;
     await user.click(screen.getByRole('button', { name: 'New assistant thread' }));
+    const input = await screen.findByRole('textbox', { name: 'Message input' });
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    expect(threadRows).toHaveLength(rowsBefore);
+    await user.type(input, 'Hello{Enter}');
 
     await waitFor(() => {
       expect(screen.getByTestId('assistant-thread-panel-thread-new-2')).toBeVisible();
@@ -727,11 +746,12 @@ describe('AssistantThreadTabsWorkspace', () => {
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
     ).toEqual(['New Thread', 'Close All', 'Reopen Closed Tab']);
+    const rowsBefore = threadRows.length;
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'New Thread' }));
 
-    await waitFor(() => {
-      expect(screen.getByTestId('assistant-thread-panel-thread-new-2')).toBeVisible();
-    });
+    expect(await screen.findByRole('textbox', { name: 'Message input' })).toBeVisible();
+    expect(activeThreadId()).toBeUndefined();
+    expect(threadRows).toHaveLength(rowsBefore);
 
     fireEvent.contextMenu(screen.getByTestId('assistant-thread-tab-strip'));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));

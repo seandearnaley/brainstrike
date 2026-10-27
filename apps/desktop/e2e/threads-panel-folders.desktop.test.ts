@@ -23,6 +23,7 @@ import { setupAssistantMock } from './utils/assistant-mock';
 import { freshRepo as createFreshRepo, createTempDirTracker } from './utils/git-fixtures';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { startThread } from './utils/new-thread';
 import { seedRoot as seedWorkspaceRoot } from './utils/seed-root';
 import { seedHostThreads, waitForSingleWorkspaceRootRow } from './utils/seed-threads';
 
@@ -141,9 +142,10 @@ async function seedFoldersFixture(page: Page, userDataDir: string): Promise<{ re
   const root = await waitForSingleWorkspaceRootRow(page);
   expect(root.displayName).toBe(path.basename(repo));
 
-  // The empty host catalog creates its initial unbound conversation before seeding.
+  // An empty host catalog creates nothing: the new-thread screen waits for a first send.
   await openThreadsPanel(page);
-  await expect(page.getByTestId('thread-row')).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('thread-row')).toHaveCount(0);
   await seedHostThreads(userDataDir, [
     { folder: null, title: UNBOUND_THREAD_TITLE },
     { folder: root, title: BOUND_THREAD_TITLES[0] },
@@ -187,12 +189,8 @@ test.describe('Threads panel folder grouping (desktop)', () => {
 
     const unassignedSection = folderHeader(page, 'No folder');
     await expect(unassignedSection).toHaveCount(1);
-    // TWO unbound threads, not one: the seeded one plus the thread an EMPTY
-    // resource bootstraps on its first load (`loadResourceThreadsForGeneration`
-    // in `assistant-thread-store.ts` creates one when `listThreads` comes back
-    // empty). That thread is real, has never made a request, and therefore has
-    // no binding — so the catch-all is exactly where it belongs.
-    await expect(unassignedSection.getByTestId('thread-folder-count')).toHaveText('2');
+    // ONE unbound thread, the seeded one: an empty catalog creates no thread of its own.
+    await expect(unassignedSection.getByTestId('thread-folder-count')).toHaveText('1');
     // "New thread here" belongs to a FOLDER, so the catch-all must not offer it.
     await expect(unassignedSection.getByTestId('thread-folder-new-thread')).toHaveCount(0);
 
@@ -226,18 +224,22 @@ test.describe('Threads panel folder grouping (desktop)', () => {
     });
     const rowsBefore = await page.getByTestId('thread-row').count();
 
-    // "New thread here" is createThread + ONE metadata write carrying the whole
-    // binding, so the new row lands INSIDE this folder rather than under
+    // "New thread here" opens the new-thread screen for this folder and creates
+    // nothing; the first send is createThread + ONE metadata write carrying the
+    // whole binding, so the new row lands INSIDE this folder rather than under
     // "No folder" — which is exactly what the two section counts report.
     await repoSection.getByTestId('thread-folder-new-thread').click();
+    const welcome = page.getByTestId('new-thread-welcome');
+    await expect(welcome.getByTestId('new-thread-folder')).toHaveText(path.basename(repo));
+    await expect(page.getByTestId('thread-row')).toHaveCount(rowsBefore);
+    await startThread(page, 'Start here.');
     await expect(repoSection.getByTestId('thread-folder-count')).toHaveText('3', {
       timeout: 30_000,
     });
     await expect(page.getByTestId('thread-row')).toHaveCount(rowsBefore + 1, { timeout: 30_000 });
-    // Unchanged: the new thread was born BOUND, so it did not land here (the
-    // two unbound threads are the seeded one and the empty-resource bootstrap).
+    // Unchanged: the new thread was born BOUND, so it did not land with the seeded unbound one.
     await expect(folderHeader(page, 'No folder').getByTestId('thread-folder-count')).toHaveText(
-      '2'
+      '1'
     );
 
     // No run has ever started here, so "Running" matches nothing. The panel must

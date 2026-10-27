@@ -48,10 +48,16 @@ test.each(['empty', 'current'] as const)(
       useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
     ).toBe('saved-current');
     await user.click(screen.getByRole('button', { name: 'Retry loading conversations' }));
-    expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
+    if (result === 'empty') {
+      // An empty catalog opens the new-thread screen; no thread is created for it.
+      expect(await screen.findByRole('textbox', { name: 'Message input' })).toBeVisible();
+      expect(screen.getByText(/Your saved conversation is unavailable/)).toBeVisible();
+    } else {
+      expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
+    }
     expect(screen.queryByText('Catalog still unavailable')).not.toBeInTheDocument();
     expect(host.listThreads).toHaveBeenCalledTimes(3);
-    expect(host.createThread).toHaveBeenCalledTimes(result === 'empty' ? 1 : 0);
+    expect(host.createThread).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'New assistant thread' })).toBeEnabled();
   }
 );

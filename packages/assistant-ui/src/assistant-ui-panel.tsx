@@ -318,6 +318,7 @@ export const ChatThreadUI = ({
               <ThreadDebugPackButton key={threadKey} />
               <ComposerDraftCommandBridge
                 composerDraftCommand={composerDraftCommand}
+                isComposerDisabled={composerDisabled}
                 onComposerDraftCommandApplied={onComposerDraftCommandApplied}
                 onComposerTextChange={onComposerTextChange}
               />

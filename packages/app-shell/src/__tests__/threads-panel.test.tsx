@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantMemoryThread,
   useAssistantThreadGroupsStore,
@@ -1258,12 +1257,8 @@ describe('ThreadsPanel', () => {
     expect(within(details).queryByText('Description')).not.toBeInTheDocument();
   });
 
-  it('creates threads through the host instead of replacing the list', async () => {
+  it('opens the new-thread screen without creating a thread', async () => {
     const user = userEvent.setup();
-    const uuidSpy = vi
-      .spyOn(crypto, 'randomUUID')
-      .mockReturnValue('00000000-0000-4000-8000-00000000000c');
-    const threadId = 'thread-00000000-0000-4000-8000-00000000000c';
     renderThreadsPanel();
 
     await waitFor(() => {
@@ -1271,15 +1266,11 @@ describe('ThreadsPanel', () => {
     });
     await user.click(screen.getByRole('button', { name: 'New thread' }));
 
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
-    });
-    expect(hostMocks.createThread).toHaveBeenCalledExactlyOnceWith(WORKSPACE_MEMORY_RESOURCE_ID);
-    expect(screen.queryByText(threadId)).not.toBeInTheDocument();
     expect(
-      useAssistantThreadStore.getState().threadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toEqual([threadId, 'thread-b', 'thread-a']);
-    uuidSpy.mockRestore();
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBeUndefined();
+    expect(hostMocks.createThread).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
   });
 
   it('renames a thread through the host', async () => {
@@ -2364,7 +2355,7 @@ describe('ThreadsPanel folders', () => {
     }
   });
 
-  it('creates a thread already bound to the folder it was started from', async () => {
+  it('starts a new thread bound to the folder it was started from, creating nothing yet', async () => {
     bindThreadToRoot('thread-a');
     renderThreadsPanel();
     await waitFor(() => {
@@ -2374,65 +2365,15 @@ describe('ThreadsPanel folders', () => {
 
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
-    await waitFor(() => {
-      expect(hostMocks.updateThreadBinding).toHaveBeenCalledWith(
-        expect.stringMatching(/^thread-/),
-        expect.objectContaining({
-          operatingRootDisplayName: 'workspace-a',
-          operatingRootId: 'root-1',
-          operatingRootPath: '/tmp/workspace-a',
-        })
-      );
-    });
-    expect(hostMocks.createThread).toHaveBeenCalledOnce();
-    // ONE metadata write for the whole binding, not one key at a time.
-    expect(hostMocks.updateThreadBinding).toHaveBeenCalledOnce();
-  });
-
-  it('toasts when a thread started from a folder cannot be created', async () => {
-    bindThreadToRoot('thread-a');
-    renderThreadsPanel();
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-    await enterFolderGrouping();
-    hostMocks.createThread.mockRejectedValueOnce(new Error('thread insert failed'));
-
-    fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
-
-    expect(await screen.findByText('New thread in workspace-a failed')).toBeVisible();
-  });
-
-  it('preserves a created thread in No folder when its folder binding fails', async () => {
-    bindThreadToRoot('thread-a');
-    renderThreadsPanel();
-    await waitFor(() => {
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
-    });
-    await enterFolderGrouping();
-    fixture.metadataFailureThreadId = '*';
-    fixture.metadataFailureMessage = 'Metadata update failed in the host';
-
-    fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
-
-    expect(await screen.findByText('Thread created in No folder')).toBeVisible();
-    expect(screen.queryByText(/Metadata update failed in the host/)).not.toBeInTheDocument();
     expect(
-      screen.getByText(
-        `Could not bind it to workspace-a. Open the thread and select workspace-a to retry. Error: ${INTERNAL_FAULT.message}`
-      )
-    ).toBeVisible();
-    await waitFor(() => {
-      const unassignedSection = screen
-        .getAllByTestId('thread-group-section')
-        .find((section) => within(section).queryByText('No folder'));
-      expect(unassignedSection).toBeDefined();
-      expect(
-        within(unassignedSection as HTMLElement).getByTestId('thread-folder-count')
-      ).toHaveTextContent('2');
-      expect(screen.getAllByTestId('thread-row')).toHaveLength(3);
-    });
-    expect(hostMocks.deleteThread).not.toHaveBeenCalled();
+      useAssistantThreadStore.getState().newThreadFolderByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual({ displayName: 'workspace-a', path: '/tmp/workspace-a', rootId: 'root-1' });
+    expect(
+      useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toBeUndefined();
+    // The first send creates the thread and commits the binding (new-thread-welcome).
+    expect(hostMocks.createThread).not.toHaveBeenCalled();
+    expect(hostMocks.updateThreadBinding).not.toHaveBeenCalled();
   });
 
   it('offers neither drag handles nor group membership actions in folder grouping', async () => {

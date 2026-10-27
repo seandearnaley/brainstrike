@@ -4,6 +4,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { cleanup, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
+import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import type {
   AssistantThreadHostCapability,
   AssistantThreadHostRun,
@@ -41,9 +42,22 @@ test('host catalog loads and creates a chat', async () => {
   const host = hostCatalog();
   renderWorkspace({}, host);
   expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
-  await userEvent.setup().click(screen.getByRole('button', { name: 'New assistant thread' }));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'New assistant thread' }));
+  // New opens the new-thread screen; nothing is created until the first send.
+  const input = await screen.findByRole('textbox', { name: 'Message input' });
+  expect(input).toHaveFocus();
+  expect(screen.getByTestId('host-thread')).not.toBeVisible();
+  expect(screen.queryByRole('tab', { selected: true })).toBeNull();
+  expect(host.createThread).not.toHaveBeenCalled();
+  await user.type(input, 'Plan the release{Enter}');
   expect(await screen.findByRole('tab', { name: /New conversation/ })).toBeVisible();
   expect(host.createThread).toHaveBeenCalledExactlyOnceWith(WORKSPACE_MEMORY_RESOURCE_ID);
+  expect(screen.queryByTestId('new-thread-welcome')).toBeNull();
+  // The created thread's own composer sends the message.
+  expect(useAssistantComposerCommandStore.getState().commandsByThreadId['owned-new']).toEqual([
+    expect.objectContaining({ mode: 'send', text: 'Plan the release' }),
+  ]);
   expect(assistantWrapperProps).toEqual([]);
 });
 

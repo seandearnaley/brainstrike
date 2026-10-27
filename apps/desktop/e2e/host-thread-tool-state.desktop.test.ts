@@ -8,6 +8,7 @@ import { readAgentHostLog, readHostRetiredTableSnapshot } from './utils/agent-ho
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { startThread } from './utils/new-thread';
 import { seedRoot } from './utils/seed-root';
 
 const API_KEY = 'test-key-host-tool-state';
@@ -139,9 +140,9 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     });
 
     // Delete the titled thread from the Threads panel while another (new) host thread is active.
-    const newThread = page.getByTestId('assistant-new-thread-button');
-    await expect(newThread).toBeEnabled({ timeout: 15_000 });
-    await newThread.click();
+    // A new thread exists once its first message is sent; this one calls no tools.
+    modelProvider.setScript({ finalText: 'Second thread ready.' });
+    await startThread(page, 'Start another thread.');
     await expect.poll(async () => (await readAgentHostLog(userDataDir)).threads).toBe(2);
     const actions = page.getByRole('button', {
       exact: true,

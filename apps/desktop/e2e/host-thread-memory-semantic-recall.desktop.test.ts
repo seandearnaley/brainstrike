@@ -5,6 +5,7 @@ import { withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { startThread } from './utils/new-thread';
 
 const API_KEY = 'test-key-host-memory-semantic-recall';
 const OPENAI_KEY = 'test-key-host-memory-semantic-recall-openai';
@@ -87,12 +88,10 @@ async function sendFirstMessage(page: Page): Promise<void> {
   await expect(answer).toBeVisible();
 }
 
-/** A new thread's composer is ready: its memory precondition passed. */
+/** New opens the new-thread screen; its first send creates the thread. */
 async function startNewThread(page: Page): Promise<void> {
   await page.getByTestId('assistant-new-thread-button').click();
-  await expect(
-    page.getByRole('tab', { exact: true, name: 'New Thread', selected: true })
-  ).toBeVisible();
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible();
   const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
   await expect(panel.getByRole('textbox', { name: 'Message input' })).toBeEnabled({
     timeout: 30_000,
@@ -309,7 +308,8 @@ test('a recall model of a removed provider names the model and the remedy', asyn
 }) => {
   await enableModel(page);
   await enableSemanticRecall(page, 'local/onnx-community/granite-embedding-small-english-r2-ONNX');
-  await page.getByTestId('assistant-new-thread-button').click();
+  // The thread its first send creates holds the message behind the refusal.
+  await startThread(page, 'What do you remember?');
   // Each open thread tab renders the refusal; only the selected tab's copy is shown.
   const refusal = page
     .getByText(

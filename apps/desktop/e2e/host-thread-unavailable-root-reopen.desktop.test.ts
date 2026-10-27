@@ -47,13 +47,8 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
       provider: 'openrouter',
     });
     await ensureAssistantShellVisible(page);
-    // BST-2242: the composer has settled on admission's refusal of the not yet
-    // enabled model, so only the enable itself can clear the gate.
-    await expect(
-      page
-        .getByRole('region', { exact: true, name: 'Assistant' })
-        .getByText('The selected catalog model is disabled', { exact: true })
-    ).toBeVisible({ timeout: 30_000 });
+    // A fresh profile opens on the new-thread screen; its first send creates the thread.
+    await expect(page.getByTestId('new-thread-welcome')).toBeVisible({ timeout: 30_000 });
     await enableAssistantCatalogModel(page, MODEL);
     await send(page, 'BOUND_BEFORE_REOPEN', 'BOUND_SEND_SUCCEEDED');
     const userDataDir = electron.getUserDataDir();
@@ -87,7 +82,9 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     await reopened.keyboard.press('Escape');
 
     await reopened.getByTestId('assistant-new-thread-button').click();
-    await expect(folder).toHaveAccessibleName('Choose a folder');
+    // The new-thread screen names no folder: this send starts an unbound thread.
+    await expect(reopened.getByTestId('new-thread-welcome')).toBeVisible();
+    await expect(folder).toHaveCount(0);
     await send(reopened, 'UNBOUND_AFTER_REOPEN', 'UNBOUND_SEND_SUCCEEDED');
     const after = await withAppHost(userDataDir, (client) =>
       client.request('thread/workspace/binding/read', { threadId: boundThread.threadId })
