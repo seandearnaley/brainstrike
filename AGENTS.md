@@ -92,6 +92,10 @@ regression. Do not repeat that gate locally before a PR.
 - Open the PR ready for review, not as a draft, so the automated review runs
   while the queue does. Queue it as soon as those checks pass: comment
   `@mergifyio queue`, or tick "Queue this pull request" in Mergify's comment.
+  Agents posting through the GitHub connector or API must tick the box (edit
+  Mergify's comment so `- [ ]` becomes `- [x]`): their queue comment arrives
+  defanged (`·@·m·ergifyio q·ueue`) and Mergify ignores it. Confirm Mergify
+  reports the PR queued; an unqueued PR with green CI never merges.
 - Never wait for the automated review. If it reports a real defect before the
   PR merges, convert the PR to a draft (that dequeues it), fix it and requeue.
 - Hold a PR out of the queue only while it depends on another open PR. Mergify
