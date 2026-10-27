@@ -1,16 +1,15 @@
 // @vitest-environment node
 /**
  * "+" add-tab menu (BST-1270). `workspaceAddMenuItems` derives the menu from
- * the REGISTERED app list — registration is the capability gate (web shows
- * Files only; desktop adds Changes/Canvas/Terminal) — and decorates known
- * apps with their keyboard shortcut chips.
+ * the REGISTERED pinned apps — registration is the capability gate (web shows
+ * Files only; desktop adds Changes/Terminal) — and decorates known apps with
+ * their keyboard shortcut chips.
  */
 
-import { FileText, GitBranch, Palette, TerminalSquare } from 'lucide-react';
+import { FileText, GitBranch, PanelsTopLeft, TerminalSquare } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import { workspaceAddMenuItems } from '../workspace-add-menu';
 import {
-  CANVAS_APP_ID,
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   TERMINAL_APP_ID,
@@ -19,7 +18,6 @@ import {
 
 function app(id: string, label: string): WorkspaceApp {
   const icons: Record<string, WorkspaceApp['icon']> = {
-    [CANVAS_APP_ID]: Palette,
     [CHANGES_APP_ID]: GitBranch,
     [CONTEXT_EXPLORER_APP_ID]: FileText,
     [TERMINAL_APP_ID]: TerminalSquare,
@@ -32,17 +30,30 @@ describe('workspaceAddMenuItems', () => {
     const items = workspaceAddMenuItems([
       app(CONTEXT_EXPLORER_APP_ID, 'Files'),
       app(CHANGES_APP_ID, 'Changes'),
-      app(CANVAS_APP_ID, 'Canvas'),
       app(TERMINAL_APP_ID, 'Terminal'),
     ]);
 
     expect(items.map((item) => item.id)).toEqual([
       CONTEXT_EXPLORER_APP_ID,
       CHANGES_APP_ID,
-      CANVAS_APP_ID,
       TERMINAL_APP_ID,
     ]);
-    expect(items.map((item) => item.label)).toEqual(['Files', 'Changes', 'Canvas', 'Terminal']);
+    expect(items.map((item) => item.label)).toEqual(['Files', 'Changes', 'Terminal']);
+  });
+
+  it('never offers an open dynamic tab: a canvas or child conversation opens where it lives', () => {
+    const items = workspaceAddMenuItems([
+      app(CONTEXT_EXPLORER_APP_ID, 'Files'),
+      {
+        icon: PanelsTopLeft,
+        id: 'canvas-document:abc',
+        label: 'Quarterly report',
+        placement: 'dynamic',
+        render: () => null,
+      },
+    ]);
+
+    expect(items.map((item) => item.label)).toEqual(['Files']);
   });
 
   it('capability gating is registration: unregistered apps yield no item (web)', () => {

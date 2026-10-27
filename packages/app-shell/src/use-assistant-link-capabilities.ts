@@ -1,10 +1,11 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { parseCanvasLink } from '@brainstrike/assistant-contract';
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import type { AssistantLinkCapabilities } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
 import { createLogger } from '@brainstrike/logging';
 import { toast } from '@brainstrike/ui';
 import { useMemo } from 'react';
-import { useChangesNavigationStore } from './changes/changes-navigation-store';
+import { openCanvasTab } from './canvas/open-canvas-tab';
 import { type OpenLinkResult, openExternalLink } from './open-external-link';
 
 const MAX_TOASTED_URL_LENGTH = 120;
@@ -42,9 +43,9 @@ function reportFailure(result: OpenLinkResult, url: string): void {
 }
 
 /**
- * `canvas://<canvasId>` opens IN the app: focus the canvas, open/activate the
- * Canvas workspace app tab, and bring the shell back to the explorer route
- * (the workspace panel only exists there — the same two-step pairing
+ * `canvas://<canvasId>` opens IN the app: open/activate that canvas's own
+ * workspace tab on the active thread, and bring the shell back to the explorer
+ * route (the workspace panel only exists there — the same two-step pairing
  * `useChangesReviewValue` does for the "→ Review" link). `null` means "not a
  * canvas link", so the caller falls through to the external policy; a
  * malformed canvas link is a visible failure, never a fall-through that would
@@ -58,7 +59,12 @@ function openCanvasLink(url: string): OpenLinkResult | null {
   if (parsed.kind === 'malformed') {
     return { error: parsed.error, ok: false };
   }
-  useChangesNavigationStore.getState().openCanvas(parsed.canvasId);
+  const threadId =
+    useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID];
+  if (!threadId) {
+    return { error: 'Open the canvas from its thread', ok: false };
+  }
+  openCanvasTab({ canvasId: parsed.canvasId, threadId });
   usePanelLayoutStore.getState().setActiveTab('explorer');
   return { ok: true };
 }
@@ -69,7 +75,7 @@ function openCanvasLink(url: string): OpenLinkResult | null {
  * The panel decides only that a link was activated; this decides where it goes
  * and is the ONE place a link failure becomes visible — the same division of
  * labour the workspace-bar chips use. Every http/https/mailto link goes to the
- * OS browser; `canvas://` links open the Canvas workspace tab in-app. When the
+ * OS browser; `canvas://` links open the canvas's workspace tab in-app. When the
  * in-app browser pane ships, the routing choice belongs here, and
  * `packages/assistant-ui` does not change.
  */

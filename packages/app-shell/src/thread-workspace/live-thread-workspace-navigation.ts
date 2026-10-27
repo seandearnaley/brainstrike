@@ -10,7 +10,7 @@ export const threadWorkspaceNavigation = new ThreadWorkspaceNavigation({
   reportError: (error) =>
     toast({
       description: error instanceof Error ? error.message : String(error),
-      title: 'Unable to open child workspace',
+      title: 'Unable to open in the workspace',
       variant: 'destructive',
     }),
 });

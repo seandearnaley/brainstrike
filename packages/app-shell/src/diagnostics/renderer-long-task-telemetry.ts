@@ -22,6 +22,7 @@ function readMonotonicEpochTime(): number {
 }
 
 export type RendererDiagnosticSurface =
+  | 'artifacts'
   | 'browser'
   | 'changes'
   | 'explorer'

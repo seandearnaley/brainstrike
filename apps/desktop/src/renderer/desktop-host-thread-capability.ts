@@ -161,6 +161,19 @@ export function createWindowThreadCapability(
     });
   });
   return {
+    // The Artifacts gallery: every thread's canvases, a child's included, so a
+    // listed child's canvas tab reads through this client as its parent's does.
+    artifacts: {
+      list: async () => {
+        const { canvases: listed } = await (await client()).request('canvas/list', {});
+        for (const { threadId } of listed) {
+          threads.add(threadId);
+        }
+        return listed;
+      },
+      read: async (threadId, canvasId) =>
+        (await (await client()).request('canvas/read', { canvasId, threadId })).canvas,
+    },
     // BST-1932: a listed child is driven through its parent's host client.
     childThreads: async (threadId) => {
       const host = await threadClient(threadId);
@@ -331,6 +344,7 @@ export function createWindowThreadCapability(
         titles,
       };
     },
+    subscribeCanvasCommits: canvases.subscribeCommits,
     subscribeCanvases: canvases.subscribe,
     // BST-1932: the host says which thread's children changed; nothing is polled.
     subscribeChildren: (listener) => {

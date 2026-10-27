@@ -66,10 +66,24 @@ async function expectTaskListAndCanvas(page: Page, region: Locator): Promise<voi
   const chip = region.getByTestId('canvas-link-chip');
   await expect(chip).toBeVisible({ timeout: 30_000 });
   await chip.click();
-  const panel = page.getByTestId('canvas-panel');
-  await expect(panel).toBeVisible({ timeout: 30_000 });
-  await expect(panel.getByText(CANVAS_TITLE, { exact: true })).toBeVisible();
-  await expect(panel.getByTestId('canvas-version-label')).toHaveText('v1 / 1');
+  await expect(page.getByRole('tab', { name: CANVAS_TITLE })).toHaveAttribute(
+    'aria-selected',
+    'true',
+    { timeout: 30_000 }
+  );
+  const canvas = page.getByTestId('canvas-document');
+  await expect(canvas.getByTestId('canvas-title')).toHaveText(CANVAS_TITLE);
+  await expect(canvas.getByTestId('canvas-version-label')).toHaveText('v1 / 1');
+}
+
+async function openArtifacts(page: Page): Promise<Locator> {
+  await page
+    .getByRole('navigation', { exact: true, name: 'Main navigation' })
+    .getByRole('button', { exact: true, name: 'Artifacts' })
+    .click();
+  const artifacts = page.getByTestId('artifacts-page');
+  await expect(artifacts).toBeVisible({ timeout: 15_000 });
+  return artifacts;
 }
 
 test('a host run’s task list and canvas survive a reload and are gone with their deleted thread', async ({
@@ -137,6 +151,16 @@ test('a host run’s task list and canvas survive a reload and are gone with the
       brainstrike_assistant_task_lists: 0,
       brainstrike_canvas_versions: 0,
     });
+    // The canvas is listed in Artifacts with the thread it lives in.
+    const artifacts = await openArtifacts(page);
+    const card = artifacts.getByTestId('artifact-card');
+    await expect(card).toHaveCount(1, { timeout: 30_000 });
+    await expect(card).toContainText(CANVAS_TITLE);
+    await expect(card).toContainText(THREAD_TITLE);
+    await page
+      .getByRole('navigation', { exact: true, name: 'Main navigation' })
+      .getByRole('button', { exact: true, name: 'Context Explorer' })
+      .click();
 
     // Delete the titled thread from the Threads panel while another (new) host thread is active.
     const newThread = page.getByTestId('assistant-new-thread-button');
@@ -160,6 +184,10 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     expect(await legacyToolStateTables(page)).toEqual({
       brainstrike_assistant_task_lists: 0,
       brainstrike_canvas_versions: 0,
+    });
+    // Its artifact left Artifacts with it.
+    await expect((await openArtifacts(page)).getByText('No artifacts yet')).toBeVisible({
+      timeout: 30_000,
     });
     expect(modelProvider.refusals()).toEqual([]);
   } finally {

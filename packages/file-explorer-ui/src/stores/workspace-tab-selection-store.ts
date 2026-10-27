@@ -2,7 +2,6 @@ import { createSafeJsonStateStorage } from '@brainstrike/storage';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import {
-  CANVAS_APP_ID,
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   LOGS_APP_ID,
@@ -14,7 +13,6 @@ import {
 // reach the app ids through this dependency-light subpath instead of the
 // shell barrel (which drags the whole UI graph into a plain store module).
 export {
-  CANVAS_APP_ID,
   CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   LOGS_APP_ID,

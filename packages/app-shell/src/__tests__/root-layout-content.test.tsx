@@ -31,7 +31,6 @@ interface CapturedWorkspaceApp {
 let capturedWorkspaceApps: readonly CapturedWorkspaceApp[] = [];
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
-  CANVAS_APP_ID: 'canvas',
   CHANGES_APP_ID: 'changes',
   CONTEXT_EXPLORER_APP_ID: 'context-explorer',
   ExplorerContextExportAction: () => null,
@@ -618,17 +617,17 @@ describe('RootLayoutContent', () => {
 
   it('registers the full desktop registry in canonical order with the Files label', () => {
     renderComponent({
-      canvasPanelContent: <div data-testid="canvas-page">Canvas</div>,
       changesPageContent: <div data-testid="changes-page">Changes</div>,
+      terminalPageContent: <div data-testid="terminal-page">Terminal</div>,
     });
 
     expect(capturedWorkspaceApps.map((app) => app.id)).toEqual([
       'context-explorer',
       'changes',
-      'canvas',
+      'terminal',
     ]);
-    expect(capturedWorkspaceApps.map((app) => app.label)).toEqual(['Files', 'Changes', 'Canvas']);
-    expect(screen.getByTestId('canvas-page')).toBeInTheDocument();
+    expect(capturedWorkspaceApps.map((app) => app.label)).toEqual(['Files', 'Changes', 'Terminal']);
+    expect(screen.getByTestId('terminal-page')).toBeInTheDocument();
     // The Files app body is the explorer itself.
     expect(screen.getByTestId('file-explorer-panel')).toBeInTheDocument();
     // The strip renders in the panel header slot (workspaceHeaderContent).

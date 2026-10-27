@@ -17,15 +17,15 @@ if (!runId) {
   throw new Error('The recording has no run');
 }
 /** A canvas version as the host canvas store commits it: one tool state key per canvas. */
-function canvasRow(seq: number, version: number): HostLogRow {
+function canvasRow(seq: number, version: number, canvasId = 'canvas-1'): HostLogRow {
   return Schema.decodeUnknownSync(HostLogRowSchema, { errors: 'all', onExcessProperty: 'error' })({
     event: {
-      key: canvasStateKey('canvas-1'),
+      key: canvasStateKey(canvasId),
       runId,
       toolCallId: `call-${version}`,
       type: 'tool.state.updated',
       value: {
-        canvasId: 'canvas-1',
+        canvasId,
         createdAt: '2026-10-08T12:00:00.000Z',
         createdBy: 'assistant',
         html: `<p>v${version}</p>`,
@@ -50,8 +50,9 @@ class Source implements CommittedHostRunSource {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
-  publish(rows: readonly HostLogRow[]): void {
-    this.snapshot = { isLoading: false, replayedThrough: rows.at(-1)?.seq, rows };
+  /** `replayedThrough` is where the view's replay ended; later rows were committed live. */
+  publish(rows: readonly HostLogRow[], replayedThrough = rows.at(-1)?.seq): void {
+    this.snapshot = { isLoading: false, replayedThrough, rows };
     for (const listener of this.listeners) {
       listener();
     }
@@ -112,4 +113,27 @@ test("the window capability's canvas subscribers hear its rendered views", () =>
   canvases.observe(threadId, source);
   source.publish([...rich, canvasRow((rich.at(-1)?.seq ?? 0) + 1, 1)]);
   expect(listener).toHaveBeenCalledTimes(1);
+});
+test('only a canvas version committed while the view watches is announced as a commit', () => {
+  const canvases = new HostThreadCanvases();
+  const source = new Source();
+  const commits = vi.fn();
+  const release = canvases.subscribeCommits(commits);
+  canvases.observe(threadId, source);
+  const replayEnd = (rich.at(-1)?.seq ?? 0) + 1;
+  // Reopening a thread replays its canvases: they open no tab.
+  const replayed = [...rich, canvasRow(replayEnd, 1, 'replayed')];
+  source.publish(replayed);
+  expect(commits).not.toHaveBeenCalled();
+
+  source.publish([...replayed, canvasRow(replayEnd + 1, 1, 'live')], replayEnd);
+  expect(commits).toHaveBeenCalledTimes(1);
+  expect(commits).toHaveBeenCalledWith({ canvasId: 'live', threadId });
+
+  release();
+  source.publish(
+    [...replayed, canvasRow(replayEnd + 1, 1, 'live'), canvasRow(replayEnd + 2, 2, 'live')],
+    replayEnd
+  );
+  expect(commits).toHaveBeenCalledTimes(1);
 });
