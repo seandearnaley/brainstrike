@@ -161,6 +161,19 @@ export function createWindowThreadCapability(
     });
   });
   return {
+    // The Artifacts gallery: every thread's canvases, a child's included, so a
+    // listed child's canvas tab reads through this client as its parent's does.
+    artifacts: {
+      list: async () => {
+        const { canvases: listed } = await (await client()).request('canvas/list', {});
+        for (const { threadId } of listed) {
+          threads.add(threadId);
+        }
+        return listed;
+      },
+      read: async (threadId, canvasId) =>
+        (await (await client()).request('canvas/read', { canvasId, threadId })).canvas,
+    },
     // BST-1932: a listed child is driven through its parent's host client.
     childThreads: async (threadId) => {
       const host = await threadClient(threadId);
@@ -236,13 +249,12 @@ export function createWindowThreadCapability(
       verifyProvider: async (provider) =>
         await (await client()).request('providers/verify', { provider }),
     },
-    readCanvases: async (threadId) => {
-      const host = await threadClient(threadId);
-      if (!host) {
-        return;
-      }
-      return foldHostCanvases((await host.request('thread/read', { fromSeq: 0, threadId })).rows);
-    },
+    // The host decides which threads exist, a nested child's included (the
+    // catalog lists top-level threads only), and refuses an unknown one.
+    readCanvases: async (threadId) =>
+      foldHostCanvases(
+        (await (await client()).request('thread/read', { fromSeq: 0, threadId })).rows
+      ),
     renameThread: async (threadId, title) => {
       const host = await threadClient(threadId);
       if (!host) {
@@ -331,6 +343,7 @@ export function createWindowThreadCapability(
         titles,
       };
     },
+    subscribeCanvasCommits: canvases.subscribeCommits,
     subscribeCanvases: canvases.subscribe,
     // BST-1932: the host says which thread's children changed; nothing is polled.
     subscribeChildren: (listener) => {

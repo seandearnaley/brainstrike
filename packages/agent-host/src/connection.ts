@@ -365,6 +365,8 @@ export function bindHostConnection(
   handle('thread/search', (params) => searchHostThreads(core, searchState, params));
   handle('thread/selection/read', (params) => core.selections.read(params.threadId));
   handle('thread/selection/set', (params) => core.selections.set(params));
+  handle('canvas/list', () => core.canvases.list());
+  handle('canvas/read', (params) => core.canvases.read(params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));

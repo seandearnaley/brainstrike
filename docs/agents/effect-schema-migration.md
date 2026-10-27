@@ -68,7 +68,7 @@ have these owners:
 
 | Category | Files | Reason |
 | --- | --- | --- |
-| Vendor date-time format patterns | 7 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, host-capabilities `native-tools/canvas-state`, and agent-host catalog `{collection,source-catalog,view-filter-preset,worktree-ledger}-store` |
+| Vendor date-time format patterns | 7 | `assistant-contract/{delegated-conversation-stream,mcp-task-presentation}`, agent-host `protocol-canvas`, and agent-host catalog `{collection,source-catalog,view-filter-preset,worktree-ledger}-store` |
 | SDK schema/type adapters | 5 | `assistant-contract/{sdk-schema,mcp-host}` invokes/infers actual SDK validation; `mcp-tasks-extension/schema` composes SDK sampling/roots/elicitation validators with JSON extension checks; `agent/providers/provider-tool-schema` adapts genuine third-party Zod inputs; `agent-host/provider-schema-selection` selects that vendor branch |
 | Protocol-lab reference fixture | 1 | `mcp-test-lab/reference-server` uses the SDK/reference schema interface |
 

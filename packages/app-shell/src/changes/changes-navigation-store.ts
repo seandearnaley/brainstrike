@@ -1,5 +1,4 @@
 import {
-  CANVAS_APP_ID,
   CHANGES_APP_ID,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
@@ -70,9 +69,8 @@ import { create } from 'zustand';
  *
  * WHICH workspace tab is showing no longer lives here (BST-1258): the unified
  * workspace tab panel owns it in `useWorkspaceTabSelectionStore`
- * (`@brainstrike/file-explorer-ui`), where Changes and Canvas are closable
- * singleton app tabs. `openChangeset`/`openCanvasPanel` route activation
- * through that store's `openApp` — one owned value, written directly by every
+ * (`@brainstrike/file-explorer-ui`), where Changes is a closable singleton
+ * app tab. `openChangeset` routes activation through that store's `openApp` — one owned value, written directly by every
  * event that changes it (the React Doctor `no-adjust-state-on-prop-change`
  * ruling that shaped the previous `activeWorkspacePanelTab` field carries
  * over unchanged).
@@ -97,23 +95,6 @@ export interface ChangesNavigationState {
   readonly activeChangeset: Changeset | null;
   /** The active thread's standing identity — see this file's doc comment. */
   readonly activeThreadIdentity: ChangesActiveThreadIdentity | null;
-  /**
-   * Monotonic counter the Canvas panel re-queries on (BST-1173). Bumped by
-   * `requestCanvasRefresh` when a `manageCanvas` completion crosses the
-   * edit-activity stream — same re-resolve-not-push design as
-   * {@link ChangesNavigationState.liveRefreshNonce}.
-   */
-  readonly canvasRefreshNonce: number;
-  /**
-   * The canvas the Canvas panel should show, or `null` for the thread's
-   * newest. Written by `openCanvas` (a `canvas://` chip on a manageCanvas tool
-   * card, via the app-shell link seam) and by the panel's own picker through
-   * `selectCanvas`; READ by the panel as derivation — a focused id that is not
-   * in the active thread's summaries falls back to the newest, never an
-   * effect re-writing state. One owner, so a chip click and the picker cannot
-   * disagree.
-   */
-  readonly focusedCanvasId: string | null;
   /** Thread/run identity from the most recent `agent-run` handoff, if any. */
   readonly handoffThreadIdentity: ChangesHandoffThreadIdentity | null;
   /** Whether the current selection is "Last Turn" — see this file's doc comment. */
@@ -128,20 +109,6 @@ export interface ChangesNavigationState {
    */
   readonly liveRefreshNonce: number;
   /**
-   * Focus `canvasId` AND open/activate the Canvas workspace app tab. External
-   * entry points only — the `canvas://<id>` chip. Same unconditional-write
-   * reasoning as {@link ChangesNavigationState.openChangeset}: a second click
-   * on the same chip still re-activates the tab.
-   */
-  readonly openCanvas: (canvasId: string) => void;
-  /**
-   * Open + activate the Canvas workspace app tab (BST-1258: routed through
-   * `useWorkspaceTabSelectionStore.openApp`). External entry points only
-   * (BST-1173) — e.g. a "canvas updated" affordance near the assistant turn.
-   * Same unconditional-write reasoning as {@link ChangesNavigationState.openChangeset}.
-   */
-  readonly openCanvasPanel: () => void;
-  /**
    * Show `changeset` on the Changes surface AND open/activate the Changes
    * workspace app tab. Used ONLY by external entry points — today the
    * assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
@@ -155,8 +122,6 @@ export interface ChangesNavigationState {
    * away — the write is direct and idempotent-safe.
    */
   readonly openChangeset: (changeset: Changeset) => void;
-  /** Ask the Canvas panel to re-query because a canvas mutation completed. */
-  readonly requestCanvasRefresh: () => void;
   /**
    * Show `changeset` on the Changes surface, WITHOUT switching the workspace
    * panel tab. Used by the surface's own internal source picker — it only
@@ -186,8 +151,6 @@ export interface ChangesNavigationState {
    * at a runId/threadId or an absolute repository path the reset just wiped.
    */
   readonly reset: () => void;
-  /** Focus `canvasId` WITHOUT switching tabs — the Canvas panel's own picker. */
-  readonly selectCanvas: (canvasId: string) => void;
   /**
    * The picker's "Last Turn" action (BST-1115 smoke feedback). Resolves
    * `activeThreadIdentity` into an `agent-run` Changeset at CALL time (never a
@@ -213,24 +176,13 @@ export interface ChangesNavigationState {
 export const useChangesNavigationStore = create<ChangesNavigationState>((set, get) => ({
   activeChangeset: null,
   activeThreadIdentity: null,
-  canvasRefreshNonce: 0,
-  focusedCanvasId: null,
   handoffThreadIdentity: null,
   isOnLastTurn: false,
   liveRefreshNonce: 0,
-  openCanvas: (canvasId) => {
-    set({ focusedCanvasId: canvasId });
-    useWorkspaceTabSelectionStore.getState().openApp(CANVAS_APP_ID);
-  },
-  openCanvasPanel: () => {
-    useWorkspaceTabSelectionStore.getState().openApp(CANVAS_APP_ID);
-  },
   openChangeset: (changeset) => {
     get().requestChangeset(changeset);
     useWorkspaceTabSelectionStore.getState().openApp(CHANGES_APP_ID);
   },
-  requestCanvasRefresh: () =>
-    set((state) => ({ canvasRefreshNonce: state.canvasRefreshNonce + 1 })),
   requestChangeset: (changeset) =>
     set(
       changeset.kind === 'agent-run'
@@ -259,13 +211,10 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
     set({
       activeChangeset: null,
       activeThreadIdentity: null,
-      canvasRefreshNonce: 0,
-      focusedCanvasId: null,
       handoffThreadIdentity: null,
       isOnLastTurn: false,
       liveRefreshNonce: 0,
     }),
-  selectCanvas: (canvasId) => set({ focusedCanvasId: canvasId }),
   selectLastTurn: () => {
     const identity = get().activeThreadIdentity;
     if (!identity?.latestRunId) {

@@ -93,6 +93,33 @@ export interface AssistantThreadHostCanvasVersion {
   readonly version: number;
 }
 
+/** One canvas at its latest committed version, as the Artifacts gallery lists it. */
+export interface AssistantThreadHostArtifact {
+  readonly canvasId: string;
+  readonly createdBy: string;
+  /** The top-level thread the canvas's thread belongs to; itself for a top-level thread. */
+  readonly rootThreadId: string;
+  readonly threadId: string;
+  readonly title: string;
+  /** When the latest version was committed (ISO 8601). */
+  readonly updatedAt: string;
+  readonly version: number;
+}
+
+/** The Artifacts gallery's reads: every canvas of every thread the host owns. */
+export interface AssistantThreadHostArtifacts {
+  /** Every canvas at its latest version, without its document, newest first. */
+  list(): Promise<readonly AssistantThreadHostArtifact[]>;
+  /** One canvas's latest version with its document; null when it no longer exists. */
+  read(threadId: string, canvasId: string): Promise<AssistantThreadHostCanvasVersion | null>;
+}
+
+/** A canvas version a mounted thread view saw a run commit, as it happened. */
+export interface AssistantThreadHostCanvasCommit {
+  readonly canvasId: string;
+  readonly threadId: string;
+}
+
 /** BST-1932: one child thread a host delegation started, as its origin committed it. */
 export interface AssistantThreadHostChild {
   /** The child's call sign, as the host derives it ("Cedar-1a2b3c"). */
@@ -130,6 +157,8 @@ export interface AssistantThreadContextSource {
 
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
+  /** The Artifacts gallery's reads; a host without canvases omits it. */
+  readonly artifacts?: AssistantThreadHostArtifacts;
   /**
    * A thread's direct child threads, in delegation order. Child threads are
    * never listed as threads; a host without delegation omits this.
@@ -211,6 +240,12 @@ export interface AssistantThreadHostCapability {
    * search fuses them into one list. A host without search omits this.
    */
   searchThreads?(query: string): Promise<ThreadSearchExtraArms>;
+  /**
+   * Told each canvas version a run commits while a view of its thread is
+   * mounted, as it commits (never the versions a view loads with its history),
+   * so the workspace can open that canvas's tab. Returns the unsubscribe.
+   */
+  subscribeCanvasCommits?(listener: (commit: AssistantThreadHostCanvasCommit) => void): () => void;
   /**
    * Called when an owned thread commits a canvas version while a view of it
    * is mounted, so a canvas reader re-reads through `readCanvases`. Omitted by

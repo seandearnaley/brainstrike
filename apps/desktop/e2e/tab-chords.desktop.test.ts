@@ -147,19 +147,19 @@ test.describe('Tab keyboard chords (desktop)', () => {
     // The workspace strip scopes by fallback (no panel), but a ⌘W on one of
     // its tabs still returns focus to its new selected tab, not to body.
     const workspace = page.getByRole('tablist', { name: 'Workspace tabs' });
-    for (const appId of ['changes', 'canvas']) {
+    for (const appId of ['changes', 'logs']) {
       await page.getByTestId('workspace-add-tab').click();
       await page.getByTestId(`workspace-add-tab-${appId}`).click();
       // The menu dismisses after the pick (exit animation, then focus returns
       // to "+"); reopening inside that window is closed by the returning focus.
       await expect(page.getByRole('menu')).toHaveCount(0);
     }
-    const canvasTab = workspace.getByTestId('workspace-app-tab-canvas');
-    await canvasTab.click();
-    await expect(canvasTab).toHaveAttribute('aria-selected', 'true');
-    await canvasTab.focus();
+    const logsTab = workspace.getByTestId('workspace-app-tab-logs');
+    await logsTab.click();
+    await expect(logsTab).toHaveAttribute('aria-selected', 'true');
+    await logsTab.focus();
     await page.keyboard.press('ControlOrMeta+w');
-    await expect(canvasTab).toHaveCount(0);
+    await expect(logsTab).toHaveCount(0);
     await expect
       .poll(() =>
         page.evaluate(() => {

@@ -15,9 +15,9 @@ import type { WorkspaceApp } from './workspace-app';
 
 /**
  * The "+" add-tab menu (BST-1270). Lives OUTSIDE the tablist (APG
- * composition: it is not a tab) and lists one entry per REGISTERED app —
+ * composition: it is not a tab) and lists one entry per REGISTERED pinned app —
  * registration is the capability gate, so web shows Files only while desktop
- * adds Changes/Canvas/Terminal. Picking an entry activates the app through
+ * adds Changes/Terminal. Picking an entry activates the app through
  * the singleton open-or-focus contract.
  */
 export interface WorkspaceAddTabMenuProps {

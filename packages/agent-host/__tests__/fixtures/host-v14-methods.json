@@ -5,6 +5,8 @@
     "auth/credential/delete",
     "auth/credential/set",
     "auth/login",
+    "canvas/list",
+    "canvas/read",
     "changes/file-diff",
     "changes/inventory",
     "changes/resolve-view",

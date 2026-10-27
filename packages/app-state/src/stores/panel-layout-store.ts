@@ -4,7 +4,7 @@
  * Canonical source of truth for the app-wide agent shell layout and root tab state.
  * - sizes: [left, right, console] as percentages (0..100), normalized on write
  * - visibility flags: showLeftPanel/showRightPanel/showConsole
- * - activeTab: 'explorer' | 'settings' | 'browser'
+ * - activeTab: 'explorer' | 'settings' | 'browser' | 'artifacts'
  *
  * Persistence: uses `@brainstrike/storage` adapters; persisted subset only.
  * Integration: use with `PanelLayoutProvider` in controlled mode (pass state + onChange).
@@ -31,7 +31,7 @@ import {
  * tab INSIDE the workspace panel on the `'explorer'` route instead of its own
  * nav-rail page; it is a workspace app tab (BST-1258, `useWorkspaceTabSelectionStore`).
  */
-export type PanelTab = 'explorer' | 'settings' | 'terminal' | 'browser';
+export type PanelTab = 'artifacts' | 'explorer' | 'settings' | 'terminal' | 'browser';
 
 export interface PanelLayoutStoreState {
   // Root tabs

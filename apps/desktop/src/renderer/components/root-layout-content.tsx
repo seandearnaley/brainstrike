@@ -1,6 +1,6 @@
+import { ArtifactsPage } from '@brainstrike/app-shell/artifacts/artifacts-page';
 import { isBrowserBridgeAvailable } from '@brainstrike/app-shell/browser-pane/availability';
 import { BrowserPaneContent } from '@brainstrike/app-shell/browser-pane/browser-pane-content';
-import { CanvasPanel } from '@brainstrike/app-shell/canvas/canvas-panel';
 import { McpContentCapabilityProvider } from '@brainstrike/app-shell/mcp-content-capability';
 import { McpStatusCapabilityProvider } from '@brainstrike/app-shell/mcp-status-capability';
 import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
@@ -20,7 +20,7 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
 import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 import { McpElicitationCapabilityProvider } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
-import { Globe } from 'lucide-react';
+import { Globe, Shapes } from 'lucide-react';
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef } from 'react';
 import { indexSearchContract } from '../../ipc-domains/index-search.contract';
 import { DESKTOP_DOCUMENT_META } from '../desktop-document-meta';
@@ -46,6 +46,13 @@ import { ThreadContextPageContent } from './thread-context-page-content';
 import { WorktreeMapPageContent } from './worktree-map-page-content';
 
 const BROWSER_NAVIGATION_ITEM: NavigationItem = { icon: Globe, name: 'Browser', path: '/browser' };
+const ARTIFACTS_NAVIGATION_ITEM: NavigationItem = {
+  icon: Shapes,
+  name: 'Artifacts',
+  path: '/artifacts',
+};
+/** The trusted Canvas shell every canvas tab and artifact preview frames. */
+const CANVAS_SHELL_SRC = 'brainstrike-canvas://shell/';
 
 const logger = createLogger('DesktopRootLayoutContent');
 const RENDERER_HEAP_DIAGNOSTIC_INTERVAL_MS = 15_000;
@@ -114,7 +121,7 @@ export default function RootLayoutContent() {
   const mcpContentCapability = useMemo(() => resolveDesktopMcpContent(), []);
   const mcpAppsEnabled = useMcpAppsEnablement(mcpStatusCapability);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
-    const items = [...navigationItems];
+    const items = [...navigationItems, ARTIFACTS_NAVIGATION_ITEM];
     if (browserAvailable) {
       items.push(BROWSER_NAVIGATION_ITEM);
     }
@@ -123,10 +130,10 @@ export default function RootLayoutContent() {
   // BST-1880: the damaged-store notice's health read and recovery actions.
   const stateHealth = useMemo(() => createDesktopStateHealth(), []);
   const sharedProps: RootLayoutContentProps = {
-    // Canvas render surface (BST-1173): needs only the DB (summaries/versions)
-    // and the brainstrike-canvas: shell protocol, both unconditionally present
-    // on desktop — no bridge gate.
-    canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
+    // Canvases (BST-1173) need only the agent host and the brainstrike-canvas:
+    // shell protocol, both unconditionally present on desktop: no bridge gate.
+    artifactsPageContent: <ArtifactsPage shellSrc={CANVAS_SHELL_SRC} />,
+    canvasShellSrc: CANVAS_SHELL_SRC,
     deleteRootData: (rootId) => {
       const bridge = window.electronAPI;
       if (!(bridge && 'fileSystem' in bridge)) {

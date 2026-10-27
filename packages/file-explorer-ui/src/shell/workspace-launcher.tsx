@@ -2,16 +2,16 @@ import type { ReactElement } from 'react';
 import { useWorkspaceTabs } from './use-workspace-tabs';
 
 const APP_DESCRIPTIONS: Readonly<Record<string, string>> = {
-  canvas: 'View canvases created by the agent',
   changes: 'Review agent and git changes',
   'context-explorer': 'Browse and open workspace files',
   terminal: 'Run shell commands in the workspace',
 };
 
 /**
- * The workspace empty state (BST-1262): one launcher card per REGISTERED app.
- * Registration is the capability gate, so web shows only Files while desktop
- * shows Files, Changes, and Canvas — never a stubbed or disabled card.
+ * The workspace empty state (BST-1262): one launcher card per REGISTERED pinned
+ * app. Registration is the capability gate, so web shows only Files while
+ * desktop shows Files, Changes, … — never a stubbed or disabled card. Dynamic
+ * tabs (child conversations, canvases) open from where they live.
  */
 export function WorkspaceLauncher(): ReactElement {
   const { apps, onOpenApp } = useWorkspaceTabs();
@@ -28,7 +28,10 @@ export function WorkspaceLauncher(): ReactElement {
         </p>
       </div>
       <div className="flex flex-wrap items-stretch justify-center gap-3">
-        {apps.map((app) => {
+        {apps.flatMap((app) => {
+          if (app.placement !== 'pinned') {
+            return [];
+          }
           const Icon = app.icon;
           return (
             <button
