@@ -54,11 +54,11 @@ jobs:
     # lane's own 30m --global-timeout; shard 1 also runs the 2m AI Tools nightly
     # lane. Setup/build headroom included. Each shard runs two tests at once on
     # the runner's 4 vCPUs (the GitHub Actions worker count in
-    # packages/config/src/playwright-environment.ts). Playwright cuts shards by
-    # test count in file order, so shard 2 holds the slow delegated, dev-profile
-    # and durable-state specs: in run 40564369748 its tests took 7.4 min and the
-    # other shards' 1.6-3.7 min, and it still finished with the unit and
-    # packaging lanes. On one worker, file-level shards took 3.0-9.1 min.
+    # packages/config/src/playwright-environment.ts). With Playwright's own
+    # contiguous shards, one shard held every slow delegated, dev-profile and
+    # durable-state spec: 7.1 min of tests against 2.2-4.0 min (queue run
+    # 40566702272), the gate's longest job. apps/desktop/e2e/file-shards.ts
+    # spreads whole files by test count instead.
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -118,9 +118,10 @@ jobs:
       # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
       # Failed to connect to the bus` for every process. dbus-run-session
       # is provided by the `dbus` package (pre-installed on ubuntu-latest).
-      # Playwright's own --shard splits the regression project across the
-      # matrix (the total must equal the matrix length). pnpm appends the flag
-      # to the lane script, which must therefore end in the playwright command.
+      # --shard splits the regression project across the matrix (the total
+      # must equal the matrix length; e2e/file-shards.ts picks each shard's
+      # files). pnpm appends the flag to the lane script, which must therefore
+      # end in the playwright command.
       - name: Run full desktop regression
         working-directory: apps/desktop
         run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/8
