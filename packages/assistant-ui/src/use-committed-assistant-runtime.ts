@@ -9,6 +9,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useMemo,
   useReducer,
   useRef,
@@ -208,7 +209,10 @@ function useCommittedMessageQueue(
   const [, observed] = useReducer((count: number) => count + 1, 0);
   const pending = useRef<QueueObservation[]>([]);
   const caughtUp = useRef(false);
-  useEffect(() => queue.bind(send), [queue, send]);
+  // Bound once per queue: a new send port is not a new binding, so replacing
+  // the commands never re-holds a queue that no new observation would release.
+  const sendLatest = useEffectEvent(send);
+  useEffect(() => queue.bind((message) => sendLatest(message)), [queue]);
   useEffect(() => {
     let last: QueueObservation | undefined;
     const record = (): void => {

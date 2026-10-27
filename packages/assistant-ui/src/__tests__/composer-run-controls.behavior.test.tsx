@@ -259,6 +259,19 @@ describe('composer run controls over the committed queue', () => {
     await waitFor(() => expect(host.sent).toEqual(['retry me']));
   });
 
+  it('still sends a held row after the conversation gets new commands', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    const view = render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'held after stop{Enter}');
+    await user.click(screen.getByRole('button', { name: /^Stop/ }));
+    await host.endRun();
+    view.rerender(<Conversation onNew={(message) => host.onNew(message)} store={host.store} />);
+
+    await user.click(screen.getByRole('button', { name: 'Send now: held after stop' }));
+    await waitFor(() => expect(host.sent).toEqual(['held after stop']));
+  });
+
   it('drops a queued decision the host answered meanwhile', async () => {
     const host = runningHost();
     const request = {
