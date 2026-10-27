@@ -45,6 +45,7 @@ export { formatShortcut } from './lib/format-shortcut';
 export * from './lib/panel-surface';
 export * from './lib/utils';
 export * from './lightweight-checkbox';
+export * from './link-choice-menu';
 export * from './loading-fallback';
 export { isMarkdownPath } from './markdown-surface/is-markdown-path';
 export * from './model-picker';

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MarkdownSurface } from '../markdown-surface';
 
@@ -79,6 +80,29 @@ describe('MarkdownSurface', () => {
     const link = screen.getByRole('link', { name: 'site' });
     fireEvent.click(link);
     expect(onOpenLink).toHaveBeenCalledWith('https://example.com');
+  });
+
+  it('asks where a link the host browser takes opens; other links open directly', async () => {
+    const user = userEvent.setup();
+    const onOpenLink = vi.fn();
+    const choices = {
+      copyLink: vi.fn(),
+      openInAppBrowser: vi.fn(),
+      openInDefaultBrowser: vi.fn(),
+    };
+    renderSurface('[site](https://example.com) and [notes](./notes.md)\n', {
+      linkChoices: (href) => (href.startsWith('https:') ? choices : null),
+      onOpenLink,
+    });
+
+    await user.click(screen.getByRole('link', { name: 'site' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Open in Brainstrike browser' }));
+    expect(choices.openInAppBrowser).toHaveBeenCalledOnce();
+    expect(onOpenLink).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('link', { name: 'notes' }));
+    expect(onOpenLink).toHaveBeenCalledExactlyOnceWith('./notes.md');
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('shows an explicit placeholder when image resolution rejects', async () => {

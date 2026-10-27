@@ -1,11 +1,13 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import type { AssistantLinkChoices } from '@brainstrike/assistant-ui';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { renderHook } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserBridge } from '../browser-pane/browser-bridge';
 import { canvasWorkspaceTabId } from '../canvas/canvas-workspace-tab';
 import type { PlatformBridge } from '../platform-bridge';
 import { useAssistantLinkCapabilitiesValue } from '../use-assistant-link-capabilities';
@@ -271,5 +273,107 @@ describe('useAssistantLinkCapabilitiesValue', () => {
     rerender();
 
     expect(result.current).toBe(first);
+  });
+});
+
+describe('link choices with the built-in browser', () => {
+  const browser = {
+    closeTab: vi.fn(() => Promise.resolve()),
+    createTab: vi.fn(() => Promise.resolve('page-1')),
+    goBack: vi.fn(() => Promise.resolve()),
+    goForward: vi.fn(() => Promise.resolve()),
+    listTabs: vi.fn(() => Promise.resolve([])),
+    navigate: vi.fn(() => Promise.resolve()),
+    onTabsChanged: vi.fn(() => () => undefined),
+    reload: vi.fn(() => Promise.resolve()),
+    setBounds: vi.fn(() => Promise.resolve()),
+    setOccluded: vi.fn(() => Promise.resolve()),
+    showTab: vi.fn(() => Promise.resolve()),
+  } satisfies BrowserBridge;
+  const writeText = vi.fn((_text: string) => Promise.resolve());
+
+  function choices(): AssistantLinkChoices {
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    const offered = result.current.linkChoices;
+    if (!offered) {
+      throw new Error('no link choices');
+    }
+    return offered;
+  }
+
+  beforeEach(() => {
+    Object.assign(window, { browser });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-1' },
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'browser');
+    Reflect.deleteProperty(navigator, 'clipboard');
+    useAssistantThreadStore.setState({ activeThreadIdByResourceId: {} });
+    vi.clearAllMocks();
+  });
+
+  it('offers only web links, and nothing at all without the built-in browser', () => {
+    const offered = choices();
+    expect(offered.offers('https://example.com/docs')).toBe(true);
+    expect(offered.offers('http://localhost:5173/')).toBe(true);
+    expect(offered.offers('mailto:team@example.com')).toBe(false);
+    expect(offered.offers('docs/readme.md')).toBe(false);
+
+    Reflect.deleteProperty(window, 'browser');
+    const { result } = renderHook(() => useAssistantLinkCapabilitiesValue());
+    expect(result.current.linkChoices).toBeUndefined();
+  });
+
+  it("opens a web link as a page in the shown conversation's workspace", async () => {
+    usePanelLayoutStore.getState().setActiveTab('settings');
+
+    await expect(choices().openInAppBrowser('https://example.com/docs')).resolves.toEqual({
+      ok: true,
+    });
+
+    expect(browser.createTab).toHaveBeenCalledExactlyOnceWith(
+      'thread-1',
+      'https://example.com/docs'
+    );
+    expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('says why a link could not open in the built-in browser', async () => {
+    const offered = choices();
+    useAssistantThreadStore.setState({ activeThreadIdByResourceId: {} });
+
+    const result = await offered.openInAppBrowser('https://example.com/docs');
+
+    expect(result.ok).toBe(false);
+    expect(toastMock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        description: expect.stringMatching(/Send a message first/),
+        title: 'Could not open link',
+        variant: 'destructive',
+      })
+    );
+    expect(browser.createTab).not.toHaveBeenCalled();
+  });
+
+  it('copies a link and confirms it, or says why it could not', async () => {
+    const offered = choices();
+
+    await expect(offered.copyLink('https://example.com/docs')).resolves.toEqual({ ok: true });
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('https://example.com/docs');
+    expect(toastMock).toHaveBeenCalledExactlyOnceWith({ title: 'Link copied' });
+
+    toastMock.mockClear();
+    writeText.mockRejectedValueOnce(new Error('clipboard blocked'));
+    const failed = await offered.copyLink('https://example.com/docs');
+
+    expect(failed.ok).toBe(false);
+    expect(toastMock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ title: 'Could not copy link', variant: 'destructive' })
+    );
   });
 });

@@ -1,6 +1,7 @@
 import { AdaptersContext } from '@brainstrike/file-explorer-hooks';
 import type { MarkdownPreviewCapabilities } from '@brainstrike/file-explorer-ui';
 import { useContext, useMemo } from 'react';
+import { resolveLinkChoices } from './link-choices';
 import { openExternalLink } from './open-external-link';
 import { resolvePlatformBridge } from './platform-bridge';
 
@@ -26,6 +27,7 @@ export function useMarkdownPreviewCapabilitiesValue(): MarkdownPreviewCapabiliti
   return useMemo<MarkdownPreviewCapabilities>(() => {
     const bridge = resolvePlatformBridge();
     return {
+      linkChoices: resolveLinkChoices() ?? undefined,
       // Shared with the assistant panel's link seam so the protocol allowlist
       // has exactly one definition in the renderer.
       openExternalLink,
