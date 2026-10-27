@@ -8,11 +8,11 @@ export interface ComposerDraftCommand {
 }
 
 export interface ComposerDraftCommandBridgeProps {
-  /** Applies one explicit prompt-library command to the draft without sending it. */
+  /** Applies one explicit composer command to the draft without sending it. */
   composerDraftCommand?: ComposerDraftCommand | undefined;
   /** Acknowledges a composer command only after its text is visible in the draft. */
   onComposerDraftCommandApplied?: ((commandId: string) => void) | undefined;
-  /** Reports the live draft so prompt suggestions can use the user's actual context. */
+  /** Reports the live draft so slash commands can read the arguments typed after them. */
   onComposerTextChange?: ((text: string) => void) | undefined;
 }
 
@@ -30,7 +30,7 @@ function useComposerDraftCommand({
   const [appliedCommandIds] = useState(() => new Set<string>());
 
   useEffect(() => {
-    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- This is an intentional external-store bridge: prompt recall must observe assistant-ui's authoritative draft, including send/reset mutations that do not originate from the DOM input.
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- This is an intentional external-store bridge: slash-command expansion must observe assistant-ui's authoritative draft, including send/reset mutations that do not originate from the DOM input.
     onTextChange?.(composerText);
   }, [composerText, onTextChange]);
 

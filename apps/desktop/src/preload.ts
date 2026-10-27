@@ -5,7 +5,6 @@ import type {
 } from './assistant-server/query-diagnostics-tool';
 import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
-import { promptLibraryContract } from './ipc-domains/prompt-library.contract';
 import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
 import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
 import type { IpcResult } from './platform/ipc-contract';
@@ -483,9 +482,6 @@ if (shouldExposeBridge('assistantPersonas')) {
   exposeBridge('assistantPersonas', userPersonasContract);
 }
 
-if (shouldExposeBridge('promptLibrary')) {
-  exposeBridge('promptLibrary', promptLibraryContract);
-}
 if (shouldExposeBridge('threadGroups')) {
   exposeBridge('threadGroups', threadGroupsContract);
 }

@@ -5,13 +5,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import type { ModelProviderRequest, ModelProviderScript } from './utils/model-provider-shim';
 
-const destinations = ['Browser', 'Settings', 'Prompts'] as const;
-const transitions = [
-  ...destinations.map((destination) => ({ destination, via: undefined as string | undefined })),
-  ...(['Prompts'] as const).flatMap((destination) =>
-    ['Browser', 'Settings'].map((via) => ({ destination, via }))
-  ),
-];
+const destinations = ['Browser', 'Settings'] as const;
 const CHILD_TASK = 'SWITCH_MATRIX_CHILD';
 const GRAND_TASK = 'SWITCH_MATRIX_GRANDCHILD';
 
@@ -112,7 +106,7 @@ async function visibleGeometry(page: Page, viewport: Locator) {
 // Literal variants, so the static lane-coverage guard can read each title (BST-2026).
 for (const variant of ['plain list', 'expanded descendants'] as const) {
   const expanded = variant === 'expanded descendants';
-  test(`preserves Threads across every ribbon app and Library tab (${variant})`, async ({
+  test(`preserves Threads across every ribbon app (${variant})`, async ({
     window: page,
     electron,
     electronApp,
@@ -120,11 +114,10 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
   }, testInfo) => {
     await electronApp.app.evaluate(({ app }) => app.setPath('documents', app.getPath('userData')));
     await ensureAssistantShellVisible(page);
-    await page.getByTestId('threads-tab-trigger').click();
     const panel = page.getByTestId('threads-panel');
     await expect(panel.getByTestId('thread-row')).toHaveCount(1);
     for (let index = 0; index < 44; index++) {
-      await panel.getByRole('button', { exact: true, name: 'New thread' }).click();
+      await page.getByRole('button', { exact: true, name: 'New thread' }).click();
     }
     if (expanded) {
       await ensureMockWorkspaceOpen(page);
@@ -164,9 +157,9 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
     }
     const viewport = panel.getByTestId('tree-table-viewport');
     const results: unknown[] = [];
-    for (const { destination, via } of transitions) {
+    for (const destination of destinations) {
       for (const top of [0, 240, 'bottom'] as const) {
-        await test.step(`${destination}${via ? ` via ${via}` : ''} at scrollTop=${top}`, async () => {
+        await test.step(`${destination} at scrollTop=${top}`, async () => {
           const target =
             top === 'bottom'
               ? await viewport.evaluate((element) => element.scrollHeight - element.clientHeight)
@@ -176,32 +169,13 @@ for (const variant of ['plain list', 'expanded descendants'] as const) {
           }, target);
           const before = await visibleGeometry(page, viewport);
           expect(before.scrollTop).toBe(target);
-          const library = destination === 'Prompts';
-          await page
-            .getByRole(library ? 'tab' : 'button', { exact: true, name: destination })
-            .click();
+          await page.getByRole('button', { exact: true, name: destination }).click();
           await expect(panel).toBeHidden();
           await nextFrames(page);
-          if (via) {
-            await page.getByRole('button', { exact: true, name: via }).click();
-            await expect(page.getByTestId('agent-sidebar-panel')).toBeHidden();
-            await nextFrames(page);
-            await page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
-            await expect(page.getByRole('tab', { exact: true, name: destination })).toHaveAttribute(
-              'aria-selected',
-              'true'
-            );
-            await nextFrames(page);
-          }
-          await page
-            .getByRole(library ? 'tab' : 'button', {
-              exact: true,
-              name: library ? 'Threads' : 'Context Explorer',
-            })
-            .click();
+          await page.getByRole('button', { exact: true, name: 'Context Explorer' }).click();
           await expect(panel).toBeVisible();
           const after = await visibleGeometry(page, viewport);
-          results.push({ after, before, destination, expanded, top, via });
+          results.push({ after, before, destination, expanded, top });
           expect
             .soft(after, `${destination}: return preserves rows, expansion and scroll`)
             .toEqual(before);

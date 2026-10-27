@@ -15,7 +15,6 @@ const REQUIRED_VISIBLE_UI_BRIDGE_PATHS = [
   ['viewFilterPresets', 'request'],
   ['threadGroups', 'request'],
   ['threadGroups', 'readRoots'],
-  ['promptLibrary', 'request'],
   ['logging', 'getPreferences'],
   ['logging', 'setPreferences'],
 ] as const;

@@ -40,6 +40,7 @@ import {
   ActionRegistryProvider,
   PanelLayoutProvider,
   type PanelLayoutState,
+  TabPanelBoundary,
 } from '@brainstrike/ui';
 import {
   memo,
@@ -54,7 +55,6 @@ import {
   useState,
 } from 'react';
 import { shallow } from 'zustand/shallow';
-import { AgentSidebarPanel } from './agent-sidebar-panel';
 import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
@@ -67,7 +67,6 @@ import { useRewindStore } from './changes/rewind-store';
 import { RewindConfirmDialogLazy } from './changes/ui/rewind-confirm-dialog-lazy';
 import { useRewindPortFor } from './changes/use-rewind-port-for';
 import { CommandPaletteHost } from './command-palette-host';
-import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
 import { DelegatedWorkspaceTabsProvider } from './delegated-workspace-apps';
 import {
@@ -530,24 +529,10 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
                 <AgentWorkspaceLayout
                   assistantContent={<AssistantChatPanel />}
                   sidebarContent={
-                    <AgentSidebarPanel
-                      promptsContent={
-                        <Suspense
-                          fallback={
-                            <div
-                              className="grid h-full place-items-center text-muted-foreground text-xs"
-                              data-testid="prompt-workbench-lazy-fallback"
-                              role="status"
-                            >
-                              Opening Prompt Workbench…
-                            </div>
-                          }
-                        >
-                          <ConnectedPromptManagerLazy />
-                        </Suspense>
-                      }
-                      threadsContent={<ThreadsPanel />}
-                    />
+                    // No resetKey: this panel is a singleton; "Reload tab" is the reset.
+                    <TabPanelBoundary label="Threads">
+                      <ThreadsPanel />
+                    </TabPanelBoundary>
                   }
                   workspaceContent={
                     <>

@@ -345,25 +345,32 @@ describe('IdeLayout', () => {
     expect(openFile).toHaveBeenCalledWith('workspace:file.ts');
   });
 
-  it('renders rightPanelChrome.headerContent in the right panel header, replacing the title but keeping the collapse button', () => {
-    render(
-      <IdeLayout
-        rightPanelChrome={{
-          headerContent: <div data-testid="custom-header-strip">strip</div>,
-          hideButtonTestId: 'hide-x-panel',
-          title: 'ShouldNotRender',
-        }}
-        rightPanelContent={rightContent}
-      >
-        <div>Main Content</div>
-      </IdeLayout>
-    );
+  it.each(['left', 'right'] as const)(
+    'renders %sPanelChrome.headerContent in its panel header, replacing the title but keeping the collapse button',
+    (side) => {
+      const chrome = {
+        headerContent: <div data-testid="custom-header-strip">strip</div>,
+        hideButtonTestId: 'hide-x-panel',
+        title: 'ShouldNotRender',
+      };
+      render(
+        side === 'left' ? (
+          <IdeLayout leftPanelChrome={chrome} leftPanelContent={leftContent}>
+            <div>Main Content</div>
+          </IdeLayout>
+        ) : (
+          <IdeLayout rightPanelChrome={chrome} rightPanelContent={rightContent}>
+            <div>Main Content</div>
+          </IdeLayout>
+        )
+      );
 
-    const header = screen.getByTestId('right-panel-header');
-    expect(within(header).getByTestId('custom-header-strip')).toBeInTheDocument();
-    expect(within(header).queryByText('ShouldNotRender')).not.toBeInTheDocument();
-    expect(within(header).getByTestId('hide-x-panel')).toBeInTheDocument();
-  });
+      const header = screen.getByTestId(`${side}-panel-header`);
+      expect(within(header).getByTestId('custom-header-strip')).toBeInTheDocument();
+      expect(within(header).queryByText('ShouldNotRender')).not.toBeInTheDocument();
+      expect(within(header).getByTestId('hide-x-panel')).toBeInTheDocument();
+    }
+  );
 
   it('draws the right-panel hide button as a panel-close icon, never a scroll-like chevron', () => {
     render(

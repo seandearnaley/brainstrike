@@ -147,31 +147,6 @@ CREATE INDEX IF NOT EXISTS mastra_workflow_snapshot_status_createdat_idx
 `;
 
 /**
- * Sync-the-mind op-log seam (BST-993, ruling 2026-07-28: sync covers the
- * "mind" — threads/memory/prompts — never vectors/HNSW).
- *
- * `brainstrike_mind_ops` is a Brainstrike-owned, append-only sidecar
- * (migration 079 in BOTH runners — sidecar-not-ALTER per the thread-groups /
- * thread-search precedent: Mastra owns the mastra_* schema and its lazy
- * tables have no evolution mechanism). Tombstone semantics derive FROM this
- * log; there are no `deleted_at` columns on Mastra-owned tables, which keeps
- * the thread-search orphan GC's physical-delete contract and the readonly
- * sandbox role's visibility rules intact.
- *
- * Scope is DELIBERATELY delete-ops only: a tombstone seam. Emitting upsert
- * ops from write paths is sync-engine territory and is NOT laid here (the
- * ticket's own boundary: no engine choice). `seq` (BIGSERIAL) is the
- * lamport-ish local order; a future engine adds device identity around it.
- */
-export const MIND_OPS_TABLE = 'brainstrike_mind_ops';
-
-export const MIND_OP_ENTITY_KINDS = ['thread', 'prompt_item'] as const;
-export type MindOpEntityKind = (typeof MIND_OP_ENTITY_KINDS)[number];
-
-export const MIND_OPS = ['delete'] as const;
-export type MindOp = (typeof MIND_OPS)[number];
-
-/**
  * Soft-rewind tombstone sidecar (BST-1115, migration 080 in BOTH runners plus
  * the app-shell bootstrap mirror — same sidecar-not-ALTER precedent as
  * migration 055's message parents).

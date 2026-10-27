@@ -20,10 +20,6 @@ test('terminal content clear removes canonical content and blobs but preserves c
       'mcp.extensionPreferences',
       JSON.stringify({ v1: { apps: false, tasks: true } })
     );
-    await store.promptLibrary({
-      input: { content: 'Recorded prompt body', id: 'prompt', title: 'Prompt' },
-      operation: 'create',
-    });
     await store.threadGroups({
       group: {
         color: null,
@@ -86,9 +82,6 @@ test('terminal content clear removes canonical content and blobs but preserves c
     expect(await store.getSetting('mcp.extensionPreferences')).toBe(
       JSON.stringify({ v1: { apps: false, tasks: true } })
     );
-    expect(
-      (await store.promptLibrary({ filter: { includeArchived: true }, operation: 'list' })).items
-    ).toEqual([]);
     expect(await store.threadGroups({ operation: 'list', resourceId: 'workspace' })).toEqual({
       groups: [],
       placements: [],

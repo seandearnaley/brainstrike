@@ -1,6 +1,7 @@
 import { IdeLayout } from '@brainstrike/ui';
-import { LibraryBig, PanelRightClose } from 'lucide-react';
-import { type ReactElement, type ReactNode, useMemo } from 'react';
+import { MessagesSquare, PanelRightClose } from 'lucide-react';
+import { type ReactElement, type ReactNode, useMemo, useState } from 'react';
+import { SidebarHeaderContext } from './sidebar-header';
 
 export interface AgentWorkspaceLayoutProps {
   readonly assistantContent: ReactNode;
@@ -16,12 +17,12 @@ export interface AgentWorkspaceLayoutProps {
 }
 
 const AGENT_LEFT_PANEL_CHROME = {
-  hideButtonLabel: 'Hide library panel',
+  hideButtonLabel: 'Hide threads panel',
   hideButtonTestId: 'hide-threads-panel',
-  icon: LibraryBig,
-  showButtonLabel: 'Show library panel',
+  icon: MessagesSquare,
+  showButtonLabel: 'Show threads panel',
   showButtonTestId: 'show-threads-panel',
-  title: 'Library',
+  title: 'Threads',
 } as const;
 
 const AGENT_RIGHT_PANEL_CHROME = {
@@ -47,8 +48,17 @@ export function AgentWorkspaceLayout({
   workspaceContent,
   workspaceHeaderContent,
 }: AgentWorkspaceLayoutProps): ReactElement {
+  // The left header row is a slot the sidebar fills with its own toolbar.
+  const [sidebarHeader, setSidebarHeader] = useState<HTMLDivElement | null>(null);
   // Stable chrome identity so IdeLayout's React.memo keeps protecting the
   // subtree even if a future edit re-parents this JSX under a chatty provider.
+  const leftPanelChrome = useMemo(
+    () => ({
+      ...AGENT_LEFT_PANEL_CHROME,
+      headerContent: <div className="flex min-w-0 flex-1" ref={setSidebarHeader} />,
+    }),
+    []
+  );
   const rightPanelChrome = useMemo(
     () =>
       workspaceHeaderContent
@@ -58,8 +68,12 @@ export function AgentWorkspaceLayout({
   );
   return (
     <IdeLayout
-      leftPanelChrome={AGENT_LEFT_PANEL_CHROME}
-      leftPanelContent={sidebarContent}
+      leftPanelChrome={leftPanelChrome}
+      leftPanelContent={
+        <SidebarHeaderContext.Provider value={sidebarHeader}>
+          {sidebarContent}
+        </SidebarHeaderContext.Provider>
+      }
       panelConstraints={AGENT_PANEL_CONSTRAINTS}
       panelIdPrefix="agent-workspace"
       rightPanelChrome={rightPanelChrome}

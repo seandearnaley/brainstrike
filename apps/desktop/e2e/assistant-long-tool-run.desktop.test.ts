@@ -120,7 +120,7 @@ test('a long Luna run reads as one activity group: folded reads, its failure fir
     // The run strip leaves a header narrower than 26rem (overrides.css). Give the
     // assistant the window's whole width, so the proof does not depend on how wide
     // the host display lets the window be: its work area clamps it (window-state.ts).
-    await page.getByRole('button', { exact: true, name: 'Hide library panel' }).click();
+    await page.getByRole('button', { exact: true, name: 'Hide threads panel' }).click();
     await page.getByRole('button', { exact: true, name: 'Hide workspace panel' }).click();
     const region = page.getByRole('region', { exact: true, name: 'Assistant' });
     await region.getByRole('textbox', { name: 'Message input' }).fill('Tour the siphon sources.');

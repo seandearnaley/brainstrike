@@ -11,6 +11,7 @@ import { act } from '@brainstrike/test-utils/react-act';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { type ReactElement, type ReactNode, useState } from 'react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
@@ -25,6 +26,7 @@ import {
   THREAD_CONTROL_ROW_PITCH_PX,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from '../assistant-thread-presentation';
+import { SidebarHeaderContext } from '../sidebar-header';
 import { useOnScreenThreadStore } from '../stores/on-screen-thread-store';
 import { lookupThreadBranch } from '../thread-branch-resolution';
 import { getThreadPanelRowHeightPx } from '../thread-panel-visible-rows';
@@ -371,6 +373,17 @@ function createDefaultHost(): AssistantThreadHostCapability {
   };
 }
 
+/** Stands in for AgentWorkspaceLayout's left header row, where the toolbar renders. */
+function SidebarHeader({ children }: { readonly children: ReactNode }): ReactElement {
+  const [header, setHeader] = useState<HTMLDivElement | null>(null);
+  return (
+    <>
+      <div data-testid="sidebar-header" ref={setHeader} />
+      <SidebarHeaderContext.Provider value={header}>{children}</SidebarHeaderContext.Provider>
+    </>
+  );
+}
+
 function renderThreadsPanel(
   host: AssistantThreadHostCapability = createDefaultHost()
 ): ReturnType<typeof createTestActionRegistry> & { rerender(): void } {
@@ -378,7 +391,9 @@ function renderThreadsPanel(
   const view = () => (
     <ActionRegistryProvider registry={actionRegistry.registry}>
       <AssistantThreadHostContext.Provider value={host}>
-        <ThreadsPanel />
+        <SidebarHeader>
+          <ThreadsPanel />
+        </SidebarHeader>
       </AssistantThreadHostContext.Provider>
       <Toaster />
     </ActionRegistryProvider>
@@ -584,7 +599,7 @@ describe('ThreadsPanel', () => {
     expect(screen.getByTestId('thread-active-spinner')).toBeVisible();
   });
 
-  it('spends exactly two chrome rows above the list: a toolbar and the search row', async () => {
+  it('puts its toolbar in the sidebar header, leaving only the search row above the list', async () => {
     renderThreadsPanel();
 
     await waitFor(() => {
@@ -594,20 +609,21 @@ describe('ThreadsPanel', () => {
     const toolbar = screen.getByTestId('threads-panel-toolbar');
     const search = screen.getByTestId('threads-panel-search');
     // The toolbar owns the heading, the live count, and the select-visible
-    // control; the count/select band that used to sit below the search row is
-    // gone, so the panel chrome is two rows instead of three.
+    // control, and it renders in the layout's header row, so the search row is
+    // the panel's only chrome above the list.
+    expect(toolbar.parentElement).toBe(screen.getByTestId('sidebar-header'));
     expect(within(toolbar).getByRole('heading', { name: 'Threads' })).toBeVisible();
     expect(within(toolbar).getByTestId('threads-visible-count')).toHaveTextContent('2');
     expect(within(toolbar).getByRole('button', { name: 'Select 2 visible threads' })).toBeVisible();
     expect(within(toolbar).getByRole('button', { name: 'New thread' })).toBeVisible();
     expect(within(search).getByTestId('thread-search-input')).toBeVisible();
-    expect(toolbar.nextElementSibling).toBe(search);
+    expect(screen.getByTestId('threads-panel').firstElementChild).toBe(search);
     expect(screen.queryByTestId('threads-panel-select-band')).not.toBeInTheDocument();
 
     // One row of controls only reads as a row when the controls are the same
     // size; the view-options trigger used to be 32px next to 28px neighbours.
     // Same 28px square for every control, New Thread included — it only grows
-    // into a labelled pill at @[360px]/threads, where the label appears.
+    // into a labelled pill at @[360px]/threads-toolbar, where the label appears.
     for (const label of ['Select 2 visible threads', 'View options', 'New group', 'New thread']) {
       expect(within(toolbar).getByRole('button', { name: label })).toHaveClass('size-7');
     }

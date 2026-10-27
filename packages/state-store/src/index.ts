@@ -1,9 +1,4 @@
 export type { ThreadGroupsPort, ThreadGroupsReply, ThreadGroupsRequest } from '@brainstrike/types';
-export type {
-  PromptLibraryCapability,
-  PromptLibraryReply,
-  PromptLibraryRequest,
-} from '@brainstrike/types/prompt-item';
 export {
   Coalescer,
   type CoalescerLog,
@@ -86,13 +81,6 @@ export {
   spawnNativeChild,
   trackNativeChild,
 } from './native-children.ts';
-export type {
-  PromptCatalogPort,
-  PromptCatalogRecord,
-  PromptCatalogReply,
-  PromptCatalogRequest,
-  PromptRevisionRecord,
-} from './prompt-catalog-types.ts';
 export { canonicalRoot } from './root-identity.ts';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.ts';

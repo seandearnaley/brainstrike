@@ -88,8 +88,6 @@ const mockHandlers = {
   onNavigationClick: (_path: string) => {},
   onOpenSettings: () => {},
   panelLayoutChanges: [] as Array<(state: PanelLayoutState) => void>,
-  promptManagerSuspended: false,
-  promptManagerSuspense: new Promise<never>(() => {}),
 };
 
 vi.mock('@brainstrike/ui', async (importOriginal) => {
@@ -170,30 +168,6 @@ vi.mock('../workspace-connect/workspace-connect-host', () => ({
 // it like every other child surface.
 vi.mock('../thread-workspace/thread-workspace-coordinator', () => ({
   ThreadWorkspaceCoordinator: () => null,
-}));
-
-vi.mock('../agent-sidebar-panel', () => ({
-  AgentSidebarPanel: ({
-    threadsContent,
-    promptsContent,
-  }: {
-    threadsContent: React.ReactNode;
-    promptsContent: React.ReactNode;
-  }) => (
-    <div data-testid="agent-sidebar-shell">
-      <div data-testid="threads-tab-content">{threadsContent}</div>
-      <div data-testid="prompts-tab-content">{promptsContent}</div>
-    </div>
-  ),
-}));
-
-vi.mock('../connected-prompt-manager-lazy', () => ({
-  ConnectedPromptManagerLazy: () => {
-    if (mockHandlers.promptManagerSuspended) {
-      throw mockHandlers.promptManagerSuspense;
-    }
-    return <div data-testid="connected-prompt-manager" />;
-  },
 }));
 
 vi.mock('../threads-panel', () => ({

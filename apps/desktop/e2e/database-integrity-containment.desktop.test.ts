@@ -109,7 +109,6 @@ test.describe('Database integrity containment (desktop) @desktop-db-storage', ()
     if (await showThreads.isVisible()) {
       await showThreads.click();
     }
-    await reopened.getByTestId('threads-tab-trigger').click();
     await expect(
       reopened
         .getByTestId('thread-read-failure')

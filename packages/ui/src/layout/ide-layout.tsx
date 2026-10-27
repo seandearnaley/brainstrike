@@ -588,9 +588,8 @@ interface PanelToggleConfig {
 
 interface PanelChromeConfig {
   /**
-   * Custom header-row content (e.g. a tab strip) rendered in place of the
-   * icon+title block. The collapse button always stays after it. Currently
-   * consumed by the RIGHT panel header only.
+   * Custom header-row content (e.g. a tab strip or a toolbar) rendered in
+   * place of the icon+title block. The collapse button always stays after it.
    */
   headerContent?: React.ReactNode;
   hideButtonLabel: string;
@@ -1229,13 +1228,21 @@ export const IdeLayout = React.memo(function IdeLayout({
               >
                 <div className="flex h-full flex-col overflow-hidden [contain:layout_paint_style]">
                   <div
-                    className="flex h-9 shrink-0 items-center justify-between border-border border-b bg-muted/30 px-2"
+                    className={`flex h-9 shrink-0 items-center justify-between border-border border-b bg-muted/30 ${
+                      resolvedLeftPanelChrome.headerContent ? 'pr-2 pl-0' : 'px-2'
+                    }`}
                     data-testid="left-panel-header"
                   >
-                    <div className="flex items-center gap-2">
-                      <LeftPanelIcon className="size-3.5" />
-                      <span className="font-medium text-xs">{resolvedLeftPanelChrome.title}</span>
-                    </div>
+                    {resolvedLeftPanelChrome.headerContent ? (
+                      <div className="flex h-full min-w-0 flex-1 items-stretch">
+                        {resolvedLeftPanelChrome.headerContent}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <LeftPanelIcon className="size-3.5" />
+                        <span className="font-medium text-xs">{resolvedLeftPanelChrome.title}</span>
+                      </div>
+                    )}
                     <Button
                       aria-expanded={showLeftPanel}
                       aria-label={resolvedLeftPanelChrome.hideButtonLabel}

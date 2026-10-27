@@ -52,7 +52,7 @@ House constraints that bind this design:
   `isElectron()`, never `process.platform` checks in shared code.
 - **No silent fallbacks.** Every unrepresentable policy, failed health check, and missing
   capability throws visibly.
-- **Sync stance (BST-911).** Future sync covers the *mind* — threads, memory, prompts. VM
+- **Sync stance (BST-911).** Future sync covers the *mind* — threads and memory. VM
   bundles, rootfs images, disk images, and snapshots are **device-local artifacts that must
   never enter a sync set**, and must be wired into factory reset like any other persistence.
 

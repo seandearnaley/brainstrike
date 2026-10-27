@@ -136,7 +136,6 @@ export const DESKTOP_IPC_CHANNELS = {
   preferences: {
     settingsClearAll: 'settings:clearAll',
   },
-  promptLibrary: { request: 'prompt-library:request' },
   runtime: {
     noteReloadIntent: 'app:lifecycle:note-reload-intent',
     requestReload: 'app:lifecycle:request-reload',

@@ -52,6 +52,7 @@ import {
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   type AssistantThreadHostCapability,
   createHostAssistantThreadRepository,
@@ -73,6 +74,7 @@ import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-pat
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
 import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { HostChildSidebarCell } from './host-child-sidebar-cell';
+import { useSidebarHeader } from './sidebar-header';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
 import {
@@ -1471,8 +1473,9 @@ function ThreadsPanelContent({
 }
 
 /**
- * Row one of the panel chrome: the heading, the live disclosed-thread count,
- * and every panel-level control.
+ * The panel's header row: the heading, the live disclosed-thread count, and
+ * every panel-level control. It renders in the sidebar's header slot, beside
+ * the layout's collapse button, so the panel spends no row of its own on it.
  *
  * `treeOnScreen` gates the count and the select-visible toggle. Both describe
  * the treegrid, so when a state card or search results stand in for it they
@@ -1514,11 +1517,8 @@ function ThreadsPanelToolbar({
   readonly treeOnScreen: boolean;
 }): ReactElement {
   const visibleThreadCount = selection.visibleRows.visibleThreadIds.length;
-  // Two rows of chrome, not three: this row carries the live visible count and
-  // the select-visible toggle that used to occupy a third band under the search
-  // field. The old "Memory" pill and the "Workspace-scoped Mastra history"
-  // subtitle both restated what the panel already is, so they are gone rather
-  // than shrunk.
+  // One header row: it carries the live visible count and the select-visible
+  // toggle too, so no band under the search field holds them.
   //
   // pl-5, not px-3: the search field below is a bordered surface whose box edge
   // sits at 12px but whose first ink — the search icon — sits at 20px. Matching
@@ -1526,10 +1526,10 @@ function ThreadsPanelToolbar({
   // under it, so the heading ink lines up with the icon instead.
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2 pr-3 pl-5"
+      className="@container/threads-toolbar flex min-w-0 flex-1 items-center gap-2 pr-1 pl-5"
       data-testid="threads-panel-toolbar"
     >
-      <h2 className="min-w-0 shrink-0 truncate font-medium text-sm leading-none">Threads</h2>
+      <h2 className="min-w-0 truncate font-medium text-sm leading-none">Threads</h2>
       {treeOnScreen ? (
         <span
           className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 font-medium text-[11px] text-muted-foreground tabular-nums leading-none"
@@ -1590,7 +1590,7 @@ function ThreadsPanelToolbar({
           // Icon-only, this is a 28px square exactly like its ghost
           // neighbours; it only grows into a labelled pill once the panel is
           // wide enough to show the label.
-          className="ml-1 size-7 @[360px]/threads:w-auto @[360px]/threads:gap-1 @[360px]/threads:px-2 px-0 hover:bg-accent hover:text-accent-foreground"
+          className="ml-1 size-7 @[360px]/threads-toolbar:w-auto @[360px]/threads-toolbar:gap-1 @[360px]/threads-toolbar:px-2 px-0 hover:bg-accent hover:text-accent-foreground"
           data-testid="new-agent-button"
           disabled={newThreadDisabled}
           onClick={onCreateThread}
@@ -1600,7 +1600,7 @@ function ThreadsPanelToolbar({
           variant="secondary"
         >
           <Plus className="size-3.5" />
-          <span className="@[360px]/threads:inline hidden">New Thread</span>
+          <span className="@[360px]/threads-toolbar:inline hidden">New Thread</span>
         </Button>
       </div>
     </div>
@@ -1832,6 +1832,7 @@ export function ThreadsPanelCore({
   // results (whose bulk-selection overlay lives inside the hidden subtree, so a
   // live toggle would select threads the user cannot see or clear).
   const treeOnScreen = contentState.kind === 'tree' && !searchActive;
+  const sidebarHeader = useSidebarHeader();
   const threadsById = useMemo(
     () => new Map(threads.map((thread) => [thread.id, thread])),
     [threads]
@@ -2017,28 +2018,33 @@ export function ThreadsPanelCore({
       className="@container/threads flex h-full min-h-0 flex-col overflow-hidden border-border border-b bg-muted/20"
       data-testid="threads-panel"
     >
-      <ThreadsPanelToolbar
-        folderSortBy={folderSortBy}
-        groupBy={groupBy}
-        newGroupDisabled={!groupsRepository}
-        newThreadDisabled={loadState?.status === 'loading'}
-        newThreadTitle="Create a new Mastra memory thread for this workspace."
-        onClearThreadFilters={clearThreadFilters}
-        onCreateGroup={handleCreateGroup}
-        onCreateThread={() => {
-          createThread(repository, resourceId).catch(() => {
-            // The store records the explicit error state; no fallback thread source is used.
-          });
-        }}
-        onFolderSortByChange={setFolderSortBy}
-        onGroupByChange={setGroupBy}
-        onSortByChange={handleSortByChange}
-        onThreadFilterChange={setThreadFilter}
-        selection={selection}
-        sortBy={sortBy}
-        threadFilters={threadFilters}
-        treeOnScreen={treeOnScreen}
-      />
+      {sidebarHeader
+        ? createPortal(
+            <ThreadsPanelToolbar
+              folderSortBy={folderSortBy}
+              groupBy={groupBy}
+              newGroupDisabled={!groupsRepository}
+              newThreadDisabled={loadState?.status === 'loading'}
+              newThreadTitle="Create a new Mastra memory thread for this workspace."
+              onClearThreadFilters={clearThreadFilters}
+              onCreateGroup={handleCreateGroup}
+              onCreateThread={() => {
+                createThread(repository, resourceId).catch(() => {
+                  // The store records the explicit error state; no fallback thread source is used.
+                });
+              }}
+              onFolderSortByChange={setFolderSortBy}
+              onGroupByChange={setGroupBy}
+              onSortByChange={handleSortByChange}
+              onThreadFilterChange={setThreadFilter}
+              selection={selection}
+              sortBy={sortBy}
+              threadFilters={threadFilters}
+              treeOnScreen={treeOnScreen}
+            />,
+            sidebarHeader
+          )
+        : null}
 
       <ThreadsPanelSearch
         groupNameByThreadId={groupNameByThreadId}

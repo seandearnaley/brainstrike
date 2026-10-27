@@ -55,7 +55,7 @@ function WorkspaceSearchTabContent(): ReactElement {
 
 /**
  * The left workspace panel: an Explorer|Search switcher on the shared `sm`
- * Tabs, the same idiom as the Library. Both panels are `keepMounted`: the
+ * Tabs. Both panels are `keepMounted`: the
  * Explorer (file tree) mounts at once and survives Search being active, and
  * the code-split Search panel mounts on first activation, then keeps its
  * query and results. Manual activation (the Tabs default) means keyboard

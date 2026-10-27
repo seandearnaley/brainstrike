@@ -126,7 +126,6 @@ describe('renderer main entry', () => {
     window.modelCatalog = { read: vi.fn() } as never;
     window.viewFilterPresets = { request: vi.fn() };
     window.threadGroups = { readRoots: vi.fn(), request: vi.fn() };
-    window.promptLibrary = { request: vi.fn() };
     window.logging = {
       getBufferedLogs: vi.fn(),
       getPreferences: vi.fn(async () => ({

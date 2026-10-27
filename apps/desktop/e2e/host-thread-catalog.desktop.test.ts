@@ -19,7 +19,6 @@ async function openCatalog(page: Page): Promise<void> {
   if (await show.isVisible()) {
     await show.click();
   }
-  await page.getByTestId('threads-tab-trigger').click();
   await expect(page.getByTestId('threads-panel')).toBeVisible();
 }
 

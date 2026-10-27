@@ -6,7 +6,6 @@ import {
   serveIndexConfigStore,
 } from './index-config-store.ts';
 import { createModelChoiceClient, serveModelChoiceStore } from './model-choice-store.ts';
-import { createPromptLibraryClient, servePromptLibrary } from './prompt-library-store.ts';
 import { createSourceCatalogClient, serveSourceCatalogStore } from './source-catalog-store.ts';
 import { createThreadGroupsClient, serveThreadGroups } from './thread-groups-store.ts';
 import {
@@ -21,7 +20,6 @@ export function createHostCatalogClient(connection: MessageConnection) {
     ...createCollectionClient(connection),
     ...createIndexConfigClient(connection),
     ...createModelChoiceClient(connection),
-    ...createPromptLibraryClient(connection),
     ...createSourceCatalogClient(connection),
     ...createThreadGroupsClient(connection),
     ...createViewFilterPresetClient(connection),
@@ -42,7 +40,6 @@ export function serveHostCatalog(
     serveCollectionStore(connection, store),
     serveIndexConfigStore(connection, store),
     serveModelChoiceStore(connection, store),
-    servePromptLibrary(connection, store),
     serveSourceCatalogStore(connection, store),
     serveThreadGroups(connection, store),
     serveViewFilterPresets(connection, store),
