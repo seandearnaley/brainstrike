@@ -41,6 +41,7 @@ import {
   ArrowLeft,
   CalendarDays,
   Check,
+  CheckCheck,
   Folder,
   FolderMinus,
   FolderPlus,
@@ -54,8 +55,8 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { ReactElement, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { KeyboardEvent, ReactElement, ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   type AssistantThreadHostCapability,
@@ -1207,13 +1208,13 @@ function ThreadPanelTree({
         className: 'p-0',
         id: 'thread',
         indentWidth: 16,
-        reserveCheckboxSpace: true,
+        reserveCheckboxSpace: selection.selecting,
         reserveToggleSpace: true,
         treeControlLineHeight: (node) => getThreadPanelRowHeightPx(node.data.kind),
         treeControlsPosition: 'top',
       },
     ],
-    [groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps]
+    [groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps, selection.selecting]
   );
 
   return (
@@ -1235,6 +1236,9 @@ function ThreadPanelTree({
         }}
         getCheckboxState={(node) => {
           const row = node.data;
+          if (!selection.selecting) {
+            return 'hidden';
+          }
           if (row.kind === 'thread') {
             return selectedAvailableThreadIds.has(row.id) ? 'checked' : 'unchecked';
           }
@@ -1488,6 +1492,16 @@ function ThreadsPanelToolbar({
   readonly treeOnScreen: boolean;
 }): ReactElement {
   const visibleThreadCount = selection.visibleRows.visibleThreadIds.length;
+  const selectToggleRef = useRef<HTMLButtonElement>(null);
+  const exitSelectionOnEscape = (event: KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.defaultPrevented || event.key !== 'Escape' || !selection.selecting) {
+      return;
+    }
+    event.preventDefault();
+    selection.setSelecting(false);
+    // Leaving selection mode unmounts the select-visible button; keep focus in the toolbar.
+    selectToggleRef.current?.focus();
+  };
   // One header row: it carries the live visible count and the select-visible
   // toggle too, so no band under the search field holds them.
   //
@@ -1514,20 +1528,33 @@ function ThreadsPanelToolbar({
         </span>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        {treeOnScreen ? (
+        {treeOnScreen && selection.selecting ? (
           <Button
             aria-label={`${selection.allVisibleSelected ? 'Clear' : 'Select'} ${visibleThreadCount} visible ${visibleThreadCount === 1 ? 'thread' : 'threads'}`}
             disabled={visibleThreadCount === 0}
             onClick={selection.toggleVisibleSelection}
-            onKeyDown={(event) => {
-              if (event.defaultPrevented || event.key !== 'Escape') {
-                return;
-              }
-              event.preventDefault();
-              selection.clearSelection();
-            }}
+            onKeyDown={exitSelectionOnEscape}
             size="icon-xs"
             title={selection.allVisibleSelected ? 'Clear visible' : 'Select visible'}
+            type="button"
+            variant="ghost"
+          >
+            <CheckCheck className="size-3.5" />
+          </Button>
+        ) : null}
+        {treeOnScreen ? (
+          // A toggle, like Select in mail and chat apps: checkboxes only while
+          // it is pressed, and turning it off drops the selection.
+          <Button
+            aria-label="Select threads"
+            aria-pressed={selection.selecting}
+            className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
+            data-testid="threads-select-toggle"
+            onClick={() => selection.setSelecting(!selection.selecting)}
+            onKeyDown={exitSelectionOnEscape}
+            ref={selectToggleRef}
+            size="icon-xs"
+            title={selection.selecting ? 'Done selecting' : 'Select threads'}
             type="button"
             variant="ghost"
           >

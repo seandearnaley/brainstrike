@@ -17,6 +17,15 @@ export interface ThreadPanelSelection {
   readonly replaceSelection: (nextIds: ReadonlySet<string>) => void;
   readonly selectedThreadIds: ReadonlySet<string>;
   readonly selectGroup: (groupId: string | null, nextState: 'checked' | 'unchecked') => void;
+  /**
+   * Selection mode: the rows show their checkboxes. Off by default, as in mail
+   * and chat apps. The toolbar toggle turns it on, and so does a modifier-click
+   * or keyboard selection; it stays on until explicitly turned off, so
+   * deselecting the last thread never unmounts the focused checkbox.
+   */
+  readonly selecting: boolean;
+  /** Turning selection mode off also clears the selection. */
+  readonly setSelecting: (selecting: boolean) => void;
   readonly toggleVisibleSelection: () => void;
   readonly visibleRows: ThreadPanelVisibleRowsResult;
 }
@@ -42,6 +51,7 @@ export function useThreadPanelSelection({
     {}
   );
   const [selectedThreadIds, setSelectedThreadIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [selectionModeOn, setSelectionModeOn] = useState(false);
 
   const visibleRows = useMemo(
     () => buildThreadPanelVisibleRows({ collapsedGroupIds, limitsBySectionKey, view }),
@@ -64,9 +74,13 @@ export function useThreadPanelSelection({
 
   const replaceSelection = useCallback(
     (nextIds: ReadonlySet<string>): void => {
-      setSelectedThreadIds(
-        new Set([...nextIds].filter((threadId) => selectableThreadIds.has(threadId)))
+      const selectedIds = new Set(
+        [...nextIds].filter((threadId) => selectableThreadIds.has(threadId))
       );
+      setSelectedThreadIds(selectedIds);
+      if (selectedIds.size > 0) {
+        setSelectionModeOn(true);
+      }
     },
     [selectableThreadIds]
   );
@@ -92,6 +106,12 @@ export function useThreadPanelSelection({
   );
 
   const clearSelection = useCallback((): void => setSelectedThreadIds(new Set()), []);
+  const setSelecting = useCallback((selecting: boolean): void => {
+    setSelectionModeOn(selecting);
+    if (!selecting) {
+      setSelectedThreadIds(new Set());
+    }
+  }, []);
 
   const allVisibleSelected =
     visibleRows.visibleThreadIds.length > 0 &&
@@ -126,6 +146,8 @@ export function useThreadPanelSelection({
     replaceSelection,
     selectedThreadIds: selectedAvailableThreadIds,
     selectGroup,
+    selecting: selectionModeOn,
+    setSelecting,
     toggleVisibleSelection,
     visibleRows,
   };
