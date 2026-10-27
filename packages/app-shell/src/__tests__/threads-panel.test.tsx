@@ -647,7 +647,7 @@ describe('ThreadsPanel', () => {
     expect(toolbar.parentElement).toBe(screen.getByTestId('sidebar-header'));
     expect(within(toolbar).getByRole('heading', { name: 'Threads' })).toBeVisible();
     expect(within(toolbar).getByTestId('threads-visible-count')).toHaveTextContent('2');
-    expect(within(toolbar).getByRole('button', { name: 'Select 2 visible threads' })).toBeVisible();
+    expect(within(toolbar).getByRole('button', { name: 'Select threads' })).toBeVisible();
     expect(within(toolbar).getByRole('button', { name: 'New thread' })).toBeVisible();
     expect(within(search).getByTestId('thread-search-input')).toBeVisible();
     expect(screen.getByTestId('threads-panel').firstElementChild).toBe(search);
@@ -657,14 +657,14 @@ describe('ThreadsPanel', () => {
     // size; the view-options trigger used to be 32px next to 28px neighbours.
     // Same 28px square for every control, New Thread included — it only grows
     // into a labelled pill at @[360px]/threads-toolbar, where the label appears.
-    for (const label of ['Select 2 visible threads', 'View options', 'New group', 'New thread']) {
+    for (const label of ['Select threads', 'View options', 'New group', 'New thread']) {
       expect(within(toolbar).getByRole('button', { name: label })).toHaveClass('size-7');
     }
     // Every control hovers toward the same accent. New Thread keeps a resting
     // fill because it is the primary action, but `secondary/80` alone hovered
     // LIGHTER while its ghost neighbours hovered darker — opposite directions
     // in one row.
-    for (const label of ['Select 2 visible threads', 'View options', 'New group', 'New thread']) {
+    for (const label of ['Select threads', 'View options', 'New group', 'New thread']) {
       expect(within(toolbar).getByRole('button', { name: label })).toHaveClass(
         'hover:bg-accent',
         'hover:text-accent-foreground'
@@ -677,12 +677,39 @@ describe('ThreadsPanel', () => {
     }
   });
 
+  it('hides the row checkboxes until Select threads is pressed, and Done drops the selection', async () => {
+    renderThreadsPanel();
+
+    const toggle = await screen.findByRole('button', { name: 'Select threads' });
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
+    });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('checkbox', { name: 'Select thread First thread' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^(Select|Clear) \d+ visible/ })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select thread First thread' }));
+    expect(screen.getByRole('toolbar', { name: 'Thread selection actions' })).toHaveTextContent(
+      '1 selected'
+    );
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('checkbox', { name: 'Select thread First thread' })).toBeNull();
+    expect(
+      screen.queryByRole('toolbar', { name: 'Thread selection actions' })
+    ).not.toBeInTheDocument();
+  });
+
   it('reads the visible count as singular when one thread is disclosed', async () => {
     threadRows.splice(1);
 
     renderThreadsPanel();
 
-    expect(await screen.findByRole('button', { name: 'Select 1 visible thread' })).toBeVisible();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
+    expect(screen.getByRole('button', { name: 'Select 1 visible thread' })).toBeVisible();
     expect(screen.getByTestId('threads-visible-count')).toHaveTextContent('1 thread visible');
   });
 
@@ -904,7 +931,8 @@ describe('ThreadsPanel', () => {
 
     renderThreadsPanel();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Select 50 visible threads' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select 50 visible threads' }));
     expect(screen.getByRole('toolbar', { name: 'Thread selection actions' })).toHaveTextContent(
       '50 selected'
     );
@@ -932,7 +960,8 @@ describe('ThreadsPanel', () => {
     });
     renderThreadsPanel();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Select 2 visible threads' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select 2 visible threads' }));
     const toolbar = screen.getByRole('toolbar', { name: 'Thread selection actions' });
     const overlay = screen.getByTestId('selection-action-overlay');
     expect(overlay).toHaveClass('bottom-3');
@@ -1063,6 +1092,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
+    fireEvent.click(screen.getByRole('button', { name: 'Select threads' }));
     fireEvent.click(screen.getByRole('button', { name: 'Select 2 visible threads' }));
     fireEvent.contextMenu(screen.getByText('Second thread'));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename…' }));
@@ -1156,6 +1186,7 @@ describe('ThreadsPanel', () => {
   it('keeps thread detail and action controls out of row selection', async () => {
     const user = userEvent.setup();
     renderThreadsPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
 
     const checkbox = await screen.findByRole('checkbox', {
       name: 'Select thread Second thread',
@@ -1179,6 +1210,7 @@ describe('ThreadsPanel', () => {
   it('opens a thread without implicitly adding it to bulk selection', async () => {
     const user = userEvent.setup();
     renderThreadsPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
 
     const firstThreadCheckbox = await screen.findByRole('checkbox', {
       name: 'Select thread First thread',
@@ -1202,6 +1234,7 @@ describe('ThreadsPanel', () => {
 
   it('keeps keyboard activation of a thread title out of explicit checkbox selection', async () => {
     renderThreadsPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
 
     const firstThreadCheckbox = await screen.findByRole('checkbox', {
       name: 'Select thread First thread',
@@ -1498,6 +1531,7 @@ describe('ThreadsPanel groups', () => {
     }
 
     renderThreadsPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
 
     const groupCheckbox = await screen.findByRole('checkbox', {
       name: 'Select all 52 threads in Research',
@@ -1571,6 +1605,7 @@ describe('ThreadsPanel groups', () => {
     placementRows[0] = { ...placementRows[0], flatRank: 'flat-a' };
 
     renderThreadsPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Select threads' }));
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select thread First thread' }));
     fireEvent.click(screen.getByRole('button', { name: 'Move' }));
