@@ -71,14 +71,31 @@ function chip(region: Locator): Locator {
  * reopen inside that window is closed by the returning focus. The focus moves
  * a task after the menu unmounts, later still on a loaded runner, so wait for
  * the focus itself, not only for the menu to be gone.
+ *
+ * The submenu opens from the keyboard, as in the unavailable-root spec. Opened
+ * by a click, the pointer stays on its trigger, and moving it to an item while
+ * the submenu is still animating in can leave the menu's pointer grace area and
+ * close it under the click (BST-2302).
  */
 async function openRootMenu(page: Page, region: Locator, rootId: string): Promise<Locator> {
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(chip(region)).toBeFocused();
   await chip(region).click();
-  const row = page.getByTestId(`workspace-bar-root-${rootId}`);
-  await row.click();
-  return row;
+  return await openSubmenu(page, page.getByTestId(`workspace-bar-root-${rootId}`));
+}
+
+/** Open a chip submenu from its trigger with the keyboard. */
+async function openSubmenu(page: Page, trigger: Locator): Promise<Locator> {
+  await trigger.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  return trigger;
+}
+
+/** Choose a submenu item with the keyboard, without moving the pointer. */
+async function chooseMenuItem(page: Page, testId: string): Promise<void> {
+  await page.getByTestId(testId).focus();
+  await page.keyboard.press('Enter');
 }
 
 async function readBinding(userDataDir: string): Promise<Record<string, unknown> | null> {
@@ -140,7 +157,7 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     await expect(chip(region)).toHaveAttribute('aria-label', /, 1 more$/u, { timeout: 30_000 });
     const bravoId = await rootIdOf(page, bravoRoot);
     await openRootMenu(page, region, bravoId);
-    await page.getByTestId(`workspace-bar-make-primary-${bravoId}`).click();
+    await chooseMenuItem(page, `workspace-bar-make-primary-${bravoId}`);
     await expect(chip(region)).toHaveAttribute(
       'aria-label',
       new RegExp(`^Folder: ${bravoName}`, 'u')
@@ -165,7 +182,7 @@ test('a thread whose primary folder was removed names it, marks it, and recovers
     await expect(page.getByTestId(`workspace-bar-root-${bravoId}`)).toContainText(REMOVED);
     await page.keyboard.press('Escape');
     await openRootMenu(page, region, alphaId);
-    await page.getByTestId(`workspace-bar-make-primary-${alphaId}`).click();
+    await chooseMenuItem(page, `workspace-bar-make-primary-${alphaId}`);
     await expect(chip(region)).toHaveAttribute('aria-label', `Folder: ${path.basename(alphaRoot)}`);
 
     await send(3);
@@ -237,8 +254,8 @@ test('a thread left with no live folder offers another workspace folder', async 
     // With no live folder left, the chip offers the workspace's other folders.
     await chip(region).click();
     await expect(page.getByTestId(`workspace-bar-root-${alphaId}`)).toContainText(REMOVED);
-    await page.getByTestId('workspace-bar-use-another-folder').click();
-    await page.getByTestId(`workspace-bar-use-folder-${bravoRoot}`).click();
+    await openSubmenu(page, page.getByTestId('workspace-bar-use-another-folder'));
+    await chooseMenuItem(page, `workspace-bar-use-folder-${bravoRoot}`);
     await expect(chip(region)).toHaveAttribute('aria-label', `Folder: ${path.basename(bravoRoot)}`);
 
     await send(3);
