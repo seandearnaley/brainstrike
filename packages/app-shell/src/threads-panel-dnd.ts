@@ -43,11 +43,11 @@ function sectionThreadIds(view: ThreadListView, groupId: string | null): readonl
   if (view.kind === 'flat') {
     return view.threads.map((thread) => thread.id);
   }
-  if (view.kind === 'folders') {
-    // Unreachable: `resolveThreadsPanelDrop` answers `none` for a folders view
-    // before any resolver runs. Kept as an invariant so a future caller that
-    // reaches in here cannot invent an order folder sections do not have.
-    throw new Error('resolveThreadsPanelDrop: folder grouping has no drag order.');
+  if (view.kind === 'folders' || view.kind === 'dates') {
+    // Unreachable: `resolveThreadsPanelDrop` answers `none` for folder and date
+    // views before any resolver runs. Kept as an invariant so a future caller
+    // that reaches in here cannot invent an order those sections do not have.
+    throw new Error(`resolveThreadsPanelDrop: ${view.kind} grouping has no drag order.`);
   }
   if (groupId === null) {
     return view.ungrouped.map((thread) => thread.id);
@@ -162,12 +162,13 @@ export function resolveThreadsPanelDrop({
   readonly target: ThreadsPanelDropTarget;
   readonly view: ThreadListView;
 }): ThreadsPanelDropIntent {
-  if (view.kind === 'folders') {
-    // Folder sections have no manual order and no membership to rewrite: a
-    // thread's folder is its `metadata.operatingRootId`, re-bound from the
-    // composer's folder chip. The panel therefore renders no drag sources in
-    // this mode, but the drop monitor is global — so a drop that arrives from
-    // somewhere else resolves to no intent rather than throwing at the user.
+  if (view.kind === 'folders' || view.kind === 'dates') {
+    // Folder and date sections have no manual order and no membership to
+    // rewrite: a thread's folder is its `metadata.operatingRootId`, re-bound
+    // from the composer's folder chip, and its date is its activity. The panel
+    // therefore renders no drag sources in these modes, but the drop monitor is
+    // global — so a drop that arrives from somewhere else resolves to no intent
+    // rather than throwing at the user.
     return NONE;
   }
   if (filtersActive && source.type === 'thread-row') {

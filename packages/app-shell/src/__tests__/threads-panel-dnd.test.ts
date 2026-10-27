@@ -25,6 +25,7 @@ const GROUP_B = makeGroup('group-b', 'a1');
 
 const GROUPED_VIEW: ThreadListView = {
   kind: 'grouped',
+  pinned: null,
   sections: [
     {
       header: { group: GROUP_A, kind: 'group' },
@@ -208,6 +209,7 @@ describe('resolveThreadsPanelDrop', () => {
   it('resolves every drop to none in folder grouping instead of throwing at the user', () => {
     const foldersView: ThreadListView = {
       kind: 'folders',
+      pinned: null,
       sections: [
         {
           header: {

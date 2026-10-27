@@ -84,6 +84,7 @@ test('terminal content clear removes canonical content and blobs but preserves c
     );
     expect(await store.threadGroups({ operation: 'list', resourceId: 'workspace' })).toEqual({
       groups: [],
+      pins: [],
       placements: [],
     });
     const reader = new DatabaseSync(join(root, 'state.db'), { readOnly: true });

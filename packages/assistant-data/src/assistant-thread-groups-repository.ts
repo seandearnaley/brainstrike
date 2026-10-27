@@ -6,11 +6,13 @@
  * and manual order are Brainstrike-owned presentation state. A placement row whose
  * thread no longer exists is inert: the panel joins placements to loaded
  * threads by id. `rank` values are fractional-index keys (`fractional-indexing`
- * `generateKeyBetween`), lexicographically ordered as text.
+ * `generateKeyBetween`), lexicographically ordered as text. Pins are rows of
+ * their own beside the placements: clearing a deleted thread forgets both.
  */
 import type {
   AssistantThreadGroup,
   AssistantThreadGroupRankEntry,
+  AssistantThreadPin,
   AssistantThreadPlacement,
 } from '@brainstrike/types';
 import type {
@@ -21,6 +23,7 @@ import type {
 export type {
   AssistantThreadGroup,
   AssistantThreadGroupRankEntry,
+  AssistantThreadPin,
   AssistantThreadPlacement,
 } from '@brainstrike/types';
 
@@ -30,7 +33,9 @@ export interface AssistantThreadGroupsRepository {
   createGroup: (resourceId: string, name: string, rank: string) => Promise<AssistantThreadGroup>;
   deleteGroup: (groupId: string) => Promise<void>;
   listGroups: (resourceId: string) => Promise<readonly AssistantThreadGroup[]>;
+  listPins: (resourceId: string) => Promise<readonly AssistantThreadPin[]>;
   listPlacements: (resourceId: string) => Promise<readonly AssistantThreadPlacement[]>;
+  pinThread: (pin: AssistantThreadPin) => Promise<void>;
   renameGroup: (groupId: string, name: string) => Promise<void>;
   setGroupColor: (groupId: string, color: AssistantThreadColorId | null) => Promise<void>;
   setGroupIcon: (groupId: string, icon: AssistantThreadIconId | null) => Promise<void>;
@@ -38,4 +43,5 @@ export interface AssistantThreadGroupsRepository {
   setGroupRanks: (entries: readonly AssistantThreadGroupRankEntry[]) => Promise<void>;
   setThreadPlacement: (placement: AssistantThreadPlacement) => Promise<void>;
   setThreadPlacements: (placements: readonly AssistantThreadPlacement[]) => Promise<void>;
+  unpinThread: (threadId: string) => Promise<void>;
 }

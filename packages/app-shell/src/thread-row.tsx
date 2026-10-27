@@ -30,6 +30,8 @@ import {
   MoreHorizontal,
   Palette,
   Pencil,
+  Pin,
+  PinOff,
   SwatchBook,
   Trash2,
   X,
@@ -41,11 +43,12 @@ import {
   ASSISTANT_THREAD_COLOR_PALETTES,
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   ASSISTANT_THREAD_ICON_PRESENTATION,
-  getAssistantThreadColorSurface,
   getThreadRowAccessibleName,
+  getThreadTint,
   THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
+  THREAD_PANEL_ROW_CLASS_NAME,
   type ThreadRowStatusState,
 } from './assistant-thread-presentation';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
@@ -66,10 +69,6 @@ function getThreadColorId(thread: AssistantMemoryThread): AssistantThreadColorId
   return thread.metadata?.color ?? null;
 }
 
-function getThreadColorConfig(thread: AssistantMemoryThread) {
-  return getAssistantThreadColorSurface(getThreadColorId(thread));
-}
-
 export interface ThreadMoveTarget {
   readonly id: string;
   readonly name: string;
@@ -84,14 +83,19 @@ export interface ThreadRowProps {
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
+  /** `null` where pins have no store (no thread groups capability). */
+  readonly onSetThreadPinned: ThreadPinHandler | null;
   readonly onUpdateThreadAppearance: (
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
+  readonly pinned: boolean;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
 }
+
+export type ThreadPinHandler = (threadId: string, pinned: boolean) => Promise<void>;
 
 export function ThreadRow({
   branch,
@@ -102,7 +106,9 @@ export function ThreadRow({
   onMoveThreadToGroup,
   onRenameThread,
   onSelectThread,
+  onSetThreadPinned,
   onUpdateThreadAppearance,
+  pinned,
   selected,
   status,
   thread,
@@ -187,7 +193,9 @@ export function ThreadRow({
           setDraftTitle('');
         }}
         onSelectThread={onSelectThread}
+        onSetThreadPinned={onSetThreadPinned}
         onUpdateThreadAppearance={onUpdateThreadAppearance}
+        pinned={pinned}
         renameError={renameError}
         renameSaving={savingRename}
         rowGroupId={groupId}
@@ -263,7 +271,9 @@ function ThreadRowItem({
   onRenameThreadSubmitError,
   onRenameSavingChange,
   onSelectThread,
+  onSetThreadPinned,
   onUpdateThreadAppearance,
+  pinned,
   renameError,
   renameSaving,
   rowGroupId,
@@ -296,10 +306,12 @@ function ThreadRowItem({
   readonly onRenameThreadSubmitError: (message: string) => void;
   readonly onRenameSavingChange: (saving: boolean) => void;
   readonly onSelectThread: (threadId: string) => void;
+  readonly onSetThreadPinned: ThreadPinHandler | null;
   readonly onUpdateThreadAppearance: (
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
+  readonly pinned: boolean;
   readonly renameError: string | null;
   readonly renameSaving: boolean;
   readonly rowGroupId: string | null;
@@ -307,7 +319,7 @@ function ThreadRowItem({
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
 }): ReactElement {
-  const colorConfig = getThreadColorConfig(thread);
+  const tint = getThreadTint(getThreadColorId(thread));
   const contextMenuController = useContextMenuTarget();
   const { setTarget: setContextMenuTarget } = contextMenuController;
   const rowActions = useMemo<readonly AnyContextAction[]>(() => {
@@ -349,6 +361,30 @@ function ThreadRowItem({
           return Promise.resolve({ ok: true });
         },
       }),
+      ...(onSetThreadPinned
+        ? [
+            defineContextAction({
+              appliesTo: ['assistant-thread'] as const,
+              group: 'primary',
+              icon: pinned ? PinOff : Pin,
+              id: 'assistant-thread.toggle-pin',
+              isEnabled: (target) => isCurrentTarget(target),
+              label: pinned ? 'Unpin' : 'Pin',
+              run: (target) => {
+                if (!isCurrentTarget(target)) {
+                  return staleTargetFailure;
+                }
+                return onSetThreadPinned(target.id, !pinned).then(
+                  () => ({ ok: true as const }),
+                  (error: unknown) => ({
+                    error: error instanceof Error ? error.message : String(error),
+                    ok: false as const,
+                  })
+                );
+              },
+            }),
+          ]
+        : []),
       defineContextAction({
         appliesTo: ['assistant-thread'] as const,
         group: 'primary',
@@ -454,6 +490,8 @@ function ThreadRowItem({
     onMoveThreadToGroup,
     onRenameThreadStart,
     onSelectThread,
+    onSetThreadPinned,
+    pinned,
     rowGroupId,
     selected,
     thread.id,
@@ -461,10 +499,10 @@ function ThreadRowItem({
   ]);
   return (
     <div
-      className={`my-0.5 flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} w-auto flex-col justify-center overflow-hidden rounded-md px-2 text-left transition-[background-color,box-shadow] motion-reduce:transition-none ${
-        selected ? colorConfig.selectedClassName : colorConfig.idleClassName
-      }`}
+      className={`${THREAD_PANEL_ROW_CLASS_NAME} flex-col justify-center overflow-hidden text-left ${tint.washClassName}`}
+      data-selected={selected}
       data-testid="thread-row"
+      style={tint.style}
     >
       {editing ? (
         <ThreadRenameForm
@@ -506,8 +544,10 @@ function ThreadRowItem({
               onMetadataError={onMetadataError}
               onRenameThreadStart={onRenameThreadStart}
               onSelectThread={onSelectThread}
+              onSetThreadPinned={onSetThreadPinned}
               onUpdateThreadAppearance={onUpdateThreadAppearance}
               pendingDelete={confirmingDelete}
+              pinned={pinned}
               selected={selected}
               status={status}
               thread={thread}
@@ -618,8 +658,10 @@ function ThreadRowDisplay({
   onMetadataError,
   onRenameThreadStart,
   onSelectThread,
+  onSetThreadPinned,
   onUpdateThreadAppearance,
   pendingDelete,
+  pinned,
   selected,
   status,
   thread,
@@ -638,11 +680,13 @@ function ThreadRowDisplay({
   readonly onMetadataError: (message: string | null) => void;
   readonly onRenameThreadStart: () => void;
   readonly onSelectThread: (threadId: string) => void;
+  readonly onSetThreadPinned: ThreadPinHandler | null;
   readonly onUpdateThreadAppearance: (
     threadId: string,
     patch: AssistantThreadAppearancePatch
   ) => Promise<void>;
   readonly pendingDelete: boolean;
+  readonly pinned: boolean;
   readonly selected: boolean;
   readonly status: ThreadRowStatusState | null;
   readonly thread: AssistantMemoryThread;
@@ -659,7 +703,7 @@ function ThreadRowDisplay({
         <button
           aria-current={selected ? 'true' : undefined}
           aria-label={getThreadRowAccessibleName(status, thread.title)}
-          className="min-w-0 flex-1 text-left"
+          className="min-w-0 flex-1 text-left outline-none"
           onClick={(event) => {
             event.stopPropagation();
             onSelectThread(thread.id);
@@ -678,8 +722,16 @@ function ThreadRowDisplay({
             </div>
           </div>
         </button>
-        <div className="-mr-px flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           <ThreadReadFailureMarker reason={thread.readFailure} title={thread.title} />
+          {pinned ? (
+            <Pin
+              aria-label="Pinned"
+              className="size-3 shrink-0 text-muted-foreground"
+              data-testid="thread-pinned-marker"
+              role="img"
+            />
+          ) : null}
           <Button
             aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
             className={THREAD_CONTROL_ACTION_CLASS_NAME}
@@ -744,6 +796,27 @@ function ThreadRowDisplay({
                     <SwatchBook className="size-3.5" />
                     Customize
                   </Button>
+                  {onSetThreadPinned ? (
+                    <Button
+                      className="h-8 justify-start gap-2 px-2 text-xs"
+                      onClick={() => {
+                        closeActions();
+                        onSetThreadPinned(thread.id, !pinned).catch((error: unknown) => {
+                          toast({
+                            description: error instanceof Error ? error.message : String(error),
+                            title: pinned ? 'Couldn’t unpin the thread' : 'Couldn’t pin the thread',
+                            variant: 'destructive',
+                          });
+                        });
+                      }}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                      {pinned ? 'Unpin' : 'Pin'}
+                    </Button>
+                  ) : null}
                   <Button
                     className="h-8 justify-start gap-2 px-2 text-xs"
                     onClick={() => {

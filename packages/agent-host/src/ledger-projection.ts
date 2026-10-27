@@ -471,7 +471,13 @@ export function foldLatestRun(
   if (event.type === 'run.started') {
     return {
       pending: new Set(),
-      run: { completedAt: null, needsInput: false, seq: row.seq, status: 'running' },
+      run: {
+        completedAt: null,
+        needsInput: false,
+        seq: row.seq,
+        startedAt: row.ts ?? null,
+        status: 'running',
+      },
       runId: event.runId,
     };
   }
@@ -495,6 +501,7 @@ export function foldLatestRun(
       completedAt: row.ts ?? null,
       needsInput: false,
       seq: row.seq,
+      startedAt: latest.run.startedAt,
       status: STATUS_BY_OUTCOME[event.outcome],
     },
     runId: latest.runId,

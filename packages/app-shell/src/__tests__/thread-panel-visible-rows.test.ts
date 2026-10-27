@@ -61,6 +61,7 @@ describe('buildThreadPanelVisibleRows', () => {
     const secondGroup = group('group-b');
     const view: ThreadListView = {
       kind: 'grouped',
+      pinned: null,
       sections: [
         {
           header: { group: firstGroup, kind: 'group' },
@@ -101,6 +102,7 @@ describe('buildThreadPanelVisibleRows', () => {
     const collapsedGroup = group('group-collapsed');
     const view: ThreadListView = {
       kind: 'grouped',
+      pinned: null,
       sections: [
         {
           header: { group: collapsedGroup, kind: 'group' },
@@ -130,6 +132,7 @@ describe('buildThreadPanelVisibleRows', () => {
     const emptyGroup = group('group-empty');
     const view: ThreadListView = {
       kind: 'grouped',
+      pinned: null,
       sections: [{ header: { group: emptyGroup, kind: 'group' }, id: emptyGroup.id, threads: [] }],
       ungrouped: [],
     };
@@ -151,6 +154,7 @@ describe('buildThreadPanelVisibleRows', () => {
   it('uses stable structural IDs and preserves thread IDs', () => {
     const view: ThreadListView = {
       kind: 'grouped',
+      pinned: null,
       sections: [
         {
           header: { group: group('group-a'), kind: 'group' },
@@ -183,6 +187,7 @@ describe('buildThreadPanelVisibleRows', () => {
     };
     const view: ThreadListView = {
       kind: 'folders',
+      pinned: null,
       sections: [
         {
           header: { folder, kind: 'folder' },
@@ -225,6 +230,7 @@ describe('buildThreadPanelVisibleRows', () => {
     const folder: ThreadFolderRow = { displayName: 'work', path: null, rootId: 'root-2' };
     const view: ThreadListView = {
       kind: 'folders',
+      pinned: null,
       sections: [
         {
           header: { folder, kind: 'folder' },
@@ -260,6 +266,7 @@ describe('buildThreadPanelVisibleRows', () => {
   it('refuses a folder section id it did not mint instead of rendering it as a node', () => {
     const view: ThreadListView = {
       kind: 'folders',
+      pinned: null,
       sections: [
         { header: { kind: 'unassigned' }, id: 'somewhere-else', threads: [thread('thread-a')] },
       ],
@@ -307,22 +314,14 @@ describe('thread panel section addresses', () => {
 });
 
 describe('getThreadPanelRowHeightPx', () => {
-  it('gives every row kind the height it actually paints', () => {
-    // Measured in the running renderer (303.5px and 218.5px panel width), not
-    // derived from the Tailwind classes: group header 40, drop-zone/empty 40,
-    // thread 32, show-more 36. One blanket estimate mis-sizes three of the four.
-    expect(getThreadPanelRowHeightPx('group')).toBe(40);
-    expect(getThreadPanelRowHeightPx('empty')).toBe(40);
-    expect(getThreadPanelRowHeightPx('show-more')).toBe(36);
-    expect(getThreadPanelRowHeightPx('thread')).toBe(THREAD_CONTROL_ROW_PITCH_PX);
+  it('gives every naming row the one control pitch, and the drop zone its own', () => {
+    // Sections, threads, children and show-more share the explorer-like 32px
+    // pitch; only the dashed drop zone is taller.
+    for (const kind of ['group', 'thread', 'host-child', 'show-more'] as const) {
+      expect(getThreadPanelRowHeightPx(kind)).toBe(THREAD_CONTROL_ROW_PITCH_PX);
+    }
     expect(getThreadPanelRowHeightPx('thread')).toBe(32);
-  });
-
-  it('keeps the thread estimate tied to the shared control pitch', () => {
-    // If the density contract moves, the estimate must move with it rather than
-    // drifting back into a magic number.
-    expect(getThreadPanelRowHeightPx('thread')).toBe(THREAD_CONTROL_ROW_PITCH_PX);
-    expect(getThreadPanelRowHeightPx('group')).not.toBe(THREAD_CONTROL_ROW_PITCH_PX);
+    expect(getThreadPanelRowHeightPx('empty')).toBe(40);
   });
 });
 

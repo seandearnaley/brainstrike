@@ -23,8 +23,13 @@ function thread(id: string): AssistantMemoryThread {
 
 const POPULATED_FLAT: ThreadListView = { kind: 'flat', threads: [thread('thread-a')] };
 const EMPTY_FLAT: ThreadListView = { kind: 'flat', threads: [] };
-const EMPTY_GROUPED: ThreadListView = { kind: 'grouped', sections: [], ungrouped: [] };
-const EMPTY_FOLDERS: ThreadListView = { kind: 'folders', sections: [] };
+const EMPTY_GROUPED: ThreadListView = {
+  kind: 'grouped',
+  pinned: null,
+  sections: [],
+  ungrouped: [],
+};
+const EMPTY_FOLDERS: ThreadListView = { kind: 'folders', pinned: null, sections: [] };
 
 function resolve(
   overrides: Partial<Parameters<typeof resolveThreadPanelContentState>[0]> = {}

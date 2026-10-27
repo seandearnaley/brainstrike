@@ -9,8 +9,11 @@ import {
   buildThreadListSections,
   folderSectionId,
   getGroupMemberIds,
+  getThreadDateSection,
+  getThreadLastActivityAt,
   getThreadPrimaryRootId,
   type ThreadFolderRow,
+  type ThreadListOrdering,
   UNASSIGNED_FOLDER_SECTION_ID,
 } from '../thread-list-sections';
 
@@ -37,6 +40,12 @@ function makeThread(overrides: {
     updatedAt: new Date(overrides.updatedAt ?? '2026-07-01T00:00:00Z'),
   };
 }
+
+/** Recency is the fixture's `updatedAt`; nothing is pinned. */
+const ordering: ThreadListOrdering = {
+  lastActivityAt: (thread) => thread.updatedAt.getTime(),
+  pinnedAtByThreadId: {},
+};
 
 function makeGroup(overrides: { id: string; name?: string; rank: string }): AssistantThreadGroup {
   return {
@@ -68,6 +77,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [],
+      ordering,
       placements: [],
       sortBy: 'recency',
       threads: [
@@ -87,6 +97,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'none',
       groups: [makeGroup({ id: 'group-1', rank: 'a0' })],
+      ordering,
       placements: [makePlacement({ groupId: 'group-1', rank: 'a0', threadId: 'thread-1' })],
       sortBy: 'recency',
       threads: [makeThread({ id: 'thread-1' })],
@@ -99,6 +110,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [makeGroup({ id: 'group-b', rank: 'a1' }), makeGroup({ id: 'group-a', rank: 'a0' })],
+      ordering,
       placements: [
         makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' }),
         makePlacement({ groupId: 'group-b', rank: 'a0', threadId: 'thread-2' }),
@@ -153,6 +165,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups,
+      ordering,
       placements,
       sortBy: 'recency',
       threads,
@@ -166,6 +179,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [makeGroup({ id: 'group-empty', rank: 'a0' })],
+      ordering,
       placements: [],
       sortBy: 'recency',
       threads: [makeThread({ id: 'thread-1' })],
@@ -183,6 +197,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [makeGroup({ id: 'group-a', rank: 'a0' })],
+      ordering,
       placements: [makePlacement({ groupId: 'group-gone', rank: 'a0', threadId: 'thread-1' })],
       sortBy: 'recency',
       threads: [makeThread({ id: 'thread-1' })],
@@ -200,6 +215,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [makeGroup({ id: 'group-a', rank: 'a0' })],
+      ordering,
       placements: [makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-gone' })],
       sortBy: 'recency',
       threads: [makeThread({ id: 'thread-1' })],
@@ -217,6 +233,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [makeGroup({ id: 'group-a', rank: 'a0' })],
+      ordering,
       placements: [
         makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' }),
         makePlacement({ groupId: 'group-a', rank: 'a1', threadId: 'thread-2' }),
@@ -242,6 +259,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [],
+      ordering,
       placements: [
         makePlacement({ groupId: null, rank: 'a1', threadId: 'thread-ranked-late' }),
         makePlacement({ groupId: null, rank: 'a0', threadId: 'thread-ranked-early' }),
@@ -273,6 +291,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'none',
       groups: [],
+      ordering,
       placements: [
         { ...first, flatRank: 'z1' },
         { ...second, flatRank: 'z0' },
@@ -295,6 +314,7 @@ describe('buildThreadListSections', () => {
     const view = buildThreadListSections({
       groupBy: 'custom-groups',
       groups: [group],
+      ordering,
       placements: [
         { ...first, flatRank: 'z1' },
         { ...second, flatRank: 'z0' },
@@ -326,6 +346,7 @@ describe('getGroupMemberIds', () => {
     });
     const view = {
       kind: 'grouped',
+      pinned: null,
       sections: [
         {
           header: { group: makeGroup({ id: 'group-a', rank: 'a0' }), kind: 'group' as const },
@@ -369,6 +390,7 @@ describe('getGroupMemberIds', () => {
     });
     const view = {
       kind: 'grouped',
+      pinned: null,
       sections,
       ungrouped: [],
     } as const;
@@ -389,6 +411,7 @@ describe('getGroupMemberIds', () => {
     const before = buildThreadListSections({
       groupBy: 'custom-groups',
       groups,
+      ordering,
       placements: [makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' })],
       sortBy: 'recency',
       threads: [makeThread({ id: 'thread-1' }), makeThread({ id: 'ungrouped-1' })],
@@ -396,6 +419,7 @@ describe('getGroupMemberIds', () => {
     const after = buildThreadListSections({
       groupBy: 'custom-groups',
       groups,
+      ordering,
       placements: [
         makePlacement({ groupId: 'group-a', rank: 'a0', threadId: 'thread-1' }),
         makePlacement({ groupId: 'group-a', rank: 'a1', threadId: 'thread-2' }),
@@ -448,6 +472,7 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
+      ordering,
       threads: [
         folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
         folderThread('2', 'root-b', '2026-07-02T00:00:00Z'),
@@ -481,6 +506,7 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
+      ordering,
       threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
     });
 
@@ -494,6 +520,7 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
+      ordering,
       threads: [folderThread('1', 'root-zzz', '2026-07-01T00:00:00Z')],
     });
 
@@ -509,6 +536,7 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'name',
       groupBy: 'folder',
+      ordering,
       threads: [
         makeThread({ id: '1', operatingRootId: 'root-a', title: 'zeta' }),
         makeThread({ id: '2', operatingRootId: 'root-a', title: 'Alpha' }),
@@ -536,6 +564,7 @@ describe('folder grouping', () => {
       groupBy: 'folder',
       // @ts-expect-error -- folder grouping ignores custom groups, so it takes none.
       groups: [makeGroup({ id: 'group-a', rank: 'a0' })],
+      ordering,
       threads: [folderThread('1', 'root-a', '2026-07-01T00:00:00Z')],
     });
     expect(ignoringGroups.kind).toBe('folders');
@@ -545,7 +574,7 @@ describe('folder grouping', () => {
     expect(ignoringGroups.sections.map((section) => section.id)).toEqual(['folder:root-a']);
 
     // @ts-expect-error -- folder grouping requires folder rows and a folder sort.
-    const missingRows = buildThreadListSections({ groupBy: 'folder', threads: [] });
+    const missingRows = buildThreadListSections({ groupBy: 'folder', ordering, threads: [] });
     expect(missingRows.kind).toBe('folders');
   });
 
@@ -554,6 +583,7 @@ describe('folder grouping', () => {
       folderRowsByRootId: rows,
       folderSortBy: 'recency',
       groupBy: 'folder',
+      ordering,
       threads: [
         folderThread('1', 'root-a', '2026-07-01T00:00:00Z'),
         folderThread('2', null, '2026-07-02T00:00:00Z'),
@@ -570,5 +600,100 @@ describe('folder grouping', () => {
 
   it('never lets a root literally named "unassigned" collide with the No folder sentinel', () => {
     expect(folderSectionId('unassigned')).not.toBe(UNASSIGNED_FOLDER_SECTION_ID);
+  });
+});
+
+describe('recency, date sections and pins', () => {
+  // A local Tuesday afternoon, so every boundary below is a local midnight.
+  const now = new Date(2026, 9, 27, 15, 0, 0);
+  const at = (days: number, hours = 12): Date =>
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - days, hours);
+
+  it('reads activity from the latest run, never from a rename or recolor', () => {
+    const thread = { createdAt: at(40) };
+    expect(getThreadLastActivityAt(thread, undefined)).toBe(at(40).getTime());
+    expect(getThreadLastActivityAt(thread, { completedAt: at(2, 9), startedAt: at(2, 8) })).toBe(
+      at(2, 9).getTime()
+    );
+    // A run still going counts from its start.
+    expect(getThreadLastActivityAt(thread, { completedAt: null, startedAt: at(0, 1) })).toBe(
+      at(0, 1).getTime()
+    );
+  });
+
+  it('names recent days, then months, with the year only when it differs', () => {
+    const label = (date: Date) => getThreadDateSection(date.getTime(), now);
+    expect(label(at(0, 0))).toEqual({ id: 'date:today', label: 'Today' });
+    expect(label(new Date(now.getTime() + 60_000)).id).toBe('date:today');
+    expect(label(at(1, 23)).id).toBe('date:yesterday');
+    expect(label(at(7, 0)).id).toBe('date:previous-7-days');
+    expect(label(at(8)).id).toBe('date:previous-30-days');
+    expect(label(at(30, 0)).id).toBe('date:previous-30-days');
+    expect(label(new Date(2026, 7, 3)).id).toBe('date:2026-08');
+    expect(label(new Date(2025, 11, 3))).toEqual({
+      id: 'date:2025-12',
+      label: new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(
+        new Date(2025, 11, 3)
+      ),
+    });
+  });
+
+  it('groups by date newest first and lifts pins above every section', () => {
+    const threads = [
+      makeThread({ id: 'old', updatedAt: new Date(2026, 7, 3).toISOString() }),
+      makeThread({ id: 'today', updatedAt: at(0, 9).toISOString() }),
+      makeThread({ id: 'pinned-old', updatedAt: new Date(2026, 6, 1).toISOString() }),
+      makeThread({ id: 'week', updatedAt: at(3).toISOString() }),
+      makeThread({ id: 'pinned-new', updatedAt: at(1).toISOString() }),
+      makeThread({ id: 'today-later', updatedAt: at(0, 14).toISOString() }),
+    ];
+    const view = buildThreadListSections({
+      groupBy: 'date',
+      now,
+      ordering: { ...ordering, pinnedAtByThreadId: { 'pinned-new': 1, 'pinned-old': 2 } },
+      threads,
+    });
+    if (view.kind !== 'dates') {
+      throw new Error('expected dates');
+    }
+    expect(view.pinned?.threads.map((thread) => thread.id)).toEqual(['pinned-old', 'pinned-new']);
+    expect(
+      view.sections.map((section) => [section.id, section.threads.map((thread) => thread.id)])
+    ).toEqual([
+      ['date:today', ['today-later', 'today']],
+      ['date:previous-7-days', ['week']],
+      ['date:2026-08', ['old']],
+    ]);
+    expect(getGroupMemberIds(view, 'pinned')).toEqual(['pinned-old', 'pinned-new']);
+  });
+
+  it('lists pinned threads first in the flat list, and out of their custom group', () => {
+    const pinnedOrdering = { ...ordering, pinnedAtByThreadId: { b: 5 } };
+    const threads = [
+      makeThread({ id: 'a', updatedAt: '2026-07-03T00:00:00Z' }),
+      makeThread({ id: 'b', updatedAt: '2026-07-01T00:00:00Z' }),
+    ];
+    const flat = buildThreadListSections({
+      groupBy: 'none',
+      groups: [],
+      ordering: pinnedOrdering,
+      placements: [],
+      sortBy: 'recency',
+      threads,
+    });
+    expect(flat.kind === 'flat' && flat.threads.map((thread) => thread.id)).toEqual(['b', 'a']);
+    const grouped = buildThreadListSections({
+      groupBy: 'custom-groups',
+      groups: [makeGroup({ id: 'g', rank: 'a0' })],
+      ordering: pinnedOrdering,
+      placements: [makePlacement({ groupId: 'g', rank: 'a0', threadId: 'b' })],
+      sortBy: 'recency',
+      threads,
+    });
+    if (grouped.kind !== 'grouped') {
+      throw new Error('expected grouped');
+    }
+    expect(grouped.pinned?.threads.map((thread) => thread.id)).toEqual(['b']);
+    expect(grouped.sections[0]?.threads).toEqual([]);
   });
 });

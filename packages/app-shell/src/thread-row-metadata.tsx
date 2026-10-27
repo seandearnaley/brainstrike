@@ -84,7 +84,7 @@ export function ThreadExpandedDetails({
   const maxOutputValue = getMaxOutputValue(thread);
   return (
     <div
-      className="mt-2 mb-2 rounded-md border border-border bg-background/70 p-2"
+      className="mt-1 mb-1 rounded-md border border-border bg-background/70 p-2"
       data-testid="thread-expanded-details"
     >
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">

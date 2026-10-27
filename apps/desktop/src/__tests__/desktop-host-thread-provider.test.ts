@@ -135,6 +135,7 @@ test('deleting a thread drops every thread Core deleted with it from the runs an
             completedAt: finished?.ts ?? null,
             needsInput: false,
             seq: finished?.seq ?? 1,
+            startedAt: null,
             status: 'completed',
           },
         },

@@ -539,6 +539,7 @@ export class StateStore implements MemoryDomainPort {
       const reply = await this.call({ op: 'thread-groups', request });
       return {
         groups: reply['groups'] as ThreadGroupsReply['groups'],
+        pins: reply['pins'] as ThreadGroupsReply['pins'],
         placements: reply['placements'] as ThreadGroupsReply['placements'],
       };
     };
