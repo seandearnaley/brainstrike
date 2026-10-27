@@ -11,6 +11,7 @@ import { createServer } from 'vite';
 import { HomePage } from './page-objects/home-page';
 import { readCommittedRuns, waitForAppHost } from './utils/agent-host-log';
 import { type ModelProviderShim, startModelProviderShim } from './utils/model-provider-shim';
+import { startThread } from './utils/new-thread';
 import {
   launchOrdinaryDevApp,
   type OrdinaryDevApp,
@@ -19,26 +20,10 @@ import {
 } from './utils/ordinary-dev-app';
 import { runViteCache } from './utils/run-vite-cache';
 
-async function newThread(page: Page): Promise<void> {
-  const tabs = page.getByRole('tablist', { name: 'Open assistant threads' });
-  const previous = await tabs.getByRole('tab', { selected: true }).getAttribute('aria-controls');
-  await page.getByRole('button', { exact: true, name: 'New assistant thread' }).click();
-  await expect
-    .poll(() => tabs.getByRole('tab', { selected: true }).getAttribute('aria-controls'))
-    .not.toBe(previous);
-}
-
-async function send(page: Page, message: string): Promise<void> {
-  const selected = await page
-    .getByRole('tablist', { name: 'Open assistant threads' })
-    .getByRole('tab', { selected: true })
-    .getAttribute('aria-controls');
-  if (!selected) {
-    throw new Error('No active conversation');
-  }
-  const conversation = page.getByTestId(selected);
-  await conversation.getByRole('textbox', { name: 'Message input' }).fill(message);
-  await conversation.getByRole('button', { exact: true, name: 'Send' }).click();
+/** Each send here is a thread's first: it creates the thread from the new-thread screen. */
+async function send(page: Page, message: string, beforeReply?: () => Promise<void>): Promise<void> {
+  const conversation = await startThread(page, message);
+  await beforeReply?.();
   await expect(conversation.getByText('DEV_PROFILE_REPLY', { exact: true })).toBeVisible();
   // The reply streams before the host commits the run's end; the pane leaves the
   // running state once that end is committed.
@@ -204,10 +189,9 @@ test('ordinary dev excludes a second app, then reopens A with its first Sends an
 }) => {
   const a = await ordinaryDev.launch('incident-a');
   await configureProvider(a.page, true);
-  await chooseModel(a.page);
-  await send(a.page, 'A_NO_FOLDER');
+  // A fresh profile has no model: the new thread holds the message until one is chosen.
+  await send(a.page, 'A_NO_FOLDER', () => chooseModel(a.page));
   await addRoot(a.page);
-  await newThread(a.page);
   await send(a.page, 'A_WITH_FOLDER');
 
   const credentialPath = path.join(
@@ -277,8 +261,8 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
 }, info) => {
   const a = await ordinaryDev.launch('incident-a');
   await configureProvider(a.page, true);
-  await chooseModel(a.page);
-  await send(a.page, 'A_NO_FOLDER');
+  // A fresh profile has no model: the new thread holds the message until one is chosen.
+  await send(a.page, 'A_NO_FOLDER', () => chooseModel(a.page));
   const rootA = await addRoot(a.page);
   await disconnectRoot(a.page);
   await ordinaryDev.close();
@@ -290,11 +274,9 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
     b.page.getByTestId('assistant-ui-viewport').getByText('A_NO_FOLDER', { exact: true })
   ).toHaveCount(0);
   await configureProvider(b.page, false);
-  await chooseModel(b.page);
-  await send(b.page, 'B_NO_FOLDER');
+  await send(b.page, 'B_NO_FOLDER', () => chooseModel(b.page));
   const rootB = await addRoot(b.page);
   expect(rootB).not.toBe(rootA);
-  await newThread(b.page);
   await send(b.page, 'B_WITH_FOLDER');
   await ordinaryDev.close();
 
@@ -308,7 +290,6 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
   }
   const restoredA = await addRoot(returnedA.page);
   expect(restoredA).toBe(rootA);
-  await newThread(returnedA.page);
   await send(returnedA.page, 'A_RETURN_FIRST_SEND');
   // A's own host committed the first Send after return. The host publishes its
   // record in the profile's database root, beside Electron's per-profile userData.

@@ -1,7 +1,7 @@
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { withAppHost } from './utils/agent-host-log';
+import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
@@ -87,12 +87,10 @@ async function sendFirstMessage(page: Page): Promise<void> {
   await expect(answer).toBeVisible();
 }
 
-/** A new thread's composer is ready: its memory precondition passed. */
+/** New opens the new-thread screen; its first send creates the thread. */
 async function startNewThread(page: Page): Promise<void> {
   await page.getByTestId('assistant-new-thread-button').click();
-  await expect(
-    page.getByRole('tab', { exact: true, name: 'New Thread', selected: true })
-  ).toBeVisible();
+  await expect(page.getByTestId('new-thread-welcome')).toBeVisible();
   const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
   await expect(panel.getByRole('textbox', { name: 'Message input' })).toBeEnabled({
     timeout: 30_000,
@@ -309,8 +307,12 @@ test('a recall model of a removed provider names the model and the remedy', asyn
 }) => {
   await enableModel(page);
   await enableSemanticRecall(page, 'local/onnx-community/granite-embedding-small-english-r2-ONNX');
-  await page.getByTestId('assistant-new-thread-button').click();
-  // Each open thread tab renders the refusal; only the selected tab's copy is shown.
+  // The host refuses the first send: the message goes back to the new thread's
+  // composer and the thread that send created is removed again.
+  const welcome = page.getByTestId('new-thread-welcome');
+  const input = welcome.getByRole('textbox', { name: 'Message input' });
+  await input.fill('What do you remember?');
+  await welcome.getByRole('button', { exact: true, name: 'Send' }).click();
   const refusal = page
     .getByText(
       'Unsupported semantic recall embedding provider "local" in model target "local/onnx-community/granite-embedding-small-english-r2-ONNX". Choose an embedding model in Settings → Assistant Memory.'
@@ -318,4 +320,7 @@ test('a recall model of a removed provider names the model and the remedy', asyn
     .filter({ visible: true });
   await expect(refusal).toHaveCount(1, { timeout: 30_000 });
   await expect(page.getByText(GENERIC_FAULT)).toHaveCount(0);
+  await expect(input).toHaveValue('What do you remember?');
+  const userData = await page.evaluate(() => globalThis.window.electronAPI!.getUserDataPath());
+  expect(await readHostThreadTree(userData)).toEqual([]);
 });

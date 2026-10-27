@@ -104,6 +104,7 @@ function hostWith(
     listThreads: refused,
     ownsThread: refused,
     renameThread: refused,
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: () => undefined,
     subscribeChildren,
     updateThreadBinding: refused,

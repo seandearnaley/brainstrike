@@ -11,6 +11,7 @@ import { getContextExplorerFileExplorerPanel } from './context-explorer-locators
 import { updateIndexConfig } from './index-config';
 import { ensureAssistantShellVisible } from './layout-helpers';
 import { loadElectronHelpers } from './load-electron-helpers';
+import { startThread } from './new-thread';
 
 /**
  * The three renderer writers with a write-behind tail (ADR-0026 R1), driven through the real UI
@@ -74,25 +75,14 @@ export async function openDurableUiFixture(
   await ensureAssistantShellVisible(page);
   await waitForAppHost(page);
   const userDataDir = electron.getUserDataDir();
-  // The click's thread is the panel it activates. The launch opens a thread of its own first, and
-  // under load its panel and its host row can both appear after the click, so wait for that
-  // launch thread before clicking: the click's thread is then the next active one.
-  let previousThreadId: string | null = null;
-  await expect
-    .poll(async () => {
-      previousThreadId = await readActiveThreadId(page);
-      return previousThreadId;
-    })
-    .not.toBeNull();
-  await page.getByTestId('assistant-new-thread-button').click();
+  // The first send creates the thread; nothing exists before it.
+  await startThread(page, 'Start a durable thread.');
   let threadId: string | null = null;
-  // The thread this click made is the active one once the host has stored its workspace.
+  // The sent thread is the active one once the host has stored its workspace.
   await expect
     .poll(async () => {
       threadId = await readActiveThreadId(page);
-      return threadId === null || threadId === previousThreadId
-        ? null
-        : await readHostThreadWorkspace(userDataDir, threadId);
+      return threadId === null ? null : await readHostThreadWorkspace(userDataDir, threadId);
     })
     .not.toBeNull();
   if (!threadId) {
