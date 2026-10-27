@@ -124,6 +124,11 @@ interface ThreadTabStatusProjection {
 export interface AssistantThreadTabsCoreProps extends AssistantThreadTabsWorkspaceProps {
   readonly activeThreads: ThreadTabStatusProjection;
   readonly loadingLabel: string;
+  /** The new-thread composer, shown while no thread is active. */
+  readonly renderNewThread: (
+    resourceId: string,
+    providerReadErrors: AssistantThreadPanelProps['providerReadErrors']
+  ) => ReactNode;
   readonly renderThread: (props: AssistantThreadPanelProps) => ReactNode;
   readonly repository: AssistantThreadCatalogRepository;
   readonly threadsAwaitingApproval: ThreadTabStatusProjection;
@@ -137,6 +142,7 @@ export function AssistantThreadTabsCore({
   loadingLabel,
   activeThreads,
   threadsAwaitingApproval,
+  renderNewThread,
   renderThread,
 }: AssistantThreadTabsCoreProps): ReactElement {
   const host = useAssistantThreadHost();
@@ -154,7 +160,7 @@ export function AssistantThreadTabsCore({
   const unseenBaselineAt = useAssistantThreadStore((state) => state.unseenBaselineAt);
   const ensureResourceThreads = useAssistantThreadStore((state) => state.ensureResourceThreads);
   const refreshResourceThreads = useAssistantThreadStore((state) => state.refreshResourceThreads);
-  const createThread = useAssistantThreadStore((state) => state.createThread);
+  const startNewThread = useAssistantThreadStore((state) => state.startNewThread);
   const openThreadTab = useAssistantThreadStore((state) => state.openThreadTab);
   const reorderThreadTabs = useAssistantThreadStore((state) => state.reorderThreadTabs);
 
@@ -169,15 +175,18 @@ export function AssistantThreadTabsCore({
   const unavailableSavedThread = useAssistantThreadStore(
     (state) => state.unavailableSavedThreadByResourceId[resourceId]
   );
-  const retryCatalog =
-    loadState.status === 'error' && !Object.hasOwn(threadsByResourceId, resourceId);
+  const catalogLoaded = Object.hasOwn(threadsByResourceId, resourceId);
+  const retryCatalog = loadState.status === 'error' && !catalogLoaded;
   const newThreadAction = getNewThreadAction(retryCatalog);
   const newThreadDisabled = loadState.status === 'loading';
+  // No active thread is the new-thread screen: its composer creates the thread
+  // on the first send. Open tabs stay mounted, hidden, behind it.
+  const showWelcome = catalogLoaded && activeThreadId === null;
   // The thread whose transcript this component renders: the active tab, unless
-  // a load-error card below replaces the panels. (The loading card
-  // replaces them only with NO open tab, when there is no active thread either;
-  // a list still loading with tabs open renders its transcripts. The store keeps
-  // the active thread among the open tabs, so its panel is the one not `hidden`.)
+  // a load-error card below replaces the panels. (The loading card replaces them
+  // only before the catalog first loads with NO open tab; a list still loading
+  // with tabs open renders its transcripts. The store keeps the active thread
+  // among the open tabs, so its panel is the one not `hidden`.)
   const transcriptThreadId = loadState.status === 'error' ? null : activeThreadId;
 
   // Host and web adapters supply their owner's status projections. This surface
@@ -253,17 +262,14 @@ export function AssistantThreadTabsCore({
     ]
   );
 
+  // New opens the new-thread screen; nothing is created until its first send.
   const createNewThread = useCallback(async (): Promise<void> => {
     if (retryCatalog) {
       await ensureResourceThreads(repository, resourceId);
       return;
     }
-    if (host) {
-      await createThread({ createThread: (id) => host.createThread(id) }, resourceId);
-      return;
-    }
-    await createThread(repository, resourceId);
-  }, [createThread, ensureResourceThreads, host, repository, resourceId, retryCatalog]);
+    startNewThread(resourceId);
+  }, [ensureResourceThreads, repository, resourceId, retryCatalog, startNewThread]);
 
   const handleNewThreadClick = useCallback((): void => {
     createNewThread().catch(() => {
@@ -365,7 +371,7 @@ export function AssistantThreadTabsCore({
     });
   }, [ensureResourceThreads, repository, resourceId]);
 
-  if (loadState.status === 'loading' && openThreadIds.length === 0) {
+  if (loadState.status === 'loading' && !catalogLoaded && openThreadIds.length === 0) {
     return <AssistantPanelLoadingState label={loadingLabel} />;
   }
 
@@ -428,25 +434,28 @@ export function AssistantThreadTabsCore({
         </div>
       ) : null}
       <div className="min-h-0 flex-1">
-        {loadState.status === 'error' ? (
+        {loadState.status === 'error' && !showWelcome ? (
           <ThreadWorkspaceState
             description={loadState.error}
             title="Assistant threads failed to load"
             variant="error"
           />
         ) : (
-          <ThreadPanels
-            activeThreadId={activeThreadId}
-            fixedProviderModels={fixedProviderModels}
-            mountedThreadIds={mountedThreadIds}
-            onRunningChange={onRunningChange}
-            openThreadIds={openThreadIds}
-            providerKeySources={providerKeySources}
-            providerReadErrors={providerReadErrors}
-            renderThread={renderThread}
-            resourceId={resourceId}
-            threadById={threadById}
-          />
+          <>
+            {showWelcome ? renderNewThread(resourceId, providerReadErrors) : null}
+            <ThreadPanels
+              activeThreadId={activeThreadId}
+              fixedProviderModels={fixedProviderModels}
+              mountedThreadIds={mountedThreadIds}
+              onRunningChange={onRunningChange}
+              openThreadIds={openThreadIds}
+              providerKeySources={providerKeySources}
+              providerReadErrors={providerReadErrors}
+              renderThread={renderThread}
+              resourceId={resourceId}
+              threadById={threadById}
+            />
+          </>
         )}
       </div>
     </div>
@@ -488,12 +497,6 @@ function ThreadPanels({
   const openIds = new Set(openThreadIds);
   return (
     <>
-      {openThreadIds.length === 0 ? (
-        <ThreadWorkspaceState
-          description="Create or select a thread to mount an assistant session."
-          title="No open assistant thread"
-        />
-      ) : null}
       {mountedThreadIds.map((threadId) => {
         const isOpen = openIds.has(threadId);
         return (

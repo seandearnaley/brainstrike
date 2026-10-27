@@ -1,90 +1,77 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { ParseError, render as renderTex } from 'katex';
+import { type MathMarkup, type Mounted, mountAsync } from 'pele/lazy';
+import { useEffect, useRef, useState } from 'react';
 
-/** Lazy mermaid loader hoisted to module scope: keeps the dynamic-import bundle
- * boundary (~1MB, first diagram only) while removing the in-component
- * `import(...)` expression the React Compiler cannot lower. */
-const loadMermaid = () => import('mermaid');
+/** Typesets `$$…$$` diagram labels with the KaTeX the Markdown math uses
+ * (default `trust: false`). Pele sizes each label from the returned box, so the
+ * MathML is measured in a hidden probe at the label's font size, and only the
+ * `<math>` element is returned (Pele's KaTeX guidance). Malformed TeX returns
+ * null, which leaves the TeX source visible in the label. */
+function typesetMath(tex: string, size: number): MathMarkup | null {
+  const probe = document.createElement('div');
+  probe.style.cssText = `position:absolute;left:-9999px;visibility:hidden;display:inline-block;white-space:nowrap;font-size:${size}px`;
+  document.body.append(probe);
+  try {
+    renderTex(tex, probe, { displayMode: true, output: 'mathml' });
+    const expression = probe.querySelector('math');
+    if (!expression) {
+      return null;
+    }
+    const { height, width } = expression.getBoundingClientRect();
+    return { height, html: expression.outerHTML, width };
+  } catch (error) {
+    if (error instanceof ParseError) {
+      return null;
+    }
+    throw error;
+  } finally {
+    probe.remove();
+  }
+}
 
-type MermaidState =
-  | { readonly kind: 'loading' }
-  | { readonly kind: 'ready'; readonly svg: string }
-  | { readonly kind: 'error'; readonly message: string };
-
-/** Lazy mermaid renderer for ```mermaid fences. The mermaid module (~1MB) loads
- * on first diagram only. A parse/render failure shows the error AND the source
- * (Obsidian-style) — a broken diagram must say why. */
+/** Renders a ```mermaid fence with Pele. Pele owns the host's DOM: it lays the
+ * diagram out for the container width, redraws on resize and web-font loads,
+ * and shows a parse error (message plus the marked source line) in place of
+ * the diagram — a broken diagram must say why. Colors come from the `.pele`
+ * rules in globals.css, so theme switches restyle without a re-render. Each
+ * diagram type loads on first use. */
 export function MermaidBlock({ code }: { readonly code: string }) {
-  const [state, setState] = useState<MermaidState>({ kind: 'loading' });
   const hostRef = useRef<HTMLDivElement | null>(null);
-  // Stable per-instance id for mermaid.render's target element. useId wraps
-  // its ids in characters that are invalid in the CSS selector mermaid/d3
-  // builds from this id (':' on React 18, '«»' on React 19), so keep only
-  // selector-safe characters. The component is remounted per `code` (keyed in
-  // markdown-surface), so each diagram gets a distinct id without a
-  // module-level counter.
-  const renderId = `brainstrike-mermaid-${useId().replace(/[^a-zA-Z0-9-]/g, '')}`;
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // biome-ignore lint/plugin/react-effects: async mermaid.render result (loading -> ready/error) cannot be computed during render. This component is remounted per `code` (keyed in markdown-surface), so the initial `loading` state covers every new diagram — no in-effect reset needed.
+  // Remounted per `code` (keyed in markdown-surface), so each mount draws one source.
   useEffect(() => {
+    const host = hostRef.current;
+    if (!host) {
+      return;
+    }
     let active = true;
-    const id = renderId;
-    loadMermaid()
-      .then(async ({ default: mermaid }) => {
-        const dark = document.documentElement.classList.contains('dark');
-        mermaid.initialize({
-          layout: 'dagre',
-          look: 'classic',
-          securityLevel: 'strict',
-          startOnLoad: false,
-          theme: dark ? 'dark' : 'default',
-        });
-        const { svg } = await mermaid.render(id, code);
-        if (active) {
-          setState({ kind: 'ready', svg });
+    let diagram: Mounted | undefined;
+    mountAsync(host, code, { math: typesetMath })
+      .then((mounted) => {
+        diagram = mounted;
+        if (!active) {
+          mounted.destroy();
         }
       })
       .catch((error: unknown) => {
-        // mermaid.render can leave a residual error element in <body> — remove it.
-        document.getElementById(id)?.remove();
+        // Only loading the diagram type's chunk rejects; draw errors show in the host.
         if (active) {
-          setState({
-            kind: 'error',
-            message: error instanceof Error ? error.message : String(error),
-          });
+          setLoadError(error instanceof Error ? error.message : String(error));
         }
       });
     return () => {
       active = false;
+      diagram?.destroy();
     };
-  }, [code, renderId]);
+  }, [code]);
 
-  if (state.kind === 'error') {
+  if (loadError !== null) {
     return (
-      <div
-        className="not-prose rounded-md border border-destructive/40 p-3 text-sm"
-        data-testid="mermaid-error"
-      >
-        <p className="mb-2 font-medium text-destructive">Mermaid diagram failed: {state.message}</p>
-        <pre className="overflow-x-auto rounded bg-muted p-2 text-muted-foreground text-xs">
-          {code}
-        </pre>
-      </div>
+      <p className="not-prose text-destructive text-sm" data-testid="mermaid-error">
+        Diagram renderer failed to load: {loadError}
+      </p>
     );
   }
-  if (state.kind === 'loading') {
-    return (
-      <div className="not-prose rounded-md bg-muted/50 p-3 text-muted-foreground text-sm">
-        Rendering diagram…
-      </div>
-    );
-  }
-  return (
-    <div
-      className="not-prose overflow-x-auto"
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: mermaid output rendered under securityLevel 'strict' (sanitized by mermaid)
-      dangerouslySetInnerHTML={{ __html: state.svg }}
-      data-testid="mermaid-diagram"
-      ref={hostRef}
-    />
-  );
+  return <div className="not-prose" data-testid="mermaid-diagram" ref={hostRef} />;
 }

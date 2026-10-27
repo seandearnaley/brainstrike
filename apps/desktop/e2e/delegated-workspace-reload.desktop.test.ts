@@ -241,11 +241,10 @@ test('restores distinct child tabs and native transcripts without executing a ru
   // A second root, through a real send.
   // The new-thread control sits in the thread strip, beside the conversation.
   await window.getByTestId('assistant-new-thread-button').click();
-  // Each thread keeps its panel mounted: the new root is its own tab panel,
-  // renamed from New Thread to its generated title as its first run completes.
-  const otherPanel = window
-    .getByRole('tabpanel', { name: /^(?:New Thread|Other root navigation)$/u })
-    .getByRole('region', { exact: true, name: 'Assistant' });
+  // The new-thread screen is the Assistant until its first send creates the
+  // root, whose own tab panel then holds the conversation.
+  await expect(window.getByTestId('new-thread-welcome')).toBeVisible();
+  const otherPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
   await otherPanel.getByRole('textbox', { name: 'Message input' }).fill(OTHER_PROMPT);
   await otherPanel.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(otherPanel.getByText('Other root ready.', { exact: true })).toBeVisible({

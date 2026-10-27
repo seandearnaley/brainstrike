@@ -35,6 +35,7 @@ function host(
     listThreads: refused,
     ownsThread: refused,
     renameThread: refused,
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: vi.fn((threadId: string) => <p>{`child view ${threadId}`}</p>),
     resolveChildThread,
     updateThreadBinding: refused,

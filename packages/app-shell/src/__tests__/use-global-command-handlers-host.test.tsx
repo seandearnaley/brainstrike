@@ -33,13 +33,14 @@ describe('useGlobalCommandHandlers new thread', () => {
     useAssistantThreadStore.setState({ threadsByResourceId: {} });
   });
 
-  it('creates the thread through the host owner when the app has one', async () => {
+  it('opens the new-thread screen without creating a thread when the app has a host', async () => {
     const host: AssistantThreadHostCapability = {
       createThread: vi.fn(async () => thread('host-thread')),
       deleteThread: vi.fn(),
       listThreads: vi.fn(async () => []),
       ownsThread: vi.fn(),
       renameThread: vi.fn(),
+      renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
       renderThread: vi.fn(),
       updateThreadBinding: vi.fn(),
       workspaceRepository: () => {
@@ -48,15 +49,23 @@ describe('useGlobalCommandHandlers new thread', () => {
     };
     const wrapper = ({ children }: { readonly children: ReactNode }) =>
       createElement(AssistantThreadHostContext.Provider, { value: host }, children);
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'open-thread' },
+      openThreadIdsByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: ['open-thread'] },
+    });
     const { result } = renderHook(() => useGlobalCommandHandlers(), { wrapper });
 
     await act(async () => {
       await result.current.newThread?.();
     });
 
-    expect(host.createThread).toHaveBeenCalledExactlyOnceWith(WORKSPACE_MEMORY_RESOURCE_ID);
+    expect(host.createThread).not.toHaveBeenCalled();
+    // Open tabs stay open behind the new-thread screen.
+    expect(
+      useAssistantThreadStore.getState().openThreadIdsByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
+    ).toEqual(['open-thread']);
     expect(
       useAssistantThreadStore.getState().activeThreadIdByResourceId[WORKSPACE_MEMORY_RESOURCE_ID]
-    ).toBe('host-thread');
+    ).toBeUndefined();
   });
 });

@@ -27,6 +27,7 @@ function host(
     listThreads: refused,
     ownsThread: refused,
     renameThread: refused,
+    renderNewThread: (resourceId) => <div data-testid="new-thread-composer">{resourceId}</div>,
     renderThread: () => undefined,
     resolveChildThread,
     updateThreadBinding: refused,

@@ -4,8 +4,10 @@ import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { reloadRenderer } from './utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { seedHostThreads } from './utils/seed-threads';
 
 const API_KEY = 'test-key-host-memory-meter';
+const THREAD_TITLE = 'Memory meter';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
 // The renderer's persisted memory settings (app-state assistant-memory-preferences-store).
@@ -37,12 +39,30 @@ async function enableModel(page: Page): Promise<void> {
  * the next send, and a memory precondition that send would fail gates it.
  */
 test('a host thread meter shows its waiting observer, and a memory precondition gates Send', async ({
+  electron,
   modelProvider,
   window: page,
 }) => {
   test.setTimeout(300_000);
   await enableModel(page);
+  // The meter reads a host thread's memory state, and New creates nothing
+  // until a first send, so the thread is created through the host and opened.
+  await seedHostThreads(electron.getUserDataDir(), [{ folder: null, title: THREAD_TITLE }]);
+  await reloadRenderer(page, 'host-thread-memory-meter: seed');
   await ensureAssistantShellVisible(page);
+  const showThreads = page.getByTestId('show-threads-panel');
+  if (await showThreads.isVisible().catch(() => false)) {
+    await showThreads.click();
+  }
+  await page
+    .getByTestId('thread-row')
+    .getByRole('button', { exact: true, name: THREAD_TITLE })
+    .click();
+  await expect(
+    page
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab', { name: THREAD_TITLE, selected: true })
+  ).toBeVisible({ timeout: 30_000 });
   const region = page.getByRole('region', { exact: true, name: 'Assistant' });
   await expect(region.getByRole('textbox', { name: 'Message input' })).toBeEnabled({
     timeout: 30_000,

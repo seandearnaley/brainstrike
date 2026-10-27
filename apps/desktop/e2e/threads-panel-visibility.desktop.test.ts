@@ -1,16 +1,25 @@
 import { expect, test } from './fixtures/electron-fixture';
+import { waitForAppHost } from './utils/agent-host-log';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
+import { seedHostThreads } from './utils/seed-threads';
 
-test('keeps Threads at the top after Settings ribbon round trips', async ({ window: page }) => {
+test('keeps Threads at the top after Settings ribbon round trips', async ({
+  electron,
+  window: page,
+}) => {
   await ensureAssistantShellVisible(page);
   const panel = page.getByTestId('threads-panel');
-  await expect(panel.getByTestId('thread-row')).toHaveCount(1);
-  for (let index = 0; index < 14; index++) {
-    await page.getByRole('button', { exact: true, name: 'New thread' }).click();
-  }
-  // A click returns before the host's async creation has populated the row.
-  // Join the final creation before capturing the settled layout baseline.
-  await expect(panel.getByTestId('thread-row')).toHaveCount(15);
+  // New creates nothing until a first send, so the rows are seeded through the host.
+  await waitForAppHost(page);
+  await seedHostThreads(
+    electron.getUserDataDir(),
+    Array.from({ length: 15 }, (_, index) => ({ folder: null, title: `Thread ${index + 1}` }))
+  );
+  const { reloadRenderer } = await loadElectronHelpers();
+  await reloadRenderer(page, 'threads-panel-visibility-seed');
+  await ensureAssistantShellVisible(page);
+  await expect(panel.getByTestId('thread-row')).toHaveCount(15, { timeout: 30_000 });
   const viewport = panel.getByTestId('tree-table-viewport');
   const geometry = () =>
     viewport.evaluate((element) => {
