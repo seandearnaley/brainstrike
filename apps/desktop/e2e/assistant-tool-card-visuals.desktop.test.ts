@@ -1,5 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
@@ -14,18 +13,21 @@ const PROMPT_TEXT = 'find db files';
 // internal tool the host runs, scripted at the provider. The retrieval tool
 // these cards once showed was deleted with BST-974 (#2105).
 const TOOL = 'brainstrike.readWorkspaceFile';
-const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-tool-card-visuals-'));
-writeFileSync(join(workspace, 'db-files.txt'), 'notes.db\n');
-// A genuine filesystem fault (not a missing file, which is the model's to correct
-// since BST-1996), so the card shows the guard's redacted generic error.
-const unreadable = join(workspace, 'unreadable-db-files.txt');
-writeFileSync(unreadable, 'private\n');
-makeUnreadable(unreadable);
 
-test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace } });
-test.afterAll(() => {
-  rmSync(workspace, { force: true, recursive: true });
-});
+/**
+ * Seeds the files into the test's own workspace, the folder the harness mounts
+ * and removes after the app closes. A module-level folder removed in `afterAll`
+ * was gone when the same worker ran this file's next test: under fullyParallel
+ * the hook runs after every test (queue run 40594815061).
+ */
+function seedWorkspace(workspace: string): void {
+  writeFileSync(join(workspace, 'db-files.txt'), 'notes.db\n');
+  // A genuine filesystem fault (not a missing file, which is the model's to correct
+  // since BST-1996), so the card shows the guard's redacted generic error.
+  const unreadable = join(workspace, 'unreadable-db-files.txt');
+  writeFileSync(unreadable, 'private\n');
+  makeUnreadable(unreadable);
+}
 
 // Mirrored from assistant-retrieval.desktop.test.ts so the spec drives the real
 // desktop assistant in exactly the same way.
@@ -73,7 +75,8 @@ function scriptRead(modelProvider: ModelProviderShim, path: string, answer: stri
 }
 
 test.describe('Assistant tool card visuals (desktop)', () => {
-  test.beforeEach(async ({ window }) => {
+  test.beforeEach(async ({ electron, window }) => {
+    seedWorkspace(electron.getWorkspaceRoot());
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window);
   });
