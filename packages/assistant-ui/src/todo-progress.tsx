@@ -1,5 +1,5 @@
 /**
- * TodoProgress — compact progress bar + checklist for the assistant's task list.
+ * TodoProgress — progress bar + checklist for the assistant's task list.
  *
  * Derived from the latest `brainstrike.manageTaskList` tool result in the
  * message stream (see derive-task-list.ts), so it renders identically live and
@@ -13,9 +13,10 @@ import {
   NATIVE_TOOL_ID,
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
-import { cn } from '@brainstrike/ui';
+import { CheckCircle, Circle, CircleDot, type LucideIcon } from 'lucide-react';
 import { use, useId, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { StepFamilyIcon } from './activity-step-icons';
 import { StepRowHeader } from './activity-step-row';
 import { stepVerbText, toolCallRan, toolStepStateFor } from './activity-trace-model';
 import { verbForTool } from './activity-verbs';
@@ -32,24 +33,29 @@ import { FailureReasonChip } from './tool-fallback-row';
 import { failureReasonSummary, resolveErrorMessage } from './tool-fallback-state';
 import { useToolResultRenderers } from './use-tool-result-renderers';
 
-const STATUS_GLYPH: Record<AssistantTaskStatus, string> = {
-  completed: '✓',
+const STATUS_ICON: Record<AssistantTaskStatus, LucideIcon> = {
+  completed: CheckCircle,
   // biome-ignore lint/style/useNamingConvention: AssistantTaskStatus value (Mastra convention)
-  in_progress: '▸',
-  pending: '○',
+  in_progress: CircleDot,
+  pending: Circle,
 };
 
-const STATUS_GLYPH_CLASS: Record<AssistantTaskStatus, string> = {
-  completed: 'text-success',
+const STATUS_LABEL: Record<AssistantTaskStatus, string> = {
+  completed: 'Done',
   // biome-ignore lint/style/useNamingConvention: AssistantTaskStatus value (Mastra convention)
-  in_progress: 'text-info',
-  pending: 'text-muted-foreground',
+  in_progress: 'In progress',
+  pending: 'To do',
 };
 
 export interface TodoProgressProps {
   result: ManageTaskListResult;
 }
 
+/**
+ * Shares the activity group's surface (border, radius, tint, margins) and its
+ * header and body geometry, so the plan and the group under it read as one
+ * column: the task glyphs line up with the step-row icons below.
+ */
 export function TodoProgress({ result }: TodoProgressProps): React.JSX.Element | null {
   const { summary, tasks } = result;
   if (tasks.length === 0) {
@@ -59,13 +65,11 @@ export function TodoProgress({ result }: TodoProgressProps): React.JSX.Element |
   const percent = summary.total > 0 ? Math.round((summary.completed / summary.total) * 100) : 0;
 
   return (
-    <section
-      aria-label="Task list progress"
-      className="bs-todo-progress mb-2 max-w-xl rounded-md border border-border bg-background/60 p-2 text-sm"
-    >
-      <div className="mb-1.5 flex items-center gap-2">
-        <span className="font-medium text-foreground">Tasks</span>
-        <span className="text-muted-foreground text-xs tabular-nums">
+    <section aria-label="Task list progress" className="bs-todo-progress">
+      <div className="bs-todo-progress-header">
+        <StepFamilyIcon family="tasks" />
+        <span className="bs-todo-progress-title">Tasks</span>
+        <span className="bs-todo-progress-count">
           {summary.completed}/{summary.total}
         </span>
         <div
@@ -73,31 +77,25 @@ export function TodoProgress({ result }: TodoProgressProps): React.JSX.Element |
           aria-valuemax={summary.total}
           aria-valuemin={0}
           aria-valuenow={summary.completed}
-          className="ml-auto h-1.5 w-24 overflow-hidden rounded-full bg-muted"
+          className="bs-todo-progress-bar"
           role="progressbar"
         >
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-[width] duration-300"
-            style={{ width: `${percent}%` }}
-          />
+          <div className="bs-todo-progress-fill" style={{ width: `${percent}%` }} />
         </div>
       </div>
-      <ul className="flex flex-col gap-0.5">
-        {tasks.map((task) => (
-          <li className="flex items-start gap-2 leading-snug" key={task.id}>
-            <span aria-hidden className={cn('mt-px', STATUS_GLYPH_CLASS[task.status])}>
-              {STATUS_GLYPH[task.status]}
-            </span>
-            <span
-              className={cn(
-                task.status === 'completed' && 'text-muted-foreground line-through',
-                task.status === 'in_progress' && 'font-medium text-foreground'
-              )}
-            >
-              {task.status === 'in_progress' ? task.activeForm : task.content}
-            </span>
-          </li>
-        ))}
+      <ul className="bs-todo-progress-list">
+        {tasks.map((task) => {
+          const Icon = STATUS_ICON[task.status];
+          return (
+            <li className="bs-todo-progress-item" data-status={task.status} key={task.id}>
+              <Icon aria-hidden="true" className="bs-todo-progress-glyph" />
+              <span className="sr-only">{STATUS_LABEL[task.status]}: </span>
+              <span className="bs-todo-progress-text">
+                {task.status === 'in_progress' ? task.activeForm : task.content}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

@@ -45,6 +45,12 @@ describe('TodoProgress', () => {
     expect(screen.getByText('Read the spec')).toBeInTheDocument();
     expect(screen.getByText('Implementing the parser')).toBeInTheDocument();
     expect(screen.getByText('Write the tests')).toBeInTheDocument();
+    // Each status is spoken, not only drawn as an icon or a strike-through.
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Done: Read the spec',
+      'In progress: Implementing the parser',
+      'To do: Write the tests',
+    ]);
   });
 
   it('shows progress as completed/total', () => {

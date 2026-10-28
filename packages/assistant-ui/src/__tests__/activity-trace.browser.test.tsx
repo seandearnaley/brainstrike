@@ -469,3 +469,32 @@ test('a control revealed in an opening activity body stays under the press for t
 
   expect(control.getBoundingClientRect().top).toBe(pressedAt);
 });
+
+// A step's target is one unbroken line (a tool id, a search query, a UUID).
+// The disclosure is a grid, and an implicit grid column sizes to its widest
+// child's content, so such a line widened the whole body past the group:
+// nested cards ran out of the group's right edge and were cut off there.
+test('a long unbroken line inside the activity body stays inside the group', () => {
+  render(
+    <div className="assistant-ui-panel" style={{ width: 480 }}>
+      <ActivityTrace
+        fallbackMs={1000}
+        incompleteReason={undefined}
+        isActive={false}
+        restingOverride={null}
+        summary={done}
+        tail={[]}
+      >
+        <div data-testid="nested-card" style={{ border: '1px solid' }}>
+          <span style={{ whiteSpace: 'nowrap' }}>
+            {'brainstrike_readWorkspaceFile, '.repeat(20)}
+          </span>
+        </div>
+      </ActivityTrace>
+    </div>
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Expand activity' }));
+  const group = mustFind(document, '.bs-activity-group').getBoundingClientRect();
+  const card = screen.getByTestId('nested-card').getBoundingClientRect();
+  expect(card.right).toBeLessThanOrEqual(group.right);
+});
