@@ -80,7 +80,7 @@
     "runtime": {
       "name": "node",
       "version": "26.8.2",
-      "onFail": "download"
+      "onFail": "error"
     }
   }
 }
