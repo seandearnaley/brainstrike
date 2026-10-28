@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getLlmModelDefinition, resolveDefaultModel } from '../provider-registry.js';
+import { getLlmModelDefinition } from '../provider-registry.js';
 
 /**
  * Claude Haiku 5.5, sources retrieved 2026-10-16 (models overview, pricing,
@@ -9,7 +9,7 @@ import { getLlmModelDefinition, resolveDefaultModel } from '../provider-registry
 describe('Claude Haiku 5.5 catalog row', () => {
   it('declares Claude Haiku 5.5 from the vendor pages: adaptive thinking, medium default, 1M context', () => {
     const { catalog, ...facts } = getLlmModelDefinition('anthropic', 'claude-haiku-5-5');
-    expect(catalog).toMatchObject({ enabled: false, name: 'Claude Haiku 5.5' });
+    expect(catalog).toMatchObject({ enabled: true, name: 'Claude Haiku 5.5' });
     expect(facts).toEqual({
       anthropicReasoning: {
         defaultEffort: 'medium',
@@ -44,9 +44,5 @@ describe('Claude Haiku 5.5 catalog row', () => {
       type: 'llm',
       vision: 'supported',
     });
-  });
-
-  it('promotes nothing: the Anthropic default stays Claude Sonnet 5', () => {
-    expect(resolveDefaultModel('anthropic')).toBe('claude-sonnet-5');
   });
 });

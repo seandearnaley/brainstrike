@@ -36,11 +36,11 @@
             "Document creation"
           ],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "GPT-6 Astra",
           "parameters": null,
-          "sortOrder": 15,
+          "sortOrder": 1,
           "tagline": "Our most capable model, built for the hardest end-to-end work"
         },
         "contextWindow": 1050000,
@@ -84,7 +84,7 @@
           "icon": null,
           "name": "GPT-6 Sol",
           "parameters": null,
-          "sortOrder": 16,
+          "sortOrder": 2,
           "tagline": "Built to power complex coding and agentic workflows"
         },
         "contextWindow": 1050000,
@@ -125,11 +125,11 @@
         "catalog": {
           "bestFor": ["Complex coding", "Agentic workflows"],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "GPT-6.1 Sol",
           "parameters": null,
-          "sortOrder": 16,
+          "sortOrder": 3,
           "tagline": "Built to power complex coding and agentic workflows"
         },
         "contextWindow": 1050000,
@@ -170,14 +170,15 @@
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Tool use"],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "GPT-6.1 Terra",
           "parameters": null,
-          "sortOrder": 16,
+          "sortOrder": 4,
           "tagline": "Balanced GPT-6.1 tier"
         },
         "contextWindow": 1050000,
+        "default": true,
         "id": "gpt-6.1-terra",
         "label": "GPT-6.1 Terra",
         "maxOutputTokens": 128000,
@@ -216,11 +217,11 @@
         "catalog": {
           "bestFor": ["Focused tasks", "High-volume tasks"],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "GPT-6 Luna",
           "parameters": null,
-          "sortOrder": 17,
+          "sortOrder": 5,
           "tagline": "Our most efficient model for focused, high-volume tasks"
         },
         "contextWindow": 1050000,
@@ -265,7 +266,7 @@
           "icon": null,
           "name": "GPT-5.6 Sol",
           "parameters": null,
-          "sortOrder": 1,
+          "sortOrder": 6,
           "tagline": "Highest-capability GPT-5.6 tier"
         },
         "contextWindow": 1050000,
@@ -310,11 +311,10 @@
           "icon": null,
           "name": "GPT-5.6 Terra",
           "parameters": null,
-          "sortOrder": 2,
+          "sortOrder": 7,
           "tagline": "Balanced GPT-5.6 tier"
         },
         "contextWindow": 1050000,
-        "default": true,
         "id": "gpt-5.6-terra",
         "label": "GPT-5.6 Terra",
         "maxOutputTokens": 128000,
@@ -357,7 +357,7 @@
           "icon": null,
           "name": "GPT-5.6 Luna",
           "parameters": null,
-          "sortOrder": 3,
+          "sortOrder": 8,
           "tagline": "Efficient GPT-5.6 tier"
         },
         "contextWindow": 1050000,
@@ -402,7 +402,7 @@
           "icon": null,
           "name": "GPT-5.5",
           "parameters": null,
-          "sortOrder": 4,
+          "sortOrder": 9,
           "tagline": "Newest flagship for complex work"
         },
         "contextWindow": 1050000,
@@ -445,7 +445,7 @@
           "icon": null,
           "name": "GPT-5.5 Pro",
           "parameters": null,
-          "sortOrder": 5,
+          "sortOrder": 10,
           "tagline": "Highest capability tier"
         },
         "contextWindow": 1050000,
@@ -480,7 +480,7 @@
           "icon": null,
           "name": "GPT-5.4",
           "parameters": null,
-          "sortOrder": 6,
+          "sortOrder": 11,
           "tagline": "Balanced cost-aware flagship"
         },
         "contextWindow": 1050000,
@@ -523,7 +523,7 @@
           "icon": null,
           "name": "GPT-5.4 Pro",
           "parameters": null,
-          "sortOrder": 7,
+          "sortOrder": 12,
           "tagline": "Higher capability tier"
         },
         "contextWindow": 1050000,
@@ -558,7 +558,7 @@
           "icon": null,
           "name": "GPT-5.4 Mini",
           "parameters": null,
-          "sortOrder": 8,
+          "sortOrder": 13,
           "tagline": "Lower latency, lower cost"
         },
         "contextWindow": 400000,
@@ -593,7 +593,7 @@
           "icon": null,
           "name": "GPT-5.4 Nano",
           "parameters": null,
-          "sortOrder": 9,
+          "sortOrder": 14,
           "tagline": "Smallest, fastest tier"
         },
         "contextWindow": 400000,
@@ -629,7 +629,7 @@
           "icon": null,
           "name": "GPT-5.3 Codex",
           "parameters": null,
-          "sortOrder": 10,
+          "sortOrder": 15,
           "tagline": "Agentic coding model"
         },
         "contextWindow": 400000,
@@ -662,7 +662,7 @@
           "icon": null,
           "name": "GPT-5.2",
           "parameters": null,
-          "sortOrder": 11,
+          "sortOrder": 16,
           "tagline": "Previous-generation flagship"
         },
         "contextWindow": 400000,
@@ -696,7 +696,7 @@
           "icon": null,
           "name": "GPT-5.2 Pro",
           "parameters": null,
-          "sortOrder": 12,
+          "sortOrder": 17,
           "tagline": "Previous higher tier"
         },
         "contextWindow": 400000,
@@ -729,7 +729,7 @@
           "icon": null,
           "name": "Text Embedding 3 Small",
           "parameters": null,
-          "sortOrder": 13,
+          "sortOrder": 18,
           "tagline": "Efficient embeddings"
         },
         "default": true,
@@ -752,7 +752,7 @@
           "icon": null,
           "name": "Text Embedding 3 Large",
           "parameters": null,
-          "sortOrder": 14,
+          "sortOrder": 19,
           "tagline": "High-precision embeddings"
         },
         "defaultDimension": 3072,
@@ -803,11 +803,11 @@
             "Document, spreadsheet, and slide work"
           ],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "Claude Fable 5.1",
           "parameters": null,
-          "sortOrder": 7,
+          "sortOrder": 1,
           "tagline": "For demanding reasoning and long-horizon agentic work"
         },
         "contextWindow": 1000000,
@@ -841,7 +841,7 @@
           "icon": null,
           "name": "Claude Fable 5",
           "parameters": null,
-          "sortOrder": 1,
+          "sortOrder": 2,
           "tagline": "Highest-capability Claude 5 tier"
         },
         "contextWindow": 1000000,
@@ -870,11 +870,11 @@
         "catalog": {
           "bestFor": ["Long-running agentic coding", "Knowledge work"],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "Claude Opus 5.5",
           "parameters": null,
-          "sortOrder": 8,
+          "sortOrder": 3,
           "tagline": "For long-running agentic coding and knowledge work"
         },
         "contextWindow": 1000000,
@@ -908,7 +908,7 @@
           "icon": null,
           "name": "Claude Opus 5",
           "parameters": null,
-          "sortOrder": 2,
+          "sortOrder": 4,
           "tagline": "For complex agentic coding and enterprise work"
         },
         "contextWindow": 1000000,
@@ -942,7 +942,7 @@
           "icon": null,
           "name": "Claude Opus 4.8",
           "parameters": null,
-          "sortOrder": 3,
+          "sortOrder": 5,
           "tagline": "Most capable Claude model"
         },
         "contextWindow": 200000,
@@ -972,14 +972,15 @@
         "catalog": {
           "bestFor": ["Analysis", "Coding", "Writing"],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "Claude Sonnet 5.5",
           "parameters": null,
-          "sortOrder": 4,
+          "sortOrder": 6,
           "tagline": "Current Claude Sonnet"
         },
         "contextWindow": 1000000,
+        "default": true,
         "id": "claude-sonnet-5-5",
         "label": "Claude Sonnet 5.5",
         "maxOutputTokens": 128000,
@@ -1010,11 +1011,10 @@
           "icon": null,
           "name": "Claude Sonnet 5",
           "parameters": null,
-          "sortOrder": 4,
+          "sortOrder": 7,
           "tagline": "Balanced Claude 5 model"
         },
         "contextWindow": 1000000,
-        "default": true,
         "id": "claude-sonnet-5",
         "label": "Claude Sonnet 5",
         "maxOutputTokens": 128000,
@@ -1045,7 +1045,7 @@
           "icon": null,
           "name": "Claude Sonnet 4.6",
           "parameters": null,
-          "sortOrder": 5,
+          "sortOrder": 8,
           "tagline": "Best balance of speed and intelligence"
         },
         "contextWindow": 200000,
@@ -1074,7 +1074,7 @@
         "catalog": {
           "bestFor": ["Classification", "Extraction", "Routing"],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "Claude Haiku 5.5",
           "parameters": null,
@@ -1116,7 +1116,7 @@
           "icon": null,
           "name": "Claude Haiku 4.5",
           "parameters": null,
-          "sortOrder": 6,
+          "sortOrder": 10,
           "tagline": "Fastest Claude model"
         },
         "contextWindow": 200000,
@@ -1161,45 +1161,15 @@
     "keyNotes": "Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.",
     "models": [
       {
-        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
-        "catalog": {
-          "bestFor": [
-            "Long-horizon software engineering",
-            "Autonomous agents",
-            "Complex enterprise workflows"
-          ],
-          "description": null,
-          "enabled": false,
-          "icon": null,
-          "name": "Gemini 3.8 Flash",
-          "parameters": null,
-          "sortOrder": 10,
-          "tagline": "Long-horizon software engineering and autonomous agents at Flash speed"
-        },
-        "contextWindow": 1048576,
-        "id": "gemini-3.8-flash",
-        "label": "Gemini 3.8 Flash",
-        "maxOutputTokens": 65536,
-        "pricing": {
-          "cacheReadPerMTok": 0.075,
-          "inputPerMTok": 0.75,
-          "outputPerMTok": 3.75
-        },
-        "supportsStreaming": true,
-        "tagline": "Long-horizon software engineering and autonomous agents at Flash speed",
-        "type": "llm",
-        "vision": "supported"
-      },
-      {
         "_note": "Added 2026-10-28: GA 2026-10-13 (https://ai.google.dev/gemini-api/docs/changelog). Model page https://ai.google.dev/gemini-api/docs/models/gemini-4-argon: 1,048,576 unified window, 65,536 default output, text/image/video/audio/PDF input, function calling, thinking low/medium/high, implicit caching only. Pricing is INTRODUCTORY: $2 input / $10 output / $0.10 cached through 2026-11-30, then $4 / $20 / $0.20 (https://ai.google.dev/gemini-api/docs/pricing).",
         "catalog": {
           "bestFor": ["Complex tasks", "Analysis", "Agentic coding"],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "Gemini 4 Argon",
           "parameters": null,
-          "sortOrder": 10,
+          "sortOrder": 1,
           "tagline": "Google's most capable Gemini model"
         },
         "contextWindow": 1048576,
@@ -1217,24 +1187,25 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google GA route and introductory pricing through 2026-12-31,\nrevalidated 2026-08-20:\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash\nhttps://ai.google.dev/gemini-api/docs/models\nhttps://ai.google.dev/gemini-api/docs/latest-model\nhttps://ai.google.dev/gemini-api/docs/changelog\nhttps://ai.google.dev/gemini-api/docs/pricing (BST-1339).\nPRICING REFRESH 2026-10-28: DEPRECATED 2026-10-08: requests route to gemini-3.8-flash and bill at its rates, including cached input $0.075 (https://ai.google.dev/gemini-api/docs/changelog).",
+        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": [
-            "Code generation",
-            "Spatial/multimodal reasoning",
-            "Multi-step agentic workflows"
+            "Long-horizon software engineering",
+            "Autonomous agents",
+            "Complex enterprise workflows"
           ],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
-          "name": "Gemini 3.7 Flash",
+          "name": "Gemini 3.8 Flash",
           "parameters": null,
-          "sortOrder": 1,
-          "tagline": "Fast multimodal reasoning for complex agentic workflows"
+          "sortOrder": 2,
+          "tagline": "Long-horizon software engineering and autonomous agents at Flash speed"
         },
         "contextWindow": 1048576,
-        "id": "gemini-3.7-flash",
-        "label": "Gemini 3.7 Flash",
+        "default": true,
+        "id": "gemini-3.8-flash",
+        "label": "Gemini 3.8 Flash",
         "maxOutputTokens": 65536,
         "pricing": {
           "cacheReadPerMTok": 0.075,
@@ -1242,7 +1213,7 @@
           "outputPerMTok": 3.75
         },
         "supportsStreaming": true,
-        "tagline": "Fast multimodal reasoning for complex agentic workflows",
+        "tagline": "Long-horizon software engineering and autonomous agents at Flash speed",
         "type": "llm",
         "vision": "supported"
       },
@@ -1259,7 +1230,7 @@
           "icon": null,
           "name": "Gemini 3.6 Flash",
           "parameters": null,
-          "sortOrder": 11,
+          "sortOrder": 3,
           "tagline": "Frontier intelligence for code generation and agentic execution"
         },
         "contextWindow": 1048576,
@@ -1277,33 +1248,6 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google route. Standard paid tier is a flat $1.50 input / $9.00\noutput per 1M tokens (no prompt-size tier); limits 1,048,576/65,536.\nRetrieved 2026-09-23 (BST-1804):\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash\nPRICING REFRESH 2026-10-28: DEPRECATED 2026-10-08 and auto-routed to 3.6 Flash; Google's pricing page no longer lists it. Cached input $0.15 is OpenRouter's google-ai-studio route for the same model (https://openrouter.ai/api/v1/models/google/gemini-3.5-flash/endpoints), the standard 0.1x of input.",
-        "catalog": {
-          "bestFor": ["Realtime apps", "High volume"],
-          "description": null,
-          "enabled": true,
-          "icon": null,
-          "name": "Gemini 3.5 Flash",
-          "parameters": null,
-          "sortOrder": 2,
-          "tagline": "Stable low-latency flagship flash"
-        },
-        "contextWindow": 1048576,
-        "default": true,
-        "id": "gemini-3.5-flash",
-        "label": "Gemini 3.5 Flash",
-        "maxOutputTokens": 65536,
-        "pricing": {
-          "cacheReadPerMTok": 0.15,
-          "inputPerMTok": 1.5,
-          "outputPerMTok": 9
-        },
-        "supportsStreaming": true,
-        "tagline": "Best mix of smarts and speed",
-        "type": "llm",
-        "vision": "supported"
-      },
-      {
         "_note": "Direct Google GA route. Not introductory pricing: Google publishes a\nflat $0.30 input / $2.50 output per 1M tokens. Verified 2026-09-08\n(BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.03. Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": [
@@ -1312,11 +1256,11 @@
             "Low-latency multimodal execution"
           ],
           "description": null,
-          "enabled": false,
+          "enabled": true,
           "icon": null,
           "name": "Gemini 3.5 Flash-Lite",
           "parameters": null,
-          "sortOrder": 12,
+          "sortOrder": 4,
           "tagline": "Low-latency multimodal for high-throughput subagent tasks and document parsing"
         },
         "contextWindow": 1048576,
@@ -1342,7 +1286,7 @@
           "icon": null,
           "name": "Gemini 3.1 Pro (Preview)",
           "parameters": null,
-          "sortOrder": 3,
+          "sortOrder": 5,
           "tagline": "Advanced reasoning preview"
         },
         "contextWindow": 1048576,
@@ -1376,7 +1320,7 @@
           "icon": null,
           "name": "Gemini 3.1 Flash Lite",
           "parameters": null,
-          "sortOrder": 4,
+          "sortOrder": 6,
           "tagline": "Lightweight low-cost flash"
         },
         "contextWindow": 1048576,
@@ -1402,7 +1346,7 @@
           "icon": null,
           "name": "Gemini 2.5 Pro",
           "parameters": null,
-          "sortOrder": 5,
+          "sortOrder": 7,
           "tagline": "Stable advanced reasoning"
         },
         "contextWindow": 1048576,
@@ -1435,7 +1379,7 @@
           "icon": null,
           "name": "Gemini 2.5 Flash",
           "parameters": null,
-          "sortOrder": 6,
+          "sortOrder": 8,
           "tagline": "Stable fast model"
         },
         "contextWindow": 1048576,
@@ -1460,7 +1404,7 @@
           "icon": null,
           "name": "Gemini 2.5 Flash Lite",
           "parameters": null,
-          "sortOrder": 7,
+          "sortOrder": 9,
           "tagline": "Stable lightweight flash"
         },
         "contextWindow": 1048576,
@@ -1486,7 +1430,7 @@
           "icon": null,
           "name": "Gemini Embedding 001",
           "parameters": null,
-          "sortOrder": 8,
+          "sortOrder": 10,
           "tagline": "Configurable embeddings"
         },
         "default": true,
@@ -1509,7 +1453,7 @@
           "icon": null,
           "name": "Gemini Embedding 2",
           "parameters": null,
-          "sortOrder": 9,
+          "sortOrder": 11,
           "tagline": "Auto-normalizing configurable embeddings"
         },
         "defaultDimension": 3072,

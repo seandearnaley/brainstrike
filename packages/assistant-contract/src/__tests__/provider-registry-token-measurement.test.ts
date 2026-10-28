@@ -18,7 +18,7 @@ describe('provider token measurement capabilities', () => {
 
   it.each([
     ['anthropic', 'claude-sonnet-5'],
-    ['google', 'gemini-3.5-flash'],
+    ['google', 'gemini-3.8-flash'],
     ['openrouter', 'openai/gpt-5.6-terra'],
     ['openai', 'prefix-gpt-4o-suffix'],
     ['openai', 'gpt-4o-compatible'],

@@ -16,7 +16,7 @@ describe('provider-factory', () => {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gpt-5.6-terra');
+      expect(model.modelId).toBe('gpt-6.1-terra');
     });
 
     it('creates OpenAI provider with custom model', () => {
@@ -34,7 +34,7 @@ describe('provider-factory', () => {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-sonnet-5');
+      expect(model.modelId).toBe('claude-sonnet-5-5');
     });
 
     it('creates Anthropic provider with custom model', () => {
@@ -54,19 +54,19 @@ describe('provider-factory', () => {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gemini-3.5-flash');
+      expect(model.modelId).toBe('gemini-3.8-flash');
     });
 
     it('creates Google provider with custom model', () => {
       const model = createProvider(
         'google',
         { apiKey: 'test-key', kind: 'api_key' },
-        'gemini-3.5-flash'
+        'gemini-3.6-flash'
       ) as {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gemini-3.5-flash');
+      expect(model.modelId).toBe('gemini-3.6-flash');
     });
 
     it('creates OpenRouter provider with default model', () => {
@@ -169,15 +169,15 @@ describe('provider-factory', () => {
 
   describe('getDefaultModel', () => {
     it('returns correct default for OpenAI', () => {
-      expect(getDefaultModel('openai')).toBe('gpt-5.6-terra');
+      expect(getDefaultModel('openai')).toBe('gpt-6.1-terra');
     });
 
     it('returns correct default for Anthropic', () => {
-      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-5');
+      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-5-5');
     });
 
     it('returns correct default for Google', () => {
-      expect(getDefaultModel('google')).toBe('gemini-3.5-flash');
+      expect(getDefaultModel('google')).toBe('gemini-3.8-flash');
     });
 
     it('returns correct default for OpenRouter', () => {

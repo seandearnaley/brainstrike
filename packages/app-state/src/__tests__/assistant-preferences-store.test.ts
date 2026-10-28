@@ -656,7 +656,7 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['openrouter']).not.toContain('google/gemini-2.5-pro');
     expect(store.modelsByProvider['openai']).toBe('gpt-5.4');
     expect(store.modelsByProvider['anthropic']).toBe('claude-sonnet-4-6');
-    expect(store.modelsByProvider['google']).toBe('gemini-3.5-flash');
+    expect(store.modelsByProvider['google']).toBe('gemini-3.8-flash');
     expect(store.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.6');
     expect(store.selectedModel).toBe('anthropic::claude-sonnet-4-6');
 
@@ -667,7 +667,7 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['anthropic']).not.toContain('claude-opus-4-5');
     // ...but gemini-2.5-flash is now a first-class model and must NOT be rewritten.
     expect(store.enabledModelsByProvider['google']).toContain('gemini-2.5-flash');
-    expect(store.enabledModelsByProvider['google']).toContain('gemini-3.5-flash');
+    expect(store.enabledModelsByProvider['google']).toContain('gemini-3.8-flash');
     expect(store.enabledModelsByProvider['google']).not.toContain('gemini-3-flash-preview');
   });
 
@@ -790,9 +790,9 @@ describe('assistant-preferences-store', () => {
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
-    expect(store.modelsByProvider.google).toBe('gemini-3.5-flash');
-    expect(store.selectedModel).toBe('google::gemini-3.5-flash');
-    expect(store.enabledModelsByProvider.google).toContain('gemini-3.5-flash');
+    expect(store.modelsByProvider.google).toBe('gemini-3.8-flash');
+    expect(store.selectedModel).toBe('google::gemini-3.8-flash');
+    expect(store.enabledModelsByProvider.google).toContain('gemini-3.8-flash');
     expect(store.enabledModelsByProvider.google).not.toContain('gemini-3-flash-preview');
   });
 

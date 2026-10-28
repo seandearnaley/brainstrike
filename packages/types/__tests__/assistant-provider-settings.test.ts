@@ -18,7 +18,7 @@ describe('Gemini thinking-level helpers', () => {
   });
 
   it('does not treat Flash or 2.5 Pro as Gemini 3 Pro', () => {
-    expect(isGemini3ProModel('gemini-3.5-flash')).toBe(false);
+    expect(isGemini3ProModel('gemini-3.8-flash')).toBe(false);
     expect(isGemini3ProModel('gemini-3.1-flash-lite')).toBe(false);
     expect(isGemini3ProModel('gemini-2.5-pro')).toBe(false);
     expect(isGemini3ProModel(undefined)).toBe(false);
@@ -29,11 +29,11 @@ describe('Gemini thinking-level helpers', () => {
     expect(isGemini3ProModel('gemini-3-pro')).toBe(true);
   });
 
-  it('uses exact thinking levels for Gemini 3 Pro, 3.7 Flash, and earlier Flash models', () => {
+  it('uses exact thinking levels for Gemini 3 Pro, 3.8 Flash, and earlier Flash models', () => {
     expect(getGoogleThinkingLevels('gemini-3.1-pro-preview')).toEqual(GOOGLE_PRO_THINKING_LEVELS);
-    expect(getGoogleThinkingLevels('gemini-3.7-flash')).toEqual(['low', 'medium', 'high']);
+    expect(getGoogleThinkingLevels('gemini-3.8-flash')).toEqual(['low', 'medium', 'high']);
     expect(getGoogleThinkingLevels('gemini-4-argon')).toEqual(['low', 'medium', 'high']);
-    expect(getGoogleThinkingLevels('gemini-3.5-flash')).toEqual(GOOGLE_FLASH_THINKING_LEVELS);
+    expect(getGoogleThinkingLevels('gemini-3.6-flash')).toEqual(GOOGLE_FLASH_THINKING_LEVELS);
   });
 });
 
