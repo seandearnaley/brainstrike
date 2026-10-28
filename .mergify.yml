@@ -1,5 +1,6 @@
 # Mergify's merge queue lands every pull request on main (BST-2188, owner
-# decision 2026-10-19). Enqueue a PR by commenting `@mergifyio queue` on it.
+# decision 2026-10-19). Every ready pull request is queued on its own; a draft
+# stays out until it is marked ready.
 #
 # Mergify builds each batch on main, pushes it to a branch under
 # queue_branch_prefix and opens a draft PR for it. That push runs
@@ -25,6 +26,10 @@ queue_rules:
     # Mergify must judge it on the batch only, not at queue entry.
     branch_protection_injection_mode: merge
     batch_size: 5
+    # Most batches hold one PR, so the default 30 s wait for more only delays
+    # them. A PR queued after the wait forms the next batch, which is checked
+    # speculatively beside the one ahead.
+    batch_max_wait_time: 5 seconds
     merge_method: squash
     # merge-queue.yml triggers on pushes under this prefix.
     queue_branch_prefix: mergify/merge-queue/
@@ -36,3 +41,16 @@ queue_rules:
     # 75. Not `auto`: it applies no timeout until the queue has about 20
     # qualifying runs in seven days.
     checks_timeout: 75 min
+
+pull_request_rules:
+  # Queue every ready PR (owner decision 2026-10-28), so neither opening a PR
+  # nor a push after a red batch waits for someone to tick Mergify's box. A PR
+  # from a fork stays out: its code would run in the queue with this
+  # repository's secrets, which only a collaborator's queue command allowed.
+  - name: queue ready pull requests
+    conditions:
+      - base = main
+      - -draft
+      - -from-fork
+    actions:
+      queue:
