@@ -705,7 +705,9 @@ function ThreadRowDisplay({
           aria-label={getThreadRowAccessibleName(status, thread.title)}
           className="min-w-0 flex-1 text-left outline-none"
           onClick={(event) => {
-            event.stopPropagation();
+            // Handled here, not by the row: preventDefault keeps the click
+            // visible to the page, so an open popover closes on it.
+            event.preventDefault();
             onSelectThread(thread.id);
           }}
           type="button"
