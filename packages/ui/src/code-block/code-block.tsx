@@ -15,11 +15,13 @@ export interface CodeBlockProps {
  * whole fence element (file preview, notes). The chat pipeline cannot use this
  * composition — its markdown renderer emits header and highlighter as
  * siblings — so it mounts CodeBlockHeader/CodeBlockBody separately; the halves
- * share the border/rounding contract and read as the same box.
+ * share the border/rounding contract and read as the same box. `not-prose`
+ * keeps Typography's pre colours and fill out of the box inside a markdown
+ * preview: the box owns its chrome.
  */
 export function CodeBlock({ className, code, delay, language }: CodeBlockProps): React.ReactNode {
   return (
-    <div className={cn('bs-code-block my-4', className)}>
+    <div className={cn('bs-code-block not-prose my-4', className)}>
       <CodeBlockHeader code={code} language={language} />
       <CodeBlockBody code={code} delay={delay} language={language} />
     </div>

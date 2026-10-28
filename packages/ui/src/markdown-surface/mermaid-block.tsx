@@ -12,11 +12,12 @@ import {
   FileCodeIcon,
   ImageIcon,
   Maximize2Icon,
-  Minimize2Icon,
+  XIcon,
 } from 'lucide-react';
 import type { RenderResult } from 'pele';
 import { type MathMarkup, type Mounted, type MountOptions, mountAsync } from 'pele/lazy';
 import { type RefObject, use, useEffect, useRef, useState } from 'react';
+import { Button } from '../button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -335,13 +336,7 @@ function DiagramToolbar({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        {fullSize ? (
-          <DialogPrimitive.Close asChild>
-            <TooltipIconButton className="size-7" tooltip="Exit full size">
-              <Minimize2Icon className="size-4" />
-            </TooltipIconButton>
-          </DialogPrimitive.Close>
-        ) : (
+        {fullSize ? null : (
           <DialogPrimitive.Trigger asChild>
             <TooltipIconButton className="size-7" tooltip="Full size">
               <Maximize2Icon className="size-4" />
@@ -412,6 +407,22 @@ function DiagramFullSizeView({
             options={options}
             read={() => drawn.current?.() ?? null}
           />
+          {/* A labelled way back to the thread, set apart from the export actions. */}
+          <DialogPrimitive.Close asChild>
+            <Button
+              aria-keyshortcuts="Escape"
+              aria-label="Close"
+              className="h-7 gap-1.5 px-2 text-xs"
+              size="sm"
+              variant="outline"
+            >
+              <XIcon className="size-3.5" />
+              Close
+              <kbd className="rounded border border-border px-1 font-mono text-[10px] text-muted-foreground">
+                Esc
+              </kbd>
+            </Button>
+          </DialogPrimitive.Close>
         </div>
         <div className="min-h-0 flex-1 p-4">
           <DiagramCanvas

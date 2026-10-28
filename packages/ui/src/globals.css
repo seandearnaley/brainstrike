@@ -99,6 +99,24 @@
   --bs-delegation-7: 238 55% 58%; /* indigo */
   --bs-delegation-8: 18 60% 42%; /* ochre */
 
+  /* Scrollbar thumb: translucent ink, so it takes the surface's tint. */
+  --scrollbar-thumb: hsl(var(--bs-foreground) / 0.2);
+
+  /* Syntax colours for CodeMirror surfaces (code-surface/syntax-highlighting.ts),
+     matched to the Shiki themes chat code blocks use: GitHub Light here,
+     Monokai (Sublime Text's classic scheme) in dark mode. */
+  --syntax-keyword: #d73a49;
+  --syntax-string: #032f62;
+  --syntax-number: #005cc5;
+  --syntax-function: #6f42c1;
+  --syntax-type: #6f42c1;
+  --syntax-class: #6f42c1;
+  --syntax-property: #005cc5;
+  --syntax-tag: #22863a;
+  --syntax-attribute: #6f42c1;
+  --syntax-comment: #6a737d;
+  --syntax-invalid: #b31d28;
+
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);
   --card: var(--bs-card);
@@ -187,7 +205,7 @@
   /* Panel surface gradient — deep warm obsidian wash */
   --bs-panel-surface: linear-gradient(to bottom, #1a1816, #0a0a0a);
   --bs-input: 30 5% 20%; /* #353230 - Input border */
-  --bs-ring: 30 8% 70%; /* Warm neutral focus ring */
+  --bs-ring: 30 6% 52%; /* Warm neutral focus ring: clear (4.5:1 on the background) without glaring */
 
   /* Chart Colors - Harmonized for dark mode */
   --bs-chart-1: 215 50% 58%; /* Light slate blue */
@@ -204,7 +222,7 @@
   --bs-sidebar-accent: 30 5% 18%; /* #302C29 - Hover */
   --bs-sidebar-accent-foreground: 30 10% 93%; /* #F0EEEB */
   --bs-sidebar-border: 30 5% 18%; /* #302C29 - Border */
-  --bs-sidebar-ring: 30 8% 70%; /* Warm neutral focus ring */
+  --bs-sidebar-ring: 30 6% 52%; /* Warm neutral focus ring */
 
   /* Semantic Status Colors - Adjusted for dark mode */
   --bs-success: 152 50% 62%; /* Light green; AA through the accent surface */
@@ -225,6 +243,21 @@
   --bs-delegation-6: 140 50% 56%;
   --bs-delegation-7: 238 70% 76%;
   --bs-delegation-8: 22 70% 62%;
+
+  --scrollbar-thumb: hsl(var(--bs-foreground) / 0.14);
+
+  /* Monokai: bright, warm and high-contrast on the warm dark surfaces. */
+  --syntax-keyword: #f92672;
+  --syntax-string: #e6db74;
+  --syntax-number: #ae81ff;
+  --syntax-function: #a6e22e;
+  --syntax-type: #66d9ef;
+  --syntax-class: #a6e22e;
+  --syntax-property: #f8f8f2;
+  --syntax-tag: #f92672;
+  --syntax-attribute: #a6e22e;
+  --syntax-comment: #88846f;
+  --syntax-invalid: #f44747;
 
   --background: var(--bs-background);
   --foreground: var(--bs-foreground);
@@ -545,33 +578,14 @@
     outline: none;
   }
 
-  /* Global scrollbar styling */
+  /* Scrollbars: a thin translucent thumb on no track, so a scrollbar takes the
+     surface it sits on (a coloured conversation keeps its tint) instead of
+     drawing an opaque grey bar. `scrollbar-color` inherits, so this one
+     declaration styles every scroller; Chromium ignores ::-webkit-scrollbar
+     wherever it is set. */
   body {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground)) hsl(var(--muted));
-  }
-
-  body::-webkit-scrollbar {
-    width: 8px;
-    height: 8px; /* For horizontal scrollbars */
-  }
-
-  body::-webkit-scrollbar-track {
-    background: hsl(var(--muted));
-    border-radius: 4px;
-  }
-
-  body::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted-foreground));
-    border-radius: 4px;
-  }
-
-  body::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--accent-foreground));
-  }
-
-  body::-webkit-scrollbar-corner {
-    background: hsl(var(--muted)); /* Or transparent */
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   /* ==========================================================================
@@ -591,21 +605,26 @@
   }
 
   /*
-   * Shiki dual-theme switching for class-based dark mode (used by every Shiki
-   * surface: assistant chat, markdown file preview, notes preview). Shiki
-   * inlines the LIGHT palette as `color`/`background-color` style attributes
-   * and ships the dark palette as `--shiki-dark*` custom properties, so the
-   * switch MUST be !important to beat those inline declarations — this is the
-   * upstream-documented recipe; without it dark mode silently keeps the light
-   * palette (verified in assistant-chat-polish.browser.test.tsx).
+   * Shiki dual themes for class-based dark mode (every Shiki surface: assistant
+   * chat, markdown file preview, notes preview). CodeBlockBody renders with
+   * `defaultColor: false`, so Shiki writes no inline colour, only the
+   * `--shiki-light*` / `--shiki-dark*` variables, and these rules pick a side
+   * (Shiki's documented class-based recipe). Neither side paints the theme's
+   * background: the code box owns its surface, so a block inside a coloured
+   * conversation keeps the conversation's tint.
    */
+  .shiki,
+  .shiki span {
+    color: var(--shiki-light);
+    font-style: var(--shiki-light-font-style);
+    font-weight: var(--shiki-light-font-weight);
+  }
+
   html.dark .shiki,
   html.dark .shiki span {
-    color: var(--shiki-dark) !important;
-    background-color: var(--shiki-dark-bg) !important;
-    font-style: var(--shiki-dark-font-style) !important;
-    font-weight: var(--shiki-dark-font-weight) !important;
-    text-decoration: var(--shiki-dark-text-decoration) !important;
+    color: var(--shiki-dark);
+    font-style: var(--shiki-dark-font-style);
+    font-weight: var(--shiki-dark-font-weight);
   }
 }
 
@@ -669,7 +688,11 @@
   color: color-mix(in oklab, var(--thread-accent) 78%, hsl(var(--foreground)));
   background-color: color-mix(in oklab, var(--thread-accent) 22%, transparent);
 }
+/* A coloured row re-keys the neutral hover and selection fill (`bg-accent` in
+   THREAD_PANEL_ROW_CLASS_NAME) to its own colour, so selecting it never lays a
+   grey slab over the wash. */
 .bs-thread-wash {
+  --color-accent: color-mix(in oklab, var(--thread-accent) 18%, hsl(var(--accent)));
   background-image: linear-gradient(
     to right,
     color-mix(in oklab, var(--thread-accent) 11%, transparent),
@@ -683,6 +706,9 @@
     color-mix(in oklab, var(--thread-accent) 18%, transparent),
     transparent 85%
   );
+}
+.dark .bs-thread-wash {
+  --color-accent: color-mix(in oklab, var(--thread-accent) 24%, hsl(var(--accent)));
 }
 @media (forced-colors: active) {
   .bs-thread-wash,
@@ -701,8 +727,10 @@
   --pele-fg: hsl(var(--foreground));
   --pele-muted: hsl(var(--muted-foreground));
   --pele-line: hsl(var(--foreground));
-  --pele-surface: hsl(var(--muted));
-  --pele-surface-alt: hsl(var(--accent));
+  /* The surface tokens, so a diagram in a coloured conversation fills its
+     nodes with the conversation's tint rather than plain grey. */
+  --pele-surface: var(--color-muted, hsl(var(--muted)));
+  --pele-surface-alt: var(--color-accent, hsl(var(--accent)));
   --pele-border: hsl(var(--muted-foreground));
   --pele-accent: hsl(var(--primary));
   --pele-critical: hsl(var(--destructive));

@@ -66,7 +66,7 @@ describe('SyntaxHighlighterComponent', () => {
     expect(screen.getByTestId('shiki-highlighter')).toHaveAttribute('data-language', 'typescript');
     expect(screen.getByTestId('shiki-highlighter')).toHaveAttribute(
       'data-theme',
-      'github-light:github-dark'
+      'github-light:monokai'
     );
     expect(shikiMocks.createHighlighterCore).toHaveBeenCalledTimes(1);
     expect(shikiMocks.createOnigurumaEngine).toHaveBeenCalledTimes(1);
