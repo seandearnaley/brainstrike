@@ -1,23 +1,10 @@
-import { getProviderLlmModelDefinitions } from '@brainstrike/app-shell';
-import { isSupportedProvider } from '@brainstrike/assistant-contract';
 import {
   type CumulativeUsageDisplay,
   EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
-  type ModelPricingResolver,
   resolveCumulativeUsageDisplay,
 } from '@brainstrike/assistant-data';
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import type { HostThreadLedger } from './host-thread-ledger';
-
-/**
- * The legacy meter's rate: the model's catalog pricing.
- */
-const catalogPricing: ModelPricingResolver = (provider, model) =>
-  isSupportedProvider(provider)
-    ? getProviderLlmModelDefinitions(provider, undefined).find(
-        (definition) => definition.id === model
-      )?.pricing
-    : undefined;
 
 /**
  * The context meter's thread total over the host's committed provider calls.
@@ -35,10 +22,8 @@ export function useHostThreadUsage(
       usage === undefined
         ? undefined
         : // A read thread with no costed call yet is the honest zero baseline.
-          (resolveCumulativeUsageDisplay(
-            usage.perModel.length > 0 ? usage : null,
-            catalogPricing
-          ) ?? EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY),
+          (resolveCumulativeUsageDisplay(usage.perModel.length > 0 ? usage : null) ??
+          EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY),
     [usage]
   );
 }

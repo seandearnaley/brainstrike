@@ -1,9 +1,4 @@
-import {
-  buildTokenUsageCounts,
-  type CostEstimate,
-  computeCost,
-  type ModelTokenPricing,
-} from '@brainstrike/tokenization';
+import type { CostEstimate, ModelTokenPricing } from '@brainstrike/tokenization';
 import type { CrossRootUsageRow } from './assistant-memory-repository.ts';
 
 /** Label for the bucket of usage that had no focused root at request start. */
@@ -56,16 +51,13 @@ function resolveDisplayName(row: CrossRootUsageRow): string {
 /**
  * Aggregate captured durable per-(root, model) usage into per-root cost rows.
  *
- * Cost is priced PER MODEL with that model's own registry rate, then summed
+ * Each row's cost was priced call by call under its own model, then is summed
  * within each root. A root that mixed a priced and an unpriced model is
  * reported as `unpriced_model` for that root — partial cost would be a silent
  * under-count, which the no-silent-fallbacks rule forbids. Roots preserve the
  * input order (the repo already sorts NULLS FIRST, then by id).
  */
-export function resolveCrossRootCostRows(
-  rows: readonly CrossRootUsageRow[],
-  resolvePricing: ModelPricingResolver
-): CrossRootCostRow[] {
+export function resolveCrossRootCostRows(rows: readonly CrossRootUsageRow[]): CrossRootCostRow[] {
   const order: Array<string | null> = [];
   const byRoot = new Map<string | null, RootAggregate>();
 
@@ -92,19 +84,10 @@ export function resolveCrossRootCostRows(
     const estimatedOutputTokens = row.estimatedOutputTokens ?? row.outputTokens;
     if (estimatedInputTokens + estimatedOutputTokens > 0) {
       aggregate.sawEstimatedUsage = true;
-      const entryCost = computeCost(
-        buildTokenUsageCounts(
-          estimatedInputTokens,
-          estimatedOutputTokens,
-          row.estimatedCacheReadTokens,
-          row.estimatedCacheCreationTokens
-        ),
-        resolvePricing(row.provider, row.model)
-      );
-      if (entryCost.available) {
-        aggregate.cost += entryCost.usdAmount;
-      } else {
+      if (row.estimatedCostUsd === null) {
         aggregate.hasUnpriced = true;
+      } else {
+        aggregate.cost += row.estimatedCostUsd;
       }
     }
   }

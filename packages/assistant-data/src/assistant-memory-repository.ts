@@ -200,6 +200,8 @@ export interface CrossRootUsageRow {
   readonly estimatedCacheCreationTokens?: number;
   /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
   readonly estimatedCacheReadTokens?: number;
+  /** The estimated tokens' list price, call by call; null when any call is unpriced. */
+  readonly estimatedCostUsd: number | null;
   readonly estimatedInputTokens?: number;
   readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
@@ -252,6 +254,11 @@ export interface RunLedgerRow {
   /** Anthropic cache-read share of `estimatedInputTokens` (0 elsewhere). */
   readonly estimatedCacheReadTokens: number;
   /**
+   * The estimated tokens' list price, each call priced under its own model at
+   * its own request's tier; null when any call is unpriced.
+   */
+  readonly estimatedCostUsd: number | null;
+  /**
    * Tokens from usage rows WITHOUT a provider-reported cost (always emitted,
    * unlike CrossRootUsageRow's billed-anchored optionality): `billedCostUsd`
    * covers only the reported rows, so a mixed run's exact figure is PARTIAL —
@@ -288,10 +295,14 @@ export interface ThreadModelUsageSubtotal {
   readonly cacheCreationTokens: number;
   /** Prompt-cache read tokens across ALL rows (same total-inclusive contract). */
   readonly cacheReadTokens: number;
+  /** What caching saved, call by call; null when a cache-bearing call is unpriced. */
+  readonly cacheSavingsUsd?: number | null;
   /** Anthropic cache-write share of the estimated (unbilled) input tokens. */
   readonly estimatedCacheCreationTokens?: number;
   /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
   readonly estimatedCacheReadTokens?: number;
+  /** The estimated tokens' list price, call by call; null when any call is unpriced. */
+  readonly estimatedCostUsd: number | null;
   readonly estimatedInputTokens?: number;
   readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
