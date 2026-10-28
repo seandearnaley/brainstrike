@@ -2,6 +2,7 @@ import { Coins, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { BudgetGuardrailSettingsPanel } from './budget-settings-panel';
 import { CostAggregationPanel } from './cost-aggregation-panel';
+import { CostOverviewPanel } from './cost-overview-panel';
 import { TaskLedgerPanel } from './task-ledger-panel';
 
 export {
@@ -18,6 +19,7 @@ export {
   CostAggregationPanel,
   CostAggregationPanelView,
 } from './cost-aggregation-panel';
+export { CostOverviewPanel, CostOverviewPanelView } from './cost-overview-panel';
 export {
   isRunOverCap,
   type TaskLedgerAnalyticsViewState,
@@ -53,13 +55,14 @@ export function createCostTrackingSettingsCategory(): CostTrackingSettingsCatego
   return {
     content: (
       <div className="space-y-4">
-        <CostAggregationPanel />
+        <CostOverviewPanel />
         <BudgetGuardrailSettingsPanel />
+        <CostAggregationPanel />
         <TaskLedgerPanel />
       </div>
     ),
     description:
-      'Review durable token usage, per-run cost and outcomes, model comparisons, and budget caps.',
+      'See what your assistant runs cost, split into input, cached and output tokens, by workspace, model and run.',
     icon: Coins,
     id: 'cost-tracking',
     keywords: [

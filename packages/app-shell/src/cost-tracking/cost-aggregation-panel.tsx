@@ -1,20 +1,26 @@
 import { type CrossRootCostRow, resolveCrossRootCostRows } from '@brainstrike/assistant-data';
-import { formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
-import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
-import { Coins, Loader2 } from 'lucide-react';
+import {
+  Badge,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  cn,
+} from '@brainstrike/ui';
+import { GitBranch, Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
+import { formatTokensCompact, formatUsd, shareWidth } from './cost-format';
 import { type CrossRootCostState, useCrossRootCost } from './use-cross-root-cost';
 
 function costLabel(row: CrossRootCostRow): string {
   // No silent $0: an unavailable price is its own state, distinct from "free".
-  if (!row.cost.available) {
-    return 'cost unavailable';
-  }
-  const amount = formatUsdCost(row.cost.usdAmount);
-  return row.cost.provenance === 'captured-usage-estimate'
-    ? `captured usage est. ${amount}`
-    : amount;
+  return row.cost.available ? formatUsd(row.cost.usdAmount) : 'cost unavailable';
+}
+
+function costOf(row: CrossRootCostRow): number {
+  return row.cost.available ? row.cost.usdAmount : 0;
 }
 
 interface CostAggregationPanelViewProps {
@@ -36,14 +42,10 @@ export function CostAggregationPanelView({ state }: CostAggregationPanelViewProp
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Coins className="size-4" />
-          Cost by Workspace Root
-        </CardTitle>
+        <CardTitle>Cost by workspace</CardTitle>
         <CardDescription>
-          Captured durable token usage, grouped by workspace root and priced against current model
-          list prices. Estimates exclude usage not yet itemized here, including subagents,
-          observational memory, embeddings, and some paused or resumed legs.
+          Every recorded model call, memory and subagents included, grouped by the folder its thread
+          worked in. A worktree is named after its repository and branch.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4" data-testid="cost-aggregation-panel">
@@ -95,26 +97,62 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
       </p>
     );
   }
+  const sorted = [...costRows].sort((left, right) => costOf(right) - costOf(left));
+  const total = sorted.reduce((sum, row) => sum + costOf(row), 0);
   return (
-    <ul className="space-y-2">
-      {costRows.map((row) => (
+    <ul className="divide-y rounded-md border">
+      {sorted.map((row) => (
         <li
-          className="flex items-center justify-between gap-4 rounded-md border p-3"
+          className="space-y-2 px-3 py-2.5"
           data-testid="cost-aggregation-row"
           key={row.rootId ?? '__unattributed__'}
         >
-          <div className="min-w-0">
-            <p className="truncate font-medium text-sm" title={row.displayName}>
-              {row.displayName}
-            </p>
-            <p className="text-muted-foreground text-xs">{formatTokenCount(row.totalTokens)}</p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 space-y-0.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate font-medium text-sm" title={row.displayName}>
+                  {row.displayName}
+                </span>
+                {row.localRootId === null ? null : (
+                  <Badge className="shrink-0 font-normal" variant="outline">
+                    worktree
+                  </Badge>
+                )}
+              </div>
+              {row.branch ? (
+                <p
+                  className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs"
+                  data-testid="cost-aggregation-branch"
+                >
+                  <GitBranch aria-hidden="true" className="size-3 shrink-0" />
+                  <span className="truncate font-mono" title={row.branch}>
+                    {row.branch}
+                  </span>
+                </p>
+              ) : null}
+            </div>
+            <div className="shrink-0 text-right">
+              <p
+                className={cn(
+                  'font-semibold text-sm tabular-nums',
+                  !row.cost.available && 'font-normal text-muted-foreground'
+                )}
+                data-testid="cost-aggregation-cost"
+              >
+                {costLabel(row)}
+              </p>
+              <p className="text-muted-foreground text-xs tabular-nums">
+                {formatTokensCompact(row.inputTokens)} in · {formatTokensCompact(row.outputTokens)}{' '}
+                out
+              </p>
+            </div>
           </div>
-          <Badge
-            data-testid="cost-aggregation-cost"
-            variant={row.cost.available ? 'secondary' : 'outline'}
-          >
-            {costLabel(row)}
-          </Badge>
+          <div aria-hidden="true" className="h-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary/70"
+              style={{ width: shareWidth(costOf(row), total) }}
+            />
+          </div>
         </li>
       ))}
     </ul>

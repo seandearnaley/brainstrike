@@ -1,6 +1,6 @@
 import type { RunLedgerRow } from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
-import { hostRunsModelComparison, hostRunsTrend } from '../run-ledger-analytics';
+import { hostRunsModelComparison, hostRunsTotals, hostRunsTrend } from '../run-ledger-analytics';
 
 function hostRun(overrides: Partial<RunLedgerRow> & { readonly runId: string }): RunLedgerRow {
   return {
@@ -64,7 +64,7 @@ describe('the Task Ledger daily trend', () => {
     ]);
   });
 
-  it('sums tokens per day, oldest first, and claims no billed cost', () => {
+  it('sums tokens and cost per day, oldest first', () => {
     const trend = hostRunsTrend(
       [
         hostRun({ runId: 'later', startedAt: new Date('2026-10-14T12:00:00.000Z') }),
@@ -79,29 +79,33 @@ describe('the Task Ledger daily trend', () => {
     );
     expect(trend).toEqual([
       {
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: expect.closeTo(0.0012, 10),
         day: '2026-10-12',
-        estimatedInputTokens: 200,
-        estimatedOutputTokens: 40,
         inputTokens: 400,
         label: 'Oct 12',
         outputTokens: 40,
         runCount: 2,
+        unpricedRunCount: 0,
       },
       {
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        costUsd: expect.closeTo(0.0006, 10),
         day: '2026-10-14',
-        estimatedInputTokens: 100,
-        estimatedOutputTokens: 20,
         inputTokens: 100,
         label: 'Oct 14',
         outputTokens: 20,
         runCount: 1,
+        unpricedRunCount: 0,
       },
     ]);
   });
 });
 
 describe('the Task Ledger model comparison', () => {
-  it('folds host runs per provider and model, with their labels and completed-run mean', () => {
+  it('folds host runs per provider and model, costliest first, with their completed-run mean', () => {
     const models = hostRunsModelComparison([
       hostRun({ outcomeVerdict: 'failed', runId: 'reverted' }),
       hostRun({ durationMs: 30_000, outcomeVerdict: 'succeeded', runId: 'kept' }),
@@ -109,15 +113,16 @@ describe('the Task Ledger model comparison', () => {
       hostRun({ model: 'gpt-5.2', provider: 'openai', runId: 'other' }),
     ]);
     expect(models.map(({ model, provider }) => [provider, model])).toEqual([
-      ['openai', 'gpt-5.2'],
       ['openrouter', 'anthropic/claude-sonnet-4.6'],
+      ['openai', 'gpt-5.2'],
     ]);
-    expect(models[1]).toEqual({
+    expect(models[0]).toEqual({
       avgDurationMs: 20_000,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       cancelledRunCount: 0,
       completedRunCount: 2,
-      estimatedInputTokens: 300,
-      estimatedOutputTokens: 60,
+      costUsd: expect.closeTo(0.0018, 10),
       failedRunCount: 1,
       inputTokens: 300,
       labeledFailedCount: 1,
@@ -127,6 +132,26 @@ describe('the Task Ledger model comparison', () => {
       outputTokens: 60,
       provider: 'openrouter',
       runCount: 3,
+      unpricedRunCount: 0,
+    });
+  });
+});
+
+describe('the Task Ledger totals', () => {
+  it('sums cost and cache tokens, and counts the runs it could not price', () => {
+    const totals = hostRunsTotals([
+      hostRun({ estimatedCacheReadTokens: 80, runId: 'cached' }),
+      hostRun({ billedCostUsd: 0.01, runId: 'billed' }),
+      hostRun({ estimatedCostUsd: null, model: 'vendor/uncatalogued', runId: 'unpriced' }),
+    ]);
+    expect(totals).toEqual({
+      cacheReadTokens: 80,
+      cacheWriteTokens: 0,
+      costUsd: expect.closeTo(0.0112, 10),
+      inputTokens: 300,
+      outputTokens: 60,
+      runCount: 3,
+      unpricedRunCount: 1,
     });
   });
 });
