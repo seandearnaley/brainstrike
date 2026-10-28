@@ -1,9 +1,8 @@
 Ticket: BST-###
 
-The merge queue is the gate: it runs every check on each batch, and Mergify
-queues every ready PR. Run the checks for what you changed before it is ready.
-To run the whole gate on this PR first, keep it a draft with the `full-check`
-label until that run passes.
+The merge queue is the gate: it runs every check on each batch. Run the checks
+for what you changed, then queue. Add the `full-check` label to run the whole
+gate on this PR first.
 
 ## Change
 
