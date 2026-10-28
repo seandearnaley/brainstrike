@@ -44,6 +44,9 @@ test('selecting another thread closes the open branch menu', async ({
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   await expect(region.getByText('Second reply.')).toBeVisible({ timeout: 60_000 });
 
+  // Until a thread's branch list loads, its chip is a read-only label that
+  // ignores a click; the switcher is the button it becomes.
+  const chip = region.getByRole('button', { name: /^Branch: / });
   const menu = page.getByTestId('workspace-bar-branch-menu');
   const rows = page
     .getByRole('treegrid', { name: 'Workspace threads' })
@@ -55,14 +58,14 @@ test('selecting another thread closes the open branch menu', async ({
    * menu is gone: it may fade where it was, but never shows anywhere else.
    */
   async function closesInPlace(switchThread: () => Promise<void>, selected: string) {
-    await region.getByTestId('workspace-bar-branch-chip').click();
+    await chip.click();
     await expect(menu).toBeVisible();
     // Past the opening animation, where the menu rests.
     await expect.poll(() => menu.evaluate((element) => element.getAnimations().length)).toBe(0);
     const open = await menu.boundingBox();
-    const chip = await region.getByTestId('workspace-bar-branch-chip').boundingBox();
+    const anchor = await chip.boundingBox();
     // Anchored to its chip: the menu starts at the chip's left edge.
-    expect(Math.abs((open?.x ?? 0) - (chip?.x ?? Number.NaN))).toBeLessThan(2);
+    expect(Math.abs((open?.x ?? 0) - (anchor?.x ?? Number.NaN))).toBeLessThan(2);
     await page.evaluate(() => {
       const frames: { x: number; y: number }[] = [];
       (window as unknown as { __menuFrames: typeof frames }).__menuFrames = frames;
