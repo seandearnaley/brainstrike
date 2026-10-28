@@ -152,7 +152,9 @@ async function listRequiredRuns(api, query) {
 /** Judges the given commit; returns its SHA only when it is green. */
 async function resolveGiven(api, given) {
   const tag = TAG_REF.exec(given)?.[1];
-  const ref = tag === undefined ? given : `tags/${encodeURIComponent(tag)}`;
+  // The full ref: the commits API peels an annotated tag to its commit only
+  // for `refs/tags/<tag>`, and answers 422 for `tags/<tag>`.
+  const ref = tag === undefined ? given : `refs/tags/${encodeURIComponent(tag)}`;
   const response = await get(api, `${api.base}/repos/${api.repo}/commits/${ref}`);
   const { sha } = await response.json();
   if (!FULL_SHA.test(sha ?? '') || (tag === undefined && sha !== given)) {
