@@ -425,8 +425,12 @@ function DiagramFullSizeView({
           </DialogPrimitive.Close>
         </div>
         <div className="min-h-0 flex-1 p-4">
+          {/* The canvas is the zoom buttons' positioned box, at its bottom
+              corner. Pele's own inline `position: relative` is undone when a
+              replayed StrictMode mount is destroyed, which let them escape
+              onto the header. */}
           <DiagramCanvas
-            className="bs-diagram-full-size not-prose h-full w-full overflow-hidden"
+            className="bs-diagram-full-size not-prose relative h-full w-full overflow-hidden [--pele-zoom-bottom:8px] [--pele-zoom-top:auto]"
             code={code}
             drawn={drawn}
             zoom={FULL_SIZE_ZOOM}

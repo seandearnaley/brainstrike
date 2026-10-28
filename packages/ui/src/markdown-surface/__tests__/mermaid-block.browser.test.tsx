@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import './mermaid-block.browser.css';
@@ -222,12 +223,15 @@ it('opens the diagram full size over its container and closes it with Escape or 
   const panel = document.createElement('div');
   panel.style.cssText = 'position:relative;width:900px;height:600px';
   document.body.append(panel);
+  // StrictMode, as in the app: the replayed mount must not unseat the zoom buttons.
   render(
-    <TooltipProvider>
-      <DiagramFullSizeContainerContext.Provider value={panel}>
-        <MermaidBlock code={'flowchart LR\n  A[Start] --> B[End]'} />
-      </DiagramFullSizeContainerContext.Provider>
-    </TooltipProvider>
+    <StrictMode>
+      <TooltipProvider>
+        <DiagramFullSizeContainerContext.Provider value={panel}>
+          <MermaidBlock code={'flowchart LR\n  A[Start] --> B[End]'} />
+        </DiagramFullSizeContainerContext.Provider>
+      </TooltipProvider>
+    </StrictMode>
   );
   await renderedSvg();
   const open = screen.getByRole('button', { name: 'Full size' });
@@ -237,6 +241,13 @@ it('opens the diagram full size over its container and closes it with Escape or 
   expect(panel.contains(view)).toBe(true);
   expect(view.getBoundingClientRect()).toMatchObject({ height: 600, width: 900 });
   await waitFor(() => expect(view.querySelector('svg.pele')).not.toBeNull());
+
+  // The zoom buttons sit inside the diagram's area, clear of the header.
+  const header = within(view).getByRole('button', { name: 'Close' }).parentElement;
+  const canvas = within(view).getByTestId('mermaid-diagram').getBoundingClientRect();
+  const zoomIn = within(view).getByRole('button', { name: 'Zoom in' }).getBoundingClientRect();
+  expect(zoomIn.top).toBeGreaterThanOrEqual(header?.getBoundingClientRect().bottom ?? 0);
+  expect(zoomIn.bottom).toBeLessThanOrEqual(canvas.bottom);
 
   // The panel's resize reaches the full-size diagram.
   panel.style.width = '1200px';
