@@ -118,15 +118,34 @@
   --agent-accent: hsl(var(--muted-foreground));
 }
 
+/* The surface tokens the panel rules below read. They equal the app theme's own
+   (`--color-muted: hsl(var(--muted))`), declared here so the panel stylesheet
+   stands alone and a coloured conversation can re-key them. */
+.assistant-ui-panel {
+  --color-muted: hsl(var(--muted));
+  --color-accent: hsl(var(--accent));
+}
+
+/* A coloured conversation also re-keys the neutral surface tokens behind
+   `bg-muted`, `bg-accent` and `border-border` (and the panel rules below that
+   read them) to its colour. Every translucent overlay inside it, such as code
+   and diagram header bars, inline code, hovers and selected rows, then stays in
+   the conversation's hue instead of laying a grey wash over the tint. */
 .assistant-ui-panel[data-agent-color] {
   --agent-wash: color-mix(in oklab, var(--agent-accent) 4%, hsl(var(--background)));
   --agent-card: color-mix(in oklab, var(--agent-accent) 7%, hsl(var(--background)));
   --agent-edge: color-mix(in oklab, var(--agent-accent) 22%, hsl(var(--border)));
+  --color-muted: color-mix(in oklab, var(--agent-accent) 12%, hsl(var(--muted)));
+  --color-accent: color-mix(in oklab, var(--agent-accent) 16%, hsl(var(--accent)));
+  --color-border: color-mix(in oklab, var(--agent-accent) 14%, hsl(var(--border)));
 }
 
 .dark .assistant-ui-panel[data-agent-color] {
   --agent-wash: color-mix(in oklab, var(--agent-accent) 6%, hsl(var(--background)));
   --agent-card: color-mix(in oklab, var(--agent-accent) 9%, hsl(var(--background)));
+  --color-muted: color-mix(in oklab, var(--agent-accent) 18%, hsl(var(--muted)));
+  --color-accent: color-mix(in oklab, var(--agent-accent) 22%, hsl(var(--accent)));
+  --color-border: color-mix(in oklab, var(--agent-accent) 20%, hsl(var(--border)));
 }
 
 .assistant-ui-panel[data-agent-color] .bs-thread {
@@ -295,7 +314,7 @@
 }
 
 .bs-scroll-to-bottom:hover {
-  background: hsl(var(--muted));
+  background: var(--color-muted);
   color: hsl(var(--foreground));
 }
 
@@ -430,7 +449,7 @@
 
 .bs-composer-trigger-item:hover,
 .bs-composer-trigger-item[data-highlighted] {
-  background: hsl(var(--accent));
+  background: var(--color-accent);
   color: hsl(var(--accent-foreground));
 }
 
@@ -581,7 +600,7 @@ span.bs-composer-chip {
     :disabled,
     [aria-disabled="true"]
   ) {
-  background: hsl(var(--accent));
+  background: var(--color-accent);
   color: hsl(var(--accent-foreground));
 }
 
@@ -649,7 +668,7 @@ span.bs-composer-chip {
 }
 
 :is(.aui-composer-send, .aui-composer-cancel):disabled {
-  background: hsl(var(--muted));
+  background: var(--color-muted);
   color: hsl(var(--muted-foreground) / 0.7);
   cursor: not-allowed;
 }
@@ -657,7 +676,7 @@ span.bs-composer-chip {
 /* While a typed draft can be queued, Queue is the primary circle and Stop
    steps back to a tinted one beside it. */
 .bs-composer-footer-end:has(.bs-composer-queue:not(:disabled)) .aui-composer-cancel {
-  background: hsl(var(--muted));
+  background: var(--color-muted);
   color: hsl(var(--foreground));
 }
 
@@ -797,7 +816,7 @@ span.bs-composer-chip {
   border: 1px solid hsl(var(--border) / 0.72);
   border-bottom: 0;
   border-radius: 0.75rem 0.75rem 0 0;
-  background: hsl(var(--muted) / 0.5);
+  background: color-mix(in oklab, var(--color-muted) 50%, transparent);
 }
 
 .bs-composer-queue-item {
@@ -951,7 +970,7 @@ span.bs-composer-chip {
   margin-block: 0.375rem;
   border: 1px solid hsl(var(--border) / 0.7);
   border-radius: 0.7rem;
-  background: hsl(var(--muted) / 0.22);
+  background: color-mix(in oklab, var(--color-muted) 22%, transparent);
   overflow: hidden;
   transition:
     border-color 160ms ease,
@@ -983,7 +1002,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-activity-summary:hover {
-  background: hsl(var(--muted) / 0.5);
+  background: color-mix(in oklab, var(--color-muted) 50%, transparent);
 }
 
 /*
@@ -1355,7 +1374,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel button.bs-step-row:hover {
-  background: hsl(var(--muted) / 0.35);
+  background: color-mix(in oklab, var(--color-muted) 35%, transparent);
 }
 
 .assistant-ui-panel .bs-step-row-content {
@@ -1541,7 +1560,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-run-strip:hover {
-  background: hsl(var(--muted) / 0.5);
+  background: color-mix(in oklab, var(--color-muted) 50%, transparent);
 }
 
 .assistant-ui-panel .bs-run-strip svg {
@@ -1648,7 +1667,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-activity-filter-chip:hover {
-  background: hsl(var(--muted) / 0.5);
+  background: color-mix(in oklab, var(--color-muted) 50%, transparent);
   color: hsl(var(--foreground));
 }
 
@@ -1886,7 +1905,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-approval-strip-grant:hover:not(:disabled) {
-  background: hsl(var(--muted) / 0.35);
+  background: color-mix(in oklab, var(--color-muted) 35%, transparent);
 }
 
 .assistant-ui-panel .bs-approval-strip-grant:disabled {
@@ -1934,7 +1953,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .bs-subagents-running-stop:hover:not(:disabled) {
-  background: hsl(var(--muted) / 0.35);
+  background: color-mix(in oklab, var(--color-muted) 35%, transparent);
 }
 
 .assistant-ui-panel .bs-subagents-running-stop:focus-visible {
@@ -1975,7 +1994,7 @@ span.bs-composer-chip {
  * between them, shared hover treatment.
  */
 .assistant-ui-panel .bs-run-timeline:hover {
-  background: hsl(var(--muted) / 0.4);
+  background: color-mix(in oklab, var(--color-muted) 40%, transparent);
 }
 
 /* Message boxes remain identical on the static and virtualized tiers. */
@@ -2446,7 +2465,7 @@ span.bs-composer-chip {
   /* Streamdown's quote classes add a left bar and italicize the whole quote. */
   border-left: 0;
   border-radius: 0.5rem;
-  background: hsl(var(--muted) / 0.45);
+  background: color-mix(in oklab, var(--color-muted) 45%, transparent);
   color: hsl(var(--muted-foreground));
   font-style: normal;
 }
@@ -2468,7 +2487,7 @@ span.bs-composer-chip {
 .assistant-ui-panel .aui-md :not(pre) > code {
   padding: 0.1rem 0.3rem;
   border-radius: 0.3rem;
-  background: hsl(var(--muted) / 0.7);
+  background: color-mix(in oklab, var(--color-muted) 70%, transparent);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.86em;
 }
@@ -2486,7 +2505,7 @@ span.bs-composer-chip {
 .assistant-ui-panel .aui-md pre:not(.shiki) {
   margin: 0;
   padding: 0.7rem 0.9rem;
-  background: hsl(var(--muted) / 0.6);
+  background: color-mix(in oklab, var(--color-muted) 60%, transparent);
   overflow-x: auto;
   font-size: 0.82em;
   line-height: 1.55;
@@ -2517,7 +2536,7 @@ span.bs-composer-chip {
 }
 
 .assistant-ui-panel .aui-md th {
-  background: hsl(var(--muted) / 0.5);
+  background: color-mix(in oklab, var(--color-muted) 50%, transparent);
   font-weight: 600;
 }
 

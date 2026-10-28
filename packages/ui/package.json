@@ -19,6 +19,7 @@
     "@codemirror/merge": "^6.12.2",
     "@codemirror/state": "catalog:",
     "@codemirror/view": "catalog:",
+    "@lezer/highlight": "^1.2.3",
     "@radix-ui/react-accordion": "catalog:",
     "@radix-ui/react-checkbox": "catalog:",
     "@radix-ui/react-context-menu": "^2.4.1",

@@ -15,6 +15,16 @@ stateful panels retain their intended lifetime without hiding effects that own
 running work. Selection manifests, counts and paths use the same canonical
 snapshot; unknown/loading/error is not an empty selection.
 
+## Colour and surfaces
+
+Neutral fills come from the surface tokens (`bg-muted`, `bg-accent`,
+`border-border`; `var(--color-muted)` in stylesheets). A coloured thread re-keys
+those tokens to its colour on its conversation panel and its Threads row, so an
+overlay inside stays in the thread's hue; do not hardcode a grey or `hsl(var(--muted))`
+there. Syntax colours are the `--syntax-*` tokens for CodeMirror and the matching
+Shiki themes (GitHub Light, Monokai) for code blocks; the code box owns its
+background. Scrollbars inherit one translucent thumb from `body`.
+
 ## Context actions and layers
 
 Use the shared registry with immutable targets claimed synchronously at invocation.
