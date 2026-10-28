@@ -1,13 +1,53 @@
 # Desktop release contract
 
 `.github/workflows/release.yml` builds, verifies and publishes the desktop
-downloads. It runs only on a stable tag `v<major>.<minor>.<patch>` that matches
+downloads. It runs on a tag `v<version>` that matches
 `apps/desktop/package.json`'s version, or on `workflow_dispatch` as a dry run
 (build, smoke test and hash). Only the tag push publishes; a dispatch never
 does, even on a tag ref. A dispatch with `unsigned` builds the unsigned macOS
 posture even when signing secrets are configured, so a proof run signs and
 notarizes nothing. Starting either, and providing its signing and publishing
 secrets, is the owner's decision.
+
+## Versions
+
+Versions are SemVer: `0.1.0-beta.1`, `0.1.0-beta.2`, … then `0.1.0`. A
+prerelease is a numbered `alpha` or `beta`, the two channels electron-updater
+knows; `scripts/generate-release-manifest.mjs` refuses any other tag. A
+prerelease version publishes a GitHub prerelease, and the manifest's `channel`
+is `alpha`, `beta` or `stable` from the tag.
+
+To cut a release: merge a PR that sets `apps/desktop/package.json`'s
+`version`, wait for a scheduled nightly to pass on a commit containing it
+(next section), then push `v<version>` at that commit.
+
+## Release notes
+
+The publish job writes the GitHub release body with git-cliff (`cliff.toml`)
+from the commits between the previous release tag and this one: every commit
+on `main` is a squash-merged PR with a conventional title, so `feat`, `fix` and
+`perf` become New, Fixes and Performance, and the other types stay out. PR
+numbers and Linear ids are stripped because they point into this private
+repository. The first release has a one-line body. The release body is the
+notes' only home; edit it on GitHub after publishing if a line needs a human
+touch.
+
+## In-app updates
+
+A packaged install checks `seandearnaley/brainstrike-releases` once per launch
+(`src/app-update.ts`, electron-updater, the `publish` entry in `package.json`).
+A newer release downloads in the background and installs when the app quits.
+A beta install follows prereleases and a stable install only stable releases,
+because electron-updater sets `allowPrerelease` from the running version. With
+the GitHub provider electron-builder writes `latest*.yml` for every version, and
+GitHub's prerelease flag, not a separate channel file, separates the two.
+
+macOS updates install the `.zip` (Squirrel.Mac), so each macOS leg builds a DMG
+and a zip from the same signed, notarized app, and the signing gate checks both.
+Each leg's `latest-mac.yml` names only its own arch;
+`scripts/release-update-info.mjs merge-mac` joins them, and MacUpdater picks
+the arm64 files on Apple silicon and the others on Intel. Unpackaged, unit and
+E2E runs never check for updates.
 
 ## Release commit (BST-2190)
 
@@ -85,8 +125,12 @@ it searched.
 6. Verify every public URL, then generate manifest v2
    (`scripts/generate-release-manifest.mjs`) from the uploaded artifact records
    rather than handwritten filenames, and publish it last as the release's
-   `release-manifest.json`. This ordering means the manifest can never name an
-   asset that is not already reachable.
+   `release-manifest.json`, together with the `latest*.yml` update metadata.
+   `scripts/release-update-info.mjs verify` first checks that every file the
+   metadata names is a staged asset with the declared size and sha512. This
+   ordering means neither the manifest nor an updater can name an asset that
+   is not already reachable.
+7. Trigger the download site's Vercel deploy hook (`VERCEL_SITE_DEPLOY_HOOK`).
 
 Publication is all-or-nothing for each manifest revision; malformed or
 unreachable data is a visible failure, never a fallback to guessed filenames.
@@ -104,8 +148,11 @@ as signed.
 
 ## Download surface
 
-The product site that was to serve the download chooser (#2186) was closed
-without merging. The owner accepted (19 Oct 2026) the release's
-`release-manifest.json` asset as the published download surface. A download
-chooser that lands later reads that asset and validates it with its own
-production schema before rendering links.
+`brainstrike.ai` is the Vercel project `brainstrike-ai`, built from the
+separate repository `seandearnaley/brainstrike.ai`. Its build reads the public
+releases feed, takes the newest release that has a `release-manifest.json`,
+validates it, and renders one link per asset; until a release exists it shows
+"coming soon". A malformed manifest or a network error fails that build rather
+than guessing filenames. The release's last step triggers the site's deploy
+hook, so the page lists a release once its manifest is published. The site sits
+behind Vercel Authentication on every URL until launch.

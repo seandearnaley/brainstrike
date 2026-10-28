@@ -1,0 +1,35 @@
+# Desktop release notes (apps/desktop/RELEASES.md). The release workflow runs
+# git-cliff over the commits since the previous release tag. Every commit on
+# main is a squash-merged PR whose title is a conventional commit, so each type
+# becomes a section and everything else stays out of user-facing notes.
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {{ commit.message | split(pat="\n") | first | upper_first }}
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+# PR numbers and Linear ids point into the private source repository.
+commit_preprocessors = [
+  { pattern = '\s*\((?:#\d+|BST-\d+)(?:,\s*(?:#\d+|BST-\d+))*\)', replace = "" },
+]
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->New" },
+  { message = "^fix", group = "<!-- 1 -->Fixes" },
+  { message = "^perf", group = "<!-- 2 -->Performance" },
+  { message = ".*", skip = true },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "newest"

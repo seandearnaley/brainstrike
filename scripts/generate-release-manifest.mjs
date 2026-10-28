@@ -26,7 +26,9 @@ const PLATFORM_BY_PACKAGE = { appimage: 'linux', dmg: 'macos', nsis: 'windows' }
 const PLATFORM_ORDER = { linux: 2, macos: 0, windows: 1 };
 const ARCHITECTURE_ORDER = { arm64: 0, universal: 1, x64: 2 };
 const SHA_256 = /^[a-f0-9]{64}$/u;
-const STABLE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+// A stable release, or a numbered alpha/beta prerelease: the two prerelease
+// channels electron-updater understands (apps/desktop/RELEASES.md).
+const RELEASE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta)\.(0|[1-9]\d*))?$/u;
 const SOURCE_COMMIT = /^[a-f0-9]{40}$/u;
 
 function fail(message) {
@@ -53,8 +55,9 @@ const sourceCommit = args['source-commit'] ?? fail('--source-commit is required'
 const recordsDir = args['records-dir'] ?? fail('--records-dir is required');
 const outPath = args.out ?? 'release-manifest.json';
 
-if (!STABLE_TAG.test(tag)) {
-  fail(`tag "${tag}" must be v<major>.<minor>.<patch> with no prerelease.`);
+const tagMatch = RELEASE_TAG.exec(tag);
+if (tagMatch === null) {
+  fail(`tag "${tag}" must be v<major>.<minor>.<patch>, optionally -alpha.<n> or -beta.<n>.`);
 }
 if (!SOURCE_COMMIT.test(sourceCommit)) {
   fail(`source commit "${sourceCommit}" must be a full 40-hex Git commit id.`);
@@ -125,7 +128,7 @@ assets.sort(
 );
 
 const manifest = {
-  channel: 'stable',
+  channel: tagMatch[4] ?? 'stable',
   distribution: {
     artifactBaseUrl: ARTIFACT_BASE_URL,
     releasesHubUrl: RELEASES_HUB_URL,
