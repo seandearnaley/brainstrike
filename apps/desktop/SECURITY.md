@@ -90,6 +90,21 @@ The application implements a comprehensive Content Security Policy that differs 
 - No sensitive data stored in plain text
 - Proper cleanup of temporary data
 
+### Credential storage
+- Provider keys, MCP bearer tokens and MCP OAuth records live in one private
+  file in the profile, `brainstrike-credentials.sealed.json`. The agent host is
+  its only writer; Main reads it.
+- Every value is sealed with Electron `safeStorage`, which only Main can call;
+  the host borrows it over its platform port (ADR-0029). Account names stay
+  readable, so listing decrypts nothing.
+- On macOS the key is one keychain item, `<app name> Safe Storage`, created and
+  read by the signed app itself, so no keychain prompt appears. Windows protects
+  the key with DPAPI and Linux with the Secret Service. Linux `basic_text`
+  is refused, never used.
+- Unpackaged builds that seal credentials take the name
+  `BrainStrike Desktop Dev`, so they never read the release's key. Isolated test
+  runs keep a plain private file and never reach the OS keychain.
+
 ## Env Bootstrap Visibility (BST-1363)
 
 The `secrets:envBootstrap` channel reports how desktop `.env` loading went so a
@@ -140,10 +155,10 @@ single configured HTTP MCP resource.
   and provider close settle the pending wait and close the loopback listener.
 - Tokens, client registrations, verifiers, discovery state, and resource
   identity are partitioned by configured server plus canonical resource and
-  are encrypted in the dedicated `brainstrike-mcp-oauth` safeStorage store.
-  `basic_text` is rejected. `disconnect` and `invalidateCredentials('all')`
-  clear disk and in-memory state; unrelated provider credentials use a
-  different store and are untouched.
+  are OAuth records in the profile's sealed credential file (see Credential
+  storage). `disconnect` and `invalidateCredentials('all')` clear disk and
+  in-memory state; provider credentials are separate accounts and are
+  untouched.
 - The provider fetch seam coalesces identical refresh-token requests and
   tags token responses with the current generation. A response from a
   generation invalidated by disconnect is not persisted. Callers must pass
@@ -155,8 +170,8 @@ single configured HTTP MCP resource.
 ### MCP external bearer references
 
 - JSONC contains only the strict `mcp-credentials` UUID reference. Its token is
-  an `api_key` envelope in the existing `brainstrike-secrets` safeStorage store
-  under `mcp-credentials:<uuid>`; no second credential store or plaintext
+  an `api_key` envelope in the profile credential store under
+  `mcp-credentials:<uuid>`; no second credential store or plaintext
   configuration channel exists.
 - Settings sends a token pasted into an MCP catalog install once, over the
   `desktop-ui` host connection (`mcp/config/install`). The host's bearer writer

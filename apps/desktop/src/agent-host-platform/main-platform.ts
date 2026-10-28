@@ -1,5 +1,6 @@
 import type { HostPlatform } from '@brainstrike/agent-host';
 import { toBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
+import type { CredentialCipher } from '@brainstrike/agent-host/credential-contract';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
 import { wireDecoder } from '@brainstrike/assistant-contract/schema-boundary';
@@ -22,6 +23,8 @@ import {
   PLATFORM_DIAGNOSTICS_RECORD_METHOD,
   PlatformCatalogModelResultSchema,
   PlatformCatalogModelSchema,
+  PlatformCredentialOpenSchema,
+  PlatformCredentialSealSchema,
   PlatformDiagnosticRecordSchema,
   PlatformEmbeddingQuerySchema,
   PlatformIndexRefreshSchema,
@@ -57,6 +60,8 @@ export interface DesktopPlatformCapabilities {
    * `gone`: the host's connection closed without asking, so no writer waits to be released.
    */
   closeRootCapabilities?(host: 'closing' | 'gone'): Promise<void>;
+  /** ADR-0029: Main's safeStorage, lent to the host's sealed credential file. */
+  readonly credentialCipher?: CredentialCipher;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
   readonly hostTools?: HostToolServiceCapabilities;
   /** Main's E2E delay seam; `platform-ready` delays Main's answer to the host's readiness check. */
@@ -339,6 +344,30 @@ export function serveDesktopPlatform(
         onExcessProperty: 'error',
       })(input);
       return await refusalOutcome(() => hostedQueryEmbedding(request, signal));
+    })
+  );
+  const cipher = (): CredentialCipher => {
+    if (!capabilities.credentialCipher) {
+      throw new Error('Desktop has no credential cipher to lend');
+    }
+    return capabilities.credentialCipher;
+  };
+  connection.onRequest('platform/credentials/seal', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { plaintext } = wireDecoder(PlatformCredentialSealSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
+      return await cipher().seal(plaintext);
+    })
+  );
+  connection.onRequest('platform/credentials/open', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { sealed } = wireDecoder(PlatformCredentialOpenSchema, {
+        errors: 'all',
+        onExcessProperty: 'error',
+      })(input);
+      return await cipher().open(sealed);
     })
   );
   serveAdmissionReads(connection, execute, capabilities.admission, leases);

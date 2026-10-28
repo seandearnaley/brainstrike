@@ -32,7 +32,7 @@ the named peers. Doing it from M3 costs about two to three more weeks.
   pid, or a held flock from a surviving native process, is refused; a live but
   unreachable host is refused by pid and never killed. See "Native processes hold
   the Root" below.
-- Platform services come through `HostPlatform` adapters: secret store (keyring),
+- Platform services come through `HostPlatform` adapters: secret store,
   browser opener, embedding port, notifier, indexer port and an explicit data root.
   The host bundle has no runtime `electron` imports.
 - CLI retrieval defaults to FTS5 BM25 plus trigram plus grep. It uses vectors only
@@ -148,8 +148,13 @@ Known limits. These processes do not hold the Root's flock.
 
 - The acceptance suite runs through the protocol: over stdio with no Electron in the
   process tree, and over MessagePort in desktop E2E.
-- The secret store is `@napi-rs/keyring` in both shells. Headless Linux with no Secret
-  Service fails visibly and requires `--credential-store file` (0600).
+- The CLI's secret store is `@napi-rs/keyring`. Headless Linux with no Secret Service
+  fails visibly and requires `--credential-store file` (0600).
+- Superseded for the desktop on 28 October 2026 (owner decision): the desktop selects
+  `sealed-file`, the same private file with each value sealed by Main's `safeStorage`,
+  which the host borrows over its platform port (ADR-0029). A keyring item per secret,
+  written by the host's Helper process and read by Main, made the signed release prompt
+  for the keychain repeatedly; `safeStorage` keeps one key item that the app owns.
 - Windows needs a process start-time source for the lock; that blocks M3.
 - A host forked by the app dies with the app. A CLI-started host exits when its last
   client leaves and no run is active, unless started with `brainstrike host start`.

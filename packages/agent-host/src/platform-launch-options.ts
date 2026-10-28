@@ -1,6 +1,14 @@
 import { isAbsolute } from 'node:path';
 import { Schema } from 'effect';
 
+const CredentialFilePath = Schema.String.check(
+  Schema.makeFilter((value) =>
+    isAbsolute(value)
+      ? undefined
+      : { issue: 'An explicit absolute credential file is required', path: [] }
+  )
+);
+
 /** Trusted launch selection only; values and credentials stay in the adapter. */
 export const HostPlatformLaunchOptionsSchema = Schema.Struct({
   appPaths: Schema.optional(
@@ -29,16 +37,9 @@ export const HostPlatformLaunchOptionsSchema = Schema.Struct({
           kind: Schema.Literal('keyring'),
           service: Schema.String.check(Schema.isMinCodePoints(1)),
         }),
-        Schema.Struct({
-          kind: Schema.Literal('file'),
-          path: Schema.String.check(
-            Schema.makeFilter((value) =>
-              isAbsolute(value)
-                ? undefined
-                : { issue: 'An explicit absolute credential file is required', path: [] }
-            )
-          ),
-        }),
+        Schema.Struct({ kind: Schema.Literal('file'), path: CredentialFilePath }),
+        // Values sealed by the cipher the launching platform lends (desktop: safeStorage).
+        Schema.Struct({ kind: Schema.Literal('sealed-file'), path: CredentialFilePath }),
       ],
       { mode: 'oneOf' }
     )

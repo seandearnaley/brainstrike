@@ -3,7 +3,10 @@ import type {
   HostProviderService,
   HostStartupContext,
 } from '@brainstrike/agent-host';
-import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credential-contract';
+import type {
+  CredentialCipher,
+  KeyringCredentialBackend,
+} from '@brainstrike/agent-host/credential-contract';
 import { createHostCredentials, type HostCredentials } from './credentials.ts';
 import { createTavilyKeyResolver } from './native-tools/web-search-tool.ts';
 import { createHostAuthority, type HostAuthority } from './provider-auth/host-authority.ts';
@@ -28,6 +31,8 @@ export interface HostCapabilities {
 export interface HostCapabilitiesOptions {
   /** Trusted fixture seam only; production uses the native keyring worker. */
   readonly createNativeCredentialBackend?: (service: string) => KeyringCredentialBackend;
+  /** The cipher a `sealed-file` selection needs, lent by the launching platform. */
+  readonly credentialCipher?: CredentialCipher;
   readonly env: NodeJS.ProcessEnv;
   /** Trusted process launch selection; never inferred or defaulted. */
   readonly launch: HostPlatformLaunchOptions | undefined;
@@ -38,6 +43,7 @@ export async function createHostCapabilities(
   options: HostCapabilitiesOptions
 ): Promise<HostCapabilities> {
   const credentials = createHostCredentials({
+    ...(options.credentialCipher ? { cipher: options.credentialCipher } : {}),
     ...(options.createNativeCredentialBackend
       ? { createNativeBackend: options.createNativeCredentialBackend }
       : {}),

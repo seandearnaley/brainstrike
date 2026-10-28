@@ -4,11 +4,10 @@ import { app } from 'electron';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 
 /**
- * The launch credential store: the forked agent host is its writer and Main
- * reads it. Bootstrap pins this before ordinary-dev workspace path isolation.
- * Production uses the OS keyring under the selected launch service;
- * isolated test runs use a private file inside their disposable profile and
- * never reach the OS keychain.
+ * The profile's credential store: the forked agent host is its writer and Main
+ * reads it. Production seals each value with Main's safeStorage, so the OS
+ * keychain holds one key the app owns rather than one item per secret;
+ * isolated test runs use a plain private file and never reach the OS keychain.
  */
 export function desktopCredentialStoreSelection(
   userData: string = app.getPath('userData'),
@@ -17,5 +16,5 @@ export function desktopCredentialStoreSelection(
 ): HostCredentialStoreSelection {
   return isolated
     ? { kind: 'file', path: join(userData, 'brainstrike-credentials.json') }
-    : { kind: 'keyring', service: `brainstrike-desktop:${userData}` };
+    : { kind: 'sealed-file', path: join(userData, 'brainstrike-credentials.sealed.json') };
 }
