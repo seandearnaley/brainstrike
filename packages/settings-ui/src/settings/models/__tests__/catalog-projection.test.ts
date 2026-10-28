@@ -25,8 +25,8 @@ describe('projectCatalogRow', () => {
       maxOutputTokens: 128_000,
       name: 'GPT-5.6 Terra',
       pricing: {
-        cacheReadPerMTok: null,
-        cacheWritePerMTok: null,
+        cacheReadPerMTok: terraPricing?.cacheReadPerMTok,
+        cacheWritePerMTok: terraPricing?.cacheWritePerMTok,
         inputPerMTok: terraPricing?.inputPerMTok,
         outputPerMTok: terraPricing?.outputPerMTok,
       },

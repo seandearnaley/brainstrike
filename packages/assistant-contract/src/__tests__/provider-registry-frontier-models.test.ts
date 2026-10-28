@@ -51,19 +51,18 @@ describe('frontier model refresh (2026-07)', () => {
     });
 
     /**
-     * BST-1692. Exhaustive so the row cannot gain a field by accident — in
-     * particular `pricing.cacheReadPerMTok` / `cacheWritePerMTok`. OpenAI
-     * publishes $1 cached input and $12.50 cache writes for this model, but a
-     * cache RATE may only travel with a `promptCaching` dialect (BST-1354,
-     * provider-registry-pricing.test.ts) and that enum has no `openai` member,
-     * so the rates stay out of the catalog until a dialect exists.
+     * BST-1692. Exhaustive so the row cannot gain a field by accident. OpenAI
+     * caches automatically and reports cached and written input tokens with
+     * no request dialect, so the $1 cached-input and $12.50 cache-write rates
+     * are declared (2026-10-28); without them every cache hit priced the
+     * whole thread as unavailable.
      *
      * The `reasoning` block is the ladder OpenAI's model page documents. It is
      * declared rather than inherited because OPENAI_FAMILY_DEFAULT_EFFORTS
      * offers `minimal` (not on the page) and withholds `max` (on the page) —
      * see model-reasoning.test.ts for the availability-level pin.
      */
-    it('declares GPT-6 Astra from the vendor model page, cache rates excluded (BST-1692)', () => {
+    it('declares GPT-6 Astra from the vendor model page (BST-1692)', () => {
       expect(getLlmCapabilityFacts('openai', 'gpt-6-astra')).toEqual({
         contextWindow: 1_050_000,
         id: 'gpt-6-astra',
@@ -71,7 +70,18 @@ describe('frontier model refresh (2026-07)', () => {
         maxOutputTokens: 128_000,
         nativeToolSearch: 'openai',
         pricing: {
+          cacheReadPerMTok: 1,
+          cacheWritePerMTok: 12.5,
           inputPerMTok: 10,
+          longContextTiers: [
+            {
+              cacheReadPerMTok: 2,
+              cacheWritePerMTok: 25,
+              inputPerMTok: 20,
+              minPromptTokens: 272_000,
+              outputPerMTok: 75,
+            },
+          ],
           outputPerMTok: 50,
         },
         reasoning: {
@@ -95,7 +105,7 @@ describe('frontier model refresh (2026-07)', () => {
   });
 
   describe('Anthropic', () => {
-    it('exposes Fable 5.1 / Fable 5 / Opus 5.5 / Opus 5 / Sonnet 5 / Haiku 5.5 alongside the retained Opus and Haiku models', () => {
+    it('exposes Fable 5.1 / Fable 5 / Opus 5.5 / Opus 5 / Sonnet 5.5 / Sonnet 5 / Haiku 5.5 alongside the retained Opus and Haiku models', () => {
       const ids = llmIds('anthropic');
       expect(ids).toEqual([
         'claude-fable-5-1',
@@ -103,6 +113,7 @@ describe('frontier model refresh (2026-07)', () => {
         'claude-opus-5-5',
         'claude-opus-5',
         'claude-opus-4-8',
+        'claude-sonnet-5-5',
         'claude-sonnet-5',
         'claude-sonnet-4-6',
         'claude-haiku-5-5',
@@ -248,7 +259,11 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'gemini-3.7-flash',
         label: 'Gemini 3.7 Flash',
         maxOutputTokens: 65_536,
-        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        pricing: {
+          cacheReadPerMTok: 0.075,
+          inputPerMTok: 0.75,
+          outputPerMTok: 3.75,
+        },
         supportsStreaming: true,
         tagline: 'Fast multimodal reasoning for complex agentic workflows',
         type: 'llm',
@@ -262,7 +277,11 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'gemini-3.8-flash',
         label: 'Gemini 3.8 Flash',
         maxOutputTokens: 65_536,
-        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        pricing: {
+          cacheReadPerMTok: 0.075,
+          inputPerMTok: 0.75,
+          outputPerMTok: 3.75,
+        },
         supportsStreaming: true,
         tagline: 'Long-horizon software engineering and autonomous agents at Flash speed',
         type: 'llm',
@@ -276,7 +295,11 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'gemini-3.6-flash',
         label: 'Gemini 3.6 Flash',
         maxOutputTokens: 65_536,
-        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        pricing: {
+          cacheReadPerMTok: 0.075,
+          inputPerMTok: 0.75,
+          outputPerMTok: 3.75,
+        },
         supportsStreaming: true,
         tagline: 'Frontier intelligence for code generation and agentic execution',
         type: 'llm',
@@ -290,7 +313,11 @@ describe('frontier model refresh (2026-07)', () => {
         id: 'gemini-3.5-flash-lite',
         label: 'Gemini 3.5 Flash-Lite',
         maxOutputTokens: 65_536,
-        pricing: { inputPerMTok: 0.3, outputPerMTok: 2.5 },
+        pricing: {
+          cacheReadPerMTok: 0.03,
+          inputPerMTok: 0.3,
+          outputPerMTok: 2.5,
+        },
         supportsStreaming: true,
         tagline: 'Low-latency multimodal for high-throughput subagent tasks and document parsing',
         type: 'llm',
@@ -385,7 +412,11 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'GLM-5.3 (OpenRouter)',
         maxOutputTokens: 131_072,
         // BST-1804: gateway re-priced from 1.4 / 4.4; live base read 2026-09-23.
-        pricing: { inputPerMTok: 0.84, outputPerMTok: 2.64 },
+        pricing: {
+          cacheReadPerMTok: 0.26,
+          inputPerMTok: 1.4,
+          outputPerMTok: 4.4,
+        },
         reasoning: {
           defaultEffort: 'max',
           defaultEnabled: true,
