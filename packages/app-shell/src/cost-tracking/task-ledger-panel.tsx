@@ -4,12 +4,8 @@ import type {
   AssistantThreadRunStatus,
   RunLedgerRow,
 } from '@brainstrike/assistant-data';
-import {
-  resolveModelPricing,
-  TASK_LEDGER_RUN_LIMIT,
-  useRunLedger,
-} from '@brainstrike/assistant-data/cost-tracking';
-import { buildTokenUsageCounts, computeCost, formatUsdCost } from '@brainstrike/tokenization';
+import { TASK_LEDGER_RUN_LIMIT, useRunLedger } from '@brainstrike/assistant-data/cost-tracking';
+import { formatUsdCost } from '@brainstrike/tokenization';
 import {
   Badge,
   Card,
@@ -110,47 +106,24 @@ function formatTokensCompact(count: number): string {
  * reads "cost unavailable" and a run with no captured usage reads "no usage
  * recorded" — NEVER a fabricated $0 (same contract as the sibling cost panel).
  */
-/**
- * Usage counts for pricing one ledger row. The cache shares are computed from
- * the UNBILLED rows only (same SQL predicate as estimatedInputTokens), so they
- * pair correctly with either the estimated remainder or the whole-row totals
- * (an Anthropic row never carries a provider-reported cost, so its estimated
- * tokens equal its totals).
- */
-function usageCountsWithCacheShares(row: RunLedgerRow, inputTokens: number, outputTokens: number) {
-  return buildTokenUsageCounts(
-    inputTokens,
-    outputTokens,
-    row.estimatedCacheReadTokens,
-    row.estimatedCacheCreationTokens
-  );
-}
-
 function runCostLabel(row: RunLedgerRow): string {
   if (row.billedCostUsd !== undefined) {
     // Honest partial-cost rule (review #1698): billedCostUsd covers only the
     // provider-reported usage rows. A mixed run's unreported remainder is
     // priced and shown alongside — never silently folded into an "exact" figure.
-    const estimatedTokens = row.estimatedInputTokens + row.estimatedOutputTokens;
-    if (estimatedTokens === 0) {
+    if (row.estimatedInputTokens + row.estimatedOutputTokens === 0) {
       return formatUsdCost(row.billedCostUsd);
     }
-    const remainder = computeCost(
-      usageCountsWithCacheShares(row, row.estimatedInputTokens, row.estimatedOutputTokens),
-      resolveModelPricing(row.provider, row.model)
-    );
-    return remainder.available
-      ? `${formatUsdCost(row.billedCostUsd)} + est. ${formatUsdCost(remainder.usdAmount)}`
-      : `${formatUsdCost(row.billedCostUsd)} + unpriced remainder`;
+    return row.estimatedCostUsd === null
+      ? `${formatUsdCost(row.billedCostUsd)} + unpriced remainder`
+      : `${formatUsdCost(row.billedCostUsd)} + est. ${formatUsdCost(row.estimatedCostUsd)}`;
   }
   if (row.inputTokens + row.outputTokens === 0) {
     return 'no usage recorded';
   }
-  const estimate = computeCost(
-    usageCountsWithCacheShares(row, row.inputTokens, row.outputTokens),
-    resolveModelPricing(row.provider, row.model)
-  );
-  return estimate.available ? `est. ${formatUsdCost(estimate.usdAmount)}` : 'cost unavailable';
+  return row.estimatedCostUsd === null
+    ? 'cost unavailable'
+    : `est. ${formatUsdCost(row.estimatedCostUsd)}`;
 }
 
 /**
@@ -161,28 +134,9 @@ function runCostLabel(row: RunLedgerRow): string {
  * run of blowing the budget (honest-cost contract).
  */
 export function isRunOverCap(row: RunLedgerRow, perRunCapUsd: number): boolean {
-  if (row.billedCostUsd !== undefined) {
-    // Include the priced unreported remainder (mixed runs); an unpriced
-    // remainder is never fabricated, so only the exact portion is compared.
-    const remainder =
-      row.estimatedInputTokens + row.estimatedOutputTokens > 0
-        ? computeCost(
-            usageCountsWithCacheShares(row, row.estimatedInputTokens, row.estimatedOutputTokens),
-            resolveModelPricing(row.provider, row.model)
-          )
-        : null;
-    const total =
-      remainder?.available === true ? row.billedCostUsd + remainder.usdAmount : row.billedCostUsd;
-    return total > perRunCapUsd;
-  }
-  if (row.inputTokens + row.outputTokens === 0) {
-    return false;
-  }
-  const estimate = computeCost(
-    usageCountsWithCacheShares(row, row.inputTokens, row.outputTokens),
-    resolveModelPricing(row.provider, row.model)
-  );
-  return estimate.available && estimate.usdAmount > perRunCapUsd;
+  // An unpriced remainder is never fabricated, so only the priced portions count.
+  const total = (row.billedCostUsd ?? 0) + (row.estimatedCostUsd ?? 0);
+  return total > perRunCapUsd;
 }
 
 function outcomeChipTitle(row: RunLedgerRow): string {

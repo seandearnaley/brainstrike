@@ -9,6 +9,7 @@ function hostRun(overrides: Partial<RunLedgerRow> & { readonly runId: string }):
     editCount: 0,
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
+    estimatedCostUsd: 0.0006,
     estimatedInputTokens: 100,
     estimatedOutputTokens: 20,
     failedToolCallCount: 0,

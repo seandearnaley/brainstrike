@@ -45,6 +45,7 @@ describe('useCrossRootCost', () => {
     const hostRow = {
       estimatedCacheCreationTokens: 0,
       estimatedCacheReadTokens: 0,
+      estimatedCostUsd: 0,
       estimatedInputTokens: 40,
       estimatedOutputTokens: 6,
       inputTokens: 40,
@@ -80,6 +81,7 @@ describe('useCrossRootCost', () => {
       {
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
+        estimatedCostUsd: 0,
         estimatedInputTokens: 40,
         estimatedOutputTokens: 6,
         inputTokens: 40,

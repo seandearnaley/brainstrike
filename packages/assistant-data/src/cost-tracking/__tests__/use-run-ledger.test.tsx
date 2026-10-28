@@ -16,6 +16,7 @@ function makeRow(overrides: Partial<RunLedgerRow> = {}): RunLedgerRow {
     durationMs: 5000,
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
+    estimatedCostUsd: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
     failedToolCallCount: 1,

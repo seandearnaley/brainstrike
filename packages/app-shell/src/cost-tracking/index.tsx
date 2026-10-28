@@ -5,13 +5,10 @@ import { CostAggregationPanel } from './cost-aggregation-panel';
 import { TaskLedgerPanel } from './task-ledger-panel';
 
 export {
-  DAILY_SPEND_AGGREGATION_SQL,
   type DailySpendState,
   type DailySpendSummary,
-  type DailySpendUsageRow,
-  mapDailySpendUsageRow,
   type RunLedgerState,
-  resolveDailySpendSummary,
+  resolveHostDailySpend,
   TASK_LEDGER_RUN_LIMIT,
   useDailySpend,
   useRunLedger,

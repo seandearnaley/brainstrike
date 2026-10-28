@@ -2,12 +2,7 @@ import {
   ASSISTANT_RUN_USAGE_KINDS,
   type AssistantRunUsageKind,
 } from '@brainstrike/assistant-contract/run-usage';
-import {
-  buildTokenUsageCounts,
-  type CostEstimate,
-  computeCost,
-  type ModelTokenPricing,
-} from '@brainstrike/tokenization';
+import type { CostEstimate } from '@brainstrike/tokenization';
 import type { ThreadCumulativeUsage } from './assistant-memory-repository.ts';
 
 /** One source's share of the thread total (BST-953). OM rows are local estimates. */
@@ -44,12 +39,6 @@ export interface CumulativeUsageDisplay {
   readonly outputTokens: number;
   readonly totalTokens: number;
 }
-
-/** Resolves a model's pricing from the registry (undefined when unknown). */
-export type ModelPricingResolver = (
-  provider: string,
-  model: string
-) => ModelTokenPricing | undefined;
 
 /**
  * Honest ZERO baseline for a repo-backed thread with no captured rows yet
@@ -102,39 +91,22 @@ function resolveBySource(usage: ThreadCumulativeUsage): CumulativeSourceUsage[] 
 }
 
 /**
- * Net caching savings across the thread, priced per model. Undefined when no
- * cache traffic exists or any cache-bearing model lacks the needed rates (a
- * partial figure would silently under/over-state the savings).
+ * Net caching savings across the thread, as the ledger priced each call.
+ * Undefined when no cache traffic exists or any cache-bearing call lacks the
+ * needed rates (a partial figure would silently under/over-state the savings).
  */
-function resolveCacheSavings(
-  usage: ThreadCumulativeUsage,
-  resolvePricing: ModelPricingResolver
-): { usdAmount: number } | undefined {
+function resolveCacheSavings(usage: ThreadCumulativeUsage): { usdAmount: number } | undefined {
   let sawCacheTraffic = false;
   let savedUsd = 0;
   for (const entry of usage.perModel) {
-    const cacheTokens = entry.cacheReadTokens + entry.cacheCreationTokens;
-    if (cacheTokens === 0) {
+    if (entry.cacheReadTokens + entry.cacheCreationTokens === 0) {
       continue;
     }
     sawCacheTraffic = true;
-    const pricing = resolvePricing(entry.provider, entry.model);
-    if (!pricing) {
+    if (entry.cacheSavingsUsd === undefined || entry.cacheSavingsUsd === null) {
       return;
     }
-    if (entry.cacheReadTokens > 0) {
-      if (pricing.cacheReadPerMTok === undefined) {
-        return;
-      }
-      savedUsd += (entry.cacheReadTokens * (pricing.inputPerMTok - pricing.cacheReadPerMTok)) / 1e6;
-    }
-    if (entry.cacheCreationTokens > 0) {
-      if (pricing.cacheWritePerMTok === undefined) {
-        return;
-      }
-      savedUsd -=
-        (entry.cacheCreationTokens * (pricing.cacheWritePerMTok - pricing.inputPerMTok)) / 1e6;
-    }
+    savedUsd += entry.cacheSavingsUsd;
   }
   return sawCacheTraffic ? { usdAmount: roundUsd(savedUsd) } : undefined;
 }
@@ -142,15 +114,13 @@ function resolveCacheSavings(
 /**
  * Aggregate captured durable usage into the thread-total display value.
  *
- * Cost is summed ACROSS entries: each per-(model, kind) subtotal is priced
- * with that model's own registry rate, then totalled. A thread that mixed a
- * priced and an unpriced model is reported as `unpriced_model` overall —
- * partial cost would be a silent under-count, which the no-silent-fallbacks
- * rule forbids.
+ * Cost is summed ACROSS entries, each already priced call by call at its own
+ * request's tier. A thread that mixed a priced and an unpriced model is
+ * reported as `unpriced_model` overall — partial cost would be a silent
+ * under-count, which the no-silent-fallbacks rule forbids.
  */
 export function resolveCumulativeUsageDisplay(
-  usage: ThreadCumulativeUsage | null,
-  resolvePricing: ModelPricingResolver
+  usage: ThreadCumulativeUsage | null
 ): CumulativeUsageDisplay | null {
   if (!usage) {
     return null;
@@ -177,35 +147,22 @@ export function resolveCumulativeUsageDisplay(
     const estimatedOutputTokens = entry.estimatedOutputTokens ?? entry.outputTokens;
     if (estimatedInputTokens + estimatedOutputTokens > 0) {
       sawEstimatedUsage = true;
-      const entryCost = computeCost(
-        buildTokenUsageCounts(
-          estimatedInputTokens,
-          estimatedOutputTokens,
-          entry.estimatedCacheReadTokens,
-          entry.estimatedCacheCreationTokens
-        ),
-        resolvePricing(entry.provider, entry.model)
-      );
-      if (!entryCost.available) {
+      if (entry.estimatedCostUsd === null) {
         // Any unpriced estimated portion makes the whole-thread cost honestly
         // unavailable (cache totals and the by-source split stay useful).
         unpriced = true;
         continue;
       }
-      summedUsd += entryCost.usdAmount;
+      summedUsd += entry.estimatedCostUsd;
     }
   }
 
+  const cacheSavings = unpriced ? undefined : resolveCacheSavings(usage);
   const base = {
     bySource: resolveBySource(usage),
     cacheCreationTokens,
     cacheReadTokens,
-    ...(unpriced
-      ? {}
-      : (() => {
-          const cacheSavings = resolveCacheSavings(usage, resolvePricing);
-          return cacheSavings ? { cacheSavings } : {};
-        })()),
+    ...(cacheSavings ? { cacheSavings } : {}),
     inputTokens: usage.totalInputTokens,
     outputTokens: usage.totalOutputTokens,
     totalTokens,
