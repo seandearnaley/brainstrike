@@ -8,6 +8,7 @@ import type { StorageValue } from 'zustand/middleware';
 import { MODEL_ID_MIGRATIONS } from '../stores/assistant-model-id-migrations.ts';
 import {
   __resetAssistantPreferencesStoreForTests,
+  ASSISTANT_PREFERENCES_STORE_VERSION,
   useAssistantPreferencesStore,
 } from '../stores/assistant-preferences-store.ts';
 import { __resetSettingsTestOverridesForTests } from './settings-test-overrides-test-helper.ts';
@@ -502,10 +503,7 @@ describe('assistant-preferences-store', () => {
 
     // BST-1697. The four September 2026 delistings all remap to a MORE
     // EXPENSIVE row (two of them from free), so a user whose SELECTED model is
-    // one of them must be told. Seeding at version 9 is load-bearing: it is
-    // the version these remaps shipped after, so a snapshot written by the
-    // previous release only re-runs the persist migration while
-    // ASSISTANT_PREFERENCES_STORE_VERSION is 10 or higher.
+    // one of them must be told.
     it('remaps the delisted OpenRouter routes and surfaces the selected one', async () => {
       const { rehydrate } = seedSnapshot(
         {
@@ -580,6 +578,33 @@ describe('assistant-preferences-store', () => {
       // modelsByProvider is seeded for every provider, so a retired per-provider
       // default under a provider the user is not running on is not intent.
       expect(store.modelMigrationNotices).toEqual([]);
+    });
+
+    // A model retired with no store version bump must still move on reopen:
+    // the snapshot below is what the previous release wrote, at the current
+    // version, with a Gemini Flash Google has since retired.
+    it('remaps a retired selection saved at the current store version', async () => {
+      const { rehydrate } = seedSnapshot(
+        {
+          enabledModelsByProvider: { google: ['gemini-3.5-flash', 'gemini-3.8-flash'] },
+          modelsByProvider: { google: 'gemini-3.5-flash' },
+          providerSettings: {},
+          recentModels: ['google::gemini-3.5-flash'],
+          selectedModel: 'google::gemini-3.5-flash',
+        },
+        ASSISTANT_PREFERENCES_STORE_VERSION
+      );
+
+      await rehydrate();
+
+      const store = useAssistantPreferencesStore.getState();
+      expect(store.selectedModel).toBe('google::gemini-3.8-flash');
+      expect(store.modelsByProvider['google']).toBe('gemini-3.8-flash');
+      expect(store.enabledModelsByProvider['google']).toEqual(['gemini-3.8-flash']);
+      expect(store.recentModels).toEqual(['google::gemini-3.8-flash']);
+      expect(store.modelMigrationNotices).toEqual([
+        { from: 'gemini-3.5-flash', provider: 'google', to: 'gemini-3.8-flash' },
+      ]);
     });
 
     it('takeModelMigrationNotices returns the list and clears it atomically', async () => {

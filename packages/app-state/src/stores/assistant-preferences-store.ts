@@ -416,6 +416,60 @@ function buildMigratedSelectedModel(
   return fallback ? `${parsedSelected.provider}${MODEL_KEY_DELIMITER}${fallback}` : null;
 }
 
+type PersistedPreferences = Partial<Store> & { selectedProvider?: SupportedProvider | null };
+
+/**
+ * Remaps retired model ids and repairs the selection against the enabled
+ * lists. `merge` runs it on EVERY hydration, not only when the persisted
+ * version changes: zustand calls `migrate` only on a version mismatch, so a
+ * model retired without a version bump would stay selected after reopen and
+ * every run would fail catalog validation.
+ */
+function normalizePersistedPreferences(base: PersistedPreferences): Partial<Store> {
+  const migratedEnabled = buildMigratedEnabledModels(base.enabledModelsByProvider);
+  const migratedModelsByProvider = buildMigratedModelsByProvider(
+    base.modelsByProvider,
+    migratedEnabled
+  );
+  const selectedModel = buildMigratedSelectedModel(base, migratedEnabled);
+
+  // v7 introduced recentModels; pre-v7 snapshots have none (default []).
+  // Keep only entries that still parse as composite keys, remapped through
+  // the model-id migrations.
+  const recentModels = Array.isArray(base.recentModels)
+    ? Array.from(
+        new Set(
+          base.recentModels
+            .map((entry) => parseCompositeModelKey(entry))
+            .filter((parsed): parsed is ParsedCompositeModelKey => parsed !== null)
+            .map(
+              (parsed) =>
+                `${parsed.provider}${MODEL_KEY_DELIMITER}${migrateModelId(parsed.provider, parsed.model)}`
+            )
+        )
+      ).slice(0, RECENT_MODELS_MAX)
+    : [];
+
+  return {
+    enabledModelsByProvider: migratedEnabled,
+    // Merged into live state but excluded by `partialize`, so the
+    // notices exist for this session only (BST-565).
+    modelMigrationNotices: collectModelMigrationNotices(base, selectedModel),
+    modelsByProvider: migratedModelsByProvider,
+    // Preserve every partialize'd field the snapshot may carry (e.g. a
+    // pre-v7 user's read-only planning guard) — the returned partial is
+    // merged over the current state, so anything omitted here silently
+    // resets to its default.
+    planModeEnabled: typeof base.planModeEnabled === 'boolean' ? base.planModeEnabled : false,
+    providerSettings: {
+      ...DEFAULT_PROVIDER_SETTINGS,
+      ...('providerSettings' in base ? (base.providerSettings as ProviderSettingsMap) : {}),
+    },
+    recentModels,
+    selectedModel,
+  } satisfies Partial<Store>;
+}
+
 function readLocalStorage(): Storage | undefined {
   try {
     if (typeof window === 'undefined') {
@@ -727,62 +781,15 @@ export const useAssistantPreferencesStore = create<Store>()(
       togglePlanMode: () => set((state) => ({ planModeEnabled: !state.planModeEnabled })),
     }),
     {
-      migrate: (persistedState, version) => {
-        if (!persistedState) {
-          return;
-        }
-
-        if (version >= STORE_VERSION) {
-          return persistedState as Partial<Store>;
-        }
-
-        const base = persistedState as Partial<Store> & {
-          selectedProvider?: SupportedProvider | null;
-        };
-        const migratedEnabled = buildMigratedEnabledModels(base.enabledModelsByProvider);
-        const migratedModelsByProvider = buildMigratedModelsByProvider(
-          base.modelsByProvider,
-          migratedEnabled
-        );
-        const selectedModel = buildMigratedSelectedModel(base, migratedEnabled);
-
-        // v7 introduced recentModels. Pre-v7 snapshots have none (default
-        // []); if a future rollback re-runs this path, keep only entries
-        // that still parse as composite keys, remapped through the model-id
-        // migrations.
-        const recentModels = Array.isArray(base.recentModels)
-          ? Array.from(
-              new Set(
-                base.recentModels
-                  .map((entry) => parseCompositeModelKey(entry))
-                  .filter((parsed): parsed is ParsedCompositeModelKey => parsed !== null)
-                  .map(
-                    (parsed) =>
-                      `${parsed.provider}${MODEL_KEY_DELIMITER}${migrateModelId(parsed.provider, parsed.model)}`
-                  )
-              )
-            ).slice(0, RECENT_MODELS_MAX)
-          : [];
-
-        return {
-          enabledModelsByProvider: migratedEnabled,
-          // Merged into live state but excluded by `partialize`, so the
-          // notices exist for this session only (BST-565).
-          modelMigrationNotices: collectModelMigrationNotices(base, selectedModel),
-          modelsByProvider: migratedModelsByProvider,
-          // Preserve every partialize'd field the migrated snapshot may carry
-          // (e.g. a pre-v7 user's read-only planning guard) — the returned
-          // partial is merged over initial state, so anything omitted here
-          // silently resets to its default.
-          planModeEnabled: typeof base.planModeEnabled === 'boolean' ? base.planModeEnabled : false,
-          providerSettings: {
-            ...DEFAULT_PROVIDER_SETTINGS,
-            ...('providerSettings' in base ? (base.providerSettings as ProviderSettingsMap) : {}),
-          },
-          recentModels,
-          selectedModel,
-        } satisfies Partial<Store>;
-      },
+      merge: (persistedState, currentState) =>
+        persistedState && typeof persistedState === 'object'
+          ? {
+              ...currentState,
+              ...normalizePersistedPreferences(persistedState as PersistedPreferences),
+            }
+          : currentState,
+      // `merge` normalizes every snapshot, whatever version wrote it.
+      migrate: (persistedState) => persistedState as Partial<Store>,
       name: STORE_NAME,
       partialize: (s) => ({
         enabledModelsByProvider: s.enabledModelsByProvider,
