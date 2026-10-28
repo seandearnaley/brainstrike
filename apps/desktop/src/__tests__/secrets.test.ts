@@ -63,10 +63,11 @@ describe('desktop credential store selection', () => {
     });
   });
 
-  it('scopes the production keyring service to the profile', () => {
-    expect(desktopCredentialStoreSelection('/Users/me/Library/Brainstrike', false)).toEqual({
-      kind: 'keyring',
-      service: 'brainstrike-desktop:/Users/me/Library/Brainstrike',
+  it('seals production credentials in a file inside the profile', () => {
+    const profile = resolve('/profiles/production');
+    expect(desktopCredentialStoreSelection(profile, false)).toEqual({
+      kind: 'sealed-file',
+      path: join(profile, 'brainstrike-credentials.sealed.json'),
     });
   });
 });

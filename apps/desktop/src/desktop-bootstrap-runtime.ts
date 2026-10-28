@@ -32,6 +32,7 @@ import {
 
 const logger = createLogger('DesktopBootstrap');
 const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
+const DEVELOPMENT_APP_NAME = 'BrainStrike Desktop Dev';
 type BindPlatform = (
   port: MessagePortMain,
   children: HostNativeChildren
@@ -91,7 +92,6 @@ function applyExplicitPathIsolation(agentDevtoolsConfig: {
 function applyDevelopmentPathIsolation():
   | {
       readonly userData: string;
-      readonly credentialStore: HostCredentialStoreSelection;
       readonly singleInstanceLockAcquired: boolean;
     }
   | undefined {
@@ -100,15 +100,14 @@ function applyDevelopmentPathIsolation():
   }
   // Pin DB/Core first. Changing Electron paths must not change that authority.
   const userData = resolveDevelopmentUserDataPath(resolveDesktopDatabaseLocation());
-  // Credentials stay shared across dev profiles, so their existing launch lock
-  // must also stay shared. Electron retains this lock after setPath below.
-  const credentialStore = desktopCredentialStoreSelection();
+  // Every ordinary dev profile shares one launch lock, taken before isolation
+  // moves userData. Electron retains this lock after setPath below.
   const singleInstanceLockAcquired = app.requestSingleInstanceLock();
   const logs = path.join(userData, 'logs');
   fs.mkdirSync(logs, { recursive: true });
   app.setPath('userData', userData);
   app.setPath('logs', logs);
-  return { credentialStore, singleInstanceLockAcquired, userData };
+  return { singleInstanceLockAcquired, userData };
 }
 
 function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
@@ -122,8 +121,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const explicitUserData = applyExplicitPathIsolation(agentDevtoolsConfig);
   const development = explicitUserData ? undefined : applyDevelopmentPathIsolation();
   const userDataDir = explicitUserData ?? development?.userData ?? app.getPath('userData');
-  const credentialStore =
-    development?.credentialStore ?? desktopCredentialStoreSelection(userDataDir);
+  const credentialStore = desktopCredentialStoreSelection(userDataDir);
   // Windows cannot rename Chromium's live files during factory reset. Give
   // its Session owner a separate container in ordinary launches too; reset
   // clears it through Electron before physically purging app-owned files.
@@ -140,6 +138,12 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   const e2e = isElectronE2ETestMode();
   const singleInstanceLockAcquired =
     development?.singleInstanceLockAcquired ?? (e2e ? true : app.requestSingleInstanceLock());
+  // safeStorage names its keychain item "<app name> Safe Storage" once this script
+  // has evaluated, so an unpackaged build that seals credentials never reads the
+  // release's key. Renamed after the launch lock, whose identity stays the same.
+  if (!app.isPackaged && credentialStore.kind === 'sealed-file') {
+    app.setName(DEVELOPMENT_APP_NAME);
+  }
   const mainEntryPath = resolveBundledSiblingPath('Desktop bootstrap', 'main.js');
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
   let focusSecondInstance: (() => void) | undefined;

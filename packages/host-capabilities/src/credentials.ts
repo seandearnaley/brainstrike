@@ -1,12 +1,14 @@
 import { resolve } from 'node:path';
 import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import type {
+  CredentialCipher,
   KeyringCredentialBackend,
   KeyringCredentialStore,
   SecretsService,
 } from '@brainstrike/agent-host/credential-contract';
 import {
   createFileCredentialBackend,
+  createSealedFileCredentialBackend,
   isMcpOAuthCredentialAccount,
 } from '@brainstrike/agent-host/file-credentials';
 import {
@@ -59,6 +61,8 @@ export interface HostCredentials {
 }
 
 export interface HostCredentialsOptions {
+  /** The platform's lent cipher; a `sealed-file` selection refuses without it. */
+  readonly cipher?: CredentialCipher;
   /** Trusted composition seam for fixtures; production uses the native worker. */
   readonly createNativeBackend?: (service: string) => KeyringCredentialBackend;
   /** Explicit launch selection; absent means no credential authority exists. */
@@ -70,6 +74,22 @@ export function createHostCredentials(options: HostCredentialsOptions): HostCred
   let store: KeyringCredentialStore | undefined;
   let secrets: SecretsService | undefined;
   let closing: Promise<void> | undefined;
+  const backend = (
+    selection: HostCredentialStoreSelection,
+    service: string
+  ): KeyringCredentialBackend => {
+    switch (selection.kind) {
+      case 'keyring':
+        return (options.createNativeBackend ?? createKeyringCredentialBackend)(service);
+      case 'file':
+        return createFileCredentialBackend(service);
+      case 'sealed-file':
+        if (!options.cipher) {
+          throw new Error('A sealed credential file needs the cipher its platform lends.');
+        }
+        return createSealedFileCredentialBackend(service, options.cipher);
+    }
+  };
   const open = (): KeyringCredentialStore => {
     if (closing !== undefined) {
       throw new HostCredentialsClosedError();
@@ -79,14 +99,8 @@ export function createHostCredentials(options: HostCredentialsOptions): HostCred
       throw new HostCredentialStoreUnselectedError();
     }
     if (!store) {
-      const service = selection.kind === 'file' ? resolve(selection.path) : selection.service;
-      store = createKeyringCredentialStore({
-        backend:
-          selection.kind === 'file'
-            ? createFileCredentialBackend(service)
-            : (options.createNativeBackend ?? createKeyringCredentialBackend)(service),
-        service,
-      });
+      const service = selection.kind === 'keyring' ? selection.service : resolve(selection.path);
+      store = createKeyringCredentialStore({ backend: backend(selection, service), service });
     }
     return store;
   };

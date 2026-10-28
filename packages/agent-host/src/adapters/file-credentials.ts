@@ -1,5 +1,9 @@
 import { isAbsolute, resolve } from 'node:path';
-import type { KeyringCredentialBackend, KeyringEntryRequest } from './credential-contract.ts';
+import type {
+  CredentialCipher,
+  KeyringCredentialBackend,
+  KeyringEntryRequest,
+} from './credential-contract.ts';
 import {
   readPrivateCredentialFile,
   writePrivateCredentialFile,
@@ -121,5 +125,32 @@ export function createFileCredentialBackend(path: string): KeyringCredentialBack
       const records = await read();
       return [...Object.keys(records.secrets), ...Object.keys(records.records)];
     },
+  };
+}
+
+/**
+ * The same private file with every value sealed by the platform's cipher.
+ * Account names stay readable, so listing never reaches the cipher.
+ */
+export function createSealedFileCredentialBackend(
+  path: string,
+  cipher: CredentialCipher
+): KeyringCredentialBackend {
+  const file = createFileCredentialBackend(path);
+  return {
+    async createEntry(request) {
+      const entry = await file.createEntry(request);
+      return {
+        deleteCredential: () => entry.deleteCredential(),
+        async getPassword() {
+          const sealed = await entry.getPassword();
+          return sealed === undefined ? undefined : await cipher.open(sealed);
+        },
+        async setPassword(value) {
+          await entry.setPassword(await cipher.seal(value));
+        },
+      };
+    },
+    listAccounts: (request) => file.listAccounts(request),
   };
 }

@@ -94,6 +94,44 @@ test('a selected private file store keeps the existing account and file shape', 
   await reopened.close();
 });
 
+test('a sealed private file keeps only cipher output on disk and lists without opening it', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'bs-capabilities-'));
+  directories.push(directory);
+  const path = join(directory, 'credentials.sealed.json');
+  const cipher = {
+    open: vi.fn(async (sealed: string) =>
+      Buffer.from(sealed, 'base64')
+        .toString('utf8')
+        .replace(/^sealed:/u, '')
+    ),
+    seal: vi.fn(async (plaintext: string) => Buffer.from(`sealed:${plaintext}`).toString('base64')),
+  };
+  const credentials = createHostCredentials({ cipher, selection: { kind: 'sealed-file', path } });
+  await credentials.secrets().saveKey('openai', 'sealed-fixture-key');
+  await credentials.close();
+  expect(await readFile(path, 'utf8')).not.toContain('sealed-fixture-key');
+  const reopened = createHostCredentials({ cipher, selection: { kind: 'sealed-file', path } });
+  cipher.open.mockClear();
+  await expect(reopened.secrets().listProviders()).resolves.toEqual(['openai']);
+  expect(cipher.open).not.toHaveBeenCalled();
+  const resolve = createHostProviderAuth({ credentials: reopened, env: {} });
+  await expect(resolve('openai')).resolves.toEqual({
+    apiKey: 'sealed-fixture-key',
+    kind: 'api_key',
+  });
+  await reopened.close();
+});
+
+test('a sealed file selection without its platform cipher refuses instead of storing plaintext', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'bs-capabilities-'));
+  directories.push(directory);
+  const credentials = createHostCredentials({
+    selection: { kind: 'sealed-file', path: join(directory, 'credentials.sealed.json') },
+  });
+  expect(() => credentials.secrets()).toThrow('needs the cipher its platform lends');
+  await credentials.close();
+});
+
 // Real credential construction keeps an unexpected backend error private; it is
 // not a user-correctable selection refusal just because both involve credentials.
 test('an unknown credential backend fault retains its diagnostic cause without leaking it', async () => {

@@ -164,6 +164,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { pushToRenderer } from './platform/desktop-ipc-push';
 import { prepareDocumentUnload } from './prepare-document-unload';
 import { registerRendererProtocol } from './renderer-protocol';
+import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { openIndexQuery } from './sqlite-query-host-manager';
@@ -1753,6 +1754,8 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
       }
     },
+    // ADR-0029: the host's sealed credential file borrows Main's safeStorage.
+    credentialCipher: createSafeStorageCredentialCipher(),
     lifecycleDelays: lifecycleDelaySeam(),
     // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
     mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
