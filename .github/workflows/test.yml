@@ -916,13 +916,14 @@ jobs:
           # electron-builder stops saying it skipped the rebuild, it recompiled.
           grep -q 'skipped dependencies rebuild' "$RUNNER_TEMP/electron-builder.log"
 
-      - name: Verify packaged MCP Apps bridge
-        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge
-      - name: Verify packaged MCP Tasks lifecycle
-        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-tasks
-
-      - name: Verify packaged MCP Apps lifecycle
-        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps
+      # The MCP Apps bridge, MCP Tasks restart and MCP Apps lifecycle proofs run
+      # in one Playwright run, two at once on the runner's 4 vCPUs, as the
+      # desktop E2E shards do. Each test launches the packaged app with its own
+      # user-data directory. As three serial runs they took 125 s: 101 s of
+      # tests and 24 s of starting Playwright three times (queue run
+      # 40714833472).
+      - name: Verify packaged MCP Apps and Tasks
+        run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
