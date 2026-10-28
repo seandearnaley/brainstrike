@@ -58,12 +58,16 @@ export const HostLedgerThreadSchema = Schema.Struct({
   rootUsage: Schema.mutable(
     Schema.Array(
       Schema.Struct({
+        /** The branch the run's thread had checked out at Send; null when unrecorded. */
+        checkoutBranch: Schema.NullOr(Id),
         estimatedCacheCreationTokens: Tokens,
         estimatedCacheReadTokens: Tokens,
         estimatedCostUsd: CostUsd,
         estimatedInputTokens: Tokens,
         estimatedOutputTokens: Tokens,
         inputTokens: Tokens,
+        /** A worktree root's repository (its Local root); null outside a worktree. */
+        localRootId: Schema.NullOr(Id),
         model: Schema.String,
         outputTokens: Tokens,
         provider: Id,

@@ -1,42 +1,74 @@
 import type { RunLedgerRow } from '@brainstrike/assistant-data';
 
 /**
- * Task Ledger analytics: the daily trend and the per-model comparison, folded
- * from the agent host's committed runs. Pure; no state, no writes. The host
- * records no provider-billed cost, so every token here is estimated and no
- * point or row claims an exact cost.
+ * Task Ledger analytics: the totals, the daily trend and the per-model
+ * comparison, folded from the agent host's committed runs. Pure; no state, no
+ * writes. The host records no provider-billed cost, so every cost here is the
+ * ledger's list-price estimate, summed from calls priced one by one.
  */
 
-export interface LedgerTrendPoint {
-  readonly billedCostUsd?: number;
-  /** The user's local calendar day, `YYYY-MM-DD`: the point's key and sort order. */
-  readonly day: string;
-  readonly estimatedInputTokens: number;
-  readonly estimatedOutputTokens: number;
+/** Tokens and estimated cost over a set of runs. */
+export interface LedgerUsageTotals {
+  /** Prompt-cache read share of `inputTokens`. */
+  readonly cacheReadTokens: number;
+  /** Prompt-cache write share of `inputTokens`. */
+  readonly cacheWriteTokens: number;
+  /** The priced runs' cost; runs counted in `unpricedRunCount` are left out. */
+  readonly costUsd: number;
   readonly inputTokens: number;
-  /** The same local day as a short label, e.g. "Oct 12". */
-  readonly label: string;
   readonly outputTokens: number;
   readonly runCount: number;
+  /** Runs with a call no list price covers: never counted as $0. */
+  readonly unpricedRunCount: number;
 }
 
-export interface LedgerModelComparisonRow {
+export interface LedgerTrendPoint extends LedgerUsageTotals {
+  /** The user's local calendar day, `YYYY-MM-DD`: the point's key and sort order. */
+  readonly day: string;
+  /** The same local day as a short label, e.g. "Oct 12". */
+  readonly label: string;
+}
+
+export interface LedgerModelComparisonRow extends LedgerUsageTotals {
   /** Mean wall-clock of COMPLETED runs; null when none completed. */
   readonly avgDurationMs: number | null;
-  readonly billedCostUsd?: number;
   readonly cancelledRunCount: number;
   readonly completedRunCount: number;
-  readonly estimatedInputTokens: number;
-  readonly estimatedOutputTokens: number;
   readonly failedRunCount: number;
-  readonly inputTokens: number;
   readonly labeledFailedCount: number;
   readonly labeledMixedCount: number;
   readonly labeledSucceededCount: number;
   readonly model: string;
-  readonly outputTokens: number;
   readonly provider: string;
-  readonly runCount: number;
+}
+
+export const NO_LEDGER_USAGE: LedgerUsageTotals = {
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  costUsd: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  runCount: 0,
+  unpricedRunCount: 0,
+};
+
+/** One more run in a usage total. */
+export function addRunUsage<T extends LedgerUsageTotals>(total: T, run: RunLedgerRow): T {
+  return {
+    ...total,
+    cacheReadTokens: total.cacheReadTokens + run.estimatedCacheReadTokens,
+    cacheWriteTokens: total.cacheWriteTokens + run.estimatedCacheCreationTokens,
+    costUsd: total.costUsd + (run.billedCostUsd ?? 0) + (run.estimatedCostUsd ?? 0),
+    inputTokens: total.inputTokens + run.inputTokens,
+    outputTokens: total.outputTokens + run.outputTokens,
+    runCount: total.runCount + 1,
+    unpricedRunCount: total.unpricedRunCount + (run.estimatedCostUsd === null ? 1 : 0),
+  };
+}
+
+/** The usage and cost of every run. */
+export function hostRunsTotals(hostRuns: readonly RunLedgerRow[]): LedgerUsageTotals {
+  return hostRuns.reduce(addRunUsage, NO_LEDGER_USAGE);
 }
 
 /**
@@ -66,33 +98,25 @@ export function hostRunsTrend(
       keyFormat.formatToParts(run.startedAt).map((part) => [part.type, part.value])
     );
     const day = `${parts.get('year')}-${parts.get('month')}-${parts.get('day')}`;
-    const point = days.get(day);
-    days.set(day, {
+    const point = days.get(day) ?? {
+      ...NO_LEDGER_USAGE,
       day,
-      estimatedInputTokens: (point?.estimatedInputTokens ?? 0) + run.estimatedInputTokens,
-      estimatedOutputTokens: (point?.estimatedOutputTokens ?? 0) + run.estimatedOutputTokens,
-      inputTokens: (point?.inputTokens ?? 0) + run.inputTokens,
-      label: point?.label ?? labelFormat.format(run.startedAt),
-      outputTokens: (point?.outputTokens ?? 0) + run.outputTokens,
-      runCount: (point?.runCount ?? 0) + 1,
-    });
+      label: labelFormat.format(run.startedAt),
+    };
+    days.set(day, addRunUsage(point, run));
   }
   return [...days.values()].sort((left, right) => compareText(left.day, right.day));
 }
 
 const NO_MODEL_COMPARISON: Omit<LedgerModelComparisonRow, 'model' | 'provider'> = {
+  ...NO_LEDGER_USAGE,
   avgDurationMs: null,
   cancelledRunCount: 0,
   completedRunCount: 0,
-  estimatedInputTokens: 0,
-  estimatedOutputTokens: 0,
   failedRunCount: 0,
-  inputTokens: 0,
   labeledFailedCount: 0,
   labeledMixedCount: 0,
   labeledSucceededCount: 0,
-  outputTokens: 0,
-  runCount: 0,
 };
 
 /** The mean over completed runs with one more timed completed run. */
@@ -105,20 +129,15 @@ function averageWith(row: LedgerModelComparisonRow, durationMs: number): number 
 function addRun(row: LedgerModelComparisonRow, run: RunLedgerRow): LedgerModelComparisonRow {
   const completed = run.status === 'completed';
   return {
-    ...row,
+    ...addRunUsage(row, run),
     avgDurationMs:
       completed && run.durationMs !== null ? averageWith(row, run.durationMs) : row.avgDurationMs,
     cancelledRunCount: row.cancelledRunCount + (run.status === 'cancelled' ? 1 : 0),
     completedRunCount: row.completedRunCount + (completed ? 1 : 0),
-    estimatedInputTokens: row.estimatedInputTokens + run.estimatedInputTokens,
-    estimatedOutputTokens: row.estimatedOutputTokens + run.estimatedOutputTokens,
     failedRunCount: row.failedRunCount + (run.status === 'failed' ? 1 : 0),
-    inputTokens: row.inputTokens + run.inputTokens,
     labeledFailedCount: row.labeledFailedCount + (run.outcomeVerdict === 'failed' ? 1 : 0),
     labeledMixedCount: row.labeledMixedCount + (run.outcomeVerdict === 'mixed' ? 1 : 0),
     labeledSucceededCount: row.labeledSucceededCount + (run.outcomeVerdict === 'succeeded' ? 1 : 0),
-    outputTokens: row.outputTokens + run.outputTokens,
-    runCount: row.runCount + 1,
   };
 }
 
@@ -144,9 +163,11 @@ export function hostRunsModelComparison(
     };
     rows.set(id, addRun(row, run));
   }
-  return [...rows.values()].sort((left, right) =>
-    left.provider === right.provider
-      ? compareText(left.model, right.model)
-      : compareText(left.provider, right.provider)
+  // The costliest model first: the comparison answers "where does the money go".
+  return [...rows.values()].sort(
+    (left, right) =>
+      right.costUsd - left.costUsd ||
+      compareText(left.provider, right.provider) ||
+      compareText(left.model, right.model)
   );
 }
