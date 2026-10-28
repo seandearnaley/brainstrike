@@ -107,12 +107,19 @@ function describeFailure(error: unknown): string {
  * resolved id whose `operatingRoot` has not landed yet would otherwise render
  * a branch with no folder beside it. Returns a ready-to-spread partial (see
  * `branchMenuEntry` below for why) rather than a plain conditional value.
+ *
+ * Also withheld until the branch switcher has answered for this root, so the
+ * chip renders once, as the switcher or as the read-only image. A freshly
+ * mounted bar (a new thread's first send mounts the thread's own panel)
+ * otherwise showed the image for one repository read and then swapped in the
+ * switcher button: a click in between landed on the image and opened nothing.
  */
 function checkoutEntry(
   primaryRoot: WorkspaceBarRoot | undefined,
-  checkout: WorkspaceBarCheckout | undefined
+  checkout: WorkspaceBarCheckout | undefined,
+  branchSwitcherSettled: boolean
 ): { readonly checkout?: WorkspaceBarCheckout } {
-  return primaryRoot && checkout ? { checkout } : {};
+  return primaryRoot && checkout && branchSwitcherSettled ? { checkout } : {};
 }
 
 /**
@@ -122,8 +129,11 @@ function checkoutEntry(
  * `useWorkspaceBar`'s return statement was what tipped its cognitive
  * complexity over Biome's cap.
  */
-function checkoutStateOf(checkoutSettled: boolean): 'pending' | 'resolved' {
-  return checkoutSettled ? 'resolved' : 'pending';
+function checkoutStateOf(
+  checkoutSettled: boolean,
+  branchSwitcherSettled: boolean
+): 'pending' | 'resolved' {
+  return checkoutSettled && branchSwitcherSettled ? 'resolved' : 'pending';
 }
 
 /**
@@ -1027,7 +1037,7 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     selectedMemoryThreadId,
     threadMetadata: selectedThread?.metadata,
   });
-  const { branchSwitcher, mode } = useWorkspaceBarMode({
+  const { branchSwitcher, branchSwitcherSettled, mode } = useWorkspaceBarMode({
     checkout,
     checkoutFailure,
     checkoutSettled,
@@ -1046,8 +1056,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     ...branchMenuEntry(primaryRoot, checkout, branchSwitcher),
     // BST-1400: the deterministic e2e wait `data-checkout-state` on the bar
     // exposes, replacing a bounded-sampling loop over "no branch chip yet".
-    checkoutState: checkoutStateOf(checkoutSettled),
-    ...checkoutEntry(primaryRoot, checkout),
+    checkoutState: checkoutStateOf(checkoutSettled, branchSwitcherSettled),
+    ...checkoutEntry(primaryRoot, checkout, branchSwitcherSettled),
     ...modeEntry(mode),
     ...workspaceBarTerminal,
     ...addFolderDisabledReasonEntry(addFolderDisabledReason),

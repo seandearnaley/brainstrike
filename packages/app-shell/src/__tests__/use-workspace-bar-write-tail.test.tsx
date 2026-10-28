@@ -329,7 +329,7 @@ beforeEach(() => {
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
   branchSwitcherSpy.mockReset();
-  branchSwitcherSpy.mockReturnValue(branchMenu);
+  branchSwitcherSpy.mockReturnValue({ menu: branchMenu, settled: true });
   checkoutSpy.mockClear();
   toastSpy.mockClear();
   worktreeArchiveSpy.mockReset();
