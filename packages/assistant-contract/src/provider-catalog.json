@@ -26,7 +26,7 @@
     "keyFormatHint": "sk-...",
     "models": [
       {
-        "_note": "Identity, limits, pricing, endpoints, and request-shape constraints: OpenAI model page and changelog, retrieved 2026-09-08 (BST-1692):\nhttps://developers.openai.com/api/docs/models/gpt-6-astra\nhttps://developers.openai.com/api/docs/changelog\n1,050,000 total context with a 922K maximum input.\nENDPOINT: the changelog says tool calling requires the Responses API. The direct `openai` route builds the default `createOpenAI()(modelId)` callable, which @ai-sdk/openai 4.0.49 resolves to its Responses model (POST /responses), so tool calling is available on the surface we use (packages/agent/src/providers/provider-factory.ts, `case 'openai'`).\nCACHE RATES OMITTED: OpenAI publishes $1/MTok cached input and $12.50/MTok cache writes, but a cache RATE may only travel with a `promptCaching` dialect (BST-1354, provider-registry-pricing.test.ts) and that enum has no `openai` member. Recording the rates without a dialect would price a discount the runtime never requests. Every sibling OpenAI row omits them for the same reason; adding an OpenAI caching dialect is separate work.\nLONG-CONTEXT SURCHARGE NOT MODELLED: OpenAI bills prompts above 272K input tokens at 2x input/cache and 1.5x output. computeCost in packages/tokenization/src/cost-estimate.ts applies one flat rate per token class and models no per-request tier, so estimates for prompts over 272K input tokens UNDERSTATE the real charge. The catalog schema has no tier field, and the same gap covers gpt-5.6-sol/terra/luna, which share this 1,050,000 context window; adding a tier is BST-1708. Pricing is NOT omitted to dodge it: an unpriced row reports no cost for EVERY request, which is a larger and far more common misstatement than understating the rare >272K one.\nREASONING LADDER DECLARED: the model page lists effort low/medium/high/xhigh/max with no `none` rung. This is the first DIRECT `openai` row to carry a `reasoning` block, because the undeclared fallback (OPENAI_FAMILY_DEFAULT_EFFORTS in packages/assistant-contract/src/model-reasoning.ts) is wrong for Astra in both directions: it offers `minimal`, which the page does not list, and withholds `max`, which it does. The 12 sibling openai rows still inherit that fallback (BST-1709). `mandatory` is false: effort is optional, and leaving it unset is the composer's Auto.\nThe model accepts no custom temperature or top_p.",
+        "_note": "Identity, limits, pricing, endpoints, and request-shape constraints: OpenAI model page and changelog, retrieved 2026-09-08 (BST-1692):\nhttps://developers.openai.com/api/docs/models/gpt-6-astra\nhttps://developers.openai.com/api/docs/changelog\n1,050,000 total context with a 922K maximum input.\nENDPOINT: the changelog says tool calling requires the Responses API. The direct `openai` route builds the default `createOpenAI()(modelId)` callable, which @ai-sdk/openai 4.0.49 resolves to its Responses model (POST /responses), so tool calling is available on the surface we use (packages/agent/src/providers/provider-factory.ts, `case 'openai'`).\nCACHE RATES OMITTED: OpenAI publishes $1/MTok cached input and $12.50/MTok cache writes, but a cache RATE may only travel with a `promptCaching` dialect (BST-1354, provider-registry-pricing.test.ts) and that enum has no `openai` member. Recording the rates without a dialect would price a discount the runtime never requests. Every sibling OpenAI row omits them for the same reason; adding an OpenAI caching dialect is separate work.\nLONG-CONTEXT SURCHARGE NOT MODELLED: OpenAI bills prompts above 272K input tokens at 2x input/cache and 1.5x output. computeCost in packages/tokenization/src/cost-estimate.ts applies one flat rate per token class and models no per-request tier, so estimates for prompts over 272K input tokens UNDERSTATE the real charge. The catalog schema has no tier field, and the same gap covers gpt-5.6-sol/terra/luna, which share this 1,050,000 context window; adding a tier is BST-1708. Pricing is NOT omitted to dodge it: an unpriced row reports no cost for EVERY request, which is a larger and far more common misstatement than understating the rare >272K one.\nREASONING LADDER DECLARED: the model page lists effort low/medium/high/xhigh/max with no `none` rung. This is the first DIRECT `openai` row to carry a `reasoning` block, because the undeclared fallback (OPENAI_FAMILY_DEFAULT_EFFORTS in packages/assistant-contract/src/model-reasoning.ts) is wrong for Astra in both directions: it offers `minimal`, which the page does not list, and withholds `max`, which it does. The 12 sibling openai rows still inherit that fallback (BST-1709). `mandatory` is false: effort is optional, and leaving it unset is the composer's Auto.\nThe model accepts no custom temperature or top_p.\nPRICING REFRESH 2026-10-28: cached input $1, 30-minute cache write $12.50; >272K input bills 2x input/cache and 1.5x output. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/pricing",
         "catalog": {
           "bestFor": [
             "Reasoning",
@@ -49,7 +49,18 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 1,
+          "cacheWritePerMTok": 12.5,
           "inputPerMTok": 10,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 2,
+              "cacheWritePerMTok": 25,
+              "inputPerMTok": 20,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 75
+            }
+          ],
           "outputPerMTok": 50
         },
         "reasoning": {
@@ -65,7 +76,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-sol\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES OMITTED: $0.20/MTok cached input and $2.50/MTok cache writes\nare published, but a cache rate may only travel with a `promptCaching`\ndialect and there is no `openai` member (BST-1354), as on gpt-6-astra.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$4 input / $15 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
+        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-sol\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES OMITTED: $0.20/MTok cached input and $2.50/MTok cache writes\nare published, but a cache rate may only travel with a `promptCaching`\ndialect and there is no `openai` member (BST-1354), as on gpt-6-astra.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$4 input / $15 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.\nPRICING REFRESH 2026-10-28: cached input $0.20, 30-minute cache write $2.50 (superseded on the pricing page by gpt-6.1-sol; model page still lists it). Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-6-sol",
         "catalog": {
           "bestFor": ["Complex coding", "Agentic workflows"],
           "description": null,
@@ -82,7 +93,18 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 2.5,
           "inputPerMTok": 2,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.4,
+              "cacheWritePerMTok": 5,
+              "inputPerMTok": 4,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 15
+            }
+          ],
           "outputPerMTok": 10
         },
         "reasoning": {
@@ -99,7 +121,98 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-luna\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES: $0.01/MTok cached input and $0.125/MTok cache writes,\nreverified on the model page 2026-10-11. Automatic caching reports these\nusage classes without an explicit promptCaching request dialect.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$0.20 input / $0.75 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
+        "_note": "Added 2026-10-28: identity, limits and standard pricing from https://developers.openai.com/api/docs/pricing and https://developers.openai.com/api/docs/models/gpt-6.1-sol (released 2026-09-29, supersedes gpt-6-sol on the pricing page). Cache reads are 0.05x input; 30-minute writes 1.25x. >272K input bills 2x input/cache and 1.5x output. Reasoning ladder copied from gpt-6-sol (same family page).",
+        "catalog": {
+          "bestFor": ["Complex coding", "Agentic workflows"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6.1 Sol",
+          "parameters": null,
+          "sortOrder": 16,
+          "tagline": "Built to power complex coding and agentic workflows"
+        },
+        "contextWindow": 1050000,
+        "id": "gpt-6.1-sol",
+        "label": "GPT-6.1 Sol",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "openai",
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 2.5,
+          "inputPerMTok": 2,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.2,
+              "cacheWritePerMTok": 5,
+              "inputPerMTok": 4,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 15
+            }
+          ],
+          "outputPerMTok": 10
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "supportsStreaming": true,
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28: identity, limits and standard pricing from https://developers.openai.com/api/docs/pricing and https://developers.openai.com/api/docs/models/gpt-6.1-terra (released 2026-10-26). Cache reads are 0.05x input; 30-minute writes 1.25x. >272K input bills 2x input/cache and 1.5x output. Reasoning ladder copied from the GPT-6 family rows.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6.1 Terra",
+          "parameters": null,
+          "sortOrder": 16,
+          "tagline": "Balanced GPT-6.1 tier"
+        },
+        "contextWindow": 1050000,
+        "id": "gpt-6.1-terra",
+        "label": "GPT-6.1 Terra",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "openai",
+        "pricing": {
+          "cacheReadPerMTok": 0.05,
+          "cacheWritePerMTok": 1.25,
+          "inputPerMTok": 1,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.1,
+              "cacheWritePerMTok": 2.5,
+              "inputPerMTok": 2,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 7.5
+            }
+          ],
+          "outputPerMTok": 5
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "mandatory": false,
+          "supportedEfforts": ["none", "low", "medium", "high", "xhigh", "max"]
+        },
+        "supportsStreaming": true,
+        "tagline": "Balanced GPT-6.1 tier",
+        "tokenMeasurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-luna\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES: $0.01/MTok cached input and $0.125/MTok cache writes,\nreverified on the model page 2026-10-11. Automatic caching reports these\nusage classes without an explicit promptCaching request dialect.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$0.20 input / $0.75 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.\nPRICING REFRESH 2026-10-28: >272K input tier now modelled (2x input/cache, 1.5x output). https://developers.openai.com/api/docs/pricing",
         "catalog": {
           "bestFor": ["Focused tasks", "High-volume tasks"],
           "description": null,
@@ -119,6 +232,15 @@
           "cacheReadPerMTok": 0.01,
           "cacheWritePerMTok": 0.125,
           "inputPerMTok": 0.1,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.02,
+              "cacheWritePerMTok": 0.25,
+              "inputPerMTok": 0.2,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 0.75
+            }
+          ],
           "outputPerMTok": 0.5
         },
         "reasoning": {
@@ -135,7 +257,7 @@
         "vision": "supported"
       },
       {
-        "_note": "BST-1698: OpenAI cut Sol from 5/30 to 4/20 $/MTok on 2026-08-21.\nStandard short-context tier, retrieved 2026-09-08:\nhttps://developers.openai.com/api/docs/pricing\nhttps://developers.openai.com/api/docs/changelog — \"GPT-5.6 Sol now\ncosts $4 per million input tokens and $20 per million output tokens,\nrepresenting 20% lower input pricing and 33% lower output pricing\",\nwhich reconstructs the prior 5/30 exactly and confirms the column\nreading. The vendor page also publishes long-context, batch, flex and\nfast tiers for this model; this schema carries one rate pair, so the\nstandard short-context tier is declared, as on every other row.\nOpenAI describes the new rate as promotional through at least\n2026-11-21 — re-check on the next catalog sweep.",
+        "_note": "BST-1698: OpenAI cut Sol from 5/30 to 4/20 $/MTok on 2026-08-21.\nStandard short-context tier, retrieved 2026-09-08:\nhttps://developers.openai.com/api/docs/pricing\nhttps://developers.openai.com/api/docs/changelog — \"GPT-5.6 Sol now\ncosts $4 per million input tokens and $20 per million output tokens,\nrepresenting 20% lower input pricing and 33% lower output pricing\",\nwhich reconstructs the prior 5/30 exactly and confirms the column\nreading. The vendor page also publishes long-context, batch, flex and\nfast tiers for this model; this schema carries one rate pair, so the\nstandard short-context tier is declared, as on every other row.\nOpenAI describes the new rate as promotional through at least\n2026-11-21 — re-check on the next catalog sweep.\nPRICING REFRESH 2026-10-28: cached input $0.40, 30-minute cache write $5; still the promotional 4/20 rate. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-5.6-sol",
         "catalog": {
           "bestFor": ["Deep reasoning", "Agentic work"],
           "description": null,
@@ -152,7 +274,18 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.4,
+          "cacheWritePerMTok": 5,
           "inputPerMTok": 4,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.8,
+              "cacheWritePerMTok": 10,
+              "inputPerMTok": 8,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 30
+            }
+          ],
           "outputPerMTok": 20
         },
         "reasoning": {
@@ -169,7 +302,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-terra",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-terra\nPRICING REFRESH 2026-10-28: cached input $0.20; GPT-5.6+ bills 30-minute writes at 1.25x input. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-5.6-terra",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Tool use"],
           "description": null,
@@ -187,7 +320,18 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 2.5,
           "inputPerMTok": 2,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.4,
+              "cacheWritePerMTok": 5,
+              "inputPerMTok": 4,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 18
+            }
+          ],
           "outputPerMTok": 12
         },
         "reasoning": {
@@ -205,7 +349,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.6-luna\nPRICING REFRESH 2026-10-28: cached input $0.02; GPT-5.6+ bills 30-minute writes at 1.25x input. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-5.6-luna",
         "catalog": {
           "bestFor": ["High volume", "Fast iteration"],
           "description": null,
@@ -222,7 +366,18 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.02,
+          "cacheWritePerMTok": 0.25,
           "inputPerMTok": 0.2,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.04,
+              "cacheWritePerMTok": 0.5,
+              "inputPerMTok": 0.4,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 1.8
+            }
+          ],
           "outputPerMTok": 1.2
         },
         "reasoning": {
@@ -239,7 +394,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.5\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).\nPRICING REFRESH 2026-10-28: cached input $0.50; pre-5.6 models charge no cache write. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-5.5",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Agentic"],
           "description": null,
@@ -256,7 +411,16 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.5,
           "inputPerMTok": 5,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 1,
+              "inputPerMTok": 10,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 45
+            }
+          ],
           "outputPerMTok": 30
         },
         "reasoning": {
@@ -308,7 +472,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4\nPrompts over 272K input tokens bill 2x input and 1.5x output for the\nfull session; the schema carries the base rate only (BST-1708).\nPRICING REFRESH 2026-10-28: cached input $0.25; no cache-write charge. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-5.4",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Multimodal"],
           "description": null,
@@ -325,7 +489,16 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.25,
           "inputPerMTok": 2.5,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.5,
+              "inputPerMTok": 5,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 22.5
+            }
+          ],
           "outputPerMTok": 15
         },
         "reasoning": {
@@ -377,7 +550,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-mini",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-mini\nPRICING REFRESH 2026-10-28: cached input $0.075. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-5.4-mini",
         "catalog": {
           "bestFor": ["Chat", "High volume"],
           "description": null,
@@ -394,6 +567,7 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.075,
           "inputPerMTok": 0.75,
           "outputPerMTok": 4.5
         },
@@ -411,7 +585,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-nano",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.4-nano\nPRICING REFRESH 2026-10-28: cached input $0.02. DEPRECATED 2026-10-01, shutdown 2027-04-01 (https://developers.openai.com/api/docs/deprecations). Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching).",
         "catalog": {
           "bestFor": ["Lightweight", "Classification"],
           "description": null,
@@ -428,6 +602,7 @@
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.02,
           "inputPerMTok": 0.2,
           "outputPerMTok": 1.25
         },
@@ -446,7 +621,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.3-codex",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.3-codex\nPRICING REFRESH 2026-10-28: cached input $0.175. DEPRECATED 2026-10-01, shutdown 2027-04-01 (https://developers.openai.com/api/docs/deprecations). Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching).",
         "catalog": {
           "bestFor": ["Coding", "Agentic"],
           "description": null,
@@ -462,6 +637,7 @@
         "label": "GPT-5.3 Codex",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.175,
           "inputPerMTok": 1.75,
           "outputPerMTok": 14
         },
@@ -478,7 +654,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.2",
+        "_note": "Standard short-context pricing and limits: OpenAI model page,\nretrieved 2026-09-23 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-5.2\nPRICING REFRESH 2026-10-28: cached input $0.175. Automatic prompt caching reports cached and written input tokens without a request dialect (https://developers.openai.com/api/docs/guides/prompt-caching). https://developers.openai.com/api/docs/models/gpt-5.2",
         "catalog": {
           "bestFor": ["Reasoning", "Coding"],
           "description": null,
@@ -494,6 +670,7 @@
         "label": "GPT-5.2",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.175,
           "inputPerMTok": 1.75,
           "outputPerMTok": 14
         },
@@ -786,6 +963,40 @@
         "vision": "supported"
       },
       {
+        "_note": "Added 2026-10-28: https://platform.claude.com/docs/en/about-claude/pricing lists Claude Sonnet 5.5 at $2 input / $2.50 5-minute cache write / $0.10 cache read (0.05x) / $10 output. 1M context, 128K output. `thinking: disabled` returns 400 on this model (between_tools is the off switch), so reasoning is declared mandatory like Opus 5.5; effort defaults to high.",
+        "anthropicReasoning": {
+          "defaultEffort": "high",
+          "mandatory": true,
+          "supportedEfforts": ["low", "medium", "high", "xhigh", "max"]
+        },
+        "catalog": {
+          "bestFor": ["Analysis", "Coding", "Writing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Sonnet 5.5",
+          "parameters": null,
+          "sortOrder": 4,
+          "tagline": "Current Claude Sonnet"
+        },
+        "contextWindow": 1000000,
+        "id": "claude-sonnet-5-5",
+        "label": "Claude Sonnet 5.5",
+        "maxOutputTokens": 128000,
+        "nativeToolSearch": "anthropic",
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 2.5,
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "promptCaching": "anthropic",
+        "supportsStreaming": true,
+        "tagline": "Best mix of smarts and speed",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "Vendor OFFERED ladder and default; retrieved 2026-09-04:\nhttps://platform.claude.com/docs/en/build-with-claude/effort\nhttps://platform.claude.com/docs/en/about-claude/models/overview\nAnthropic introductory rate through 2026-08-31.",
         "anthropicReasoning": {
           "defaultEffort": "high",
@@ -950,7 +1161,7 @@
     "keyNotes": "Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.",
     "models": [
       {
-        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": [
             "Long-horizon software engineering",
@@ -970,6 +1181,7 @@
         "label": "Gemini 3.8 Flash",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.075,
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -979,7 +1191,33 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google GA route and introductory pricing through 2026-12-31,\nrevalidated 2026-08-20:\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash\nhttps://ai.google.dev/gemini-api/docs/models\nhttps://ai.google.dev/gemini-api/docs/latest-model\nhttps://ai.google.dev/gemini-api/docs/changelog\nhttps://ai.google.dev/gemini-api/docs/pricing (BST-1339).",
+        "_note": "Added 2026-10-28: GA 2026-10-13 (https://ai.google.dev/gemini-api/docs/changelog). Model page https://ai.google.dev/gemini-api/docs/models/gemini-4-argon: 1,048,576 unified window, 65,536 default output, text/image/video/audio/PDF input, function calling, thinking low/medium/high, implicit caching only. Pricing is INTRODUCTORY: $2 input / $10 output / $0.10 cached through 2026-11-30, then $4 / $20 / $0.20 (https://ai.google.dev/gemini-api/docs/pricing).",
+        "catalog": {
+          "bestFor": ["Complex tasks", "Analysis", "Agentic coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 4 Argon",
+          "parameters": null,
+          "sortOrder": 10,
+          "tagline": "Google's most capable Gemini model"
+        },
+        "contextWindow": 1048576,
+        "id": "gemini-4-argon",
+        "label": "Gemini 4 Argon",
+        "maxOutputTokens": 65536,
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "supportsStreaming": true,
+        "tagline": "Google's most capable Gemini model",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Direct Google GA route and introductory pricing through 2026-12-31,\nrevalidated 2026-08-20:\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash\nhttps://ai.google.dev/gemini-api/docs/models\nhttps://ai.google.dev/gemini-api/docs/latest-model\nhttps://ai.google.dev/gemini-api/docs/changelog\nhttps://ai.google.dev/gemini-api/docs/pricing (BST-1339).\nPRICING REFRESH 2026-10-28: DEPRECATED 2026-10-08: requests route to gemini-3.8-flash and bill at its rates, including cached input $0.075 (https://ai.google.dev/gemini-api/docs/changelog).",
         "catalog": {
           "bestFor": [
             "Code generation",
@@ -999,6 +1237,7 @@
         "label": "Gemini 3.7 Flash",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.075,
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -1008,7 +1247,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "_note": "Direct Google GA route. Pricing is INTRODUCTORY: Google publishes\n\"$0.75 through December 31, 2026. $1.50 starting January 1, 2027.\" (input)\nand \"$3.75 through December 31, 2026. $7.50 starting January 1, 2027.\"\n(output). BST-1382 tracks the 2027-01-01 refresh for 3.6/3.7/3.8 Flash.\nVerified 2026-09-08 (BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.075 (introductory through 2026-12-31, then $0.15). Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": [
             "Code generation",
@@ -1028,6 +1267,7 @@
         "label": "Gemini 3.6 Flash",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.075,
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -1037,7 +1277,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google route. Standard paid tier is a flat $1.50 input / $9.00\noutput per 1M tokens (no prompt-size tier); limits 1,048,576/65,536.\nRetrieved 2026-09-23 (BST-1804):\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash",
+        "_note": "Direct Google route. Standard paid tier is a flat $1.50 input / $9.00\noutput per 1M tokens (no prompt-size tier); limits 1,048,576/65,536.\nRetrieved 2026-09-23 (BST-1804):\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash\nPRICING REFRESH 2026-10-28: DEPRECATED 2026-10-08 and auto-routed to 3.6 Flash; Google's pricing page no longer lists it. Cached input $0.15 is OpenRouter's google-ai-studio route for the same model (https://openrouter.ai/api/v1/models/google/gemini-3.5-flash/endpoints), the standard 0.1x of input.",
         "catalog": {
           "bestFor": ["Realtime apps", "High volume"],
           "description": null,
@@ -1054,6 +1294,7 @@
         "label": "Gemini 3.5 Flash",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.15,
           "inputPerMTok": 1.5,
           "outputPerMTok": 9
         },
@@ -1063,7 +1304,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Direct Google GA route. Not introductory pricing: Google publishes a\nflat $0.30 input / $2.50 output per 1M tokens. Verified 2026-09-08\n(BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite\nhttps://ai.google.dev/gemini-api/docs/pricing",
+        "_note": "Direct Google GA route. Not introductory pricing: Google publishes a\nflat $0.30 input / $2.50 output per 1M tokens. Verified 2026-09-08\n(BST-1693):\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite\nhttps://ai.google.dev/gemini-api/docs/pricing\nPRICING REFRESH 2026-10-28: cached input $0.03. Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": [
             "High-throughput subagent tasks",
@@ -1083,6 +1324,7 @@
         "label": "Gemini 3.5 Flash-Lite",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.03,
           "inputPerMTok": 0.3,
           "outputPerMTok": 2.5
         },
@@ -1092,6 +1334,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cached input $0.20; prompts over 200K bill $4 / $18 / cached $0.40. Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": ["Complex tasks", "Analysis"],
           "description": null,
@@ -1107,7 +1350,16 @@
         "label": "Gemini 3.1 Pro (Preview)",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.2,
           "inputPerMTok": 2,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.4,
+              "inputPerMTok": 4,
+              "minPromptTokens": 200000,
+              "outputPerMTok": 18
+            }
+          ],
           "outputPerMTok": 12
         },
         "supportsStreaming": true,
@@ -1116,7 +1368,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Standard paid-tier pricing (text / image / video input) and limits:\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite\nretrieved 2026-09-23 (BST-1804). Audio input is $0.50/MTok; this\none-rate-pair schema carries the text rate.",
+        "_note": "Standard paid-tier pricing (text / image / video input) and limits:\nhttps://ai.google.dev/gemini-api/docs/pricing\nhttps://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite\nretrieved 2026-09-23 (BST-1804). Audio input is $0.50/MTok; this\none-rate-pair schema carries the text rate.\nPRICING REFRESH 2026-10-28: cached text input $0.025. Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": ["Lightweight", "High volume"],
           "description": null,
@@ -1132,6 +1384,7 @@
         "label": "Gemini 3.1 Flash Lite",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.025,
           "inputPerMTok": 0.25,
           "outputPerMTok": 1.5
         },
@@ -1141,6 +1394,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cached input $0.125; prompts over 200K bill $2.50 / $15 / cached $0.25. Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": ["Complex tasks", "Analysis"],
           "description": null,
@@ -1156,7 +1410,16 @@
         "label": "Gemini 2.5 Pro",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.125,
           "inputPerMTok": 1.25,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.25,
+              "inputPerMTok": 2.5,
+              "minPromptTokens": 200000,
+              "outputPerMTok": 15
+            }
+          ],
           "outputPerMTok": 10
         },
         "supportsStreaming": true,
@@ -1164,6 +1427,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cached text input $0.03. Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": ["Realtime apps", "High volume"],
           "description": null,
@@ -1179,6 +1443,7 @@
         "label": "Gemini 2.5 Flash",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.03,
           "inputPerMTok": 0.3,
           "outputPerMTok": 2.5
         },
@@ -1187,6 +1452,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cached text input $0.01. Implicit caching is on by default for Gemini 2.5+ and bills hits at the cached-input rate with no write fee (https://ai.google.dev/gemini-api/docs/caching). https://ai.google.dev/gemini-api/docs/pricing",
         "catalog": {
           "bestFor": ["Lightweight", "High volume"],
           "description": null,
@@ -1202,6 +1468,7 @@
         "label": "Gemini 2.5 Flash Lite",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.01,
           "inputPerMTok": 0.1,
           "outputPerMTok": 0.4
         },
@@ -1211,7 +1478,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Gemini embeddings use outputDimensionality in JSON; this value is a UI hint.",
+        "_note": "Gemini embeddings use outputDimensionality in JSON; this value is a UI hint.\nPRICING REFRESH 2026-10-28: $0.15 per 1M input tokens, from Google's GA announcement (https://developers.googleblog.com/gemini-embedding-available-gemini-api/). Before this the default embedder had no price, so any thread that embedded memory read \"cost unavailable\".",
         "catalog": {
           "bestFor": ["General purpose", "Retrieval"],
           "description": null,
@@ -1226,6 +1493,9 @@
         "defaultDimension": 3072,
         "dimensionParameter": "output_dimensionality",
         "id": "gemini-embedding-001",
+        "pricing": {
+          "inputPerMTok": 0.15
+        },
         "supportsCustomDimensions": true,
         "supportsStandardDimension": true,
         "type": "embedding"
@@ -1277,7 +1547,7 @@
     "keyFormatHint": "sk-or-v1-...",
     "models": [
       {
-        "_note": "Route, 1,050,000/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). No reasoning\nladder is recorded: OpenRouter publishes no reasoning_config for this\nroute and this pass consulted no vendor doc, so guessing one is\nforbidden. GPT-6 Astra is Responses-only for tool calling; whatever\nthe OpenRouter adapter needs for that is a separate ticket.",
+        "_note": "Route, 1,050,000/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). No reasoning\nladder is recorded: OpenRouter publishes no reasoning_config for this\nroute and this pass consulted no vendor doc, so guessing one is\nforbidden. GPT-6 Astra is Responses-only for tool calling; whatever\nthe OpenRouter adapter needs for that is a separate ticket.\nPRICING REFRESH 2026-10-28: cache read $1, write $12.50. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-6-astra/endpoints.",
         "catalog": {
           "bestFor": [
             "Advanced analysis",
@@ -1298,6 +1568,8 @@
         "label": "GPT-6 Astra (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 1,
+          "cacheWritePerMTok": 12.5,
           "inputPerMTok": 10,
           "longContextTiers": [
             {
@@ -1315,7 +1587,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 4/15, which is a\nlong-context tier, not a clock band, so 2/10 is the base rate.",
+        "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 4/15, which is a\nlong-context tier, not a clock band, so 2/10 is the base rate.\nPRICING REFRESH 2026-10-28: cache read $0.20, write $2.50. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-6-sol/endpoints.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -1331,6 +1603,8 @@
         "label": "GPT-6 Sol (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 2.5,
           "inputPerMTok": 2,
           "longContextTiers": [
             {
@@ -1354,7 +1628,89 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 0.2/0.75, which\nis a long-context tier, not a clock band, so 0.1/0.5 is the base rate.",
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-6.1-sol/endpoints.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6.1 Sol (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 60,
+          "tagline": "Successor to GPT-6 Sol"
+        },
+        "contextWindow": 1050000,
+        "id": "openai/gpt-6.1-sol",
+        "label": "GPT-6.1 Sol (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 2.5,
+          "inputPerMTok": 2,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.2,
+              "cacheWritePerMTok": 5,
+              "inputPerMTok": 4,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 15
+            }
+          ],
+          "outputPerMTok": 10
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "defaultEnabled": true,
+          "mandatory": false,
+          "supportedEfforts": ["max", "xhigh", "high", "medium", "low", "none"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-6.1-terra/endpoints.",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GPT-6.1 Terra (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 60,
+          "tagline": "Balanced GPT-6.1 route"
+        },
+        "contextWindow": 1050000,
+        "id": "openai/gpt-6.1-terra",
+        "label": "GPT-6.1 Terra (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.05,
+          "cacheWritePerMTok": 1.25,
+          "inputPerMTok": 1,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.1,
+              "cacheWritePerMTok": 2.5,
+              "inputPerMTok": 2,
+              "minPromptTokens": 272000,
+              "outputPerMTok": 7.5
+            }
+          ],
+          "outputPerMTok": 5
+        },
+        "reasoning": {
+          "defaultEffort": "medium",
+          "defaultEnabled": true,
+          "mandatory": false,
+          "supportedEfforts": ["max", "xhigh", "high", "medium", "low", "none"]
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 1,050,000/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory false, default_enabled true, efforts\nmax..none, default medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=272000 prompt-token tier at 0.2/0.75, which\nis a long-context tier, not a clock band, so 0.1/0.5 is the base rate.\nPRICING REFRESH 2026-10-28: cache read $0.01, write $0.125. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-6-luna/endpoints.",
         "catalog": {
           "bestFor": [
             "High-volume workloads",
@@ -1375,6 +1731,8 @@
         "label": "GPT-6 Luna (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.01,
+          "cacheWritePerMTok": 0.125,
           "inputPerMTok": 0.1,
           "longContextTiers": [
             {
@@ -1398,7 +1756,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Updated 0902 snapshot of Qwen3.8 Max. Route, 1M/131,072 ceilings,\ntext/image/video input and gateway pricing: OpenRouter Models API,\nretrieved 2026-09-08 (BST-1695). The output fact is a hard maximum,\nnot a default combined reasoning + answer window. No reasoning ladder\nis recorded here because this pass consulted no vendor doc; the\nundated qwen/qwen3.8-max row keeps the one it shipped with.",
+        "_note": "Updated 0902 snapshot of Qwen3.8 Max. Route, 1M/131,072 ceilings,\ntext/image/video input and gateway pricing: OpenRouter Models API,\nretrieved 2026-09-08 (BST-1695). The output fact is a hard maximum,\nnot a default combined reasoning + answer window. No reasoning ladder\nis recorded here because this pass consulted no vendor doc; the\nundated qwen/qwen3.8-max row keeps the one it shipped with.\nPRICING REFRESH 2026-10-28: cache read $0.25, write $2.50 (alibaba route). Standard route base rate from https://openrouter.ai/api/v1/models/qwen/qwen3.8-max-0902/endpoints.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -1414,6 +1772,8 @@
         "label": "Qwen3.8 Max 0902 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
+          "cacheReadPerMTok": 0.25,
+          "cacheWritePerMTok": 2.5,
           "inputPerMTok": 2,
           "outputPerMTok": 6
         },
@@ -1519,7 +1879,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576/65,536 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). The output\nfact is a hard maximum, not a default combined thinking + answer\nwindow. No reasoning ladder is recorded: this pass consulted no\nGoogle model page, so the 3.7 Flash row's mandatory/default-enabled\nfacts are not transplanted onto a route that did not report them.",
+        "_note": "Route, 1,048,576/65,536 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695). The output\nfact is a hard maximum, not a default combined thinking + answer\nwindow. No reasoning ladder is recorded: this pass consulted no\nGoogle model page, so the 3.7 Flash row's mandatory/default-enabled\nfacts are not transplanted onto a route that did not report them.\nPRICING REFRESH 2026-10-28: cache read $0.075, write $0.0416667. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints.",
         "catalog": {
           "bestFor": [
             "Software engineering",
@@ -1539,6 +1899,8 @@
         "label": "Gemini 3.8 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.075,
+          "cacheWritePerMTok": 0.0416667,
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -1547,7 +1909,33 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1M/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695).",
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-4-argon/endpoints. google-ai-studio route, 1,048,576 / 943,718. Google's introductory rate runs through 2026-11-30.",
+        "catalog": {
+          "bestFor": ["Complex tasks", "Analysis", "Agentic coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 4 Argon (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 48,
+          "tagline": "Google's most capable Gemini model"
+        },
+        "contextWindow": 1048576,
+        "id": "google/gemini-4-argon",
+        "label": "Gemini 4 Argon (OpenRouter)",
+        "maxOutputTokens": 943718,
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 0.1875,
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Route, 1M/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695).\nPRICING REFRESH 2026-10-28: cache read $0.25, 5-minute write $12.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-fable-5.1/endpoints.",
         "catalog": {
           "bestFor": [
             "Agentic coding",
@@ -1567,6 +1955,8 @@
         "label": "Claude Fable 5.1 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.25,
+          "cacheWritePerMTok": 12.5,
           "inputPerMTok": 10,
           "outputPerMTok": 50
         },
@@ -1575,7 +1965,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1M/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..low, default high):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. Its\ndefault_effort (high) differs from Anthropic's first-party default\n(medium); this row records the gateway's value.",
+        "_note": "Route, 1M/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..low, default high):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. Its\ndefault_effort (high) differs from Anthropic's first-party default\n(medium); this row records the gateway's value.\nPRICING REFRESH 2026-10-28: cache read $0.2, 5-minute write $5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-5.5/endpoints.",
         "catalog": {
           "bestFor": [
             "Demanding reasoning",
@@ -1595,6 +1985,8 @@
         "label": "Claude Opus 5.5 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 5,
           "inputPerMTok": 4,
           "outputPerMTok": 20
         },
@@ -1608,7 +2000,7 @@
         "vision": "supported"
       },
       {
-        "_note": "The OpenRouter route for the model BST-957 added as a direct\nAnthropic route; it was missed by earlier gateway passes. Route,\n1M/128,000 ceilings, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695).",
+        "_note": "The OpenRouter route for the model BST-957 added as a direct\nAnthropic route; it was missed by earlier gateway passes. Route,\n1M/128,000 ceilings, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695).\nPRICING REFRESH 2026-10-28: cache read $0.5, 5-minute write $6.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-5/endpoints.",
         "catalog": {
           "bestFor": ["Agentic coding", "Enterprise work"],
           "description": null,
@@ -1624,6 +2016,8 @@
         "label": "Claude Opus 5 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.5,
+          "cacheWritePerMTok": 6.25,
           "inputPerMTok": 5,
           "outputPerMTok": 25
         },
@@ -1745,7 +2139,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Official Z.AI GLM-5.3 release/model/thinking docs, retrieved\n2026-08-22, own the API ID, text-only modality, native 1M/128K\nlimits, and mandatory max/high/low reasoning ladder with max default.\nOpenRouter Models and endpoint APIs own this fixed route's effective\n1,048,576/131,072 ceilings and gateway pricing (BST-1414). The 128K\nfact is a hard maximum, not a distinct default combined reasoning +\nanswer reservation, so vendorDefaultOutputTokens remains absent.\ncontextWindow is top_provider.context_length, not the higher\nmodel-level 1,310,720 that only Cloudflare serves (BST-1804).",
+        "_note": "Official Z.AI GLM-5.3 release/model/thinking docs, retrieved\n2026-08-22, own the API ID, text-only modality, native 1M/128K\nlimits, and mandatory max/high/low reasoning ladder with max default.\nOpenRouter Models and endpoint APIs own this fixed route's effective\n1,048,576/131,072 ceilings and gateway pricing (BST-1414). The 128K\nfact is a hard maximum, not a distinct default combined reasoning +\nanswer reservation, so vendorDefaultOutputTokens remains absent.\ncontextWindow is top_provider.context_length, not the higher\nmodel-level 1,310,720 that only Cloudflare serves (BST-1804).\nPRICING REFRESH 2026-10-28: base moved 0.84/2.64 -> 1.4/4.4 on the z-ai/fp8 route (most of its 48 endpoints list the same), cache read $0.26. Standard route base rate from https://openrouter.ai/api/v1/models/z-ai/glm-5.3/endpoints.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -1761,8 +2155,9 @@
         "label": "GLM-5.3 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
-          "inputPerMTok": 0.84,
-          "outputPerMTok": 2.64
+          "cacheReadPerMTok": 0.26,
+          "inputPerMTok": 1.4,
+          "outputPerMTok": 4.4
         },
         "reasoning": {
           "defaultEffort": "max",
@@ -2150,7 +2545,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Route, 500,000/450,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, default_enabled true, efforts\nxhigh..low, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=200000 prompt-token tier at 3.2/9.6, which\nis a long-context tier, not a clock band, so 1.6/4.8 is the base rate.\nIt is cheaper than grok-4.6 (2/6) on the same gateway.",
+        "_note": "Route, 500,000/450,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, default_enabled true, efforts\nxhigh..low, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route also publishes a >=200000 prompt-token tier at 3.2/9.6, which\nis a long-context tier, not a clock band, so 1.6/4.8 is the base rate.\nIt is cheaper than grok-4.6 (2/6) on the same gateway.\nPRICING REFRESH 2026-10-28: base moved 1.6/4.8 -> 2/6, cache read $0.50, >=200K tier 4/12/cached $1. Standard route base rate from https://openrouter.ai/api/v1/models/x-ai/grok-4.7/endpoints.",
         "catalog": {
           "bestFor": [
             "Coding",
@@ -2171,16 +2566,17 @@
         "label": "Grok 4.7 (OpenRouter)",
         "maxOutputTokens": 450000,
         "pricing": {
-          "inputPerMTok": 1.6,
+          "cacheReadPerMTok": 0.5,
+          "inputPerMTok": 2,
           "longContextTiers": [
             {
-              "cacheReadPerMTok": 0.8,
-              "inputPerMTok": 3.2,
+              "cacheReadPerMTok": 1,
+              "inputPerMTok": 4,
               "minPromptTokens": 200000,
-              "outputPerMTok": 9.6
+              "outputPerMTok": 12
             }
           ],
-          "outputPerMTok": 4.8
+          "outputPerMTok": 6
         },
         "reasoning": {
           "defaultEffort": "high",
@@ -2333,7 +2729,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Context window and max output are the route's top_provider pair,\n1,048,576 / 943,718 (live read 2026-09-23 UTC, BST-1804). It replaced\nthe vendor maximum 1,048,576, recorded while OpenRouter published none.\nAuto deliberately runs below the vendor default: Kimi's `max` spends\nthe whole coding-profile output budget reasoning (BST-833).\nOfficial K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,\nverified 2026-08-05): max_completion_tokens defaults to 131,072\n(max 1,048,576) — the vendor's operating point for thinking +\nanswer. Moonshot's FIRST-PARTY API cannot disable thinking, but\nthe OpenRouter route declares reasoning optional (mandatory:\nfalse, multiple hosts serve this open-weight model); an explicit\nOff maps to `reasoning.enabled: false` under\n`provider.require_parameters`, which narrows routing to endpoints\nhonouring it — so a reasoning-off request correctly keeps the\ncoding ceiling instead of this window. OpenRouter publishes no\ndefault completion window, so that fact lives here (BST-1170).",
+        "_note": "Context window and max output are the route's top_provider pair,\n1,048,576 / 943,718 (live read 2026-09-23 UTC, BST-1804). It replaced\nthe vendor maximum 1,048,576, recorded while OpenRouter published none.\nAuto deliberately runs below the vendor default: Kimi's `max` spends\nthe whole coding-profile output budget reasoning (BST-833).\nOfficial K3 contract (platform.kimi.ai/docs/guide/kimi-k3-quickstart,\nverified 2026-08-05): max_completion_tokens defaults to 131,072\n(max 1,048,576) — the vendor's operating point for thinking +\nanswer. Moonshot's FIRST-PARTY API cannot disable thinking, but\nthe OpenRouter route declares reasoning optional (mandatory:\nfalse, multiple hosts serve this open-weight model); an explicit\nOff maps to `reasoning.enabled: false` under\n`provider.require_parameters`, which narrows routing to endpoints\nhonouring it — so a reasoning-off request correctly keeps the\ncoding ceiling instead of this window. OpenRouter publishes no\ndefault completion window, so that fact lives here (BST-1170).\nPRICING REFRESH 2026-10-28: cache read $0.30 (Moonshot first-party route). Standard route base rate from https://openrouter.ai/api/v1/models/moonshotai/kimi-k3/endpoints.",
         "catalog": {
           "bestFor": ["Long-horizon coding", "Knowledge work", "Tool use"],
           "description": null,
@@ -2349,6 +2745,7 @@
         "label": "Kimi K3 (OpenRouter)",
         "maxOutputTokens": 943718,
         "pricing": {
+          "cacheReadPerMTok": 0.3,
           "inputPerMTok": 3,
           "outputPerMTok": 15
         },
@@ -2365,7 +2762,40 @@
         "vision": "supported"
       },
       {
-        "_note": "BST-1698: PRICED FROM OPENROUTER'S OWN CATALOG, NOT OPENAI'S.\nhttps://openrouter.ai/api/v1/models retrieved 2026-09-08 reports\nprompt \"0.000002\" / completion \"0.00001\" => 2/10 $/MTok, plus a\n>=272000 prompt-token override at 4/15. OpenAI's own standard tier for\nthe same model is 4/20 (see the `openai` block), so the two ROUTES\nDIFFER: every OpenRouter Sol figure is exactly half OpenAI's, and they\ncoincide with OpenAI's batch/flex column. The sibling rows are faithful\npass-throughs (OpenRouter terra 2/12 and luna 0.2/1.2 match OpenAI's\npage exactly), so the divergence is Sol-specific and may be an upstream\ndata error rather than a real discount. Declared from OpenRouter anyway\nbecause this block is a \"curated current subset from OpenRouter's model\ncatalog\" and OpenRouter is the route that bills the user; provider-\nreported billed cost stays authoritative at runtime and this rate is a\ndisplay estimate. BST-1804 re-read both sources 2026-09-23: OpenRouter\nstill 2/10 with the 4/15 tier; OpenAI still 4/20 short-context and 8/30\nabove 272K, so the direct row is not a mis-read long-context tier. The\ngap stands as per-route data.",
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/moonshotai/kimi-k3.1-pro/endpoints. Moonshot first-party route, 1,048,576 / 943,718 (top_provider). Reasoning ladder copied from kimi-k3.",
+        "catalog": {
+          "bestFor": ["Long-horizon coding", "Knowledge work", "Tool use"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Kimi K3.1 Pro (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 18,
+          "tagline": "Successor to Kimi K3"
+        },
+        "contextWindow": 1048576,
+        "id": "moonshotai/kimi-k3.1-pro",
+        "label": "Kimi K3.1 Pro (OpenRouter)",
+        "maxOutputTokens": 943718,
+        "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "reasoning": {
+          "autoEffort": "low",
+          "defaultEffort": "max",
+          "defaultEnabled": true,
+          "mandatory": false,
+          "supportedEfforts": ["max", "high", "low"],
+          "vendorDefaultOutputTokens": 131072
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "BST-1698: PRICED FROM OPENROUTER'S OWN CATALOG, NOT OPENAI'S.\nhttps://openrouter.ai/api/v1/models retrieved 2026-09-08 reports\nprompt \"0.000002\" / completion \"0.00001\" => 2/10 $/MTok, plus a\n>=272000 prompt-token override at 4/15. OpenAI's own standard tier for\nthe same model is 4/20 (see the `openai` block), so the two ROUTES\nDIFFER: every OpenRouter Sol figure is exactly half OpenAI's, and they\ncoincide with OpenAI's batch/flex column. The sibling rows are faithful\npass-throughs (OpenRouter terra 2/12 and luna 0.2/1.2 match OpenAI's\npage exactly), so the divergence is Sol-specific and may be an upstream\ndata error rather than a real discount. Declared from OpenRouter anyway\nbecause this block is a \"curated current subset from OpenRouter's model\ncatalog\" and OpenRouter is the route that bills the user; provider-\nreported billed cost stays authoritative at runtime and this rate is a\ndisplay estimate. BST-1804 re-read both sources 2026-09-23: OpenRouter\nstill 2/10 with the 4/15 tier; OpenAI still 4/20 short-context and 8/30\nabove 272K, so the direct row is not a mis-read long-context tier. The\ngap stands as per-route data.\nPRICING REFRESH 2026-10-28: base moved 2/10 -> 4/20 (OpenAI promotional rate), cache read $0.40, write $5, >=272K tier 8/30. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-5.6-sol/endpoints.",
         "catalog": {
           "bestFor": ["Deep reasoning", "Agentic work"],
           "description": null,
@@ -2381,23 +2811,26 @@
         "label": "GPT-5.6 Sol (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
-          "inputPerMTok": 2,
+          "cacheReadPerMTok": 0.4,
+          "cacheWritePerMTok": 5,
+          "inputPerMTok": 4,
           "longContextTiers": [
             {
-              "cacheReadPerMTok": 0.4,
-              "cacheWritePerMTok": 5,
-              "inputPerMTok": 4,
+              "cacheReadPerMTok": 0.8,
+              "cacheWritePerMTok": 10,
+              "inputPerMTok": 8,
               "minPromptTokens": 272000,
-              "outputPerMTok": 15
+              "outputPerMTok": 30
             }
           ],
-          "outputPerMTok": 10
+          "outputPerMTok": 20
         },
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.20, write $2.50. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-5.6-terra/endpoints.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Tool use"],
           "description": null,
@@ -2414,6 +2847,8 @@
         "label": "GPT-5.6 Terra (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 2.5,
           "inputPerMTok": 2,
           "longContextTiers": [
             {
@@ -2432,6 +2867,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.02, write $0.25. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-5.6-luna/endpoints.",
         "catalog": {
           "bestFor": ["High volume", "Fast iteration"],
           "description": null,
@@ -2447,6 +2883,8 @@
         "label": "GPT-5.6 Luna (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.02,
+          "cacheWritePerMTok": 0.25,
           "inputPerMTok": 0.2,
           "longContextTiers": [
             {
@@ -2464,6 +2902,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $1, 5-minute write $12.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-fable-5/endpoints.",
         "catalog": {
           "bestFor": ["Deep research", "Complex agents"],
           "description": null,
@@ -2479,6 +2918,8 @@
         "label": "Claude Fable 5 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 1,
+          "cacheWritePerMTok": 12.5,
           "inputPerMTok": 10,
           "outputPerMTok": 50
         },
@@ -2487,7 +2928,34 @@
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter currently reflects Anthropic's introductory rate.",
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-5.5/endpoints. 1,000,000 / 128,000; 1-hour write $4 is not modelled (Brainstrike sends 5-minute breakpoints).",
+        "catalog": {
+          "bestFor": ["Analysis", "Coding", "Writing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Sonnet 5.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 23,
+          "tagline": "Current Claude Sonnet route"
+        },
+        "contextWindow": 1000000,
+        "id": "anthropic/claude-sonnet-5.5",
+        "label": "Claude Sonnet 5.5 (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 2.5,
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "supportsStreaming": true,
+        "tagline": "Best mix of smarts and speed",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "OpenRouter currently reflects Anthropic's introductory rate.\nPRICING REFRESH 2026-10-28: cache read $0.2, 5-minute write $2.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-5/endpoints.",
         "catalog": {
           "bestFor": ["Analysis", "Coding", "Writing"],
           "description": null,
@@ -2503,6 +2971,8 @@
         "label": "Claude Sonnet 5 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 2.5,
           "inputPerMTok": 2,
           "outputPerMTok": 10
         },
@@ -2542,6 +3012,7 @@
         "vision": "unsupported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.06. Standard route base rate from https://openrouter.ai/api/v1/models/minimax/minimax-m3/endpoints.",
         "catalog": {
           "bestFor": ["Reasoning", "Agents", "Multilingual"],
           "description": null,
@@ -2557,8 +3028,34 @@
         "label": "MiniMax M3 (OpenRouter)",
         "maxOutputTokens": 512000,
         "pricing": {
+          "cacheReadPerMTok": 0.06,
           "inputPerMTok": 0.3,
           "outputPerMTok": 1.2
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/minimax/minimax-m3.1-flash/endpoints. 1,048,576 / 524,288 (top_provider).",
+        "catalog": {
+          "bestFor": ["Agents", "High-volume tasks"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "MiniMax M3.1 Flash (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 25,
+          "tagline": "Fast MiniMax M3.1 route"
+        },
+        "contextWindow": 1048576,
+        "id": "minimax/minimax-m3.1-flash",
+        "label": "MiniMax M3.1 Flash (OpenRouter)",
+        "maxOutputTokens": 524288,
+        "pricing": {
+          "cacheReadPerMTok": 0.015,
+          "inputPerMTok": 0.15,
+          "outputPerMTok": 0.6
         },
         "supportsStreaming": true,
         "type": "llm",
@@ -2766,6 +3263,7 @@
         "vision": "unsupported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.50, no write price. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-5.5/endpoints.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding"],
           "description": null,
@@ -2781,6 +3279,7 @@
         "label": "GPT-5.5 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.5,
           "inputPerMTok": 5,
           "longContextTiers": [
             {
@@ -2797,6 +3296,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.25, no write price. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-5.4/endpoints.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding"],
           "description": null,
@@ -2812,6 +3312,7 @@
         "label": "GPT-5.4 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.25,
           "inputPerMTok": 2.5,
           "longContextTiers": [
             {
@@ -2828,6 +3329,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.075. Standard route base rate from https://openrouter.ai/api/v1/models/openai/gpt-5.4-mini/endpoints.",
         "catalog": {
           "bestFor": ["Chat", "High volume"],
           "description": null,
@@ -2843,6 +3345,7 @@
         "label": "GPT-5.4 Mini (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.075,
           "inputPerMTok": 0.75,
           "outputPerMTok": 4.5
         },
@@ -2897,6 +3400,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.5, 5-minute write $6.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-4.8/endpoints.",
         "catalog": {
           "bestFor": ["Deep research"],
           "description": null,
@@ -2912,6 +3416,8 @@
         "label": "Claude Opus 4.8 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.5,
+          "cacheWritePerMTok": 6.25,
           "inputPerMTok": 5,
           "outputPerMTok": 25
         },
@@ -2920,6 +3426,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.3, 5-minute write $3.75. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-4.6/endpoints.",
         "catalog": {
           "bestFor": ["Analysis", "Writing"],
           "description": null,
@@ -2935,6 +3442,8 @@
         "label": "Claude Sonnet 4.6 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.3,
+          "cacheWritePerMTok": 3.75,
           "inputPerMTok": 3,
           "outputPerMTok": 15
         },
@@ -2943,6 +3452,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.1, 5-minute write $1.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-haiku-4.5/endpoints.",
         "catalog": {
           "bestFor": ["Quick responses"],
           "description": null,
@@ -2958,6 +3468,8 @@
         "label": "Claude Haiku 4.5 (OpenRouter)",
         "maxOutputTokens": 64000,
         "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 1.25,
           "inputPerMTok": 1,
           "outputPerMTok": 5
         },
@@ -2967,7 +3479,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 1.5 / 9. The row previously held 0.3 / 2.5, which is\nthe rate of the SIBLING google/gemini-3.5-flash-lite and google/gemini-2.5-\nflash routes, not of this one — Gemini 3.5 Flash is a near-Pro tier model\nand OpenRouter prices it 5x its Lite sibling. The direct `google` block\nstill carries 0.3 / 2.5 for its own gemini-3.5-flash row; that row is out of\nthis ticket's scope and is separately suspect. Do NOT mirror it back here.",
+        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 1.5 / 9. The row previously held 0.3 / 2.5, which is\nthe rate of the SIBLING google/gemini-3.5-flash-lite and google/gemini-2.5-\nflash routes, not of this one — Gemini 3.5 Flash is a near-Pro tier model\nand OpenRouter prices it 5x its Lite sibling. The direct `google` block\nstill carries 0.3 / 2.5 for its own gemini-3.5-flash row; that row is out of\nthis ticket's scope and is separately suspect. Do NOT mirror it back here.\nPRICING REFRESH 2026-10-28: cache read $0.15, write $0.0833333. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-3.5-flash/endpoints.",
         "catalog": {
           "bestFor": ["Realtime apps"],
           "description": null,
@@ -2983,6 +3495,8 @@
         "label": "Gemini 3.5 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.15,
+          "cacheWritePerMTok": 0.0833333,
           "inputPerMTok": 1.5,
           "outputPerMTok": 9
         },
@@ -2991,6 +3505,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.20, write $0.375. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-3.1-pro-preview/endpoints.",
         "catalog": {
           "bestFor": ["Complex tasks"],
           "description": null,
@@ -3006,6 +3521,8 @@
         "label": "Gemini 3.1 Pro (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "cacheWritePerMTok": 0.375,
           "inputPerMTok": 2,
           "longContextTiers": [
             {
@@ -3022,6 +3539,7 @@
         "vision": "supported"
       },
       {
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.03, write $0.0833333. Standard route base rate from https://openrouter.ai/api/v1/models/google/gemini-2.5-flash/endpoints.",
         "catalog": {
           "bestFor": ["Realtime apps"],
           "description": null,
@@ -3037,6 +3555,8 @@
         "label": "Gemini 2.5 Flash (OpenRouter)",
         "maxOutputTokens": 65535,
         "pricing": {
+          "cacheReadPerMTok": 0.03,
+          "cacheWritePerMTok": 0.0833333,
           "inputPerMTok": 0.3,
           "outputPerMTok": 2.5
         },
@@ -3045,7 +3565,7 @@
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n64,000 ceilings, text-only input modality and gateway pricing\n(0.000000834 / 0.000002501 per token), retrieved 2026-09-08\n(BST-1696). Tencent publishes no effort ladder on this preview route,\nso no `reasoning` block is declared: absence is never guessed as\nsupport. Re-confirm the preview rate when the route leaves preview.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n64,000 ceilings, text-only input modality and gateway pricing\n(0.000000834 / 0.000002501 per token), retrieved 2026-09-08\n(BST-1696). Tencent publishes no effort ladder on this preview route,\nso no `reasoning` block is declared: absence is never guessed as\nsupport. Re-confirm the preview rate when the route leaves preview.\nPRICING REFRESH 2026-10-28: cheapest clock band (UTC 16:00-24:00) is 0.7506/2.2509; 0.834/2.501 is the 00:00-16:00 band. Cache read $0.0378. Standard route base rate from https://openrouter.ai/api/v1/models/tencent/hy4-preview/endpoints.",
         "catalog": {
           "bestFor": ["Coding agents", "Tool use", "Productivity tasks"],
           "description": null,
@@ -3063,15 +3583,16 @@
         "maxOutputTokens": 64000,
         "outputModalities": ["text"],
         "pricing": {
-          "inputPerMTok": 0.834,
-          "outputPerMTok": 2.501
+          "cacheReadPerMTok": 0.0378,
+          "inputPerMTok": 0.7506,
+          "outputPerMTok": 2.2509
         },
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n943,718 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 1,310,720 / 131,072), text/image/video input modalities and gateway\npricing (0.00000015 / 0.0000005 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000075 / 0.00000025, which is the price of the separate\n`z-ai/glm-5.3-flash:batch` route, not of this one. Z.ai publishes no\neffort ladder for this Flash route, so no `reasoning` block is\ndeclared.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n943,718 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 1,310,720 / 131,072), text/image/video input modalities and gateway\npricing (0.00000015 / 0.0000005 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000075 / 0.00000025, which is the price of the separate\n`z-ai/glm-5.3-flash:batch` route, not of this one. Z.ai publishes no\neffort ladder for this Flash route, so no `reasoning` block is\ndeclared.\nPRICING REFRESH 2026-10-28: cache read $0.03. Standard route base rate from https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flash/endpoints.",
         "catalog": {
           "bestFor": ["Coding", "Long-horizon agents", "Long context"],
           "description": null,
@@ -3089,6 +3610,7 @@
         "maxOutputTokens": 943718,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.03,
           "inputPerMTok": 0.15,
           "outputPerMTok": 0.5
         },
@@ -3181,7 +3703,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.\nPRICING REFRESH 2026-10-28: cache read $0.0028. Standard route base rate from https://openrouter.ai/api/v1/models/xiaomi/mimo-v2.6-flash/endpoints.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -3199,6 +3721,7 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.0028,
           "inputPerMTok": 0.14,
           "outputPerMTok": 0.28
         },
@@ -3339,6 +3862,33 @@
         "pricing": {
           "inputPerMTok": 0.1,
           "outputPerMTok": 0.5
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints. DeepSeek route, 1,048,576 / 393,216. Cheapest clock band; weekday UTC 01:00-04:00 and 06:00-10:00 surge to 0.3/1.2. #1 on https://openrouter.ai/rankings (data through 2026-10-27).",
+        "catalog": {
+          "bestFor": [],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "DeepSeek V4.1 Flash 1017 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 58,
+          "tagline": "October snapshot of DeepSeek V4.1 Flash"
+        },
+        "contextWindow": 1048576,
+        "id": "deepseek/deepseek-v4.1-flash-1017",
+        "inputModalities": ["image", "text"],
+        "label": "DeepSeek V4.1 Flash 1017 (OpenRouter)",
+        "maxOutputTokens": 393216,
+        "outputModalities": ["text"],
+        "pricing": {
+          "cacheReadPerMTok": 0.003,
+          "inputPerMTok": 0.15,
+          "outputPerMTok": 0.6
         },
         "supportsStreaming": true,
         "type": "llm",

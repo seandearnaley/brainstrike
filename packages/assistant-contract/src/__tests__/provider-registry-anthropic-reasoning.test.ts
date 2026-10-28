@@ -8,6 +8,8 @@ describe('direct Anthropic registry reasoning ladders', () => {
     ['claude-fable-5', ['low', 'medium', 'high', 'xhigh', 'max'], true],
     ['claude-opus-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
     ['claude-opus-4-8', ['low', 'medium', 'high', 'xhigh', 'max'], false],
+    // Sonnet 5.5 returns 400 on disabled thinking (between_tools is its off switch).
+    ['claude-sonnet-5-5', ['low', 'medium', 'high', 'xhigh', 'max'], true],
     ['claude-sonnet-5', ['low', 'medium', 'high', 'xhigh', 'max'], false],
     ['claude-sonnet-4-6', ['low', 'medium', 'high', 'max'], false],
   ] as const)(
@@ -54,7 +56,7 @@ describe('direct Anthropic registry reasoning ladders', () => {
     const ladders = listProviderLlmModels('anthropic').flatMap((model) =>
       model.anthropicReasoning ? [model.anthropicReasoning] : []
     );
-    expect(ladders).toHaveLength(8);
+    expect(ladders).toHaveLength(9);
     for (const ladder of ladders) {
       expect(ladder.supportedEfforts).toContain(ladder.defaultEffort);
       let previous = -1;
