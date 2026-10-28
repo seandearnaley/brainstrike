@@ -25,6 +25,20 @@ on:
   # Gate"), so it never satisfies the ruleset's required Merge Queue Gate.
   workflow_call:
 
+# A batch Mergify replaces keeps running: when a batch ahead fails, or the base
+# moves, Mergify builds a new branch for the same PRs and leaves the old run to
+# finish, 1.5-7 min of every job (3 of 40 batches on 27-28 Oct). A batch's
+# commit names its last PR ("Merge of #4552"), and two live batches never end
+# with the same PR, so a new batch cancels the run it replaces. A push to a PR
+# under Full Check likewise cancels that PR's previous run.
+concurrency:
+  group: >-
+    ${{ github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Merge of #')
+    && format('merge-queue-{0}', github.event.head_commit.message)
+    || github.event_name == 'pull_request' && format('full-check-{0}', github.event.pull_request.number)
+    || format('merge-queue-run-{0}', github.run_id) }}
+  cancel-in-progress: true
+
 # A called workflow can only narrow these, and test.yml asks for both.
 permissions:
   contents: read
@@ -32,8 +46,8 @@ permissions:
 
 jobs:
   # test.yml itself: Static, Type check, Unit (affected against the main
-  # commit the batch was built on), Build, Native Electron, Browser tests and
-  # the smoke E2E lanes. Windows and Notify Linear skip under `merge-queue: true`. A dispatch
+  # commit the batch was built on), Build, Native Electron and Browser tests.
+  # Windows and Notify Linear skip under `merge-queue: true`. A dispatch
   # runs every Unit shard. Check names read "Test / Static", "Test / Unit (db-1)" and so on.
   #
   # Deleting a branch also fires push, with the SHA reverted to main. Mergify
@@ -47,7 +61,7 @@ jobs:
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
 
-  # The full desktop regression (8 shards). Owner
+  # The whole desktop E2E suite, smoke and regression, in 12 shards. Owner
   # decision 2026-10-24: every lane gates the queue; the nightly keeps only the
   # complete Unit run.
   desktop-e2e:
@@ -87,9 +101,6 @@ jobs:
           RESULT_BUILD: ${{ needs.test.outputs.build-result }}
           RESULT_NATIVE_ELECTRON: ${{ needs.test.outputs.native-electron-result }}
           RESULT_BROWSER_TESTS: ${{ needs.test.outputs.browser-tests-result }}
-          RESULT_DESKTOP_E2E_SMOKE: ${{ needs.test.outputs.desktop-e2e-smoke-result }}
-          RESULT_DESKTOP_E2E_DELEGATED: ${{ needs.test.outputs.desktop-e2e-delegated-result }}
-          RESULT_DESKTOP_E2E: ${{ needs.test.outputs.desktop-e2e-result }}
           RESULT_NOTIFY_LINEAR: ${{ needs.test.outputs.notify-linear-result }}
         run: |
           set -euo pipefail

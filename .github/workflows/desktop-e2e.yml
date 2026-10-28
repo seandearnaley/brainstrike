@@ -50,20 +50,25 @@ jobs:
     name: Desktop Full Regression (shard ${{ matrix.shard }})
     if: github.repository == 'seandearnaley/brainstrike' && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
     runs-on: ubicloud-standard-4
-    # Each shard runs an eighth of the regression project's tests under the
-    # lane's own 30m --global-timeout; shard 1 also runs the 2m AI Tools nightly
-    # lane. Setup/build headroom included. Each shard runs two tests at once on
-    # the runner's 4 vCPUs (the GitHub Actions worker count in
-    # packages/config/src/playwright-environment.ts). With Playwright's own
-    # contiguous shards, one shard held every slow delegated, dev-profile and
-    # durable-state spec: 7.1 min of tests against 2.2-4.0 min (queue run
-    # 40566702272), the gate's longest job. apps/desktop/e2e/file-shards.ts
-    # spreads whole files by test count instead.
+    # Each shard runs a twelfth of the desktop E2E suite, the smoke and
+    # regression projects together, under the lane's 30m --global-timeout.
+    # The smoke specs ran as six more jobs in test.yml, each paying 35-58 s of
+    # setup for 37-81 s of tests (queue run 40714833472); here they add about
+    # 440 test-seconds to the regression's 2,640. Twelve shards, not eight: a
+    # shard's fixed setup is under a minute, and with eight the slowest shard
+    # (4.3-6.4 min) was the gate's longest job (queue runs 40661149145 and
+    # 40706754618). Each shard runs two tests at once on the runner's 4 vCPUs
+    # (the GitHub Actions worker count in
+    # packages/config/src/playwright-environment.ts).
+    # apps/desktop/e2e/file-shards.ts spreads whole files by their measured
+    # time: with Playwright's own contiguous shards, one shard held every slow
+    # delegated, dev-profile and durable-state spec (7.1 min of tests against
+    # 2.2-4.0 min, queue run 40566702272).
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -83,33 +88,33 @@ jobs:
         run: pnpm run build --filter @brainstrike/desktop --filter @brainstrike/mcp-test-lab
 
       # Desktop E2E drives the app through Playwright's Electron API
-      # (_electron.launch), which uses the app's OWN bundled Electron/Chromium
-      # binary — NOT a `playwright install chromium` browser. So we only need
-      # the Chromium system libraries (apt), never the browser binary download
-      # from cdn.playwright.dev that was stalling and hanging this job to its
-      # timeout. `install-deps` is apt-only and does not touch the browser CDN.
-
-      # BST-1715: an unused third-party apt source (Google Chrome, added by the
-      # runner image) serving an inconsistent index makes the apt-get update
-      # below exit non-zero and kills this step. Drop the source rather than
-      # relaxing apt's exit status.
-      - name: Drop unused apt sources
-        uses: ./.github/actions/apt-drop-unused-sources
-
-      - name: Install Chromium system dependencies
-        run: pnpm exec playwright install-deps chromium
+      # (_electron.launch), which uses the app's OWN bundled Electron binary,
+      # not a Playwright browser. Its runtime libraries and xvfb ship in the
+      # runner image: the smoke specs ran on it with no apt step in test.yml's
+      # own jobs, where `playwright install-deps chromium` had only added fonts
+      # and point upgrades (merge-queue run 40094849438). Here its apt update
+      # and install took 9-36 s of every shard. No step here runs apt.
 
       # The host's live grep pass resolves `rg` from PATH, and the regression
       # spec host-thread-search.desktop.test.ts asserts that pass ran as
       # `liveEngine: 'ripgrep'`. The runner image carries no ripgrep, so the
       # host took its js-walk path and the spec failed (run 39029251733). Every
       # developer machine and the Unit lane's fence step provide it; so must this.
+      # The release's own static binary, checked against its published sha256 as
+      # the Windows lane in test.yml does, instead of an apt update and install.
       - name: Install ripgrep
+        env:
+          RIPGREP_VERSION: 14.1.1
+          RIPGREP_SHA256: 4cf9f2741e6c465ffdb7c26f38056a59e2a2544b51f7cc128ef28337eeae4d8e
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ripgrep
-          rg --version
+          name="ripgrep-$RIPGREP_VERSION-x86_64-unknown-linux-musl"
+          archive="$RUNNER_TEMP/$name.tar.gz"
+          curl -fsSL --retry 2 -o "$archive" "https://github.com/BurntSushi/ripgrep/releases/download/$RIPGREP_VERSION/$name.tar.gz"
+          echo "$RIPGREP_SHA256  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/$name/rg" --version
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
 
       - name: Provision Electron binary
         uses: ./.github/actions/provision-electron
@@ -118,23 +123,13 @@ jobs:
       # Chromium inside Electron doesn't spew `[ERROR:dbus/bus.cc:405]
       # Failed to connect to the bus` for every process. dbus-run-session
       # is provided by the `dbus` package (pre-installed on ubuntu-latest).
-      # --shard splits the regression project across the matrix (the total
-      # must equal the matrix length; e2e/file-shards.ts picks each shard's
-      # files). pnpm appends the flag to the lane script, which must therefore
-      # end in the playwright command.
+      # --shard splits both projects across the matrix (the total must equal
+      # the matrix length; e2e/file-shards.ts picks each shard's files). pnpm
+      # appends the flag to the lane script, which must therefore end in the
+      # playwright command.
       - name: Run full desktop regression
         working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/8
-
-      # The AI Tools smoke specs are excluded from the regression project, so
-      # exactly one shard runs their nightly lane. It runs only after the regression
-      # step passes: both write apps/desktop/test-results/ and blob-report/, which
-      # every Playwright run clears, so running it after a failure would erase the
-      # failure's traces.
-      - name: Run desktop AI Tools nightly lane
-        if: matrix.shard == 1
-        working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:tools-settings-nightly
+        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/12
 
       # test-results/ holds each failed test's raw trace, screenshots, video,
       # error context and spec diagnostics; blob-report/ holds the report zip
