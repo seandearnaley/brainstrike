@@ -215,6 +215,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
         inputPerMTok: 4,
         outputPerMTok: 20,
       },
+      promptCaching: 'openrouter',
       reasoning: {
         defaultEffort: 'high',
         mandatory: true,

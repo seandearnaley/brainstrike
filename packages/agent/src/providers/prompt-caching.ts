@@ -25,6 +25,7 @@ import { createMastraAgentError } from '../mastra-boundary/mastra-agent-error.ts
 import { wrapAnthropicModelWithPromptCaching } from './anthropic-prompt-caching.ts';
 import { stripCrossRegionPrefix } from './bedrock-model-id.ts';
 import { wrapBedrockModelWithPromptCaching } from './bedrock-prompt-caching.ts';
+import { wrapOpenRouterModelWithPromptCaching } from './openrouter-prompt-caching.ts';
 import {
   findLlmModelDefinition,
   type LlmModelDefinition,
@@ -88,6 +89,8 @@ export function wrapModelWithDeclaredPromptCaching<M extends object>(
       return wrapAnthropicModelWithPromptCaching(model);
     case 'bedrock':
       return wrapBedrockModelWithPromptCaching(model);
+    case 'openrouter':
+      return wrapOpenRouterModelWithPromptCaching(model);
     case undefined:
       // A catalogued route that declares no dialect genuinely supports none.
       return model;
