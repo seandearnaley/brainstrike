@@ -325,7 +325,8 @@ dials, so a stale or racing frame can never regain a permission or a download.
   `window.mcp.apps.prepareShell` / `releaseShell` are the visible-UI-only
   `mcp:apps:prepareShell` / `mcp:apps:releaseShell` channels (strict schemas;
   per-sender and per-document size limits fail closed).
-- The packaged proof (`test:e2e:lane:packaged-mcp-apps`) mounts an app inside
+- The packaged proof (`e2e/mcp-apps-production-lifecycle.desktop.test.ts`, in
+  `test:e2e:lane:packaged-mcp`) mounts an app inside
   the REAL main window — production preload, default session, header CSP — and
   asserts that a `blob:` frame is blocked, the served shell loads and
   handshakes, the frame fence holds, the shell URL is 404 after release, and
