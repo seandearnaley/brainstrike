@@ -4,9 +4,9 @@ import {
   useAssistantThreadGroupsStore,
 } from '@brainstrike/assistant-data';
 import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-store';
-import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import { resetThreadContextStore } from '@brainstrike/assistant-ui/thread-context-store';
+import { resetThreadMessageQueues } from '@brainstrike/assistant-ui/thread-message-queue';
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
@@ -50,7 +50,7 @@ registerFactoryResetSessionStore(() => {
 
 registerFactoryResetSessionStore(() => {
   // Queued-but-unsent follow-up messages must never survive a reset.
-  resetFollowUpQueueStore();
+  resetThreadMessageQueues();
 });
 
 registerFactoryResetSessionStore(() => {

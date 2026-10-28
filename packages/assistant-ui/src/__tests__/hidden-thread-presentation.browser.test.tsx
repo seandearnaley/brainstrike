@@ -16,7 +16,6 @@ import { fireEvent, render, waitFor, within } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, expect, onTestFinished, test, vi } from 'vitest';
 import { ChatThreadUI } from '../assistant-ui-panel';
-import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
 import { ACTIVITY_TRACE_CLOCK_INTERVAL_MS } from '../use-activity-trace-clock';
 import { completedParts } from './assistant-activity-timeline-fixtures';
 
@@ -363,50 +362,4 @@ test('keeps a skipped transcript row at its intrinsic size (BST-1949)', async ()
   expect(
     row.clientHeight - Number.parseFloat(paddingTop) - Number.parseFloat(paddingBottom)
   ).toBeGreaterThan(0);
-});
-
-test('dispatches a queued follow-up from the existing hidden runtime owner', async () => {
-  const inputs: string[] = [];
-  const releases: Array<() => void> = [];
-  adapters.set('queued', {
-    async *run({ messages }) {
-      inputs.push(
-        messages
-          .at(-1)
-          ?.content.map((part) => (part.type === 'text' ? part.text : ''))
-          .join('') ?? ''
-      );
-      await new Promise<void>((resolve) => {
-        releases.push(resolve);
-      });
-      yield { content: [{ text: 'Finished owned turn.', type: 'text' }] };
-    },
-  });
-  resetFollowUpQueueStore();
-  onTestFinished(() => {
-    adapters.clear();
-    resetFollowUpQueueStore();
-  });
-  const content = (visible: boolean) => (
-    <TooltipProvider>
-      <Panel id="queued" visible={visible} />
-    </TooltipProvider>
-  );
-  const view = render(content(true));
-  await waitFor(() => expect(runtimes.has('queued')).toBe(true));
-  await act(async () => {
-    runtimes.get('queued')?.thread.append('First owned turn');
-  });
-  await waitFor(() => expect(inputs).toEqual(['First owned turn']));
-  view.rerender(content(false));
-  await act(async () => {
-    useFollowUpQueueStore.getState().enqueue('queued', 'Follow-up while hidden');
-    releases.shift()?.();
-  });
-  await waitFor(() => expect(inputs).toEqual(['First owned turn', 'Follow-up while hidden']));
-  expect(runtimes.get('queued')?.thread.getState().isRunning).toBe(true);
-  await act(async () => {
-    releases.shift()?.();
-  });
-  await waitFor(() => expect(runtimes.get('queued')?.thread.getState().isRunning).toBe(false));
 });

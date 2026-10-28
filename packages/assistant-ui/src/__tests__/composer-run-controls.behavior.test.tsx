@@ -1,127 +1,376 @@
 // @vitest-environment jsdom
 /**
- * The composer while a run is active: Enter queues the draft, Shift+Ctrl/⌘+Enter
- * steers it, and each queued row can be steered, pulled back to edit, or
- * removed — through the real panel over a running external-store runtime.
+ * Messages written while a committed run is active wait in assistant-ui's own
+ * queue and are sent one per committed run end. Enter queues, Shift+Ctrl/⌘+Enter
+ * steers (first in line, and the run is asked to stop at its next step), and
+ * each waiting row can be steered, sent, pulled back to edit, or removed.
+ * Driven through the shipped conversation over a published committed view.
  */
 import '@testing-library/jest-dom/vitest';
-import {
-  type ExternalStoreAdapter,
-  type ThreadMessageLike,
-  useExternalStoreRuntime,
-} from '@assistant-ui/react';
+import { type AppendMessage, MessageNotSentError } from '@assistant-ui/react';
+import { act } from '@brainstrike/test-utils/react-act';
 import { TooltipProvider } from '@brainstrike/ui';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AssistantConversationPanel } from '../assistant-conversation-panel';
-import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { buildApprovalDecisionMessage } from '../approval-decision-message';
+import { CommittedAssistantConversation } from '../committed-assistant-conversation';
+import { resetThreadMessageQueues } from '../thread-message-queue';
+import { PublishedConversation } from './committed-assistant-test-support';
+import { queuedPrompts, queueMessage } from './thread-message-queue-support';
 
 const THREAD = 'run-controls';
 
-function RunningConversation({
+const sentText = (message: AppendMessage): string =>
+  message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+
+/** A host whose every accepted send starts a run the test ends. */
+function runningHost() {
+  const store = new PublishedConversation(THREAD, []);
+  store.publish({ isRunning: true });
+  const sent: string[] = [];
+  const onNew = vi.fn(async (message: AppendMessage) => {
+    sent.push(sentText(message));
+    store.publish({ isRunning: true });
+  });
+  const endRun = () =>
+    act(async () => {
+      store.publish({ isRunning: false });
+    });
+  return { endRun, onNew, sent, store };
+}
+
+function Conversation({
+  onCancel,
   onNew,
   onSteer,
+  store,
 }: {
-  readonly onNew: ExternalStoreAdapter<ThreadMessageLike>['onNew'];
+  readonly onCancel?: () => Promise<void>;
+  readonly onNew: (message: AppendMessage) => Promise<void>;
   readonly onSteer?: () => Promise<boolean>;
+  readonly store: PublishedConversation;
 }) {
-  const runtime = useExternalStoreRuntime({
-    convertMessage: (value: ThreadMessageLike) => value,
-    isRunning: true,
-    messages: [{ content: [{ text: 'Working…', type: 'text' }], id: 'a1', role: 'assistant' }],
-    onCancel: async () => undefined,
-    onNew,
-  });
   return (
     <TooltipProvider>
-      <AssistantConversationPanel
+      <CommittedAssistantConversation
+        commands={{ onCancel: onCancel ?? (async () => undefined), onNew }}
         label="Run controls"
         onSteerActiveRun={onSteer}
-        ownsFollowUpQueue
-        runtime={runtime}
-        threadKey={THREAD}
+        store={store}
       />
     </TooltipProvider>
   );
 }
 
-const queued = () => useFollowUpQueueStore.getState().queuedByThread[THREAD]?.map((i) => i.text);
+const input = () => screen.getByRole('textbox', { name: 'Message input' });
+const queueList = () => screen.getByRole('list', { name: 'Queued follow-up messages' });
 
-describe('composer run controls', () => {
+describe('composer run controls over the committed queue', () => {
+  beforeAll(() => {
+    // jsdom has no element scrolling; a shrinking queue re-pins a pinned thread.
+    Element.prototype.scrollTo ??= () => undefined;
+  });
   afterEach(() => {
     cleanup();
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
   });
 
-  it('queues the draft on Enter instead of sending over the run', async () => {
+  it('queues the draft on Enter and sends it once at the committed run end', async () => {
     const user = userEvent.setup();
-    const onNew = vi.fn(async () => undefined);
-    render(<RunningConversation onNew={onNew} />);
-    const input = screen.getByRole('textbox', { name: 'Message input' });
-    await user.type(input, 'then add tests{Enter}');
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'then add tests{Enter}');
 
-    expect(queued()).toEqual(['then add tests']);
-    expect(input).toHaveValue('');
-    expect(onNew).not.toHaveBeenCalled();
-    expect(screen.getByRole('list', { name: 'Queued follow-up messages' })).toHaveTextContent(
-      'then add tests'
-    );
+    expect(input()).toHaveValue('');
+    expect(queueList()).toHaveTextContent('then add tests');
+    expect(host.onNew).not.toHaveBeenCalled();
+
+    await host.endRun();
+    await waitFor(() => expect(host.sent).toEqual(['then add tests']));
+    expect(screen.queryByRole('list', { name: 'Queued follow-up messages' })).toBeNull();
   });
 
-  it('steers on Shift+Ctrl+Enter: the draft jumps the queue and the run is asked to stop', async () => {
+  it('queues a follow-up written while the host is still answering the first send', async () => {
     const user = userEvent.setup();
+    const store = new PublishedConversation(THREAD, []);
+    const sent: string[] = [];
+    let answer = (): void => undefined;
+    const onNew = vi.fn(async (message: AppendMessage) => {
+      sent.push(sentText(message));
+      store.publish({
+        isRunning: true,
+        repository: {
+          headId: `user-${sent.length}`,
+          messages: [
+            {
+              message: {
+                attachments: [],
+                content: [{ text: sentText(message), type: 'text' }],
+                createdAt: new Date(0),
+                id: `user-${sent.length}`,
+                metadata: { custom: {} },
+                role: 'user',
+              },
+              parentId: null,
+            },
+          ],
+        },
+      });
+      // The host has admitted the run but not yet answered the command.
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+    });
+    render(<Conversation onNew={onNew} store={store} />);
+    await user.type(input(), 'first{Enter}');
+    await waitFor(() => expect(sent).toEqual(['first']));
+    await user.type(input(), 'then this');
+    await user.click(screen.getByRole('button', { name: 'Queue message to send after this run' }));
+
+    expect(queueList()).toHaveTextContent('then this');
+    await act(async () => answer());
+    await act(async () => {
+      store.publish({ isRunning: false });
+    });
+    await waitFor(() => expect(sent).toEqual(['first', 'then this']));
+  });
+
+  it('sends queued messages one per run end, in order', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'first{Enter}');
+    await user.type(input(), 'second{Enter}');
+
+    await host.endRun();
+    await waitFor(() => expect(host.sent).toEqual(['first']));
+    expect(queuedPrompts(THREAD)).toEqual(['second']);
+    await host.endRun();
+    await waitFor(() => expect(host.sent).toEqual(['first', 'second']));
+  });
+
+  it('advances on a run that starts and ends between two renders (BST-2207)', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'first{Enter}');
+    await user.type(input(), 'second{Enter}');
+    await host.endRun();
+    await waitFor(() => expect(host.sent).toEqual(['first']));
+
+    // The dispatched run is admitted and finishes before React renders it.
+    await act(async () => {
+      host.store.publish({ isRunning: true });
+      host.store.publish({ isRunning: false });
+    });
+    await waitFor(() => expect(host.sent).toEqual(['first', 'second']));
+  });
+
+  it('steers on Shift+Ctrl+Enter: the draft goes first and the run is asked to stop', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
     const onSteer = vi.fn(async () => true);
-    useFollowUpQueueStore.getState().enqueue(THREAD, 'earlier follow-up');
-    render(<RunningConversation onNew={async () => undefined} onSteer={onSteer} />);
-    const input = screen.getByRole('textbox', { name: 'Message input' });
-    await user.type(input, 'use the vendor primitive instead');
+    render(<Conversation onNew={host.onNew} onSteer={onSteer} store={host.store} />);
+    await user.type(input(), 'earlier follow-up{Enter}');
+    await user.type(input(), 'use the vendor primitive instead');
     await user.keyboard('{Shift>}{Control>}{Enter}{/Control}{/Shift}');
 
-    expect(onSteer).toHaveBeenCalledTimes(1);
-    expect(queued()).toEqual(['use the vendor primitive instead', 'earlier follow-up']);
-    expect(input).toHaveValue('');
+    expect(onSteer).toHaveBeenCalledOnce();
+    expect(queuedPrompts(THREAD)).toEqual([
+      'use the vendor primitive instead',
+      'earlier follow-up',
+    ]);
+    expect(input()).toHaveValue('');
+    await host.endRun();
+    await waitFor(() => expect(host.sent).toEqual(['use the vendor primitive instead']));
+  });
+
+  it('keeps a steered message first in line when the steer request fails', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    const onSteer = vi.fn(async () => {
+      throw new Error('control endpoint down');
+    });
+    render(<Conversation onNew={host.onNew} onSteer={onSteer} store={host.store} />);
+    await user.type(input(), 'steer this');
+    await user.click(
+      screen.getByRole('button', { name: 'Steer: send now, stopping the run at the next step' })
+    );
+
+    expect(queuedPrompts(THREAD)).toEqual(['steer this']);
+    await host.endRun();
+    await waitFor(() => expect(host.sent).toEqual(['steer this']));
   });
 
   it('steers an already-queued row by moving it to the front', async () => {
     const user = userEvent.setup();
+    const host = runningHost();
     const onSteer = vi.fn(async () => true);
-    useFollowUpQueueStore.getState().enqueue(THREAD, 'first');
-    useFollowUpQueueStore.getState().enqueue(THREAD, 'second');
-    render(<RunningConversation onNew={async () => undefined} onSteer={onSteer} />);
+    render(<Conversation onNew={host.onNew} onSteer={onSteer} store={host.store} />);
+    await user.type(input(), 'first{Enter}');
+    await user.type(input(), 'second{Enter}');
 
     await user.click(screen.getByRole('button', { name: 'Steer now: second' }));
-    expect(queued()).toEqual(['second', 'first']);
-    expect(onSteer).toHaveBeenCalledTimes(1);
+    expect(queuedPrompts(THREAD)).toEqual(['second', 'first']);
+    expect(onSteer).toHaveBeenCalledOnce();
   });
 
-  it('pulls a queued row back into an empty composer to edit it', async () => {
+  it('pulls a queued row back into an empty composer to edit, never over a draft', async () => {
     const user = userEvent.setup();
-    useFollowUpQueueStore.getState().enqueue(THREAD, 'fix the typo');
-    render(<RunningConversation onNew={async () => undefined} />);
-    const list = screen.getByRole('list', { name: 'Queued follow-up messages' });
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'fix the typo{Enter}');
+    await user.type(input(), 'unsent draft');
+    const edit = within(queueList()).getByRole('button', {
+      name: 'Edit queued message: fix the typo',
+    });
+    expect(edit).toBeDisabled();
 
-    await user.click(
-      within(list).getByRole('button', { name: 'Edit queued message: fix the typo' })
-    );
-    expect(queued()).toEqual([]);
-    const input = screen.getByRole('textbox', { name: 'Message input' });
-    expect(input).toHaveValue('fix the typo');
-    expect(input).toHaveFocus();
+    await user.clear(input());
+    await user.click(edit);
+    expect(queuedPrompts(THREAD)).toEqual([]);
+    expect(input()).toHaveValue('fix the typo');
+    expect(input()).toHaveFocus();
   });
 
-  it('will not pull a row back over a draft the user is still writing', async () => {
+  it('never sends a removed row', async () => {
     const user = userEvent.setup();
-    useFollowUpQueueStore.getState().enqueue(THREAD, 'queued text');
-    render(<RunningConversation onNew={async () => undefined} />);
-    await user.type(screen.getByRole('textbox', { name: 'Message input' }), 'unsent draft');
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'drop me{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Remove queued message' }));
 
-    expect(screen.getByRole('button', { name: 'Edit queued message: queued text' })).toBeDisabled();
+    await host.endRun();
+    expect(host.onNew).not.toHaveBeenCalled();
   });
 
-  it('offers no Steer control without a steering transport', () => {
-    useFollowUpQueueStore.getState().enqueue(THREAD, 'queued');
-    render(<RunningConversation onNew={async () => undefined} />);
+  it('waits out a disconnect: an idle-looking view is not a committed run end', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'after the reconnect{Enter}');
+
+    await act(async () => {
+      host.store.publish({ connection: 'disconnected', isRunning: false });
+    });
+    expect(host.onNew).not.toHaveBeenCalled();
+    // The replay shows the host run still active: still nothing is sent.
+    await act(async () => {
+      host.store.publish({ connection: 'connected', isRunning: true });
+    });
+    expect(host.onNew).not.toHaveBeenCalled();
+    await host.endRun();
+    await waitFor(() => expect(host.sent).toEqual(['after the reconnect']));
+  });
+
+  it('sends a message whose run ended while its thread was off screen', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    const view = render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'sent on return{Enter}');
+    view.unmount();
+
+    host.store.publish({ isRunning: false });
+    expect(host.onNew).not.toHaveBeenCalled();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await waitFor(() => expect(host.sent).toEqual(['sent on return']));
+  });
+
+  it('keeps the queue after Stop until the user sends a row', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'held after stop{Enter}');
+    await user.click(screen.getByRole('button', { name: /^Stop/ }));
+    await host.endRun();
+    expect(host.onNew).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Send now: held after stop' }));
+    await waitFor(() => expect(host.sent).toEqual(['held after stop']));
+  });
+
+  it('keeps a refused queued message in line and sendable', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    host.onNew.mockRejectedValueOnce(new MessageNotSentError('host busy'));
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'retry me{Enter}');
+
+    await host.endRun();
+    await waitFor(() => expect(host.onNew).toHaveBeenCalledOnce());
+    await waitFor(() => expect(queuedPrompts(THREAD)).toEqual(['retry me']));
+    await user.click(await screen.findByRole('button', { name: 'Send now: retry me' }));
+    await waitFor(() => expect(host.sent).toEqual(['retry me']));
+  });
+
+  it('still sends a held row after the conversation gets new commands', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    const view = render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'held after stop{Enter}');
+    await user.click(screen.getByRole('button', { name: /^Stop/ }));
+    await host.endRun();
+    view.rerender(<Conversation onNew={(message) => host.onNew(message)} store={host.store} />);
+
+    await user.click(screen.getByRole('button', { name: 'Send now: held after stop' }));
+    await waitFor(() => expect(host.sent).toEqual(['held after stop']));
+  });
+
+  it('drops a queued decision the host answered meanwhile', async () => {
+    const host = runningHost();
+    const request = {
+      riskCategory: 'read',
+      runId: 'root-run',
+      toolCallId: 'call-1',
+      toolName: 'brainstrike.grepSearch',
+    } as const;
+    queueMessage(THREAD, buildApprovalDecisionMessage(request, 'approve').message);
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    expect(queueList()).toHaveTextContent('Approved brainstrike.grepSearch.');
+
+    await act(async () => {
+      host.store.publish({
+        repository: {
+          headId: 'answered',
+          messages: [
+            {
+              message: {
+                content: [
+                  {
+                    data: { decision: 'approve', reason: 'session-grant', ...request },
+                    name: 'brainstrike.tool-approval-answered',
+                    type: 'data',
+                  },
+                ],
+                createdAt: new Date(0),
+                id: 'answered',
+                metadata: {
+                  custom: {},
+                  steps: [],
+                  unstable_annotations: [],
+                  unstable_data: [],
+                  unstable_state: null,
+                },
+                role: 'assistant',
+                status: { reason: 'stop', type: 'complete' },
+              },
+              parentId: null,
+            },
+          ],
+        },
+      });
+    });
+    await waitFor(() => expect(queuedPrompts(THREAD)).toEqual([]));
+    await host.endRun();
+    expect(host.onNew).not.toHaveBeenCalled();
+  });
+
+  it('offers no Steer control without a steering transport', async () => {
+    const user = userEvent.setup();
+    const host = runningHost();
+    render(<Conversation onNew={host.onNew} store={host.store} />);
+    await user.type(input(), 'queued{Enter}');
     expect(screen.queryByRole('button', { name: /^Steer/ })).toBeNull();
     expect(
       screen.getByRole('button', { name: 'Queue message to send after this run' })

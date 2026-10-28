@@ -23,12 +23,12 @@ import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
-import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
 import { NetworkDomainChecklist } from './network-domain-checklist';
 import { tickDomain } from './network-domain-ticks';
 import { PlanModeExitContext, usePlanModeExit } from './plan-mode-exit-context';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
+import { useQueuedDecisionKeys } from './thread-message-queue';
 import {
   isAssistantToolSuspendRequest,
   resolveSuspendRunOutcomeDetail,
@@ -201,11 +201,8 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const decisionRoute = useDecisionRoute();
   const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
-  const queued = useFollowUpQueueStore((state) =>
-    request
-      ? isDecisionQueued(state, followUpQueueKey(queueThreadKey), getToolActionIdentityKey(request))
-      : false
-  );
+  const queuedKeys = useQueuedDecisionKeys(queueThreadKey);
+  const queued = request ? queuedKeys.has(getToolActionIdentityKey(request)) : false;
   const locked =
     queued ||
     submitted ||
@@ -260,11 +257,8 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         ? decisionRoute.dispatch(message)
         : submitDecisionOrQueue({
             append: sendNow,
-            identityKey: getToolActionIdentityKey(request),
             isRunning,
             message,
-            text: summary,
-            threadKey,
           });
       dispatch.then(
         (outcome) => {
@@ -283,7 +277,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         }
       );
     },
-    [aui, decisionRoute, isRunning, locked, request, runOutcomeKey, threadKey]
+    [aui, decisionRoute, isRunning, locked, request, runOutcomeKey]
   );
 
   return { locked, sendError, submit };

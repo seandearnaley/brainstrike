@@ -24,6 +24,7 @@ const useAssistantDataUIMock = vi.fn((_dataUI: unknown) => undefined);
 interface MockAuiState {
   composer: {
     attachments: readonly Attachment[];
+    queue: readonly unknown[];
     text: string;
   };
   message: {
@@ -44,7 +45,7 @@ const completedReasoningPart = {
 };
 
 const createMockAuiState = (parts: unknown[]): MockAuiState => ({
-  composer: { attachments: [], text: '' },
+  composer: { attachments: [], queue: [], text: '' },
   message: { parts },
   thread: { capabilities: { edit: true, reload: true }, messages: [] },
 });
@@ -288,7 +289,11 @@ vi.mock('@assistant-ui/react', () => {
     unstable_useThreadMessageIds: () => [],
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
     useAui: () => ({
-      composer: () => ({ addAttachment: async () => undefined, setText: vi.fn() }),
+      composer: () => ({
+        addAttachment: async () => undefined,
+        getState: () => mockAuiState.composer,
+        setText: vi.fn(),
+      }),
       subscribe: () => () => undefined,
       thread: () => ({
         getState: () => ({ messages: mockAuiState.thread.messages }),

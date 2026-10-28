@@ -7,8 +7,7 @@
  * `composer().setText(...)` is gone by the time the rewind succeeds. The
  * consumer therefore has to be something that outlives the rewind, and the
  * producer (app-shell's confirm modal) sits in a different package. A
- * module-scope store with a render-nothing bridge is the same shape
- * `follow-up-queue-store.ts` uses for the same reason.
+ * module-scope store with a render-nothing bridge outlives that unmount.
  *
  * ONE SLOT, CONSUMED ONCE. A rewind is a single user action, and a queue here
  * would let an abandoned handoff resurface into a later thread's composer. A

@@ -44,7 +44,6 @@ interface ComposerInputRowProps {
   onSteerActiveRun?: (() => Promise<boolean>) | undefined;
   planMode?: PlanModeComposerControls | undefined;
   slashPopover?: ReactNode;
-  threadKey?: string | undefined;
 }
 
 /**
@@ -69,7 +68,6 @@ const ComposerInputRow = ({
   onSteerActiveRun,
   planMode,
   slashPopover,
-  threadKey,
 }: ComposerInputRowProps) => {
   // Last-24h budget cap gate (see budget-guardrail-control.tsx): while over
   // cap without a session override, BOTH send paths are disabled — the Send
@@ -84,7 +82,7 @@ const ComposerInputRow = ({
     (state) => state.composer.text.trim().length > 0 || state.composer.attachments.length > 0
   );
   const isRunning = useAuiState((state) => state.thread.isRunning);
-  const runActions = useComposerRunActions({ onSteerActiveRun, threadKey });
+  const runActions = useComposerRunActions({ onSteerActiveRun });
   const budgetSendBlocked = useBudgetSendGate();
   const inputId = useId();
   const sendDisabled = isComposerDisabled || budgetSendBlocked || activeInput?.canSend === false;
@@ -159,7 +157,7 @@ const ComposerInputRow = ({
                 <ArrowUpIcon aria-hidden="true" />
               </button>
             ) : (
-              <ComposerRunControls onSteerActiveRun={onSteerActiveRun} threadKey={threadKey} />
+              <ComposerRunControls onSteerActiveRun={onSteerActiveRun} />
             )}
             {!hideDefaultCancel && (
               <ComposerPrimitive.Cancel

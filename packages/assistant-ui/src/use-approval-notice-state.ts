@@ -121,7 +121,7 @@ export function useApprovalNoticeState(
     [approvalRunOutcomeKey]
   );
   const { delegationOwner, hostAnswer } = useDelegatedNoticeContext(approval);
-  const { isRunning, queued, threadKey } = useDecisionQueueState(approval);
+  const { isRunning, queued } = useDecisionQueueState(approval);
   const decisionRoute = useDecisionRoute();
   const decisionLocked = rediscovered?.decisionState !== undefined || hostAnswer !== null;
   const actionLockedByRun =
@@ -174,11 +174,8 @@ export function useApprovalNoticeState(
         ? decisionRoute.dispatch(decision.message)
         : submitDecisionOrQueue({
             append: sendNow,
-            identityKey: decision.identityKey,
             isRunning,
             message: decision.message,
-            text: decision.text,
-            threadKey,
           });
       dispatch.then(
         (outcome) => {
@@ -208,7 +205,6 @@ export function useApprovalNoticeState(
       submittedAction,
       setSubmittedDecision,
       setSendFailure,
-      threadKey,
     ]
   );
 

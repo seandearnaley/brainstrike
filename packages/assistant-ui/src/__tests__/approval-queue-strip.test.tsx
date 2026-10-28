@@ -1,4 +1,3 @@
-import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import {
   type AssistantToolApprovalRequest,
   TOOL_APPROVAL_DATA_NAME,
@@ -19,17 +18,14 @@ import { ApprovalQueueStrip } from '../approval-queue-strip';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import type { DecisionRoute } from '../decision-route-context';
 import { DecisionRouteContext } from '../decision-route-context';
-import {
-  followUpQueueKey,
-  resetFollowUpQueueStore,
-  useFollowUpQueueStore,
-} from '../follow-up-queue-store';
 import { DelegatedApprovalOwnerContext } from '../subagent-conversation-navigation';
+import { resetThreadMessageQueues } from '../thread-message-queue';
 import {
   type ToolApprovalGrantHandlers,
   ToolApprovalGrantProvider,
 } from '../tool-approval-grant-context';
 import { expandApprovalRow } from './approval-row-helpers';
+import { queuedPrompts, queueMessage } from './thread-message-queue-support';
 
 const appendMock = vi.hoisted(() => vi.fn());
 // Held by reference so a test can hand the provider a NEW array identity
@@ -38,7 +34,8 @@ const appendMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(() => ({ current: [] as unknown[] }));
 const threadRunningMock = vi.hoisted(() => ({ isRunning: true }));
 
-vi.mock('@assistant-ui/react', () => ({
+vi.mock('@assistant-ui/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@assistant-ui/react')>()),
   useAui: () => ({ thread: () => ({ append: appendMock }) }),
   useAuiState: (
     selector: (state: { thread: { isRunning: boolean; messages: unknown[] } }) => unknown
@@ -128,8 +125,14 @@ function Tree({
 
 describe('ApprovalQueueStrip', () => {
   beforeEach(() => {
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
     appendMock.mockReset();
+    // The runtime holds the thread's queue during a run, so an append waits there.
+    appendMock.mockImplementation((message) => {
+      if (threadRunningMock.isRunning) {
+        queueMessage('thread-1', message);
+      }
+    });
     threadMessagesMock.current = [];
     threadRunningMock.isRunning = true;
   });
@@ -184,11 +187,10 @@ describe('ApprovalQueueStrip', () => {
       })
     );
     // The thread is running, so the decision queues behind its turn.
-    expect(
-      useFollowUpQueueStore
-        .getState()
-        .queuedByThread[followUpQueueKey('thread-1')]?.map((item) => item.message)
-    ).toEqual([buildApprovalDecisionMessage(command, 'approve').message]);
+    expect(appendMock).toHaveBeenCalledExactlyOnceWith(
+      buildApprovalDecisionMessage(command, 'approve').message
+    );
+    expect(queuedPrompts('thread-1')).toHaveLength(1);
     expect(handlers.grantCategoryForSession).not.toHaveBeenCalled();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -221,9 +223,7 @@ describe('ApprovalQueueStrip', () => {
     expect(button).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Decline brainstrike.grepSearch' })).toBeDisabled();
     await user.click(button);
-    expect(
-      useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('thread-1')]
-    ).toHaveLength(1);
+    expect(queuedPrompts('thread-1')).toHaveLength(1);
   });
 
   it('closes review when switching threads', async () => {
@@ -314,9 +314,9 @@ describe('ApprovalQueueStrip', () => {
     await user.click(screen.getByTestId('approval-strip-grant-read'));
 
     expect(handlers.grantCategoryForSession).toHaveBeenCalledWith('read');
-    const queued = useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('thread-1')];
-    expect(queued).toHaveLength(1);
-    expect(queued?.[0]?.message).toMatchObject({
+    expect(queuedPrompts('thread-1')).toHaveLength(1);
+    expect(appendMock).toHaveBeenCalledOnce();
+    expect(appendMock.mock.calls[0]?.[0]).toMatchObject({
       runConfig: {
         custom: {
           brainstrikeToolApproval: {
@@ -326,7 +326,6 @@ describe('ApprovalQueueStrip', () => {
         },
       },
     });
-    expect(appendMock).not.toHaveBeenCalled();
 
     // The host answers every read sibling on the leg; the strip shrinks to the edit.
     pushMessage({
@@ -375,11 +374,7 @@ describe('ApprovalQueueStrip', () => {
     const decision = buildApprovalDecisionMessage(request, 'approve');
     pushMessage({ content: [requestPart(request)], id: 'm1', role: 'assistant' });
     const dispatch = vi.fn<DecisionRoute['dispatch']>(async (message) => {
-      useFollowUpQueueStore.getState().enqueueMessage(followUpQueueKey('registered-root'), {
-        identityKey: getToolActionIdentityKey(request),
-        message,
-        text: decision.text,
-      });
+      queueMessage('registered-root', message);
       return 'queued';
     });
     render(
@@ -393,9 +388,7 @@ describe('ApprovalQueueStrip', () => {
       expect(screen.queryByTestId('approval-strip-grant-read')).not.toBeInTheDocument()
     );
     expect(dispatch).toHaveBeenCalledOnce();
-    expect(
-      useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('registered-root')]
-    ).toHaveLength(1);
+    expect(queuedPrompts('registered-root')).toEqual([decision.text]);
   });
 
   it('excludes an approval already submitted in the owner transcript from bulk grants', () => {
