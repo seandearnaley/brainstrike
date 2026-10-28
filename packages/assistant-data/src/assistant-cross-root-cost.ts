@@ -12,8 +12,16 @@ export const UNATTRIBUTED_ROOT_LABEL = 'Unattributed';
  * roots lookup misses (honest — never a wrong name).
  */
 export interface CrossRootCostRow {
+  /** The branch its runs had checked out, when one was recorded. */
+  readonly branch: string | null;
+  /** Prompt-cache read share of `inputTokens`. */
+  readonly cacheReadTokens: number;
   readonly cost: CostEstimate;
   readonly displayName: string;
+  readonly inputTokens: number;
+  /** The repository a worktree root belongs to; null outside a worktree. */
+  readonly localRootId: string | null;
+  readonly outputTokens: number;
   readonly rootId: string | null;
   readonly totalTokens: number;
 }
@@ -25,9 +33,15 @@ export type ModelPricingResolver = (
 ) => ModelTokenPricing | undefined;
 
 interface RootAggregate {
+  branch: string | null;
+  cacheReadTokens: number;
   cost: number;
   displayName: string;
   hasUnpriced: boolean;
+  inputTokens: number;
+  localRootId: string | null;
+  outputTokens: number;
+  rootId: string | null;
   sawEstimatedUsage: boolean;
   sawProviderReportedCost: boolean;
   totalTokens: number;
@@ -62,19 +76,30 @@ export function resolveCrossRootCostRows(rows: readonly CrossRootUsageRow[]): Cr
   const byRoot = new Map<string | null, RootAggregate>();
 
   for (const row of rows) {
-    let aggregate = byRoot.get(row.rootId);
+    const key = row.rootId;
+    let aggregate = byRoot.get(key);
     if (!aggregate) {
       aggregate = {
+        branch: null,
+        cacheReadTokens: 0,
         cost: 0,
         displayName: resolveDisplayName(row),
         hasUnpriced: false,
+        inputTokens: 0,
+        localRootId: row.localRootId,
+        outputTokens: 0,
+        rootId: row.rootId,
         sawEstimatedUsage: false,
         sawProviderReportedCost: false,
         totalTokens: 0,
       };
-      byRoot.set(row.rootId, aggregate);
-      order.push(row.rootId);
+      byRoot.set(key, aggregate);
+      order.push(key);
     }
+    aggregate.branch ??= row.checkoutBranch;
+    aggregate.cacheReadTokens += row.estimatedCacheReadTokens ?? 0;
+    aggregate.inputTokens += row.inputTokens;
+    aggregate.outputTokens += row.outputTokens;
     aggregate.totalTokens += row.inputTokens + row.outputTokens;
     if (row.billedCostUsd !== undefined) {
       aggregate.cost += row.billedCostUsd;
@@ -92,8 +117,8 @@ export function resolveCrossRootCostRows(rows: readonly CrossRootUsageRow[]): Cr
     }
   }
 
-  return order.map((rootId) => {
-    const aggregate = byRoot.get(rootId);
+  return order.map((key) => {
+    const aggregate = byRoot.get(key);
     if (!aggregate) {
       // Unreachable: every key in `order` was set above. Keep typing honest.
       throw new Error('Cross-root cost aggregation lost a root key.');
@@ -109,9 +134,14 @@ export function resolveCrossRootCostRows(rows: readonly CrossRootUsageRow[]): Cr
             usdAmount: Math.round(aggregate.cost * 1_000_000_000_000) / 1_000_000_000_000,
           };
     return {
+      branch: aggregate.branch,
+      cacheReadTokens: aggregate.cacheReadTokens,
       cost,
       displayName: aggregate.displayName,
-      rootId,
+      inputTokens: aggregate.inputTokens,
+      localRootId: aggregate.localRootId,
+      outputTokens: aggregate.outputTokens,
+      rootId: aggregate.rootId,
       totalTokens: aggregate.totalTokens,
     };
   });

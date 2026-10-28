@@ -13,8 +13,10 @@ describe('resolveCrossRootCostRows', () => {
       // root-a mixes two models — each already priced call by call, then summed.
       // The display name rides on the row (from the aggregation's roots JOIN).
       {
+        checkoutBranch: null,
         estimatedCostUsd: 0.003_25,
         inputTokens: 1000,
+        localRootId: null,
         model: 'gpt-5.2',
         outputTokens: 200,
         provider: 'openai',
@@ -22,8 +24,10 @@ describe('resolveCrossRootCostRows', () => {
         rootId: 'root-a',
       },
       {
+        checkoutBranch: null,
         estimatedCostUsd: 0.0195,
         inputTokens: 500,
+        localRootId: null,
         model: 'claude-opus-4-8',
         outputTokens: 100,
         provider: 'anthropic',
@@ -48,8 +52,10 @@ describe('resolveCrossRootCostRows', () => {
   it('reports cost unavailable (never $0) for a root whose model has no pricing', () => {
     const rows: CrossRootUsageRow[] = [
       {
+        checkoutBranch: null,
         estimatedCostUsd: 0.0003,
         inputTokens: 100,
+        localRootId: null,
         model: 'gpt-5.2',
         outputTokens: 50,
         provider: 'openai',
@@ -58,8 +64,10 @@ describe('resolveCrossRootCostRows', () => {
       },
       // unpriced model in the SAME root makes that root's whole cost unavailable.
       {
+        checkoutBranch: null,
         estimatedCostUsd: null,
         inputTokens: 200,
+        localRootId: null,
         model: 'some-vendor/unregistered-model',
         outputTokens: 75,
         provider: 'openrouter',
@@ -78,10 +86,12 @@ describe('resolveCrossRootCostRows', () => {
     const rows: CrossRootUsageRow[] = [
       {
         billedCostUsd: 0.0065,
+        checkoutBranch: null,
         estimatedCostUsd: null,
         estimatedInputTokens: 0,
         estimatedOutputTokens: 0,
         inputTokens: 5000,
+        localRootId: null,
         model: 'new-model-not-yet-priced',
         outputTokens: 900,
         provider: 'openrouter',
@@ -97,11 +107,36 @@ describe('resolveCrossRootCostRows', () => {
     });
   });
 
+  it('keeps each worktree of a repository on its own row, with its branch', () => {
+    const worktree = (rootId: string, checkoutBranch: string): CrossRootUsageRow => ({
+      checkoutBranch,
+      estimatedCostUsd: 0.01,
+      inputTokens: 10,
+      localRootId: 'root-repo',
+      model: 'gpt-5.2',
+      outputTokens: 5,
+      provider: 'openai',
+      rootDisplayName: 'Brainstrike',
+      rootId,
+    });
+
+    expect(
+      resolveCrossRootCostRows([worktree('wt-1', 'cost/a'), worktree('wt-2', 'cost/b')]).map(
+        ({ branch, displayName, localRootId, rootId }) => [rootId, displayName, branch, localRootId]
+      )
+    ).toEqual([
+      ['wt-1', 'Brainstrike', 'cost/a', 'root-repo'],
+      ['wt-2', 'Brainstrike', 'cost/b', 'root-repo'],
+    ]);
+  });
+
   it('renders the unattributed (null) root with a stable label and a truncated id fallback for join misses', () => {
     const rows: CrossRootUsageRow[] = [
       {
+        checkoutBranch: null,
         estimatedCostUsd: 0,
         inputTokens: 10,
+        localRootId: null,
         model: 'gpt-5.2',
         outputTokens: 5,
         provider: 'openai',
@@ -109,8 +144,10 @@ describe('resolveCrossRootCostRows', () => {
         rootId: null,
       },
       {
+        checkoutBranch: null,
         estimatedCostUsd: 0,
         inputTokens: 20,
+        localRootId: null,
         model: 'gpt-5.2',
         outputTokens: 10,
         provider: 'openai',
