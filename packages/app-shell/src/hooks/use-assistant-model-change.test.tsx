@@ -5,7 +5,7 @@ import { useAssistantModelChange } from './use-assistant-model-change';
 
 function renderModelChange(
   providerSettings: Parameters<typeof useAssistantModelChange>[0]['providerSettings'],
-  currentModel = 'google::gemini-3.5-flash'
+  currentModel = 'google::gemini-3.6-flash'
 ) {
   const setModel = vi.fn();
   const setProviderSettings = vi.fn();
@@ -26,27 +26,27 @@ function renderModelChange(
 }
 
 describe('useAssistantModelChange provider reconciliation', () => {
-  it('clears a persisted minimal level when switching to Gemini 3.7 Flash', () => {
+  it('clears a persisted minimal level when switching to Gemini 3.8 Flash', () => {
     const { result, setModel, setProviderSettings } = renderModelChange({
       google: { googleThinkingLevel: 'minimal', maxOutputTokens: 2048 },
     });
 
-    act(() => result.current.handleModelChange('google::gemini-3.7-flash'));
+    act(() => result.current.handleModelChange('google::gemini-3.8-flash'));
 
     expect(setProviderSettings).toHaveBeenCalledOnce();
     const [provider, updates] = setProviderSettings.mock.calls[0] ?? [];
     expect(provider).toBe('google');
     expect(Object.keys(updates ?? {})).toEqual(['googleThinkingLevel']);
     expect(updates).toHaveProperty('googleThinkingLevel', undefined);
-    expect(setModel).toHaveBeenCalledWith('google::gemini-3.7-flash');
+    expect(setModel).toHaveBeenCalledWith('google::gemini-3.8-flash');
   });
 
-  it('preserves a thinking level offered by Gemini 3.7 Flash', () => {
+  it('preserves a thinking level offered by Gemini 3.8 Flash', () => {
     const { result, setProviderSettings } = renderModelChange({
       google: { googleThinkingLevel: 'low' },
     });
 
-    act(() => result.current.handleModelChange('google::gemini-3.7-flash'));
+    act(() => result.current.handleModelChange('google::gemini-3.8-flash'));
 
     expect(setProviderSettings).not.toHaveBeenCalled();
   });

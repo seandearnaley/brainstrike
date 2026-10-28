@@ -268,8 +268,8 @@ describe('AssistantChatPanel', () => {
     expect(assistantUiPanelWrapperLazyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         fixedProviderModels: {
-          anthropic: ['claude-sonnet-5'],
-          google: ['gemini-3.5-flash'],
+          anthropic: ['claude-sonnet-5-5'],
+          google: ['gemini-3.8-flash'],
           openai: ['gpt-5.6-terra'],
           openrouter: ['openai/gpt-5.6-terra'],
         },

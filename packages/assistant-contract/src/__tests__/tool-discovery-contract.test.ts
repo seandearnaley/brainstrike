@@ -120,7 +120,7 @@ describe('native tool discovery contract', () => {
       status: 'supported',
     });
     expect(
-      resolveToolDiscoveryAdapter({ modelId: 'gemini-3.5-flash', provider: 'google' })
+      resolveToolDiscoveryAdapter({ modelId: 'gemini-3.8-flash', provider: 'google' })
     ).toEqual({
       adapter: 'mastra-catalog-search',
       status: 'supported',

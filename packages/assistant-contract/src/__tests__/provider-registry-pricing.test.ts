@@ -373,11 +373,14 @@ describe('model pricing metadata', () => {
   });
 
   // BST-1804: same page, Standard paid tier; a flat rate with no prompt-size tier.
-  it('prices the Gemini 3.5 Flash default from the Google pricing page', () => {
-    const flash = listProviderLlmModels('google').find((model) => model.id === 'gemini-3.5-flash');
-    // Deprecated 2026-10-08; its cache-read rate comes from the gateway's
-    // google-ai-studio route (see the row note).
-    expect(flash?.pricing).toEqual({ cacheReadPerMTok: 0.15, inputPerMTok: 1.5, outputPerMTok: 9 });
+  it('prices the Gemini 3.8 Flash default from the Google pricing page', () => {
+    const flash = listProviderLlmModels('google').find((model) => model.id === 'gemini-3.8-flash');
+    // Introductory through 2026-12-31 (see the row note).
+    expect(flash?.pricing).toEqual({
+      cacheReadPerMTok: 0.075,
+      inputPerMTok: 0.75,
+      outputPerMTok: 3.75,
+    });
   });
 
   // BST-1708: gateway long-context surcharge tiers (`min_prompt_tokens`
