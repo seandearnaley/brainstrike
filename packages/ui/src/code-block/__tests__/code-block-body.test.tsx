@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 interface CapturedShikiProps {
   addDefaultStyles?: boolean;
   children?: ReactNode;
+  defaultColor?: false | string;
   delay?: number;
   highlighter?: unknown;
   language?: string;
@@ -80,7 +81,8 @@ describe('CodeBlockBody', () => {
     expect(props?.addDefaultStyles).toBe(false);
     expect(props?.delay).toBe(50);
     expect(props?.language).toBe('normalized:zsh');
-    expect(props?.theme).toEqual({ dark: 'github-dark', light: 'github-light' });
+    expect(props?.theme).toEqual({ dark: 'monokai', light: 'github-light' });
+    expect(props?.defaultColor).toBe(false);
     expect(props?.highlighter).toEqual({ highlighter: 'core' });
   });
 
