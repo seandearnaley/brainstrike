@@ -128,6 +128,12 @@ export function useTreeTableHandlers<T>({
   // selection/focus changes minted fresh handlers and re-rendered every
   // visible row (see tree-table-render-stability.test.tsx).
   const handleRowClick = useEventCallback((nodeId: string, event: React.MouseEvent) => {
+    // A control inside the row handled this click. It says so with
+    // preventDefault, not stopPropagation, so the rest of the page still sees
+    // the click: an open popover elsewhere closes on it.
+    if (event.defaultPrevented) {
+      return;
+    }
     keyboard.actions.setFocus(nodeId);
 
     if (!selectOnRowClick || selectionMode === 'none') {
