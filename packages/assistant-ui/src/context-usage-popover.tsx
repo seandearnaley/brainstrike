@@ -13,6 +13,7 @@ import type {
   AssistantContextBreakdown,
   AssistantContextBreakdownState,
 } from '@brainstrike/assistant-contract/context-breakdown';
+import { resolveModelLabel } from '@brainstrike/assistant-contract/provider-registry';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { createLogger } from '@brainstrike/logging';
 import { type CostEstimate, formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
@@ -30,13 +31,19 @@ import { formatCompact } from './format-compact-token-count';
 
 const logger = createLogger('ContextUsagePopover');
 
-/** Resolve a cost estimate to its display string (never $0 for unavailable). */
+/** A cost estimate's display string (never $0 for unavailable). */
 function costLabel(cost: CostEstimate): string {
-  if (cost.available) {
-    const amount = formatUsdCost(cost.usdAmount);
-    return cost.provenance === 'captured-usage-estimate' ? `captured usage est. ${amount}` : amount;
+  return cost.available ? formatUsdCost(cost.usdAmount) : 'cost unavailable';
+}
+
+/** A subtotal's cost: cents from a cent up, two significant digits below it. */
+function subtotalCostLabel(costUsd: number | null): string {
+  if (costUsd === null) {
+    return 'unpriced';
   }
-  return 'cost unavailable';
+  return costUsd === 0 || costUsd >= 0.01
+    ? formatUsdCost(costUsd)
+    : `$${Number(costUsd.toPrecision(2))}`;
 }
 
 /** Display label per usage source (BST-953). OM figures are local estimates. */
@@ -56,12 +63,63 @@ export interface CumulativeUsageSectionProps {
   liveRunUsage?: ThreadTokenUsage | undefined;
 }
 
+type CumulativeSource = CumulativeUsageDisplay['bySource'][number];
+
+/** One source: its tokens and cost, then each model it used when it used several. */
+const SourceRow = ({ source }: { readonly source: CumulativeSource }) => {
+  const [onlyModel] = source.models.length === 1 ? source.models : [];
+  return (
+    <li className="flex flex-col gap-px" data-testid={`context-usage-source-${source.kind}`}>
+      <span className="flex items-center justify-between gap-2 text-muted-foreground">
+        <span className="min-w-0 truncate">
+          {SOURCE_LABELS[source.kind]}
+          {onlyModel ? (
+            <span className="text-muted-foreground/70">
+              {' '}
+              · {resolveModelLabel(onlyModel.provider, onlyModel.model)}
+            </span>
+          ) : null}
+        </span>
+        <span className="flex shrink-0 gap-3 tabular-nums">
+          <span className="text-muted-foreground/80">
+            {formatCompact(source.inputTokens)} in · {formatCompact(source.outputTokens)} out
+          </span>
+          <span className="w-14 text-right text-foreground">
+            {subtotalCostLabel(source.costUsd)}
+          </span>
+        </span>
+      </span>
+      {source.models.length > 1 && (
+        <ul className="ml-1 flex flex-col gap-px border-border/60 border-l pl-2">
+          {source.models.map((model) => (
+            <li
+              className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/70"
+              data-testid="context-usage-source-model"
+              key={`${model.provider}::${model.model}`}
+            >
+              <span className="min-w-0 truncate" title={`${model.provider}::${model.model}`}>
+                {resolveModelLabel(model.provider, model.model)}
+              </span>
+              <span className="flex shrink-0 gap-3 tabular-nums">
+                <span>
+                  {formatCompact(model.inputTokens)} in · {formatCompact(model.outputTokens)} out
+                </span>
+                <span className="w-14 text-right">{subtotalCostLabel(model.costUsd)}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+};
+
 /**
- * Thread-total header (BST-953): the overall billed picture — in/out split,
- * cache-class totals + net caching savings, and the by-source breakdown
- * (chat / subagents / OM cycles). The live in-flight run's step usage is
- * added on top of the durable figure and visibly marked, never silently
- * blended into a "final" number.
+ * Thread-total header (BST-953): the overall picture — what it cost, the in/out
+ * split, the cache classes and what caching saved, then each source and model
+ * with its own cost. The live in-flight run's step usage is added on top of the
+ * durable figure and visibly marked, never silently blended into a "final"
+ * number.
  */
 export const CumulativeUsageSection = ({
   cumulativeUsage,
@@ -73,15 +131,21 @@ export const CumulativeUsageSection = ({
   const inputTokens = cumulativeUsage.inputTokens + (liveRunUsage?.inputTokens ?? 0);
   const outputTokens = cumulativeUsage.outputTokens + (liveRunUsage?.outputTokens ?? 0);
   const hasCacheTraffic = cumulativeUsage.cacheReadTokens + cumulativeUsage.cacheCreationTokens > 0;
+  const cachedShare =
+    cumulativeUsage.inputTokens > 0
+      ? Math.round((cumulativeUsage.cacheReadTokens / cumulativeUsage.inputTokens) * 100)
+      : 0;
+  const { bySource } = cumulativeUsage;
+  const showSources = bySource.length > 1 || (bySource[0]?.models.length ?? 0) > 1;
 
   return (
-    <div className="flex flex-col gap-0.5" data-testid="context-usage-thread-total">
-      <p className="flex items-center justify-between gap-2 font-medium tabular-nums">
-        <span data-testid="context-usage-thread-total-tokens">
+    <div className="flex flex-col gap-1" data-testid="context-usage-thread-total">
+      <p className="flex items-baseline justify-between gap-2 tabular-nums">
+        <span className="font-medium" data-testid="context-usage-thread-total-tokens">
           {label} · {formatTokenCount(totalTokens)}
           {liveTokens > 0 ? ' (live)' : ''}
         </span>
-        <span className="text-muted-foreground" data-testid="context-usage-cost">
+        <span className="font-semibold text-sm" data-testid="context-usage-cost">
           {/* The durable cost excludes the in-flight live tokens above — say so
               rather than pairing a current total with a lagging price. */}
           {liveTokens > 0
@@ -94,32 +158,33 @@ export const CumulativeUsageSection = ({
         data-testid="context-usage-thread-total-split"
       >
         {formatCompact(inputTokens)} in · {formatCompact(outputTokens)} out
+        {cumulativeUsage.cost.available &&
+        cumulativeUsage.cost.provenance === 'captured-usage-estimate'
+          ? ' · list-price estimate'
+          : ''}
       </p>
       {hasCacheTraffic && (
         <p
-          className="text-[11px] text-muted-foreground/80 tabular-nums"
+          className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground tabular-nums"
           data-testid="context-usage-cache-line"
         >
-          Cache: {formatCompact(cumulativeUsage.cacheReadTokens)} read ·{' '}
+          Cache: {formatCompact(cumulativeUsage.cacheReadTokens)} read ({cachedShare}% of input) ·{' '}
           {formatCompact(cumulativeUsage.cacheCreationTokens)} written
-          {cumulativeUsage.cacheSavings
-            ? ` · saved ~${formatUsdCost(cumulativeUsage.cacheSavings.usdAmount)}`
-            : ''}
+          {cumulativeUsage.cacheSavings ? (
+            <span className="font-medium text-foreground">
+              {' '}
+              · saved ~{formatUsdCost(cumulativeUsage.cacheSavings.usdAmount)}
+            </span>
+          ) : null}
         </p>
       )}
-      {cumulativeUsage.bySource.length > 1 && (
-        <ul className="mt-0.5 flex flex-col gap-px" data-testid="context-usage-by-source">
-          {cumulativeUsage.bySource.map((source) => (
-            <li
-              className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/80"
-              data-testid={`context-usage-source-${source.kind}`}
-              key={source.kind}
-            >
-              <span>{SOURCE_LABELS[source.kind]}</span>
-              <span className="tabular-nums">
-                {formatCompact(source.inputTokens)} in · {formatCompact(source.outputTokens)} out
-              </span>
-            </li>
+      {showSources && (
+        <ul
+          className="mt-0.5 flex flex-col gap-1 text-[11px]"
+          data-testid="context-usage-by-source"
+        >
+          {bySource.map((source) => (
+            <SourceRow key={source.kind} source={source} />
           ))}
         </ul>
       )}
@@ -260,9 +325,6 @@ interface CategorySegment {
   tokens: number;
 }
 
-/** Sub-row cap: show the biggest consumers, aggregate the rest honestly. */
-const MAX_SUB_ROWS = 5;
-
 /**
  * The Conversation figure: prefers the server-measured wire figure (non-memory
  * transports), else the client full-part walk, else the legacy scalar estimate.
@@ -350,28 +412,16 @@ function pushCategory(
   }
 }
 
-/** Cap a named-entry list to the top consumers plus an aggregated remainder row. */
-function toTopEntrySubRows(
+/** Every named entry as a sub-row, biggest first as the breakdown lists them. */
+function toEntrySubRows(
   entries: readonly { readonly name: string; readonly tokens: number }[],
-  options: { labelPrefix: string; restTestId: string; testIdPrefix: string }
+  options: { labelPrefix: string; testIdPrefix: string }
 ): BreakdownRow[] {
-  const top = entries.slice(0, MAX_SUB_ROWS);
-  const subRows = top.map((entry, index) => ({
+  return entries.map((entry, index) => ({
     label: `${options.labelPrefix}${entry.name}`,
     testId: `${options.testIdPrefix}${index}`,
     value: `~${formatCompact(entry.tokens)}`,
   }));
-  const restCount = entries.length - top.length;
-  if (restCount > 0) {
-    subRows.push({
-      label: `${options.labelPrefix}+${restCount} more tools`,
-      testId: options.restTestId,
-      value: `~${formatCompact(
-        entries.slice(MAX_SUB_ROWS).reduce((sum, entry) => sum + entry.tokens, 0)
-      )}`,
-    });
-  }
-  return subRows;
 }
 
 /** Server-measured prompt-composition categories (system / tool defs / task list). */
@@ -401,11 +451,10 @@ function composeServerCategories(
       breakdown.toolDefinitionsTokens
     );
     if (breakdown.toolDefinitionsByTool && breakdown.toolDefinitionsByTool.length > 0) {
-      composer.subRowsByTestId['context-usage-breakdown-tool-definitions'] = toTopEntrySubRows(
+      composer.subRowsByTestId['context-usage-breakdown-tool-definitions'] = toEntrySubRows(
         breakdown.toolDefinitionsByTool,
         {
           labelPrefix: '',
-          restTestId: 'context-usage-tooldef-rest',
           testIdPrefix: 'context-usage-tooldef-',
         }
       );
@@ -424,11 +473,10 @@ function composeServerCategories(
       toolCallsTokens
     );
     if (breakdown.toolCallsByTool && breakdown.toolCallsByTool.length > 0) {
-      composer.subRowsByTestId['context-usage-breakdown-tool-calls'] = toTopEntrySubRows(
+      composer.subRowsByTestId['context-usage-breakdown-tool-calls'] = toEntrySubRows(
         breakdown.toolCallsByTool.map(({ tokens, toolName }) => ({ name: toolName, tokens })),
         {
           labelPrefix: '',
-          restTestId: 'context-usage-toolcall-rest',
           testIdPrefix: 'context-usage-toolcall-',
         }
       );
@@ -472,9 +520,8 @@ function toConversationSubRows(
   }
   if (!toolsHaveOwnCategory) {
     splitRows.push(
-      ...toTopEntrySubRows(conversationEstimate.byTool, {
+      ...toEntrySubRows(conversationEstimate.byTool, {
         labelPrefix: '· ',
-        restTestId: 'context-usage-conv-tool-rest',
         testIdPrefix: 'context-usage-conv-tool-',
       })
     );
@@ -780,7 +827,7 @@ export const ContextUsagePopoverContent = ({
                 <span className="tabular-nums">{row.value}</span>
               </span>
               {subRowsByTestId[row.testId] && (
-                <ul className="ml-3.5 flex flex-col gap-px border-border/60 border-l pl-2">
+                <ul className="ml-3.5 flex max-h-48 flex-col gap-px overflow-y-auto border-border/60 border-l pl-2">
                   {subRowsByTestId[row.testId]?.map((subRow) => (
                     <li
                       className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/70"

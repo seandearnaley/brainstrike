@@ -5,11 +5,25 @@ import {
 import type { CostEstimate } from '@brainstrike/tokenization';
 import type { ThreadCumulativeUsage } from './assistant-memory-repository.ts';
 
+/** One model's usage and cost within a source. */
+export interface CumulativeModelUsage {
+  /** What its calls cost; null when any of them is unpriced. */
+  readonly costUsd: number | null;
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+}
+
 /** One source's share of the thread total (BST-953). OM rows are local estimates. */
 export interface CumulativeSourceUsage {
+  /** What its calls cost; null when any of them is unpriced. */
+  readonly costUsd: number | null;
   readonly estimated: boolean;
   readonly inputTokens: number;
   readonly kind: AssistantRunUsageKind;
+  /** Its models, costliest first. */
+  readonly models: readonly CumulativeModelUsage[];
   readonly outputTokens: number;
 }
 
@@ -64,27 +78,65 @@ function roundUsd(amount: number): number {
   return Math.round(amount * USD_ROUNDING) / USD_ROUNDING;
 }
 
+type PerModelEntry = ThreadCumulativeUsage['perModel'][number];
+
+/** A subtotal's cost: billed plus estimated; null when its estimated part is unpriced. */
+function entryCost(entry: PerModelEntry): number | null {
+  const estimatedTokens =
+    (entry.estimatedInputTokens ?? entry.inputTokens) +
+    (entry.estimatedOutputTokens ?? entry.outputTokens);
+  if (estimatedTokens > 0 && entry.estimatedCostUsd === null) {
+    return null;
+  }
+  return (entry.billedCostUsd ?? 0) + (estimatedTokens > 0 ? (entry.estimatedCostUsd ?? 0) : 0);
+}
+
+function addCost(total: number | null, cost: number | null): number | null {
+  return total === null || cost === null ? null : total + cost;
+}
+
+function addModelUsage(
+  total: CumulativeModelUsage | undefined,
+  entry: PerModelEntry
+): CumulativeModelUsage {
+  return {
+    costUsd: addCost(total?.costUsd ?? 0, entryCost(entry)),
+    inputTokens: (total?.inputTokens ?? 0) + entry.inputTokens,
+    model: entry.model,
+    outputTokens: (total?.outputTokens ?? 0) + entry.outputTokens,
+    provider: entry.provider,
+  };
+}
+
+const costRank = (usage: { readonly costUsd: number | null }): number => usage.costUsd ?? -1;
+
 function resolveBySource(usage: ThreadCumulativeUsage): CumulativeSourceUsage[] {
-  const byKind = new Map<AssistantRunUsageKind, { inputTokens: number; outputTokens: number }>();
+  const byKind = new Map<AssistantRunUsageKind, Map<string, CumulativeModelUsage>>();
   for (const entry of usage.perModel) {
-    const bucket = byKind.get(entry.runKind) ?? { inputTokens: 0, outputTokens: 0 };
-    bucket.inputTokens += entry.inputTokens;
-    bucket.outputTokens += entry.outputTokens;
-    byKind.set(entry.runKind, bucket);
+    const models = byKind.get(entry.runKind) ?? new Map<string, CumulativeModelUsage>();
+    const key = `${entry.provider}::${entry.model}`;
+    models.set(key, addModelUsage(models.get(key), entry));
+    byKind.set(entry.runKind, models);
   }
   const sources: CumulativeSourceUsage[] = [];
   for (const kind of ASSISTANT_RUN_USAGE_KINDS) {
-    const bucket = byKind.get(kind);
-    if (!bucket || bucket.inputTokens + bucket.outputTokens === 0) {
+    const models = [...(byKind.get(kind)?.values() ?? [])].sort(
+      (left, right) => costRank(right) - costRank(left)
+    );
+    const inputTokens = models.reduce((sum, model) => sum + model.inputTokens, 0);
+    const outputTokens = models.reduce((sum, model) => sum + model.outputTokens, 0);
+    if (inputTokens + outputTokens === 0) {
       continue;
     }
     sources.push({
+      costUsd: models.reduce<number | null>((sum, model) => addCost(sum, model.costUsd), 0),
       // OM cycle sizes are Mastra's local tokenx estimates; chat/subagent rows
       // are provider-reported aggregates.
       estimated: kind === 'om-observation' || kind === 'om-reflection',
-      inputTokens: bucket.inputTokens,
+      inputTokens,
       kind,
-      outputTokens: bucket.outputTokens,
+      models,
+      outputTokens,
     });
   }
   return sources;

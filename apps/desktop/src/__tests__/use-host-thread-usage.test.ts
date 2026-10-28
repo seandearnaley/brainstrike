@@ -45,7 +45,24 @@ test("the meter's thread total follows the committed log, priced at the catalog 
   act(() => seed(ledger, rows));
   // 4 input and 100 output tokens at the catalog's $3 / $15 per million.
   expect(result.current).toEqual({
-    bySource: [{ estimated: false, inputTokens: 4, kind: 'chat', outputTokens: 100 }],
+    bySource: [
+      {
+        costUsd: 0.001_512,
+        estimated: false,
+        inputTokens: 4,
+        kind: 'chat',
+        models: [
+          {
+            costUsd: 0.001_512,
+            inputTokens: 4,
+            model: 'anthropic/claude-sonnet-4.6',
+            outputTokens: 100,
+            provider: 'openrouter',
+          },
+        ],
+        outputTokens: 100,
+      },
+    ],
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
     cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 0.001_512 },
