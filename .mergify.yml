@@ -15,6 +15,16 @@ merge_queue:
   # never fewer. A red batch reruns only the batches built on it.
   max_parallel_checks: 3
 
+# Queue each pull request once it matches these conditions, without anyone
+# ticking Mergify's box. This needs Merge Protections activated for the
+# repository in Mergify's dashboard (done 2026-10-28). Drafts stay out, so a
+# draft is how a PR is held back. Fork PRs stay out because the gate runs their
+# code with this repository's secrets; queue those by hand after reading them.
+merge_protections_settings:
+  auto_merge_conditions:
+    - -draft
+    - -from-fork
+
 queue_rules:
   - name: default
     queue_conditions:
