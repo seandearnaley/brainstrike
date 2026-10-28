@@ -25,6 +25,7 @@ import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
+import { checkForAppUpdate } from './app-update';
 import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
@@ -1585,6 +1586,7 @@ if (singleInstanceLockAcquired) {
         return;
       }
       logger.debug('Main window created successfully');
+      checkForAppUpdate();
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,
       // never re-enqueued by `app.on('activate')`'s later `createMainWindow()`

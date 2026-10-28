@@ -1,16 +1,11 @@
-# Cloud CI is disabled due to cost; repository GitHub Actions is disabled.
-# Preserved workflow definition only: do not enable, dispatch, or rerun it.
-# Test locally with pnpm check and report the commands and results.
-# Tell the user: CI is disabled due to cost; validation must run locally.
-# Stays disabled: per-PR hosted CI is off.
 # Release runs are the owner's: only Sean tags, dispatches, signs or publishes.
 
 name: Release
 
 # Desktop release pipeline (manifest-last contract: apps/desktop/RELEASES.md).
 #
-# Trigger with a stable tag `v<major>.<minor>.<patch>` that matches
-# apps/desktop/package.json's version, or workflow_dispatch for a dry run
+# Trigger with a tag `v<version>` (SemVer: `v0.1.0`, or a beta `v0.1.0-beta.1`)
+# that matches apps/desktop/package.json's version, or workflow_dispatch for a dry run
 # (build + smoke + hash, no publish). Only a tag PUSH publishes: a dispatch,
 # even on a tag ref, never does. The `unsigned` input builds the unsigned macOS
 # posture although signing secrets exist, so a proof run signs nothing.
@@ -42,8 +37,10 @@ name: Release
 #   2. upload immutable assets to the public releases repo
 #   3. verify every public URL answers
 #   4. generate manifest v2 from the actual upload records
-#   5. publish the manifest LAST, as the release's release-manifest.json
-# The manifest can never name an asset that is not already reachable.
+#   5. publish the manifest and the electron-updater metadata (latest*.yml)
+#      LAST, then rebuild the download site
+# Neither the manifest nor an updater can name an asset that is not already
+# reachable.
 #
 # macOS code signing + notarization (BST-1627): each build-macos leg signs
 # with the Developer ID Application identity in CSC_LINK (base64 .p12) +
@@ -250,10 +247,12 @@ jobs:
           printf '%s\n' "$APPLE_API_KEY_CONTENTS" > "$KEY_FILE"
           # notarytool wants a PATH, but the secret holds the .p8 CONTENTS, so
           # APPLE_API_KEY reaches Package DMG through GITHUB_ENV as a path.
-          # Do NOT "fix" the inconsistency by adding
-          # `APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}` to that step's env —
-          # that passes the contents where a path is expected and fails only
-          # after a full build, with an opaque notarization error (#2960 review).
+          # Do NOT "fix" the inconsistency by giving that step's env an
+          # APPLE_API_KEY taken from the secret — that passes the contents
+          # where a path is expected and fails only after a full build, with an
+          # opaque notarization error (#2960 review). Never write a secrets
+          # expression in a comment here either: Actions substitutes it before
+          # bash runs, and the key's lines executed as commands.
           echo "APPLE_API_KEY=$KEY_FILE" >> "$GITHUB_ENV"
 
       - name: Package DMG
@@ -267,7 +266,8 @@ jobs:
           APPLE_API_KEY_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_API_ISSUER || '' }}
           APPLE_TEAM_ID: ${{ steps.signing.outputs.signed == 'true' && secrets.APPLE_TEAM_ID || '' }}
-        run: pnpm --filter @brainstrike/desktop run dist --mac dmg --"$ARCH" --publish never
+        # The zip is electron-updater's macOS payload; the DMG is the download.
+        run: pnpm --filter @brainstrike/desktop run dist --mac dmg zip --"$ARCH" --publish never
 
       - name: Remove the notarization key
         if: always() && steps.signing.outputs.signed == 'true'
@@ -346,6 +346,18 @@ jobs:
             echo "$ASSESS"
             grep -q 'source=Notarized Developer ID' <<<"$ASSESS" \
               || fail "${DMG}: Gatekeeper does not report a notarized Developer ID app"
+
+            # The update payload carries the same app: Squirrel.Mac refuses an
+            # update whose signature does not verify, so check the zip's copy.
+            ZIP="Brainstrike-${VERSION}-macos-${ARCH}.zip"
+            [[ -f "$ZIP" ]] || fail "missing ${ZIP}"
+            UNZIPPED="$RUNNER_TEMP/update-zip-${ARCH}"
+            rm -rf "$UNZIPPED"
+            ditto -x -k "$ZIP" "$UNZIPPED"
+            ZIP_APP=$(find "$UNZIPPED" -maxdepth 1 -name '*.app' -print -quit)
+            [[ -n "$ZIP_APP" ]] || fail "${ZIP}: no .app at the root of the archive"
+            codesign --verify --deep --strict "$ZIP_APP" || fail "${ZIP}: app signature does not verify"
+            xcrun stapler validate "$ZIP_APP" || fail "${ZIP}: notarization ticket is not stapled to the app"
           else
             echo "== ${DMG}: UNSIGNED posture; asserting no half-signed identity"
             if codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Developer ID'; then
@@ -417,6 +429,9 @@ jobs:
             writeFileSync(`release-records/macos-${arch}.json`, JSON.stringify(records, null, 2));
             console.log(JSON.stringify(records, null, 2));
           ' "$VERSION" "$ARCH"
+          # Both legs write latest-mac.yml naming only their own arch; the
+          # publish job merges them (scripts/release-update-info.mjs).
+          mv apps/desktop/release/latest-mac.yml "apps/desktop/release/latest-mac-${ARCH}.yml"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -424,6 +439,9 @@ jobs:
           name: release-macos-${{ matrix.arch }}
           path: |
             apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest-mac-${{ matrix.arch }}.yml
             release-records/macos-${{ matrix.arch }}.json
           retention-days: 3
           if-no-files-found: error
@@ -495,6 +513,8 @@ jobs:
           name: release-windows
           path: |
             apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest.yml
             release-records/windows.json
           retention-days: 3
           if-no-files-found: error
@@ -563,9 +583,19 @@ jobs:
           [[ -f "$APPIMAGE" ]] || { echo "::error::missing ${APPIMAGE}"; exit 1; }
           chmod +x "$APPIMAGE"
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
-          OUT=$(xvfb-run -a "$APPIMAGE" --appimage-extract-and-run --no-sandbox --version 2>/dev/null | tail -1 || true)
-          echo "AppImage --version => ${OUT}"
-          [[ "$OUT" == *"$VERSION"* ]] || { echo "::error::AppImage did not report version ${VERSION}"; exit 1; }
+          # Extract first: --appimage-extract-and-run prints every extracted
+          # path to stdout ahead of the app's own output. stderr is kept, so a
+          # failed launch shows why.
+          (cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/$APPIMAGE" --appimage-extract >/dev/null)
+          STDERR="$RUNNER_TEMP/appimage-version.stderr"
+          STATUS=0
+          OUT=$(xvfb-run -a "$RUNNER_TEMP/squashfs-root/AppRun" --no-sandbox --version 2>"$STDERR") || STATUS=$?
+          echo "AppImage --version => ${OUT} (exit ${STATUS})"
+          if [[ "$OUT" != *"$VERSION"* ]]; then
+            echo "::error::AppImage did not report version ${VERSION}"
+            tail -n 40 "$STDERR"
+            exit 1
+          fi
 
       - name: Record asset metadata
         env:
@@ -601,6 +631,7 @@ jobs:
           name: release-linux-${{ matrix.arch }}
           path: |
             apps/desktop/release/*.AppImage
+            apps/desktop/release/latest-linux*.yml
             release-records/linux-${{ matrix.arch }}.json
           retention-days: 3
           if-no-files-found: error
@@ -612,10 +643,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # Full history and tags: the release notes cover the commits since the
+      # previous release tag.
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.sha }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
@@ -631,16 +666,37 @@ jobs:
 
       - name: Stage assets and checksums
         id: stage
+        env:
+          VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          mkdir -p assets release-records
+          mkdir -p assets update-info release-records
           # -n: a filename collision across build artifacts must surface as a
-          # missing asset in the count below, never a silent overwrite.
-          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' \) -exec mv -n {} assets/ \;
+          # missing file in the checks below, never a silent overwrite.
+          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.blockmap' \) -exec mv -n {} assets/ \;
+          find staging -type f -name 'latest*.yml' -exec mv -n {} update-info/ \;
           find staging -name '*.json' -path '*release-records*' -exec mv -n {} release-records/ \;
-          ls -la assets release-records
-          ASSET_COUNT=$(find assets -type f | wc -l)
-          [[ "$ASSET_COUNT" -eq 5 ]] || { echo "::error::expected 5 assets (2 DMG, 1 EXE, 2 AppImage), found ${ASSET_COUNT}"; exit 1; }
+          # One latest-mac.yml names both arches; the updater picks its own.
+          node scripts/release-update-info.mjs merge-mac \
+            update-info/latest-mac-arm64.yml update-info/latest-mac-x64.yml > update-info/latest-mac.yml
+          rm update-info/latest-mac-arm64.yml update-info/latest-mac-x64.yml
+          ls -la assets update-info release-records
+          # Downloads (DMG, EXE, AppImage) and macOS update payloads (zip),
+          # by exact name; blockmaps only speed updates up, so whichever
+          # electron-builder wrote are published as found.
+          for NAME in \
+            "Brainstrike-${VERSION}-macos-arm64.dmg" "Brainstrike-${VERSION}-macos-x64.dmg" \
+            "Brainstrike-${VERSION}-macos-arm64.zip" "Brainstrike-${VERSION}-macos-x64.zip" \
+            "Brainstrike-${VERSION}-windows-x64.exe" \
+            "Brainstrike-${VERSION}-linux-x64.AppImage" "Brainstrike-${VERSION}-linux-arm64.AppImage"; do
+            [[ -f "assets/${NAME}" ]] || { echo "::error::missing asset ${NAME}"; exit 1; }
+          done
+          for NAME in latest-mac.yml latest.yml latest-linux.yml latest-linux-arm64.yml; do
+            [[ -f "update-info/${NAME}" ]] || { echo "::error::missing update metadata ${NAME}"; exit 1; }
+          done
+          # Every file an updater may fetch must be one of these assets, with
+          # the size and sha512 the metadata declares.
+          node scripts/release-update-info.mjs verify --version "$VERSION" --assets assets update-info/*.yml
           cd assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
 
       - name: Cross-check staged digests against build records
@@ -675,14 +731,55 @@ jobs:
             console.log(`${sums.size - 1} assets cross-checked against build records.`);
           '
 
+      - name: Find the previous release tag
+        id: previous
+        env:
+          SOURCE_COMMIT: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          # The nearest release tag behind this commit; none means the first release.
+          if git tag --merged "${SOURCE_COMMIT}^" --list 'v[0-9]*' | grep -q .; then
+            echo "tag=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${SOURCE_COMMIT}^")" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Release notes are the conventional-commit PR titles since that tag,
+      # grouped by cliff.toml. The GitHub release body is their one home: the
+      # download site links to it, and its owner may edit it after publishing.
+      - name: Generate release notes
+        if: steps.previous.outputs.tag != ''
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
+        with:
+          version: v2.14.2
+          config: cliff.toml
+          args: --strip all ${{ steps.previous.outputs.tag }}..${{ needs.resolve.outputs.sha }}
+        env:
+          OUTPUT: ${{ runner.temp }}/changes.md
+
       - name: Create release in the public binaries repo
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          PREVIOUS_TAG: ${{ steps.previous.outputs.tag }}
           SOURCE_COMMIT: ${{ needs.resolve.outputs.sha }}
           TAG: ${{ needs.context.outputs.tag }}
           VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          {
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              cat "$RUNNER_TEMP/changes.md"
+            else
+              echo "The first beta of Brainstrike."
+            fi
+            echo
+            echo "Downloads: macOS (Apple silicon and Intel DMG, signed and notarized), Windows (x64 installer, not yet code-signed) and Linux (x64 and arm64 AppImage). Verify any download against SHA256SUMS. Source commit: ${SOURCE_COMMIT}."
+          } > "$NOTES"
+          cat "$NOTES"
+          # A prerelease version is a GitHub prerelease: stable installs never
+          # update to it, and beta installs follow it (electron-updater's
+          # allowPrerelease follows the running version).
+          PRERELEASE=()
+          [[ "$VERSION" == *-* ]] && PRERELEASE=(--prerelease)
           # view-or-create keeps this job resumable: any downstream step (URL
           # probe, manifest) can fail on its own, and a rerun must retry rather
           # than die on an existing release.
@@ -690,7 +787,8 @@ jobs:
             || gh release create "$TAG" \
               --repo seandearnaley/brainstrike-releases \
               --title "Brainstrike ${VERSION}" \
-              --notes "Brainstrike desktop ${VERSION}. Downloads are published for macOS (arm64/x64 DMG), Windows (x64 NSIS), and Linux (arm64/x64 AppImage); verify with SHA256SUMS. Source commit: ${SOURCE_COMMIT}."
+              --notes-file "$NOTES" \
+              "${PRERELEASE[@]}"
 
       - name: Upload assets not yet published
         env:
@@ -738,12 +836,11 @@ jobs:
             --out release-manifest.json
           cat release-manifest.json
 
-      - name: Publish the manifest last
+      - name: Publish the manifest and update metadata last
         # Manifest-last (apps/desktop/RELEASES.md): every asset above is
-        # uploaded and answered 200 before the manifest that names it exists.
-        # No site consumes it yet (the product site, #2186, closed unmerged);
-        # a download surface reads this asset and validates it with its own
-        # production schema before rendering links.
+        # uploaded and answered 200 before the files that name it exist. The
+        # download site (seandearnaley/brainstrike.ai) reads the manifest and
+        # validates it before rendering links; installed apps read latest*.yml.
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           TAG: ${{ needs.context.outputs.tag }}
@@ -753,9 +850,21 @@ jobs:
           # It carries publishedAt, so publishing this tag again refuses here.
           PUBLISHED="$RUNNER_TEMP/published-assets.json"
           gh api "repos/seandearnaley/brainstrike-releases/releases/tags/${TAG}" --jq '.assets' > "$PUBLISHED"
-          UPLOAD=$(node scripts/release-asset-plan.mjs --remote "$PUBLISHED" release-manifest.json)
+          UPLOAD=$(node scripts/release-asset-plan.mjs --remote "$PUBLISHED" update-info/*.yml release-manifest.json)
           if [[ -z "$UPLOAD" ]]; then
-            echo "release-manifest.json is already published with these bytes."
+            echo "The manifest and update metadata are already published with these bytes."
             exit 0
           fi
-          gh release upload "$TAG" release-manifest.json --repo seandearnaley/brainstrike-releases
+          FILES=()
+          while IFS= read -r FILE; do FILES+=("$FILE"); done <<<"$UPLOAD"
+          gh release upload "$TAG" "${FILES[@]}" --repo seandearnaley/brainstrike-releases
+
+      - name: Rebuild the download site
+        env:
+          VERCEL_SITE_DEPLOY_HOOK: ${{ secrets.VERCEL_SITE_DEPLOY_HOOK }}
+        run: |
+          set -euo pipefail
+          # brainstrike.ai renders its links from the newest manifest at build time.
+          [[ -n "$VERCEL_SITE_DEPLOY_HOOK" ]] \
+            || { echo "::error::VERCEL_SITE_DEPLOY_HOOK is not configured, so brainstrike.ai still lists the previous release."; exit 1; }
+          curl -fsS -X POST "$VERCEL_SITE_DEPLOY_HOOK" > /dev/null
