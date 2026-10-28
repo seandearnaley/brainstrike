@@ -112,7 +112,7 @@ export class WorkspaceRootRegistry {
   }>();
   private readonly onRootGranted: ((grantedPath: string) => void) | undefined;
   private readonly onRestoredRootsChanged: (() => void) | undefined;
-  /** The persisted mounts the source borrower last restored; undefined until it first does. */
+  /** The persisted mounts the open source borrower restored; undefined while it holds none. */
   private borrowedRootIds: ReadonlySet<string> | undefined;
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
   private readonly resolveCanonicalRoot: (rootPath: string) => Promise<string>;
@@ -685,7 +685,7 @@ export class WorkspaceRootRegistry {
       const descriptors = await this.restoreRootsOwned(persistPreferences);
       const borrowed = this.borrowedRootIds;
       const mounted = this.mounts.persistedIds();
-      // Before the borrower's first restore, that restore will borrow these mounts itself.
+      // Before the borrower's next open, that open will borrow these mounts itself.
       if (
         borrowed &&
         (borrowed.size !== mounted.size || [...mounted].some((id) => !borrowed.has(id)))
@@ -711,6 +711,15 @@ export class WorkspaceRootRegistry {
         return this.borrowMountedRoot(rootId, subscribe);
       });
     });
+  }
+
+  /**
+   * The borrower closed and retired its borrows: its next open restores and borrows what it
+   * finds. A factory reset's replacement window restores while the index is closed, and those
+   * restores must not each queue another reopen behind the reset's own.
+   */
+  releaseRestoredRoots(): void {
+    this.borrowedRootIds = undefined;
   }
 
   private async restoreRootsOwned(persistPreferences: boolean): Promise<RootDescriptor[]> {

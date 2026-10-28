@@ -35,3 +35,25 @@ it('tells the index when a restore mounts folders other than the ones it borrowe
   expect(onRestoredRootsChanged).toHaveBeenCalledTimes(2);
   await registry.dispose();
 });
+
+it('says nothing while the closed index holds no borrow, as across a factory reset', async () => {
+  const storage = createStorage();
+  await storage.setItem(ROOTS_LIST, storedRoots({ path: '/work/notes', rootId: 'notes' }));
+  const onRestoredRootsChanged = vi.fn();
+  const registry = createRegistry({ onRestoredRootsChanged, storage });
+  await registry.borrowRestoredRoots(async () => undefined);
+
+  // The reset closes the index and deletes the folder list; the replacement window restores.
+  registry.releaseRestoredRoots();
+  await storage.setItem(ROOTS_LIST, storedRoots());
+  await registry.restoreRoots();
+  await registry.restoreRoots();
+  expect(onRestoredRootsChanged).not.toHaveBeenCalled();
+
+  // The reopened index borrows what it finds; a later change is told again.
+  await registry.borrowRestoredRoots(async () => undefined);
+  await storage.setItem(ROOTS_LIST, storedRoots({ path: '/work/notes', rootId: 'notes' }));
+  await registry.restoreRoots();
+  expect(onRestoredRootsChanged).toHaveBeenCalledOnce();
+  await registry.dispose();
+});

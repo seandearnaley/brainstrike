@@ -13,8 +13,12 @@ interface Dependencies {
 export function createNativeRootRegistration(
   dependencies: Dependencies
 ): IndexRootRegistrationCapability {
+  // Each re-read reopens the index, and one folder change can notify several times. A re-read
+  // that started after a notification read what it announced, so that notification adds none.
+  let rereads = 0;
   return {
     rootsRegistered: async () => {
+      const announced = rereads;
       try {
         await dependencies.transition(async () => {
           if (dependencies.isShuttingDown()) {
@@ -22,6 +26,10 @@ export function createNativeRootRegistration(
               'Native root registration retired during shutdown.'
             );
           }
+          if (rereads > announced) {
+            return;
+          }
+          rereads += 1;
           await dependencies.reconfigureRoots();
         });
       } catch (error) {
