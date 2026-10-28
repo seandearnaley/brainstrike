@@ -1194,6 +1194,9 @@ importers:
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
