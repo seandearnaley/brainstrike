@@ -152,7 +152,9 @@ describe('ArtifactsPage', () => {
 
   it('searches by artifact title and by thread name', async () => {
     renderPage(createHost({ artifacts: artifacts(async () => LISTED) }));
-    const search = await screen.findByRole('searchbox', { name: 'Search artifacts' });
+    // The search box renders while the list is still loading.
+    await screen.findByRole('list', { name: 'Artifacts' });
+    const search = screen.getByRole('searchbox', { name: 'Search artifacts' });
 
     fireEvent.change(search, { target: { value: 'revenue' } });
     expect(cardTitles()).toEqual(['Revenue chart']);
