@@ -9,11 +9,7 @@ import { userEvent } from 'vitest/browser';
 import { CommittedAssistantConversation } from '../committed-assistant-conversation';
 import type { CommittedAssistantLogSourceSnapshot } from '../committed-assistant-log-store';
 import type { CommittedAssistantCommands } from '../committed-assistant-store';
-import {
-  followUpQueueKey,
-  resetFollowUpQueueStore,
-  useFollowUpQueueStore,
-} from '../follow-up-queue-store';
+import { resetThreadMessageQueues } from '../thread-message-queue';
 import {
   answerStepLength,
   committedRows,
@@ -22,6 +18,7 @@ import {
   recordedThreadId,
   settleFrames,
 } from './committed-assistant-browser-support';
+import { queueMessage } from './thread-message-queue-support';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
@@ -37,7 +34,7 @@ const LABEL = 'Committed conversation';
 const QUEUED = 'Summarise the result next';
 
 afterEach(() => {
-  resetFollowUpQueueStore();
+  resetThreadMessageQueues();
 });
 
 /** A remounted view's owner: loading until its subscription's replay arrives. */
@@ -100,7 +97,7 @@ test('a message written during an active committed run is queued and sent once a
 
 test('a queued message waits through replay loading and a replayed active run', async () => {
   const onNew = vi.fn<CommittedAssistantCommands['onNew']>(async () => undefined);
-  useFollowUpQueueStore.getState().enqueue(followUpQueueKey(recordedThreadId), QUEUED);
+  queueMessage(recordedThreadId, QUEUED);
   // Before the replay arrives, no run is visible.
   const source = new ReplayingSource();
   const { ui } = await mount(source, onNew);

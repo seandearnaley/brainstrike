@@ -5,7 +5,6 @@ import {
   type ThreadMessageLike,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
-import { getToolActionIdentityKey } from '@brainstrike/assistant-contract';
 import {
   TOOL_APPROVAL_DATA_NAME,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
@@ -20,15 +19,17 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event';
 import { Activity } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buildApprovalDecisionMessage } from '../approval-decision-message';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import type { DecisionRoute } from '../decision-route-context';
-import { resetFollowUpQueueStore, useFollowUpQueueStore } from '../follow-up-queue-store';
 import { useRewindComposerStore } from '../rewind-composer-store';
 import { RewindProvider } from '../rewind-context';
+import { resetThreadMessageQueues, threadMessageQueue } from '../thread-message-queue';
 import { ToolApprovalGrantProvider } from '../tool-approval-grant-context';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 import { streamedText } from './streamed-text';
+import { queuedPrompts, queueMessage } from './thread-message-queue-support';
 
 function Conversation({
   agentColor,
@@ -97,7 +98,7 @@ const message = (text: string): ThreadMessageLike => ({
 describe('shared conversation panel', () => {
   afterEach(() => {
     cleanup();
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
     useRewindComposerStore.getState().consume();
   });
 
@@ -229,7 +230,7 @@ describe('shared conversation panel', () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[0]).toEqual(send.mock.calls[1]?.[0]);
     expect(onNew).not.toHaveBeenCalled();
-    expect(useFollowUpQueueStore.getState().queuedByThread).toEqual({});
+    expect(screen.queryByRole('list', { name: 'Queued follow-up messages' })).toBeNull();
   });
 
   it('lets the user discard an unconfirmed draft and explicitly compose a fresh request', async () => {
@@ -637,7 +638,7 @@ describe('shared conversation panel', () => {
     'does not dispatch a queued follow-up when inspecting a child (running=%s)',
     async (running) => {
       const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
-      useFollowUpQueueStore.getState().enqueue('Cedar', 'Queued child work');
+      queueMessage('Cedar', 'Queued child work');
       const view = (isRunning: boolean) => (
         <TooltipProvider>
           <Conversation
@@ -655,11 +656,11 @@ describe('shared conversation panel', () => {
       ).not.toBeInTheDocument();
       rerender(view(false));
       expect(onNew).not.toHaveBeenCalled();
-      expect(useFollowUpQueueStore.getState().queuedByThread['Cedar']).toHaveLength(1);
+      expect(queuedPrompts('Cedar')).toEqual(['Queued child work']);
       unmount();
       render(view(false));
       expect(onNew).not.toHaveBeenCalled();
-      expect(useFollowUpQueueStore.getState().queuedByThread['Cedar']).toHaveLength(1);
+      expect(queuedPrompts('Cedar')).toEqual(['Queued child work']);
     }
   );
   it('keeps root plan mode when its real runtime approves a forwarded child plan', async () => {
@@ -828,11 +829,7 @@ describe('shared conversation panel', () => {
       toolCallId: 'child-tool',
       toolName: 'workspace.writeFile',
     };
-    useFollowUpQueueStore.getState().enqueueMessage('root-thread', {
-      identityKey: getToolActionIdentityKey(request),
-      message: 'Approved.',
-      text: 'Approved.',
-    });
+    queueMessage('root-thread', buildApprovalDecisionMessage(request, 'approve').message);
     render(
       <TooltipProvider>
         <Conversation
@@ -858,9 +855,9 @@ describe('shared conversation panel', () => {
     );
     await screen.findByText('Queued');
 
-    const queued = useFollowUpQueueStore.getState().queuedByThread['root-thread'];
-    expect(queued).toHaveLength(1);
-    act(() => useFollowUpQueueStore.getState().remove('root-thread', queued?.[0]?.id ?? 'missing'));
+    const queue = threadMessageQueue('root-thread');
+    expect(queue.getItems()).toHaveLength(1);
+    act(() => queue.getAdapter().remove(queue.getItems()[0]?.id ?? 'missing'));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
     );

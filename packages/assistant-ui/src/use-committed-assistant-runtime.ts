@@ -1,10 +1,21 @@
 import {
+  type AppendMessage,
   type AssistantRuntime,
   type ExternalStoreAdapter,
+  type ExternalThreadQueueAdapter,
   type ThreadMessage,
   useExternalStoreRuntime,
 } from '@assistant-ui/react';
-import { useCallback, useMemo, useReducer, useState, useSyncExternalStore } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import {
   bindCommittedAssistantCommands,
   type CommittedAssistantCommands,
@@ -12,6 +23,7 @@ import {
   type CommittedAssistantStore,
   CommittedRunStarts,
 } from './committed-assistant-store';
+import { threadMessageQueue } from './thread-message-queue';
 
 /** Object.is compares the selected fold object, so unrelated tokens do not rerender a card. */
 export function useCommittedAssistantSelector<T>(
@@ -136,7 +148,8 @@ export function useCommittedAssistantRuntime({
     repository = repositoryEnvelope(snapshot.repository, selectedHeadId);
     publish({ inputs, repository });
   }
-  return useExternalStoreRuntime<ThreadMessage>({
+  const queue = useCommittedMessageQueue(store, ports.onNew, snapshot.isRunning);
+  const runtime = useExternalStoreRuntime<ThreadMessage>({
     ...ports,
     adapters,
     extras: snapshot.extras,
@@ -146,6 +159,7 @@ export function useCommittedAssistantRuntime({
     isSendDisabled:
       isStarting || snapshot.connection !== 'connected' || snapshot.error !== undefined,
     messageRepository: repository,
+    queue: queue.adapter,
     // Installed branch switching checks this port before moving its local head.
     setMessages:
       snapshot.connection === 'connected' && snapshot.error === undefined && !snapshot.isDisabled
@@ -153,4 +167,75 @@ export function useCommittedAssistantRuntime({
         : undefined,
     state: snapshot.state,
   });
+  // Declared after the runtime so it runs after the vendor adopts this render's
+  // store: a queued message dispatched here is parented on the final reply.
+  useEffect(queue.flush);
+  return runtime;
+}
+
+interface QueueObservation {
+  readonly running: boolean;
+  readonly settled: boolean;
+}
+
+function observeSnapshot(snapshot: CommittedAssistantSnapshot): QueueObservation {
+  return {
+    running: snapshot.isRunning,
+    // A replay that is still loading, or an owner that is not connected, is
+    // not a committed state: an idle-looking view there is not a run end.
+    settled:
+      !snapshot.isLoading && snapshot.connection === 'connected' && snapshot.error === undefined,
+  };
+}
+
+/**
+ * Binds the thread's message queue (`thread-message-queue.ts`) to this
+ * conversation. Run edges are read from every committed publication, never
+ * from a rendered `isRunning` (BST-2207), and applied after the vendor runtime
+ * has rendered that publication. The vendor gets the queue only while a run is
+ * active or messages wait (owner decision 2026-10-27): an idle send goes
+ * straight to the owner, so a refused one restores its draft.
+ */
+function useCommittedMessageQueue(
+  store: CommittedAssistantStore,
+  send: (message: AppendMessage) => Promise<void>,
+  isRunning: boolean
+): {
+  readonly adapter: ExternalThreadQueueAdapter | undefined;
+  readonly flush: () => void;
+} {
+  const queue = threadMessageQueue(store.threadId);
+  const adapter = useSyncExternalStore(queue.subscribe, queue.getAdapter, queue.getAdapter);
+  const [, observed] = useReducer((count: number) => count + 1, 0);
+  const pending = useRef<QueueObservation[]>([]);
+  const caughtUp = useRef(false);
+  // Bound once per queue: a new send port is not a new binding, so replacing
+  // the commands never re-holds a queue that no new observation would release.
+  const sendLatest = useEffectEvent(send);
+  useEffect(() => queue.bind((message) => sendLatest(message)), [queue]);
+  useEffect(() => {
+    let last: QueueObservation | undefined;
+    const record = (): void => {
+      const next = observeSnapshot(store.getSnapshot());
+      if (last?.running === next.running && last.settled === next.settled) {
+        return;
+      }
+      last = next;
+      pending.current.push(next);
+      observed();
+    };
+    record();
+    return store.subscribe(record);
+  }, [store]);
+  const flush = (): void => {
+    for (const observation of pending.current.splice(0)) {
+      // The first settled view after mounting is the run end this queue
+      // missed while the thread was off screen, if it shows the thread idle.
+      const catchUp = observation.settled && !caughtUp.current;
+      caughtUp.current ||= observation.settled;
+      queue.observe({ ...observation, catchUp });
+    }
+  };
+  const waiting = adapter.items.length > 0 || adapter.steerItems.length > 0;
+  return { adapter: isRunning || waiting ? adapter : undefined, flush };
 }
