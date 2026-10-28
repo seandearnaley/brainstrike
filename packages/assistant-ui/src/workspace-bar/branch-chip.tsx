@@ -290,6 +290,11 @@ const BranchMenuChip = ({
         aria-label="Switch branch"
         className="w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl p-0"
         data-testid="workspace-bar-branch-menu"
+        // Selecting another thread closes the menu and hides this thread's
+        // panel in the same click, so the chip is gone while the menu plays
+        // its exit animation. Without its anchor the menu would paint at the
+        // window's corner for those frames; it hides instead.
+        hideWhenDetached={!open}
       >
         <BranchSwitcher branchMenu={branchMenu} onDone={() => setOpen(false)} />
       </PopoverContent>

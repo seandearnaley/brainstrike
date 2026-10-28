@@ -1,7 +1,8 @@
 /**
  * An open composer popover closes when another thread is selected. Each thread
- * keeps its panel mounted and hides it, so a popover left open would lose its
- * anchor and float to the window's top-left corner.
+ * keeps its panel mounted and hides it, so the popover's anchor disappears in
+ * the same click: the menu must close and never paint away from its chip, not
+ * even for the frames of its exit animation.
  */
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
@@ -49,17 +50,54 @@ test('selecting another thread closes the open branch menu', async ({
     .getByRole('row', { level: 2 });
   const tabs = page.getByTestId('assistant-thread-tab-strip');
 
-  // From the Threads panel.
-  await region.getByTestId('workspace-bar-branch-chip').click();
-  await expect(menu).toBeVisible();
-  await rows.filter({ hasText: 'First reply.' }).getByRole('button').first().click();
-  await expect(tabs.getByRole('tab', { selected: true })).toContainText('First reply.');
-  await expect(menu).toHaveCount(0);
+  /**
+   * Opens the menu, switches thread, and records every painted frame until the
+   * menu is gone: it may fade where it was, but never shows anywhere else.
+   */
+  async function closesInPlace(switchThread: () => Promise<void>, selected: string) {
+    await region.getByTestId('workspace-bar-branch-chip').click();
+    await expect(menu).toBeVisible();
+    // Past the opening animation, where the menu rests.
+    await expect.poll(() => menu.evaluate((element) => element.getAnimations().length)).toBe(0);
+    const open = await menu.boundingBox();
+    const chip = await region.getByTestId('workspace-bar-branch-chip').boundingBox();
+    // Anchored to its chip: the menu starts at the chip's left edge.
+    expect(Math.abs((open?.x ?? 0) - (chip?.x ?? Number.NaN))).toBeLessThan(2);
+    await page.evaluate(() => {
+      const frames: { x: number; y: number }[] = [];
+      (window as unknown as { __menuFrames: typeof frames }).__menuFrames = frames;
+      const sample = (): void => {
+        const element = document.querySelector('[data-testid="workspace-bar-branch-menu"]');
+        if (!element) {
+          return;
+        }
+        if (element.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
+          const { x, y } = element.getBoundingClientRect();
+          frames.push({ x, y });
+        }
+        requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    await switchThread();
+    await expect(tabs.getByRole('tab', { selected: true })).toContainText(selected);
+    await expect(menu).toHaveCount(0);
+    const frames = await page.evaluate(
+      () => (window as unknown as { __menuFrames: { x: number; y: number }[] }).__menuFrames
+    );
+    expect(frames.length, 'The menu was painted before the switch').toBeGreaterThan(0);
+    for (const frame of frames) {
+      expect(Math.abs(frame.x - (open?.x ?? Number.NaN))).toBeLessThan(2);
+      expect(Math.abs(frame.y - (open?.y ?? Number.NaN))).toBeLessThan(2);
+    }
+  }
 
-  // From the thread tabs.
-  await region.getByTestId('workspace-bar-branch-chip').click();
-  await expect(menu).toBeVisible();
-  await tabs.getByRole('tab', { name: /Second reply\./ }).click();
-  await expect(tabs.getByRole('tab', { selected: true })).toContainText('Second reply.');
-  await expect(menu).toHaveCount(0);
+  await closesInPlace(
+    () => rows.filter({ hasText: 'First reply.' }).getByRole('button').first().click(),
+    'First reply.'
+  );
+  await closesInPlace(
+    () => tabs.getByRole('tab', { name: /Second reply\./ }).click(),
+    'Second reply.'
+  );
 });
