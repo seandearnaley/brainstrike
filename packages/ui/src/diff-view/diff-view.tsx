@@ -1,10 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import type { ChangedFileStatus } from '@brainstrike/types';
-import {
-  defaultHighlightStyle,
-  type LanguageSupport,
-  syntaxHighlighting,
-} from '@codemirror/language';
+import type { LanguageSupport } from '@codemirror/language';
 import { MergeView, unifiedMergeView } from '@codemirror/merge';
 import { EditorState, type Extension, RangeSetBuilder } from '@codemirror/state';
 import {
@@ -17,6 +13,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../button';
 import { resolveCodeSurfaceLanguage } from '../code-surface/language';
+import { appSyntaxHighlighting } from '../code-surface/syntax-highlighting';
 import { cn } from '../lib/utils';
 import {
   buildSlicedTextDiff,
@@ -121,7 +118,7 @@ const DISABLE_NATIVE_SPELLCHECK_EXTENSION: Extension = EditorView.contentAttribu
 const BASE_EXTENSIONS_NO_GUTTER: Extension[] = [
   highlightSpecialChars(),
   drawSelection(),
-  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  appSyntaxHighlighting,
   EditorView.lineWrapping,
   DIFF_THEME,
   DISABLE_NATIVE_SPELLCHECK_EXTENSION,
