@@ -102,9 +102,9 @@ regression. Do not repeat that gate locally before a PR.
   label. The Full Check workflow then runs the queue's own lanes on the PR
   merged with main, on hosted runners, and again on each push while the label
   stays. Mark it ready once that run passes.
-- A red batch is a finding. Fix this PR's failure and push; the push queues it
-  again. Fix a flaky test at its cause (it is never retried or skipped) and
-  record it in Linear.
+- A red batch is a finding. Fix this PR's failure and push, then confirm the
+  "Mergify Merge Queue" check is in progress again. Fix a flaky test at its
+  cause (it is never retried or skipped) and record it in Linear.
 
 Do not enable other workflows, dispatch other hosted checks, request automated
 reviews, sign or publish without the owner's authorization. Report actual checks
