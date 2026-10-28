@@ -13,7 +13,7 @@ name: Release
 # Release commit (BST-2190): the `resolve` job runs first and every other job
 # checks out the commit it resolves, never the triggering ref. A commit is
 # releasable when, for every workflow in scripts/release-required-workflows.mjs,
-# the latest completed scheduled run on it succeeded
+# the latest completed run on main at it succeeded, scheduled or dispatched
 # (scripts/resolve-release-sha.mjs reads that from the Actions API). A tag push
 # judges the tagged commit, and a dispatch the `sha` input when given: a red or
 # missing required workflow refuses the run and names each one, with no other
