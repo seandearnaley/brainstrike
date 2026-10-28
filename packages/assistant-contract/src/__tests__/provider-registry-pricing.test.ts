@@ -13,7 +13,9 @@ const KNOWN_FREE_PRICED_MODEL_KEYS = new Set<string>([]);
  * https://platform.claude.com/docs/en/about-claude/pricing (BST-1691). Claude
  * Opus 5.5 is the second exception: 0.05x — $0.20 / MTok against $4 / MTok
  * input, same page, retrieved 2026-09-22 (BST-1804); the AWS Bedrock pricing
- * page's global rate for the Bedrock route is the same $0.20. Keyed on
+ * page's global rate for the Bedrock route is the same $0.20. Claude Sonnet
+ * 5.5 is the third: 0.05x — $0.10 / MTok against $2 / MTok, same page,
+ * retrieved 2026-10-28. Keyed on
  * the model identity WITHOUT the Bedrock `anthropic.` vendor prefix, so the
  * Bedrock route inherits the same documented exception rather than a second
  * hand-maintained list. Cache WRITES stay at the ordinary 1.25x on both models.
@@ -21,6 +23,7 @@ const KNOWN_FREE_PRICED_MODEL_KEYS = new Set<string>([]);
 const CACHE_READ_INPUT_MULTIPLIERS = new Map([
   ['claude-fable-5-1', 0.025],
   ['claude-opus-5-5', 0.05],
+  ['claude-sonnet-5-5', 0.05],
 ]);
 const DEFAULT_CACHE_READ_INPUT_MULTIPLIER = 0.1;
 
@@ -28,6 +31,23 @@ function cacheReadMultiplier(modelId: string): number {
   const identity = modelId.startsWith('anthropic.') ? modelId.slice('anthropic.'.length) : modelId;
   return CACHE_READ_INPUT_MULTIPLIERS.get(identity) ?? DEFAULT_CACHE_READ_INPUT_MULTIPLIER;
 }
+
+/** OpenAI's standard GPT-5.6 Sol tier, retrieved 2026-10-28 from both routes. */
+const GPT_5_6_SOL_STANDARD = {
+  cacheReadPerMTok: 0.4,
+  cacheWritePerMTok: 5,
+  inputPerMTok: 4,
+  longContextTiers: [
+    {
+      cacheReadPerMTok: 0.8,
+      cacheWritePerMTok: 10,
+      inputPerMTok: 8,
+      minPromptTokens: 272_000,
+      outputPerMTok: 30,
+    },
+  ],
+  outputPerMTok: 20,
+};
 
 describe('model pricing metadata', () => {
   it('keeps paid rates positive and limits zero rates to reviewed free routes', () => {
@@ -92,6 +112,15 @@ describe('model pricing metadata', () => {
       cacheReadPerMTok: 0.01,
       cacheWritePerMTok: 0.125,
       inputPerMTok: 0.1,
+      longContextTiers: [
+        {
+          cacheReadPerMTok: 0.02,
+          cacheWritePerMTok: 0.25,
+          inputPerMTok: 0.2,
+          minPromptTokens: 272_000,
+          outputPerMTok: 0.75,
+        },
+      ],
       outputPerMTok: 0.5,
     });
   });
@@ -147,8 +176,9 @@ describe('model pricing metadata', () => {
     const sonnet = listProviderLlmModels('anthropic').find(
       (model) => model.id === 'claude-sonnet-5'
     );
-    // BST-1698: OpenAI's 2026-08-21 cut, standard short-context tier.
-    expect(sol?.pricing).toEqual({ inputPerMTok: 4, outputPerMTok: 20 });
+    // BST-1698: OpenAI's 2026-08-21 cut, standard short-context tier; cache
+    // and >272K rates re-read from the model page 2026-10-28.
+    expect(sol?.pricing).toEqual(GPT_5_6_SOL_STANDARD);
     expect(fable?.pricing).toEqual({
       cacheReadPerMTok: 1,
       cacheWritePerMTok: 12.5,
@@ -169,12 +199,17 @@ describe('model pricing metadata', () => {
     const glm = models.find((model) => model.id === 'z-ai/glm-5.2');
     const spark = models.find((model) => model.id === 'meta/muse-spark-1.1');
     const kimi = models.find((model) => model.id === 'moonshotai/kimi-k3');
-    expect(sonnet?.pricing).toEqual({ inputPerMTok: 2, outputPerMTok: 10 });
+    expect(sonnet?.pricing).toEqual({
+      cacheReadPerMTok: 0.2,
+      cacheWritePerMTok: 2.5,
+      inputPerMTok: 2,
+      outputPerMTok: 10,
+    });
     // BST-1705 re-priced GLM-5.2 from 0.9282 / 2.9172 to 0.28 / 0.88 on
     // 2026-09-10; BST-1804 re-read the live base as 0.6496 / 2.0416 on 2026-09-23.
     expect(glm?.pricing).toEqual({ inputPerMTok: 0.6496, outputPerMTok: 2.0416 });
     expect(spark?.pricing).toEqual({ inputPerMTok: 1.25, outputPerMTok: 4.25 });
-    expect(kimi?.pricing).toEqual({ inputPerMTok: 3, outputPerMTok: 15 });
+    expect(kimi?.pricing).toEqual({ cacheReadPerMTok: 0.3, inputPerMTok: 3, outputPerMTok: 15 });
   });
 
   /**
@@ -205,7 +240,11 @@ describe('model pricing metadata', () => {
     // google/gemini-3.7-flash:batch and z-ai/glm-5.3-flash:batch, which are
     // separate routes we do not ship.
     expect(rate('google/gemini-3.7-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
-    expect(rate('z-ai/glm-5.3-flash')).toEqual({ inputPerMTok: 0.15, outputPerMTok: 0.5 });
+    expect(rate('z-ai/glm-5.3-flash')).toEqual({
+      cacheReadPerMTok: 0.03,
+      inputPerMTok: 0.15,
+      outputPerMTok: 0.5,
+    });
     // Exactly 2x the gateway's base rate, from an unidentified source: neither
     // the `:batch` twin (0.375 / 1.875) nor the direct `google` row, which
     // holds the same 0.75 / 3.75 this row now does.
@@ -226,6 +265,7 @@ describe('model pricing metadata', () => {
     // BST-1708: base rates unchanged; each row additionally carries its
     // gateway long-context tier.
     expect(rate('openai/gpt-5.5')).toEqual({
+      cacheReadPerMTok: 0.5,
       inputPerMTok: 5,
       longContextTiers: [
         { cacheReadPerMTok: 1, inputPerMTok: 10, minPromptTokens: 272_000, outputPerMTok: 45 },
@@ -233,6 +273,7 @@ describe('model pricing metadata', () => {
       outputPerMTok: 30,
     });
     expect(rate('openai/gpt-5.4')).toEqual({
+      cacheReadPerMTok: 0.25,
       inputPerMTok: 2.5,
       longContextTiers: [
         { cacheReadPerMTok: 0.5, inputPerMTok: 5, minPromptTokens: 272_000, outputPerMTok: 22.5 },
@@ -240,6 +281,8 @@ describe('model pricing metadata', () => {
       outputPerMTok: 15,
     });
     expect(rate('openai/gpt-5.6-terra')).toEqual({
+      cacheReadPerMTok: 0.2,
+      cacheWritePerMTok: 2.5,
       inputPerMTok: 2,
       longContextTiers: [
         {
@@ -253,6 +296,8 @@ describe('model pricing metadata', () => {
       outputPerMTok: 12,
     });
     expect(rate('openai/gpt-5.6-luna')).toEqual({
+      cacheReadPerMTok: 0.02,
+      cacheWritePerMTok: 0.25,
       inputPerMTok: 0.2,
       longContextTiers: [
         {
@@ -268,41 +313,21 @@ describe('model pricing metadata', () => {
   });
 
   /**
-   * BST-1698. The two GPT-5.6 Sol routes are priced from DIFFERENT sources on
-   * purpose: the `openai` row from OpenAI's standard short-context tier (4/20
-   * after the 2026-08-21 cut) and the `openrouter` row from OpenRouter's own
-   * published catalog (2/10, retrieved 2026-09-08). Every other GPT-5.6 row is
-   * a faithful OpenRouter pass-through, so a future sweep could easily "fix"
-   * this back into a mirror without reading the row note. This pin makes that
-   * a failing test rather than a silent 2x cost misreport.
-   *
-   * BST-1804 re-read BOTH sources on 2026-09-23 and both still stand: OpenAI
-   * publishes 4/20 short-context and 8/30 above 272K, so the direct row is
-   * not a mis-read long-context tier; OpenRouter publishes 2/10 with a 4/15
-   * tier. The routes genuinely diverge, so the pair still differs.
+   * BST-1698 priced the `openrouter` GPT-5.6 Sol row at 2/10 with a 4/15 tier
+   * and pinned it as a genuine divergence from the direct 4/20 row. The
+   * endpoints API (https://openrouter.ai/api/v1/models/openai/gpt-5.6-sol/endpoints,
+   * retrieved 2026-10-28) shows that 2/10 belongs to the `openai/flex`
+   * endpoint, a variant service tier; the standard `openai` endpoint bills
+   * 4/20 with an 8/30 tier above 272K, the same as OpenAI's own page. Both
+   * rows are still read from their own route's source; they now agree.
    */
-  it('prices the two GPT-5.6 Sol routes from their own sources', () => {
+  it('prices both GPT-5.6 Sol routes at the standard tier, not the flex endpoint', () => {
     const platformSol = listProviderLlmModels('openai').find((model) => model.id === 'gpt-5.6-sol');
     const routedSol = listProviderLlmModels('openrouter').find(
       (model) => model.id === 'openai/gpt-5.6-sol'
     );
-    expect(platformSol?.pricing).toEqual({ inputPerMTok: 4, outputPerMTok: 20 });
-    // BST-1708: the routed row additionally carries its gateway
-    // long-context tier; the pair still differs.
-    expect(routedSol?.pricing).toEqual({
-      inputPerMTok: 2,
-      longContextTiers: [
-        {
-          cacheReadPerMTok: 0.4,
-          cacheWritePerMTok: 5,
-          inputPerMTok: 4,
-          minPromptTokens: 272_000,
-          outputPerMTok: 15,
-        },
-      ],
-      outputPerMTok: 10,
-    });
-    expect(routedSol?.pricing).not.toEqual(platformSol?.pricing);
+    expect(platformSol?.pricing).toEqual(GPT_5_6_SOL_STANDARD);
+    expect(routedSol?.pricing).toEqual(GPT_5_6_SOL_STANDARD);
   });
 
   /**
@@ -319,7 +344,7 @@ describe('model pricing metadata', () => {
     };
     const priced = (inputPerMTok: number, outputPerMTok: number, contextWindow: number) => ({
       contextWindow,
-      pricing: { inputPerMTok, outputPerMTok },
+      pricing: expect.objectContaining({ inputPerMTok, outputPerMTok }),
     });
     expect(row('gpt-5.6-terra')).toEqual(priced(2, 12, 1_050_000));
     expect(row('gpt-5.6-luna')).toEqual(priced(0.2, 1.2, 1_050_000));
@@ -340,23 +365,28 @@ describe('model pricing metadata', () => {
     const flashLite = listProviderLlmModels('google').find(
       (model) => model.id === 'gemini-3.1-flash-lite'
     );
-    expect(flashLite?.pricing).toEqual({ inputPerMTok: 0.25, outputPerMTok: 1.5 });
+    expect(flashLite?.pricing).toEqual({
+      cacheReadPerMTok: 0.025,
+      inputPerMTok: 0.25,
+      outputPerMTok: 1.5,
+    });
   });
 
   // BST-1804: same page, Standard paid tier; a flat rate with no prompt-size tier.
   it('prices the Gemini 3.5 Flash default from the Google pricing page', () => {
     const flash = listProviderLlmModels('google').find((model) => model.id === 'gemini-3.5-flash');
-    expect(flash?.pricing).toEqual({ inputPerMTok: 1.5, outputPerMTok: 9 });
+    // Deprecated 2026-10-08; its cache-read rate comes from the gateway's
+    // google-ai-studio route (see the row note).
+    expect(flash?.pricing).toEqual({ cacheReadPerMTok: 0.15, inputPerMTok: 1.5, outputPerMTok: 9 });
   });
 
   // BST-1708: gateway long-context surcharge tiers (`min_prompt_tokens`
-  // overrides), recorded per-MTok from the OpenRouter Models API. Values
-  // below were read 2026-09-22 for the pre-refresh rows and read 2026-09-28
-  // for the BST-1804 rows (gpt-6-sol, gpt-6-luna, grok-4.7);
-  // anthropic/claude-opus-5.5 publishes no tier and stays flat. Claude Haiku
-  // 5.5's tier is Anthropic's published over-100K price (pricing page,
-  // retrieved 2026-10-16), pinned in provider-registry-haiku-5-5.test.ts.
-  it('carries long-context tiers on exactly the fourteen banded gateway rows and Claude Haiku 5.5', () => {
+  // overrides), recorded per-MTok from the OpenRouter Models API. The
+  // 2026-10-28 refresh added the vendors' own published tiers to the direct
+  // OpenAI rows (2x input/cache and 1.5x output above 272K) and the direct
+  // Gemini Pro rows (above 200K). Claude Haiku 5.5's tier is Anthropic's
+  // published over-100K price, pinned in provider-registry-haiku-5-5.test.ts.
+  it('carries long-context tiers on exactly the vendor-banded rows', () => {
     const tiered = new Map<string, unknown>();
     for (const provider of listProviders()) {
       for (const model of provider.models) {
@@ -368,6 +398,18 @@ describe('model pricing metadata', () => {
     expect([...tiered.keys()].sort()).toEqual(
       [
         'anthropic/claude-haiku-5-5',
+        'google/gemini-2.5-pro',
+        'google/gemini-3.1-pro-preview',
+        'openai/gpt-5.4',
+        'openai/gpt-5.5',
+        'openai/gpt-5.6-luna',
+        'openai/gpt-5.6-sol',
+        'openai/gpt-5.6-terra',
+        'openai/gpt-6-astra',
+        'openai/gpt-6-luna',
+        'openai/gpt-6-sol',
+        'openai/gpt-6.1-sol',
+        'openai/gpt-6.1-terra',
         'openrouter/google/gemini-3.1-pro-preview',
         'openrouter/openai/gpt-5.4',
         'openrouter/openai/gpt-5.5',
@@ -377,6 +419,8 @@ describe('model pricing metadata', () => {
         'openrouter/openai/gpt-6-astra',
         'openrouter/openai/gpt-6-luna',
         'openrouter/openai/gpt-6-sol',
+        'openrouter/openai/gpt-6.1-sol',
+        'openrouter/openai/gpt-6.1-terra',
         'openrouter/qwen/qwen3.6-flash',
         'openrouter/qwen/qwen3.7-plus',
         'openrouter/x-ai/grok-4.5',
@@ -395,10 +439,10 @@ describe('model pricing metadata', () => {
     ]);
     expect(tiered.get('openrouter/x-ai/grok-4.7')).toEqual([
       {
-        cacheReadPerMTok: 0.8,
-        inputPerMTok: 3.2,
+        cacheReadPerMTok: 1,
+        inputPerMTok: 4,
         minPromptTokens: 200_000,
-        outputPerMTok: 9.6,
+        outputPerMTok: 12,
       },
     ]);
     expect(tiered.get('openrouter/qwen/qwen3.6-flash')).toEqual([
