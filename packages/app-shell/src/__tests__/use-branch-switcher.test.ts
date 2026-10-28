@@ -122,7 +122,7 @@ describe('useBranchSwitcher', () => {
       () => useBranchSwitcher({ checkout: undefined, dbRootId: null }),
       { wrapper }
     );
-    expect(result.current).toBeUndefined();
+    expect(result.current.menu).toBeUndefined();
   });
 
   it('probes status but never reads the repository or warns for a non-repository root, across nonce bumps', async () => {
@@ -157,8 +157,38 @@ describe('useBranchSwitcher', () => {
     expect(repositorySpy).not.toHaveBeenCalled();
     expect(loggerMock.warn).not.toHaveBeenCalled();
     // The user-visible outcome, not just the absence of I/O: the chip stays
-    // non-interactive for a non-repository root.
-    expect(result.current).toBeUndefined();
+    // non-interactive for a non-repository root, and that answer is final.
+    expect(result.current.menu).toBeUndefined();
+    expect(result.current.settled).toBe(true);
+  });
+
+  it('stays unsettled until the repository read lands, so no chip shows before its menu', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    repositorySpy.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      })
+    );
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
+      wrapper,
+    });
+    await waitFor(() => expect(repositorySpy).toHaveBeenCalledWith('r-1'));
+    expect(result.current).toEqual({ menu: undefined, settled: false });
+
+    await act(async () => {
+      answer({ ok: true, value: REPOSITORY });
+    });
+    expect(result.current.settled).toBe(true);
+    expect(result.current.menu?.rows).toHaveLength(2);
+  });
+
+  it('settles with no menu when the repository read fails', async () => {
+    repositorySpy.mockResolvedValue({ error: 'fatal: bad object', ok: false });
+    const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(result.current.menu).toBeUndefined();
   });
 
   it('reads the repository once a later status probe reports the root as a repository', async () => {
@@ -195,19 +225,19 @@ describe('useBranchSwitcher', () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
       wrapper,
     });
-    await waitFor(() => expect(result.current?.rows).toHaveLength(2));
+    await waitFor(() => expect(result.current.menu?.rows).toHaveLength(2));
     expect(repositorySpy).toHaveBeenCalledWith('r-1');
     expect(statusSpy).toHaveBeenCalledWith('r-1');
-    expect(result.current?.rows.map((row) => row.name)).toEqual(['main', 'feature/alpha']);
+    expect(result.current.menu?.rows.map((row) => row.name)).toEqual(['main', 'feature/alpha']);
   });
 
   it('switches, then refreshes the inventory so the next open is not pre-switch', async () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
       wrapper,
     });
-    await waitFor(() => expect(result.current).toBeDefined());
+    await waitFor(() => expect(result.current.menu).toBeDefined());
     await act(async () => {
-      result.current?.onSwitch('feature/alpha');
+      result.current.menu?.onSwitch('feature/alpha');
     });
     expect(switchBranchSpy).toHaveBeenCalledWith('r-1', { branch: 'feature/alpha' });
     await waitFor(() => expect(refreshInventorySpy).toHaveBeenCalled());
@@ -218,16 +248,16 @@ describe('useBranchSwitcher', () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
       wrapper,
     });
-    await waitFor(() => expect(result.current).toBeDefined());
+    await waitFor(() => expect(result.current.menu).toBeDefined());
     await act(async () => {
-      result.current?.onSwitch('feature/alpha');
+      result.current.menu?.onSwitch('feature/alpha');
     });
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith(
         expect.objectContaining({ description: 'index.lock exists', variant: 'destructive' })
       )
     );
-    expect(result.current?.pending).toBe(false);
+    expect(result.current.menu?.pending).toBe(false);
   });
 
   it('omits onFetch when the repository has no default remote', async () => {
@@ -235,8 +265,8 @@ describe('useBranchSwitcher', () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
       wrapper,
     });
-    await waitFor(() => expect(result.current).toBeDefined());
-    expect(result.current?.onFetch).toBeUndefined();
+    await waitFor(() => expect(result.current.menu).toBeDefined());
+    expect(result.current.menu?.onFetch).toBeUndefined();
   });
 
   it('derives the switch gate from a TRACKED status file, never from checkout.dirty', async () => {
@@ -246,8 +276,8 @@ describe('useBranchSwitcher', () => {
     const { result } = renderHook(() => useBranchSwitcher({ checkout: CLEAN, dbRootId: 'r-1' }), {
       wrapper,
     });
-    await waitFor(() => expect(result.current?.rows).toHaveLength(2));
-    const alpha = result.current?.rows.find((row) => row.name === 'feature/alpha');
+    await waitFor(() => expect(result.current.menu?.rows).toHaveLength(2));
+    const alpha = result.current.menu?.rows.find((row) => row.name === 'feature/alpha');
     expect(alpha?.switchable).toBe(false);
     expect(alpha?.disabledReason).toContain('uncommitted changes');
   });
@@ -261,8 +291,8 @@ describe('useBranchSwitcher', () => {
       () => useBranchSwitcher({ checkout: { ...CLEAN, dirty: true }, dbRootId: 'r-1' }),
       { wrapper }
     );
-    await waitFor(() => expect(result.current?.rows).toHaveLength(2));
-    const alpha = result.current?.rows.find((row) => row.name === 'feature/alpha');
+    await waitFor(() => expect(result.current.menu?.rows).toHaveLength(2));
+    const alpha = result.current.menu?.rows.find((row) => row.name === 'feature/alpha');
     expect(alpha?.switchable).toBe(true);
   });
 });

@@ -16,13 +16,14 @@
  * read, so an untracked-only tree lights the dot but never disables a row,
  * matching Task 1's header fix exactly.
  *
- * `undefined` = no interactive menu (web, no git bridge, no primary root, a
- * primary root that is not a git repository (status probe only, no
+ * `menu: undefined` = no interactive menu (web, no git bridge, no primary
+ * root, a primary root that is not a git repository (status probe only, no
  * repository read), or a failed repository/status read). A load failure is
  * logged and leaves the chip non-interactive — never rendered as an empty
  * branch list, which would read as "this repo has no branches". Only
  * MUTATIONS (switch, create, fetch) toast; a load failure has no user action
- * to attribute the toast to.
+ * to attribute the toast to. Before `settled`, an undefined menu means only
+ * that this root's reads are still in flight.
  */
 import type { WorkspaceBarBranchMenu, WorkspaceBarCheckout } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
@@ -45,12 +46,24 @@ export interface UseBranchSwitcherArgs {
   readonly onSwitchInNewWorktree?: ((branch: string) => void) | undefined;
 }
 
+export interface BranchSwitcher {
+  readonly menu: WorkspaceBarBranchMenu | undefined;
+  /**
+   * True once this root's reads have answered, with a menu or without one, or
+   * when there is nothing to read (no bridge, no root). A later refresh of the
+   * same root keeps it true. The workspace bar withholds the Branch chip until
+   * then, so the chip never shows the read-only image and then turns into the
+   * switcher under a click.
+   */
+  readonly settled: boolean;
+}
+
 function reportFailure(title: string, message: string): void {
   logger.warn(title, { error: message });
   toast({ description: message, title, variant: 'destructive' });
 }
 
-export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBranchMenu | undefined {
+export function useBranchSwitcher(args: UseBranchSwitcherArgs): BranchSwitcher {
   const { checkout, dbRootId, onSwitchInNewWorktree } = args;
   // Resolved ONCE per hook instance, not per render — the bridge identity is
   // an effect input (same discipline as useGitInventory).
@@ -63,11 +76,17 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
   // root is never rendered under another, and a bail-out needs no clearing
   // setState (react-hooks/set-state-in-effect). `files` is the raw status
   // list — `deriveBranchSwitchDirty` runs over it below, not over `.clean`.
-  const [loaded, setLoaded] = useState<{
-    readonly dbRootId: string;
-    readonly files: readonly GitStatusFile[];
-    readonly repository: GitRepository;
-  } | null>(null);
+  // A root with no menu is recorded too (`repository: null`): that is this
+  // root's answer, where `null` state is only "not answered yet".
+  const [loaded, setLoaded] = useState<
+    | {
+        readonly dbRootId: string;
+        readonly files: readonly GitStatusFile[];
+        readonly repository: GitRepository;
+      }
+    | { readonly dbRootId: string; readonly files: null; readonly repository: null }
+    | null
+  >(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
   // Self-contained repository gate (BST-1452 M2 rework — a prior version
@@ -85,6 +104,7 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
       return;
     }
     let cancelled = false;
+    const noMenu = { dbRootId, files: null, repository: null };
     bridge
       .status(dbRootId)
       .then((statusResult) => {
@@ -96,13 +116,13 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
             dbRootId,
             error: statusResult.error,
           });
-          setLoaded(null);
+          setLoaded(noMenu);
           return;
         }
         if (!statusResult.value.isRepository) {
           // Not a git repository — expected, not a failure. No warn, and no
           // `bridge.repository` spawn: that read can never succeed here.
-          setLoaded(null);
+          setLoaded(noMenu);
           return;
         }
         const { files } = statusResult.value;
@@ -123,19 +143,19 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
               dbRootId,
               error: repositoryResult.error,
             });
-            setLoaded(null);
+            setLoaded(noMenu);
           })
           .catch((error: unknown) => {
             if (!cancelled) {
               logger.warn('branch switcher repository read threw', { dbRootId, error });
-              setLoaded(null);
+              setLoaded(noMenu);
             }
           });
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           logger.warn('branch switcher status read threw', { dbRootId, error });
-          setLoaded(null);
+          setLoaded(noMenu);
         }
       });
     return () => {
@@ -193,7 +213,7 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
     }
   }, [bridge, dbRootId, defaultRemote, runMutation]);
 
-  return useMemo(() => {
+  const menu = useMemo(() => {
     if (!(repository && files && checkout)) {
       return;
     }
@@ -228,4 +248,5 @@ export function useBranchSwitcher(args: UseBranchSwitcherArgs): WorkspaceBarBran
     query,
     repository,
   ]);
+  return { menu, settled: !(bridge && dbRootId) || loaded?.dbRootId === dbRootId };
 }
