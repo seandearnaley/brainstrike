@@ -91,6 +91,51 @@ describe('composer run controls over the committed queue', () => {
     expect(screen.queryByRole('list', { name: 'Queued follow-up messages' })).toBeNull();
   });
 
+  it('queues a follow-up written while the host is still answering the first send', async () => {
+    const user = userEvent.setup();
+    const store = new PublishedConversation(THREAD, []);
+    const sent: string[] = [];
+    let answer = (): void => undefined;
+    const onNew = vi.fn(async (message: AppendMessage) => {
+      sent.push(sentText(message));
+      store.publish({
+        isRunning: true,
+        repository: {
+          headId: `user-${sent.length}`,
+          messages: [
+            {
+              message: {
+                attachments: [],
+                content: [{ text: sentText(message), type: 'text' }],
+                createdAt: new Date(0),
+                id: `user-${sent.length}`,
+                metadata: { custom: {} },
+                role: 'user',
+              },
+              parentId: null,
+            },
+          ],
+        },
+      });
+      // The host has admitted the run but not yet answered the command.
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+    });
+    render(<Conversation onNew={onNew} store={store} />);
+    await user.type(input(), 'first{Enter}');
+    await waitFor(() => expect(sent).toEqual(['first']));
+    await user.type(input(), 'then this');
+    await user.click(screen.getByRole('button', { name: 'Queue message to send after this run' }));
+
+    expect(queueList()).toHaveTextContent('then this');
+    await act(async () => answer());
+    await act(async () => {
+      store.publish({ isRunning: false });
+    });
+    await waitFor(() => expect(sent).toEqual(['first', 'then this']));
+  });
+
   it('sends queued messages one per run end, in order', async () => {
     const user = userEvent.setup();
     const host = runningHost();

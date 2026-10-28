@@ -156,8 +156,13 @@ export function useCommittedAssistantRuntime({
     isDisabled: snapshot.isDisabled,
     isLoading: snapshot.isLoading,
     isRunning: snapshot.isRunning,
+    // A send while a run command is in flight would reach the host as a
+    // refused start (BST-1981), unless the fold already shows that run: then
+    // the composer's sends go to the queue and wait for its end.
     isSendDisabled:
-      isStarting || snapshot.connection !== 'connected' || snapshot.error !== undefined,
+      (isStarting && !snapshot.isRunning) ||
+      snapshot.connection !== 'connected' ||
+      snapshot.error !== undefined,
     messageRepository: repository,
     queue: queue.adapter,
     // Installed branch switching checks this port before moving its local head.
