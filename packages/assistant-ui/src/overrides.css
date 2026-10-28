@@ -966,7 +966,9 @@ span.bs-composer-chip {
  * "Worked for Ns · N steps". The summary header stays lively while running so a
  * collapsed-feeling panel never reads as stalled.
  */
-.assistant-ui-panel .bs-activity-group {
+/* The task list above the first group wears the same surface, so the two
+   read as one column of cards (see TASK LIST below). */
+.assistant-ui-panel :is(.bs-activity-group, .bs-todo-progress) {
   margin-block: 0.375rem;
   border: 1px solid hsl(var(--border) / 0.7);
   border-radius: 0.7rem;
@@ -1089,6 +1091,113 @@ span.bs-composer-chip {
 }
 
 /**
+ * TASK LIST: the assistant's plan, above the first activity group. It shares
+ * the group's surface (rule above) and its geometry: a 2rem header row and a
+ * hairline-divided body. Every glyph, header and items alike, sits 1rem from
+ * the card's left edge, where the step-row icons sit in the group below
+ * (body 0.5rem + row 0.5rem), and the progress bar sits 1rem from the right.
+ */
+.assistant-ui-panel .bs-todo-progress-header {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  min-height: 2rem;
+  min-width: 0;
+  padding: 0.4rem 1rem;
+  font-size: 0.75rem;
+}
+
+.assistant-ui-panel .bs-todo-progress-header > .bs-step-family-icon {
+  color: hsl(var(--muted-foreground));
+}
+
+.assistant-ui-panel .bs-todo-progress-title {
+  color: hsl(var(--foreground) / 0.85);
+  font-weight: 600;
+}
+
+.assistant-ui-panel .bs-todo-progress-count {
+  color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-ui-panel .bs-todo-progress-bar {
+  block-size: 0.375rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  inline-size: 6rem;
+  margin-inline-start: auto;
+  overflow: hidden;
+  background: var(--color-muted);
+}
+
+.assistant-ui-panel .bs-todo-progress-fill {
+  block-size: 100%;
+  border-radius: inherit;
+  background: hsl(var(--success));
+  transition: width 300ms ease;
+}
+
+.assistant-ui-panel .bs-todo-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid hsl(var(--border) / 0.6);
+  list-style: none;
+}
+
+/* Task text is model-written: it wraps (breaking an unbroken run if it must)
+   rather than widening the card. */
+.assistant-ui-panel .bs-todo-progress-item {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.assistant-ui-panel .bs-todo-progress-glyph {
+  block-size: 1rem;
+  flex-shrink: 0;
+  inline-size: 1rem;
+  margin-block-start: 0.125rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.assistant-ui-panel .bs-todo-progress-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assistant-ui-panel .bs-todo-progress-item[data-status="completed"] .bs-todo-progress-glyph {
+  color: hsl(var(--success));
+}
+
+.assistant-ui-panel .bs-todo-progress-item[data-status="completed"] .bs-todo-progress-text {
+  color: hsl(var(--muted-foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.5);
+}
+
+.assistant-ui-panel .bs-todo-progress-item[data-status="in_progress"] .bs-todo-progress-glyph {
+  color: hsl(var(--info));
+}
+
+.assistant-ui-panel .bs-todo-progress-item[data-status="in_progress"] .bs-todo-progress-text {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .bs-todo-progress-fill {
+    transition: none;
+  }
+}
+
+/**
  * ACTIVITY TRACE MOTION (phase 2). CSS-only by repo rule. Four primitives:
  * - .bs-trace-label: a keyed span that fades/slides in when its text changes
  *   (the caller re-keys the element on the label string).
@@ -1145,8 +1254,12 @@ span.bs-composer-chip {
   min-width: 0;
 }
 
+/* `minmax(0, 1fr)`, not the implicit `auto` column: an auto column grows to
+   its widest child's min-content, so one unbroken line in the body (a tool
+   id, a query, a UUID) widened every nested card past the group's edge. */
 .assistant-ui-panel .bs-trace-collapse {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 0fr;
   transition: grid-template-rows 220ms cubic-bezier(0.23, 1, 0.32, 1);
 }
