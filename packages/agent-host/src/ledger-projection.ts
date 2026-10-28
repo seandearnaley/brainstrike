@@ -129,7 +129,10 @@ function warnUncosted(modelId: string): void {
   logger.warn('Observer usage without a catalog model is not costed', { modelId });
 }
 /** The run's bound workspace root at Send; null for a run bound to none (unattributed). */
-type RunRoot = Pick<LedgerRootUsage, 'rootDisplayName' | 'rootId'>;
+type RunRoot = Pick<
+  LedgerRootUsage,
+  'checkoutBranch' | 'localRootId' | 'rootDisplayName' | 'rootId'
+>;
 interface RunFold {
   cacheReadTokens: number;
   cacheWriteTokens: number;
@@ -341,10 +344,19 @@ export class ThreadLedgerFold {
       // at Send; the roots table names a focused root.
       root: binding?.operatingRootId
         ? {
+            // A worktree's generated folder name means nothing to a reader: its
+            // repository's Local root and branch name it.
+            checkoutBranch: binding.checkoutBranch ?? null,
+            localRootId: binding.checkoutLocalRootId ?? null,
             rootDisplayName: binding.operatingRootDisplayName ?? null,
             rootId: binding.operatingRootId,
           }
-        : { rootDisplayName: null, rootId: focusedRootId ?? null },
+        : {
+            checkoutBranch: null,
+            localRootId: null,
+            rootDisplayName: null,
+            rootId: focusedRootId ?? null,
+          },
       runId: event.runId,
       startedAt: row.ts,
       status: 'running',
@@ -407,7 +419,14 @@ export class ThreadLedgerFold {
   }
 }
 function rootUsageKey(root: RunRoot, model: CatalogModel): string {
-  return JSON.stringify([root.rootId, root.rootDisplayName, model.provider, model.model]);
+  return JSON.stringify([
+    root.rootId,
+    root.rootDisplayName,
+    root.localRootId,
+    root.checkoutBranch,
+    model.provider,
+    model.model,
+  ]);
 }
 function emptyRootUsage(root: RunRoot, model: CatalogModel): Mutable<LedgerRootUsage> {
   return {

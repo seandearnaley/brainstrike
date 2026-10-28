@@ -9,6 +9,8 @@ import { ensureAssistantShellVisible } from './utils/layout-helpers';
 const API_KEY = 'test-key-host-cost';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL_ID = 'anthropic/claude-sonnet-4.6';
+/** The catalog label the cost views name the model by. */
+const MODEL_LABEL = 'Claude Sonnet 4.6 (OpenRouter)';
 const REPLY = 'A costed host reply.';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
@@ -76,9 +78,8 @@ test('a host run counts toward the daily cap, gates the next send, and lists in 
 
   // The cost views list the host run from its committed log.
   const ledger = (await openCostTracking(page)).getByTestId('task-ledger-panel');
-  const run = ledger.getByTestId('task-ledger-run-row').filter({ hasText: MODEL_ID });
+  const run = ledger.getByTestId('task-ledger-run-row').filter({ hasText: MODEL_LABEL });
   await expect(run).toHaveCount(1, { timeout: 30_000 });
-  await expect(run).toContainText('openrouter');
   await expect(run.getByTestId('task-ledger-run-cost')).not.toHaveText(/^\s*$/u);
   await page.keyboard.press('Escape');
 

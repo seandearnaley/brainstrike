@@ -43,12 +43,14 @@ describe('useCrossRootCost', () => {
       { displayName: null, id: 'root-c', path: '/fixture/c' },
     ]);
     const hostRow = {
+      checkoutBranch: null,
       estimatedCacheCreationTokens: 0,
       estimatedCacheReadTokens: 0,
       estimatedCostUsd: 0,
       estimatedInputTokens: 40,
       estimatedOutputTokens: 6,
       inputTokens: 40,
+      localRootId: null,
       model: 'anthropic/claude-sonnet-4.6',
       outputTokens: 6,
       provider: 'openrouter',
@@ -72,6 +74,36 @@ describe('useCrossRootCost', () => {
     ]);
   });
 
+  it('names a worktree row after its repository rather than its generated directory', async () => {
+    installCatalog(async () => [
+      { displayName: 'Brainstrike', id: 'root-main', path: '/fixture/main' },
+      { displayName: 'x7f3', id: 'root-wt', path: '/fixture/.worktrees/x7f3' },
+    ]);
+    const usage = [
+      {
+        checkoutBranch: 'cost/ledger-redesign',
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
+        estimatedCostUsd: 0.01,
+        estimatedInputTokens: 40,
+        estimatedOutputTokens: 6,
+        inputTokens: 40,
+        localRootId: 'root-main',
+        model: 'model',
+        outputTokens: 6,
+        provider: 'provider',
+        rootDisplayName: 'x7f3',
+        rootId: 'root-wt',
+      },
+    ];
+    const { result } = renderHook(() => useCrossRootCost(usage));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.rows[0]).toMatchObject({
+      checkoutBranch: 'cost/ledger-redesign',
+      rootDisplayName: 'Brainstrike',
+    });
+  });
+
   it('reads native folder names and surfaces catalog failure', async () => {
     const readRoots = vi
       .fn()
@@ -79,12 +111,14 @@ describe('useCrossRootCost', () => {
     installCatalog(readRoots);
     const usage = [
       {
+        checkoutBranch: null,
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
         estimatedCostUsd: 0,
         estimatedInputTokens: 40,
         estimatedOutputTokens: 6,
         inputTokens: 40,
+        localRootId: null,
         model: 'model',
         outputTokens: 6,
         provider: 'provider',

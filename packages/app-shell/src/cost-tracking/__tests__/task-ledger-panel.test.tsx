@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import type { RunLedgerRow } from '@brainstrike/assistant-data';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { LedgerModelComparisonRow, LedgerTrendPoint } from '../../run-ledger-analytics';
+import type { LedgerModelComparisonRow } from '../../run-ledger-analytics';
 import {
   isRunOverCap,
   type TaskLedgerAnalyticsViewState,
@@ -39,10 +39,11 @@ function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedge
 function makeModelRow(overrides: Partial<LedgerModelComparisonRow> = {}): LedgerModelComparisonRow {
   return {
     avgDurationMs: 42_000,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     cancelledRunCount: 0,
     completedRunCount: 14,
-    estimatedInputTokens: 0,
-    estimatedOutputTokens: 0,
+    costUsd: 1.25,
     failedRunCount: 1,
     inputTokens: 150_000,
     labeledFailedCount: 1,
@@ -52,19 +53,7 @@ function makeModelRow(overrides: Partial<LedgerModelComparisonRow> = {}): Ledger
     outputTokens: 30_000,
     provider: 'openai',
     runCount: 15,
-    ...overrides,
-  };
-}
-
-function makeTrendPoint(overrides: Partial<LedgerTrendPoint> = {}): LedgerTrendPoint {
-  return {
-    day: '2026-07-14',
-    estimatedInputTokens: 0,
-    estimatedOutputTokens: 0,
-    inputTokens: 1000,
-    label: 'Jul 14',
-    outputTokens: 200,
-    runCount: 3,
+    unpricedRunCount: 0,
     ...overrides,
   };
 }
@@ -76,7 +65,7 @@ function makeLedger(overrides: Partial<TaskLedgerRunsViewState> = {}): TaskLedge
 function makeAnalytics(
   overrides: Partial<TaskLedgerAnalyticsViewState> = {}
 ): TaskLedgerAnalyticsViewState {
-  return { models: [], trend: [], ...overrides };
+  return { models: [], ...overrides };
 }
 
 function renderPanel(options: {
@@ -150,18 +139,31 @@ describe('TaskLedgerPanelView', () => {
     expect(row).not.toHaveTextContent(/est\./i);
   });
 
-  it('marks a registry-priced cost as an estimate when no exact cost was reported', () => {
+  it('opens a run into its token classes and cost', () => {
     renderPanel({
       ledger: {
-        rows: [makeRun({ inputTokens: 1000, outputTokens: 200, runId: 'run-1' })],
+        rows: [
+          makeRun({
+            estimatedCacheReadTokens: 600,
+            estimatedCostUsd: 0.0031,
+            estimatedInputTokens: 1000,
+            estimatedOutputTokens: 200,
+            inputTokens: 1000,
+            outputTokens: 200,
+            runId: 'run-1',
+          }),
+        ],
       },
     });
 
-    const cost = screen.getByTestId('task-ledger-run-cost');
-    // openai gpt-5.2 registry pricing: (1000*1.75 + 200*14)/1e6 = $0.00455.
-    expect(cost).toHaveTextContent(/est\./i);
-    expect(cost).toHaveTextContent(/\$0\.00455/);
-    expect(cost).not.toHaveTextContent('$0.00455 exact');
+    // A sub-cent cost keeps two significant digits, never a wall of decimals or $0.00.
+    expect(screen.getByTestId('task-ledger-run-cost')).toHaveTextContent('$0.0031');
+    fireEvent.click(screen.getByRole('button', { name: /GPT-5\.2/ }));
+    const breakdown = screen.getByTestId('task-ledger-run-breakdown');
+    expect(breakdown).toHaveTextContent(/Input\s*400/);
+    expect(breakdown).toHaveTextContent(/Cache read\s*600/);
+    expect(breakdown).toHaveTextContent(/Output\s*200/);
+    expect(breakdown).toHaveTextContent('$0.0031');
   });
 
   it('renders "cost unavailable" (never a fabricated $0) for an unpriced model', () => {
@@ -232,28 +234,28 @@ describe('TaskLedgerPanelView', () => {
       },
     });
 
-    expect(screen.getByTestId('task-ledger-failed-tools')).toHaveTextContent('2 failed');
-    expect(screen.getByTestId('task-ledger-edits')).toHaveTextContent('3');
+    expect(screen.getByTestId('task-ledger-failed-tools')).toHaveTextContent('2 failed tools');
+    expect(screen.getByTestId('task-ledger-run-row')).toHaveTextContent('3 edits');
     expect(screen.getByTestId('task-ledger-reverted-edits')).toHaveTextContent('1 reverted');
   });
 
-  it('shows a dash, never 0, for a run with no edit record', () => {
+  it('claims no edit count, not 0, for a run with no edit record', () => {
     renderPanel({ ledger: { rows: [makeRun({ runId: 'run-1' })] } });
 
-    expect(screen.getByTestId('task-ledger-edits')).toHaveTextContent('—');
+    expect(screen.getByTestId('task-ledger-run-row')).not.toHaveTextContent(/edit/);
     expect(screen.queryByTestId('task-ledger-reverted-edits')).not.toBeInTheDocument();
   });
 
-  it('renders one model-comparison row per model with exact cost and estimated-token note', () => {
+  it('renders one model row per model under its catalogue name, never $0 for an unpriced one', () => {
     renderPanel({
       analytics: {
         models: [
-          makeModelRow({ billedCostUsd: 1.25 }),
+          makeModelRow(),
           makeModelRow({
-            estimatedInputTokens: 5000,
-            estimatedOutputTokens: 1000,
-            model: 'claude-sonnet-4-5',
-            provider: 'anthropic',
+            costUsd: 0,
+            model: 'vendor/uncatalogued',
+            provider: 'openrouter',
+            unpricedRunCount: 15,
           }),
         ],
       },
@@ -262,42 +264,13 @@ describe('TaskLedgerPanelView', () => {
 
     const rows = screen.getAllByTestId('task-ledger-model-row');
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent('gpt-5.2');
+    expect(rows[0]).toHaveTextContent('GPT-5.2');
     expect(rows[0]).toHaveTextContent('$1.25');
-    expect(rows[0]).toHaveTextContent('14 succeeded');
-    expect(rows[0]).toHaveTextContent('1 failed');
-    // No exact cost reported → never a fabricated $0; the estimated remainder is noted.
+    // 14 of 15 finished runs completed.
+    expect(rows[0]).toHaveTextContent('93%');
+    expect(rows[1]).toHaveTextContent('vendor/uncatalogued');
+    expect(rows[1]).toHaveTextContent('unavailable');
     expect(rows[1]).not.toHaveTextContent('$0.00');
-    expect(rows[1]).toHaveTextContent(/est\. tokens/i);
-  });
-
-  it('renders one trend bar per bucket with the exact-cost provenance in its label', () => {
-    renderPanel({
-      analytics: {
-        trend: [
-          makeTrendPoint({ billedCostUsd: 0.42 }),
-          makeTrendPoint({
-            day: '2026-07-15',
-            estimatedInputTokens: 2000,
-            estimatedOutputTokens: 500,
-            inputTokens: 2000,
-            label: 'Jul 15',
-            outputTokens: 500,
-          }),
-        ],
-      },
-      ledger: { rows: [makeRun({ runId: 'run-1' })] },
-    });
-
-    const bars = screen.getAllByTestId('task-ledger-trend-bar');
-    expect(bars).toHaveLength(2);
-    const firstTitle = bars[0]?.querySelector('title')?.textContent ?? '';
-    expect(firstTitle).toMatch(/^Jul 14 — /);
-    expect(firstTitle).toContain('$0.42');
-    const secondTitle = bars[1]?.querySelector('title')?.textContent ?? '';
-    // A bucket with no reported cost says so — it never claims $0.
-    expect(secondTitle).toContain('no exact cost reported');
-    expect(secondTitle).not.toContain('$0.00');
   });
 
   it('badges only runs whose exact-or-priced cost exceeds the per-run cap', () => {

@@ -5,14 +5,18 @@ import type {
   RunLedgerRow,
 } from '@brainstrike/assistant-data';
 import { TASK_LEDGER_RUN_LIMIT, useRunLedger } from '@brainstrike/assistant-data/cost-tracking';
-import { formatUsdCost } from '@brainstrike/tokenization';
 import {
-  Badge,
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  badgeVariants,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  cn,
   Table,
   TableBody,
   TableCell,
@@ -20,9 +24,15 @@ import {
   TableHeader,
   TableRow,
 } from '@brainstrike/ui';
-import { ListChecks } from 'lucide-react';
 import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
-import type { LedgerModelComparisonRow, LedgerTrendPoint } from '../run-ledger-analytics';
+import type { LedgerModelComparisonRow } from '../run-ledger-analytics';
+import {
+  formatDurationMs,
+  formatEstimatedCost,
+  formatTokensCompact,
+  formatUsd,
+  modelDisplayName,
+} from './cost-format';
 import { useLedgerAnalytics } from './use-ledger-analytics';
 
 /** Run-table slice of the view state (structural subset of RunLedgerState). */
@@ -34,7 +44,6 @@ export interface TaskLedgerRunsViewState {
 /** Analytics slice of the view state (LedgerAnalyticsState). */
 export interface TaskLedgerAnalyticsViewState {
   readonly models: readonly LedgerModelComparisonRow[];
-  readonly trend: readonly LedgerTrendPoint[];
 }
 
 interface TaskLedgerPanelViewProps {
@@ -44,15 +53,13 @@ interface TaskLedgerPanelViewProps {
   readonly perRunCapUsd?: number | null | undefined;
 }
 
-const STATUS_BADGE_VARIANTS: Record<
-  AssistantThreadRunStatus,
-  'destructive' | 'outline' | 'secondary'
-> = {
-  cancelled: 'outline',
-  cancelling: 'outline',
-  completed: 'secondary',
-  failed: 'destructive',
-  running: 'outline',
+/** A run's status as a dot colour; the label always carries the meaning too. */
+const STATUS_DOT: Record<AssistantThreadRunStatus, string> = {
+  cancelled: 'bg-muted-foreground/50',
+  cancelling: 'bg-muted-foreground/50',
+  completed: 'bg-success',
+  failed: 'bg-destructive',
+  running: 'bg-info animate-pulse motion-reduce:animate-none',
 };
 
 const OUTCOME_BADGE_VARIANTS: Record<
@@ -66,38 +73,22 @@ const OUTCOME_BADGE_VARIANTS: Record<
 
 const startedAtFormatter = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
-  hour: '2-digit',
+  hour: 'numeric',
   minute: '2-digit',
   month: 'short',
 });
 
-const MS_PER_SECOND = 1000;
-const SECONDS_PER_MINUTE = 60;
-
-function formatDurationMs(durationMs: number | null): string {
-  if (durationMs === null) {
-    return '—';
-  }
-  if (durationMs < MS_PER_SECOND) {
-    return `${durationMs}ms`;
-  }
-  const seconds = durationMs / MS_PER_SECOND;
-  if (seconds < SECONDS_PER_MINUTE) {
-    return `${seconds.toFixed(1)}s`;
-  }
-  const minutes = Math.floor(seconds / SECONDS_PER_MINUTE);
-  const remainder = Math.round(seconds % SECONDS_PER_MINUTE);
-  return `${minutes}m ${remainder}s`;
-}
-
-function formatTokensCompact(count: number): string {
-  if (count < 1000) {
-    return String(count);
-  }
-  if (count < 1_000_000) {
-    return `${(count / 1000).toFixed(1)}K`;
-  }
-  return `${(count / 1_000_000).toFixed(1)}M`;
+/** The model's catalogue name; the provider only when the name does not carry it. */
+function ModelName({ model, provider }: { readonly model: string; readonly provider: string }) {
+  const names = modelDisplayName(provider, model);
+  return (
+    <span className="block min-w-0 truncate" title={`${provider}::${model}`}>
+      <span className="font-medium">{names.model}</span>
+      {names.model.includes(names.provider) ? null : (
+        <span className="text-muted-foreground"> · {names.provider}</span>
+      )}
+    </span>
+  );
 }
 
 /**
@@ -112,18 +103,16 @@ function runCostLabel(row: RunLedgerRow): string {
     // provider-reported usage rows. A mixed run's unreported remainder is
     // priced and shown alongside — never silently folded into an "exact" figure.
     if (row.estimatedInputTokens + row.estimatedOutputTokens === 0) {
-      return formatUsdCost(row.billedCostUsd);
+      return formatUsd(row.billedCostUsd);
     }
     return row.estimatedCostUsd === null
-      ? `${formatUsdCost(row.billedCostUsd)} + unpriced remainder`
-      : `${formatUsdCost(row.billedCostUsd)} + est. ${formatUsdCost(row.estimatedCostUsd)}`;
+      ? `${formatUsd(row.billedCostUsd)} + unpriced remainder`
+      : `${formatUsd(row.billedCostUsd)} + est. ${formatUsd(row.estimatedCostUsd)}`;
   }
   if (row.inputTokens + row.outputTokens === 0) {
     return 'no usage recorded';
   }
-  return row.estimatedCostUsd === null
-    ? 'cost unavailable'
-    : `est. ${formatUsdCost(row.estimatedCostUsd)}`;
+  return row.estimatedCostUsd === null ? 'cost unavailable' : formatUsd(row.estimatedCostUsd);
 }
 
 /**
@@ -148,150 +137,55 @@ function outcomeChipTitle(row: RunLedgerRow): string {
 
 /**
  * Presentational Task Ledger panel — receives resolved states so tests can
- * stub every honest-cost/empty permutation without a live DB (same
+ * stub every honest-cost/empty permutation without a live store (same
  * composition as CostAggregationPanelView).
  */
 export function TaskLedgerPanelView({ analytics, ledger, perRunCapUsd }: TaskLedgerPanelViewProps) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1.5">
-            <CardTitle className="flex items-center gap-2">
-              <ListChecks className="size-4" />
-              Task Ledger
-            </CardTitle>
-            <CardDescription>
-              Latest {TASK_LEDGER_RUN_LIMIT} assistant runs with tool, edit, token, cost, and
-              outcome signals. Exact cost appears only when the provider reported it; everything
-              else is explicitly estimated or marked unavailable.
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6" data-testid="task-ledger-panel">
-        {ledger.available ? (
-          <TaskLedgerSections analytics={analytics} ledger={ledger} perRunCapUsd={perRunCapUsd} />
-        ) : (
+  if (!ledger.available) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Runs</CardTitle>
+        </CardHeader>
+        <CardContent data-testid="task-ledger-panel">
           <p className="text-muted-foreground text-sm" data-testid="task-ledger-session-only">
             The Task Ledger is available for desktop assistant runs.
           </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function TaskLedgerSections({ analytics, ledger, perRunCapUsd }: TaskLedgerPanelViewProps) {
-  const hasAnalyticsData = analytics.models.length > 0 || analytics.trend.length > 0;
-  const hasAnyData = ledger.rows.length > 0 || hasAnalyticsData;
-
-  if (!hasAnyData) {
-    return (
-      <p className="text-muted-foreground text-sm" data-testid="task-ledger-empty">
-        No assistant runs recorded yet. Run an assistant turn to start the ledger.
-      </p>
+        </CardContent>
+      </Card>
     );
   }
   return (
     <>
-      <TrendSection trend={analytics.trend} />
-      <ModelComparisonSection models={analytics.models} />
-      <RunTableSection perRunCapUsd={perRunCapUsd} rows={ledger.rows} />
+      {analytics.models.length > 0 ? <ModelComparisonCard models={analytics.models} /> : null}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent runs</CardTitle>
+          <CardDescription>
+            The latest {TASK_LEDGER_RUN_LIMIT} assistant runs. Open one for its token and cost
+            breakdown.
+          </CardDescription>
+        </CardHeader>
+        <CardContent data-testid="task-ledger-panel">
+          {ledger.rows.length > 0 ? (
+            <RunList perRunCapUsd={perRunCapUsd} rows={ledger.rows} />
+          ) : (
+            <p className="text-muted-foreground text-sm" data-testid="task-ledger-empty">
+              No assistant runs recorded yet. Run an assistant turn to start the ledger.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </>
   );
 }
 
-const TREND_VIEWBOX_WIDTH = 100;
-const TREND_VIEWBOX_HEIGHT = 40;
-const TREND_BAR_MIN_HEIGHT = 2;
-const TREND_BAR_WIDTH_RATIO = 0.75;
-
-function trendBarTitle(point: LedgerTrendPoint): string {
-  const day = point.label;
-  const runs = `${point.runCount} run${point.runCount === 1 ? '' : 's'}`;
-  const tokens = `${formatTokensCompact(point.inputTokens + point.outputTokens)} tokens`;
-  if (point.billedCostUsd === undefined) {
-    // No provider-reported cost for this bucket — say so, never claim $0.
-    return `${day} — ${runs}, ${tokens}, no exact cost reported`;
-  }
-  const estimatedTokens = point.estimatedInputTokens + point.estimatedOutputTokens;
-  const estimatedNote =
-    estimatedTokens > 0
-      ? ` (+${formatTokensCompact(estimatedTokens)} tokens without exact cost)`
-      : '';
-  return `${day} — ${runs}, ${tokens}, ${formatUsdCost(point.billedCostUsd)} exact${estimatedNote}`;
+function successRate(row: LedgerModelComparisonRow): string {
+  const finished = row.completedRunCount + row.failedRunCount;
+  return finished === 0 ? '—' : `${Math.round((row.completedRunCount / finished) * 100)}%`;
 }
 
-/**
- * Dependency-free daily trend: one SVG bar per non-empty day bucket, scaled by
- * token volume (the only metric present on every bucket). Exact billed cost is
- * carried in each bar's accessible title with explicit provenance.
- */
-function TrendSection({ trend }: { readonly trend: readonly LedgerTrendPoint[] }) {
-  if (trend.length === 0) {
-    return null;
-  }
-  const maxTokens = Math.max(...trend.map((point) => point.inputTokens + point.outputTokens), 1);
-  const slotWidth = TREND_VIEWBOX_WIDTH / trend.length;
-  const barWidth = slotWidth * TREND_BAR_WIDTH_RATIO;
-  return (
-    <section className="space-y-2">
-      <h3 className="font-medium text-sm">Daily cost & usage trend</h3>
-      <p className="text-muted-foreground text-xs">
-        Bar height shows token volume per day; hover a bar for runs and exact billed cost where the
-        provider reported it.
-      </p>
-      <svg
-        aria-label="Daily token usage and billed cost trend"
-        className="h-16 w-full text-primary"
-        data-testid="task-ledger-trend"
-        preserveAspectRatio="none"
-        role="img"
-        viewBox={`0 0 ${TREND_VIEWBOX_WIDTH} ${TREND_VIEWBOX_HEIGHT}`}
-      >
-        {trend.map((point, index) => {
-          const totalTokens = point.inputTokens + point.outputTokens;
-          const barHeight = Math.max(
-            TREND_BAR_MIN_HEIGHT,
-            (totalTokens / maxTokens) * TREND_VIEWBOX_HEIGHT
-          );
-          const x = index * slotWidth + (slotWidth - barWidth) / 2;
-          return (
-            <rect
-              data-testid="task-ledger-trend-bar"
-              fill="currentColor"
-              height={barHeight}
-              key={point.day}
-              opacity={point.billedCostUsd === undefined ? 0.45 : 0.9}
-              width={barWidth}
-              x={x}
-              y={TREND_VIEWBOX_HEIGHT - barHeight}
-            >
-              <title>{trendBarTitle(point)}</title>
-            </rect>
-          );
-        })}
-      </svg>
-    </section>
-  );
-}
-
-function modelLabelsSummary(row: LedgerModelComparisonRow): string {
-  const parts: string[] = [];
-  if (row.labeledSucceededCount > 0) {
-    parts.push(`${row.labeledSucceededCount} succeeded`);
-  }
-  if (row.labeledFailedCount > 0) {
-    parts.push(`${row.labeledFailedCount} failed`);
-  }
-  if (row.labeledMixedCount > 0) {
-    parts.push(`${row.labeledMixedCount} mixed`);
-  }
-  return parts.length > 0 ? parts.join(' · ') : '—';
-}
-
-function modelStatusSummary(row: LedgerModelComparisonRow): string {
+function modelOutcomesTitle(row: LedgerModelComparisonRow): string {
   const parts = [`${row.completedRunCount} completed`];
   if (row.failedRunCount > 0) {
     parts.push(`${row.failedRunCount} failed`);
@@ -299,170 +193,221 @@ function modelStatusSummary(row: LedgerModelComparisonRow): string {
   if (row.cancelledRunCount > 0) {
     parts.push(`${row.cancelledRunCount} cancelled`);
   }
+  const labeled = row.labeledSucceededCount + row.labeledFailedCount + row.labeledMixedCount;
+  if (labeled > 0) {
+    parts.push(
+      `labeled ${row.labeledSucceededCount} succeeded, ${row.labeledFailedCount} failed, ${row.labeledMixedCount} mixed`
+    );
+  }
   return parts.join(' · ');
 }
 
-function ModelComparisonSection({
-  models,
-}: {
-  readonly models: readonly LedgerModelComparisonRow[];
-}) {
-  if (models.length === 0) {
-    return null;
-  }
+function ModelComparisonCard({ models }: { readonly models: readonly LedgerModelComparisonRow[] }) {
   return (
-    <section className="space-y-2">
-      <h3 className="font-medium text-sm">Model comparison</h3>
-      <div className="overflow-x-auto">
-        <Table>
+    <Card>
+      <CardHeader>
+        <CardTitle>Models</CardTitle>
+        <CardDescription>
+          What each model cost and how its runs went, costliest first.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="@container">
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead>Model</TableHead>
-              <TableHead>Runs</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Labeled outcomes</TableHead>
-              <TableHead>Avg duration</TableHead>
-              <TableHead>Exact cost</TableHead>
+              <TableHead className="w-14 text-right">Runs</TableHead>
+              <TableHead className="w-24 text-right">Completed</TableHead>
+              <TableHead className="@xl:table-cell hidden w-24 whitespace-nowrap text-right">
+                Avg time
+              </TableHead>
+              <TableHead className="@md:table-cell hidden w-20 text-right">Tokens</TableHead>
+              <TableHead className="w-20 text-right">Cost</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {models.map((row) => {
-              const estimatedTokens = row.estimatedInputTokens + row.estimatedOutputTokens;
-              return (
-                <TableRow data-testid="task-ledger-model-row" key={`${row.provider}:${row.model}`}>
-                  <TableCell>
-                    <span className="font-medium">{row.model}</span>{' '}
-                    <span className="text-muted-foreground text-xs">{row.provider}</span>
-                  </TableCell>
-                  <TableCell>{row.runCount}</TableCell>
-                  <TableCell>{modelStatusSummary(row)}</TableCell>
-                  <TableCell>{modelLabelsSummary(row)}</TableCell>
-                  <TableCell>{formatDurationMs(row.avgDurationMs)}</TableCell>
-                  <TableCell>
-                    {row.billedCostUsd === undefined ? '—' : formatUsdCost(row.billedCostUsd)}
-                    {estimatedTokens > 0 ? (
-                      <span className="text-muted-foreground text-xs">
-                        {' '}
-                        +{formatTokensCompact(estimatedTokens)} est. tokens
-                      </span>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {models.map((row) => (
+              <TableRow data-testid="task-ledger-model-row" key={`${row.provider}:${row.model}`}>
+                <TableCell>
+                  <ModelName model={row.model} provider={row.provider} />
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{row.runCount}</TableCell>
+                <TableCell className="text-right tabular-nums" title={modelOutcomesTitle(row)}>
+                  {successRate(row)}
+                </TableCell>
+                <TableCell className="@xl:table-cell hidden whitespace-nowrap text-right tabular-nums">
+                  {formatDurationMs(row.avgDurationMs)}
+                </TableCell>
+                <TableCell
+                  className="@md:table-cell hidden text-right tabular-nums"
+                  title={`${row.inputTokens.toLocaleString()} input (${row.cacheReadTokens.toLocaleString()} cached) · ${row.outputTokens.toLocaleString()} output`}
+                >
+                  {formatTokensCompact(row.inputTokens + row.outputTokens)}
+                </TableCell>
+                <TableCell
+                  className="text-right font-medium tabular-nums"
+                  data-testid="task-ledger-model-cost"
+                >
+                  {formatEstimatedCost(row.costUsd, row.unpricedRunCount)}
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   );
 }
 
-function RunTableSection({
+function RunFacts({ row }: { readonly row: RunLedgerRow }) {
+  const facts = [
+    row.durationMs === null ? null : formatDurationMs(row.durationMs),
+    `${row.toolCallCount} tool${row.toolCallCount === 1 ? '' : 's'}`,
+    row.editCount === undefined ? null : `${row.editCount} edit${row.editCount === 1 ? '' : 's'}`,
+    `${formatTokensCompact(row.inputTokens)} in · ${formatTokensCompact(row.outputTokens)} out`,
+  ].filter((fact) => fact !== null);
+  return <span className="truncate">{facts.join(' · ')}</span>;
+}
+
+/** The run's tokens by class, each with what it means for the bill. */
+function RunBreakdown({ row }: { readonly row: RunLedgerRow }) {
+  const uncached =
+    row.estimatedInputTokens - row.estimatedCacheReadTokens - row.estimatedCacheCreationTokens;
+  const lines = [
+    ['Input', uncached, 'billed at the input rate'],
+    ['Cache read', row.estimatedCacheReadTokens, 'billed at the discounted cache rate'],
+    ['Cache write', row.estimatedCacheCreationTokens, 'billed at the cache write rate'],
+    ['Output', row.estimatedOutputTokens, 'billed at the output rate, reasoning included'],
+  ] as const;
+  return (
+    <dl
+      className="grid grid-cols-[auto_auto_1fr] gap-x-4 gap-y-1 rounded-md bg-muted/40 px-3 py-2.5 text-xs"
+      data-testid="task-ledger-run-breakdown"
+    >
+      {lines.map(([label, count, note]) => (
+        <div className="contents" key={label}>
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="text-right font-medium tabular-nums">{count.toLocaleString()}</dd>
+          <dd className="text-muted-foreground">{note}</dd>
+        </div>
+      ))}
+      <div className="contents">
+        <dt className="border-t pt-1 text-muted-foreground">Cost</dt>
+        <dd className="border-t pt-1 text-right font-semibold tabular-nums">{runCostLabel(row)}</dd>
+        <dd className="border-t pt-1 text-muted-foreground">
+          {row.estimatedCostUsd === null
+            ? 'a model in this run has no list price'
+            : 'each request priced at its own rate'}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+/** Badges as spans: they sit inside the run's disclosure button. */
+function RunBadges({
+  perRunCapUsd,
+  row,
+}: {
+  readonly perRunCapUsd?: number | null | undefined;
+  readonly row: RunLedgerRow;
+}) {
+  return (
+    <>
+      {row.failedToolCallCount > 0 ? (
+        <span
+          className={badgeVariants({ variant: 'destructive' })}
+          data-testid="task-ledger-failed-tools"
+        >
+          {row.failedToolCallCount} failed tool{row.failedToolCallCount === 1 ? '' : 's'}
+        </span>
+      ) : null}
+      {row.revertedEditCount !== undefined && row.revertedEditCount > 0 ? (
+        <span
+          className={badgeVariants({ variant: 'outline' })}
+          data-testid="task-ledger-reverted-edits"
+        >
+          {row.revertedEditCount} reverted
+        </span>
+      ) : null}
+      {row.outcomeVerdict === null ? null : (
+        <span
+          className={badgeVariants({ variant: OUTCOME_BADGE_VARIANTS[row.outcomeVerdict] })}
+          data-testid="task-ledger-outcome"
+          title={outcomeChipTitle(row)}
+        >
+          {row.outcomeVerdict}
+        </span>
+      )}
+      {typeof perRunCapUsd === 'number' && isRunOverCap(row, perRunCapUsd) ? (
+        <span
+          className={badgeVariants({ variant: 'destructive' })}
+          data-testid="task-ledger-over-cap"
+          title={`This run's cost exceeds the per-run cap of ${formatUsd(perRunCapUsd)}.`}
+        >
+          over cap
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function RunList({
   perRunCapUsd,
   rows,
 }: {
   readonly perRunCapUsd?: number | null | undefined;
   readonly rows: readonly RunLedgerRow[];
 }) {
-  if (rows.length === 0) {
-    return null;
-  }
   return (
-    <section className="space-y-2">
-      <h3 className="font-medium text-sm">Latest runs</h3>
-      <div className="overflow-x-auto">
-        {/* Floor width so narrow dialogs scroll horizontally instead of
-            compressing columns until cost/outcome text clips. */}
-        <Table className="min-w-[56rem]">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Started</TableHead>
-              <TableHead>Model</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Tools</TableHead>
-              <TableHead>Edits</TableHead>
-              <TableHead>Tokens</TableHead>
-              <TableHead>Cost</TableHead>
-              <TableHead>Outcome</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow data-testid="task-ledger-run-row" key={row.runId}>
-                <TableCell className="whitespace-nowrap">
-                  {startedAtFormatter.format(row.startedAt)}
-                </TableCell>
-                <TableCell className="whitespace-nowrap">
-                  <span className="font-medium">{row.model}</span>{' '}
-                  <span className="text-muted-foreground text-xs">{row.provider}</span>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_BADGE_VARIANTS[row.status]}>{row.status}</Badge>
-                </TableCell>
-                <TableCell>{formatDurationMs(row.durationMs)}</TableCell>
-                <TableCell>
-                  {row.toolCallCount}
-                  {row.failedToolCallCount > 0 ? (
-                    <Badge
-                      className="ml-1"
-                      data-testid="task-ledger-failed-tools"
-                      variant="destructive"
-                    >
-                      {row.failedToolCallCount} failed
-                    </Badge>
-                  ) : null}
-                </TableCell>
-                <TableCell data-testid="task-ledger-edits">
-                  {row.editCount ?? '—'}
-                  {row.revertedEditCount !== undefined && row.revertedEditCount > 0 ? (
-                    <Badge
-                      className="ml-1"
-                      data-testid="task-ledger-reverted-edits"
-                      variant="outline"
-                    >
-                      {row.revertedEditCount} reverted
-                    </Badge>
-                  ) : null}
-                </TableCell>
-                <TableCell className="whitespace-nowrap">
-                  {formatTokensCompact(row.inputTokens)} in /{' '}
-                  {formatTokensCompact(row.outputTokens)} out
-                </TableCell>
-                <TableCell className="whitespace-nowrap" data-testid="task-ledger-run-cost">
-                  {runCostLabel(row)}
-                  {typeof perRunCapUsd === 'number' && isRunOverCap(row, perRunCapUsd) ? (
-                    <Badge
-                      className="ml-1"
-                      data-testid="task-ledger-over-cap"
-                      title={`This run's cost exceeds the per-run cap of ${formatUsdCost(perRunCapUsd)}.`}
-                      variant="destructive"
-                    >
-                      over cap
-                    </Badge>
-                  ) : null}
-                </TableCell>
-                <TableCell>
-                  {row.outcomeVerdict === null ? null : (
-                    <Badge
-                      data-testid="task-ledger-outcome"
-                      title={outcomeChipTitle(row)}
-                      variant={OUTCOME_BADGE_VARIANTS[row.outcomeVerdict]}
-                    >
-                      {row.outcomeVerdict}
-                    </Badge>
+    <Accordion className="rounded-md border" collapsible type="single">
+      {rows.map((row) => (
+        <AccordionItem data-testid="task-ledger-run-row" key={row.runId} value={row.runId}>
+          <AccordionTrigger className="gap-3 px-3 py-2.5 hover:bg-muted/40 hover:no-underline">
+            <span className="flex min-w-0 flex-1 items-start gap-2.5">
+              <span
+                aria-hidden="true"
+                className={cn('mt-1.5 size-2 shrink-0 rounded-full', STATUS_DOT[row.status])}
+              />
+              <span className="min-w-0 flex-1 space-y-0.5">
+                <span className="flex min-w-0 items-center gap-2 font-normal">
+                  <ModelName model={row.model} provider={row.provider} />
+                </span>
+                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-normal text-muted-foreground text-xs">
+                  <span className="shrink-0 tabular-nums">
+                    {startedAtFormatter.format(row.startedAt)}
+                  </span>
+                  <span className="sr-only">{row.status}</span>
+                  {row.status === 'completed' ? null : (
+                    <span aria-hidden="true" className="shrink-0">
+                      {row.status}
+                    </span>
                   )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </section>
+                  <RunFacts row={row} />
+                  <RunBadges perRunCapUsd={perRunCapUsd} row={row} />
+                </span>
+              </span>
+              <span
+                className={cn(
+                  'shrink-0 text-right font-semibold text-sm tabular-nums',
+                  row.estimatedCostUsd === null && 'font-normal text-muted-foreground'
+                )}
+                data-testid="task-ledger-run-cost"
+              >
+                {runCostLabel(row)}
+              </span>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="px-3 pb-3">
+            <RunBreakdown row={row} />
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
   );
 }
 
-/** Live Task Ledger panel — derives rows and analytics from committed host records. */
+/** Live Task Ledger panels — models and runs from committed host records. */
 export function TaskLedgerPanel() {
   const { runs: hostRuns } = useAssistantThreadHostLedger();
   const ledger = useRunLedger(hostRuns);

@@ -196,6 +196,8 @@ export interface RecordRunUsageInput {
  */
 export interface CrossRootUsageRow {
   readonly billedCostUsd?: number;
+  /** The branch the thread had checked out at Send; null when unrecorded. */
+  readonly checkoutBranch: string | null;
   /** Anthropic cache-write share of the estimated (unbilled) input tokens. */
   readonly estimatedCacheCreationTokens?: number;
   /** Anthropic cache-read share of the estimated (unbilled) input tokens. */
@@ -205,6 +207,8 @@ export interface CrossRootUsageRow {
   readonly estimatedInputTokens?: number;
   readonly estimatedOutputTokens?: number;
   readonly inputTokens: number;
+  /** A worktree root's repository (its Local root id); null outside a worktree. */
+  readonly localRootId: string | null;
   readonly model: string;
   readonly outputTokens: number;
   readonly provider: string;
