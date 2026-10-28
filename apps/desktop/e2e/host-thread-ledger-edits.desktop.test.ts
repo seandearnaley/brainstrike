@@ -13,6 +13,8 @@ import { seedRoot } from './utils/seed-root';
 const API_KEY = 'test-key-host-ledger-edits';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL = 'anthropic/claude-sonnet-4.6';
+/** The catalog label the cost views name the model by. */
+const MODEL_LABEL = 'Claude Sonnet 4.6 (OpenRouter)';
 const REPLY = 'The notes are rewritten.';
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
@@ -68,7 +70,7 @@ test("a host run's edit and its revert count in the Task Ledger, and its cost un
     const run = cost
       .getByTestId('task-ledger-panel')
       .getByTestId('task-ledger-run-row')
-      .filter({ hasText: MODEL });
+      .filter({ hasText: MODEL_LABEL });
     await expect(run).toHaveCount(1, { timeout: 30_000 });
     await expect(run.getByTestId('task-ledger-reverted-edits')).toHaveText('1 reverted');
     // The run's provider calls count under the root it was bound to at Send.

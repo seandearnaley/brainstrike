@@ -327,12 +327,14 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     // Each run commits two steps of 1 input / 25 output; unattributed first, as the SQL orders.
     expect(mergeRootUsage([rootUsage])).toEqual([
       {
+        checkoutBranch: null,
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
         inputTokens: 2,
+        localRootId: null,
         model: 'anthropic/claude-sonnet-4.6',
         outputTokens: 50,
         provider: 'openrouter',
@@ -340,18 +342,50 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
         rootId: null,
       },
       {
+        checkoutBranch: null,
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
         estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
         inputTokens: 2,
+        localRootId: null,
         model: 'anthropic/claude-sonnet-4.6',
         outputTokens: 50,
         provider: 'openrouter',
         rootDisplayName: 'Workspace A',
         rootId: 'root-a',
       },
+    ]);
+  });
+  test("a worktree run's calls carry its repository and branch beside the worktree root", () => {
+    const { rootUsage } = folded(
+      startedWith({
+        snapshot: {
+          configuration: {},
+          maxSteps: 12,
+          toolIdentities: {},
+          workspaceBinding: {
+            checkoutBranch: 'cost/ledger-redesign',
+            checkoutLocalRootId: 'root-repo',
+            checkoutMode: 'worktree',
+            checkoutWorktreeId: 'wt-x7f3',
+            checkoutWorktreePath: '/fixture/.worktrees/x7f3',
+            operatingRootDisplayName: 'x7f3',
+            operatingRootId: 'root-wt',
+          },
+        },
+      })
+    );
+    expect(
+      mergeRootUsage([rootUsage]).map(({ checkoutBranch, localRootId, rootId }) => [
+        rootId,
+        localRootId,
+        checkoutBranch,
+      ])
+    ).toEqual([
+      [null, null, null],
+      ['root-wt', 'root-repo', 'cost/ledger-redesign'],
     ]);
   });
   test('threads sum per (root, provider, model) in the cross-root order', () => {

@@ -30,8 +30,14 @@ export function useCrossRootCost(
   hostRootUsage: readonly CrossRootUsageRow[] = NO_HOST_ROOT_USAGE
 ): CrossRootCostState {
   const native = getThreadGroupsCapability();
+  // A worktree is named after its repository's Local root, so that root is looked up too.
   const rootIds = useMemo(
-    () => (native ? hostRootUsage.flatMap((row) => (row.rootId === null ? [] : [row.rootId])) : []),
+    () =>
+      native
+        ? [...new Set(hostRootUsage.flatMap((row) => [row.rootId, row.localRootId]))].filter(
+            (rootId) => rootId !== null
+          )
+        : [],
     [native, hostRootUsage]
   );
   const folders = useThreadFolderRows(rootIds);
@@ -44,7 +50,7 @@ export function useCrossRootCost(
       ? hostRootUsage.map((row) => ({
           ...row,
           rootDisplayName:
-            (row.rootId === null ? undefined : folders.rowsByRootId.get(row.rootId)?.displayName) ??
+            folders.rowsByRootId.get(row.localRootId ?? row.rootId ?? '')?.displayName ??
             row.rootDisplayName,
         }))
       : NO_HOST_ROOT_USAGE,
