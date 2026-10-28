@@ -87,6 +87,7 @@ describe('resolveBedrockModelId', () => {
       for (const id of [
         'anthropic.claude-opus-5',
         'anthropic.claude-sonnet-5',
+        'anthropic.claude-sonnet-5-5',
         'anthropic.claude-fable-5',
         'anthropic.claude-opus-4-6-v1',
         'anthropic.claude-opus-4-5-20251101-v1:0',
@@ -110,6 +111,7 @@ describe('resolveBedrockModelId', () => {
         'anthropic.claude-fable-5': ['us'],
         'anthropic.claude-fable-5-1': ['us'],
         'anthropic.claude-haiku-4-5-20251001-v1:0': ['au', 'eu', 'in', 'jp', 'us'],
+        'anthropic.claude-haiku-5-5': ['au', 'eu', 'jp', 'us'],
         'anthropic.claude-opus-4-1-20250805-v1:0': ['us'],
         'anthropic.claude-opus-4-5-20251101-v1:0': ['eu', 'us'],
         'anthropic.claude-opus-4-6-v1': ['au', 'eu', 'us'],
@@ -120,6 +122,7 @@ describe('resolveBedrockModelId', () => {
         'anthropic.claude-sonnet-4-5-20250929-v1:0': ['au', 'eu', 'jp', 'us'],
         'anthropic.claude-sonnet-4-6': ['au', 'eu', 'jp', 'us'],
         'anthropic.claude-sonnet-5': ['au', 'eu', 'in', 'us'],
+        'anthropic.claude-sonnet-5-5': ['au', 'eu', 'us'],
         'deepseek.r1-v1:0': ['us'],
         'deepseek.v3.2': [],
         'meta.llama4-maverick-17b-instruct-v1:0': ['us'],
