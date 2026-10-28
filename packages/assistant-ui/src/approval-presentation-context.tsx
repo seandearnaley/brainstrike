@@ -4,7 +4,7 @@ import { useAnsweredApprovals } from './answered-approvals-context';
 import { approvalCategoryKey, rankPendingApprovals } from './approval-presentation';
 import { ApprovalRanksContext } from './approval-ranks-context';
 import { useDecisionRoute } from './decision-route-context';
-import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
+import { useQueuedDecisionKeys } from './thread-message-queue';
 
 /**
  * Card-vs-row ranking for every approval notice in the thread, computed ONCE
@@ -19,24 +19,21 @@ export function ApprovalRanksProvider({ children }: { children: ReactNode }) {
   const index = useAnsweredApprovals();
   const activeThreadKey = use(ActiveThreadKeyContext);
   const threadKey = useDecisionRoute()?.queueThreadKey ?? activeThreadKey;
-  const queued = useFollowUpQueueStore(
-    (state) => state.queuedByThread[followUpQueueKey(threadKey)]
+  const queuedKeys = useQueuedDecisionKeys(threadKey);
+  const ranks = useMemo(
+    () =>
+      rankPendingApprovals(
+        [...index.requests].map(([identityKey, entry]) => ({
+          categoryKey: approvalCategoryKey(entry.request),
+          decided:
+            entry.decided ||
+            index.answers.has(identityKey) ||
+            index.userDecisions.has(identityKey) ||
+            queuedKeys.has(identityKey),
+          identityKey,
+        }))
+      ),
+    [index, queuedKeys]
   );
-  const ranks = useMemo(() => {
-    const queuedKeys = new Set(
-      (queued ?? []).flatMap((item) => (item.identityKey ? [item.identityKey] : []))
-    );
-    return rankPendingApprovals(
-      [...index.requests].map(([identityKey, entry]) => ({
-        categoryKey: approvalCategoryKey(entry.request),
-        decided:
-          entry.decided ||
-          index.answers.has(identityKey) ||
-          index.userDecisions.has(identityKey) ||
-          queuedKeys.has(identityKey),
-        identityKey,
-      }))
-    );
-  }, [index, queued]);
   return <ApprovalRanksContext.Provider value={ranks}>{children}</ApprovalRanksContext.Provider>;
 }

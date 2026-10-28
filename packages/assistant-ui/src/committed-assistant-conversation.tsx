@@ -139,9 +139,6 @@ function BoundCommittedAssistantConversation({
           adapters={adapters}
           commands={commands}
           disabledReason={error ?? (unavailable ? UNAVAILABLE : presentation.disabledReason)}
-          // A queued follow-up waits out a disconnect: an idle-looking view is not
-          // a committed run end until the owner is connected again.
-          isReattaching={unavailable}
           onCommandError={reportCommandError}
           {...(withheld ? { omSegment: { kind: 'withheld' as const, reason: withheld } } : {})}
           store={store}
@@ -183,13 +180,5 @@ function CommittedRuntimePanel({
     onCommandError,
     store,
   });
-  // This surface owns the thread's commands, so it owns its follow-up queue.
-  return (
-    <AssistantConversationPanel
-      {...panel}
-      ownsFollowUpQueue
-      runtime={runtime}
-      threadKey={store.threadId}
-    />
-  );
+  return <AssistantConversationPanel {...panel} runtime={runtime} threadKey={store.threadId} />;
 }

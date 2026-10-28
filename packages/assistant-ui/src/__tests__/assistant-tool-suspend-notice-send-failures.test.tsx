@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantToolSuspendNotice } from '../assistant-tool-suspend-notice';
-import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import { resetThreadMessageQueues } from '../thread-message-queue';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadRunningMock = vi.hoisted(() => ({ isRunning: false }));
@@ -65,7 +65,7 @@ describe('AssistantToolSuspendNotice send failures', () => {
     appendMessageMock.mockReset();
     threadRunningMock.isRunning = false;
     threadMessagesMock.splice(0);
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
   });
 
   it.each<[string, AssistantToolSuspendRequest, AnswerNotice]>([

@@ -6,13 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
 import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
-import {
-  followUpQueueKey,
-  resetFollowUpQueueStore,
-  useFollowUpQueueStore,
-} from '../follow-up-queue-store';
+import { resetThreadMessageQueues, threadMessageQueue } from '../thread-message-queue';
 import { expandApprovalRow } from './approval-row-helpers';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
+import { queuedPrompts, queueMessage } from './thread-message-queue-support';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadMessagesMock = vi.hoisted(
@@ -29,7 +26,8 @@ const threadMessagesMock = vi.hoisted(
 const useAuiStateSelectorResults = vi.hoisted(() => [] as unknown[]);
 const threadRunningMock = vi.hoisted(() => ({ isRunning: false }));
 
-vi.mock('@assistant-ui/react', () => ({
+vi.mock('@assistant-ui/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@assistant-ui/react')>()),
   useAui: () => ({
     thread: () => ({
       append: appendMessageMock,
@@ -841,14 +839,20 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
     threadMessagesMock.splice(0);
     useAuiStateSelectorResults.splice(0);
     appendMessageMock.mockReset();
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
     threadRunningMock.isRunning = false;
+    // The runtime holds the thread's queue during a run, so an append waits there.
+    appendMessageMock.mockImplementation((message) => {
+      if (threadRunningMock.isRunning) {
+        queueMessage('root-thread', message);
+      }
+    });
   });
 
-  // Appending during a run cancels the run in the installed runtime; the
-  // second of two quick decisions aborted the first's resume leg and was
-  // lost (thread-b3cea1f6, 2026-09-14). A decision waits its turn instead.
-  it('queues the decision instead of appending, shows Queued, and re-enables when the chip is removed', async () => {
+  // Appending during a run used to cancel the run; the second of two quick
+  // decisions aborted the first's resume leg and was lost (thread-b3cea1f6,
+  // 2026-09-14). During a run the decision waits in the thread's queue.
+  it('queues the decision during a run, shows Queued, and re-enables when the row is removed', async () => {
     threadRunningMock.isRunning = true;
     render(
       <ActiveThreadKeyContext.Provider value="root-thread">
@@ -856,23 +860,26 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
       </ActiveThreadKeyContext.Provider>
     );
     await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
-    expect(appendMessageMock).not.toHaveBeenCalled();
-    const queued = useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')];
-    expect(queued).toHaveLength(1);
-    expect(queued?.[0]).toMatchObject({
-      identityKey: JSON.stringify(['run-approval-1', 'tool-call-1']),
-      message: { runConfig: { custom: { brainstrikeToolApproval: { action: 'approve' } } } },
-      text: 'Approved workspace.writeFile.',
-    });
+    expect(appendMessageMock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        runConfig: {
+          custom: { brainstrikeToolApproval: expect.objectContaining({ action: 'approve' }) },
+        },
+      })
+    );
+    expect(queuedPrompts('root-thread')).toEqual(['Approved workspace.writeFile.']);
+    expect(threadMessageQueue('root-thread').getDecisionKeys()).toEqual(
+      new Set([JSON.stringify(['run-approval-1', 'tool-call-1'])])
+    );
     expect(screen.getByText('Queued')).toBeInTheDocument();
     await expandApprovalRow(userEvent.setup());
     expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeDisabled();
-    // The chip is the user's veto: removing it hands the card back.
-    const item = queued?.[0];
+    // The row is the user's veto: removing it hands the card back.
+    const [item] = threadMessageQueue('root-thread').getItems();
     if (!item) {
       throw new Error('missing queued decision');
     }
-    useFollowUpQueueStore.getState().remove(followUpQueueKey('root-thread'), item.id);
+    threadMessageQueue('root-thread').getAdapter().remove(item.id);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
     );
@@ -886,8 +893,6 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
     expect(appendMessageMock).toHaveBeenCalledOnce();
-    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]).toBe(
-      undefined
-    );
+    expect(queuedPrompts('root-thread')).toEqual([]);
   });
 });
