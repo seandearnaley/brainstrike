@@ -93,12 +93,14 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
   // Both threads' calls sum per (root, provider, model).
   expect(rootUsage).toEqual([
     {
+      checkoutBranch: null,
       estimatedCacheCreationTokens: 0,
       estimatedCacheReadTokens: 0,
       estimatedCostUsd: expect.closeTo((8 * 3 + 200 * 15) / 1e6, 12),
       estimatedInputTokens: 8,
       estimatedOutputTokens: 200,
       inputTokens: 8,
+      localRootId: null,
       model: 'anthropic/claude-sonnet-4.6',
       outputTokens: 200,
       provider: 'openrouter',
