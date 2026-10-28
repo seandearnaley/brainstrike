@@ -93,6 +93,43 @@ describe('registry-driven prompt-caching wrapper selection', () => {
     ]);
   });
 
+  it('asks OpenRouter for request-level caching on a Claude route', async () => {
+    const { calls, model } = stubModel();
+    const wrapped = wrapModelWithDeclaredPromptCaching(
+      'openrouter',
+      'anthropic/claude-opus-5.5',
+      model
+    );
+    await wrapped.doStream({
+      prompt: PROMPT,
+      providerOptions: { openrouter: { reasoning: { effort: 'high' } } },
+    } as { prompt: Message[] });
+    expect(calls[0]).toMatchObject({
+      providerOptions: {
+        openrouter: { cacheControl: { type: 'ephemeral' }, reasoning: { effort: 'high' } },
+      },
+    });
+  });
+
+  it('keeps a cache control the caller already chose on an OpenRouter route', async () => {
+    const { calls, model } = stubModel();
+    const wrapped = wrapModelWithDeclaredPromptCaching(
+      'openrouter',
+      'anthropic/claude-opus-5.5',
+      model
+    );
+    const chosen = { openrouter: { cacheControl: { ttl: '1h', type: 'ephemeral' } } };
+    await wrapped.doStream({ prompt: PROMPT, providerOptions: chosen } as { prompt: Message[] });
+    expect(calls[0]).toMatchObject({ providerOptions: chosen });
+  });
+
+  it('leaves automatically cached OpenRouter routes untouched', () => {
+    const { model } = stubModel();
+    expect(wrapModelWithDeclaredPromptCaching('openrouter', 'openai/gpt-5.6-sol', model)).toBe(
+      model
+    );
+  });
+
   it('returns the SAME model object when no dialect is declared', () => {
     const { model } = stubModel();
     expect(wrapModelWithDeclaredPromptCaching('openai', 'gpt-5.6-sol', model)).toBe(model);

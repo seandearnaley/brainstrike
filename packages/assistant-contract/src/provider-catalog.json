@@ -1935,7 +1935,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1M/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695).\nPRICING REFRESH 2026-10-28: cache read $0.25, 5-minute write $12.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-fable-5.1/endpoints.",
+        "_note": "Route, 1M/128,000 ceilings, image input and gateway pricing:\nOpenRouter Models API, retrieved 2026-09-08 (BST-1695).\nPRICING REFRESH 2026-10-28: cache read $0.25, 5-minute write $12.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-fable-5.1/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": [
             "Agentic coding",
@@ -1960,12 +1960,13 @@
           "inputPerMTok": 10,
           "outputPerMTok": 50
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
       },
       {
-        "_note": "Route, 1M/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..low, default high):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. Its\ndefault_effort (high) differs from Anthropic's first-party default\n(medium); this row records the gateway's value.\nPRICING REFRESH 2026-10-28: cache read $0.2, 5-minute write $5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-5.5/endpoints.",
+        "_note": "Route, 1M/128,000 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..low, default high):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. Its\ndefault_effort (high) differs from Anthropic's first-party default\n(medium); this row records the gateway's value.\nPRICING REFRESH 2026-10-28: cache read $0.2, 5-minute write $5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-5.5/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": [
             "Demanding reasoning",
@@ -1990,6 +1991,7 @@
           "inputPerMTok": 4,
           "outputPerMTok": 20
         },
+        "promptCaching": "openrouter",
         "reasoning": {
           "defaultEffort": "high",
           "mandatory": true,
@@ -2000,7 +2002,7 @@
         "vision": "supported"
       },
       {
-        "_note": "The OpenRouter route for the model BST-957 added as a direct\nAnthropic route; it was missed by earlier gateway passes. Route,\n1M/128,000 ceilings, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695).\nPRICING REFRESH 2026-10-28: cache read $0.5, 5-minute write $6.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-5/endpoints.",
+        "_note": "The OpenRouter route for the model BST-957 added as a direct\nAnthropic route; it was missed by earlier gateway passes. Route,\n1M/128,000 ceilings, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695).\nPRICING REFRESH 2026-10-28: cache read $0.5, 5-minute write $6.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-5/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": ["Agentic coding", "Enterprise work"],
           "description": null,
@@ -2021,6 +2023,7 @@
           "inputPerMTok": 5,
           "outputPerMTok": 25
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
@@ -2902,7 +2905,7 @@
         "vision": "supported"
       },
       {
-        "_note": "PRICING REFRESH 2026-10-28: cache read $1, 5-minute write $12.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-fable-5/endpoints.",
+        "_note": "PRICING REFRESH 2026-10-28: cache read $1, 5-minute write $12.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-fable-5/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": ["Deep research", "Complex agents"],
           "description": null,
@@ -2923,12 +2926,13 @@
           "inputPerMTok": 10,
           "outputPerMTok": 50
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
       },
       {
-        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-5.5/endpoints. 1,000,000 / 128,000; 1-hour write $4 is not modelled (Brainstrike sends 5-minute breakpoints).",
+        "_note": "Added 2026-10-28. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-5.5/endpoints. 1,000,000 / 128,000; 1-hour write $4 is not modelled (Brainstrike sends 5-minute breakpoints).\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": ["Analysis", "Coding", "Writing"],
           "description": null,
@@ -2949,13 +2953,14 @@
           "inputPerMTok": 2,
           "outputPerMTok": 10
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter currently reflects Anthropic's introductory rate.\nPRICING REFRESH 2026-10-28: cache read $0.2, 5-minute write $2.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-5/endpoints.",
+        "_note": "OpenRouter currently reflects Anthropic's introductory rate.\nPRICING REFRESH 2026-10-28: cache read $0.2, 5-minute write $2.5. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-5/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": ["Analysis", "Coding", "Writing"],
           "description": null,
@@ -2976,6 +2981,7 @@
           "inputPerMTok": 2,
           "outputPerMTok": 10
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "tagline": "Best mix of smarts and speed",
         "type": "llm",
@@ -3400,7 +3406,7 @@
         "vision": "supported"
       },
       {
-        "_note": "PRICING REFRESH 2026-10-28: cache read $0.5, 5-minute write $6.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-4.8/endpoints.",
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.5, 5-minute write $6.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-opus-4.8/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": ["Deep research"],
           "description": null,
@@ -3421,12 +3427,13 @@
           "inputPerMTok": 5,
           "outputPerMTok": 25
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
       },
       {
-        "_note": "PRICING REFRESH 2026-10-28: cache read $0.3, 5-minute write $3.75. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-4.6/endpoints.",
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.3, 5-minute write $3.75. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-4.6/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": ["Analysis", "Writing"],
           "description": null,
@@ -3447,12 +3454,13 @@
           "inputPerMTok": 3,
           "outputPerMTok": 15
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
       },
       {
-        "_note": "PRICING REFRESH 2026-10-28: cache read $0.1, 5-minute write $1.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-haiku-4.5/endpoints.",
+        "_note": "PRICING REFRESH 2026-10-28: cache read $0.1, 5-minute write $1.25. Standard route base rate from https://openrouter.ai/api/v1/models/anthropic/claude-haiku-4.5/endpoints.\nPROMPT CACHING 2026-10-28: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (request-level automatic caching, https://openrouter.ai/docs/features/prompt-caching).",
         "catalog": {
           "bestFor": ["Quick responses"],
           "description": null,
@@ -3473,6 +3481,7 @@
           "inputPerMTok": 1,
           "outputPerMTok": 5
         },
+        "promptCaching": "openrouter",
         "supportsStreaming": true,
         "tagline": "Fastest for lightweight tasks",
         "type": "llm",
