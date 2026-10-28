@@ -51,13 +51,24 @@ describe('prompt-caching capability declarations', () => {
     expect(byDialect.get('anthropic')).toBeUndefined();
   });
 
-  it('declares the openrouter dialect on exactly the OpenRouter Claude routes', () => {
-    // OpenRouter caches Anthropic upstreams only on request; its other routes
-    // cache automatically (Qwen needs block breakpoints and is not covered).
+  it('declares an OpenRouter dialect on exactly the Claude and Alibaba-cached Qwen routes', () => {
+    // OpenRouter caches Anthropic upstreams only on request and Alibaba only at
+    // content-block breakpoints; its other routes cache automatically.
+    const alibabaBreakpointRoutes = new Set([
+      'qwen/qwen3.8-max-0902',
+      'qwen/qwen3.8-flash',
+      'qwen/qwen3.8-2.4t-a95b',
+      'qwen/qwen3.7-max',
+      'qwen/qwen3.7-plus',
+    ]);
     for (const model of listProviderLlmModels('openrouter')) {
-      expect(model.promptCaching, `openrouter/${model.id}`).toBe(
-        model.id.startsWith('anthropic/') ? 'openrouter' : undefined
-      );
+      let expected: string | undefined;
+      if (model.id.startsWith('anthropic/')) {
+        expected = 'openrouter';
+      } else if (alibabaBreakpointRoutes.has(model.id)) {
+        expected = 'openrouter-breakpoints';
+      }
+      expect(model.promptCaching, `openrouter/${model.id}`).toBe(expected);
     }
   });
 

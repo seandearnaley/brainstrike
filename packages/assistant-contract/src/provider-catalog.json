@@ -1700,7 +1700,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Updated 0902 snapshot of Qwen3.8 Max. Route, 1M/131,072 ceilings,\ntext/image/video input and gateway pricing: OpenRouter Models API,\nretrieved 2026-09-08 (BST-1695). The output fact is a hard maximum,\nnot a default combined reasoning + answer window. No reasoning ladder\nis recorded here because this pass consulted no vendor doc; the\nundated qwen/qwen3.8-max row keeps the one it shipped with.\nPRICING REFRESH 2026-10-28: cache read $0.25, write $2.50 (alibaba route). Standard route base rate from https://openrouter.ai/api/v1/models/qwen/qwen3.8-max-0902/endpoints.",
+        "_note": "Updated 0902 snapshot of Qwen3.8 Max. Route, 1M/131,072 ceilings,\ntext/image/video input and gateway pricing: OpenRouter Models API,\nretrieved 2026-09-08 (BST-1695). The output fact is a hard maximum,\nnot a default combined reasoning + answer window. No reasoning ladder\nis recorded here because this pass consulted no vendor doc; the\nundated qwen/qwen3.8-max row keeps the one it shipped with.\nPRICING REFRESH 2026-10-28: cache read $0.25, write $2.50 (alibaba route). Standard route base rate from https://openrouter.ai/api/v1/models/qwen/qwen3.8-max-0902/endpoints.\nPROMPT CACHING 2026-10-28: the alibaba route bills cache reads at $0.25 and writes at $2.5 (https://openrouter.ai/api/v1/models/qwen/qwen3.8-max-0902/endpoints). OpenRouter caches Alibaba only at explicit content-block breakpoints (https://openrouter.ai/docs/features/prompt-caching), so this route declares the openrouter-breakpoints dialect.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -1721,6 +1721,7 @@
           "inputPerMTok": 2,
           "outputPerMTok": 6
         },
+        "promptCaching": "openrouter-breakpoints",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "supported"
@@ -2028,7 +2029,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Official Qwen release material owns the Qwen3.8 Flash identity,\ntext/image/video input, text output, optional xhigh/medium/low\nreasoning ladder, and xhigh default. OpenRouter Models API owns the\nfixed route's 1M/131,072 ceilings, tools/structured-output support,\nand gateway pricing, retrieved 2026-08-30 (BST-1516). The output fact\nis a hard maximum, not a default combined reasoning + answer window.",
+        "_note": "Official Qwen release material owns the Qwen3.8 Flash identity,\ntext/image/video input, text output, optional xhigh/medium/low\nreasoning ladder, and xhigh default. OpenRouter Models API owns the\nfixed route's 1M/131,072 ceilings, tools/structured-output support,\nand gateway pricing, retrieved 2026-08-30 (BST-1516). The output fact\nis a hard maximum, not a default combined reasoning + answer window.\nPROMPT CACHING 2026-10-28: the alibaba route bills cache reads at $0.016 and writes at $0.2 (https://openrouter.ai/api/v1/models/qwen/qwen3.8-flash/endpoints). OpenRouter caches Alibaba only at explicit content-block breakpoints (https://openrouter.ai/docs/features/prompt-caching), so this route declares the openrouter-breakpoints dialect.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -2046,9 +2047,12 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.016,
+          "cacheWritePerMTok": 0.2,
           "inputPerMTok": 0.15,
           "outputPerMTok": 0.47
         },
+        "promptCaching": "openrouter-breakpoints",
         "reasoning": {
           "defaultEffort": "xhigh",
           "defaultEnabled": true,
@@ -2060,7 +2064,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1M/131,072 ceilings, text/image/audio/video input, text output\nand gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes mandatory: false and default_enabled: true\nbut no efforts, so no `reasoning` block is declared.",
+        "_note": "Route, 1M/131,072 ceilings, text/image/audio/video input, text output\nand gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes mandatory: false and default_enabled: true\nbut no efforts, so no `reasoning` block is declared.\nPROMPT CACHING 2026-10-28: cache reads $0.016 on the alibaba route; it lists no cache-write price, so no breakpoints are sent (https://openrouter.ai/api/v1/models/qwen/qwen3.8-omni-flash/endpoints).",
         "catalog": {
           "bestFor": ["Audio-video analysis", "Summarization"],
           "description": null,
@@ -2078,6 +2082,7 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.016,
           "inputPerMTok": 0.15,
           "outputPerMTok": 0.47
         },
@@ -2117,7 +2122,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Capabilities and limits: official Qwen model card at commit\n1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,\nand gateway pricing: OpenRouter Models API, retrieved 2026-08-15\n(BST-1302). Context window and max output re-read as the route's\ntop_provider pair 2026-09-23 UTC (BST-1804).\nAuto intentionally follows Qwen's documented xhigh default. The\nofficial ladder skips high: xhigh, medium, low. No paid route smoke\nwas available (BST-1302), and Qwen publishes recommended maxima for\nseparate reasoning/final output rather than a distinct default\nthinking+answer reservation, so vendorDefaultOutputTokens is absent.",
+        "_note": "Capabilities and limits: official Qwen model card at commit\n1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,\nand gateway pricing: OpenRouter Models API, retrieved 2026-08-15\n(BST-1302). Context window and max output re-read as the route's\ntop_provider pair 2026-09-23 UTC (BST-1804).\nAuto intentionally follows Qwen's documented xhigh default. The\nofficial ladder skips high: xhigh, medium, low. No paid route smoke\nwas available (BST-1302), and Qwen publishes recommended maxima for\nseparate reasoning/final output rather than a distinct default\nthinking+answer reservation, so vendorDefaultOutputTokens is absent.\nPROMPT CACHING 2026-10-28: cache reads $0.085 on the novita route, the one our base rate is from; the alibaba route bills 0.425/2.55, so no breakpoints are sent (https://openrouter.ai/api/v1/models/qwen/qwen3.8-27b/endpoints).",
         "catalog": {
           "bestFor": ["Agentic workflows", "Coding", "Multimodal reasoning"],
           "description": null,
@@ -2133,6 +2138,7 @@
         "label": "Qwen3.8 27B (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
+          "cacheReadPerMTok": 0.085,
           "inputPerMTok": 0.42,
           "outputPerMTok": 3
         },
@@ -2147,7 +2153,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, modalities, context extension, mandatory thinking, and\neffort levels: official Qwen model card at revision 207bd685,\nretrieved 2026-08-15. Route, effective gateway limits, and pricing:\nOpenRouter Models API, retrieved 2026-08-15 (BST-1306); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nQwen requires thinking for every interaction. Its official effort\nladder deliberately skips `high`; Auto follows the xhigh default.",
+        "_note": "Identity, modalities, context extension, mandatory thinking, and\neffort levels: official Qwen model card at revision 207bd685,\nretrieved 2026-08-15. Route, effective gateway limits, and pricing:\nOpenRouter Models API, retrieved 2026-08-15 (BST-1306); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nQwen requires thinking for every interaction. Its official effort\nladder deliberately skips `high`; Auto follows the xhigh default.\nPROMPT CACHING 2026-10-28: the alibaba route bills cache reads at $0.25 and writes at $2.5 (https://openrouter.ai/api/v1/models/qwen/qwen3.8-2.4t-a95b/endpoints). OpenRouter caches Alibaba only at explicit content-block breakpoints (https://openrouter.ai/docs/features/prompt-caching), so this route declares the openrouter-breakpoints dialect.",
         "catalog": {
           "bestFor": [
             "Agentic coding",
@@ -2167,9 +2173,12 @@
         "label": "Qwen3.8 2.4T A95B (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
+          "cacheReadPerMTok": 0.25,
+          "cacheWritePerMTok": 2.5,
           "inputPerMTok": 2,
           "outputPerMTok": 6
         },
+        "promptCaching": "openrouter-breakpoints",
         "reasoning": {
           "defaultEffort": "xhigh",
           "defaultEnabled": true,
@@ -3058,6 +3067,7 @@
         "vision": "unsupported"
       },
       {
+        "_note": "\nPROMPT CACHING 2026-10-28: the alibaba route bills cache reads at $0.295 and writes at $1.84375 (https://openrouter.ai/api/v1/models/qwen/qwen3.7-max/endpoints). OpenRouter caches Alibaba only at explicit content-block breakpoints (https://openrouter.ai/docs/features/prompt-caching), so this route declares the openrouter-breakpoints dialect.",
         "catalog": {
           "bestFor": ["Reasoning", "Agents", "Multilingual"],
           "description": null,
@@ -3073,14 +3083,18 @@
         "label": "Qwen3.7 Max (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
+          "cacheReadPerMTok": 0.295,
+          "cacheWritePerMTok": 1.84375,
           "inputPerMTok": 1.475,
           "outputPerMTok": 4.425
         },
+        "promptCaching": "openrouter-breakpoints",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
       },
       {
+        "_note": "\nPROMPT CACHING 2026-10-28: the alibaba route bills cache reads at $0.064 and writes at $0.4 (https://openrouter.ai/api/v1/models/qwen/qwen3.7-plus/endpoints). OpenRouter caches Alibaba only at explicit content-block breakpoints (https://openrouter.ai/docs/features/prompt-caching), so this route declares the openrouter-breakpoints dialect.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Tool use"],
           "description": null,
@@ -3096,6 +3110,8 @@
         "label": "Qwen3.7 Plus (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
+          "cacheReadPerMTok": 0.064,
+          "cacheWritePerMTok": 0.4,
           "inputPerMTok": 0.32,
           "longContextTiers": [
             {
@@ -3108,6 +3124,7 @@
           ],
           "outputPerMTok": 1.28
         },
+        "promptCaching": "openrouter-breakpoints",
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
@@ -3144,6 +3161,7 @@
         "vision": "unsupported"
       },
       {
+        "_note": "\nPROMPT CACHING 2026-10-28: cache reads $0.07 on the parasail, its only route; no Alibaba route, so no breakpoints are sent (https://openrouter.ai/api/v1/models/qwen/qwen3-coder-next/endpoints).",
         "catalog": {
           "bestFor": ["Coding", "Agentic development"],
           "description": null,
@@ -3159,6 +3177,7 @@
         "label": "Qwen3 Coder Next (OpenRouter)",
         "maxOutputTokens": 235929,
         "pricing": {
+          "cacheReadPerMTok": 0.07,
           "inputPerMTok": 0.12,
           "outputPerMTok": 0.8
         },

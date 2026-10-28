@@ -1,7 +1,8 @@
 /**
  * OpenRouter prompt caching for routes whose upstream needs explicit
- * breakpoints (Anthropic; OpenAI, Gemini, DeepSeek, Grok and the rest cache
- * automatically and declare no dialect).
+ * breakpoints (Anthropic; Alibaba-served Qwen needs block-level ones, see
+ * `openrouter-cache-breakpoints.ts`; OpenAI, Gemini, DeepSeek, Grok and the
+ * rest cache automatically and declare no dialect).
  *
  * OpenRouter documents a single top-level `cache_control: {type: 'ephemeral'}`
  * request field as automatic caching for Anthropic: it places the breakpoint
