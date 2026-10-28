@@ -19,7 +19,7 @@ describe('vision (image input) metadata', () => {
   it('marks the multimodal hosted frontier families as vision-capable', () => {
     expect(getLlmModelDefinition('anthropic', 'claude-sonnet-5').vision).toBe('supported');
     expect(getLlmModelDefinition('openai', 'gpt-5.6-terra').vision).toBe('supported');
-    expect(getLlmModelDefinition('google', 'gemini-3.5-flash').vision).toBe('supported');
+    expect(getLlmModelDefinition('google', 'gemini-3.8-flash').vision).toBe('supported');
     expect(getLlmModelDefinition('openrouter', 'anthropic/claude-sonnet-5').vision).toBe(
       'supported'
     );

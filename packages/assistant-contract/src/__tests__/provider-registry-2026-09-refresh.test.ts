@@ -420,9 +420,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
     expect(flash?.maxOutputTokens).toBe(943_718);
   });
 
-  it('promotes none of the new rows to a default or the OpenRouter seed set', () => {
-    expect(resolveDefaultModel('openai')).toBe('gpt-5.6-terra');
-    expect(resolveDefaultModel('anthropic')).toBe('claude-sonnet-5');
+  it('promotes none of the new rows to a gateway default or the OpenRouter seed set', () => {
     expect(resolveDefaultModel('bedrock')).toBe('anthropic.claude-sonnet-5');
     expect(resolveDefaultModel('openrouter')).toBe('openai/gpt-5.6-terra');
     const seeded: readonly string[] = OPENROUTER_RECOMMENDED_CODING_MODEL_IDS;

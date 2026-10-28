@@ -17,7 +17,7 @@ describe('resolveModelReasoningSupport', () => {
     // Hosted reasoning-first providers default to supported.
     ['openai', 'gpt-not-in-catalog', { source: 'provider-default', state: 'supported' }],
     ['anthropic', 'claude-sonnet-5', { source: 'provider-default', state: 'supported' }],
-    ['google', 'gemini-3.5-flash', { source: 'provider-default', state: 'supported' }],
+    ['google', 'gemini-3.8-flash', { source: 'provider-default', state: 'supported' }],
     // Undeclared OpenRouter models are visibly unverified, never silently on.
     ['openrouter', 'qwen/qwen3.7-max', { reason: 'openrouter-undeclared', state: 'unknown' }],
     [
@@ -258,12 +258,12 @@ describe('resolveReasoningControlsAvailability', () => {
   );
 
   it('offers google thinking levels, restricted for the Gemini 3 Pro line', () => {
-    expect(resolveReasoningControlsAvailability('google', 'gemini-3.5-flash')).toEqual({
+    expect(resolveReasoningControlsAvailability('google', 'gemini-3.6-flash')).toEqual({
       available: true,
       family: 'google',
       levels: ['minimal', 'low', 'medium', 'high'],
     });
-    expect(resolveReasoningControlsAvailability('google', 'gemini-3.7-flash')).toEqual({
+    expect(resolveReasoningControlsAvailability('google', 'gemini-3.8-flash')).toEqual({
       available: true,
       family: 'google',
       levels: ['low', 'medium', 'high'],

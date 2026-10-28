@@ -7,15 +7,15 @@ import { makeDbModel } from './catalog-test-harness';
 describe('projectCatalogRow', () => {
   it('joins the registry facts for a registered chat model', () => {
     // Prices come from the registry: catalog re-pricing must not break the join.
-    const terraPricing = findLlmModelDefinition('openai', 'gpt-5.6-terra')?.pricing;
+    const terraPricing = findLlmModelDefinition('openai', 'gpt-6.1-terra')?.pricing;
     expect(terraPricing).toBeDefined();
     const row = projectCatalogRow(
       makeDbModel({
-        id: 'gpt-5.6-terra',
+        id: 'gpt-6.1-terra',
         isEnabled: true,
-        name: 'GPT-5.6 Terra',
+        name: 'GPT-6.1 Terra',
         providerId: 'openai',
-        tagline: 'Most capable for everyday work',
+        tagline: 'Balanced GPT-6.1 tier',
       }),
       'OpenAI'
     );
@@ -23,7 +23,7 @@ describe('projectCatalogRow', () => {
       contextWindow: 1_050_000,
       enabled: true,
       maxOutputTokens: 128_000,
-      name: 'GPT-5.6 Terra',
+      name: 'GPT-6.1 Terra',
       pricing: {
         cacheReadPerMTok: terraPricing?.cacheReadPerMTok,
         cacheWritePerMTok: terraPricing?.cacheWritePerMTok,
@@ -33,7 +33,7 @@ describe('projectCatalogRow', () => {
       providerName: 'OpenAI',
       recommended: true,
       registered: true,
-      tagline: 'Most capable for everyday work',
+      tagline: 'Balanced GPT-6.1 tier',
       type: 'chat',
       vision: 'supported',
     });

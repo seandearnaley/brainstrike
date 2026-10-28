@@ -46,8 +46,8 @@ describe('frontier model refresh (2026-07)', () => {
       expect(ids).not.toContain('gpt-5.2-chat-latest');
     });
 
-    it('defaults to the balanced gpt-5.6-terra', () => {
-      expect(resolveDefaultModel('openai')).toBe('gpt-5.6-terra');
+    it('defaults to the balanced GPT-6.1 Terra', () => {
+      expect(resolveDefaultModel('openai')).toBe('gpt-6.1-terra');
     });
 
     /**
@@ -208,17 +208,20 @@ describe('frontier model refresh (2026-07)', () => {
       expect(ids).not.toContain('claude-opus-4-5');
     });
 
-    it('defaults to Sonnet 5', () => {
-      expect(resolveDefaultModel('anthropic')).toBe('claude-sonnet-5');
+    it('defaults to Sonnet 5.5', () => {
+      expect(resolveDefaultModel('anthropic')).toBe('claude-sonnet-5-5');
     });
   });
 
   describe('Google', () => {
-    it('exposes Gemini 3.5/3.1 + the 2.5 stable line', () => {
+    it('exposes Gemini 4 Argon, the 3.x Flash line and the 2.5 stable line', () => {
       const ids = llmIds('google');
       expect(ids).toEqual(
         expect.arrayContaining([
-          'gemini-3.5-flash',
+          'gemini-4-argon',
+          'gemini-3.8-flash',
+          'gemini-3.6-flash',
+          'gemini-3.5-flash-lite',
           'gemini-3.1-pro-preview',
           'gemini-3.1-flash-lite',
           'gemini-2.5-pro',
@@ -228,10 +231,16 @@ describe('frontier model refresh (2026-07)', () => {
       );
       expect(ids).not.toContain('gemini-3-flash-preview');
       expect(ids).not.toContain('gemini-3-pro-preview');
+      // Retired by Google on 2026-10-08; the API routes both to a newer Flash.
+      expect(ids).not.toContain('gemini-3.5-flash');
+      expect(ids).not.toContain('gemini-3.7-flash');
     });
 
-    it('defaults to the stable gemini-3.5-flash', () => {
-      expect(resolveDefaultModel('google')).toBe('gemini-3.5-flash');
+    it('defaults to the latest Flash, Gemini 3.8 Flash', () => {
+      expect(resolveDefaultModel('google')).toBe('gemini-3.8-flash');
+      expect(
+        listProviderLlmModels('google').filter((model) => model.default === true)
+      ).toHaveLength(1);
     });
 
     it('adds gemini-embedding-2 while keeping 001 as the embedding default', () => {
@@ -251,29 +260,10 @@ describe('frontier model refresh (2026-07)', () => {
       expect(v2?.dimensionParameter).toBe('output_dimensionality');
     });
 
-    it('declares Gemini 3.7 Flash for the direct Google provider', () => {
-      const gemini = getLlmCapabilityFacts('google', 'gemini-3.7-flash');
-
-      expect(gemini).toEqual({
-        contextWindow: 1_048_576,
-        id: 'gemini-3.7-flash',
-        label: 'Gemini 3.7 Flash',
-        maxOutputTokens: 65_536,
-        pricing: {
-          cacheReadPerMTok: 0.075,
-          inputPerMTok: 0.75,
-          outputPerMTok: 3.75,
-        },
-        supportsStreaming: true,
-        tagline: 'Fast multimodal reasoning for complex agentic workflows',
-        type: 'llm',
-        vision: 'supported',
-      });
-    });
-
     it('declares Gemini 3.8 Flash at the introductory 0.75/3.75 rate (BST-1693)', () => {
       expect(getLlmCapabilityFacts('google', 'gemini-3.8-flash')).toEqual({
         contextWindow: 1_048_576,
+        default: true,
         id: 'gemini-3.8-flash',
         label: 'Gemini 3.8 Flash',
         maxOutputTokens: 65_536,
@@ -323,13 +313,6 @@ describe('frontier model refresh (2026-07)', () => {
         type: 'llm',
         vision: 'supported',
       });
-    });
-
-    it('keeps gemini-3.5-flash as the google default — 3.8 Flash is NOT promoted', () => {
-      expect(resolveDefaultModel('google')).toBe('gemini-3.5-flash');
-      expect(
-        listProviderLlmModels('google').filter((model) => model.default === true)
-      ).toHaveLength(1);
     });
   });
 

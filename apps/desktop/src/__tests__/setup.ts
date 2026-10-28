@@ -208,7 +208,7 @@ const mockProviderDefinitions = [
     envKeys: ['BRAINSTRIKE_GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
     id: 'google',
     models: [
-      { default: true, id: 'gemini-3.5-flash', type: 'llm' as const },
+      { default: true, id: 'gemini-3.8-flash', type: 'llm' as const },
       {
         default: true,
         defaultDimension: 3072,

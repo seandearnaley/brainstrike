@@ -23,8 +23,11 @@ export const MODEL_ID_MIGRATIONS: Readonly<
     // gemini-2.5-flash / gemini-2.5-pro are now first-class models — do not
     // remap them away.
     'gemini-2.0-pro': 'gemini-2.5-pro',
-    'gemini-3-flash-preview': 'gemini-3.5-flash',
+    'gemini-3-flash-preview': 'gemini-3.8-flash',
     'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+    // Retired by Google on 2026-10-08; the API routes both to a newer Flash.
+    'gemini-3.5-flash': 'gemini-3.8-flash',
+    'gemini-3.7-flash': 'gemini-3.8-flash',
   },
   openai: {
     'gpt-3.5-turbo': 'gpt-5.4-mini',
