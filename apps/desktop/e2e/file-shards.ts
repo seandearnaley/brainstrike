@@ -26,15 +26,17 @@ function expectedSeconds(project: string, file: Suite): number {
 /**
  * Shards whole spec files by measured time: each file, longest first, goes to
  * the shard with the least time so far, counting every project the run holds.
- * file-durations.json holds each project's file seconds from a queue run; a
- * file it does not list counts 10 s per test.
+ * file-durations.json holds each project's file seconds, averaged over several
+ * queue runs; a file it does not list counts 10 s per test.
  * Balancing test counts instead left shards between 213 and 618 test-seconds,
  * because single tests take 2 s to 57 s (run 40579186768). A file stays whole,
  * so serial specs and file-level hooks keep their groups; a shard's workers
  * still take single tests (fullyParallel).
  *
- * Refresh the durations from a green merge-queue run when shards drift apart:
- *   gh run view <run-id> --log | node scripts/update-e2e-file-durations.mjs
+ * Refresh the durations from several green merge-queue runs when shards drift
+ * apart:
+ *   gh run view <run-id> --log > run-<run-id>.log   (for each run)
+ *   node scripts/update-e2e-file-durations.mjs run-*.log
  */
 export default class FileShards implements Reporter {
   preprocess({
