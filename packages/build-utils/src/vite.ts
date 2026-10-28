@@ -165,6 +165,7 @@ const WORKSPACE_SOURCE_OPTIMIZE_DEPS_INCLUDE = [
   '@brainstrike/ui > @codemirror/merge',
   '@brainstrike/ui > @codemirror/state',
   '@brainstrike/ui > @codemirror/view',
+  '@brainstrike/ui > @lezer/highlight',
   '@brainstrike/ui > @radix-ui/react-context-menu',
   '@brainstrike/ui > @radix-ui/react-dropdown-menu',
   '@brainstrike/ui > @radix-ui/react-label',
