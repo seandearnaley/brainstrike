@@ -196,6 +196,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         graph.leases.delete(id);
       }
     }
+    // The next open borrows the folders it restores; a restore meanwhile has nothing to tell.
+    dependencies.application.roots.releaseRestoredRoots();
     await closeAllIndexQueries();
   };
   const stopSourcesOwned = (): Promise<void> => {

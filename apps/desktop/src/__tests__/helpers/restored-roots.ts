@@ -2,14 +2,14 @@ import type { WorkspaceRootRegistry } from '../../ipc-domains/workspace-root-reg
 
 /**
  * A registry stub as the open borrows from it: one restore-and-borrow step over the stub's own
- * `restoreRoots` and `borrowSourceRoot`, each read when the step runs.
+ * `restoreRoots` and `borrowSourceRoot`, each read when the step runs. A close releases nothing.
  */
 export function restoredRoots<
   R extends {
     borrowSourceRoot?: WorkspaceRootRegistry['borrowSourceRoot'];
     restoreRoots: () => Promise<unknown>;
   },
->(roots: R): R & Pick<WorkspaceRootRegistry, 'borrowRestoredRoots'> {
+>(roots: R): R & Pick<WorkspaceRootRegistry, 'borrowRestoredRoots' | 'releaseRestoredRoots'> {
   const borrowRestoredRoots: WorkspaceRootRegistry['borrowRestoredRoots'] = async (work) =>
     work((await roots.restoreRoots()) as Parameters<typeof work>[0], (rootId, subscribe) => {
       if (!roots.borrowSourceRoot) {
@@ -17,5 +17,5 @@ export function restoredRoots<
       }
       return roots.borrowSourceRoot(rootId, subscribe);
     });
-  return Object.assign(roots, { borrowRestoredRoots });
+  return Object.assign(roots, { borrowRestoredRoots, releaseRestoredRoots: () => undefined });
 }
