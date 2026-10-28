@@ -208,8 +208,10 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * - `bedrock` — Converse API `cachePoint: {type:'default'}`.
    * - `openrouter` — OpenRouter's request-level `cache_control`, for gateway
    *   routes whose upstream needs explicit breakpoints (Anthropic).
+   * - `openrouter-breakpoints` — `cache_control` on OpenRouter content blocks,
+   *   for upstreams with no request-level form (Alibaba-served Qwen).
    */
-  promptCaching?: 'anthropic' | 'bedrock' | 'openrouter';
+  promptCaching?: 'anthropic' | 'bedrock' | 'openrouter' | 'openrouter-breakpoints';
   /**
    * Authoritative per-model reasoning controls when the provider publishes
    * them. The UI and request boundary both enforce these values so a

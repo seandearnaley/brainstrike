@@ -301,7 +301,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'Qwen3.8 Omni Flash (OpenRouter)',
       maxOutputTokens: 131_072,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.15, outputPerMTok: 0.47 },
+      pricing: { cacheReadPerMTok: 0.016, inputPerMTok: 0.15, outputPerMTok: 0.47 },
       supportsStreaming: true,
       type: 'llm',
       vision: 'supported',

@@ -585,7 +585,7 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'Qwen3.8 27B (OpenRouter)',
         maxOutputTokens: 131_072,
         // BST-1705: re-priced from the live Models API on 2026-09-10.
-        pricing: { inputPerMTok: 0.42, outputPerMTok: 3 },
+        pricing: { cacheReadPerMTok: 0.085, inputPerMTok: 0.42, outputPerMTok: 3 },
         reasoning: {
           defaultEffort: 'xhigh',
           defaultEnabled: true,
@@ -608,7 +608,13 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'Qwen3.8 Flash (OpenRouter)',
         maxOutputTokens: 131_072,
         outputModalities: ['text'],
-        pricing: { inputPerMTok: 0.15, outputPerMTok: 0.47 },
+        pricing: {
+          cacheReadPerMTok: 0.016,
+          cacheWritePerMTok: 0.2,
+          inputPerMTok: 0.15,
+          outputPerMTok: 0.47,
+        },
+        promptCaching: 'openrouter-breakpoints',
         reasoning: {
           defaultEffort: 'xhigh',
           defaultEnabled: true,
@@ -636,7 +642,13 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'Qwen3.8 2.4T A95B (OpenRouter)',
         // BST-1804: the route's top_provider pair.
         maxOutputTokens: 131_072,
-        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        pricing: {
+          cacheReadPerMTok: 0.25,
+          cacheWritePerMTok: 2.5,
+          inputPerMTok: 2,
+          outputPerMTok: 6,
+        },
+        promptCaching: 'openrouter-breakpoints',
         reasoning: {
           defaultEffort: 'xhigh',
           defaultEnabled: true,
