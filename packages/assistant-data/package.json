@@ -27,7 +27,8 @@
     ".": "./src/index.ts",
     "./cost-tracking": "./src/cost-tracking/index.ts",
     "./assistant-memory-repository": "./src/assistant-memory-repository.ts",
-    "./assistant-memory-resource": "./src/assistant-memory-resource.ts"
+    "./assistant-memory-resource": "./src/assistant-memory-resource.ts",
+    "./model-pricing": "./src/cost-tracking/model-pricing.ts"
   },
   "license": "ISC",
   "peerDependencies": {

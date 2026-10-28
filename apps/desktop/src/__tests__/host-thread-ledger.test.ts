@@ -69,6 +69,8 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
     editCount: 0,
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
+    // $3 input / $15 output per million tokens.
+    estimatedCostUsd: expect.closeTo((2 * 3 + 50 * 15) / 1e6, 12),
     estimatedInputTokens: 2,
     estimatedOutputTokens: 50,
     failedToolCallCount: 0,
@@ -93,6 +95,7 @@ test("Core's ledger reads as the cost views' runs, provider calls and per-root u
     {
       estimatedCacheCreationTokens: 0,
       estimatedCacheReadTokens: 0,
+      estimatedCostUsd: expect.closeTo((8 * 3 + 200 * 15) / 1e6, 12),
       estimatedInputTokens: 8,
       estimatedOutputTokens: 200,
       inputTokens: 8,

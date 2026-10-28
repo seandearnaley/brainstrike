@@ -27,6 +27,9 @@ const rows: HostLogRow[] = richRecording.map((raw) => {
   return { ...row, event, ts: BASE + row.seq * 1000 };
 });
 const threadId = rows[0]?.threadId ?? '';
+/** The recording's model lists at $3 input / $15 output per million tokens. */
+const usd = (inputTokens: number, outputTokens: number) =>
+  expect.closeTo((inputTokens * 3 + outputTokens * 15) / 1e6, 12);
 const started = rows.filter((row) => row.event.type === 'run.started');
 const [first] = started;
 if (first?.event.type !== 'run.started') {
@@ -97,6 +100,7 @@ test('a committed log folds into ledger runs and per-call usage', () => {
     editCount: 0,
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
+    estimatedCostUsd: usd(2, 50),
     estimatedInputTokens: 2,
     estimatedOutputTokens: 50,
     failedToolCallCount: 0,
@@ -120,6 +124,7 @@ test('a committed log folds into ledger runs and per-call usage', () => {
     at: rows.find((row) => row.event.type === 'model.step')?.ts,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    costUsd: usd(1, 25),
     inputTokens: 1,
     model: 'anthropic/claude-sonnet-4.6',
     outputTokens: 25,
@@ -150,6 +155,7 @@ test("a compaction summarizer's side call counts within its run and as a provide
     at: BASE + (rows.indexOf(first) + 2) * 1000,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+    costUsd: usd(42, 9),
     inputTokens: 42,
     model: 'anthropic/claude-sonnet-4.6',
     outputTokens: 9,
@@ -183,6 +189,7 @@ describe("a thread's per-model subtotals for the meter's thread total", () => {
         cacheReadTokens: 0,
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
+        estimatedCostUsd: usd(4, 100),
         estimatedInputTokens: 4,
         estimatedOutputTokens: 100,
         inputTokens: 4,
@@ -322,6 +329,7 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       {
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
+        estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
         inputTokens: 2,
@@ -334,6 +342,7 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       {
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
+        estimatedCostUsd: usd(2, 50),
         estimatedInputTokens: 2,
         estimatedOutputTokens: 50,
         inputTokens: 2,
@@ -425,6 +434,74 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     expect(costedSources('gpt-4.1-mini')).toEqual([
       ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
     ]);
+  });
+});
+describe('each provider call is priced on its own', () => {
+  // Claude Haiku 5.5 lists $0.10 input / $0.50 output per million tokens, with
+  // cache reads at $0.01, and charges $0.50 / $2.50 once ONE request's prompt
+  // passes 100,000 tokens.
+  const observed = (...usages: Record<string, unknown>[]) =>
+    folded(
+      insertAfterStart(
+        ...usages.map((usage) => ({
+          kind: 'observation',
+          modelId: 'anthropic::claude-haiku-5-5',
+          runId,
+          type: 'memory.usage',
+          usage,
+        }))
+      )
+    );
+  test('two short requests stay at the standard rate though their sum passes the long-context threshold', () => {
+    const call = { inputTokens: 60_000, outputTokens: 1000, totalTokens: 61_000 };
+    const { perModel, runs, usage } = observed(call, call);
+    // $0.0065 a call; pricing the 120,000-token sum as one request would read $0.065.
+    expect(perModel.find((entry) => entry.runKind === 'om-observation')).toMatchObject({
+      estimatedCostUsd: expect.closeTo(0.013, 12),
+      inputTokens: 120_000,
+    });
+    expect(usage.slice(0, 2).map((entry) => entry.costUsd)).toEqual([
+      expect.closeTo(0.0065, 12),
+      expect.closeTo(0.0065, 12),
+    ]);
+    // The run's total prices its observer calls under the observer's model.
+    expect(runs.find((run) => run.runId === runId)?.estimatedCostUsd).toBeCloseTo(
+      0.013 + (2 * 3 + 50 * 15) / 1e6,
+      12
+    );
+  });
+  test('a long request pays the long-context rate', () => {
+    const { usage } = observed({ inputTokens: 120_000, outputTokens: 1000, totalTokens: 121_000 });
+    expect(usage[0]?.costUsd).toBeCloseTo(0.0625, 12);
+  });
+  test('a cached call records what its cache saved', () => {
+    const { perModel } = observed({
+      inputTokenDetails: { cacheReadTokens: 50_000 },
+      inputTokens: 60_000,
+      outputTokens: 1000,
+      totalTokens: 61_000,
+    });
+    // $0.002 with the cache against $0.0065 without it.
+    expect(perModel.find((entry) => entry.runKind === 'om-observation')).toMatchObject({
+      cacheSavingsUsd: expect.closeTo(0.0045, 12),
+      estimatedCostUsd: expect.closeTo(0.002, 12),
+    });
+  });
+  test('a call under a model with no list price leaves every total it joins unpriced', () => {
+    const { perModel, runs, usage } = folded(
+      insertAfterStart({
+        kind: 'observation',
+        modelId: 'openai::not-in-the-catalog',
+        runId,
+        type: 'memory.usage',
+        usage: { inputTokens: 10, outputTokens: 1, totalTokens: 11 },
+      })
+    );
+    expect(usage[0]?.costUsd).toBeNull();
+    expect(
+      perModel.find((entry) => entry.runKind === 'om-observation')?.estimatedCostUsd
+    ).toBeNull();
+    expect(runs.find((run) => run.runId === runId)?.estimatedCostUsd).toBeNull();
   });
 });
 describe("a thread's latest root run", () => {
