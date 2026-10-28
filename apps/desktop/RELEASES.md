@@ -52,19 +52,21 @@ E2E runs never check for updates.
 ## Release commit (BST-2190)
 
 A release builds only a commit on which every required nightly workflow
-passed. `scripts/release-required-workflows.mjs` names that set: the scheduled
+passed. `scripts/release-required-workflows.mjs` names that set:
 `nightly.yml`, whose one run calls the six required workflows on one commit
 and succeeds only when every call did (BST-2233).
 `scripts/resolve-release-sha.mjs` judges a commit from the Actions API: for
-each required workflow, the latest completed scheduled run on the commit must
-have succeeded. A run in progress, or no scheduled run, counts as missing.
+each required workflow, the latest completed run on `main` at the commit must
+have succeeded. The nightly cron and `gh workflow run nightly.yml --ref main`
+run the same jobs, so either counts; a release need not wait for the night
+(owner decision 2026-10-28). A run in progress, or no run, counts as missing.
 
 The workflow's first job resolves the commit, and every other job checks it
 out instead of the triggering ref. A tag push judges the tagged commit, and a
 dispatch judges its `sha` input when one is given. If any required workflow is
 red or missing, the run refuses and names each one; it never builds another
 commit instead. A dispatch without `sha` builds the newest all-green `main`
-commit from the last 14 days of scheduled runs, or fails and says how far back
+commit from the last 14 days of runs on `main`, or fails and says how far back
 it searched.
 
 ## Publication pipeline

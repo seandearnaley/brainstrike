@@ -4,9 +4,11 @@
 // nightly workflow (scripts/release-required-workflows.mjs) passed.
 //
 // The rule: a SHA is green when, for every required workflow, the latest
-// COMPLETED run with event=schedule on that head_sha concluded `success`. A
-// rerun counts, because a run's conclusion is its latest attempt's. A run in
-// progress, or no scheduled run at all, counts as missing.
+// COMPLETED run on main with that head_sha concluded `success`. The cron and a
+// dispatch run the same jobs, so either counts (owner decision 2026-10-28); a
+// run on main runs main's head, so the commit was on main. A rerun counts,
+// because a run's conclusion is its latest attempt's. A run in progress, or no
+// run at all, counts as missing.
 //
 // Usage:
 //   resolve-release-sha.mjs --given <40-hex sha | refs/tags/<tag>>
@@ -14,7 +16,7 @@
 //     required workflow is red or missing, it refuses and names each one; it
 //     never picks another SHA.
 //   resolve-release-sha.mjs --newest-green --lookback-days <n>
-//     Chooses the newest main commit that is green among the scheduled runs of
+//     Chooses the newest main commit that is green among the runs on main of
 //     the last <n> days, or fails and says how far back it searched.
 //
 // Reads the Actions REST API with GITHUB_TOKEN at GITHUB_API_URL for
@@ -45,18 +47,18 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 export function judgeSha(sha, runsByWorkflow) {
   const workflows = REQUIRED_NIGHTLY_WORKFLOWS.map((workflow) => {
-    const scheduled = (runsByWorkflow[workflow] ?? []).filter(
-      (run) => run.event === 'schedule' && run.head_sha === sha
+    const onSha = (runsByWorkflow[workflow] ?? []).filter(
+      (run) => run.head_branch === MAIN && run.head_sha === sha
     );
-    const latest = scheduled
+    const latest = onSha
       .filter((run) => run.status === 'completed')
       .sort((a, b) => b.run_number - a.run_number)[0];
     if (latest === undefined) {
-      const running = scheduled.length;
+      const running = onSha.length;
       const detail =
         running === 0
-          ? 'no scheduled run on this SHA'
-          : `${running} scheduled run${running === 1 ? '' : 's'} still in progress`;
+          ? `no run on ${MAIN} at this SHA`
+          : `${running} run${running === 1 ? '' : 's'} on ${MAIN} still in progress`;
       return { detail, state: 'missing', workflow };
     }
     return { detail: latest.html_url, state: latest.conclusion ?? 'no conclusion', workflow };
@@ -65,10 +67,10 @@ export function judgeSha(sha, runsByWorkflow) {
 }
 
 /**
- * Judges main's scheduled SHAs newest first and stops at the first green one.
- * A scheduled run runs on the default branch's head when it starts, and main's
- * ruleset blocks non-fast-forward pushes, so ordering SHAs by their newest
- * scheduled run orders them by main's history.
+ * Judges main's SHAs newest first and stops at the first green one. A run on
+ * main runs main's head when it starts, and main's ruleset blocks
+ * non-fast-forward pushes, so ordering SHAs by their newest run orders them by
+ * main's history.
  * @param {Record<string, WorkflowRun[]>} runsByWorkflow
  * @returns {{ chosen: ShaVerdict | undefined, judged: ShaVerdict[] }}
  */
@@ -76,7 +78,7 @@ export function newestGreenSha(runsByWorkflow) {
   const newestRun = new Map();
   for (const workflow of REQUIRED_NIGHTLY_WORKFLOWS) {
     for (const run of runsByWorkflow[workflow] ?? []) {
-      if (run.event === 'schedule' && run.head_branch === MAIN) {
+      if (run.head_branch === MAIN) {
         const created = Date.parse(run.created_at);
         newestRun.set(run.head_sha, Math.max(newestRun.get(run.head_sha) ?? created, created));
       }
@@ -160,7 +162,7 @@ async function resolveGiven(api, given) {
   if (!FULL_SHA.test(sha ?? '') || (tag === undefined && sha !== given)) {
     throw new Error(`${given} resolved to commit ${sha}, not to the full SHA given`);
   }
-  const verdict = judgeSha(sha, await listRequiredRuns(api, { event: 'schedule', head_sha: sha }));
+  const verdict = judgeSha(sha, await listRequiredRuns(api, { branch: MAIN, head_sha: sha }));
   const red = notGreen(verdict);
   if (red.length > 0) {
     console.error(
@@ -185,7 +187,6 @@ async function resolveNewestGreen(api, days) {
   const runs = await listRequiredRuns(api, {
     branch: MAIN,
     created: `>=${since}`,
-    event: 'schedule',
   });
   const { chosen, judged } = newestGreenSha(runs);
   for (const verdict of judged.filter(({ green }) => !green)) {
@@ -194,7 +195,7 @@ async function resolveNewestGreen(api, days) {
   if (chosen === undefined) {
     console.error(
       `::error::No ${MAIN} commit has every required nightly green in the last ${days} days ` +
-        `(scheduled runs created since ${since}); judged ${judged.length} commits.`
+        `(runs on ${MAIN} created since ${since}); judged ${judged.length} commits.`
     );
     return;
   }
