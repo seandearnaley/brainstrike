@@ -48,6 +48,8 @@ export interface UseWorkspaceBarModeArgs {
 
 export interface WorkspaceBarModeComposition {
   readonly branchSwitcher: WorkspaceBarBranchMenu | undefined;
+  /** Whether `branchSwitcher` is this root's answer yet (`BranchSwitcher.settled`). */
+  readonly branchSwitcherSettled: boolean;
   readonly mode: WorkspaceBarMode | undefined;
 }
 
@@ -168,10 +170,10 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
     },
     [mode]
   );
-  const branchSwitcher = useBranchSwitcher({
+  const { menu: branchSwitcher, settled: branchSwitcherSettled } = useBranchSwitcher({
     checkout,
     dbRootId: primaryRootId ?? null,
     ...(mode && mode.createDisabledReason === null ? { onSwitchInNewWorktree } : {}),
   });
-  return { branchSwitcher, mode };
+  return { branchSwitcher, branchSwitcherSettled, mode };
 }

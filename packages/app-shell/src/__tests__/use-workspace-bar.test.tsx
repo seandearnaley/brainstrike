@@ -303,7 +303,7 @@ beforeEach(() => {
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
   branchSwitcherSpy.mockReset();
-  branchSwitcherSpy.mockReturnValue(branchMenu);
+  branchSwitcherSpy.mockReturnValue({ menu: branchMenu, settled: true });
   // reset (not clear): one test overrides the return value with
   // mockReturnValue, which mockClear alone would leak into later tests.
   checkoutSpy.mockReset();
@@ -529,6 +529,31 @@ describe('useWorkspaceBar', () => {
       });
     });
     await waitFor(() => expect(result.current.checkoutState).toBe('resolved'));
+  });
+
+  it('withholds the branch chip until its switcher settles, so it never turns interactive under a click', async () => {
+    // A freshly mounted bar (a new thread's first send mounts the thread's own
+    // panel) reads its branches once. The chip used to render the read-only
+    // image for that read and then become the switcher: a click in between
+    // landed on the image and opened nothing.
+    branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: false });
+    const { result } = await setup();
+    await waitFor(() => expect(result.current.primaryRoot?.rootId).toBe('r-main-db'));
+    expect(result.current.checkout).toBeUndefined();
+    expect(result.current.branchMenu).toBeUndefined();
+    expect(result.current.checkoutState).toBe('pending');
+
+    branchSwitcherSpy.mockReturnValue({ menu: branchMenu, settled: true });
+    await act(async () => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/ws/brainstrike/.git',
+        repositoryRoot: '/ws/brainstrike',
+      });
+    });
+    await waitFor(() => expect(result.current.branchMenu).toBe(branchMenu));
+    expect(result.current.checkout).toEqual({ ahead: 0, behind: 0, branch: 'main', dirty: false });
+    expect(result.current.checkoutState).toBe('resolved');
   });
 
   it('registers no working-tree scope for a primary that is not mounted in this workspace', async () => {

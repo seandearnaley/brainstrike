@@ -36,7 +36,9 @@ const { loggerMock, toastSpy } = vi.hoisted(() => ({
   },
   toastSpy: vi.fn(),
 }));
-vi.mock('../hooks/use-branch-switcher', () => ({ useBranchSwitcher: () => undefined }));
+vi.mock('../hooks/use-branch-switcher', () => ({
+  useBranchSwitcher: () => ({ menu: undefined, settled: true }),
+}));
 vi.mock('../hooks/use-thread-checkout-status', () => ({
   useThreadCheckoutStatus: () => ({ checkout: undefined, settled: true }),
 }));

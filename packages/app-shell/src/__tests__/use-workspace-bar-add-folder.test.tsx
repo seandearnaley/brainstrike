@@ -270,7 +270,7 @@ beforeEach(() => {
   clipboardWriteText.mockReset();
   clipboardWriteText.mockResolvedValue({ ok: true } satisfies ActionOutcome);
   branchSwitcherSpy.mockReset();
-  branchSwitcherSpy.mockReturnValue(branchMenu);
+  branchSwitcherSpy.mockReturnValue({ menu: branchMenu, settled: true });
   // reset (not clear): one test overrides the return value with
   // mockReturnValue, which mockClear alone would leak into later tests.
   checkoutSpy.mockReset();
