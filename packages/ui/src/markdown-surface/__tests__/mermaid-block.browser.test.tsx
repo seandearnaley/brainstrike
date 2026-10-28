@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
@@ -217,7 +217,7 @@ it.each(['light', 'dark'])(
   }
 );
 
-it('opens the diagram full size over its container and closes it with Escape', async () => {
+it('opens the diagram full size over its container and closes it with Escape or Close', async () => {
   const user = userEvent.setup();
   const panel = document.createElement('div');
   panel.style.cssText = 'position:relative;width:900px;height:600px';
@@ -243,6 +243,13 @@ it('opens the diagram full size over its container and closes it with Escape', a
   await waitFor(() => expect(view.getBoundingClientRect().width).toBe(1200));
 
   await user.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(open).toHaveFocus();
+
+  // The visible Close button leaves too.
+  await user.click(open);
+  const reopened = await screen.findByRole('dialog', { name: 'Diagram' });
+  await user.click(within(reopened).getByRole('button', { name: 'Close' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(open).toHaveFocus();
   panel.remove();
