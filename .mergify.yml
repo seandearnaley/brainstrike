@@ -25,6 +25,10 @@ queue_rules:
     # Mergify must judge it on the batch only, not at queue entry.
     branch_protection_injection_mode: merge
     batch_size: 5
+    # Most batches hold one PR, so the default 30 s wait for more only delays
+    # them. A PR queued after the wait forms the next batch, which is checked
+    # speculatively beside the one ahead.
+    batch_max_wait_time: 5 seconds
     merge_method: squash
     # merge-queue.yml triggers on pushes under this prefix.
     queue_branch_prefix: mergify/merge-queue/
