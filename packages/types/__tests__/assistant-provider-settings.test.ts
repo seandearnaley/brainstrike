@@ -32,6 +32,7 @@ describe('Gemini thinking-level helpers', () => {
   it('uses exact thinking levels for Gemini 3 Pro, 3.7 Flash, and earlier Flash models', () => {
     expect(getGoogleThinkingLevels('gemini-3.1-pro-preview')).toEqual(GOOGLE_PRO_THINKING_LEVELS);
     expect(getGoogleThinkingLevels('gemini-3.7-flash')).toEqual(['low', 'medium', 'high']);
+    expect(getGoogleThinkingLevels('gemini-4-argon')).toEqual(['low', 'medium', 'high']);
     expect(getGoogleThinkingLevels('gemini-3.5-flash')).toEqual(GOOGLE_FLASH_THINKING_LEVELS);
   });
 });

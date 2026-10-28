@@ -27,34 +27,63 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
    * on the page) and withholds `max` (on it).
    */
   it.each([
-    ['gpt-6-sol', 'GPT-6 Sol', 2, 10],
-    ['gpt-6-luna', 'GPT-6 Luna', 0.1, 0.5],
-  ] as const)(
-    'declares %s from its OpenAI model page',
-    (id, label, inputPerMTok, outputPerMTok) => {
-      expect(getLlmCapabilityFacts('openai', id)).toEqual({
-        contextWindow: 1_050_000,
-        id,
-        label,
-        maxOutputTokens: 128_000,
-        nativeToolSearch: 'openai',
-        pricing: {
-          inputPerMTok,
-          outputPerMTok,
-          ...(id === 'gpt-6-luna' ? { cacheReadPerMTok: 0.01, cacheWritePerMTok: 0.125 } : {}),
-        },
-        reasoning: {
-          defaultEffort: 'medium',
-          mandatory: false,
-          supportedEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-        },
-        supportsStreaming: true,
-        tokenMeasurement: { mode: 'declared-compatible-reference', tokenizer: 'o200k_base' },
-        type: 'llm',
-        vision: 'supported',
-      });
-    }
-  );
+    [
+      'gpt-6-sol',
+      'GPT-6 Sol',
+      {
+        cacheReadPerMTok: 0.2,
+        cacheWritePerMTok: 2.5,
+        inputPerMTok: 2,
+        longContextTiers: [
+          {
+            cacheReadPerMTok: 0.4,
+            cacheWritePerMTok: 5,
+            inputPerMTok: 4,
+            minPromptTokens: 272_000,
+            outputPerMTok: 15,
+          },
+        ],
+        outputPerMTok: 10,
+      },
+    ],
+    [
+      'gpt-6-luna',
+      'GPT-6 Luna',
+      {
+        cacheReadPerMTok: 0.01,
+        cacheWritePerMTok: 0.125,
+        inputPerMTok: 0.1,
+        longContextTiers: [
+          {
+            cacheReadPerMTok: 0.02,
+            cacheWritePerMTok: 0.25,
+            inputPerMTok: 0.2,
+            minPromptTokens: 272_000,
+            outputPerMTok: 0.75,
+          },
+        ],
+        outputPerMTok: 0.5,
+      },
+    ],
+  ] as const)('declares %s from its OpenAI model page', (id, label, pricing) => {
+    expect(getLlmCapabilityFacts('openai', id)).toEqual({
+      contextWindow: 1_050_000,
+      id,
+      label,
+      maxOutputTokens: 128_000,
+      nativeToolSearch: 'openai',
+      pricing,
+      reasoning: {
+        defaultEffort: 'medium',
+        mandatory: false,
+        supportedEfforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      },
+      supportsStreaming: true,
+      tokenMeasurement: { mode: 'declared-compatible-reference', tokenizer: 'o200k_base' },
+      type: 'llm',
+      vision: 'supported',
+    });
+  });
 
   it('declares Claude Opus 5.5 from the vendor model page: always-on thinking, medium default', () => {
     expect(getLlmCapabilityFacts('anthropic', 'claude-opus-5-5')).toEqual({
@@ -120,6 +149,8 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       maxOutputTokens: 128_000,
       // BST-1708: gateway long-context tier rides along with the base rate.
       pricing: {
+        cacheReadPerMTok: 0.2,
+        cacheWritePerMTok: 2.5,
         inputPerMTok: 2,
         longContextTiers: [
           {
@@ -149,6 +180,8 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       maxOutputTokens: 128_000,
       // BST-1708: gateway long-context tier rides along with the base rate.
       pricing: {
+        cacheReadPerMTok: 0.01,
+        cacheWritePerMTok: 0.125,
         inputPerMTok: 0.1,
         longContextTiers: [
           {
@@ -176,7 +209,12 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       id: 'anthropic/claude-opus-5.5',
       label: 'Claude Opus 5.5 (OpenRouter)',
       maxOutputTokens: 128_000,
-      pricing: { inputPerMTok: 4, outputPerMTok: 20 },
+      pricing: {
+        cacheReadPerMTok: 0.2,
+        cacheWritePerMTok: 5,
+        inputPerMTok: 4,
+        outputPerMTok: 20,
+      },
       reasoning: {
         defaultEffort: 'high',
         mandatory: true,
@@ -193,16 +231,17 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       maxOutputTokens: 450_000,
       // BST-1708: gateway long-context tier rides along with the base rate.
       pricing: {
-        inputPerMTok: 1.6,
+        cacheReadPerMTok: 0.5,
+        inputPerMTok: 2,
         longContextTiers: [
           {
-            cacheReadPerMTok: 0.8,
-            inputPerMTok: 3.2,
+            cacheReadPerMTok: 1,
+            inputPerMTok: 4,
             minPromptTokens: 200_000,
-            outputPerMTok: 9.6,
+            outputPerMTok: 12,
           },
         ],
-        outputPerMTok: 4.8,
+        outputPerMTok: 6,
       },
       reasoning: {
         defaultEffort: 'high',
@@ -245,7 +284,11 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'MiMo-V2.6-Flash (OpenRouter)',
       maxOutputTokens: 131_072,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.14, outputPerMTok: 0.28 },
+      pricing: {
+        cacheReadPerMTok: 0.0028,
+        inputPerMTok: 0.14,
+        outputPerMTok: 0.28,
+      },
       supportsStreaming: true,
       type: 'llm',
       vision: 'supported',
