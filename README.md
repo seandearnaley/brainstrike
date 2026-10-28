@@ -39,11 +39,10 @@ Current boundaries are documented in [subsystem contracts](docs/agents/).
 ## Checks and contributions
 
 **The merge queue is the gate.** Every queue batch runs every check, including
-the full desktop regression, on hosted runners, and Mergify queues every ready
-PR. Before opening a PR, run the checks for what you changed. To run the whole
-gate on a PR before it is queued, keep it a draft with the `full-check` label
-until that run passes. Documentation changes need review and link checks, not
-app regressions.
+the full desktop regression, on hosted runners. Before opening a PR, run the
+checks for what you changed; add the `full-check` label to a PR to run the whole
+gate on it before queueing. Documentation changes need review and link checks,
+not app regressions.
 
 Useful root commands:
 
