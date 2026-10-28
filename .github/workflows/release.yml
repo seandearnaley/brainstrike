@@ -670,17 +670,18 @@ jobs:
           VERSION: ${{ needs.context.outputs.version }}
         run: |
           set -euo pipefail
-          mkdir -p assets update-info release-records
+          # Not assets/: the checkout has its own (assets/icons).
+          mkdir -p release-assets update-info release-records
           # -n: a filename collision across build artifacts must surface as a
           # missing file in the checks below, never a silent overwrite.
-          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.blockmap' \) -exec mv -n {} assets/ \;
+          find staging -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.zip' -o -name '*.blockmap' \) -exec mv -n {} release-assets/ \;
           find staging -type f -name 'latest*.yml' -exec mv -n {} update-info/ \;
           find staging -name '*.json' -path '*release-records*' -exec mv -n {} release-records/ \;
           # One latest-mac.yml names both arches; the updater picks its own.
           node scripts/release-update-info.mjs merge-mac \
             update-info/latest-mac-arm64.yml update-info/latest-mac-x64.yml > update-info/latest-mac.yml
           rm update-info/latest-mac-arm64.yml update-info/latest-mac-x64.yml
-          ls -la assets update-info release-records
+          ls -la release-assets update-info release-records
           # Downloads (DMG, EXE, AppImage) and macOS update payloads (zip),
           # by exact name; blockmaps only speed updates up, so whichever
           # electron-builder wrote are published as found.
@@ -689,15 +690,15 @@ jobs:
             "Brainstrike-${VERSION}-macos-arm64.zip" "Brainstrike-${VERSION}-macos-x64.zip" \
             "Brainstrike-${VERSION}-windows-x64.exe" \
             "Brainstrike-${VERSION}-linux-x64.AppImage" "Brainstrike-${VERSION}-linux-arm64.AppImage"; do
-            [[ -f "assets/${NAME}" ]] || { echo "::error::missing asset ${NAME}"; exit 1; }
+            [[ -f "release-assets/${NAME}" ]] || { echo "::error::missing asset ${NAME}"; exit 1; }
           done
           for NAME in latest-mac.yml latest.yml latest-linux.yml latest-linux-arm64.yml; do
             [[ -f "update-info/${NAME}" ]] || { echo "::error::missing update metadata ${NAME}"; exit 1; }
           done
           # Every file an updater may fetch must be one of these assets, with
           # the size and sha512 the metadata declares.
-          node scripts/release-update-info.mjs verify --version "$VERSION" --assets assets update-info/*.yml
-          cd assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+          node scripts/release-update-info.mjs verify --version "$VERSION" --assets release-assets update-info/*.yml
+          cd release-assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
 
       - name: Cross-check staged digests against build records
         run: |
@@ -709,7 +710,7 @@ jobs:
           node -e '
             const { readFileSync, readdirSync } = require("node:fs");
             const sums = new Map(
-              readFileSync("assets/SHA256SUMS", "utf8")
+              readFileSync("release-assets/SHA256SUMS", "utf8")
                 .trim()
                 .split("\n")
                 .map((line) => {
@@ -804,7 +805,7 @@ jobs:
           # asset holds different bytes: those need a new version tag.
           PUBLISHED="$RUNNER_TEMP/published-assets.json"
           gh api "repos/seandearnaley/brainstrike-releases/releases/tags/${TAG}" --jq '.assets' > "$PUBLISHED"
-          UPLOAD=$(node scripts/release-asset-plan.mjs --remote "$PUBLISHED" assets/*)
+          UPLOAD=$(node scripts/release-asset-plan.mjs --remote "$PUBLISHED" release-assets/*)
           if [[ -z "$UPLOAD" ]]; then
             echo "Every asset is already published with this run's bytes."
             exit 0
@@ -817,7 +818,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ needs.context.outputs.tag }}"
-          for FILE in assets/*; do
+          for FILE in release-assets/*; do
             NAME=$(basename "$FILE")
             URL="https://github.com/seandearnaley/brainstrike-releases/releases/download/${TAG}/${NAME}"
             CODE=$(curl -sIL -o /dev/null -w '%{http_code}' "$URL")
