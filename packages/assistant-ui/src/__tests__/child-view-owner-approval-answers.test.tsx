@@ -15,7 +15,7 @@ import { memo, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ApprovalOwnerThread } from '../approval-owner-thread-context';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
-import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import { resetThreadMessageQueues } from '../thread-message-queue';
 import { expandApprovalRow } from './approval-row-helpers';
 
 /**
@@ -144,7 +144,7 @@ const notice = () => screen.getByTestId('assistant-tool-approval-notice');
 describe('child view approvals answered by the owning root', () => {
   afterEach(() => {
     cleanup();
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
     answerFromRoot = undefined;
   });
 

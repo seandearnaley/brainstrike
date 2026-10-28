@@ -5,8 +5,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { createLogger } from '@brainstrike/logging';
 import { Timer } from 'lucide-react';
-import { use, useState } from 'react';
-import { ActiveThreadKeyContext } from './active-thread-key-context';
+import { useState } from 'react';
 import { useAnsweredApprovals } from './answered-approvals-context';
 import { buildApprovalDecisionMessage } from './approval-decision-message';
 import {
@@ -54,7 +53,6 @@ export function ApprovalQueueStrip() {
   const grants = useToolApprovalGrants();
   const aui = useAui();
   const isRunning = useAuiState((state) => state.thread.isRunning);
-  const threadKey = use(ActiveThreadKeyContext);
   const decisionRoute = useDecisionRoute();
   const [inFlight, setInFlight] = useState<ReadonlySet<ToolRiskCategory>>(() => new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -87,11 +85,8 @@ export function ApprovalQueueStrip() {
       ? decisionRoute.dispatch(decision.message)
       : submitDecisionOrQueue({
           append: (message) => aui.thread().append(message),
-          identityKey: decision.identityKey,
           isRunning,
           message: decision.message,
-          text: decision.text,
-          threadKey,
         });
     dispatch
       .catch((error: unknown) => {

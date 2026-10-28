@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApprovalOwnerThread } from '../approval-owner-thread-context';
 import { AssistantConversationPanel } from '../assistant-conversation-panel';
 import type { DecisionRoute } from '../decision-route-context';
-import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import { resetThreadMessageQueues } from '../thread-message-queue';
 
 type StructuredAppendMessage = Exclude<CreateAppendMessage, string>;
 
@@ -85,7 +85,7 @@ const dataMessage = (name: string, data: object): ThreadMessageLike => ({
 describe('child decisions follow owning-root outcomes', () => {
   afterEach(() => {
     cleanup();
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
   });
 
   it.each([false, true])(

@@ -16,12 +16,12 @@ import { use } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useAnsweredApprovals } from './answered-approvals-context';
 import { useDecisionRoute } from './decision-route-context';
-import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
 import {
   DELEGATED_DECISION_STATUS_LABELS,
   type RediscoveredPauseDisplay,
 } from './rediscovered-pause-display';
 import { personaLabelForToolName } from './subagent-persona-label';
+import { useQueuedDecisionKeys } from './thread-message-queue';
 
 /** Characters of the delegation prompt shown next to the persona label. */
 const DELEGATION_PROMPT_PREVIEW_CHARS = 96;
@@ -87,19 +87,14 @@ function describeDelegationOwner(
 export function useDecisionQueueState(approval: AssistantToolApprovalRequest | null): {
   readonly isRunning: boolean;
   readonly queued: boolean;
-  readonly threadKey: string | undefined;
 } {
   const threadKey = use(ActiveThreadKeyContext);
   const decisionRoute = useDecisionRoute();
   const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const identityKey = approval ? getToolActionIdentityKey(approval) : null;
-  const queued = useFollowUpQueueStore((state) =>
-    identityKey === null
-      ? false
-      : isDecisionQueued(state, followUpQueueKey(queueThreadKey), identityKey)
-  );
-  return { isRunning, queued, threadKey: queueThreadKey };
+  const queuedKeys = useQueuedDecisionKeys(queueThreadKey);
+  return { isRunning, queued: identityKey !== null && queuedKeys.has(identityKey) };
 }
 
 /** The header chip: queued, a host answer, a durable decision state, or the run outcome. */

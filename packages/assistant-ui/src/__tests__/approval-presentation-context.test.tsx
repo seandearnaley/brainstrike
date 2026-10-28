@@ -3,17 +3,16 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AnsweredApprovalsProvider } from '../answered-approvals-index';
+import { buildApprovalDecisionMessage } from '../approval-decision-message';
 import { ApprovalRanksProvider } from '../approval-presentation-context';
 import { useApprovalRank, usePendingApprovalsByCategory } from '../approval-ranks-context';
-import {
-  followUpQueueKey,
-  resetFollowUpQueueStore,
-  useFollowUpQueueStore,
-} from '../follow-up-queue-store';
+import { resetThreadMessageQueues } from '../thread-message-queue';
+import { queueMessage } from './thread-message-queue-support';
 
 const threadMessagesMock = vi.hoisted(() => [] as unknown[]);
 
-vi.mock('@assistant-ui/react', () => ({
+vi.mock('@assistant-ui/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@assistant-ui/react')>()),
   useAuiState: (selector: (state: { thread: { messages: unknown[] } }) => unknown) =>
     selector({ thread: { messages: threadMessagesMock } }),
 }));
@@ -27,7 +26,7 @@ const edge = {
 const readRequest = (leaf: string) => ({
   data: {
     delegation: { path: [edge], toolCallId: leaf },
-    riskCategory: 'read',
+    riskCategory: 'read' as const,
     runId: 'root-run',
     toolCallId: 'delegate-1',
     toolName: 'brainstrike.grepSearch',
@@ -68,7 +67,7 @@ function renderTree() {
 
 describe('ApprovalRanksProvider', () => {
   it('ranks pending approvals per category and drops answered ones from the ranking', () => {
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
     threadMessagesMock.splice(0);
     threadMessagesMock.push({
       content: [
@@ -99,18 +98,17 @@ describe('ApprovalRanksProvider', () => {
   });
 
   it('treats a decision waiting in the follow-up queue as decided', () => {
-    resetFollowUpQueueStore();
+    resetThreadMessageQueues();
     threadMessagesMock.splice(0);
     threadMessagesMock.push({
       content: [readRequest('leaf-1'), readRequest('leaf-2')],
       id: 'm1',
       role: 'assistant',
     });
-    useFollowUpQueueStore.getState().enqueueMessage(followUpQueueKey('thread-1'), {
-      identityKey: key('leaf-1'),
-      message: 'Approved brainstrike.grepSearch.',
-      text: 'Approved brainstrike.grepSearch.',
-    });
+    queueMessage(
+      'thread-1',
+      buildApprovalDecisionMessage(readRequest('leaf-1').data, 'approve').message
+    );
     renderTree();
     expect(screen.getByTestId('rank-leaf-1')).toHaveTextContent('null');
     expect(screen.getByTestId('rank-leaf-2')).toHaveTextContent('0');
