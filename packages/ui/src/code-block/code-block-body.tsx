@@ -33,6 +33,10 @@ export interface CodeBlockBodyProps {
  *   apply, to react-shiki's own container. Nothing in this subtree is
  *   absolutely positioned, so it is inert — but it is a real delta.
  *
+ * `defaultColor={false}` makes Shiki emit only its `--shiki-light*` and
+ * `--shiki-dark*` variables, no inline colour or background; globals.css picks
+ * the side for the current theme and the box keeps its own surface.
+ *
  * CAVEAT: react-shiki injects those rules UNLAYERED while ours live in
  * `@layer base`, and unlayered declarations beat layered ones regardless of
  * specificity — `:where()` scores 0 and would still win. Enabling
@@ -58,10 +62,11 @@ export function CodeBlockBody({
       {code && highlighter ? (
         <ShikiHighlighter
           addDefaultStyles={false}
+          defaultColor={false}
           highlighter={highlighter}
           language={normalizeShikiLanguage(language)}
           showLanguage={false}
-          theme={{ dark: 'github-dark', light: 'github-light' }}
+          theme={{ dark: 'monokai', light: 'github-light' }}
           {...(delay === undefined ? {} : { delay })}
         >
           {code}

@@ -125,7 +125,7 @@ const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
   'remark-gfm',
   'shiki/wasm',
   '@shikijs/themes/github-light',
-  '@shikijs/themes/github-dark',
+  '@shikijs/themes/monokai',
   '@shikijs/langs/bash',
   '@shikijs/langs/css',
   '@shikijs/langs/diff',
