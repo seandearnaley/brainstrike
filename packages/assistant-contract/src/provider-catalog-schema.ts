@@ -125,7 +125,7 @@ const LlmModelSchema = Schema.Struct({
       outputPerMTok: Schema.Finite,
     })
   ),
-  promptCaching: Schema.optional(Schema.Literals(['anthropic', 'bedrock'])),
+  promptCaching: Schema.optional(Schema.Literals(['anthropic', 'bedrock', 'openrouter'])),
   reasoning: Schema.optional(
     Schema.Struct({
       autoEffort: Schema.optional(OpenAiReasoningEffortSchema),

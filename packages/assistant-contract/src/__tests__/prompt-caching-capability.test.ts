@@ -51,9 +51,23 @@ describe('prompt-caching capability declarations', () => {
     expect(byDialect.get('anthropic')).toBeUndefined();
   });
 
-  it('declares no prompt caching outside Anthropic and Bedrock', () => {
+  it('declares the openrouter dialect on exactly the OpenRouter Claude routes', () => {
+    // OpenRouter caches Anthropic upstreams only on request; its other routes
+    // cache automatically (Qwen needs block breakpoints and is not covered).
+    for (const model of listProviderLlmModels('openrouter')) {
+      expect(model.promptCaching, `openrouter/${model.id}`).toBe(
+        model.id.startsWith('anthropic/') ? 'openrouter' : undefined
+      );
+    }
+  });
+
+  it('declares no prompt caching outside Anthropic, Bedrock and OpenRouter', () => {
     for (const provider of listProviders()) {
-      if (provider.id === 'anthropic' || provider.id === 'bedrock') {
+      if (
+        provider.id === 'anthropic' ||
+        provider.id === 'bedrock' ||
+        provider.id === 'openrouter'
+      ) {
         continue;
       }
       for (const model of provider.models) {

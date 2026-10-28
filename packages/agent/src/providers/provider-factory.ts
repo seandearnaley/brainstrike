@@ -189,12 +189,18 @@ export function createProvider(
       // seam: descriptor config, so `bearerApiKeyOnly` throws typed on aws
       // instead of silently dropping it.
       const apiKey = bearerApiKeyOnly(auth, validatedProvider);
-      return new ModelRouterLanguageModel(
-        {
-          id: `openrouter/${modelName}`,
-          ...(apiKey ? { apiKey } : {}),
-        },
-        [new OpenRouterStrictContentGateway(apiKey)]
+      // Claude routes need an explicit cache_control on OpenRouter; the
+      // registry row's `promptCaching: 'openrouter'` selects it.
+      return wrapModelWithDeclaredPromptCaching(
+        validatedProvider,
+        modelName,
+        new ModelRouterLanguageModel(
+          {
+            id: `openrouter/${modelName}`,
+            ...(apiKey ? { apiKey } : {}),
+          },
+          [new OpenRouterStrictContentGateway(apiKey)]
+        )
       );
     }
 

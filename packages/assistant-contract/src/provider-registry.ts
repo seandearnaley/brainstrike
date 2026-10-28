@@ -206,8 +206,10 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    *
    * - `anthropic` — first-party Messages API `cache_control: {type:'ephemeral'}`.
    * - `bedrock` — Converse API `cachePoint: {type:'default'}`.
+   * - `openrouter` — OpenRouter's request-level `cache_control`, for gateway
+   *   routes whose upstream needs explicit breakpoints (Anthropic).
    */
-  promptCaching?: 'anthropic' | 'bedrock';
+  promptCaching?: 'anthropic' | 'bedrock' | 'openrouter';
   /**
    * Authoritative per-model reasoning controls when the provider publishes
    * them. The UI and request boundary both enforce these values so a
