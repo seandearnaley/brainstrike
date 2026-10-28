@@ -1,5 +1,4 @@
 import { type CrossRootCostRow, resolveCrossRootCostRows } from '@brainstrike/assistant-data';
-import { resolveModelPricing } from '@brainstrike/assistant-data/cost-tracking';
 import { formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { Coins, Loader2 } from 'lucide-react';
@@ -32,7 +31,7 @@ export function CostAggregationPanelView({ state }: CostAggregationPanelViewProp
 
   // Display names come from the aggregation's roots JOIN (on each row); the
   // helper reads them directly, so no separate resolver is threaded here.
-  const costRows = useMemo(() => resolveCrossRootCostRows(rows, resolveModelPricing), [rows]);
+  const costRows = useMemo(() => resolveCrossRootCostRows(rows), [rows]);
 
   return (
     <Card>

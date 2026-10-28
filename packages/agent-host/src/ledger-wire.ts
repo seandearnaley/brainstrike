@@ -11,6 +11,11 @@ const Seq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 /** A committed row time, in ms since the epoch. */
 const CommitTime = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const Tokens = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+/**
+ * List-price USD, each call priced on its own and then summed; null when any
+ * call in the total has no registry price.
+ */
+const CostUsd = Schema.NullOr(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)));
 /** A run as the thread badges and the Task Ledger read it: Stop is cancelled, an interruption failed. */
 const LedgerRunStatus = Schema.Literals(['running', 'completed', 'failed', 'cancelled']);
 /** A thread's latest root run, folded from its committed log. */
@@ -35,8 +40,11 @@ export const HostLedgerThreadSchema = Schema.Struct({
       Schema.Struct({
         cacheCreationTokens: Tokens,
         cacheReadTokens: Tokens,
+        /** What caching saved these calls; absent without cache traffic. */
+        cacheSavingsUsd: Schema.optionalKey(Schema.NullOr(Schema.Number)),
         estimatedCacheCreationTokens: Tokens,
         estimatedCacheReadTokens: Tokens,
+        estimatedCostUsd: CostUsd,
         estimatedInputTokens: Tokens,
         estimatedOutputTokens: Tokens,
         inputTokens: Tokens,
@@ -52,6 +60,7 @@ export const HostLedgerThreadSchema = Schema.Struct({
       Schema.Struct({
         estimatedCacheCreationTokens: Tokens,
         estimatedCacheReadTokens: Tokens,
+        estimatedCostUsd: CostUsd,
         estimatedInputTokens: Tokens,
         estimatedOutputTokens: Tokens,
         inputTokens: Tokens,
@@ -71,6 +80,7 @@ export const HostLedgerThreadSchema = Schema.Struct({
         editCount: Tokens,
         estimatedCacheCreationTokens: Tokens,
         estimatedCacheReadTokens: Tokens,
+        estimatedCostUsd: CostUsd,
         estimatedInputTokens: Tokens,
         estimatedOutputTokens: Tokens,
         failedToolCallCount: Tokens,
@@ -98,6 +108,7 @@ export const HostLedgerThreadSchema = Schema.Struct({
         at: CommitTime,
         cacheReadTokens: Tokens,
         cacheWriteTokens: Tokens,
+        costUsd: CostUsd,
         inputTokens: Tokens,
         model: Schema.String,
         outputTokens: Tokens,

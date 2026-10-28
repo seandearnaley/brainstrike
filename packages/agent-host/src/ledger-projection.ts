@@ -1,5 +1,7 @@
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
+import { resolveModelPricing } from '@brainstrike/assistant-data/model-pricing';
 import { createLogger } from '@brainstrike/logging';
+import { buildTokenUsageCounts, computeCost } from '@brainstrike/tokenization';
 import { Schema } from 'effect';
 import { readDesktopRunConfiguration } from './desktop-run-configuration.ts';
 import type { HostLatestRun, HostLedgerThread } from './ledger-wire.ts';
@@ -61,6 +63,43 @@ interface CatalogModel {
   readonly model: string;
   readonly provider: string;
 }
+/** One provider call's list-price cost and what its cache saved; null when the model is unpriced. */
+interface CallCost {
+  readonly cacheSavingsUsd: number | null;
+  readonly costUsd: number | null;
+}
+function priceCall(model: CatalogModel, tokens: Tokens, withCache: boolean): number | null {
+  if (tokens.inputTokens + tokens.outputTokens === 0) {
+    return 0;
+  }
+  const cost = computeCost(
+    buildTokenUsageCounts(
+      tokens.inputTokens,
+      tokens.outputTokens,
+      withCache ? tokens.cacheReadTokens : 0,
+      withCache ? tokens.cacheWriteTokens : 0
+    ),
+    resolveModelPricing(model.provider, model.model)
+  );
+  return cost.available ? cost.usdAmount : null;
+}
+/**
+ * Prices one call on its own: a long-context tier applies to a single
+ * request's prompt, so a sum of calls priced as one would cross tiers that no
+ * request reached. The savings compare the same call billed without its cache.
+ */
+export function costOfCall(model: CatalogModel, tokens: Tokens): CallCost {
+  const costUsd = priceCall(model, tokens, true);
+  const uncachedUsd = priceCall(model, tokens, false);
+  return {
+    cacheSavingsUsd: costUsd === null || uncachedUsd === null ? null : uncachedUsd - costUsd,
+    costUsd,
+  };
+}
+/** A subtotal is priced only while every call in it is. */
+function addCost(total: number | null, cost: number | null): number | null {
+  return total === null || cost === null ? null : total + cost;
+}
 /** A host run's `provider::model` catalog id, as desktop and the CLI admit it. */
 export function catalogModel(modelId: string): CatalogModel | undefined {
   const separator = modelId.indexOf('::');
@@ -96,6 +135,7 @@ interface RunFold {
   cacheWriteTokens: number;
   completedAt: number | null;
   editCount: number;
+  estimatedCostUsd: number | null;
   failedToolCallCount: number;
   inputTokens: number;
   readonly model: string;
@@ -292,6 +332,7 @@ export class ThreadLedgerFold {
       cacheWriteTokens: 0,
       completedAt: null,
       editCount: 0,
+      estimatedCostUsd: 0,
       failedToolCallCount: 0,
       inputTokens: 0,
       outputTokens: 0,
@@ -325,8 +366,17 @@ export class ThreadLedgerFold {
     if (!model) {
       return;
     }
+    // Each call is priced under its own model: an observer's call is not the run's.
+    const { cacheSavingsUsd, costUsd } = costOfCall(model, tokens);
+    run.estimatedCostUsd = addCost(run.estimatedCostUsd, costUsd);
     if (row.ts !== undefined) {
-      this.usage.push({ at: row.ts, model: model.model, provider: model.provider, ...tokens });
+      this.usage.push({
+        at: row.ts,
+        costUsd,
+        model: model.model,
+        provider: model.provider,
+        ...tokens,
+      });
     }
     const key = JSON.stringify([model.provider, model.model, kind]);
     const subtotal = this.bySource.get(key) ?? emptySubtotal(model, kind);
@@ -338,6 +388,10 @@ export class ThreadLedgerFold {
     subtotal.estimatedOutputTokens += tokens.outputTokens;
     subtotal.estimatedCacheReadTokens += tokens.cacheReadTokens;
     subtotal.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
+    subtotal.estimatedCostUsd = addCost(subtotal.estimatedCostUsd, costUsd);
+    if (tokens.cacheReadTokens + tokens.cacheWriteTokens > 0) {
+      subtotal.cacheSavingsUsd = addCost(subtotal.cacheSavingsUsd ?? 0, cacheSavingsUsd);
+    }
     this.bySource.set(key, subtotal);
     this.perModelSnapshot = undefined;
     const rootKey = rootUsageKey(run.root, model);
@@ -348,6 +402,7 @@ export class ThreadLedgerFold {
     rootUsage.estimatedOutputTokens += tokens.outputTokens;
     rootUsage.estimatedCacheReadTokens += tokens.cacheReadTokens;
     rootUsage.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
+    rootUsage.estimatedCostUsd = addCost(rootUsage.estimatedCostUsd, costUsd);
     this.byRoot.set(rootKey, rootUsage);
   }
 }
@@ -358,6 +413,7 @@ function emptyRootUsage(root: RunRoot, model: CatalogModel): Mutable<LedgerRootU
   return {
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
+    estimatedCostUsd: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
     inputTokens: 0,
@@ -376,6 +432,7 @@ function emptySubtotal(
     cacheReadTokens: 0,
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
+    estimatedCostUsd: 0,
     estimatedInputTokens: 0,
     estimatedOutputTokens: 0,
     inputTokens: 0,
@@ -419,6 +476,7 @@ export function mergeRootUsage(
     total.estimatedOutputTokens += usage.estimatedOutputTokens;
     total.estimatedCacheReadTokens += usage.estimatedCacheReadTokens;
     total.estimatedCacheCreationTokens += usage.estimatedCacheCreationTokens;
+    total.estimatedCostUsd = addCost(total.estimatedCostUsd, usage.estimatedCostUsd);
   }
   return [...merged.values()].sort(compareRootUsage);
 }
@@ -430,6 +488,7 @@ function ledgerRun(run: RunFold, verdict: HostRunVerdict | undefined): LedgerRun
     // The host records no provider-billed cost: every token is estimated.
     estimatedCacheCreationTokens: run.cacheWriteTokens,
     estimatedCacheReadTokens: run.cacheReadTokens,
+    estimatedCostUsd: run.estimatedCostUsd,
     estimatedInputTokens: run.inputTokens,
     estimatedOutputTokens: run.outputTokens,
     failedToolCallCount: run.failedToolCallCount,

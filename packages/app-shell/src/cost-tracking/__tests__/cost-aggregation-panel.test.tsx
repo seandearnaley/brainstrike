@@ -28,6 +28,7 @@ describe('CostAggregationPanelView', () => {
     const state = makeState({
       rows: [
         {
+          estimatedCostUsd: 0.004_55,
           inputTokens: 1000,
           model: 'gpt-5.2',
           outputTokens: 200,
@@ -42,7 +43,6 @@ describe('CostAggregationPanelView', () => {
 
     expect(screen.getByText('project-alpha')).toBeInTheDocument();
     const cost = screen.getByTestId('cost-aggregation-cost');
-    // openai gpt-5.2 pricing (registry): (1000*1.75 + 200*14)/1e6 = $0.00455.
     expect(cost).toHaveTextContent(/\$0\.00455/);
     expect(cost).toHaveTextContent(/captured usage est\./i);
     expect(cost).not.toHaveTextContent('cost unavailable');
@@ -52,6 +52,7 @@ describe('CostAggregationPanelView', () => {
     const state = makeState({
       rows: [
         {
+          estimatedCostUsd: null,
           inputTokens: 500,
           model: 'vendor/uncatalogued',
           outputTokens: 100,
@@ -73,6 +74,7 @@ describe('CostAggregationPanelView', () => {
     const state = makeState({
       rows: [
         {
+          estimatedCostUsd: 0.000_087_5,
           inputTokens: 10,
           model: 'gpt-5.2',
           outputTokens: 5,

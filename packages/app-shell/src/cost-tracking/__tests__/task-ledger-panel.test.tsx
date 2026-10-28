@@ -16,8 +16,10 @@ function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedge
     durationMs: 5000,
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
-    estimatedInputTokens: 0,
-    estimatedOutputTokens: 0,
+    // gpt-5.2 lists $1.75 / $14: (1000 * 1.75 + 200 * 14) / 1e6.
+    estimatedCostUsd: 0.004_55,
+    estimatedInputTokens: 1000,
+    estimatedOutputTokens: 200,
     failedToolCallCount: 0,
     inputTokens: 1000,
     model: 'gpt-5.2',
@@ -130,7 +132,17 @@ describe('TaskLedgerPanelView', () => {
 
   it('renders a run row with an EXACT cost when the provider reported one', () => {
     renderPanel({
-      ledger: { rows: [makeRun({ billedCostUsd: 0.42, runId: 'run-1' })] },
+      ledger: {
+        rows: [
+          makeRun({
+            billedCostUsd: 0.42,
+            estimatedCostUsd: 0,
+            estimatedInputTokens: 0,
+            estimatedOutputTokens: 0,
+            runId: 'run-1',
+          }),
+        ],
+      },
     });
 
     const row = screen.getByTestId('task-ledger-run-row');
@@ -155,7 +167,14 @@ describe('TaskLedgerPanelView', () => {
   it('renders "cost unavailable" (never a fabricated $0) for an unpriced model', () => {
     renderPanel({
       ledger: {
-        rows: [makeRun({ model: 'vendor/uncatalogued', provider: 'openrouter', runId: 'run-1' })],
+        rows: [
+          makeRun({
+            estimatedCostUsd: null,
+            model: 'vendor/uncatalogued',
+            provider: 'openrouter',
+            runId: 'run-1',
+          }),
+        ],
       },
     });
 
@@ -317,13 +336,13 @@ describe('TaskLedgerPanelView', () => {
 
 describe('isRunOverCap', () => {
   it('uses exact provider-reported cost when present', () => {
-    expect(isRunOverCap(makeRun({ billedCostUsd: 1.01, runId: 'r' }), 1)).toBe(true);
-    expect(isRunOverCap(makeRun({ billedCostUsd: 1, runId: 'r' }), 1)).toBe(false);
+    const reported = { estimatedCostUsd: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0 };
+    expect(isRunOverCap(makeRun({ ...reported, billedCostUsd: 1.01, runId: 'r' }), 1)).toBe(true);
+    expect(isRunOverCap(makeRun({ ...reported, billedCostUsd: 1, runId: 'r' }), 1)).toBe(false);
   });
 
   it('falls back to the registry-priced estimate for unreported runs', () => {
-    // openai gpt-5.2 registry pricing over 2M/2M tokens is well above $1.
-    const run = makeRun({ inputTokens: 2_000_000, outputTokens: 2_000_000, runId: 'r' });
+    const run = makeRun({ estimatedCostUsd: 31.5, runId: 'r' });
     expect(isRunOverCap(run, 1)).toBe(true);
     expect(isRunOverCap(run, 10_000)).toBe(false);
   });
@@ -331,12 +350,22 @@ describe('isRunOverCap', () => {
   it('never flags unpriced or zero-usage runs (no fabricated verdicts)', () => {
     expect(
       isRunOverCap(
-        makeRun({ model: 'vendor/uncatalogued', provider: 'openrouter', runId: 'r' }),
+        makeRun({
+          estimatedCostUsd: null,
+          model: 'vendor/uncatalogued',
+          provider: 'openrouter',
+          runId: 'r',
+        }),
         0.0001
       )
     ).toBe(false);
-    expect(isRunOverCap(makeRun({ inputTokens: 0, outputTokens: 0, runId: 'r' }), 0.0001)).toBe(
-      false
-    );
+    const idle = {
+      estimatedCostUsd: 0,
+      estimatedInputTokens: 0,
+      estimatedOutputTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+    expect(isRunOverCap(makeRun({ ...idle, runId: 'r' }), 0.0001)).toBe(false);
   });
 });

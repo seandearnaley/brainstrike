@@ -11,13 +11,14 @@ function setDesktopAgentHost(bridge: AgentHostBridge): void {
 }
 
 describe('useDailySpend', () => {
-  it('prices only committed host calls', () => {
+  it('totals only committed host calls', () => {
     const { result } = renderHook(() =>
       useDailySpend([
         {
           at: Date.now(),
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
+          costUsd: 2,
           inputTokens: 1_000_000,
           model: 'gpt-5.2',
           outputTokens: 0,
@@ -53,6 +54,7 @@ describe('useDailySpend', () => {
         at: Date.now(),
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
+        costUsd: 2,
         inputTokens: 1_000_000,
         model: 'gpt-5.2',
         outputTokens: 0,

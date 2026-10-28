@@ -3,10 +3,8 @@ import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-c
 import {
   type DailySpendSummary,
   type HostUsageRecord,
-  hostDailySpendRows,
-  resolveDailySpendSummary,
+  resolveHostDailySpend,
 } from './daily-spend.ts';
-import { resolveModelPricing } from './model-pricing.ts';
 
 /** Rolling last-24h spend derived from the agent host’s committed provider calls. */
 export interface DailySpendState {
@@ -48,11 +46,9 @@ export function useDailySpend(
       return { error: null, spend: null };
     }
     try {
-      const rows = [
-        // A new host call moves the window's end to now, never earlier.
-        ...hostDailySpendRows(hostUsage, Math.max(windowEndMs, Date.now())),
-      ];
-      return { error: null, spend: resolveDailySpendSummary(rows, resolveModelPricing) };
+      // A new host call moves the window's end to now, never earlier.
+      const spend = resolveHostDailySpend(hostUsage, Math.max(windowEndMs, Date.now()));
+      return { error: null, spend };
     } catch (error: unknown) {
       return {
         error: error instanceof Error ? error : new Error(String(error)),
