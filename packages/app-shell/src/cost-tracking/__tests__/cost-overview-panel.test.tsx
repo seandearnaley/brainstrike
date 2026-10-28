@@ -42,6 +42,20 @@ describe('CostOverviewPanelView', () => {
     expect(screen.getByTestId('cost-overview-total')).toHaveTextContent('2 unpriced runs left out');
   });
 
+  it('calls the average unavailable when no run could be priced', () => {
+    render(
+      <CostOverviewPanelView
+        available
+        totals={{ ...totals, costUsd: 0, unpricedRunCount: totals.runCount }}
+        trend={[]}
+      />
+    );
+
+    expect(screen.getByTestId('cost-overview-total')).toHaveTextContent('unavailable');
+    expect(screen.getByTestId('cost-overview-average')).toHaveTextContent('unavailable');
+    expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
+  });
+
   it('draws one bar per day, the costliest at full height', () => {
     render(
       <CostOverviewPanelView

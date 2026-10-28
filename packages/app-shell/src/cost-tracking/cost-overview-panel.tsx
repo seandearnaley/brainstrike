@@ -153,6 +153,7 @@ interface CostOverviewPanelViewProps {
 
 /** The headline: what the recorded runs cost, which tokens they spent, and when. */
 export function CostOverviewPanelView({ available, totals, trend }: CostOverviewPanelViewProps) {
+  const pricedRunCount = totals.runCount - totals.unpricedRunCount;
   const cachedShare =
     totals.inputTokens > 0 ? Math.round((totals.cacheReadTokens / totals.inputTokens) * 100) : 0;
   return (
@@ -179,12 +180,12 @@ export function CostOverviewPanelView({ available, totals, trend }: CostOverview
                 value={formatEstimatedCost(totals.costUsd, totals.unpricedRunCount)}
               />
               <Stat
-                detail="estimated, per run"
+                detail="estimated, per priced run"
                 label="Average"
                 testId="cost-overview-average"
-                value={formatUsd(
-                  totals.costUsd / Math.max(1, totals.runCount - totals.unpricedRunCount)
-                )}
+                value={
+                  pricedRunCount > 0 ? formatUsd(totals.costUsd / pricedRunCount) : 'unavailable'
+                }
               />
               <Stat
                 detail={`${cachedShare}% read from cache`}
