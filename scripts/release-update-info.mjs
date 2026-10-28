@@ -97,7 +97,11 @@ async function main(argv) {
   const [command, ...rest] = argv;
   if (command === 'merge-mac' && rest.length === 2) {
     const [arm64, x64] = rest.map(readUpdateInfo);
-    process.stdout.write(stringify(mergeMacUpdateInfo(arm64, x64)));
+    // Quoted, as electron-builder writes them: electron-updater's js-yaml
+    // would read a plain ISO releaseDate as a Date, not the string it expects.
+    process.stdout.write(
+      stringify(mergeMacUpdateInfo(arm64, x64), { defaultStringType: 'QUOTE_SINGLE' })
+    );
     return 0;
   }
   if (
