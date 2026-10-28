@@ -43,10 +43,10 @@ queue_rules:
     checks_timeout: 75 min
 
 pull_request_rules:
-  # Queue every ready PR (owner decision 2026-10-28), so neither opening a PR
-  # nor a push after a red batch waits for someone to tick Mergify's box. A PR
-  # from a fork stays out: its code would run in the queue with this
-  # repository's secrets, which only a collaborator's queue command allowed.
+  # Queue every ready PR (owner decision 2026-10-28), so opening a PR or
+  # marking it ready does not wait for someone to tick Mergify's box. A PR from
+  # a fork stays out: its code would run in the queue with this repository's
+  # secrets, which only a collaborator's queue command allowed.
   - name: queue ready pull requests
     conditions:
       - base = main
