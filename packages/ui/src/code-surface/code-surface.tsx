@@ -1,5 +1,4 @@
 import { createLogger } from '@brainstrike/logging';
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import {
   Annotation,
   Compartment,
@@ -19,6 +18,7 @@ import {
 import { useEffect, useMemo, useRef } from 'react';
 import { cn } from '../lib/utils';
 import { type CodeSurfaceLanguageResolution, resolveCodeSurfaceLanguage } from './language';
+import { appSyntaxHighlighting } from './syntax-highlighting';
 
 export interface CodeSurfaceSelection {
   readonly from: number;
@@ -87,7 +87,7 @@ const BASE_EXTENSIONS: Extension[] = [
   drawSelection(),
   rectangularSelection(),
   highlightActiveLine(),
-  syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+  appSyntaxHighlighting,
   EditorView.theme({
     // CodeMirror's built-in active-line colors are hardcoded light-blue and
     // ignore the app theme (a bright band in dark mode). Use theme tokens so
