@@ -411,16 +411,14 @@ function DiagramFullSizeView({
           <DialogPrimitive.Close asChild>
             <Button
               aria-keyshortcuts="Escape"
+              aria-label="Close"
               className="h-7 gap-1.5 px-2 text-xs"
               size="sm"
               variant="outline"
             >
               <XIcon className="size-3.5" />
               Close
-              <kbd
-                aria-hidden="true"
-                className="rounded border border-border px-1 font-mono text-[10px] text-muted-foreground"
-              >
+              <kbd className="rounded border border-border px-1 font-mono text-[10px] text-muted-foreground">
                 Esc
               </kbd>
             </Button>
