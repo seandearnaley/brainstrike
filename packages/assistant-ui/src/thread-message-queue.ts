@@ -59,9 +59,11 @@ function decisionIdentityKey(message: AppendMessage): string | undefined {
   return isAssistantToolResumeAction(resume) ? getToolActionIdentityKey(resume) : undefined;
 }
 
+type QueuePorts = Omit<ExternalThreadQueueAdapter, 'items' | 'steerItems'>;
+
 export class ThreadMessageQueue {
-  /** Handed to the vendor runtime as its `queue`. */
-  readonly adapter: ExternalThreadQueueAdapter;
+  private readonly ports: QueuePorts;
+  private adapter: ExternalThreadQueueAdapter;
   private readonly controller: MessageQueueController;
   private readonly queued = new Map<string, QueuedMessage>();
   private send: ((message: AppendMessage) => Promise<void>) | undefined;
@@ -97,16 +99,13 @@ export class ThreadMessageQueue {
           this.changed();
         }
       };
-    this.adapter = {
+    this.ports = {
       // biome-ignore lint/style/useNamingConvention: installed assistant-ui queue adapter port name.
       __internal_notifyCancelled: inner.__internal_notifyCancelled,
       // biome-ignore lint/style/useNamingConvention: installed assistant-ui queue adapter port name.
       __internal_setDispatchTransform: inner.__internal_setDispatchTransform,
       edit: inner.edit,
       enqueue: track(inner.enqueue),
-      get items() {
-        return inner.items;
-      },
       move: inner.move,
       remove: (itemId: string): void => {
         inner.remove(itemId);
@@ -114,10 +113,8 @@ export class ThreadMessageQueue {
         this.changed();
       },
       steer: track(inner.steer),
-      get steerItems() {
-        return inner.steerItems;
-      },
     };
+    this.adapter = this.snapshot();
     this.controller.subscribe(() => this.changed());
   }
 
@@ -127,6 +124,14 @@ export class ThreadMessageQueue {
       this.listeners.delete(listener);
     };
   };
+
+  /**
+   * Handed to the vendor runtime as its `queue`: a new object whenever a lane
+   * changes. The runtime re-reads the lanes only when it is handed a new
+   * store, and the React Compiler keeps the store object while its inputs
+   * keep their identity, so a queue that changed in place would not be shown.
+   */
+  readonly getAdapter = (): ExternalThreadQueueAdapter => this.adapter;
 
   /** Every waiting message in send order: the steer lane, then the queue. */
   readonly getItems = (): readonly QueueItemState[] => this.items;
@@ -193,8 +198,8 @@ export class ThreadMessageQueue {
     if (!item) {
       return;
     }
-    this.adapter.remove(itemId);
-    this.adapter.steer(item.message);
+    this.ports.remove(itemId);
+    this.ports.steer(item.message);
   }
 
   /** Drop queued decisions whose pause the host already answered. */
@@ -205,7 +210,7 @@ export class ThreadMessageQueue {
           code: 'follow_up_queue_decision_answered',
           identityKey: item.identityKey,
         });
-        this.adapter.remove(itemId);
+        this.ports.remove(itemId);
       }
     }
   }
@@ -232,7 +237,16 @@ export class ThreadMessageQueue {
     this.changed();
   }
 
+  private snapshot(): ExternalThreadQueueAdapter {
+    const { items, steerItems } = this.controller.adapter;
+    return { ...this.ports, items, steerItems };
+  }
+
   private changed(): void {
+    const { items: queueLane, steerItems: steerLane } = this.controller.adapter;
+    if (queueLane !== this.adapter.items || steerLane !== this.adapter.steerItems) {
+      this.adapter = this.snapshot();
+    }
     const items = this.lanes();
     const keys = new Set<string>();
     for (const item of this.queued.values()) {

@@ -879,7 +879,7 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
     if (!item) {
       throw new Error('missing queued decision');
     }
-    threadMessageQueue('root-thread').adapter.remove(item.id);
+    threadMessageQueue('root-thread').getAdapter().remove(item.id);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
     );

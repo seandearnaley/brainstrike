@@ -23,7 +23,7 @@ export function queueMessage(threadKey: string, message: CreateAppendMessage | s
     sourceId: null,
     startRun: input.startRun,
   } as AppendMessage;
-  threadMessageQueue(threadKey).adapter.enqueue(append);
+  threadMessageQueue(threadKey).getAdapter().enqueue(append);
 }
 
 /** The waiting messages' prompts, in send order. */

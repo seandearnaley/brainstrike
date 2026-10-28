@@ -857,7 +857,7 @@ describe('shared conversation panel', () => {
 
     const queue = threadMessageQueue('root-thread');
     expect(queue.getItems()).toHaveLength(1);
-    act(() => queue.adapter.remove(queue.getItems()[0]?.id ?? 'missing'));
+    act(() => queue.getAdapter().remove(queue.getItems()[0]?.id ?? 'missing'));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
     );
