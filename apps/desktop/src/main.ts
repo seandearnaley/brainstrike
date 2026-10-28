@@ -25,7 +25,7 @@ import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createDesktopWorkspaceRootCatalog } from './agent-host-platform/workspace-root-client';
 import { restartLaunchedAgentHost } from './agent-host-restart';
-import { checkForAppUpdate } from './app-update';
+import { checkForAppUpdate, clearAppUpdateForReset } from './app-update';
 import { isAppWindowSender } from './app-windows';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
@@ -568,6 +568,14 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     {
       name: 'read-workspace-file-cursors',
       stop: clearReadWorkspaceFileCursorRegistry,
+    },
+    // electron-updater's cache (a downloaded update and its pending-install
+    // record) lives outside userData. Clearing content retains it: an update
+    // is not profile content.
+    {
+      name: 'app-update',
+      stop: clearAppUpdateForReset,
+      stopForContent: () => Promise.resolve(),
     },
     // Close (never null) the durable NDJSON sink before the purge below runs
     // (`errorLogFilePaths`, run inside `resetDesktopApplicationData` AFTER
