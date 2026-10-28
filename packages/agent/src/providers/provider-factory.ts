@@ -189,8 +189,8 @@ export function createProvider(
       // seam: descriptor config, so `bearerApiKeyOnly` throws typed on aws
       // instead of silently dropping it.
       const apiKey = bearerApiKeyOnly(auth, validatedProvider);
-      // Claude routes need an explicit cache_control on OpenRouter; the
-      // registry row's `promptCaching: 'openrouter'` selects it.
+      // Claude and Alibaba-served Qwen routes need an explicit cache_control
+      // on OpenRouter; the registry row's `promptCaching` dialect selects it.
       return wrapModelWithDeclaredPromptCaching(
         validatedProvider,
         modelName,
