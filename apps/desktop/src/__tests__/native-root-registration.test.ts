@@ -60,3 +60,22 @@ it('rechecks shutdown after the existing transition queue admits the notificatio
     expect.any(NativeAuthorityTransitionError)
   );
 });
+
+it('reopens once for the notifications that arrive while a re-read runs', async () => {
+  const f = fixture();
+  let queue = Promise.resolve();
+  f.dependencies.transition.mockImplementation((operation) => {
+    const run = queue.then(operation);
+    queue = run.catch(() => undefined);
+    return run;
+  });
+  const running = Promise.withResolvers<void>();
+  f.dependencies.reconfigureRoots.mockReturnValueOnce(running.promise);
+  const first = f.registration.rootsRegistered();
+  await vi.waitFor(() => expect(f.dependencies.reconfigureRoots).toHaveBeenCalledOnce());
+  // One folder change notifies several times; a re-read that starts after them reads them all.
+  const later = [1, 2, 3].map(() => f.registration.rootsRegistered());
+  running.resolve();
+  await Promise.all([first, ...later]);
+  expect(f.dependencies.reconfigureRoots).toHaveBeenCalledTimes(2);
+});
