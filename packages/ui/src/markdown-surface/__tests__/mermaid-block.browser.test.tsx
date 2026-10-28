@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+=======
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+>>>>>>> origin/claude/project-thread-1frjc3
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
@@ -217,7 +221,11 @@ it.each(['light', 'dark'])(
   }
 );
 
+<<<<<<< HEAD
 it('opens the diagram full size over its container and closes it with Escape or Close', async () => {
+=======
+it('opens the diagram full size over its container and closes it with Escape', async () => {
+>>>>>>> origin/claude/project-thread-1frjc3
   const user = userEvent.setup();
   const panel = document.createElement('div');
   panel.style.cssText = 'position:relative;width:900px;height:600px';
@@ -245,6 +253,7 @@ it('opens the diagram full size over its container and closes it with Escape or 
   await user.keyboard('{Escape}');
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(open).toHaveFocus();
+<<<<<<< HEAD
 
   // The visible Close button leaves too.
   await user.click(open);
@@ -252,5 +261,7 @@ it('opens the diagram full size over its container and closes it with Escape or 
   await user.click(within(reopened).getByRole('button', { name: 'Close' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(open).toHaveFocus();
+=======
+>>>>>>> origin/claude/project-thread-1frjc3
   panel.remove();
 });
