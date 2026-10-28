@@ -261,7 +261,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'Command A+ (OpenRouter)',
       maxOutputTokens: 64_000,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.3, outputPerMTok: 1.5 },
+      pricing: { cacheReadPerMTok: 0.15, inputPerMTok: 0.3, outputPerMTok: 1.5 },
       supportsStreaming: true,
       type: 'llm',
       vision: 'supported',
@@ -273,7 +273,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'MiMo-V2.6-Pro (OpenRouter)',
       maxOutputTokens: 131_072,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.435, outputPerMTok: 0.87 },
+      pricing: { cacheReadPerMTok: 0.0036, inputPerMTok: 0.435, outputPerMTok: 0.87 },
       supportsStreaming: true,
       type: 'llm',
       vision: 'supported',
@@ -313,7 +313,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'GLM 5.3 FlashX (OpenRouter)',
       maxOutputTokens: 131_072,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.37, outputPerMTok: 1.25 },
+      pricing: { cacheReadPerMTok: 0.09, inputPerMTok: 0.37, outputPerMTok: 1.25 },
       reasoning: {
         defaultEffort: 'max',
         defaultEnabled: true,
@@ -329,7 +329,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       id: 'meta/muse-spark-1.3-contributor',
       label: 'Muse Spark 1.3 Contributor (OpenRouter)',
       maxOutputTokens: 943_718,
-      pricing: { inputPerMTok: 0.1, outputPerMTok: 0.2 },
+      pricing: { cacheReadPerMTok: 0.002, inputPerMTok: 0.1, outputPerMTok: 0.2 },
       reasoning: {
         defaultEffort: 'medium',
         mandatory: true,
@@ -346,7 +346,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'Muse Glimmer 30B (OpenRouter)',
       maxOutputTokens: 16_384,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.3, outputPerMTok: 1.2 },
+      pricing: { cacheReadPerMTok: 0.04, inputPerMTok: 0.3, outputPerMTok: 1.2 },
       reasoning: {
         defaultEffort: 'medium',
         mandatory: true,
@@ -363,7 +363,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'Inkling Small (OpenRouter)',
       maxOutputTokens: 262_144,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.45, outputPerMTok: 1.2 },
+      pricing: { cacheReadPerMTok: 0.1, inputPerMTok: 0.45, outputPerMTok: 1.2 },
       reasoning: {
         defaultEffort: 'high',
         defaultEnabled: true,
@@ -393,7 +393,7 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
       label: 'Nemotron 3 Ultra (OpenRouter)',
       maxOutputTokens: 182_520,
       outputModalities: ['text'],
-      pricing: { inputPerMTok: 0.6, outputPerMTok: 2.4 },
+      pricing: { cacheReadPerMTok: 0.12, inputPerMTok: 0.6, outputPerMTok: 2.4 },
       reasoning: {
         defaultEffort: 'high',
         defaultEnabled: true,

@@ -1726,7 +1726,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576 context, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695). Unlike the sibling 1.2\nroute, which reports max_completion_tokens: null, this route reports\n943,718 — recorded as read rather than omitted. No reasoning ladder is\nrecorded: this pass consulted no Meta doc, and the 1.2 row's ladder\ncame from vendor material this ticket did not re-verify.\nThat hard maximum is NOT the window a run reserves: the OpenRouter\nrequest path caps output at OPENROUTER_CODING_MAX_OUTPUT_TOKENS\n(32,000), so the run's effective input limit is 964,147. Compaction's\nresolveCompactionInputBudget() reads this field instead of that\nresolved limit and lands on 52,429 — a pre-existing desktop-runtime\ndefect, not a property of this value: it already makes\nmoonshotai/kimi-k3's budget throw on main. Tracked in BST-1707; the\nfix belongs there, not in a fudged catalog fact.",
+        "_note": "Route, 1,048,576 context, image input and gateway pricing: OpenRouter\nModels API, retrieved 2026-09-08 (BST-1695). Unlike the sibling 1.2\nroute, which reports max_completion_tokens: null, this route reports\n943,718 — recorded as read rather than omitted. No reasoning ladder is\nrecorded: this pass consulted no Meta doc, and the 1.2 row's ladder\ncame from vendor material this ticket did not re-verify.\nThat hard maximum is NOT the window a run reserves: the OpenRouter\nrequest path caps output at OPENROUTER_CODING_MAX_OUTPUT_TOKENS\n(32,000), so the run's effective input limit is 964,147. Compaction's\nresolveCompactionInputBudget() reads this field instead of that\nresolved limit and lands on 52,429 — a pre-existing desktop-runtime\ndefect, not a property of this value: it already makes\nmoonshotai/kimi-k3's budget throw on main. Tracked in BST-1707; the\nfix belongs there, not in a fudged catalog fact.\nCACHE READS 2026-10-28: $0.15 on the meta route our base rate is from (https://openrouter.ai/api/v1/models/meta/muse-spark-1.3/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Agentic workflows", "Multi-agent workflows", "Coding"],
           "description": null,
@@ -1742,6 +1742,7 @@
         "label": "Muse Spark 1.3 (OpenRouter)",
         "maxOutputTokens": 943718,
         "pricing": {
+          "cacheReadPerMTok": 0.15,
           "inputPerMTok": 1.25,
           "outputPerMTok": 4.25
         },
@@ -1750,7 +1751,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576/943,718 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..minimal, default medium):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. OpenRouter\ndescribes it as Meta's cost-efficient \"contributor tier\" but does not\nsay what that tier entails.",
+        "_note": "Route, 1,048,576/943,718 ceilings, image input, gateway pricing and the\nreasoning object (mandatory true, efforts max..minimal, default medium):\nOpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded. OpenRouter\ndescribes it as Meta's cost-efficient \"contributor tier\" but does not\nsay what that tier entails.\nCACHE READS 2026-10-28: $0.002 on the meta route our base rate is from (https://openrouter.ai/api/v1/models/meta/muse-spark-1.3-contributor/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [
             "Experimentation",
@@ -1772,6 +1773,7 @@
         "label": "Muse Spark 1.3 Contributor (OpenRouter)",
         "maxOutputTokens": 943718,
         "pricing": {
+          "cacheReadPerMTok": 0.002,
           "inputPerMTok": 0.1,
           "outputPerMTok": 0.2
         },
@@ -1792,7 +1794,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 131,072/16,384 ceilings, text+image input, text output, gateway\npricing and the reasoning object (mandatory true, efforts xhigh..low,\ndefault medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded.",
+        "_note": "Route, 131,072/16,384 ceilings, text+image input, text output, gateway\npricing and the reasoning object (mandatory true, efforts xhigh..low,\ndefault medium): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe route publishes no default_enabled, so none is recorded.\nCACHE READS 2026-10-28: $0.04 on the deepinfra/bf16 route our base rate is from (https://openrouter.ai/api/v1/models/meta/muse-glimmer-30b/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Autonomous agents on consumer hardware"],
           "description": null,
@@ -1810,6 +1812,7 @@
         "maxOutputTokens": 16384,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.04,
           "inputPerMTok": 0.3,
           "outputPerMTok": 1.2
         },
@@ -1973,7 +1976,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 192,000/64,000 ceilings, text+image input, text output and gateway\npricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "_note": "Route, 192,000/64,000 ceilings, text+image input, text output and gateway\npricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.\nCACHE READS 2026-10-28: $0.15 on the cohere route our base rate is from (https://openrouter.ai/api/v1/models/cohere/command-a-plus/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Enterprise agentic workflows"],
           "description": null,
@@ -1991,6 +1994,7 @@
         "maxOutputTokens": 64000,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.15,
           "inputPerMTok": 0.3,
           "outputPerMTok": 1.5
         },
@@ -2181,7 +2185,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Route, 202,800/182,520 ceilings, text-only modality, gateway pricing and\nthe reasoning object (mandatory false, default_enabled true, efforts\nhigh/medium, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (BaseTen).\nThe model-level context_length of 262,144 is served only by DeepInfra\n(16,384 output), so it is not recorded.",
+        "_note": "Route, 202,800/182,520 ceilings, text-only modality, gateway pricing and\nthe reasoning object (mandatory false, default_enabled true, efforts\nhigh/medium, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (BaseTen).\nThe model-level context_length of 262,144 is served only by DeepInfra\n(16,384 output), so it is not recorded.\nCACHE READS 2026-10-28: $0.12 on the baseten/fp4 route our base rate is from (https://openrouter.ai/api/v1/models/nvidia/nemotron-3-ultra-550b-a55b/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Reasoning", "Orchestration"],
           "description": null,
@@ -2199,6 +2203,7 @@
         "maxOutputTokens": 182520,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.12,
           "inputPerMTok": 0.6,
           "outputPerMTok": 2.4
         },
@@ -2213,7 +2218,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Identity, GA status, text modality, optional reasoning, and native\ncontext: official NVIDIA model card at revision d468880b, retrieved\n2026-08-17. Route, effective hosted limits, and gateway pricing:\nOpenRouter Models API, retrieved 2026-08-17 (BST-1343); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nNVIDIA documents reasoning as optional on/off but publishes no effort\nladder. Declare only the explicit `none` control so offline menus and\npersisted model-switch settings preserve the verified off state.",
+        "_note": "Identity, GA status, text modality, optional reasoning, and native\ncontext: official NVIDIA model card at revision d468880b, retrieved\n2026-08-17. Route, effective hosted limits, and gateway pricing:\nOpenRouter Models API, retrieved 2026-08-17 (BST-1343); the\ntop_provider limit pair re-read 2026-09-23 UTC (BST-1804).\nNVIDIA documents reasoning as optional on/off but publishes no effort\nladder. Declare only the explicit `none` control so offline menus and\npersisted model-switch settings preserve the verified off state.\nCACHE READS 2026-10-28: $0.04 on the coreweave/bf16 route our base rate is from (https://openrouter.ai/api/v1/models/nvidia/nemotron-3.5-lightning/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Agentic workflows", "Long-context text", "Tool calling"],
           "description": null,
@@ -2229,6 +2234,7 @@
         "label": "Nemotron 3.5 Lightning (OpenRouter)",
         "maxOutputTokens": 235929,
         "pricing": {
+          "cacheReadPerMTok": 0.04,
           "inputPerMTok": 0.07,
           "outputPerMTok": 0.2
         },
@@ -2241,7 +2247,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Capabilities and limits: official Google model page, last updated\n2026-08-13. Route and gateway pricing: OpenRouter Models API,\nretrieved 2026-08-14 (BST-1265), RE-PRICED 2026-09-10 (BST-1705): the\n2026-08-14 read recorded 0.375 / 1.875, which is the price of the\nSEPARATE `google/gemini-3.7-flash:batch` route, not of this one. The\nstandard route is 0.75 / 3.75.\nOpenRouter explicitly reports both mandatory=true and\ndefault_enabled=true. Preserve both so Auto uses the gateway's\ndeclared medium default rather than inferring one. Google documents\n65,536 as a maximum, not a distinct default thinking+answer window,\nso there is no vendorDefaultOutputTokens fact to record.",
+        "_note": "Capabilities and limits: official Google model page, last updated\n2026-08-13. Route and gateway pricing: OpenRouter Models API,\nretrieved 2026-08-14 (BST-1265), RE-PRICED 2026-09-10 (BST-1705): the\n2026-08-14 read recorded 0.375 / 1.875, which is the price of the\nSEPARATE `google/gemini-3.7-flash:batch` route, not of this one. The\nstandard route is 0.75 / 3.75.\nOpenRouter explicitly reports both mandatory=true and\ndefault_enabled=true. Preserve both so Auto uses the gateway's\ndeclared medium default rather than inferring one. Google documents\n65,536 as a maximum, not a distinct default thinking+answer window,\nso there is no vendorDefaultOutputTokens fact to record.\nCACHE READS 2026-10-28: $0.075 on the google-ai-studio route our base rate is from (https://openrouter.ai/api/v1/models/google/gemini-3.7-flash/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Agentic workflows", "Coding", "Multimodal reasoning"],
           "description": null,
@@ -2257,6 +2263,7 @@
         "label": "Gemini 3.7 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.075,
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -2271,6 +2278,7 @@
         "vision": "supported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.009 on the poolside/fp4 route our base rate is from (https://openrouter.ai/api/v1/models/poolside/laguna-s-2.1/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [
             "Repository-scale coding",
@@ -2290,6 +2298,7 @@
         "label": "Laguna S 2.1 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
+          "cacheReadPerMTok": 0.009,
           "inputPerMTok": 0.09,
           "outputPerMTok": 0.18
         },
@@ -2298,6 +2307,7 @@
         "vision": "unsupported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.03 on the poolside/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/poolside/laguna-xs-2.1/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Coding", "Fast iteration", "Tool use"],
           "description": null,
@@ -2313,6 +2323,7 @@
         "label": "Laguna XS 2.1 (OpenRouter)",
         "maxOutputTokens": 32768,
         "pricing": {
+          "cacheReadPerMTok": 0.03,
           "inputPerMTok": 0.06,
           "outputPerMTok": 0.12
         },
@@ -2321,7 +2332,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 0.75 / 3.75. The row previously held 1.5 / 7.5,\nwhich matches neither this route nor its `google/gemini-3.6-flash:batch`\nvariant (0.375 / 1.875) — it was a Google DIRECT list price copied into a\ngateway row. Priced from OpenRouter because OpenRouter bills this route.",
+        "_note": "Gateway pricing re-verified against the OpenRouter Models API on\n2026-09-10 (BST-1705): 0.75 / 3.75. The row previously held 1.5 / 7.5,\nwhich matches neither this route nor its `google/gemini-3.6-flash:batch`\nvariant (0.375 / 1.875) — it was a Google DIRECT list price copied into a\ngateway row. Priced from OpenRouter because OpenRouter bills this route.\nCACHE READS 2026-10-28: $0.075 on the google-ai-studio route our base rate is from (https://openrouter.ai/api/v1/models/google/gemini-3.6-flash/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Coding", "Agentic workflows", "Multimodal development"],
           "description": null,
@@ -2337,6 +2348,7 @@
         "label": "Gemini 3.6 Flash (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.075,
           "inputPerMTok": 0.75,
           "outputPerMTok": 3.75
         },
@@ -2350,6 +2362,7 @@
         "vision": "supported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.03 on the google-ai-studio route our base rate is from (https://openrouter.ai/api/v1/models/google/gemini-3.5-flash-lite/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [
             "Subagents",
@@ -2369,6 +2382,7 @@
         "label": "Gemini 3.5 Flash Lite (OpenRouter)",
         "maxOutputTokens": 65536,
         "pricing": {
+          "cacheReadPerMTok": 0.03,
           "inputPerMTok": 0.3,
           "outputPerMTok": 2.5
         },
@@ -2382,7 +2396,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Context window and max output are the route's top_provider pair,\n1,048,756 / 262,144, live Models API read 2026-09-23 UTC (BST-1804).\nThis supersedes 1,000,000 / 131,072, taken from secondary coverage of\nMeituan's LongCat API Platform (first-party docs 404'd). That audit\ncalled 1,048,756 a transposition of 2^20 matching no published limit;\nOpenRouter now publishes exactly that pair for the route, so it is\nrecorded as published rather than corrected.",
+        "_note": "Context window and max output are the route's top_provider pair,\n1,048,756 / 262,144, live Models API read 2026-09-23 UTC (BST-1804).\nThis supersedes 1,000,000 / 131,072, taken from secondary coverage of\nMeituan's LongCat API Platform (first-party docs 404'd). That audit\ncalled 1,048,756 a transposition of 2^20 matching no published limit;\nOpenRouter now publishes exactly that pair for the route, so it is\nrecorded as published rather than corrected.\nCACHE READS 2026-10-28: $0.006 on the atlas-cloud/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/meituan/longcat-2.0/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Repository changes", "Long-horizon coding", "Tool use"],
           "description": null,
@@ -2398,6 +2412,7 @@
         "label": "LongCat 2.0 (OpenRouter)",
         "maxOutputTokens": 262144,
         "pricing": {
+          "cacheReadPerMTok": 0.006,
           "inputPerMTok": 0.3,
           "outputPerMTok": 1.2
         },
@@ -2406,7 +2421,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Thinking Machines' model card documents reasoning benchmarks but\npublishes no effort-level parameter, so nothing is declared here:\nabsence is never guessed as support, and the shipped entry's full\neffort enum turned the deliberate `unknown` badge into a silent yes.\nThis places Inkling in the same undeclared bucket as 32 of the 38\nOpenRouter rows (including the default openai/gpt-5.6-terra), where\nefforts resolve from live OpenRouter metadata rather than this table.\nDeclare efforts here only once the provider publishes them.",
+        "_note": "Thinking Machines' model card documents reasoning benchmarks but\npublishes no effort-level parameter, so nothing is declared here:\nabsence is never guessed as support, and the shipped entry's full\neffort enum turned the deliberate `unknown` badge into a silent yes.\nThis places Inkling in the same undeclared bucket as 32 of the 38\nOpenRouter rows (including the default openai/gpt-5.6-terra), where\nefforts resolve from live OpenRouter metadata rather than this table.\nDeclare efforts here only once the provider publishes them.\nCACHE READS 2026-10-28: $0.17 on the together route our base rate is from (https://openrouter.ai/api/v1/models/thinkingmachines/inkling/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Coding", "Agentic workflows", "Tool use"],
           "description": null,
@@ -2422,6 +2437,7 @@
         "label": "Inkling (OpenRouter)",
         "maxOutputTokens": 471859,
         "pricing": {
+          "cacheReadPerMTok": 0.17,
           "inputPerMTok": 1,
           "outputPerMTok": 4.05
         },
@@ -2430,7 +2446,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 524,288/262,144 ceilings, text/image/audio input, text output,\ngateway pricing and the reasoning object (mandatory false,\ndefault_enabled true, efforts max..none, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (DeepInfra).\nThe model-level context_length of 1,048,576 is served only by BaseTen\n(32,768 output), so it is not recorded.",
+        "_note": "Route, 524,288/262,144 ceilings, text/image/audio input, text output,\ngateway pricing and the reasoning object (mandatory false,\ndefault_enabled true, efforts max..none, default high): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\ncontextWindow and maxOutputTokens are the top_provider pair (DeepInfra).\nThe model-level context_length of 1,048,576 is served only by BaseTen\n(32,768 output), so it is not recorded.\nCACHE READS 2026-10-28: $0.1 on the deepinfra/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/thinkingmachines/inkling-small/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -2448,6 +2464,7 @@
         "maxOutputTokens": 262144,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.1,
           "inputPerMTok": 0.45,
           "outputPerMTok": 1.2
         },
@@ -2536,7 +2553,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, modalities, context, output-limit semantics, mandatory\nreasoning, and effort levels: official xAI Grok 4.6 docs/release\nnotes, retrieved 2026-08-18. Route and standard gateway pricing:\nOpenRouter Models API, retrieved 2026-08-18 (BST-1374).\nxAI documents \"No text output limit\". The route's top_provider pair\nis 500,000 / 450,000 (live read 2026-09-23 UTC, BST-1804) and the row\nrecords that pair; it reported a null output limit on 2026-08-18.",
+        "_note": "Identity, modalities, context, output-limit semantics, mandatory\nreasoning, and effort levels: official xAI Grok 4.6 docs/release\nnotes, retrieved 2026-08-18. Route and standard gateway pricing:\nOpenRouter Models API, retrieved 2026-08-18 (BST-1374).\nxAI documents \"No text output limit\". The route's top_provider pair\nis 500,000 / 450,000 (live read 2026-09-23 UTC, BST-1804) and the row\nrecords that pair; it reported a null output limit on 2026-08-18.\nCACHE READS 2026-10-28: $0.5 on the xai route our base rate is from (https://openrouter.ai/api/v1/models/x-ai/grok-4.6/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [
             "Agentic coding",
@@ -2556,6 +2573,7 @@
         "label": "Grok 4.6 (OpenRouter)",
         "maxOutputTokens": 450000,
         "pricing": {
+          "cacheReadPerMTok": 0.5,
           "inputPerMTok": 2,
           "longContextTiers": [
             {
@@ -2578,6 +2596,7 @@
         "vision": "supported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.3 on the xai route our base rate is from (https://openrouter.ai/api/v1/models/x-ai/grok-4.5/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Coding", "Knowledge work", "Reasoning"],
           "description": null,
@@ -2593,6 +2612,7 @@
         "label": "Grok 4.5 (OpenRouter)",
         "maxOutputTokens": 450000,
         "pricing": {
+          "cacheReadPerMTok": 0.3,
           "inputPerMTok": 2,
           "longContextTiers": [
             {
@@ -2614,7 +2634,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, lifecycle, modalities, context, streaming, tools, structured\noutput, and mandatory reasoning ladder: official Meta Model API docs\nand 2026-08-05 release notes. Route, effective gateway limit, default\neffort, and gateway pricing: OpenRouter Models API, retrieved\n2026-08-21 (BST-1383).\nMeta's direct-provider examples publish a 131,072 output limit; the\nrow records the route's top_provider pair instead (1,048,576 / 943,718,\nlive read 2026-09-23 UTC, BST-1804), never a provider-local limit.\nMeta does not document that limit as a distinct default combined\nthinking+answer window, so vendorDefaultOutputTokens is absent too.",
+        "_note": "Identity, lifecycle, modalities, context, streaming, tools, structured\noutput, and mandatory reasoning ladder: official Meta Model API docs\nand 2026-08-05 release notes. Route, effective gateway limit, default\neffort, and gateway pricing: OpenRouter Models API, retrieved\n2026-08-21 (BST-1383).\nMeta's direct-provider examples publish a 131,072 output limit; the\nrow records the route's top_provider pair instead (1,048,576 / 943,718,\nlive read 2026-09-23 UTC, BST-1804), never a provider-local limit.\nMeta does not document that limit as a distinct default combined\nthinking+answer window, so vendorDefaultOutputTokens is absent too.\nCACHE READS 2026-10-28: $0.15 on the meta route our base rate is from (https://openrouter.ai/api/v1/models/meta/muse-spark-1.2/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [
             "Multi-file refactors",
@@ -2634,6 +2654,7 @@
         "label": "Muse Spark 1.2 (OpenRouter)",
         "maxOutputTokens": 943718,
         "pricing": {
+          "cacheReadPerMTok": 0.15,
           "inputPerMTok": 1.25,
           "outputPerMTok": 4.25
         },
@@ -2648,6 +2669,7 @@
         "vision": "supported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.15 on the meta route our base rate is from (https://openrouter.ai/api/v1/models/meta/muse-spark-1.1/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Agentic coding", "Tool use", "Multimodal workflows"],
           "description": null,
@@ -2663,6 +2685,7 @@
         "label": "Muse Spark 1.1 (OpenRouter)",
         "maxOutputTokens": 943718,
         "pricing": {
+          "cacheReadPerMTok": 0.15,
           "inputPerMTok": 1.25,
           "outputPerMTok": 4.25
         },
@@ -2932,7 +2955,7 @@
         "vision": "supported"
       },
       {
-        "_note": "No autoEffort: Auto follows the vendor default. Verified live\n2026-07-25 at `high` — reasoning visible, 271-line file written,\nfull final answer, 10.3K tokens (BST-833).",
+        "_note": "No autoEffort: Auto follows the vendor default. Verified live\n2026-07-25 at `high` — reasoning visible, 271-line file written,\nfull final answer, 10.3K tokens (BST-833).\nCACHE READS 2026-10-28: $0.12064 on the novita/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/z-ai/glm-5.2/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding", "Tool use"],
           "description": null,
@@ -2948,6 +2971,7 @@
         "label": "GLM-5.2 (OpenRouter)",
         "maxOutputTokens": 131072,
         "pricing": {
+          "cacheReadPerMTok": 0.12064,
           "inputPerMTok": 0.6496,
           "outputPerMTok": 2.0416
         },
@@ -3012,6 +3036,7 @@
         "vision": "supported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.079605 on the streamlake/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/deepseek/deepseek-v4-pro/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding"],
           "description": null,
@@ -3027,6 +3052,7 @@
         "label": "DeepSeek V4 Pro (OpenRouter)",
         "maxOutputTokens": 384000,
         "pricing": {
+          "cacheReadPerMTok": 0.079605,
           "inputPerMTok": 0.95526,
           "outputPerMTok": 1.91052
         },
@@ -3167,6 +3193,7 @@
         "vision": "unsupported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.16 on the moonshotai route our base rate is from (https://openrouter.ai/api/v1/models/moonshotai/kimi-k2.6/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Reasoning", "Agents", "Multilingual"],
           "description": null,
@@ -3182,6 +3209,7 @@
         "label": "Kimi K2.6 (OpenRouter)",
         "maxOutputTokens": 235929,
         "pricing": {
+          "cacheReadPerMTok": 0.16,
           "inputPerMTok": 0.95,
           "outputPerMTok": 4
         },
@@ -3304,6 +3332,7 @@
         "vision": "supported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.175 on the openai route our base rate is from (https://openrouter.ai/api/v1/models/openai/gpt-5.3-codex/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Coding", "Agentic"],
           "description": null,
@@ -3319,6 +3348,7 @@
         "label": "GPT-5.3 Codex (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.175,
           "inputPerMTok": 1.75,
           "outputPerMTok": 14
         },
@@ -3327,6 +3357,7 @@
         "vision": "supported"
       },
       {
+        "_note": "CACHE READS 2026-10-28: $0.175 on the openai route our base rate is from (https://openrouter.ai/api/v1/models/openai/gpt-5.2/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Reasoning", "Coding"],
           "description": null,
@@ -3342,6 +3373,7 @@
         "label": "GPT-5.2 (OpenRouter)",
         "maxOutputTokens": 128000,
         "pricing": {
+          "cacheReadPerMTok": 0.175,
           "inputPerMTok": 1.75,
           "outputPerMTok": 14
         },
@@ -3572,7 +3604,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video input, text output,\ngateway pricing and the reasoning object (mandatory true,\ndefault_enabled true, efforts max/high/low, default max): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).",
+        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video input, text output,\ngateway pricing and the reasoning object (mandatory true,\ndefault_enabled true, efforts max/high/low, default max): OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nCACHE READS 2026-10-28: $0.09 on the z-ai/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/z-ai/glm-5.3-flashx/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -3590,6 +3622,7 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.09,
           "inputPerMTok": 0.37,
           "outputPerMTok": 1.25
         },
@@ -3604,7 +3637,7 @@
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 262,144 /\n128,000 ceilings, text-only input modality and gateway pricing\n(0.0000000825 / 0.00000033 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000132 / 0.000000528 — this route's SURGE rate. Its\n`pricing.overrides` carry two time bands, 00:00-16:00 UTC at\n0.000000132 / 0.000000528 and 16:00-00:00 UTC at the base\n0.0000000825 / 0.00000033, and `pricing.prompt` reports whichever is\nin force at read time. The base rate is what this row records.\nBST-1696 listed the context window as UNVERIFIED; the\nlive route reports 262,144, not the 1M this family's newer routes\ncarry. Tencent's configurable reasoning effort is not enumerated on\nthe route, so no `reasoning` block is declared.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 262,144 /\n128,000 ceilings, text-only input modality and gateway pricing\n(0.0000000825 / 0.00000033 per token), retrieved 2026-09-08 and\nre-verified 2026-09-10 (BST-1696, BST-1705). The 2026-09-08 read\nrecorded 0.000000132 / 0.000000528 — this route's SURGE rate. Its\n`pricing.overrides` carry two time bands, 00:00-16:00 UTC at\n0.000000132 / 0.000000528 and 16:00-00:00 UTC at the base\n0.0000000825 / 0.00000033, and `pricing.prompt` reports whichever is\nin force at read time. The base rate is what this row records.\nBST-1696 listed the context window as UNVERIFIED; the\nlive route reports 262,144, not the 1M this family's newer routes\ncarry. Tencent's configurable reasoning effort is not enumerated on\nthe route, so no `reasoning` block is declared.\nCACHE READS 2026-10-28: $0.020625 on the tencent/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/tencent/hy3/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": ["Reasoning", "Agentic workflows", "Production use"],
           "description": null,
@@ -3622,6 +3655,7 @@
         "maxOutputTokens": 128000,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.020625,
           "inputPerMTok": 0.0825,
           "outputPerMTok": 0.33
         },
@@ -3630,7 +3664,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.",
+        "_note": "Route, 1,048,576/131,072 ceilings, text/image/video/audio input, text\noutput and gateway pricing: OpenRouter Models API (https://openrouter.ai/api/v1/models), fetched\n2026-09-23T01:29Z and re-verified 01:37Z (2026-09-22 US time, BST-1804).\nThe reasoning object publishes only mandatory: false and no efforts, so\nno `reasoning` block is declared.\nCACHE READS 2026-10-28: $0.0036 on the xiaomi/fp8 route our base rate is from (https://openrouter.ai/api/v1/models/xiaomi/mimo-v2.6-pro/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -3648,6 +3682,7 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.0036,
           "inputPerMTok": 0.435,
           "outputPerMTok": 0.87
         },
@@ -3713,7 +3748,7 @@
         "vision": "supported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 524,288 /\n131,072 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing (0.00000009 / 0.00000036 per token)\nre-read 2026-09-23 (BST-1804).",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 524,288 /\n131,072 ceilings and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing (0.00000009 / 0.00000036 per token)\nre-read 2026-09-23 (BST-1804).\nCACHE READS 2026-10-28: $0.018 on the upstage route our base rate is from (https://openrouter.ai/api/v1/models/upstage/solar-pro4/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [
             "Long-horizon tasks",
@@ -3735,6 +3770,7 @@
         "maxOutputTokens": 131072,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.018,
           "inputPerMTok": 0.09,
           "outputPerMTok": 0.36
         },
@@ -3743,7 +3779,7 @@
         "vision": "unsupported"
       },
       {
-        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n384,000 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 393,216) and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing re-read 2026-09-23 (BST-1804): the route\nnow carries UTC clock bands, and the base rate held is the cheapest\nband (0.00000066 / 0.00000198 per token; the surge band is 2x). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.",
+        "_note": "OpenRouter Models API owns this fixed route's identity, 1,048,576 /\n384,000 top_provider ceilings (re-read 2026-09-23 UTC, BST-1804;\nreplaces 393,216) and text-only input modality, retrieved 2026-09-08\n(BST-1696). Gateway pricing re-read 2026-09-23 (BST-1804): the route\nnow carries UTC clock bands, and the base rate held is the cheapest\nband (0.00000066 / 0.00000198 per token; the surge band is 2x). Dated GA snapshot of the already-carried\n`deepseek/deepseek-v4-pro` route; both are kept so a pinned snapshot\nstays selectable.\nCACHE READS 2026-10-28: $0.022 on the deepseek route our base rate is from (https://openrouter.ai/api/v1/models/deepseek/deepseek-v4-pro-0813/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -3761,6 +3797,7 @@
         "maxOutputTokens": 384000,
         "outputModalities": ["text"],
         "pricing": {
+          "cacheReadPerMTok": 0.022,
           "inputPerMTok": 0.66,
           "outputPerMTok": 1.98
         },
@@ -3848,7 +3885,7 @@
         "vision": "supported"
       },
       {
-        "_note": "Paid Ling 3.0 Flash route: identity, 262,144 / 32,768\nceilings, text-only modality, gateway pricing (0.000000021 /\n0.000000063 per token): OpenRouter Models API, retrieved 2026-09-22\n(BST-1702). Like-for-like paid successor to the retired\n`inclusionai/ling-3.0-flash:free`; Nemotron 3.5 Lightning stays as the\ndifferently-priced stopgap.",
+        "_note": "Paid Ling 3.0 Flash route: identity, 262,144 / 32,768\nceilings, text-only modality, gateway pricing (0.000000021 /\n0.000000063 per token): OpenRouter Models API, retrieved 2026-09-22\n(BST-1702). Like-for-like paid successor to the retired\n`inclusionai/ling-3.0-flash:free`; Nemotron 3.5 Lightning stays as the\ndifferently-priced stopgap.\nCACHE READS 2026-10-28: $0.0042 on the novita route our base rate is from (https://openrouter.ai/api/v1/models/inclusionai/ling-3.0-flash/endpoints); OpenRouter reports cached tokens for it automatically.",
         "catalog": {
           "bestFor": [],
           "description": null,
@@ -3864,12 +3901,248 @@
         "label": "Ling 3.0 Flash (OpenRouter)",
         "maxOutputTokens": 32768,
         "pricing": {
+          "cacheReadPerMTok": 0.0042,
           "inputPerMTok": 0.021,
           "outputPerMTok": 0.063
         },
         "supportsStreaming": true,
         "type": "llm",
         "vision": "unsupported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (anthropic) rates, limits and tool support from https://openrouter.ai/api/v1/models/anthropic/claude-haiku-5.5/endpoints. Above 100,000 prompt tokens (OpenRouter's min_prompt_tokens) every category bills 5x. 1-hour write $0.20 is not modelled (Brainstrike sends 5-minute breakpoints).\nPROMPT CACHING: OpenRouter caches Anthropic only with an explicit cache_control, so this route declares the openrouter dialect (https://openrouter.ai/docs/features/prompt-caching).",
+        "catalog": {
+          "bestFor": ["Classification", "Extraction", "Routing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Haiku 5.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 74,
+          "tagline": "Fastest current Claude route"
+        },
+        "contextWindow": 1000000,
+        "id": "anthropic/claude-haiku-5.5",
+        "label": "Claude Haiku 5.5 (OpenRouter)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.01,
+          "cacheWritePerMTok": 0.125,
+          "inputPerMTok": 0.1,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.05,
+              "cacheWritePerMTok": 0.625,
+              "inputPerMTok": 0.5,
+              "minPromptTokens": 100000,
+              "outputPerMTok": 2.5
+            }
+          ],
+          "outputPerMTok": 0.5
+        },
+        "promptCaching": "openrouter",
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (mistral) rates, limits and tool support from https://openrouter.ai/api/v1/models/mistralai/mistral-large-4-0/endpoints. Text and image input; the route lists cache reads and no write price.",
+        "catalog": {
+          "bestFor": ["Agents", "Coding", "Long context"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Mistral Large 4 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 75,
+          "tagline": "Mistral's current flagship"
+        },
+        "contextWindow": 1048576,
+        "id": "mistralai/mistral-large-4-0",
+        "label": "Mistral Large 4 (OpenRouter)",
+        "maxOutputTokens": 262144,
+        "pricing": {
+          "cacheReadPerMTok": 0.14,
+          "inputPerMTok": 1.36,
+          "outputPerMTok": 4.18
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (mistral) rates, limits and tool support from https://openrouter.ai/api/v1/models/mistralai/mistral-medium-3-5/endpoints. Text, image and file input. No endpoint lists a cache price.",
+        "catalog": {
+          "bestFor": ["Coding", "Analysis"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Mistral Medium 3.5 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 76,
+          "tagline": "Balanced Mistral model"
+        },
+        "contextWindow": 262144,
+        "id": "mistralai/mistral-medium-3-5",
+        "label": "Mistral Medium 3.5 (OpenRouter)",
+        "maxOutputTokens": 209715,
+        "pricing": {
+          "inputPerMTok": 1.5,
+          "outputPerMTok": 7.5
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (mistral) rates, limits and tool support from https://openrouter.ai/api/v1/models/mistralai/mistral-small-2603/endpoints. Text and image input.",
+        "catalog": {
+          "bestFor": ["High-volume tasks", "Agents"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Mistral Small 4 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 77,
+          "tagline": "Fast, low-cost Mistral model"
+        },
+        "contextWindow": 262144,
+        "id": "mistralai/mistral-small-2603",
+        "label": "Mistral Small 4 (OpenRouter)",
+        "maxOutputTokens": 209715,
+        "pricing": {
+          "cacheReadPerMTok": 0.015,
+          "inputPerMTok": 0.15,
+          "outputPerMTok": 0.6
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (mistral/eu, its only route) rates, limits and tool support from https://openrouter.ai/api/v1/models/mistralai/devstral-2512/endpoints. Text and file input.",
+        "catalog": {
+          "bestFor": ["Coding", "Agents"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Devstral 2 (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 78,
+          "tagline": "Mistral coding agent model"
+        },
+        "contextWindow": 262144,
+        "id": "mistralai/devstral-2512",
+        "label": "Devstral 2 (OpenRouter)",
+        "maxOutputTokens": 209715,
+        "pricing": {
+          "cacheReadPerMTok": 0.04,
+          "inputPerMTok": 0.4,
+          "outputPerMTok": 2
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (meta) rates, limits and tool support from https://openrouter.ai/api/v1/models/meta/muse-wonder/endpoints. Text, image, video, file and audio input.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Agents", "Multimodal"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Muse Wonder (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 79,
+          "tagline": "Meta's most capable Muse model"
+        },
+        "contextWindow": 1048576,
+        "id": "meta/muse-wonder",
+        "label": "Muse Wonder (OpenRouter)",
+        "maxOutputTokens": 943718,
+        "pricing": {
+          "cacheReadPerMTok": 0.2,
+          "inputPerMTok": 4,
+          "outputPerMTok": 20
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (alibaba) rates, limits and tool support from https://openrouter.ai/api/v1/models/qwen/qwen3.8-max-prime/endpoints. Text, image and video input; max prompt 983,616. The route lists cache reads but no write price, so it declares no breakpoint dialect.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding", "Agents"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Qwen3.8 Max Prime (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 80,
+          "tagline": "Top Qwen3.8 reasoning tier"
+        },
+        "contextWindow": 1000000,
+        "id": "qwen/qwen3.8-max-prime",
+        "label": "Qwen3.8 Max Prime (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "pricing": {
+          "cacheReadPerMTok": 0.5,
+          "inputPerMTok": 4,
+          "outputPerMTok": 12
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (alibaba, its only route) rates, limits and tool support from https://openrouter.ai/api/v1/models/z-ai/glm-5.3-prime/endpoints. Text only.",
+        "catalog": {
+          "bestFor": ["Reasoning", "Coding"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "GLM 5.3 Prime (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 81,
+          "tagline": "Top GLM 5.3 tier"
+        },
+        "contextWindow": 1000000,
+        "id": "z-ai/glm-5.3-prime",
+        "label": "GLM 5.3 Prime (OpenRouter)",
+        "maxOutputTokens": 131072,
+        "pricing": {
+          "cacheReadPerMTok": 0.56,
+          "inputPerMTok": 2.8,
+          "outputPerMTok": 8.8
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "unsupported"
+      },
+      {
+        "_note": "Added 2026-10-28. Standard route (google-ai-studio) rates, limits and tool support from https://openrouter.ai/api/v1/models/google/gemini-3.1-flash-lite/endpoints. Implicit caching bills hits at the cached-input rate.",
+        "catalog": {
+          "bestFor": ["High volume", "Realtime apps"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Gemini 3.1 Flash Lite (OpenRouter)",
+          "parameters": null,
+          "sortOrder": 82,
+          "tagline": "Low-cost Gemini Flash Lite route"
+        },
+        "contextWindow": 1048576,
+        "id": "google/gemini-3.1-flash-lite",
+        "label": "Gemini 3.1 Flash Lite (OpenRouter)",
+        "maxOutputTokens": 65536,
+        "pricing": {
+          "cacheReadPerMTok": 0.025,
+          "inputPerMTok": 0.25,
+          "outputPerMTok": 1.5
+        },
+        "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
       }
     ],
     "runtime": "gateway"
@@ -4160,6 +4433,36 @@
         "vision": "supported"
       },
       {
+        "_note": "Added 2026-10-28. Bedrock id, limits and capabilities from the AWS model card:\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-sonnet-5-5.html\nThe bare id is In-Region unsupported; requests go through a geo profile (us./eu./au.) or global. 1M context, 128K max output. Explicit prompt caching (512 min tokens per checkpoint, 4 checkpoints, 5min/1hr TTL).\nPRICING UNVERIFIED against aws.amazon.com/bedrock/pricing (its Anthropic tables did not load): Global Cross-region rate $2/$10, 5m cache write $2.50, cache read $0.10, read from OpenRouter's amazon-bedrock endpoints for the same model and matching Anthropic first-party, as on the sibling Claude rows. Geo and In-region inference bill 10% more. The pricing page's only Sonnet 5.5 text says cache reads dropped 50% from 2026-10-07, which matches $0.10.\nThe card says bedrock-runtime accepts only tool_choice auto and none; the catalog cannot express that constraint.",
+        "bedrockReasoning": "adaptive",
+        "bedrockReasoningMandatory": true,
+        "catalog": {
+          "bestFor": ["Analysis", "Coding", "Writing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Sonnet 5.5 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 16,
+          "tagline": "Current Claude Sonnet"
+        },
+        "contextWindow": 1000000,
+        "id": "anthropic.claude-sonnet-5-5",
+        "label": "Claude Sonnet 5.5 (Bedrock)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.1,
+          "cacheWritePerMTok": 2.5,
+          "inputPerMTok": 2,
+          "outputPerMTok": 10
+        },
+        "promptCaching": "bedrock",
+        "supportsStreaming": true,
+        "tagline": "Best mix of smarts and speed",
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
         "_note": "Bedrock mirrors Anthropic's introductory rate (models.dev 2026-08-18).",
         "bedrockReasoning": "adaptive",
         "catalog": {
@@ -4214,6 +4517,44 @@
         },
         "promptCaching": "bedrock",
         "supportsStreaming": true,
+        "type": "llm",
+        "vision": "supported"
+      },
+      {
+        "_note": "Added 2026-10-28. Bedrock id, limits and capabilities from the AWS model card:\nhttps://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-5-5.html\nThe bare id is In-Region unsupported; requests go through a geo profile (us./eu./au./jp.) or global. The card states the 100K long-context tier. 1M context, 128K max output. Explicit prompt caching (512 min tokens per checkpoint, 4 checkpoints, 5min/1hr TTL).\nPRICING UNVERIFIED against aws.amazon.com/bedrock/pricing (its Anthropic tables did not load): Global Cross-region rate $0.10/$0.50, 5m cache write $0.125, cache read $0.01; above 100K prompt tokens every category bills 5x, read from OpenRouter's amazon-bedrock endpoints for the same model and matching Anthropic first-party, as on the sibling Claude rows. Geo and In-region inference bill 10% more.",
+        "bedrockReasoning": "adaptive",
+        "catalog": {
+          "bestFor": ["Classification", "Extraction", "Routing"],
+          "description": null,
+          "enabled": false,
+          "icon": null,
+          "name": "Claude Haiku 5.5 (Bedrock)",
+          "parameters": null,
+          "sortOrder": 17,
+          "tagline": "Fastest Claude model for high-volume work"
+        },
+        "contextWindow": 1000000,
+        "id": "anthropic.claude-haiku-5-5",
+        "label": "Claude Haiku 5.5 (Bedrock)",
+        "maxOutputTokens": 128000,
+        "pricing": {
+          "cacheReadPerMTok": 0.01,
+          "cacheWritePerMTok": 0.125,
+          "inputPerMTok": 0.1,
+          "longContextTiers": [
+            {
+              "cacheReadPerMTok": 0.05,
+              "cacheWritePerMTok": 0.625,
+              "inputPerMTok": 0.5,
+              "minPromptTokens": 100001,
+              "outputPerMTok": 2.5
+            }
+          ],
+          "outputPerMTok": 0.5
+        },
+        "promptCaching": "bedrock",
+        "supportsStreaming": true,
+        "tagline": "For high-volume, latency-sensitive tasks",
         "type": "llm",
         "vision": "supported"
       },
