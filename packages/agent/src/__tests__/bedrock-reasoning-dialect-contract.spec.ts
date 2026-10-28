@@ -136,6 +136,7 @@ describe('bedrock reasoning dialect matches the installed provider', () => {
       'anthropic.claude-fable-5',
       'anthropic.claude-fable-5-1',
       'anthropic.claude-opus-5-5',
+      'anthropic.claude-sonnet-5-5',
     ]);
     for (const model of listProviderLlmModels('bedrock')) {
       if (model.bedrockReasoningMandatory) {

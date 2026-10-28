@@ -207,8 +207,16 @@ describe('model pricing metadata', () => {
     });
     // BST-1705 re-priced GLM-5.2 from 0.9282 / 2.9172 to 0.28 / 0.88 on
     // 2026-09-10; BST-1804 re-read the live base as 0.6496 / 2.0416 on 2026-09-23.
-    expect(glm?.pricing).toEqual({ inputPerMTok: 0.6496, outputPerMTok: 2.0416 });
-    expect(spark?.pricing).toEqual({ inputPerMTok: 1.25, outputPerMTok: 4.25 });
+    expect(glm?.pricing).toEqual({
+      cacheReadPerMTok: 0.120_64,
+      inputPerMTok: 0.6496,
+      outputPerMTok: 2.0416,
+    });
+    expect(spark?.pricing).toEqual({
+      cacheReadPerMTok: 0.15,
+      inputPerMTok: 1.25,
+      outputPerMTok: 4.25,
+    });
     expect(kimi?.pricing).toEqual({ cacheReadPerMTok: 0.3, inputPerMTok: 3, outputPerMTok: 15 });
   });
 
@@ -235,11 +243,19 @@ describe('model pricing metadata', () => {
     const models = listProviderLlmModels('openrouter');
     const rate = (id: string) => models.find((model) => model.id === id)?.pricing;
     // Time-of-day surge: 0.132 / 0.528 is this route's 00:00-16:00 UTC band.
-    expect(rate('tencent/hy3')).toEqual({ inputPerMTok: 0.0825, outputPerMTok: 0.33 });
+    expect(rate('tencent/hy3')).toEqual({
+      cacheReadPerMTok: 0.020_625,
+      inputPerMTok: 0.0825,
+      outputPerMTok: 0.33,
+    });
     // `:batch` variant routes: 0.375 / 1.875 and 0.075 / 0.25 belong to
     // google/gemini-3.7-flash:batch and z-ai/glm-5.3-flash:batch, which are
     // separate routes we do not ship.
-    expect(rate('google/gemini-3.7-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
+    expect(rate('google/gemini-3.7-flash')).toEqual({
+      cacheReadPerMTok: 0.075,
+      inputPerMTok: 0.75,
+      outputPerMTok: 3.75,
+    });
     expect(rate('z-ai/glm-5.3-flash')).toEqual({
       cacheReadPerMTok: 0.03,
       inputPerMTok: 0.15,
@@ -248,7 +264,11 @@ describe('model pricing metadata', () => {
     // Exactly 2x the gateway's base rate, from an unidentified source: neither
     // the `:batch` twin (0.375 / 1.875) nor the direct `google` row, which
     // holds the same 0.75 / 3.75 this row now does.
-    expect(rate('google/gemini-3.6-flash')).toEqual({ inputPerMTok: 0.75, outputPerMTok: 3.75 });
+    expect(rate('google/gemini-3.6-flash')).toEqual({
+      cacheReadPerMTok: 0.075,
+      inputPerMTok: 0.75,
+      outputPerMTok: 3.75,
+    });
   });
 
   /**
@@ -401,6 +421,7 @@ describe('model pricing metadata', () => {
     expect([...tiered.keys()].sort()).toEqual(
       [
         'anthropic/claude-haiku-5-5',
+        'bedrock/anthropic.claude-haiku-5-5',
         'google/gemini-2.5-pro',
         'google/gemini-3.1-pro-preview',
         'openai/gpt-5.4',
@@ -413,6 +434,7 @@ describe('model pricing metadata', () => {
         'openai/gpt-6-sol',
         'openai/gpt-6.1-sol',
         'openai/gpt-6.1-terra',
+        'openrouter/anthropic/claude-haiku-5.5',
         'openrouter/google/gemini-3.1-pro-preview',
         'openrouter/openai/gpt-5.4',
         'openrouter/openai/gpt-5.5',

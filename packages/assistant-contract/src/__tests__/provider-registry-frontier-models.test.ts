@@ -506,7 +506,7 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'Gemini 3.7 Flash (OpenRouter)',
         maxOutputTokens: 65_536,
         // BST-1705: 0.375 / 1.875 is the `:batch` route's rate, not this one's.
-        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        pricing: { cacheReadPerMTok: 0.075, inputPerMTok: 0.75, outputPerMTok: 3.75 },
         reasoning: {
           defaultEffort: 'medium',
           defaultEnabled: true,
@@ -530,6 +530,7 @@ describe('frontier model refresh (2026-07)', () => {
         maxOutputTokens: 450_000,
         // BST-1708: gateway long-context tier rides along with the base rate.
         pricing: {
+          cacheReadPerMTok: 0.5,
           inputPerMTok: 2,
           longContextTiers: [
             {
@@ -562,7 +563,7 @@ describe('frontier model refresh (2026-07)', () => {
         label: 'Muse Spark 1.2 (OpenRouter)',
         // BST-1804: the route's top_provider pair; it published null on 2026-08-21.
         maxOutputTokens: 943_718,
-        pricing: { inputPerMTok: 1.25, outputPerMTok: 4.25 },
+        pricing: { cacheReadPerMTok: 0.15, inputPerMTok: 1.25, outputPerMTok: 4.25 },
         reasoning: {
           defaultEffort: 'medium',
           defaultEnabled: true,
@@ -671,7 +672,7 @@ describe('frontier model refresh (2026-07)', () => {
         // BST-1804: the route's top_provider pair.
         maxOutputTokens: 235_929,
         // BST-1804: gateway re-priced from 0.08 / 0.2; live base read 2026-09-23.
-        pricing: { inputPerMTok: 0.07, outputPerMTok: 0.2 },
+        pricing: { cacheReadPerMTok: 0.04, inputPerMTok: 0.07, outputPerMTok: 0.2 },
         reasoning: { mandatory: false, supportedEfforts: ['none'] },
         supportsStreaming: true,
         type: 'llm',
