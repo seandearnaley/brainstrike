@@ -182,10 +182,11 @@ export interface WorkspaceBarProps {
   /** Desktop only — read-only git state for the primary root; undefined hides the chip. */
   readonly checkout?: WorkspaceBarCheckout | undefined;
   /**
-   * Whether the primary root's checkout status has settled at least once —
-   * surfaced as `data-checkout-state` on the bar's own element (BST-1400) so
-   * e2e can await "checkout resolved" deterministically instead of sampling
-   * across a bounded window for the branch chip's absence. Callers that never
+   * Whether the primary root's checkout status and branch menu have settled
+   * at least once — surfaced as `data-checkout-state` on the bar's own
+   * element (BST-1400) so e2e can await "checkout resolved" deterministically
+   * instead of sampling across a bounded window for the branch chip's
+   * absence. Callers that never
    * have an async checkout to await (most pure-component usage) can omit
    * this: it defaults to `'resolved'`, since there is nothing pending.
    */

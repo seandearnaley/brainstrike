@@ -100,7 +100,7 @@ function renderComposition() {
 describe('useWorkspaceBarMode branch escape', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    branchSwitcherSpy.mockReturnValue(undefined);
+    branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: true });
   });
 
   it('treats an unhydrated selected thread as loading, never as pre-first-request', () => {
@@ -215,7 +215,7 @@ describe('useWorkspaceBarMode checkout readiness (BST-2129)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    branchSwitcherSpy.mockReturnValue(undefined);
+    branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: true });
   });
 
   it('offers no mode chip while the root is unknown, then the real one once it settles', () => {
@@ -289,7 +289,7 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    branchSwitcherSpy.mockReturnValue(undefined);
+    branchSwitcherSpy.mockReturnValue({ menu: undefined, settled: true });
     worktreeModeSpy.mockReturnValue(mode());
     useWorktreeCheckoutIntentStore.setState({ pending: null });
   });
