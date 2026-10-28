@@ -32,11 +32,23 @@ import { formatCompact } from './format-compact-token-count';
 import { fileWindowTokens, threadContextAt } from './thread-context-fold';
 import { useThreadContextStore } from './thread-context-store';
 
+/** One model's usage and cost within a source; null cost when unpriced. */
+interface CumulativeModelUsage {
+  readonly costUsd: number | null;
+  readonly inputTokens: number;
+  readonly model: string;
+  readonly outputTokens: number;
+  readonly provider: string;
+}
+
 /** One source's share of the thread total (BST-953). OM figures are local estimates. */
 interface CumulativeSourceUsage {
+  readonly costUsd: number | null;
   readonly estimated: boolean;
   readonly inputTokens: number;
   readonly kind: AssistantRunUsageKind;
+  /** Its models, costliest first. */
+  readonly models: readonly CumulativeModelUsage[];
   readonly outputTokens: number;
 }
 
@@ -437,7 +449,11 @@ export const ContextUsageMeter = ({
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 p-3" data-testid="context-usage-popover">
+        <PopoverContent
+          align="end"
+          className="max-h-[min(40rem,var(--radix-popover-content-available-height))] w-96 overflow-y-auto p-3"
+          data-testid="context-usage-popover"
+        >
           <ContextUsagePopoverContent
             breakdownState={breakdownState}
             contextWindow={contextWindow}

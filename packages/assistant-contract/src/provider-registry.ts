@@ -534,6 +534,14 @@ export function findLlmModelDefinition(
   return model?.type === 'llm' ? model : undefined;
 }
 
+/** A catalogued model's label (chat or embedding), else its raw id. */
+export function resolveModelLabel(providerId: string, modelId: string): string {
+  const model = findProviderDefinition(providerId)?.models.find(
+    (definition) => definition.id === modelId
+  );
+  return model?.label ?? modelId;
+}
+
 export function getLlmModelDefinition(providerId: ProviderId, modelId: string): LlmModelDefinition {
   // O(1) map lookup; the type says it can't miss, but guard against
   // out-of-union runtime ids (e.g. persisted prefs from an older build).

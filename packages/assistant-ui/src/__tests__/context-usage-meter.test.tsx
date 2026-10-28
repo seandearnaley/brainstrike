@@ -1,3 +1,4 @@
+import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import { act } from '@brainstrike/test-utils/react-act';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +24,14 @@ vi.mock('@assistant-ui/react', () => ({
 function openMeterPopover(): void {
   fireEvent.click(screen.getByTestId('context-usage-trigger'));
 }
+
+/** A by-source subtotal; these meter tests read its tokens, not its cost or models. */
+const source = (
+  kind: AssistantRunUsageKind,
+  inputTokens: number,
+  outputTokens: number,
+  estimated = false
+) => ({ costUsd: null, estimated, inputTokens, kind, models: [], outputTokens }) as const;
 
 describe('ContextUsageMeter', () => {
   beforeEach(() => {
@@ -180,9 +189,7 @@ describe('ContextUsageMeter', () => {
       <ContextUsageMeter
         {...props}
         cumulativeUsage={{
-          bySource: [
-            { estimated: false, inputTokens: 1_600_000, kind: 'chat', outputTokens: 200_000 },
-          ],
+          bySource: [source('chat', 1_600_000, 200_000)],
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
           cost: { available: true, provenance: 'captured-usage-estimate', usdAmount: 12.5 },
@@ -198,8 +205,9 @@ describe('ContextUsageMeter', () => {
     expect(screen.getByTestId('context-usage-thread-total-split')).toHaveTextContent(
       /1\.6M in · 200\.0K out/
     );
-    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent(
-      /captured usage est\. \$12\.50/i
+    expect(screen.getByTestId('context-usage-cost')).toHaveTextContent('$12.50');
+    expect(screen.getByTestId('context-usage-thread-total-split')).toHaveTextContent(
+      /list-price estimate/
     );
   });
 
@@ -208,7 +216,7 @@ describe('ContextUsageMeter', () => {
       <ContextUsageMeter
         {...props}
         cumulativeUsage={{
-          bySource: [{ estimated: false, inputTokens: 800, kind: 'chat', outputTokens: 200 }],
+          bySource: [source('chat', 800, 200)],
           cacheCreationTokens: 0,
           cacheReadTokens: 0,
           cost: { available: false, reason: 'unpriced_model' },
@@ -239,9 +247,9 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
 
   const cumulativeUsage = {
     bySource: [
-      { estimated: false, inputTokens: 900_000, kind: 'chat', outputTokens: 90_000 },
-      { estimated: false, inputTokens: 40_000, kind: 'subagent', outputTokens: 6000 },
-      { estimated: true, inputTokens: 60_000, kind: 'om-observation', outputTokens: 4000 },
+      source('chat', 900_000, 90_000),
+      source('subagent', 40_000, 6000),
+      source('om-observation', 60_000, 4000, true),
     ],
     cacheCreationTokens: 50_000,
     cacheReadTokens: 700_000,
@@ -371,13 +379,14 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
     expect(screen.getByTestId('context-usage-source-chat')).toHaveTextContent(
       /900\.0K in · 90\.0K out/
     );
+    expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent('unpriced');
     expect(screen.getByTestId('context-usage-source-subagent')).toHaveTextContent(/Subagents/);
     // OM figures are local estimates and must SAY so.
     expect(screen.getByTestId('context-usage-source-om-observation')).toHaveTextContent(
       /Memory observer \(est\.\)/
     );
     expect(screen.getByTestId('context-usage-cache-line')).toHaveTextContent(
-      /700\.0K read · 50\.0K written · saved ~\$5\.18/
+      /700\.0K read \(70% of input\) · 50\.0K written · saved ~\$5\.18/
     );
     // The context section survives BELOW the thread total.
     expect(screen.getByTestId('context-usage-popover-header')).toHaveTextContent(
@@ -391,9 +400,7 @@ describe('ContextUsageMeter thread-total headline (BST-953)', () => {
         {...props}
         cumulativeUsage={{
           ...cumulativeUsage,
-          bySource: [
-            { estimated: false, inputTokens: 1_000_000, kind: 'chat', outputTokens: 100_000 },
-          ],
+          bySource: [source('chat', 1_000_000, 100_000)],
         }}
       />
     );
@@ -815,7 +822,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
     invalid: false,
   } as const;
 
-  it('renders the Tool definitions category with per-tool sub-rows capped at five plus a remainder', () => {
+  it('renders the Tool definitions category with a sub-row for every tool', () => {
     useContextUsageStore.getState().recordBreakdown('t1', v2Breakdown);
     render(<ContextUsageMeter {...props} />);
     openMeterPopover();
@@ -829,8 +836,8 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
       /brainstrike\.readWorkspaceFile/
     );
     expect(screen.getByTestId('context-usage-tooldef-4')).toHaveTextContent(/manageTaskList/);
-    expect(screen.queryByTestId('context-usage-tooldef-5')).not.toBeInTheDocument();
-    expect(screen.getByTestId('context-usage-tooldef-rest')).toHaveTextContent(/\+2 more tools/);
+    expect(screen.getByTestId('context-usage-tooldef-6')).toHaveTextContent(/tiny_two/);
+    expect(screen.queryByText(/more tools/)).not.toBeInTheDocument();
   });
 
   it('renders the segmented capacity bar with one segment per non-zero category', () => {

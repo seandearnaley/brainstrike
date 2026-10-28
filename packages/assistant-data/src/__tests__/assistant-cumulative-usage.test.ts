@@ -92,11 +92,67 @@ describe('resolveCumulativeUsageDisplay', () => {
         })
       )
     );
-    expect(display?.bySource).toEqual([
+    expect(display?.bySource).toMatchObject([
       { estimated: false, inputTokens: 1000, kind: 'chat', outputTokens: 200 },
       { estimated: false, inputTokens: 300, kind: 'subagent', outputTokens: 40 },
       { estimated: true, inputTokens: 24_000, kind: 'om-observation', outputTokens: 900 },
     ]);
+  });
+
+  it('prices each source and its models, costliest model first, unpriced last', () => {
+    const display = resolveCumulativeUsageDisplay(
+      usageOf(
+        entry({
+          estimatedCostUsd: 0.2,
+          inputTokens: 10,
+          model: 'gpt-5.2',
+          outputTokens: 1,
+          provider: 'openai',
+        }),
+        entry({
+          estimatedCostUsd: null,
+          inputTokens: 10,
+          model: 'vendor/x',
+          outputTokens: 1,
+          provider: 'openrouter',
+        }),
+        entry({
+          estimatedCostUsd: 1,
+          inputTokens: 10,
+          model: 'claude-opus-4-8',
+          outputTokens: 1,
+          provider: 'anthropic',
+        }),
+        entry({
+          estimatedCostUsd: 0.3,
+          inputTokens: 10,
+          model: 'gpt-5.2',
+          outputTokens: 1,
+          provider: 'openai',
+        }),
+        entry({
+          billedCostUsd: 0.05,
+          estimatedCostUsd: null,
+          estimatedInputTokens: 0,
+          estimatedOutputTokens: 0,
+          inputTokens: 10,
+          model: 'gpt-5.2',
+          outputTokens: 1,
+          provider: 'openai',
+          runKind: 'subagent',
+        })
+      )
+    );
+    const [chat, subagent] = display?.bySource ?? [];
+    // One unpriced model leaves its source's cost unknown, never a partial sum.
+    expect(chat?.costUsd).toBeNull();
+    expect(chat?.models.map(({ costUsd, model }) => [model, costUsd])).toEqual([
+      ['claude-opus-4-8', 1],
+      ['gpt-5.2', expect.closeTo(0.5, 10)],
+      ['vendor/x', null],
+    ]);
+    // A provider-reported cost needs no list price.
+    expect(subagent?.costUsd).toBeCloseTo(0.05, 10);
   });
 
   it('totals cache classes and the savings each model’s calls recorded', () => {
