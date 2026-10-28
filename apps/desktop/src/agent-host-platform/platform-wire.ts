@@ -40,6 +40,9 @@ export const PlatformDiagnosticRecordSchema = Schema.Struct({
     timestamp: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
   }),
 });
+/** ADR-0029: Main lends its safeStorage cipher to the host's sealed credential file. */
+export const PlatformCredentialSealSchema = Schema.Struct({ plaintext: Schema.String });
+export const PlatformCredentialOpenSchema = Schema.Struct({ sealed: Id });
 /** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
 export const PlatformNativeChildSchema = Schema.Struct({
   group: Schema.Boolean,

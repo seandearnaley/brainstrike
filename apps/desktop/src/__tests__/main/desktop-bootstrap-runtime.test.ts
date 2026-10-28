@@ -43,6 +43,9 @@ vi.mock('electron', () => ({
       fixture.lockedUserData.add(userData);
       return true;
     },
+    setName: (name: string) => {
+      fixture.events.push(`name:${name}`);
+    },
     setPath: (name: string, value: string) => {
       fixture.paths.set(name, value);
       fixture.events.push(`path:${name}`);
@@ -239,24 +242,24 @@ it.each(['incident-a', 'incident-b'])(
       'path:userData',
       'path:logs',
       'path:sessionData',
+      'name:BrainStrike Desktop Dev',
     ]);
     fixture.acquisition.resolve({ kind: 'owned' });
     await runtime.profile.acquire();
     expect(fixture.options?.root).toBe(
       join(resolve('/disposable/database-root'), 'profiles', profile)
     );
+    // Each profile seals its own credentials; only the launch lock stays shared.
+    const credentialStore = {
+      kind: 'sealed-file',
+      path: join(expectedUserData, 'brainstrike-credentials.sealed.json'),
+    };
     expect(await fixture.options?.platformOptions?.()).toMatchObject({
       appPaths: { userDataPath: expectedUserData },
-      credentialStore: {
-        kind: 'keyring',
-        service: `brainstrike-desktop:${resolve('/disposable/shared-user-data')}`,
-      },
+      credentialStore,
     });
     expect(fixture.lockAttempts).toEqual([resolve('/disposable/shared-user-data')]);
-    expect(runtime.credentialStore).toEqual({
-      kind: 'keyring',
-      service: `brainstrike-desktop:${resolve('/disposable/shared-user-data')}`,
-    });
+    expect(runtime.credentialStore).toEqual(credentialStore);
     const { resolveDesktopDatabaseLocation } = await import('../../desktop-database-location');
     expect(resolveDesktopDatabaseLocation()).toMatchObject({
       profile,
@@ -276,10 +279,16 @@ it('keeps packaged userData and the explicit database selection unchanged', asyn
   const userData = resolve('/disposable/packaged-user-data');
   fixture.paths.set('userData', userData);
   const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
-  getDesktopBootstrapRuntime();
+  const runtime = getDesktopBootstrapRuntime();
   expect(fixture.paths.get('userData')).toBe(userData);
   expect(fixture.paths.get('sessionData')).toBe(join(userData, 'session-data'));
   expect(fixture.events).not.toContain('path:userData');
+  // The release keeps its own name, so its safeStorage key is never a dev build's.
+  expect(fixture.events.filter((event) => event.startsWith('name:'))).toEqual([]);
+  expect(runtime.credentialStore).toEqual({
+    kind: 'sealed-file',
+    path: join(userData, 'brainstrike-credentials.sealed.json'),
+  });
 });
 
 it('honors explicit Agent DevTools isolation with an ordinary development database override', async () => {
@@ -318,7 +327,7 @@ it('uses the existing branch/worktree database selection without a database over
   await runtime.profile.retire();
 });
 
-it('rejects a concurrent development profile in the shared launch credential namespace', async () => {
+it('rejects a concurrent development profile at the shared launch lock', async () => {
   vi.stubEnv('NODE_ENV', 'development');
   vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
   vi.stubEnv('BRAINSTRIKE_DB_ROOT_PATH', resolve('/disposable/database-root'));
@@ -333,7 +342,6 @@ it('rejects a concurrent development profile in the shared launch credential nam
   vi.stubEnv('BRAINSTRIKE_DB_PROFILE', 'incident-b');
   const second = (await import('../../desktop-bootstrap-runtime')).getDesktopBootstrapRuntime();
   expect(second.singleInstanceLockAcquired).toBe(false);
-  expect(second.credentialStore).toEqual(first.credentialStore);
   expect(fixture.lockAttempts).toEqual([launchUserData, launchUserData]);
   expect(fixture.options).toBeUndefined();
 });

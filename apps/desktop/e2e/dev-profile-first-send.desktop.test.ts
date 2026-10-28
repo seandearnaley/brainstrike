@@ -30,7 +30,7 @@ async function send(page: Page, message: string): Promise<void> {
   await expect(page.getByRole('alert', { name: 'Agent command error' })).toHaveCount(0);
 }
 
-async function configureProvider(page: Page, save: boolean): Promise<void> {
+async function configureProvider(page: Page): Promise<void> {
   const home = new HomePage(page);
   await home.openSettings();
   await page
@@ -38,13 +38,11 @@ async function configureProvider(page: Page, save: boolean): Promise<void> {
     .getByRole('button', { exact: true, name: 'Providers' })
     .click();
   await page.getByTestId('provider-card-toggle-openrouter').click();
-  if (save) {
-    // The agent host is the only credential writer, and a save waits while it starts.
-    await waitForAppHost(page);
-    await page.getByTestId('credential-set-openrouter').click();
-    await page.getByTestId('credential-key-input-openrouter').fill('sk-or-test-dev-profile');
-    await page.keyboard.press('Enter');
-  }
+  // The agent host is the only credential writer, and a save waits while it starts.
+  await waitForAppHost(page);
+  await page.getByTestId('credential-set-openrouter').click();
+  await page.getByTestId('credential-key-input-openrouter').fill('sk-or-test-dev-profile');
+  await page.keyboard.press('Enter');
   await expect(page.getByTestId('credential-status-openrouter')).toContainText('Stored');
   await expect(page.getByTestId('provider-connection-openrouter')).toHaveAttribute(
     'data-connection',
@@ -180,24 +178,21 @@ async function selectedThreadId(page: Page): Promise<string> {
   return tab.slice('assistant-thread-tab-'.length);
 }
 
-// The shared credential owner retains the original one-dev-app exclusion, even
-// though Chromium/workspace state belongs to distinct DB profiles; a full reopen
-// of A keeps its first Sends and its root, which it then disconnects.
+// The shared launch lock retains the original one-dev-app exclusion, even though
+// Chromium, workspace and credential state belong to distinct DB profiles; a full
+// reopen of A keeps its first Sends and its root, which it then disconnects.
 test('ordinary dev excludes a second app, then reopens A with its first Sends and root', async ({
   ordinaryDev,
 }) => {
   const a = await ordinaryDev.launch('incident-a');
-  await configureProvider(a.page, true);
+  await configureProvider(a.page);
   // A fresh profile has no model: the new-thread composer waits for one.
   await chooseModel(a.page);
   await send(a.page, 'A_NO_FOLDER');
   await addRoot(a.page);
   await send(a.page, 'A_WITH_FOLDER');
 
-  const credentialPath = path.join(
-    ordinaryDev.directory,
-    'shared-launch-user-data/brainstrike-credentials.json'
-  );
+  const credentialPath = path.join(a.userData, 'brainstrike-credentials.json');
   const credentialDigest = async (): Promise<string> =>
     createHash('sha256')
       .update(await readFile(credentialPath))
@@ -260,7 +255,7 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
   ordinaryDev,
 }, info) => {
   const a = await ordinaryDev.launch('incident-a');
-  await configureProvider(a.page, true);
+  await configureProvider(a.page);
   // A fresh profile has no model: the new-thread composer waits for one.
   await chooseModel(a.page);
   await send(a.page, 'A_NO_FOLDER');
@@ -274,7 +269,8 @@ test('ordinary dev isolates profile grants and first Send across A/B/A', async (
   await expect(
     b.page.getByTestId('assistant-ui-viewport').getByText('A_NO_FOLDER', { exact: true })
   ).toHaveCount(0);
-  await configureProvider(b.page, false);
+  // Each profile keeps its own credentials, so B saves its own key.
+  await configureProvider(b.page);
   await chooseModel(b.page);
   await send(b.page, 'B_NO_FOLDER');
   const rootB = await addRoot(b.page);

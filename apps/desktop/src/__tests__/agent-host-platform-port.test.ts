@@ -2,8 +2,13 @@
 
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
+import type { CredentialCipher } from '@brainstrike/agent-host/credential-contract';
 import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
+import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { expect, it, vi } from 'vitest';
 import {
@@ -17,6 +22,7 @@ import {
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import type { DesktopAdmissionReads } from '../agent-host-platform/desktop-run-admission';
+import { lentCredentialCipher } from '../agent-host-platform/lent-credential-cipher';
 import {
   type DesktopPlatformCapabilities,
   serveDesktopPlatform,
@@ -66,7 +72,8 @@ function lending(
 function harness(
   admission: DesktopAdmissionReads,
   closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities'],
-  hostTools?: DesktopPlatformCapabilities['hostTools']
+  hostTools?: DesktopPlatformCapabilities['hostTools'],
+  credentialCipher?: CredentialCipher
 ) {
   const channel = new MessageChannel();
   const first = new UtilityPort(channel.port1);
@@ -77,6 +84,7 @@ function harness(
     admission,
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
+    ...(credentialCipher ? { credentialCipher } : {}),
     ...(hostTools ? { hostTools } : {}),
   });
   client.onClose(() => client.dispose());
@@ -102,6 +110,41 @@ it('acknowledges capability binding through the private platform readiness reque
     await expect(f.client.sendRequest('platform/ready', { partial: true })).rejects.toThrow();
   } finally {
     f.destroy();
+  }
+});
+
+it('the host seals its credential file with the cipher Main lends, and Main reads it back', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'bs-sealed-credentials-'));
+  const selection = {
+    kind: 'sealed-file',
+    path: join(directory, 'brainstrike-credentials.sealed.json'),
+  } as const;
+  // Main's safeStorage stand-in: only what it sealed opens.
+  const mainCipher: CredentialCipher = {
+    open: async (sealed) => {
+      const text = Buffer.from(sealed, 'base64').toString('utf8');
+      if (!text.startsWith('main:')) {
+        throw new Error('Not sealed by Main');
+      }
+      return text.slice('main:'.length);
+    },
+    seal: async (plaintext) => Buffer.from(`main:${plaintext}`).toString('base64'),
+  };
+  const f = harness(mainReads(), undefined, undefined, mainCipher);
+  const host = createHostCredentials({
+    cipher: lentCredentialCipher((method, input) => f.client.sendRequest(method, input)),
+    selection,
+  });
+  const main = createHostCredentials({ cipher: mainCipher, selection });
+  try {
+    await host.secrets().saveKey('openrouter', 'sk-or-sealed-by-main');
+    expect(await readFile(selection.path, 'utf8')).not.toContain('sk-or-sealed-by-main');
+    await expect(main.secrets().getKey('openrouter')).resolves.toBe('sk-or-sealed-by-main');
+    await expect(host.secrets().getKey('openrouter')).resolves.toBe('sk-or-sealed-by-main');
+  } finally {
+    await Promise.all([host.close(), main.close()]);
+    f.destroy();
+    await rm(directory, { force: true, recursive: true });
   }
 });
 

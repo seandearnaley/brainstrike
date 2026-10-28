@@ -53,6 +53,7 @@ import {
   hostCommandSessionManager,
   serveHostRootCleanup,
 } from './host-tool-process';
+import { lentCredentialCipher } from './lent-credential-cipher';
 import {
   createDesktopHostMemoryConfiguration,
   desktopMemoryModels,
@@ -176,12 +177,6 @@ export async function createDesktopHostConfiguration(
 ): Promise<DesktopHostConfiguration> {
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
-  // The profile's one credential authority: the single writer and token holder.
-  const host = await createHostCapabilities({
-    env: process.env,
-    launch: platformOptions,
-    startup,
-  });
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
   // The runs this host admitted and the bindings they hold, for their own revalidation.
@@ -209,6 +204,14 @@ export async function createDesktopHostConfiguration(
       cancellation.dispose();
     }
   };
+  // The profile's one credential authority: the single writer and token holder.
+  // ADR-0029: its sealed file borrows Main's safeStorage for every value.
+  const host = await createHostCapabilities({
+    credentialCipher: lentCredentialCipher(request),
+    env: process.env,
+    launch: platformOptions,
+    startup,
+  });
   serveHostRootCleanup(connection);
   // ADR-0017: Main supervises the native processes this host starts, and ends their
   // process groups if the host dies. Windows reports none: the host's kill-on-close Job

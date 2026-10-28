@@ -5,6 +5,7 @@ import {
   type HostCredentials,
 } from '@brainstrike/host-capabilities/credentials';
 import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
+import { createSafeStorageCredentialCipher } from './safe-storage-credential-cipher';
 
 export {
   credentialStoredKeyFingerprint,
@@ -19,6 +20,7 @@ let desktopCredentials: HostCredentials | undefined;
 
 function getDesktopCredentials(): HostCredentials {
   desktopCredentials ??= createHostCredentials({
+    cipher: createSafeStorageCredentialCipher(),
     selection: getDesktopBootstrapRuntime().credentialStore,
   });
   return desktopCredentials;

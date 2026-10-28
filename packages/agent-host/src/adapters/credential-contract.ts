@@ -38,6 +38,16 @@ export interface KeyringCredentialBackend {
   listAccounts(request: Omit<KeyringEntryRequest, 'account'>): Promise<readonly string[]>;
 }
 
+/**
+ * Seals credential values for a private file. The platform lends it; the
+ * desktop's is Main's Electron safeStorage, so the OS keychain holds one key
+ * that only the signed app reads. Sealed values are opaque base64 text.
+ */
+export interface CredentialCipher {
+  open(sealed: string): Promise<string>;
+  seal(plaintext: string): Promise<string>;
+}
+
 export interface CredentialStoreCompletion {
   readonly pendingNativeOperations: number;
   readonly queuedOperations: number;
