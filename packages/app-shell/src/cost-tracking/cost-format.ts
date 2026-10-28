@@ -2,10 +2,7 @@ import {
   getProviderDisplayName,
   isSupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import {
-  listProviderEmbeddingModels,
-  listProviderLlmModels,
-} from '@brainstrike/assistant-contract/provider-registry';
+import { resolveModelLabel } from '@brainstrike/assistant-contract/provider-registry';
 import { formatUsdCost } from '@brainstrike/tokenization';
 
 const MS_PER_SECOND = 1000;
@@ -61,15 +58,9 @@ export function modelDisplayName(
   provider: string,
   model: string
 ): { readonly model: string; readonly provider: string } {
-  if (!isSupportedProvider(provider)) {
-    return { model, provider };
-  }
-  const definition =
-    listProviderLlmModels(provider).find((candidate) => candidate.id === model) ??
-    listProviderEmbeddingModels(provider).find((candidate) => candidate.id === model);
   return {
-    model: definition?.label ?? model,
-    provider: getProviderDisplayName(provider),
+    model: resolveModelLabel(provider, model),
+    provider: isSupportedProvider(provider) ? getProviderDisplayName(provider) : provider,
   };
 }
 
