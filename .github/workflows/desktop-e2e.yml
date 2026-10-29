@@ -1,5 +1,6 @@
 # Runs on every merge-queue batch (owner decision 2026-10-24), so no change
-# lands without the full desktop regression.
+# lands without the full desktop regression, and each night with every test
+# three times to find flaky tests (flake-hunt.yml).
 
 name: Desktop E2E
 
@@ -13,6 +14,11 @@ on:
         description: Desktop E2E suite to run
         required: true
         type: string
+      repeat-each:
+        description: Times each test runs (Playwright --repeat-each)
+        required: false
+        default: 1
+        type: number
     secrets:
       TURBO_TOKEN:
         required: true
@@ -125,11 +131,23 @@ jobs:
       # is provided by the `dbus` package (pre-installed on ubuntu-latest).
       # --shard splits both projects across the matrix (the total must equal
       # the matrix length; e2e/file-shards.ts picks each shard's files). pnpm
-      # appends the flag to the lane script, which must therefore end in the
+      # appends the flags to the lane script, which must therefore end in the
       # playwright command.
+      #
+      # The X server starts here, with xvfb-run's default screen, rather than in
+      # the lane script's xvfb-maybe, which then finds DISPLAY set and runs the
+      # command as it is. xvfb-maybe's xvfb-run sends the server's own output
+      # to /dev/null; here it is kept, and `-audit 2` adds a line for each client
+      # that connects or leaves. One Electron launch got "Missing X server or
+      # $DISPLAY" while 32 others on the same server worked (BST-2307), and the
+      # shard's log held only Electron's side of it.
       - name: Run full desktop regression
         working-directory: apps/desktop
-        run: dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard --shard=${{ matrix.shard }}/12
+        run: >-
+          xvfb-run --auto-servernum --error-file="$RUNNER_TEMP/xvfb.log"
+          --server-args="-screen 0 1280x1024x24 -audit 2"
+          dbus-run-session -- pnpm run test:e2e:lane:full-regression-shard
+          --shard=${{ matrix.shard }}/12 --repeat-each=${{ inputs.repeat-each || 1 }}
 
       # test-results/ holds each failed test's raw trace, screenshots, video,
       # error context and spec diagnostics; blob-report/ holds the report zip
@@ -142,6 +160,15 @@ jobs:
           path: |
             apps/desktop/test-results/
             apps/desktop/blob-report/
+          retention-days: 1
+          if-no-files-found: warn
+
+      - name: Upload the X server log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-full-regression-shard-${{ matrix.shard }}-xvfb-log
+          path: ${{ runner.temp }}/xvfb.log
           retention-days: 1
           if-no-files-found: warn
 
