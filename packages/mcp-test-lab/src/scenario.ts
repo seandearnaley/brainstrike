@@ -2,7 +2,7 @@ import { APPS_PROFILE_SHA256 } from './apps-profile.ts';
 import { OFFICIAL_EVERYTHING_PROFILE_SHA256 } from './official-everything-profile.ts';
 import { TASKS_PROFILE_SHA256 } from './tasks-profile.ts';
 
-export const MCP_LAB_SDK_VERSION = '2.3.1' as const;
+export const MCP_LAB_SDK_VERSION = '2.4.0' as const;
 export const MCP_LAB_SDK_SOURCE = Object.freeze({
   commitSha: 'cc4b41617ce3601b1290d67216ea0b194a3cd9ac',
   repositoryUrl: 'https://github.com/modelcontextprotocol/typescript-sdk.git',
