@@ -278,6 +278,15 @@ export class MemoryProviderLifetime {
             )
           )
         );
+      case 'v4':
+        return this.embeddingProxy(model, (params: Parameters<typeof model.doEmbed>[0]) =>
+          this.embedded(
+            model.modelId,
+            this.embeddingCall(params.abortSignal, (abortSignal) =>
+              model.doEmbed({ ...params, abortSignal })
+            )
+          )
+        );
     }
   }
 

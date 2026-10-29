@@ -562,8 +562,15 @@ export class HostMemory implements HostRunOwner {
   /** Only after the host committed the SDK step; preserve its stable projection IDs. */
   commitStep(committedMessages: readonly MastraDBMessage[]): Promise<void> {
     return this.admit('save', async () => {
-      // Immutable committed segments retain their existing row addresses.
-      this.messageList.add([...committedMessages], 'response', { merge: false });
+      // Immutable committed segments retain their existing row addresses. The
+      // list already holds earlier steps' segments, and re-adding one that
+      // Memory sealed would append a copy under a fresh ID.
+      const listed = new Set(this.messageList.get.all.db().map((message) => message.id));
+      this.messageList.add(
+        committedMessages.filter((message) => !listed.has(message.id)),
+        'response',
+        { merge: false }
+      );
       // Preserve the library's semantic indexing and working-memory processing;
       // raw persistMessages is only the public turn's sealed-message projection.
       try {

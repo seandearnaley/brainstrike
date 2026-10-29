@@ -26,6 +26,8 @@ async function embedProbeText(
       return (await model.doEmbed({ abortSignal, values })).embeddings[0];
     case 'v3':
       return (await model.doEmbed({ abortSignal, values })).embeddings[0];
+    case 'v4':
+      return (await model.doEmbed({ abortSignal, values })).embeddings[0];
   }
 }
 

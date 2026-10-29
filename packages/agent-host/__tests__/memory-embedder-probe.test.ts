@@ -30,3 +30,22 @@ test('a provider that answers after the probe was cancelled does not pass the te
     )
   ).rejects.toBe(cancelled);
 });
+
+test('probes a current AI SDK embedding model as it is constructed', async () => {
+  const embedder: MastraEmbeddingModel<string> = {
+    doEmbed: async () => ({ embeddings: [[0.1, 0.2, 0.3]], warnings: [] }),
+    maxEmbeddingsPerCall: 1,
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
+    specificationVersion: 'v4',
+    supportsParallelCalls: true,
+  };
+
+  await expect(
+    probeHostMemoryEmbedder(
+      async () => ({ embedder, identity: { modelId: 'openai::text-embedding-3-small' } }),
+      { memorySettings: {} },
+      new AbortController().signal
+    )
+  ).resolves.toMatchObject({ dimensions: 3, modelId: 'openai::text-embedding-3-small' });
+});
