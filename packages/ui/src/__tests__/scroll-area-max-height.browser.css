@@ -1,0 +1,4 @@
+@import "tailwindcss";
+@import "../globals.css";
+@source "../scroll-area.tsx";
+@source "./scroll-area-max-height.browser.test.tsx";
