@@ -94,11 +94,7 @@ describe('createConcurrencyLimiter', () => {
     await expect(limit(async () => 'freed')).resolves.toBe('freed');
   });
 
-  it('does not guarantee FIFO: a task submitted as a permit frees can start ahead of an earlier waiter', async () => {
-    // Pins the property the contract warns about (docs/agents/effect-boundary.md
-    // § "Shared helpers"): never replace a FIFO mutex with this limiter. If this
-    // fails after an Effect bump, the scheduler or Semaphore changed: revisit
-    // that contract note. It is not a limiter regression.
+  it('starts waiting tasks in arrival order, ahead of a task submitted as a permit frees', async () => {
     const limit = createConcurrencyLimiter(1);
     const holder = gate();
     const admitted: string[] = [];
@@ -116,7 +112,7 @@ describe('createConcurrencyLimiter', () => {
     holder.open();
     await Promise.all([first, waiting]);
 
-    expect(admitted).toEqual(['late', 'waiting']);
+    expect(admitted).toEqual(['waiting', 'late']);
   });
 
   it.each([0, -1, 1.5, Number.NaN])('rejects %s permits', (permits) => {

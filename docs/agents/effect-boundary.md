@@ -50,9 +50,9 @@ The registry's public `@brainstrike/agent/tool-guard-deadline` entry resolves to
 one emitted CJS owner for both ESM and CJS consumers. Keep it external to other
 agent bundles; the emitted-export subprocess test protects this shared state.
 
-Concurrency limits do not imply FIFO. Preserve existing promise-chain owners
-where order matters. Partial acquisition rolls back its resources; stale
-callbacks cannot settle a replacement. Keep independent errors and failed owners
+The concurrency limiter starts tasks in arrival order. Preserve existing
+promise-chain owners where order matters. Partial acquisition rolls back its
+resources; stale callbacks cannot settle a replacement. Keep independent errors and failed owners
 observable until cleanup settles. Retry transactions through the existing bounded
 schedule without losing rollback or original failure identity.
 
