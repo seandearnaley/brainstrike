@@ -317,6 +317,6 @@
     "base": "f9dcbce5f6917a02ea4b4fc9cc7438e997d6cd03",
     "capture": "real installed SDK/provider serialization; fully intercepted fetch; no real account",
     "openai": "4.0.96",
-    "sdk": "7.0.142"
+    "sdk": "7.0.143"
   }
 }

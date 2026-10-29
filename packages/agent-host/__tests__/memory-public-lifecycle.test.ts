@@ -1,156 +1,26 @@
 import { randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
 import { setImmediate as nextTurn } from 'node:timers/promises';
-import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
-import { InMemoryStore, type MemoryStorage } from '@mastra/core/storage';
-import { Memory } from '@mastra/memory';
-import {
-  Extractor,
-  ObservationalMemory,
-  type ObservationalMemoryConfig,
-  TokenCounter,
-} from '@mastra/memory/processors';
-import { wrapLanguageModel } from 'ai';
-import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+import { MessageList } from '@mastra/core/agent';
+import { InMemoryStore } from '@mastra/core/storage';
+import { Extractor, TokenCounter } from '@mastra/memory/processors';
+import { APICallError, wrapLanguageModel } from 'ai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-
-const require = createRequire(import.meta.url);
-const cjsMemory = require('@mastra/memory') as typeof import('@mastra/memory');
-const cjsProcessors =
-  require('@mastra/memory/processors') as typeof import('@mastra/memory/processors');
-const entrypoints = [
-  { Engine: ObservationalMemory, label: 'ESM', Memory },
-  { Engine: cjsProcessors.ObservationalMemory, label: 'CJS', Memory: cjsMemory.Memory },
-] as const;
-type EngineOptions = Omit<ObservationalMemoryConfig, 'storage' | 'memory' | 'model'> & {
-  model?: ReturnType<typeof wrapLanguageModel>;
-};
-type ModelCall = Parameters<MockLanguageModelV4['doStream']>[0];
-type ModelResult = Awaited<ReturnType<MockLanguageModelV4['doStream']>>;
-interface Fixture {
-  domain: MemoryStorage;
-  engine: ObservationalMemory;
-  memory: Memory | undefined;
-  resourceId: string;
-  storage: InMemoryStore;
-  threadId: string;
-}
-const releases: (() => void)[] = [];
-const fixtures: Fixture[] = [];
-
-function gate() {
-  const value = Promise.withResolvers<void>();
-  releases.push(() => value.resolve());
-  return value;
-}
-
-function watch<T>(promise: Promise<T>) {
-  let settled = false;
-  const result = promise.then(
-    (value) => {
-      settled = true;
-      return { status: 'fulfilled' as const, value };
-    },
-    (reason: unknown) => {
-      settled = true;
-      return { reason, status: 'rejected' as const };
-    }
-  );
-  return {
-    result,
-    get settled() {
-      return settled;
-    },
-  };
-}
-
-// XML and SDK v4 payloads follow the shipped memory-persistence and scripted-model fixtures.
-function textStream(
-  text = '<observations>\n- The user asked about Paris weather.\n</observations>'
-): ModelResult {
-  return {
-    stream: simulateReadableStream({
-      chunkDelayInMs: null,
-      chunks: [
-        { type: 'stream-start', warnings: [] },
-        { id: 'observation-text', type: 'text-start' },
-        { delta: text, id: 'observation-text', type: 'text-delta' },
-        { id: 'observation-text', type: 'text-end' },
-        {
-          finishReason: { raw: 'stop', unified: 'stop' },
-          type: 'finish',
-          usage: {
-            inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 42, total: 42 },
-            outputTokens: { reasoning: 0, text: 9, total: 9 },
-          },
-        },
-      ],
-      initialDelayInMs: null,
-    }),
-  };
-}
-
-function model(call: (params: ModelCall) => Promise<ModelResult> = async () => textStream()) {
-  return new MockLanguageModelV4({ doStream: call });
-}
-
-function abortingModel(started: ReturnType<typeof gate>, onSignal?: (signal: AbortSignal) => void) {
-  return model(async ({ abortSignal }) => {
-    if (!abortSignal) {
-      throw new Error('Expected the public request lifetime signal');
-    }
-    onSignal?.(abortSignal);
-    started.resolve();
-    return await new Promise<ModelResult>((_resolve, reject) => {
-      abortSignal.addEventListener('abort', () => reject(abortSignal.reason), { once: true });
-    });
-  });
-}
-
-function observeFixture(
-  f: Fixture,
-  options: Omit<Parameters<ObservationalMemory['observe']>[0], 'threadId' | 'resourceId'> = {}
-) {
-  return f.engine.observe({
-    messages: [message(f)],
-    ...options,
-    resourceId: f.resourceId,
-    threadId: f.threadId,
-  });
-}
-
-type AsyncTrigger = Parameters<ObservationalMemory['triggerAsyncBuffering']>[0];
-function triggerFixture(
-  f: Fixture,
-  record: AsyncTrigger['record'],
-  options: Partial<Omit<AsyncTrigger, 'record' | 'threadId' | 'resourceId'>> = {}
-) {
-  return f.engine.triggerAsyncBuffering({
-    pendingTokens: 200,
-    threshold: 1000,
-    unbufferedPendingTokens: 200,
-    unobservedMessages: [],
-    ...options,
-    record,
-    resourceId: f.resourceId,
-    threadId: f.threadId,
-  });
-}
-
-function message(
-  fixture: Pick<Fixture, 'threadId' | 'resourceId'>,
-  text = 'Paris weather. '.repeat(60)
-): MastraDBMessage {
-  return {
-    content: { format: 2, parts: [{ text, type: 'text' }] },
-    createdAt: new Date('2026-10-06T00:00:00Z'),
-    id: randomUUID(),
-    resourceId: fixture.resourceId,
-    role: 'user',
-    threadId: fixture.threadId,
-  };
-}
+import {
+  abortingModel,
+  type EngineOptions,
+  entrypoints,
+  type Fixture,
+  fixtures,
+  gate,
+  message,
+  model,
+  observeFixture,
+  releases,
+  textStream,
+  triggerFixture,
+  watch,
+} from './fixtures/memory-lifecycle.ts';
 
 afterEach(async () => {
   for (const release of releases.splice(0)) {
@@ -545,18 +415,20 @@ describe.each(entrypoints)(
       });
       await turn.start();
       await turn.step(0).prepare();
-      await providerStarted.promise;
       const joined = watch(f.engine.settled());
+      await nextTurn();
+      expect(writes).toEqual([true]);
+      expect(joined.settled).toBe(false);
+      initial.resolve();
+      await providerStarted.promise;
       provider.resolve();
-      await endHookStarted.promise;
+      await Promise.all([endHookStarted.promise, finalStarted.promise]);
       await nextTurn();
       expect(joined.settled).toBe(false);
       endHook.resolve();
       await nextTurn();
-      expect(writes).toEqual([true]);
-      initial.resolve();
-      await finalStarted.promise;
       expect(joined.settled).toBe(false);
+      expect(writes).toEqual([true, false]);
       final.resolve();
       expect((await joined.result).status).toBe('fulfilled');
       await turn.end();
@@ -655,7 +527,14 @@ describe.each(entrypoints)(
     it('joins a held resource observation batch before returning a sibling provider failure', async () => {
       const siblingStarted = gate();
       const sibling = gate();
-      const failure = new Error('resource batch rejected');
+      // Core retries every model error except a non-retryable provider call error.
+      const failure = new APICallError({
+        isRetryable: false,
+        message: 'resource batch rejected',
+        requestBodyValues: {},
+        statusCode: 400,
+        url: 'https://provider.invalid/v1/chat',
+      });
       let attempts = 0;
       let lateTails = 0;
       const f = await resourceFixture({
@@ -667,7 +546,9 @@ describe.each(entrypoints)(
           siblingStarted.resolve();
           await sibling.promise;
           lateTails++;
-          return textStream();
+          return textStream(
+            `<observations>\n<thread id="${f.secondThreadId}">- The user asked about Paris travel.</thread>\n</observations>`
+          );
         }),
       });
       const observation = watch(observeFixture(f, { messages: [f.firstMessage] }));
@@ -678,8 +559,13 @@ describe.each(entrypoints)(
       expect(joined.settled).toBe(false);
       expect(lateTails).toBe(0);
       sibling.resolve();
-      expect(await observation.result).toEqual({ reason: failure, status: 'rejected' });
-      expect(await joined.result).toEqual({ reason: failure, status: 'rejected' });
+      // Memory reports a provider failure as its observer-model execution error.
+      const rejected = {
+        reason: expect.objectContaining({ cause: failure, name: 'OmModelExecutionError' }),
+        status: 'rejected',
+      };
+      expect(await observation.result).toEqual(rejected);
+      expect(await joined.result).toEqual(rejected);
       expect(attempts).toBe(2);
       expect(lateTails).toBe(1);
     });
@@ -780,7 +666,11 @@ describe.each(entrypoints)(
         middleware: {
           specificationVersion: 'v4',
           wrapStream: ({ doStream, params }) =>
-            f.engine.trackBackgroundWork(Promise.resolve(doStream()), params.abortSignal),
+            f.engine.trackBackgroundWork(
+              Promise.resolve(doStream()),
+              undefined,
+              params.abortSignal
+            ),
         },
         model: providerModel,
       });
