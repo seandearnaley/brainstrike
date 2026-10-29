@@ -28,7 +28,7 @@ cleanupUnusedCatalogs: true
 catalog:
   # ADR-0012: only the new host consumes this pin; the legacy Mastra closure retains ai 6.
   ai: 7.0.143
-  vscode-jsonrpc: 9.0.3
+  vscode-jsonrpc: 10.0.0
   "@ai-sdk/amazon-bedrock": 5.0.118
   # BST-2067: the AI SDK's OpenTelemetry GenAI integration. LOCKSTEP with `ai`:
   # each release depends on `ai` at an EXACT version (1.0.142 -> ai 7.0.142) and
@@ -296,7 +296,7 @@ patchedDependencies:
   # which Memory's internal observer/reflector streams pass through.
   "@mastra/core@1.80.0": patches/@mastra__core@1.80.0.patch
   "@assistant-ui/core@0.3.32": patches/@assistant-ui__core@0.3.32.patch
-  vscode-jsonrpc@9.0.3: patches/vscode-jsonrpc@9.0.3.patch
+  vscode-jsonrpc@10.0.0: patches/vscode-jsonrpc@10.0.0.patch
   # Playwright 1.64 launches Electron through cmd.exe on every Windows path, so it holds the
   # shell, not Main, and force-closes with `taskkill /T` from the shell's pid. /T walks parent
   # pids, which Windows never checks against creation time, so a reused pid takes in processes

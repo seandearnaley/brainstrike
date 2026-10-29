@@ -12,7 +12,7 @@ index b658ac18866e8dbd23c805a87bdaf902b06500ee..efd582e4f599f37920936e47cf56f985
      sendNotification(type: NotificationType0): Promise<void>;
      sendNotification<P>(type: NotificationType<P>, params?: NoInfer<RequestParam<P>>): Promise<void>;
 diff --git a/lib/common/connection.js b/lib/common/connection.js
-index 67806ee25d71e796a0624a7f38e617edf33fbad6..5317d0702fed6b4e396a6065ad9f021e33e9283c 100644
+index d0672888d3cd250e1901057a5c40f0ffd11a4808..a9ba577cd6a80b4434d4126b7bea64d0b959e37a 100644
 --- a/lib/common/connection.js
 +++ b/lib/common/connection.js
 @@ -386,6 +386,27 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
@@ -20,7 +20,7 @@ index 67806ee25d71e796a0624a7f38e617edf33fbad6..5317d0702fed6b4e396a6065ad9f021e
          }
      }
 +    // BST-1977: opt-in dispatch settlement; ordinary dispose stays immediate.
-+    // Upstream: https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/release/jsonrpc/9.0.2/jsonrpc/src/common/connection.ts
++    // Upstream: https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/release/jsonrpc/10.0.0/jsonrpc/src/common/connection.ts
 +    // Remove when an upstream equivalent passes the host receive-drain tests.
 +    const dispatchDrains = new Set();
 +    const dispatchFailures = [];
@@ -43,7 +43,7 @@ index 67806ee25d71e796a0624a7f38e617edf33fbad6..5317d0702fed6b4e396a6065ad9f021e
      function triggerMessageQueue() {
          if (timer || messageQueue.size === 0) {
              return;
-@@ -414,19 +435,26 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
+@@ -414,7 +435,8 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
                  }
              }
              catch (error) {
@@ -53,18 +53,17 @@ index 67806ee25d71e796a0624a7f38e617edf33fbad6..5317d0702fed6b4e396a6065ad9f021e
              }
              finally {
                  if (result instanceof Promise) {
+@@ -424,14 +446,17 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
+                     // triggerMessageQueue() bailed out forever after.
                      result.then(() => {
+                     }).catch((error) => {
+-                        logger.error(`Processing message queue failed: ${error.toString()}`);
++                        dispatchFailures.push(error);
++                        logger.error(`Processing message queue failed: ${String(error)}`);
+                     }).finally(() => {
                          inFlight--;
 +                        completeDispatchDrains();
-+                        triggerMessageQueue();
-+                    }, (error) => {
-+                        dispatchFailures.push(error);
-+                        inFlight--;
-+                        completeDispatchDrains();
                          triggerMessageQueue();
--                    }).catch((error) => {
--                        logger.error(`Processing message queue failed: ${error.toString()}`);
-+                        logger.error(`Processing message queue failed: ${String(error)}`);
                      });
                  }
                  else {
@@ -73,7 +72,7 @@ index 67806ee25d71e796a0624a7f38e617edf33fbad6..5317d0702fed6b4e396a6065ad9f021e
                  }
                  triggerMessageQueue();
              }
-@@ -1185,6 +1213,12 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
+@@ -1190,6 +1215,12 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
                  }
              };
          },
@@ -86,7 +85,7 @@ index 67806ee25d71e796a0624a7f38e617edf33fbad6..5317d0702fed6b4e396a6065ad9f021e
          hasPendingResponse: () => {
              return responsePromises.size > 0;
          },
-@@ -1233,6 +1267,7 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
+@@ -1238,6 +1269,7 @@ function createMessageConnection(messageReader, messageWriter, _logger, options)
              requestTokens = new Map();
              knownCanceledRequests = new Set();
              messageQueue = new linkedMap_1.LinkedMap();
@@ -108,7 +107,7 @@ index d447d07a24ae5803fa2f1a9c1a9137288170c4f1..fb5eca62c1647f48734f1ee9baa58c2e
      private clearPartialMessageTimer;
      private setPartialMessageTimer;
 diff --git a/lib/common/messageReader.js b/lib/common/messageReader.js
-index 59c6ca67551124e5e1d4bf5212d37f74d8ba8ce7..00a186338a793fee8cad6e98ba439637a32c29ac 100644
+index 59c6ca67551124e5e1d4bf5212d37f74d8ba8ce7..b1d5ccb6ba4d11e085739c1c6c3a50d0e29918ee 100644
 --- a/lib/common/messageReader.js
 +++ b/lib/common/messageReader.js
 @@ -175,6 +175,14 @@ class ReadableStreamMessageReader extends AbstractMessageReader {
@@ -117,7 +116,7 @@ index 59c6ca67551124e5e1d4bf5212d37f74d8ba8ce7..00a186338a793fee8cad6e98ba439637
      }
 +    // BST-1977: raw close can precede complete-frame decoding. Opt-in only;
 +    // callers close input first. No partial/future bytes are admitted here.
-+    // Upstream: https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/release/jsonrpc/9.0.2/jsonrpc/src/common/messageReader.ts
++    // Upstream: https://raw.githubusercontent.com/microsoft/vscode-languageserver-node/release/jsonrpc/10.0.0/jsonrpc/src/common/messageReader.ts
 +    // Remove when an upstream equivalent passes the host receive-drain tests.
 +    drain() {
 +        this.clearPartialMessageTimer();

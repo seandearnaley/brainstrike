@@ -480,8 +480,8 @@ catalogs:
       specifier: ^5.0.5
       version: 5.0.5
     vscode-jsonrpc:
-      specifier: 9.0.3
-      version: 9.0.3
+      specifier: 10.0.0
+      version: 10.0.0
     web-tree-sitter:
       specifier: 0.27.1
       version: 0.27.1
@@ -520,7 +520,7 @@ patchedDependencies:
   '@mastra/core@1.80.0': 4765d2924d6493e2bc6ce27da012c5201cecb19d352e72279b8218d283e0f799
   '@mastra/memory@1.39.1': 58f79bbec023b9ee32cba6aa1d10d20f32ed3e630738b8c6d813adc9a741383e
   playwright-core@1.64.1: 79a90d62951819db9ce03cee5e288e1655267f14f9e7b324a7f2e31fd2b1469c
-  vscode-jsonrpc@9.0.3: df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034
+  vscode-jsonrpc@10.0.0: 2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4
 
 importers:
 
@@ -858,7 +858,7 @@ importers:
         version: 6.0.2
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
+        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       vscode-languageserver-protocol:
         specifier: ^3.18.5
         version: 3.18.5
@@ -1284,7 +1284,7 @@ importers:
         version: 4.1.0
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
+        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -2452,7 +2452,7 @@ importers:
         version: 1.2.2
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
+        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -10207,10 +10207,6 @@ packages:
     resolution: {integrity: sha512-JvONPptw3GAQGXlVV2utDcHx0BiY34FupW/kI6mZ5x06ER5DdPG/tXWMVHjTNULF5uKPOUUD0SaXg5QaubJL0A==}
     engines: {node: '>=8.0.0 || >=10.0.0'}
 
-  vscode-jsonrpc@9.0.3:
-    resolution: {integrity: sha512-qETYf9PCl1lVfwR+oBmMfc4vP2nqLNA35ABxorw3j06+xlKRgDVxbLgKm4Y/xPL0YWdeDjLoI4ImICIT3nB0zQ==}
-    engines: {node: '>=14.0.0'}
-
   vscode-languageserver-protocol@3.18.5:
     resolution: {integrity: sha512-FW4fBMzZ99N8xeob4py0l050wgCoRgTpEq5Xcsb9lM1bc29UKGR/wSV+4knaqFxssFHajy7OzNiKP/m3U1ZEuA==}
 
@@ -17668,15 +17664,13 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vscode-jsonrpc@10.0.0: {}
+  vscode-jsonrpc@10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4): {}
 
   vscode-jsonrpc@5.0.1: {}
 
-  vscode-jsonrpc@9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034): {}
-
   vscode-languageserver-protocol@3.18.5:
     dependencies:
-      vscode-jsonrpc: 10.0.0
+      vscode-jsonrpc: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       vscode-languageserver-types: 3.18.5
 
   vscode-languageserver-types@3.18.5: {}
