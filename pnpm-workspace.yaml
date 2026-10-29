@@ -138,7 +138,7 @@ catalog:
   # tree the moment 4.0.0 shipped. Stability is now a `@stability` JSDoc tag per
   # API, not a path segment, so an exact pin is what makes an unstable-API
   # change reviewable. docs/agents/effect-boundary.md.
-  effect: 4.0.5
+  effect: 4.1.0
   # Chromium security patches only. Stay on the 44 line: Electron 45 is a
   # separate, reviewed decision, not a security bump. 44.9.1 carries the
   # eMudhra intermediate-certificate distrust (GHSA-jr5w-w6x2-84p9).
