@@ -84,8 +84,8 @@ test('a provider rejection reads with the hosted classification indexing uses', 
     apiKey,
     new AbortController().signal
   );
-  if (typeof target.embedder !== 'object' || target.embedder.specificationVersion !== 'v3') {
-    throw new Error('The hosted embedder must be a v3 model');
+  if (typeof target.embedder !== 'object' || target.embedder.specificationVersion !== 'v4') {
+    throw new Error('The hosted embedder must be a v4 model');
   }
 
   const cause = await target.embedder.doEmbed({ values: ['probe'] }).then(
