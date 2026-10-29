@@ -1,5 +1,6 @@
 # Mergify's merge queue lands every pull request on main (BST-2188, owner
-# decision 2026-10-19). Enqueue a PR by commenting `@mergifyio queue` on it.
+# decision 2026-10-19). A ready PR queues itself (merge_protections_settings
+# below); queue any other by commenting `@mergifyio queue` on it.
 #
 # Mergify builds each batch on main, pushes it to a branch under
 # queue_branch_prefix and opens a draft PR for it. That push runs
