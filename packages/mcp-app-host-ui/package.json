@@ -12,7 +12,7 @@
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
     "@modelcontextprotocol/client": "catalog:",
-    "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@modelcontextprotocol/ext-apps": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",

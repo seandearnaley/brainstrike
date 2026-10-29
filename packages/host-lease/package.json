@@ -19,7 +19,7 @@
     "@brainstrike/windows-job-native": "workspace:*",
     "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
-    "tsx": "^4.23.15",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "@vitest/coverage-v8": "catalog:"

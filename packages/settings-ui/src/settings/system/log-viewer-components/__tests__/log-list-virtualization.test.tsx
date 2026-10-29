@@ -91,6 +91,17 @@ describe('LogList real virtualization', () => {
       }
       return rowRect;
     });
+    // The virtualizer sizes its viewport from the scroll element's client box.
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function getHeight(
+      this: HTMLElement
+    ): number {
+      return this.dataset['testid'] === 'log-list-scroll-container' ? viewportRect.height : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function getWidth(
+      this: HTMLElement
+    ): number {
+      return this.dataset['testid'] === 'log-list-scroll-container' ? viewportRect.width : 0;
+    });
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
       value: scrollToMock,
