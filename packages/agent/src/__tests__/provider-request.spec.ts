@@ -754,7 +754,7 @@ const providers = [
 
 describe('recorded installed-provider payloads (offline)', () => {
   it('matches all shipped routes through SDK7 and the canonical schema layers', async () => {
-    expect((hostRequire('ai/package.json') as { version: string }).version).toBe('7.0.142');
+    expect((hostRequire('ai/package.json') as { version: string }).version).toBe('7.0.143');
     const recorded: Record<string, unknown> = {};
     const cases = [
       ...providers.map(([provider, modelId]) => ({
@@ -871,7 +871,7 @@ describe('recorded installed-provider payloads (offline)', () => {
     if (process.env['BST_RECORD_PROVIDER_FIXTURES'] === '1') {
       await writeFile(
         fixtureUrl,
-        `${JSON.stringify({ payloads: recorded, source: { base: 'f9dcbce5f6917a02ea4b4fc9cc7438e997d6cd03', capture: 'real installed SDK/provider serialization; fully intercepted fetch; no real account', openai: '4.0.96', sdk: '7.0.142' } }, null, 2)}\n`
+        `${JSON.stringify({ payloads: recorded, source: { base: 'f9dcbce5f6917a02ea4b4fc9cc7438e997d6cd03', capture: 'real installed SDK/provider serialization; fully intercepted fetch; no real account', openai: '4.0.96', sdk: '7.0.143' } }, null, 2)}\n`
       );
     }
     const fixtures = JSON.parse(await readFile(fixtureUrl, 'utf8')) as {
