@@ -55,7 +55,6 @@
       matchManagers: ['npm'],
       matchUpdateTypes: ['minor', 'patch', 'digest', 'pin'],
       groupName: 'non-major dependencies',
-      groupSlug: 'all-non-major',
       draftPR: false,
     },
     {
@@ -92,7 +91,13 @@
     },
     {
       description: 'Effect and its language service; tsgo pins the TS 7 it supports.',
-      matchPackageNames: ['effect', '@effect/**', '@typescript/native'],
+      matchPackageNames: ['effect', '@effect/**'],
+      groupName: 'Effect and TypeScript 7',
+      draftPR: true,
+    },
+    {
+      description: 'The @typescript/native alias resolves to the package `typescript`, so match its dependency name.',
+      matchDepNames: ['@typescript/native'],
       groupName: 'Effect and TypeScript 7',
       draftPR: true,
     },
@@ -147,7 +152,7 @@
     },
     {
       description: 'The `typescript` catalog entry is TypeScript 6 on purpose (ADR-0004).',
-      matchPackageNames: ['typescript', '@typescript/old'],
+      matchDepNames: ['typescript', '@typescript/old'],
       matchUpdateTypes: ['major'],
       enabled: false,
     },
@@ -159,7 +164,7 @@
     },
     {
       description: 'Node and pnpm toolchain pins move by hand.',
-      matchDepTypes: ['engines', 'packageManager', 'devEngines'],
+      matchDepTypes: ['engines', 'packageManager', 'devEngines.runtime', 'devEngines.packageManager'],
       draftPR: true,
       groupName: 'toolchain',
     },
