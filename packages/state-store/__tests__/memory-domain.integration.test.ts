@@ -116,7 +116,7 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
             threadId: 'absent',
           },
         ])
-      ).toThrow(/FOREIGN KEY/);
+      ).toThrow(/FOREIGN KEY/u);
       expect(executeMemoryRequest(db, { operation: 'read', resourceId: 'resource' })).toEqual(
         original
       );
@@ -303,7 +303,7 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
           },
         },
       ]);
-      expect(() => executeMemoryRequest(db, detach)).toThrow(/observation token counter/);
+      expect(() => executeMemoryRequest(db, detach)).toThrow(/observation token counter/u);
       expect(executeMemoryRequest(db, { operation: 'read', resourceId: 'resource' })).toEqual(
         before
       );
@@ -328,7 +328,7 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
           operation: 'commit',
           resourceId: 'other',
         })
-      ).toThrow(/another resource/);
+      ).toThrow(/another resource/u);
       expect(executeMemoryRequest(db, { operation: 'read', resourceId: 'other' })).toEqual({
         entities: [],
         revision: 0,

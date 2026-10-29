@@ -32,7 +32,7 @@ export function RediscoveredPauseLines({ display }: { display: RediscoveredPause
     }[display.decisionState];
     return (
       <p
-        className="mt-1 text-warning text-xs"
+        className="text-warning mt-1 text-xs"
         data-testid="delegated-decision-recovery-status"
         role="status"
       >
@@ -47,12 +47,12 @@ export function RediscoveredPauseLines({ display }: { display: RediscoveredPause
   return (
     <>
       {pendingSince ? (
-        <p className="mt-0.5 truncate text-muted-foreground text-xs">
+        <p className="text-muted-foreground mt-0.5 truncate text-xs">
           Pending since {pendingSince}
         </p>
       ) : null}
       {display.stale ? (
-        <p className="mt-0.5 text-warning text-xs">
+        <p className="text-warning mt-0.5 text-xs">
           This request has been pending a while — re-running it may be safer.
         </p>
       ) : null}

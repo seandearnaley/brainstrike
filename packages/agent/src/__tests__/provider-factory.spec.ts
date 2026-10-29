@@ -156,13 +156,13 @@ describe('provider-factory', () => {
 
     it('rejects a hosted router model without an explicit credential', () => {
       expect(() => createLanguageModelProvider('openrouter', undefined, 'z-ai/glm-5.2')).toThrow(
-        /requires an explicit API key/i
+        /requires an explicit API key/iu
       );
     });
 
     it('rejects providers outside the persistent-memory model boundary', () => {
       expect(() => createLanguageModelProvider('cohere', 'test-key', 'command-r')).toThrow(
-        /does not support provider: cohere/i
+        /does not support provider: cohere/iu
       );
     });
   });
@@ -185,7 +185,7 @@ describe('provider-factory', () => {
     });
 
     it('throws for an unsupported provider', () => {
-      expect(() => getDefaultModel('unsupported')).toThrow(/Unsupported provider/);
+      expect(() => getDefaultModel('unsupported')).toThrow(/Unsupported provider/u);
     });
 
     it('returns an explicit unset default for an embeddings-only provider', () => {

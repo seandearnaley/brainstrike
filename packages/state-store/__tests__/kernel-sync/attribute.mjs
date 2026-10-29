@@ -41,19 +41,19 @@ function parseStrace(file) {
   const open = new Map();
   for (const l of readFileSync(file, 'utf8').split('\n')) {
     let m =
-      /^(\d+)\s+(\d+\.\d+)\s+(fsync|fdatasync)\(\d+<(.*)>\)\s+=\s+(-?\d+).*<(\d+\.\d+)>\s*$/.exec(
+      /^(\d+)\s+(\d+\.\d+)\s+(fsync|fdatasync)\(\d+<(.*)>\)\s+=\s+(-?\d+).*<(\d+\.\d+)>\s*$/u.exec(
         l
       );
     if (m) {
       evs.push({ op: m[3], path: m[4], rc: Number(m[5]), tid: Number(m[1]) });
       continue;
     }
-    m = /^(\d+)\s+(\d+\.\d+)\s+(fsync|fdatasync)\(\d+<(.*)> <unfinished \.\.\.>/.exec(l);
+    m = /^(\d+)\s+(\d+\.\d+)\s+(fsync|fdatasync)\(\d+<(.*)> <unfinished \.\.\.>/u.exec(l);
     if (m) {
       open.set(m[1], { op: m[3], path: m[4], tid: Number(m[1]) });
       continue;
     }
-    m = /^(\d+)\s+(\d+\.\d+)\s+<\.\.\. (fsync|fdatasync) resumed>.*=\s+(-?\d+)/.exec(l);
+    m = /^(\d+)\s+(\d+\.\d+)\s+<\.\.\. (fsync|fdatasync) resumed>.*=\s+(-?\d+)/u.exec(l);
     if (m) {
       const st = open.get(m[1]);
       open.delete(m[1]);
@@ -63,7 +63,7 @@ function parseStrace(file) {
       evs.push({ ...st, rc: Number(m[4]) });
       continue;
     }
-    if (/(fsync|fdatasync)\(/.test(l)) {
+    if (/(fsync|fdatasync)\(/u.test(l)) {
       throw new Error(`unparsed strace line: ${l}`);
     }
   }
@@ -93,7 +93,7 @@ if (out.clock !== 'uv_hrtime') {
   throw new Error(`raw file ${rawFile} was not recorded on the uv_hrtime clock`);
 }
 const inWin = evs.filter((e) => e.t0 >= out.window.t0 - EPS && e.t0 <= out.window.t1 + EPS);
-const isLock = (e) => /[\\/]lock[\\/]/.test(e.path);
+const isLock = (e) => /[\\/]lock[\\/]/u.test(e.path);
 const rightFile = (e) => base(e.path) === 'state.db-wal' || base(e.path) === 'state.db';
 const counts = {
   boundary: 0,

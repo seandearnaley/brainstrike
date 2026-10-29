@@ -15,7 +15,7 @@ async function endTransport(transport: Writable): Promise<void> {
 
 describe('main log transport', () => {
   it('fails loudly when the required destination is absent', () => {
-    expect(() => createMainLogTransport({})).toThrow(/destination/);
+    expect(() => createMainLogTransport({})).toThrow(/destination/u);
   });
 
   it('returns a writable destination for valid rotating options', () => {

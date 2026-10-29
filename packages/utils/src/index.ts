@@ -1,10 +1,9 @@
-export * from './collator.ts';
-
 import type { ColorScheme, FolderColors } from './color-utils.ts';
 
 export * from './background-indexing-policy.ts';
 export * from './browser-download.ts';
 export * from './bulk-operation-context.ts';
+export * from './collator.ts';
 export * from './color-utils.ts';
 export * from './create-debounce.ts';
 export * from './crypto.ts';

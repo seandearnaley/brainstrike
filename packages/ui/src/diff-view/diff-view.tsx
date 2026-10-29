@@ -158,7 +158,7 @@ function buildHunkLineDecorations(hunkText: string): Extension {
   // dropped every decoration under the old split). Splitting on the same
   // break set CodeMirror recognizes keeps `pos` aligned regardless of line
   // ending.
-  for (const line of hunkText.split(/\r\n?|\n/)) {
+  for (const line of hunkText.split(/\r\n?|\n/u)) {
     if (line.startsWith('+') && !line.startsWith('+++')) {
       builder.add(pos, pos, Decoration.line({ class: 'cm-insertedLine' }));
     } else if (line.startsWith('-') && !line.startsWith('---')) {
@@ -860,19 +860,19 @@ export function DiffView({
 
   return (
     <div
-      className={cn('flex h-full min-h-0 flex-col bg-background text-foreground', className)}
+      className={cn('bg-background text-foreground flex h-full min-h-0 flex-col', className)}
       data-language={resolvedLanguage.label}
       data-mode={modeTogglable ? mode : undefined}
       data-testid={testId}
     >
-      <div className="flex items-center justify-between gap-2 border-border border-b px-2 py-1">
+      <div className="border-border flex items-center justify-between gap-2 border-b px-2 py-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-muted-foreground text-xs">
+          <span className="text-muted-foreground text-xs font-medium">
             {effectiveFilename ?? 'Diff'}
           </span>
           {resolved.status ? (
             <span
-              className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs"
+              className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 text-xs"
               data-testid="diff-status-chip"
             >
               {STATUS_LABELS[resolved.status]}
@@ -897,7 +897,7 @@ export function DiffView({
               bg-warning/15. Re-measure these badges if --bs-warning is retuned. */}
           {presentation.kind === 'hunks-only' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
+              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
               data-testid="diff-over-cap-note"
             >
               {presentation.sideNote}
@@ -905,7 +905,7 @@ export function DiffView({
           ) : null}
           {oversizeNote === 'sliced' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
+              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
               data-testid="diff-sliced-note"
             >
               File too large to diff in full — showing changed regions with surrounding context
@@ -917,7 +917,7 @@ export function DiffView({
               silently-degraded stand-in for the sliced view. */}
           {oversizeNote === 'unsliceable' ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
+              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
               data-testid="diff-too-large-note"
             >
               File too large to diff inline — showing content without change highlighting
@@ -925,7 +925,7 @@ export function DiffView({
           ) : null}
           {truncatedNoteVisible ? (
             <span
-              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-warning text-xs"
+              className="text-warning rounded bg-amber-500/15 px-1.5 py-0.5 text-xs"
               data-testid="diff-truncated-note"
             >
               diff truncated
@@ -962,7 +962,7 @@ export function DiffView({
       >
         {presentation.kind === 'binary' ? (
           <div
-            className="flex h-full min-h-0 items-center justify-center text-muted-foreground text-sm"
+            className="text-muted-foreground flex h-full min-h-0 items-center justify-center text-sm"
             data-testid="diff-binary-note"
           >
             Binary file — no text diff

@@ -80,7 +80,7 @@ describe('AssistantActivityParts (hydrated messages)', () => {
       />
     );
     expect(await screen.findByTestId('assistant-activity-group')).toBeInTheDocument();
-    expect(screen.getByText(/3 steps/)).toBeInTheDocument();
+    expect(screen.getByText(/3 steps/u)).toBeInTheDocument();
     expect(screen.getAllByTestId('tool-fallback')).toHaveLength(3);
   });
 

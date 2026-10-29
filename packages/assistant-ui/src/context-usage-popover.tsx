@@ -70,7 +70,7 @@ const SourceRow = ({ source }: { readonly source: CumulativeSource }) => {
   const [onlyModel] = source.models.length === 1 ? source.models : [];
   return (
     <li className="flex flex-col gap-px" data-testid={`context-usage-source-${source.kind}`}>
-      <span className="flex items-center justify-between gap-2 text-muted-foreground">
+      <span className="text-muted-foreground flex items-center justify-between gap-2">
         <span className="min-w-0 truncate">
           {SOURCE_LABELS[source.kind]}
           {onlyModel ? (
@@ -84,16 +84,16 @@ const SourceRow = ({ source }: { readonly source: CumulativeSource }) => {
           <span className="text-muted-foreground/80">
             {formatCompact(source.inputTokens)} in · {formatCompact(source.outputTokens)} out
           </span>
-          <span className="w-14 text-right text-foreground">
+          <span className="text-foreground w-14 text-right">
             {subtotalCostLabel(source.costUsd)}
           </span>
         </span>
       </span>
       {source.models.length > 1 && (
-        <ul className="ml-1 flex flex-col gap-px border-border/60 border-l pl-2">
+        <ul className="border-border/60 ml-1 flex flex-col gap-px border-l pl-2">
           {source.models.map((model) => (
             <li
-              className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/70"
+              className="text-muted-foreground/70 flex items-center justify-between gap-2 text-[11px]"
               data-testid="context-usage-source-model"
               key={`${model.provider}::${model.model}`}
             >
@@ -145,7 +145,7 @@ export const CumulativeUsageSection = ({
           {label} · {formatTokenCount(totalTokens)}
           {liveTokens > 0 ? ' (live)' : ''}
         </span>
-        <span className="font-semibold text-sm" data-testid="context-usage-cost">
+        <span className="text-sm font-semibold" data-testid="context-usage-cost">
           {/* The durable cost excludes the in-flight live tokens above — say so
               rather than pairing a current total with a lagging price. */}
           {liveTokens > 0
@@ -154,7 +154,7 @@ export const CumulativeUsageSection = ({
         </span>
       </p>
       <p
-        className="text-[11px] text-muted-foreground/80 tabular-nums"
+        className="text-muted-foreground/80 text-[11px] tabular-nums"
         data-testid="context-usage-thread-total-split"
       >
         {formatCompact(inputTokens)} in · {formatCompact(outputTokens)} out
@@ -165,13 +165,13 @@ export const CumulativeUsageSection = ({
       </p>
       {hasCacheTraffic && (
         <p
-          className="rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground tabular-nums"
+          className="bg-muted/60 text-muted-foreground rounded-md px-2 py-1 text-[11px] tabular-nums"
           data-testid="context-usage-cache-line"
         >
           Cache: {formatCompact(cumulativeUsage.cacheReadTokens)} read ({cachedShare}% of input) ·{' '}
           {formatCompact(cumulativeUsage.cacheCreationTokens)} written
           {cumulativeUsage.cacheSavings ? (
-            <span className="font-medium text-foreground">
+            <span className="text-foreground font-medium">
               {' '}
               · saved ~{formatUsdCost(cumulativeUsage.cacheSavings.usdAmount)}
             </span>
@@ -255,7 +255,7 @@ const OmMeterSection = ({ state }: OmMeterSectionProps) => {
   if (state.kind === 'stats') {
     return (
       <div
-        className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground/70"
+        className="text-muted-foreground/70 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]"
         data-testid="context-usage-om-stats"
       >
         {state.observationTokens > 0 && (
@@ -664,7 +664,7 @@ const CapacityBar = ({ effectiveInputBudget, segments }: CapacityBarProps) => {
   return (
     <div
       aria-hidden="true"
-      className="mt-1 flex h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      className="bg-muted mt-1 flex h-1.5 w-full overflow-hidden rounded-full"
       data-testid="context-usage-bar"
     >
       {widths.map((segment) => (
@@ -721,14 +721,14 @@ const WorkspaceFilesRow = ({
   readonly tokens: number | null;
 }) => (
   <p
-    className="mt-1 flex items-center justify-between gap-2 text-muted-foreground"
+    className="text-muted-foreground mt-1 flex items-center justify-between gap-2"
     data-testid="context-usage-workspace-files"
   >
     <span className="flex items-center gap-1.5">
       Workspace files in the window
       {onOpenContextMap && (
         <button
-          className="text-[11px] text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="text-foreground focus-visible:ring-ring text-[11px] underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:outline-none"
           data-testid="context-usage-open-context-map"
           onClick={onOpenContextMap}
           type="button"
@@ -776,7 +776,7 @@ export const ContextUsagePopoverContent = ({
       {cumulativeUsage && (
         <>
           <CumulativeUsageSection cumulativeUsage={cumulativeUsage} liveRunUsage={liveRunUsage} />
-          <div aria-hidden="true" className="my-1 border-border/60 border-t" />
+          <div aria-hidden="true" className="border-border/60 my-1 border-t" />
         </>
       )}
 
@@ -791,7 +791,7 @@ export const ContextUsagePopoverContent = ({
         {isEstimated ? ' (estimated)' : ''} / {formatTokenCount(effectiveInputBudget)}
       </p>
       <p
-        className="text-[11px] text-muted-foreground/80"
+        className="text-muted-foreground/80 text-[11px]"
         data-testid="context-usage-popover-window"
       >
         model window {formatTokenCount(contextWindow)}
@@ -803,7 +803,7 @@ export const ContextUsagePopoverContent = ({
       {/* Malformed wire part → surfaced honestly, never coerced into rows. */}
       {breakdownInvalid && (
         <p
-          className="mt-1 text-[11px] text-destructive/80"
+          className="text-destructive/80 mt-1 text-[11px]"
           data-testid="context-usage-breakdown-invalid"
         >
           Prompt breakdown unavailable (malformed data from the last run).
@@ -814,7 +814,7 @@ export const ContextUsagePopoverContent = ({
         <ul className="mt-1 flex flex-col gap-0.5" data-testid="context-usage-breakdown">
           {rows.map((row) => (
             <li className="flex flex-col gap-0.5" data-testid={row.testId} key={row.testId}>
-              <span className="flex items-center justify-between gap-2 text-muted-foreground">
+              <span className="text-muted-foreground flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1.5">
                   {row.colorClass && (
                     <span
@@ -827,10 +827,10 @@ export const ContextUsagePopoverContent = ({
                 <span className="tabular-nums">{row.value}</span>
               </span>
               {subRowsByTestId[row.testId] && (
-                <ul className="ml-3.5 flex max-h-48 flex-col gap-px overflow-y-auto border-border/60 border-l pl-2">
+                <ul className="border-border/60 ml-3.5 flex max-h-48 flex-col gap-px overflow-y-auto border-l pl-2">
                   {subRowsByTestId[row.testId]?.map((subRow) => (
                     <li
-                      className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground/70"
+                      className="text-muted-foreground/70 flex items-center justify-between gap-2 text-[11px]"
                       data-testid={subRow.testId}
                       key={subRow.testId}
                     >

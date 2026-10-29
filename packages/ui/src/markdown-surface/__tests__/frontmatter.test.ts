@@ -27,7 +27,7 @@ describe('extractFrontmatter', () => {
   it('reports non-mapping YAML (a list) as an error', () => {
     const r = extractFrontmatter('---\n- a\n- b\n---\nbody');
     expect(r.data).toBeNull();
-    expect(r.error).toMatch(/mapping/i);
+    expect(r.error).toMatch(/mapping/iu);
   });
   it('treats empty frontmatter as no properties block, stripped from body', () => {
     const r = extractFrontmatter('---\n---\n# Body\n');
@@ -45,7 +45,7 @@ describe('extractFrontmatter', () => {
     const r = extractFrontmatter('---\n# Real heading\n---\nBody\n');
     expect(r.raw).toBe('# Real heading');
     expect(r.data).toBeNull(); // a YAML comment parses to null → non-mapping
-    expect(r.error).toMatch(/mapping/i);
+    expect(r.error).toMatch(/mapping/iu);
     expect(r.body).toBe('Body\n');
   });
 });

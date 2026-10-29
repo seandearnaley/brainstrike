@@ -152,7 +152,7 @@ describe('catalog model rows', () => {
     expect(screen.getByText('Vision not published')).toBeInTheDocument();
     expect(screen.getByText('Reasoning not published')).toBeInTheDocument();
     const row = screen.getByTestId('model-row-bare').closest('tr');
-    expect(row?.textContent).not.toMatch(/\$0|(^|\D)0K/);
+    expect(row?.textContent).not.toMatch(/\$0|(^|\D)0K/u);
   });
 
   it.each([
@@ -195,7 +195,7 @@ describe('catalog model rows', () => {
           text.startsWith('Vision') ? 'vision' : 'reasoning'
         );
       }
-      expect(row?.textContent).not.toMatch(/No published capabilities/);
+      expect(row?.textContent).not.toMatch(/No published capabilities/u);
     }
   );
 
@@ -298,8 +298,8 @@ describe('catalog model rows', () => {
       actions: { showTagline: false },
       tier: 'narrow',
     });
-    expect(screen.queryByText(/token max output/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/per million tokens/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/token max output/u)).not.toBeInTheDocument();
+    expect(screen.queryByText(/per million tokens/u)).not.toBeInTheDocument();
     expect(screen.queryByText('A tagline')).not.toBeInTheDocument();
   });
 
@@ -397,7 +397,7 @@ describe('catalog details row', () => {
     const missing = within(details).getByText('Context window not published');
     expect(missing).toHaveClass('sr-only');
     const value = within(details).getByText('Context · Max output').nextElementSibling;
-    expect(value).toHaveTextContent(/^—Context window not published · 128,000 tokens$/);
+    expect(value).toHaveTextContent(/^—Context window not published · 128,000 tokens$/u);
   });
 
   it('names the missing max output while showing the published context window', () => {
@@ -407,7 +407,7 @@ describe('catalog details row', () => {
     const details = screen.getByTestId('model-details-half');
     expect(within(details).getByText('Max output not published')).toHaveClass('sr-only');
     const value = within(details).getByText('Context · Max output').nextElementSibling;
-    expect(value).toHaveTextContent(/^200,000 · —Max output not published tokens$/);
+    expect(value).toHaveTextContent(/^200,000 · —Max output not published tokens$/u);
   });
 
   it('says Not published for a chat row whose reasoning support is unknown to the registry', () => {
@@ -450,6 +450,6 @@ describe('catalog details row', () => {
       { expandedIds: ['r'] }
     );
     const label = within(screen.getByTestId('model-details-r')).getByText('Reasoning effort');
-    expect(label.nextElementSibling).toHaveTextContent(/^Supported$/);
+    expect(label.nextElementSibling).toHaveTextContent(/^Supported$/u);
   });
 });

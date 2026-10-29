@@ -261,7 +261,7 @@ describe('ProvidersSettings — test connection', () => {
     const result = await screen.findByTestId('provider-verification-openai');
     expect(result).toHaveAttribute('data-status', status);
     expect(result).toHaveAttribute('data-tone', tone);
-    expect(result).toHaveTextContent(/checked/);
+    expect(result).toHaveTextContent(/checked/u);
   });
 
   it('shows the advisory detail a probe returns', async () => {
@@ -529,9 +529,9 @@ describe('ProvidersSettings — web (real wiring)', () => {
     await user.click(await screen.findByTestId('provider-card-toggle-openai'));
 
     expect(screen.getByTestId('provider-readonly-note-openai')).toHaveTextContent(
-      /status unavailable here/i
+      /status unavailable here/iu
     );
-    expect(screen.getByTestId('provider-key-source-openai')).toHaveTextContent(/unavailable/i);
+    expect(screen.getByTestId('provider-key-source-openai')).toHaveTextContent(/unavailable/iu);
   });
 });
 
@@ -549,7 +549,7 @@ describe('ProvidersSettings — web', () => {
     await user.click(await screen.findByTestId('provider-card-toggle-openai'));
 
     expect(screen.getByTestId('provider-readonly-note-openai')).toHaveTextContent(
-      /server environment/i
+      /server environment/iu
     );
     expect(screen.queryByTestId('credential-row-openai')).not.toBeInTheDocument();
     expect(screen.getByTestId('provider-connection-openai')).toHaveAttribute(

@@ -71,7 +71,7 @@ test('a host run’s command session appears in the Terminal panel and stops fro
     await region.getByRole('button', { exact: true, name: 'Send' }).click();
 
     // The default `execute: ask` policy pauses the start until it is approved.
-    const approve = region.getByRole('button', { name: /^Approve / });
+    const approve = region.getByRole('button', { name: /^Approve /u });
     await expect(approve).toBeVisible({ timeout: 90_000 });
     await approve.click();
     await expect(region.getByText(REPLY)).toBeVisible({ timeout: 90_000 });
@@ -89,11 +89,11 @@ test('a host run’s command session appears in the Terminal panel and stops fro
     expect(run?.results).toHaveLength(2);
     expect(run?.results[0]?.output).toMatchObject({ success: true });
     const sessionId = (run?.results[1]?.output as { readonly id?: string } | undefined)?.id;
-    expect(sessionId).toMatch(/^command-session-/);
+    expect(sessionId).toMatch(/^command-session-/u);
 
     // Main holds no session for this run: the panel lists the agent host's.
     await page.getByTestId('workspace-add-tab').click({ timeout: 15_000 });
-    await page.getByRole('menuitem', { name: /Terminal/ }).click({ timeout: 15_000 });
+    await page.getByRole('menuitem', { name: /Terminal/u }).click({ timeout: 15_000 });
     await page.getByTestId('terminal-panel').waitFor({ state: 'visible', timeout: 30_000 });
     await page
       .getByRole('navigation', { name: 'Terminal surfaces' })
@@ -109,7 +109,9 @@ test('a host run’s command session appears in the Terminal panel and stops fro
     await expect(header).toBeVisible({ timeout: 30_000 });
 
     await page.getByRole('button', { exact: true, name: 'Stop' }).click();
-    await expect(page.getByText(new RegExp(`${sessionId} · root ${rootId} · exited`))).toBeVisible({
+    await expect(
+      page.getByText(new RegExp(`${sessionId} · root ${rootId} · exited`, 'u'))
+    ).toBeVisible({
       timeout: 30_000,
     });
     expect(modelProvider.refusals()).toEqual([]);

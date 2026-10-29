@@ -125,7 +125,7 @@ export const STRUCTURED_DIFF_CONTENT_CAP_BYTES = 2 * 1024 * 1024;
  * exact absent-vs-error bug.
  */
 const CAT_FILE_ABSENT_STDERR_PATTERN =
-  /does not exist|exists on disk, but not in|invalid object name/;
+  /does not exist|exists on disk, but not in|invalid object name/u;
 
 /**
  * Exit-128 stderr wording for a path that IS in the index but has no stage-0
@@ -136,7 +136,7 @@ const CAT_FILE_ABSENT_STDERR_PATTERN =
  * and reporting it as "deleted" would be actively misleading (the file is
  * neither deleted nor addable; it needs conflict resolution).
  */
-const CAT_FILE_UNMERGED_STDERR_PATTERN = /is in the index, but not at stage/;
+const CAT_FILE_UNMERGED_STDERR_PATTERN = /is in the index, but not at stage/u;
 
 /**
  * Classify a failed (non-zero exit) `cat-file` invocation — `-s` size probe

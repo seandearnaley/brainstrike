@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantChatPanel, AssistantProviderStatusProvider } from '../assistant-chat-panel';
+import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
 /** The panel sits in the workspace, whose menu count its link menus report to. */
 const workspaceTabs = { onMenuOpenChange: () => undefined } as unknown as WorkspaceTabsValue;
@@ -54,9 +55,6 @@ vi.mock('../hooks/use-assistant-availability', async (importOriginal) => ({
 vi.mock('../assistant-ui-panel-wrapper-lazy', () => ({
   AssistantUiPanelWrapperLazy: assistantUiPanelWrapperLazyMock,
 }));
-
-// Import after mock to get the mocked version
-import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
 const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);
 

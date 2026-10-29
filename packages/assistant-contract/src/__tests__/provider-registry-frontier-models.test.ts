@@ -705,7 +705,9 @@ describe('contextWindow metadata', () => {
   it('getLlmModelDefinition resolves a known model and throws on unknown ids', () => {
     expect(getLlmCapabilityFacts('anthropic', 'claude-sonnet-5').contextWindow).toBe(1_000_000);
     expect(getLlmCapabilityFacts('openrouter', 'z-ai/glm-5.2').maxOutputTokens).toBe(131_072);
-    expect(() => getLlmCapabilityFacts('anthropic', 'no-such-model')).toThrow(/Unknown LLM model/);
-    expect(() => getLlmCapabilityFacts('openai', 'claude-sonnet-4-6')).toThrow(/Unknown LLM model/);
+    expect(() => getLlmCapabilityFacts('anthropic', 'no-such-model')).toThrow(/Unknown LLM model/u);
+    expect(() => getLlmCapabilityFacts('openai', 'claude-sonnet-4-6')).toThrow(
+      /Unknown LLM model/u
+    );
   });
 });

@@ -61,14 +61,14 @@ describe('blob store', () => {
             threadId: 't',
           },
         ])
-      ).rejects.toThrow(/hash|checksum/);
+      ).rejects.toThrow(/hash|checksum/u);
       expect(await store.read('t')).toEqual([]);
       writeFileSync(join(root, BLOBS_DIR, hash), 'corrupt');
       await expect(
         store.append([
           { blobs: [{ content, hash }], event: { blob: hash, type: 'tool-result' }, threadId: 't' },
         ])
-      ).rejects.toThrow(/hash|checksum/);
+      ).rejects.toThrow(/hash|checksum/u);
       expect(await store.read('t')).toEqual([]);
     } finally {
       await store.close();
@@ -82,9 +82,9 @@ describe('blob store', () => {
         store.append([
           { event: { blob: sha256Hex('missing'), type: 'tool-result' }, threadId: 't' },
         ])
-      ).rejects.toThrow(/missing blob/);
+      ).rejects.toThrow(/missing blob/u);
     } finally {
-      await expect(store.close()).rejects.toThrow(/failed earlier/);
+      await expect(store.close()).rejects.toThrow(/failed earlier/u);
     }
   });
 

@@ -38,7 +38,7 @@ export function observations(record: MemoryObservationRecord): readonly StateObs
     }
     const sections =
       record.threadId === null
-        ? [...text.matchAll(/<thread id="([^"]+)">([\s\S]*?)<\/thread>/g)].map((match) => ({
+        ? [...text.matchAll(/<thread id="([^"]+)">([\s\S]*?)<\/thread>/gu)].map((match) => ({
             text: match[2],
             threadId: match[1],
           }))

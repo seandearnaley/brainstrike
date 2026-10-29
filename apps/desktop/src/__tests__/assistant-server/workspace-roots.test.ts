@@ -46,14 +46,14 @@ describe('getWorkspaceRoots', () => {
 
   it('rejects a renderer-provided path when the authoritative inventory is absent', () => {
     expect(() => getWorkspaceRoots(runtime({ workspaceRootPath: '/Users/me/Untrusted' }))).toThrow(
-      /authoritative workspace root inventory is unavailable/i
+      /authoritative workspace root inventory is unavailable/iu
     );
   });
 
   it('rejects an explicit empty root list combined with a legacy path', () => {
     expect(() =>
       getWorkspaceRoots(runtime({ workspaceRootPath: '/Users/me/Solo', workspaceRoots: [] }))
-    ).toThrow(/root metadata is inconsistent/i);
+    ).toThrow(/root metadata is inconsistent/iu);
   });
 
   it('drops roots without an absolute path', () => {
@@ -71,7 +71,7 @@ describe('getWorkspaceRoots', () => {
 describe('resolveWorkspaceRoot', () => {
   it('throws a clear "no folder open" error when there are no roots', () => {
     expect(() => resolveWorkspaceRoot(runtime())).toThrow(ToolInputError);
-    expect(() => resolveWorkspaceRoot(runtime())).toThrow(/no folder is open/i);
+    expect(() => resolveWorkspaceRoot(runtime())).toThrow(/no folder is open/iu);
   });
 
   it('redacts a path-backed legacy bound id from a missing-root error', () => {
@@ -83,7 +83,7 @@ describe('resolveWorkspaceRoot', () => {
           workspaceRoots: [ROOT_A, ROOT_B],
         })
       )
-    ).toThrow(/path-backed id redacted/i);
+    ).toThrow(/path-backed id redacted/iu);
     expect(() =>
       resolveWorkspaceRoot(
         runtime({
@@ -103,10 +103,10 @@ describe('resolveWorkspaceRoot', () => {
       ToolInputError
     );
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }))).toThrow(
-      /multiple folders.*ProjectA.*ProjectB/is
+      /multiple folders.*ProjectA.*ProjectB/isu
     );
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }))).toThrow(
-      /ProjectA \(id root-a\).*ProjectB \(id root-b\)/is
+      /ProjectA \(id root-a\).*ProjectB \(id root-b\)/isu
     );
   });
 
@@ -129,7 +129,7 @@ describe('resolveWorkspaceRoot', () => {
           workspaceRootPath: '/Users/me/ProjectB',
         })
       )
-    ).toThrow(/authoritative workspace root inventory is unavailable/i);
+    ).toThrow(/authoritative workspace root inventory is unavailable/iu);
   });
 
   it('preserves an explicit mounted-root override outside the bound thread root', () => {
@@ -151,10 +151,10 @@ describe('resolveWorkspaceRoot', () => {
     });
 
     expect(() => resolveWorkspaceRoot(boundRuntime, '   ')).toThrow(
-      /"root" argument must not be blank/i
+      /"root" argument must not be blank/iu
     );
     expect(() => resolveOptionalWorkspaceRoot(boundRuntime, '')).toThrow(
-      /"root" argument must not be blank/i
+      /"root" argument must not be blank/iu
     );
   });
 
@@ -166,7 +166,7 @@ describe('resolveWorkspaceRoot', () => {
           workspaceRoots: [ROOT_A, ROOT_B],
         })
       )
-    ).toThrow(/bound workspace root.*root-gone.*no longer open/i);
+    ).toThrow(/bound workspace root.*root-gone.*no longer open/iu);
   });
 
   it('formats an oversized first root without a leading overflow delimiter', () => {
@@ -251,14 +251,14 @@ describe('resolveWorkspaceRoot', () => {
   it('errors with the available folders for an unknown qualifier', () => {
     expect(() =>
       resolveWorkspaceRoot(runtime({ workspaceRoots: [ROOT_A, ROOT_B] }), 'Nope')
-    ).toThrow(/no folder "Nope".*ProjectA \(id root-a\).*ProjectB \(id root-b\)/is);
+    ).toThrow(/no folder "Nope".*ProjectA \(id root-a\).*ProjectB \(id root-b\)/isu);
   });
 
   it('errors and asks for the root id when two roots share a display name', () => {
     const dupA = { displayName: 'src', path: '/a/src', rootId: 'dup-1' };
     const dupB = { displayName: 'src', path: '/b/src', rootId: 'dup-2' };
     expect(() => resolveWorkspaceRoot(runtime({ workspaceRoots: [dupA, dupB] }), 'src')).toThrow(
-      /multiple folders.*named "src".*id/is
+      /multiple folders.*named "src".*id/isu
     );
   });
 });
@@ -272,9 +272,9 @@ describe('loadWorkspaceRootsFromDatabase', () => {
     const roots = await loadWorkspaceRootsFromDatabase(db);
     expect(roots).toEqual([ROOT_A, ROOT_B]);
     const firstCall = (db.query as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(firstCall?.[0]).toMatch(/FROM roots/i);
-    expect(firstCall?.[0]).toMatch(/status = \$1/);
-    expect(firstCall?.[0]).toMatch(/path IS NOT NULL/i);
+    expect(firstCall?.[0]).toMatch(/FROM roots/iu);
+    expect(firstCall?.[0]).toMatch(/status = \$1/u);
+    expect(firstCall?.[0]).toMatch(/path IS NOT NULL/iu);
     expect(firstCall?.[1]).toEqual(['live']);
   });
 
@@ -293,13 +293,13 @@ describe('markRootDisconnectedByPath', () => {
     const rootIds = await markRootDisconnectedByPath(db, '/Users/me/ProjectA');
     expect(rootIds).toEqual(['root-a']);
     const firstCall = (db.query as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(firstCall?.[0]).toMatch(/UPDATE roots/i);
-    expect(firstCall?.[0]).toMatch(/status = 'disconnected'/);
-    expect(firstCall?.[0]).toMatch(/WHERE path = \$1/i);
+    expect(firstCall?.[0]).toMatch(/UPDATE roots/iu);
+    expect(firstCall?.[0]).toMatch(/status = 'disconnected'/u);
+    expect(firstCall?.[0]).toMatch(/WHERE path = \$1/iu);
     // RETURNING lets the caller detect a 0-row (path-mismatch) disconnect, since
     // the DB host protocol surfaces only rows — never affectedRows.
-    expect(firstCall?.[0]).toMatch(/RETURNING id/i);
-    expect(firstCall?.[0]).not.toMatch(/DELETE/i);
+    expect(firstCall?.[0]).toMatch(/RETURNING id/iu);
+    expect(firstCall?.[0]).not.toMatch(/DELETE/iu);
     expect(firstCall?.[1]).toEqual(['/Users/me/ProjectA']);
   });
 
@@ -330,7 +330,7 @@ describe('markRootDisconnectedByPath', () => {
 
     expect(resolveWorkspaceRoot(runtimeSnapshot)).toEqual(root);
     await markRootDisconnectedByPath(mockDb([{ id: root.rootId }]), root.path);
-    expect(() => resolveWorkspaceRoot(runtimeSnapshot)).toThrow(/disconnected during this run/i);
+    expect(() => resolveWorkspaceRoot(runtimeSnapshot)).toThrow(/disconnected during this run/iu);
 
     // A later authoritative live-root load represents reconnect/reconciliation
     // and makes the same durable id usable again.
@@ -348,14 +348,14 @@ describe('markRootsDisconnectedExcept (boot convergence)', () => {
 
     expect(demoted).toEqual([{ id: 'stale-a', path: '/Users/me/Downloads' }]);
     const [sql, params] = (db.query as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
-    expect(sql).toMatch(/UPDATE roots/i);
-    expect(sql).toMatch(/status = 'disconnected'/);
-    expect(sql).toMatch(/WHERE status = 'live'/i);
+    expect(sql).toMatch(/UPDATE roots/iu);
+    expect(sql).toMatch(/status = 'disconnected'/u);
+    expect(sql).toMatch(/WHERE status = 'live'/iu);
     // Only rows whose mount state is DETERMINABLE from a path may be demoted —
     // a null/empty-path (FSA) row is not comparable, so it is left untouched.
-    expect(sql).toMatch(/path IS NOT NULL/i);
-    expect(sql).toMatch(/RETURNING id/i);
-    expect(sql).not.toMatch(/DELETE/i);
+    expect(sql).toMatch(/path IS NOT NULL/iu);
+    expect(sql).toMatch(/RETURNING id/iu);
+    expect(sql).not.toMatch(/DELETE/iu);
     expect(params).toEqual([['/Users/me/ProjectA']]);
   });
 
@@ -453,7 +453,7 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
           { displayName: 'ProjectB', id: 'root-b', path: ROOT_B.path },
         ])
       )
-    ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/i);
+    ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/iu);
   });
 
   it('rejects a durable thread binding when the DB has no live roots', async () => {
@@ -465,7 +465,7 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
         }),
         mockDb([])
       )
-    ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/i);
+    ).rejects.toThrow(/bound workspace root.*root-gone.*no longer open/iu);
   });
 
   it('reorders DB roots so the client-declared main root is first', async () => {
@@ -533,7 +533,7 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(input, db);
     expect(enriched?.workspaceRoots).toBeUndefined();
     expect(() => getWorkspaceRoots(enriched)).toThrow(
-      /authoritative workspace root inventory is unavailable/i
+      /authoritative workspace root inventory is unavailable/iu
     );
   });
 

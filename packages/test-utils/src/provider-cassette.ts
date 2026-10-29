@@ -782,7 +782,7 @@ function containsLiteral(text: string, { bounded, value }: ProviderCassetteLiter
     if (!bounded) {
       return text.includes(form);
     }
-    const pattern = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = form.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
     return new RegExp(`(?<![\\w.-])${pattern}(?![\\w.-])`, 'u').test(text);
   });
 }

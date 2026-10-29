@@ -26,7 +26,7 @@ import type {
 
 /** Last path segment for a display label. Never applied to a `WorktreeDescriptor.path` — that one is canonicalized and must use `descriptor.name` instead (see `changed-files-tree.tsx`'s module doc comment). */
 export function lastPathSegment(path: string): string {
-  const trimmed = path.replace(/\/+$/, '');
+  const trimmed = path.replace(/\/+$/u, '');
   const lastSlash = trimmed.lastIndexOf('/');
   return lastSlash === -1 ? trimmed : trimmed.slice(lastSlash + 1);
 }
@@ -52,7 +52,7 @@ function FileNameCell({ entry }: { readonly entry: ChangedFileEntry }): ReactEle
     <span className="flex min-w-0 items-center gap-2">
       <span
         aria-label={presentation.label}
-        className={`w-4 shrink-0 text-center font-mono font-semibold text-[10px] ${presentation.className}`}
+        className={`w-4 shrink-0 text-center font-mono text-[10px] font-semibold ${presentation.className}`}
         role="img"
       >
         {presentation.glyph}
@@ -73,7 +73,7 @@ function WorktreeTrustBadge({
     <Tooltip>
       <TooltipTrigger asChild>
         <Badge
-          className="gap-1 border-amber-500/40 text-warning"
+          className="text-warning gap-1 border-amber-500/40"
           data-testid="changed-files-worktree-trust-badge"
           variant="outline"
         >
@@ -97,11 +97,11 @@ function WorktreeNameCell({ data }: { readonly data: ChangedFilesWorktreeNodeDat
   const label = descriptor?.name ?? worktreePath;
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <span className="truncate font-medium text-xs" title={worktreePath}>
+      <span className="truncate text-xs font-medium" title={worktreePath}>
         {label}
       </span>
       {descriptor?.branch ? (
-        <span className="truncate text-[10px] text-muted-foreground">{descriptor.branch}</span>
+        <span className="text-muted-foreground truncate text-[10px]">{descriptor.branch}</span>
       ) : null}
       {descriptor?.trust === 'unvalidated' ? (
         <WorktreeTrustBadge trustReason={descriptor.trustReason} />
@@ -119,19 +119,19 @@ function NameCell({ node }: TreeTableCellProps<ChangedFilesTreeNodeData>): React
       // caller could not label (e.g. no longer connected) gets a generic
       // label; the UUID survives only in the hover title for debugging.
       return (
-        <span className="truncate font-medium text-xs" title={data.label ?? data.rootId}>
+        <span className="truncate text-xs font-medium" title={data.label ?? data.rootId}>
           {data.label ?? 'Workspace root'}
         </span>
       );
     case 'outside-roots':
       return (
-        <span className="truncate font-medium text-muted-foreground text-xs">
+        <span className="text-muted-foreground truncate text-xs font-medium">
           Outside workspace roots
         </span>
       );
     case 'repository':
       return (
-        <span className="truncate font-medium text-xs" title={data.repositoryRoot}>
+        <span className="truncate text-xs font-medium" title={data.repositoryRoot}>
           {lastPathSegment(data.repositoryRoot)}
         </span>
       );

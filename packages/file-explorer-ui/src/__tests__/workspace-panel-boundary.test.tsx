@@ -109,27 +109,27 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
     const user = userEvent.setup();
     renderWorkspace([FILES_APP, { ...CANVAS_APP, render: () => <Crashing /> }]);
 
-    const panel = document.getElementById('workspace-app-panel-canvas');
+    const panel = document.querySelector('#workspace-app-panel-canvas');
     expect(await within(panel as HTMLElement).findByRole('alert')).toHaveTextContent(
       'Canvas stopped working'
     );
     expect(within(panel as HTMLElement).getByText('canvas exploded')).toBeInTheDocument();
 
     // The strip still switches tabs, and the other app renders.
-    await user.click(tabNamed(/files/i));
+    await user.click(tabNamed(/files/iu));
     expect(await screen.findByTestId('files-app-body')).toBeVisible();
 
     // Switching back re-shows the fallback without re-running the crashed app.
     const rendersBeforeReturn = renders;
-    await user.click(tabNamed(/canvas/i));
+    await user.click(tabNamed(/canvas/iu));
     expect(within(panel as HTMLElement).getByRole('alert')).toBeVisible();
     expect(renders).toBe(rendersBeforeReturn);
 
     // Reload tab remounts: it re-throws while the app still throws, then recovers.
-    await user.click(within(panel as HTMLElement).getByRole('button', { name: /reload tab/i }));
+    await user.click(within(panel as HTMLElement).getByRole('button', { name: /reload tab/iu }));
     expect(within(panel as HTMLElement).getByRole('alert')).toBeInTheDocument();
     shouldThrow = false;
-    await user.click(within(panel as HTMLElement).getByRole('button', { name: /reload tab/i }));
+    await user.click(within(panel as HTMLElement).getByRole('button', { name: /reload tab/iu }));
     expect(await screen.findByTestId('canvas-recovered')).toBeVisible();
     consoleError.mockRestore();
   });
@@ -148,7 +148,7 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
       },
     ]);
 
-    const panel = document.getElementById('workspace-app-panel-canvas');
+    const panel = document.querySelector('#workspace-app-panel-canvas');
     expect(panel).not.toBeNull();
     expect(await within(panel as HTMLElement).findByRole('alert')).toHaveTextContent(
       'Canvas stopped working'
@@ -159,7 +159,7 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
 
     // The strip survives and the other app still renders.
     expect(screen.getByRole('tablist', { name: 'Workspace tabs' })).toBeInTheDocument();
-    await user.click(tabNamed(/files/i));
+    await user.click(tabNamed(/files/iu));
     expect(await screen.findByTestId('files-app-body')).toBeVisible();
     consoleError.mockRestore();
   });
@@ -179,11 +179,11 @@ describe('workspace panel error boundaries (TabPanelBoundary)', () => {
       `workspace-file-panel-${BAD}`
     );
 
-    await user.click(tabNamed(/^a\.ts$/));
+    await user.click(tabNamed(/^a\.ts$/u));
     expect(await screen.findByTestId('file-body')).toHaveTextContent('src/a.ts');
     expect(screen.queryByRole('alert')).toBeNull();
 
-    await user.click(tabNamed(/bad\.ts/));
+    await user.click(tabNamed(/bad\.ts/u));
     expect(await screen.findByRole('alert')).toHaveTextContent('bad.ts stopped working');
     consoleError.mockRestore();
   });

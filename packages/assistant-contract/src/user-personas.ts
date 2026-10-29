@@ -65,7 +65,7 @@ export const DEFAULT_USER_PERSONA_TOOL_IDS: readonly string[] = [
 const NATIVE_TOOL_ID_PREFIX = 'brainstrike.';
 
 /** `agent-<id>` must satisfy provider tool-name charsets — no ':', spaces, or unicode. */
-const PERSONA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const PERSONA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
 
 /**
  * Provider tool-name length cap (Anthropic/OpenAI: 64 chars). The delegation
@@ -162,7 +162,7 @@ function consumeKeyValueLine(state: FrontmatterAccumulator, line: string): strin
       return null;
     }
     case 'maxsteps': {
-      if (!/^\d+$/.test(value)) {
+      if (!/^\d+$/u.test(value)) {
         return `maxSteps must be a positive integer, got: ${value}`;
       }
       state.maxSteps = Number.parseInt(value, 10);
@@ -205,7 +205,7 @@ function consumeFrontmatterLine(state: FrontmatterAccumulator, line: string): st
  */
 export function parseUserPersonaFile(content: string): ParsedUserPersonaFile {
   // Strip a leading UTF-8 BOM so a BOM-prefixed `---` still opens frontmatter.
-  const normalized = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const normalized = content.replace(/^﻿/u, '').replace(/\r\n/gu, '\n');
   const lines = normalized.split('\n');
   if (lines[0] !== FRONTMATTER_FENCE) {
     return {
@@ -230,7 +230,7 @@ export function parseUserPersonaFile(content: string): ParsedUserPersonaFile {
   const instructions = lines
     .slice(closingIndex + 1)
     .join('\n')
-    .replace(/^\n/, '');
+    .replace(/^\n/u, '');
 
   return {
     instructions,
@@ -254,7 +254,7 @@ export type DeriveUserPersonaIdResult =
  * provider tool-name charsets forbid ':').
  */
 export function deriveUserPersonaId(fileName: string): DeriveUserPersonaIdResult {
-  const id = fileName.replace(/\.(md|markdown|mdown|mkd)$/i, '');
+  const id = fileName.replace(/\.(md|markdown|mdown|mkd)$/iu, '');
   if (!PERSONA_ID_PATTERN.test(id)) {
     return {
       error:

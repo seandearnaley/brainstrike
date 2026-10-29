@@ -49,17 +49,17 @@ export const MAIN_LOG_WINDOW_LIMITS = {
 const WARN_LEVEL = 40;
 const FUTURE_TOLERANCE_MS = 60_000;
 const MARKERS: Record<keyof MainLogWindowCounts, RegExp> = {
-  emptyChildResults: /subagent_delegation_empty_result/,
-  toolTimeouts: /Tool execution timed out/,
-  unhandledRejections: /Unhandled promise rejection/,
-  wasmAllocationFailures: /Cannot allocate Wasm memory/,
+  emptyChildResults: /subagent_delegation_empty_result/u,
+  toolTimeouts: /Tool execution timed out/u,
+  unhandledRejections: /Unhandled promise rejection/u,
+  wasmAllocationFailures: /Cannot allocate Wasm memory/u,
 };
 // Deliberately coupled to the sink's timestamp setting: the desktop main
 // logger configures pino's `isoTime`, which writes `"time":"<ISO>"`. Pino's
 // DEFAULT `timestamp: true` (epoch millis) and `includeTimestamp: false` (no
 // field) both fail this match, and `readRecordTime` then throws on the first
 // record rather than silently misplacing every line in the window.
-const TIME_FIELD = /"time":"([^"]+)"/;
+const TIME_FIELD = /"time":"([^"]+)"/u;
 
 /**
  * Exactly `Date#toISOString()` output — the millisecond form pino's `isoTime`

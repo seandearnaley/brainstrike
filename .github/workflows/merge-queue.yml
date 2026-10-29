@@ -18,7 +18,7 @@ on:
   # private, user-owned repository (the ruleset API rejects the merge_queue
   # rule), and Mergify needs that rule off on the branches it queues.
   push:
-    branches: ['mergify/merge-queue/**']
+    branches: [ "mergify/merge-queue/**" ]
   workflow_dispatch:
   # full-check.yml calls these same lanes on a labelled pull request. A called
   # job's check is named after its caller's job ("Full check / Merge Queue
@@ -82,7 +82,7 @@ jobs:
   merge-queue-gate:
     name: Merge Queue Gate
     if: github.repository == 'seandearnaley/brainstrike' && !github.event.deleted && always()
-    needs: [test, desktop-e2e]
+    needs: [ test, desktop-e2e ]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:

@@ -16,6 +16,7 @@ import {
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { UserMessage } from '../user-message';
 
 // Same seam the user-action-bar copy test uses: swap the Radix tooltip button
 // for a plain button so UserMessage mounts without a TooltipProvider portal.
@@ -36,8 +37,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
     </button>
   ),
 }));
-
-import { UserMessage } from '../user-message';
 
 const chatModel: ChatModelAdapter = {
   run: vi.fn().mockResolvedValue({

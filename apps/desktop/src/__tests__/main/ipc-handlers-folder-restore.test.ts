@@ -2,19 +2,18 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
-
-vi.mock('electron', async () => ({
-  ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
-  app: { getPath: vi.fn() },
-}));
-
 import { registerIpcHandlers } from '../../ipc-handlers';
+import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
 import {
   capabilityHandler,
   getRootsCatalog,
   resetRootsCatalog,
 } from '../ipc-domains/file-system-ipc-test-harness';
+
+vi.mock('electron', async () => ({
+  ...(await import('../ipc-domains/file-system-ipc-test-harness')).electronMock,
+  app: { getPath: vi.fn() },
+}));
 
 describe('IPC handlers - last-folder preference', () => {
   let fileSystem: ElectronFileSystemAdapter;

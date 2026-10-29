@@ -391,7 +391,7 @@ describe('RootLayoutContent', () => {
       renderComponent({
         navigationItems: [{ icon: () => <div />, name: 'Context Explorer', path: '/' }],
       })
-    ).toThrow(/\/settings/);
+    ).toThrow(/\/settings/u);
   });
 
   it('switches between settings and another shell tab without unmounting either', () => {

@@ -130,7 +130,7 @@ describe('LoggingSettingsSection', () => {
 
     render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
 
-    const consoleSwitch = screen.getByRole('switch', { name: /console logging/i });
+    const consoleSwitch = screen.getByRole('switch', { name: /console logging/iu });
     expect(consoleSwitch).toBeChecked();
 
     fireEvent.click(consoleSwitch);
@@ -152,10 +152,10 @@ describe('LoggingSettingsSection', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('switch', { name: /console logging/i }));
+    fireEvent.click(screen.getByRole('switch', { name: /console logging/iu }));
     await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole('button', { name: /reset/i }));
+    fireEvent.click(screen.getByRole('button', { name: /reset/iu }));
 
     await waitFor(() => expect(onReset).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
@@ -200,7 +200,7 @@ describe('LoggingSettingsSection', () => {
 
     render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
 
-    const redactInput = screen.getByLabelText(/redacted fields/i);
+    const redactInput = screen.getByLabelText(/redacted fields/iu);
     fireEvent.change(redactInput, { target: { value: 'token, password, token' } });
 
     await waitFor(() => expect(onCommit).toHaveBeenCalled());
@@ -239,7 +239,7 @@ describe('LoggingSettingsSection', () => {
       />
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /open destination/i }));
+    fireEvent.click(screen.getByRole('button', { name: /open destination/iu }));
 
     await waitFor(() => expect(onOpen).toHaveBeenCalledWith('/tmp/existing.log'));
     expect(toastSpy).toHaveBeenCalledWith(
@@ -260,10 +260,10 @@ describe('LoggingSettingsSection', () => {
 
     render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
 
-    fireEvent.click(screen.getByRole('switch', { name: /console logging/i }));
+    fireEvent.click(screen.getByRole('switch', { name: /console logging/iu }));
     expect(onCommit).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('switch', { name: /include timestamp/i }));
+    fireEvent.click(screen.getByRole('switch', { name: /include timestamp/iu }));
     await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
 
     rejectFirst?.(new Error('simulated failure'));
@@ -279,6 +279,6 @@ describe('LoggingSettingsSection', () => {
 
     expect(screen.queryByText('Persistent errors')).not.toBeInTheDocument();
     expect(screen.queryByText('Session')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /export ndjson/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /export ndjson/iu })).not.toBeInTheDocument();
   });
 });

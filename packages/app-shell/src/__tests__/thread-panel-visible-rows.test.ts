@@ -274,7 +274,7 @@ describe('buildThreadPanelVisibleRows', () => {
 
     expect(() =>
       buildThreadPanelVisibleRows({ collapsedGroupIds: {}, limitsBySectionKey: {}, view })
-    ).toThrow(/somewhere-else/);
+    ).toThrow(/somewhere-else/u);
   });
 });
 

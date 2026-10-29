@@ -131,13 +131,13 @@ const DEFAULT_DOCS_INDEX: readonly WebDocEntry[] = [
 function tokenize(value: string): string[] {
   return value
     .toLowerCase()
-    .split(/[^a-z0-9]+/i)
+    .split(/[^a-z0-9]+/iu)
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
 }
 
 function splitIntoSentences(value: string): string[] {
-  const matches = value.match(/[^.!?]+[.!?]?/g);
+  const matches = value.match(/[^.!?]+[.!?]?/gu);
   if (!matches) {
     return [value];
   }

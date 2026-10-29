@@ -175,7 +175,7 @@ export function CheckpointTurnRevertControl({
           Revert {revertibleCount} edit{revertibleCount === 1 ? '' : 's'}
         </Button>
         <Button
-          className="h-5 px-1.5 text-[11px] text-muted-foreground"
+          className="text-muted-foreground h-5 px-1.5 text-[11px]"
           data-testid="checkpoint-turn-revert-cancel"
           onClick={() => setPhase('idle')}
           size="sm"
@@ -195,7 +195,7 @@ export function CheckpointTurnRevertControl({
           <span>
             <Button
               aria-label={label}
-              className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
+              className="text-muted-foreground h-5 gap-1 px-1.5 text-[11px]"
               data-testid="checkpoint-turn-revert"
               disabled={phase === 'reverting' || refusal !== null}
               onClick={() => setPhase('confirm')}
@@ -236,7 +236,7 @@ export function CheckpointTurnRevert(): ReactElement | null {
         <Tooltip>
           <TooltipTrigger asChild>
             <span
-              className="text-[11px] text-muted-foreground"
+              className="text-muted-foreground text-[11px]"
               data-testid="checkpoint-turn-revert-unavailable"
             >
               Can't restore this turn's edits

@@ -39,7 +39,7 @@ export function ThreadSectionHeader({
       {mark}
       {typeof label === 'string' ? (
         <span
-          className={`min-w-0 flex-1 truncate font-medium text-xs leading-4 ${muted ? 'text-muted-foreground' : ''}`}
+          className={`min-w-0 flex-1 truncate text-xs leading-4 font-medium ${muted ? 'text-muted-foreground' : ''}`}
         >
           {label}
         </span>
@@ -47,7 +47,7 @@ export function ThreadSectionHeader({
         label
       )}
       <span
-        className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
+        className="text-muted-foreground shrink-0 text-[11px] tabular-nums"
         data-testid={countTestId}
       >
         {count}

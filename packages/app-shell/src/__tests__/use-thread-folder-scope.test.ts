@@ -7,17 +7,16 @@ import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type UseThreadFolderScopeArgs,
+  useThreadFolderScope,
+} from '../hooks/use-thread-folder-scope';
 
 const { toastSpy } = vi.hoisted(() => ({ toastSpy: vi.fn() }));
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   toast: toastSpy,
 }));
-
-import {
-  type UseThreadFolderScopeArgs,
-  useThreadFolderScope,
-} from '../hooks/use-thread-folder-scope';
 
 const SECONDARIES: readonly string[] = ['root-c'];
 

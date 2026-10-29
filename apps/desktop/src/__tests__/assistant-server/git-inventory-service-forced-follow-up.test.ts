@@ -8,6 +8,15 @@
  * fakes, nothing stubbed to throw.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GitInventoryStoppedError } from '../../assistant-server/git-inventory-service';
+import type { GitCommandRun, GitCommandRunner } from '../../assistant-server/git-service';
+import {
+  cleanupTempDirs,
+  createFakeWatchDirectory,
+  makeService,
+  makeSingleRepoRoot,
+  makeWorktreeListRunner,
+} from './git-inventory-service-test-support';
 
 const loggerErrorSpy = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -20,16 +29,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     },
   };
 });
-
-import { GitInventoryStoppedError } from '../../assistant-server/git-inventory-service';
-import type { GitCommandRun, GitCommandRunner } from '../../assistant-server/git-service';
-import {
-  cleanupTempDirs,
-  createFakeWatchDirectory,
-  makeService,
-  makeSingleRepoRoot,
-  makeWorktreeListRunner,
-} from './git-inventory-service-test-support';
 
 afterEach(async () => {
   await cleanupTempDirs();

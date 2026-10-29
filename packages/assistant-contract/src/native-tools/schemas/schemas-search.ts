@@ -117,6 +117,7 @@ export const GrepSearchInputSchema = Schema.Struct({
       return;
     }
     try {
+      // biome-ignore lint/style/useUnicodeRegex: a user-written pattern keeps the non-unicode syntax people type, such as `\-`.
       new RegExp(input.pattern);
       return;
     } catch {

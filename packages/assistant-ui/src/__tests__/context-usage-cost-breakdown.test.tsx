@@ -51,8 +51,8 @@ describe('the thread cost breakdown', () => {
     expect(
       screen.getAllByTestId('context-usage-source-model').map((row) => row.textContent)
     ).toEqual([
-      expect.stringMatching(/Claude Opus 5\.5.*\$10\.00/),
-      expect.stringMatching(/GPT-5\.6 Sol.*\$1\.50/),
+      expect.stringMatching(/Claude Opus 5\.5.*\$10\.00/u),
+      expect.stringMatching(/GPT-5\.6 Sol.*\$1\.50/u),
     ]);
     // A sub-cent cost stays visible instead of rounding to $0.00.
     expect(screen.getByTestId('context-usage-source-memory-embedding')).toHaveTextContent(

@@ -31,7 +31,7 @@ describe('PROVIDER_VERIFICATION_PRESENTATION', () => {
     expect(invalid.tone).toBe('danger');
     expect(unreachable.tone).not.toBe('danger');
     expect(invalid.label).not.toBe(unreachable.label);
-    expect(unreachable.description.toLowerCase()).toMatch(/network|reach|offline/);
+    expect(unreachable.description.toLowerCase()).toMatch(/network|reach|offline/u);
   });
 
   it('marks verified as the only success tone', () => {
@@ -56,7 +56,7 @@ describe('formatCheckedAt', () => {
   });
 
   it('falls back to a date beyond a day rather than counting ever upward', () => {
-    expect(formatCheckedAt('2026-08-14T12:00:00.000Z', now)).toMatch(/2026/);
+    expect(formatCheckedAt('2026-08-14T12:00:00.000Z', now)).toMatch(/2026/u);
   });
 
   it('reports an unparseable timestamp instead of rendering "NaN ago"', () => {

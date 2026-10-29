@@ -43,7 +43,7 @@ describe('ImportProgress', () => {
   it('does not show current file when not provided', () => {
     render(<ImportProgress progress={createProgress()} />);
 
-    expect(screen.queryByText(/Current:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Current:/u)).not.toBeInTheDocument();
   });
 
   it('displays imported count badge', () => {
@@ -75,7 +75,7 @@ describe('ImportProgress', () => {
   it('does not display error badge when no errors', () => {
     render(<ImportProgress progress={createProgress({ errors: [] })} />);
 
-    expect(screen.queryByText(/errors/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/errors/u)).not.toBeInTheDocument();
   });
 
   it('shows check icon when import is complete', () => {
@@ -120,7 +120,7 @@ describe('ImportProgress', () => {
     const errors = [{ error: 'Failed to import', file: 'error.txt' }];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
-    const viewErrorsButton = screen.getByRole('button', { name: /view 1 error/i });
+    const viewErrorsButton = screen.getByRole('button', { name: /view 1 error/iu });
     const errorListId = viewErrorsButton.getAttribute('aria-controls');
     const errorMessage = screen.getByText('Failed to import');
 
@@ -151,7 +151,7 @@ describe('ImportProgress', () => {
       </>
     );
 
-    const toggleButtons = screen.getAllByRole('button', { name: /view 1 error/i });
+    const toggleButtons = screen.getAllByRole('button', { name: /view 1 error/iu });
     const [firstId, secondId] = toggleButtons.map((button) => button.getAttribute('aria-controls'));
 
     expect(firstId).toBeTruthy();
@@ -186,7 +186,7 @@ describe('ImportProgress', () => {
     render(<ImportProgress progress={createProgress({ errors })} />);
 
     // Show errors
-    const viewErrorsButton = screen.getByText(/View 2 errors/);
+    const viewErrorsButton = screen.getByText(/View 2 errors/u);
     fireEvent.click(viewErrorsButton);
 
     expect(screen.getByText('path/to/file.txt')).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe('ImportProgress', () => {
     const errors = [{ error: 'Oops', file: 'err.txt' }];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
-    const toggle = screen.getByText(/View 1 error/);
+    const toggle = screen.getByText(/View 1 error/u);
     fireEvent.click(toggle);
 
     // Error content visible
@@ -247,7 +247,7 @@ describe('ImportProgress', () => {
     ];
     render(<ImportProgress progress={createProgress({ errors })} />);
 
-    fireEvent.click(screen.getByText(/View 2 errors/));
+    fireEvent.click(screen.getByText(/View 2 errors/u));
 
     expect(screen.getByText('Error A')).toBeInTheDocument();
     expect(screen.getByText('Error B')).toBeInTheDocument();
@@ -281,13 +281,13 @@ describe('ImportProgress', () => {
     render(<ImportProgress progress={createProgress({ errors: [] })} />);
 
     // No CardContent with error toggling should be rendered
-    expect(screen.queryByText(/View/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/View/u)).not.toBeInTheDocument();
   });
 
   it('does not render current file text when current is omitted', () => {
     render(<ImportProgress progress={createProgress()} />);
 
-    expect(screen.queryByText(/Current:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Current:/u)).not.toBeInTheDocument();
   });
 
   it('renders without crashing when given minimal props', () => {

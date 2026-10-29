@@ -36,13 +36,13 @@ const sharedBrowserOptions: BrowserConfigOptions = browserProject.test.browser;
 
 const workspaceAliases = [
   {
-    find: /^@brainstrike\/ui$/,
+    find: /^@brainstrike\/ui$/u,
     replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
   },
   {
     // Asset export: the registry only aliases code subpaths, so without this
     // the browser suites' globals import resolves to ui's built dist copy.
-    find: /^@brainstrike\/ui\/globals\.css$/,
+    find: /^@brainstrike\/ui\/globals\.css$/u,
     replacement: resolve(import.meta.dirname, '../ui/src/globals.css'),
   },
 ];

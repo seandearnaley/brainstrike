@@ -135,7 +135,7 @@ describe('useFileSystem', () => {
       expect(typeof calledId).toBe('string');
       expect(calledId).not.toBe('/projects/shared-name');
       // Verify it is a UUID (36-char hyphenated)
-      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/u);
 
       MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
     });
@@ -168,7 +168,7 @@ describe('useFileSystem', () => {
       // Since storage v5 the store receives a durable RootId UUID, not the path.
       const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
       expect(typeof calledId).toBe('string');
-      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/u);
     });
 
     it('throws error when File System Access API is not supported', async () => {
@@ -396,7 +396,7 @@ describe('useFileSystem', () => {
       // Since storage v5 the store receives a durable RootId UUID, not the path.
       const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
       expect(typeof calledId).toBe('string');
-      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/u);
     });
 
     it('should not restore when no last folder is available', async () => {
@@ -520,7 +520,7 @@ describe('useFileSystem', () => {
         // Since storage v5 the store receives a durable RootId UUID, not the path.
         const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
         expect(typeof calledId).toBe('string');
-        expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(calledId).toMatch(/^[0-9a-f-]{36}$/u);
       } finally {
         MockFileSystemAdapter.prototype.restoreLastFolder = originalRestoreLastFolder;
       }
@@ -586,7 +586,7 @@ describe('useFileSystem', () => {
       // Since storage v5 the store receives a durable RootId UUID, not the path.
       const retryCalledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
       expect(typeof retryCalledId).toBe('string');
-      expect(retryCalledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(retryCalledId).toMatch(/^[0-9a-f-]{36}$/u);
     });
 
     it('does not update folder state after unmount while restore is in-flight', async () => {
@@ -688,7 +688,7 @@ describe('useFileSystem', () => {
       await waitFor(() => expect(result.current?.rootDirectoryHandle).not.toBeNull());
 
       const calledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
-      expect(calledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(calledId).toMatch(/^[0-9a-f-]{36}$/u);
       expect(result.current?.rootIdByPath.get('/test/restored/path')).toBe(calledId);
     });
   });
@@ -861,7 +861,7 @@ describe('useFileSystem', () => {
       // Storage v5: fallback path generates a synthetic uuid as rootId.
       const fallbackCalledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
       expect(typeof fallbackCalledId).toBe('string');
-      expect(fallbackCalledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(fallbackCalledId).toMatch(/^[0-9a-f-]{36}$/u);
     });
   });
 
@@ -1124,7 +1124,7 @@ describe('useFileSystem', () => {
       // Storage v5: legacy single-root path generates a synthetic uuid as rootId.
       const legacyCalledId = mockSetCurrentFolderId.mock.calls[0]?.[0] as string;
       expect(typeof legacyCalledId).toBe('string');
-      expect(legacyCalledId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(legacyCalledId).toMatch(/^[0-9a-f-]{36}$/u);
     });
   });
 
@@ -1182,7 +1182,7 @@ describe('useFileSystem', () => {
       // An unstamped handle reaching the reducer fails loud in dev (no silent path
       // fallback that would collide same-named roots).
       expect(() => result.current?.setRootDirectoryHandle(unstamped)).toThrow(
-        /unstamped root handle/
+        /unstamped root handle/u
       );
       expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
     });

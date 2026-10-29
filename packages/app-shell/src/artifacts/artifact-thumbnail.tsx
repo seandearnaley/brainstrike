@@ -116,12 +116,12 @@ export function ArtifactThumbnail({
   return (
     <div
       aria-hidden="true"
-      className="relative aspect-[4/3] w-full overflow-hidden bg-muted/40"
+      className="bg-muted/40 relative aspect-[4/3] w-full overflow-hidden"
       ref={setContainer}
     >
       {preview.status === 'ready' && near && scale > 0 ? (
         <div
-          className="pointer-events-none absolute top-0 left-0 origin-top-left bg-background"
+          className="bg-background pointer-events-none absolute top-0 left-0 origin-top-left"
           inert
           style={{
             height: VIRTUAL_HEIGHT,
@@ -133,11 +133,11 @@ export function ArtifactThumbnail({
         </div>
       ) : (
         <div className="flex h-full items-center justify-center">
-          <PanelsTopLeft className="size-8 text-muted-foreground/60" />
+          <PanelsTopLeft className="text-muted-foreground/60 size-8" />
         </div>
       )}
       {preview.status === 'error' ? (
-        <p className="absolute inset-x-0 bottom-0 truncate bg-background/90 px-2 py-1 text-destructive text-xs">
+        <p className="bg-background/90 text-destructive absolute inset-x-0 bottom-0 truncate px-2 py-1 text-xs">
           Preview failed: {preview.error}
         </p>
       ) : null}

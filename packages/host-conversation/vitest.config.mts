@@ -7,11 +7,11 @@ export default defineConfig({
     alias: [
       // agent-host's boundary wire reaches the agent's Node-side subpaths; the tests run their source.
       {
-        find: /^@brainstrike\/agent$/,
+        find: /^@brainstrike\/agent$/u,
         replacement: resolve(import.meta.dirname, '../agent/src/index.ts'),
       },
       ...['mcp-client', 'provider-request', 'provider-runtime', 'tool-runtime'].map((subpath) => ({
-        find: new RegExp(`^@brainstrike/agent/${subpath}$`),
+        find: new RegExp(`^@brainstrike/agent/${subpath}$`, 'u'),
         replacement: resolve(import.meta.dirname, `../agent/src/${subpath}.ts`),
       })),
     ],

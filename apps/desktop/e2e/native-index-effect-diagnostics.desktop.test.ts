@@ -19,7 +19,7 @@ test('native-index pause exposes a correlated start, action and cleanup timeline
 }, testInfo) => {
   await homePage.openSettings();
   const section = await new SettingsPage(window).openCategory(
-    /Search & Indexing/i,
+    /Search & Indexing/iu,
     'search-indexing'
   );
   await expect(window.getByTestId('indexing-status-trigger')).toContainText('Ready', {
@@ -64,7 +64,7 @@ test('native-index pause exposes a correlated start, action and cleanup timeline
     contentType: 'application/json',
   });
   await new HomePage(window).openSettings();
-  const logging = await new SettingsPage(window).openCategory(/Logging & Diagnostics/i, 'logging');
+  const logging = await new SettingsPage(window).openCategory(/Logging & Diagnostics/iu, 'logging');
   await logging.getByRole('button', { name: 'Open Logs' }).click();
   const viewer = window.getByRole('region', { name: 'Log Viewer' });
   await viewer.getByPlaceholder('Search logs...').fill(pauseEnd.traceId);

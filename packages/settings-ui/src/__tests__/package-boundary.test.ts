@@ -13,7 +13,7 @@ const SETTINGS_UI_SRC_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta
 const SETTINGS_UI_PACKAGE_ROOT = path.resolve(SETTINGS_UI_SRC_ROOT, '..');
 const SOURCE_FILE_EXTENSIONS = new Set(['.ts', '.tsx']);
 const FORBIDDEN_RUNTIME_PACKAGE_PATTERN =
-  /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/(?:agent|embeddings)(?:\/|['"])/;
+  /(?:from\s+['"]|import\s*\(\s*['"])@brainstrike\/(?:agent|embeddings)(?:\/|['"])/u;
 
 function collectProductionSources(directory: string): SourceFile[] {
   const files: SourceFile[] = [];
@@ -66,7 +66,7 @@ function stylesShimViolations(target: unknown): string[] {
   if (!existsSync(shimPath)) {
     return [`${STYLES_SHIM_SUBPATH}: styles.css does not exist`];
   }
-  if (!/@source\s+["']\.\/src["']/.test(readFileSync(shimPath, 'utf8'))) {
+  if (!/@source\s+["']\.\/src["']/u.test(readFileSync(shimPath, 'utf8'))) {
     return [`${STYLES_SHIM_SUBPATH}: styles.css does not declare @source "./src"`];
   }
   return [];

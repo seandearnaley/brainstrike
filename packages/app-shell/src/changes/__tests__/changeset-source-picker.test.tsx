@@ -72,7 +72,7 @@ describe('ChangesetSourcePicker', () => {
     render(<ChangesetSourcePicker {...baseProps({ inventory: INVENTORY })} />);
     await openMenu();
 
-    expect(screen.getByTestId('worktree-trust-badge')).toHaveTextContent(/unvalidated/i);
+    expect(screen.getByTestId('worktree-trust-badge')).toHaveTextContent(/unvalidated/iu);
     expect(screen.getByTestId('worktree-trust-reason')).toHaveTextContent(
       'gitdir did not resolve back to this repository'
     );
@@ -97,7 +97,7 @@ describe('ChangesetSourcePicker', () => {
     // basename(path) would be "wt-feature-xyz" — a different string than
     // `.name`. The row may still show the full path as secondary text, but
     // the display name itself must be the descriptor's own `.name`.
-    expect(row).not.toHaveTextContent(/^wt-feature-xyz$/);
+    expect(row).not.toHaveTextContent(/^wt-feature-xyz$/u);
   });
 
   it('selecting a git scope calls onSelectChangeset with the matching git-scope Changeset', async () => {

@@ -88,7 +88,7 @@ test('the Context tab shows the files a thread received and edited, the same fig
   await region.getByRole('button', { exact: true, name: 'Send' }).click();
   // The edit asks first; approve it as it comes.
   const reply = region.getByText(REPLY, { exact: true });
-  const approve = region.getByRole('button', { name: /^Approve / });
+  const approve = region.getByRole('button', { name: /^Approve /u });
   await expect(async () => {
     if (await reply.isVisible()) {
       return;

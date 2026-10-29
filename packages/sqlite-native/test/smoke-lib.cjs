@@ -42,13 +42,13 @@ const VEC_OS = { darwin: 'darwin', linux: 'linux', win32: 'windows' }[process.pl
 const VEC_EXT = { darwin: 'dylib', linux: 'so', win32: 'dll' }[process.platform];
 const PREBUILD = new RegExp(
   `${SEP}node_modules${SEP}better-sqlite3${SEP}prebuilds${SEP}${process.platform}-${process.arch}\\.node$`,
-  'i'
+  'iu'
 );
 const VEC0 = new RegExp(
   `${SEP}node_modules${SEP}sqlite-vec-${VEC_OS}-${process.arch}${SEP}vec0\\.${VEC_EXT}$`,
-  'i'
+  'iu'
 );
-const UNPACKED = /[\\/]app\.asar\.unpacked[\\/]/i;
+const UNPACKED = /[\\/]app\.asar\.unpacked[\\/]/iu;
 
 function walk(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
@@ -66,7 +66,7 @@ function walkIfPresent(dir) {
  * relative path starts with `build/`; a nested `x/build/y` counts too.
  */
 function isGypOutput(relativePath) {
-  return relativePath.endsWith('config.gypi') || /(^|[\\/])build[\\/]/.test(relativePath);
+  return relativePath.endsWith('config.gypi') || /(^|[\\/])build[\\/]/u.test(relativePath);
 }
 
 /** Native files the OS has mapped into `pid`, filtered to the two we ship. */
@@ -82,7 +82,7 @@ function mappedNativeFiles(pid) {
   } else if (process.platform === 'linux') {
     files = readFileSync(`/proc/${pid}/maps`, 'utf8')
       .split('\n')
-      .map((line) => line.match(/\s(\/.*)$/)?.[1])
+      .map((line) => line.match(/\s(\/.*)$/u)?.[1])
       .filter(Boolean);
   } else if (process.platform === 'win32') {
     files = execFileSync(
@@ -95,14 +95,14 @@ function mappedNativeFiles(pid) {
       ],
       { encoding: 'utf8' }
     )
-      .split(/\r?\n/)
+      .split(/\r?\n/u)
       .map((line) => line.trim())
       .filter(Boolean);
   } else {
     throw new Error(`no mapped-file probe for ${process.platform}`);
   }
   return [...new Set(files)].filter(
-    (file) => /better[-_]sqlite3.*\.node$/i.test(file) || /[\\/]vec0\.(dylib|so|dll)$/i.test(file)
+    (file) => /better[-_]sqlite3.*\.node$/iu.test(file) || /[\\/]vec0\.(dylib|so|dll)$/iu.test(file)
   );
 }
 
@@ -181,8 +181,8 @@ function packagedTreeFacts(resources, requireFrom) {
     // Only the two packages this package ships; the tree holds other addons too.
     natives: walkIfPresent(unpacked).filter(
       (file) =>
-        /\.(node|dylib|so|dll)$/i.test(file) &&
-        /[\\/]node_modules[\\/](better-sqlite3|sqlite-vec-[^\\/]+)[\\/]/i.test(file)
+        /\.(node|dylib|so|dll)$/iu.test(file) &&
+        /[\\/]node_modules[\\/](better-sqlite3|sqlite-vec-[^\\/]+)[\\/]/iu.test(file)
     ),
     unpacked,
   };
@@ -190,7 +190,7 @@ function packagedTreeFacts(resources, requireFrom) {
 
 function behaviorFailures(facts) {
   const failures = [];
-  if (!/^v\d+\.\d+\.\d+/.test(String(facts.vecVersion))) {
+  if (!/^v\d+\.\d+\.\d+/u.test(String(facts.vecVersion))) {
     failures.push(`select vec_version() did not return a version: ${facts.vecVersion}`);
   }
   if (facts.nearestId !== 1) {

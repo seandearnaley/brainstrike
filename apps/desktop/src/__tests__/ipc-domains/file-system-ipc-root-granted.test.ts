@@ -1,7 +1,16 @@
 import path from 'node:path';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
 import { createTrustedInvokeEvent } from '../helpers/desktop-ipc-sender-test-helpers';
+import {
+  capabilityHandler,
+  createFileSystem,
+  createStorage,
+  getRootsCatalog,
+  resetRootsCatalog,
+} from './file-system-ipc-test-harness';
+import { loggerMock } from './workspace-root-registry-logger-test-helper';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -13,16 +22,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     createLogger: () => sharedLoggerMock,
   };
 });
-
-import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
-import {
-  capabilityHandler,
-  createFileSystem,
-  createStorage,
-  getRootsCatalog,
-  resetRootsCatalog,
-} from './file-system-ipc-test-harness';
-import { loggerMock } from './workspace-root-registry-logger-test-helper';
 
 function grantedStorage(grantedPath: string): ElectronStorageAdapter {
   return createStorage({

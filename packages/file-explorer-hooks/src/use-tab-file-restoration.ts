@@ -139,12 +139,12 @@ function isPathSafe(relativePath: string): boolean {
   }
 
   // Reject absolute paths (Unix-style or Windows-style)
-  if (/^[/\\]/.test(relativePath) || /^[a-zA-Z]:/.test(relativePath)) {
+  if (/^[/\\]/u.test(relativePath) || /^[a-zA-Z]:/u.test(relativePath)) {
     return false;
   }
 
   // Normalize path separators and split into segments
-  const segments = relativePath.split(/[\\/]/);
+  const segments = relativePath.split(/[\\/]/u);
 
   // Track depth - going negative at ANY point means potential escape
   let depth = 0;
@@ -186,8 +186,8 @@ function safeJoinPath(rootPath: string, relativePath: string): string | null {
   }
 
   // Normalize separators to forward slashes for consistency
-  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
-  const normalizedRelative = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const normalizedRoot = rootPath.replace(/\\/gu, '/').replace(/\/+$/u, '');
+  const normalizedRelative = relativePath.replace(/\\/gu, '/').replace(/^\/+/u, '');
 
   // Join with single separator
   const joined = `${normalizedRoot}/${normalizedRelative}`;
@@ -205,7 +205,7 @@ function safeJoinPath(rootPath: string, relativePath: string): string | null {
 
   // Verify the result still starts with the normalized root
   // This catches edge cases where the relative path might escape via encoding tricks
-  if (!result.startsWith(normalizedRoot.replace(/\/+$/, ''))) {
+  if (!result.startsWith(normalizedRoot.replace(/\/+$/u, ''))) {
     return null;
   }
 

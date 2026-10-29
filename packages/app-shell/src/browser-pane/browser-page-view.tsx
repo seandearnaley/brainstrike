@@ -131,14 +131,14 @@ export function BrowserPageView({
 
   if (!page) {
     return (
-      <p className="p-4 text-muted-foreground text-xs" data-testid="browser-page-closed">
+      <p className="text-muted-foreground p-4 text-xs" data-testid="browser-page-closed">
         {seeded ? 'This page is closed.' : 'Loading page…'}
       </p>
     );
   }
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="browser-page">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-border border-b px-2">
+      <div className="border-border flex h-9 shrink-0 items-center gap-1 border-b px-2">
         <Button
           aria-label="Back"
           disabled={!page.canGoBack}
@@ -179,7 +179,7 @@ export function BrowserPageView({
         {page.owner === 'agent' ? (
           // The agent's own page browses behind its egress proxy (BST-1238).
           <span
-            className="flex shrink-0 items-center gap-1 text-muted-foreground text-xs"
+            className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs"
             data-testid="browser-page-agent"
             title="The agent opened this page. It browses through the agent's network guard."
           >

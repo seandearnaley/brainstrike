@@ -28,7 +28,7 @@ export const ChunkStrip = memo(function ChunkStrip({
     <div aria-label={label} className="flex h-4 min-w-0 gap-0.5" role="img">
       {cells.map((cell) => (
         <div
-          className="relative flex min-w-[3px] items-end overflow-hidden rounded-[2px] bg-muted"
+          className="bg-muted relative flex min-w-[3px] items-end overflow-hidden rounded-[2px]"
           data-kind={cell.kind ?? 'none'}
           data-state={cell.gone ? 'gone' : 'live'}
           key={cell.chunk.chunkId}

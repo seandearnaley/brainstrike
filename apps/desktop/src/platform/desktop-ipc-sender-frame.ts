@@ -47,7 +47,7 @@ export type DesktopIpcSenderFrameAllowlist =
     };
 
 function normalizePathname(pathname: string): string {
-  const trimmed = pathname.replace(/\/+$/, '');
+  const trimmed = pathname.replace(/\/+$/u, '');
   return trimmed.length === 0 ? '/' : trimmed;
 }
 

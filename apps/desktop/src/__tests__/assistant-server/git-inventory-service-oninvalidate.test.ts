@@ -5,6 +5,14 @@
  * `git-inventory-service-test-support.ts` — real service, real watchers.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { GIT_INVENTORY_WATCH_BATCH_MS } from '../../assistant-server/git-inventory-watcher';
+import {
+  cleanupTempDirs,
+  createFakeWatchDirectory,
+  makeService,
+  makeSingleRepoRoot,
+  makeWorktreeListRunner,
+} from './git-inventory-service-test-support';
 
 const loggerErrorSpy = vi.hoisted(() => vi.fn());
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -17,15 +25,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     },
   };
 });
-
-import { GIT_INVENTORY_WATCH_BATCH_MS } from '../../assistant-server/git-inventory-watcher';
-import {
-  cleanupTempDirs,
-  createFakeWatchDirectory,
-  makeService,
-  makeSingleRepoRoot,
-  makeWorktreeListRunner,
-} from './git-inventory-service-test-support';
 
 describe('createGitInventoryService — onInvalidate dep forwards the invalidated repo (BST-1161)', () => {
   beforeEach(() => {

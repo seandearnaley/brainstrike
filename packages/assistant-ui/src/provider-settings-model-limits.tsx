@@ -25,15 +25,15 @@ export function OpenRouterModelLimitsCard({
 }): JSX.Element {
   if (!limits) {
     return (
-      <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1.5 text-destructive text-xs">
+      <p className="border-destructive/40 bg-destructive/5 text-destructive rounded-md border px-2 py-1.5 text-xs">
         OpenRouter limits unavailable for this model in the built-in catalog.
       </p>
     );
   }
 
   return (
-    <div className="min-w-0 space-y-1 rounded-lg border border-border bg-muted/30 p-3 text-muted-foreground text-xs">
-      <p className="font-medium text-foreground">{limits.label}</p>
+    <div className="border-border bg-muted/30 text-muted-foreground min-w-0 space-y-1 rounded-lg border p-3 text-xs">
+      <p className="text-foreground font-medium">{limits.label}</p>
       <p>
         {numberFormatter.format(limits.contextWindow)} context ·{' '}
         {limits.maxOutputTokens === undefined

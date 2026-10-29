@@ -1,8 +1,13 @@
 import '@testing-library/jest-dom/vitest';
 import type { ChatModelAdapter } from '@assistant-ui/react';
+import { expandUserCommandTemplate } from '@brainstrike/assistant-contract';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ComposerDraftCommand } from '../composer-draft-command';
+import type { SlashCommand } from '../slash-commands';
+import { LocalConversationPanel } from './local-conversation-panel';
 
 // Keep @assistant-ui/react REAL (per CLAUDE.md: real AssistantRuntimeProvider,
 // not mocked stream parts) so the actual slash-command + trigger-popover
@@ -21,12 +26,6 @@ vi.mock('../assistant-message-text', () => ({
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
-
-import { expandUserCommandTemplate } from '@brainstrike/assistant-contract';
-import { useState } from 'react';
-import type { ComposerDraftCommand } from '../composer-draft-command';
-import type { SlashCommand } from '../slash-commands';
-import { LocalConversationPanel } from './local-conversation-panel';
 
 const SettingsIcon = (_props: { className?: string }) => null;
 

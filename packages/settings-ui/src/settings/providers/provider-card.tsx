@@ -87,7 +87,7 @@ function ConnectionBadge({
 }) {
   return (
     <span
-      className="flex items-center gap-1.5 text-muted-foreground text-xs"
+      className="text-muted-foreground flex items-center gap-1.5 text-xs"
       data-connection={connection}
       data-testid={`provider-connection-${providerId}`}
       data-verdict={rejected ? 'invalid' : undefined}
@@ -148,8 +148,8 @@ function VerdictChip({
       className={cn(
         'h-5 px-1.5 text-[10px]',
         presentation.tone === 'danger' && 'border-destructive/40 text-destructive',
-        presentation.tone === 'warning' && 'border-amber-500/40 text-warning',
-        presentation.tone === 'success' && 'border-emerald-500/40 text-success'
+        presentation.tone === 'warning' && 'text-warning border-amber-500/40',
+        presentation.tone === 'success' && 'text-success border-emerald-500/40'
       )}
       data-status={status}
       data-testid={`provider-verdict-chip-${providerId}`}
@@ -251,7 +251,6 @@ export function ProviderCard({
   // Firing the probe IS a side effect, so it stays in an effect — but it sets
   // no state of its own, and the latch keeps it to exactly one probe per
   // transition regardless of `verify`'s identity.
-  // biome-ignore lint/plugin: Not a click routed through state. The trigger is an EXTERNAL system — the keychain listing re-read after `secretsVersion` changes — and its arrival is only observable as a state change, so there is no event to call `verify()` from directly.
   useEffect(() => {
     if (!chainTracker.awaitingChain) {
       return;
@@ -279,13 +278,13 @@ export function ProviderCard({
       <button
         aria-controls={`provider-card-body-${providerId}`}
         aria-expanded={expanded}
-        className="flex w-full items-center gap-3 p-4 text-left hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring"
+        className="hover:bg-muted/40 focus-visible:outline-ring flex w-full items-center gap-3 p-4 text-left focus-visible:outline-2"
         data-testid={`provider-card-toggle-${providerId}`}
         onClick={() => onToggleExpanded(providerId)}
         type="button"
       >
         <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/30 [--provider-color:var(--provider-color-light)] dark:[--provider-color:var(--provider-color-dark)]"
+          className="bg-muted/30 flex size-9 shrink-0 items-center justify-center rounded-lg border [--provider-color:var(--provider-color-light)] dark:[--provider-color:var(--provider-color-dark)]"
           style={
             {
               '--provider-color-dark': getProviderColor(providerId, 'dark'),
@@ -302,7 +301,7 @@ export function ProviderCard({
 
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-medium text-sm">{definition.displayName}</span>
+            <span className="truncate text-sm font-medium">{definition.displayName}</span>
             <ProviderKeySourceBadge card={card} sourceState={sourceState} />
             <VerdictChip lookup={verdict} providerId={providerId} />
           </span>
@@ -323,7 +322,7 @@ export function ProviderCard({
           </span>
         </span>
 
-        <span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
+        <span className="text-muted-foreground flex shrink-0 items-center gap-2 text-xs">
           {PRIMARY_ACTION_LABELS[card.connection]}
           <ChevronDown
             aria-hidden="true"

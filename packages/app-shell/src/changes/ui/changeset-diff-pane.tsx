@@ -66,7 +66,7 @@ function EmptyPaneState({
 }): ReactElement {
   return (
     <div
-      className="grid h-full min-h-0 place-items-center px-8 text-center text-muted-foreground text-sm"
+      className="text-muted-foreground grid h-full min-h-0 place-items-center px-8 text-center text-sm"
       data-testid={testId}
     >
       <div className="max-w-sm leading-relaxed">{message}</div>
@@ -107,7 +107,7 @@ export function ChangesetDiffPane({
 
   return (
     <div className="h-full min-h-0 overflow-y-auto" data-testid="changeset-diff-pane">
-      <div className="flex flex-col divide-y divide-border">
+      <div className="divide-border flex flex-col divide-y">
         {renderedFiles.map((entry) => (
           <ChangesetFileDiffCard
             changesetKind={changesetKind}

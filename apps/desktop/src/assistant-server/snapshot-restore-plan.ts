@@ -55,7 +55,7 @@ export interface RawDiffEntry {
 // `:<oldmode> <newmode> <oldoid> <newoid> <status>` — oids are full hex
 // (`--no-abbrev` is mandatory on the invocation), status is one letter with an
 // optional similarity score (R/C only, which this engine never requests).
-const RAW_HEADER_PATTERN = /^:(\d{6}) (\d{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) ([A-Z])(\d+)?$/;
+const RAW_HEADER_PATTERN = /^:(\d{6}) (\d{6}) ([0-9a-f]{40,64}) ([0-9a-f]{40,64}) ([A-Z])(\d+)?$/u;
 
 /**
  * Parse `git diff --raw -z --no-abbrev --no-renames` output. Records are
@@ -102,7 +102,7 @@ export interface LsTreeEntry {
 }
 
 // `<mode> <type> <oid>\t<path>` per NUL-terminated record.
-const LS_TREE_PATTERN = /^(\d{6}) (\S+) ([0-9a-f]{40,64})\t([\s\S]+)$/;
+const LS_TREE_PATTERN = /^(\d{6}) (\S+) ([0-9a-f]{40,64})\t([\s\S]+)$/u;
 
 /** Parse `git ls-tree -r -z` output (paths verbatim, NUL-terminated). */
 export function parseLsTreeZ(stdout: string): readonly LsTreeEntry[] {

@@ -364,7 +364,7 @@ it('a pinned derived reader rejects purge and retains its intent until real chec
     reader = openConnection(f.options.dbPath, { readonly: true });
     reader.exec('BEGIN');
     reader.prepare('SELECT count(*) FROM state_event_rows').get();
-    await expect(f.store.purge('one', 2)).rejects.toThrow(/checkpoint|pinned|busy/i);
+    await expect(f.store.purge('one', 2)).rejects.toThrow(/checkpoint|pinned|busy/iu);
     const truth = openConnection(path.join(f.root, 'state.db'), { readonly: true });
     try {
       expect(truth.prepare('SELECT count(*) FROM purge_intent').pluck().get()).toBe(1);

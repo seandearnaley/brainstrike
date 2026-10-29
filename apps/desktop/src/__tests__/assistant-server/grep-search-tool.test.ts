@@ -265,7 +265,7 @@ describe('grep search tool', () => {
     }
     expect(result.candidatesTruncated).toBe(true);
     expect(result.files).toEqual([]);
-    expect(result.hint).toMatch(/narrow|different|specific/i);
+    expect(result.hint).toMatch(/narrow|different|specific/iu);
     expect(result.hint).not.toContain('Continue with offset:');
   });
 
@@ -288,7 +288,7 @@ describe('grep search tool', () => {
     expect(result.candidatesTruncated).toBe(true);
     expect(result.matches).toEqual([]);
     expect(result.truncated).toBe(false);
-    expect(result.hint).toMatch(/narrow|different|specific/i);
+    expect(result.hint).toMatch(/narrow|different|specific/iu);
     expect(result.hint).not.toContain('Continue with offset:');
     expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
   });
@@ -357,7 +357,7 @@ describe('grep search tool', () => {
     expect(result.candidatesTruncated).toBe(true);
     expect(result.truncated).toBe(false);
     expect(result.files).toHaveLength(2);
-    expect(result.hint).toMatch(/narrow|specific|filePaths/i);
+    expect(result.hint).toMatch(/narrow|specific|filePaths/iu);
     expect(result.hint).not.toContain('Continue with offset:');
     // Files mode is a survey — the terminal hint must keep the content-mode
     // drill-down pointer so the happy path doesn't lose a round trip.
@@ -383,7 +383,7 @@ describe('grep search tool', () => {
     expect(result.candidatesTruncated).toBe(true);
     expect(result.truncated).toBe(false);
     expect(result.matches).toHaveLength(2);
-    expect(result.hint).toMatch(/narrow|specific|filePaths/i);
+    expect(result.hint).toMatch(/narrow|specific|filePaths/iu);
     expect(result.hint).not.toContain('Continue with offset:');
     expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
   });
@@ -393,7 +393,7 @@ describe('grep search tool', () => {
       { content: 'needle', path: 'src/x.ts', start_line: 1 },
     ]);
     await expect(runGrepSearchWith({ isRegex: true, pattern: '([' }, runtimeData)).rejects.toThrow(
-      /Invalid regular expression pattern/
+      /Invalid regular expression pattern/u
     );
     expect(runLiveGrep).not.toHaveBeenCalled();
   });
@@ -407,9 +407,9 @@ describe('grep search tool', () => {
     const pattern = 'OPENAI_API_KEY=sk-sensitive';
 
     const promise = runGrepSearchWith({ filePaths: ['src/huge.ts'], pattern }, runtimeData);
-    await expect(promise).rejects.toThrow(/Unable to perform grep search/);
+    await expect(promise).rejects.toThrow(/Unable to perform grep search/u);
     // The raw failure stays in the log, never in the model's message.
-    await expect(promise).rejects.not.toThrow(/bounded read size/);
+    await expect(promise).rejects.not.toThrow(/bounded read size/u);
 
     expect(loggerErrorMock).toHaveBeenCalledWith('grepSearch failed', {
       error: expect.any(Error),
@@ -521,7 +521,7 @@ describe('grep search tool multi-root', () => {
     const runtimeData = await diskWorkspace([], TWO_ROOTS);
     await expect(
       runGrepSearchWith({ pattern: 'needle', root: 'Nope' }, runtimeData)
-    ).rejects.toThrow(/no folder "Nope"/i);
+    ).rejects.toThrow(/no folder "Nope"/iu);
     expect(runLiveGrep).not.toHaveBeenCalled();
   });
 
@@ -619,7 +619,7 @@ describe('grep search tool filePaths scope (BST-764)', () => {
   it('rejects a path outside every open folder instead of returning a clean zero-match', async () => {
     await expect(
       runGrepSearchWith({ filePaths: ['/etc/passwd'], pattern: 'needle' }, UNOPENED_ROOT)
-    ).rejects.toThrow(/not inside any open folder/i);
+    ).rejects.toThrow(/not inside any open folder/iu);
     // Rejected before any disk work.
     expect(runLiveGrep).not.toHaveBeenCalled();
   });
@@ -629,10 +629,10 @@ describe('grep search tool filePaths scope (BST-764)', () => {
     // invite a retry of the same broken call.
     await expect(
       runGrepSearchWith({ filePaths: ['/etc/passwd'], pattern: 'needle' }, UNOPENED_ROOT)
-    ).rejects.toThrow(/Open folders:/);
+    ).rejects.toThrow(/Open folders:/u);
     await expect(
       runGrepSearchWith({ filePaths: ['/etc/passwd'], pattern: 'needle' }, UNOPENED_ROOT)
-    ).rejects.not.toThrow(/Try again/);
+    ).rejects.not.toThrow(/Try again/u);
   });
 
   it('leaves a relative path untouched', async () => {
@@ -681,7 +681,7 @@ describe('grep search tool filePaths scope (BST-764)', () => {
         { filePaths: [path.join(NESTED_INNER, 'f.ts')], pattern: 'needle' },
         NESTED_ROOTS
       )
-    ).rejects.toThrow(/more than one open folder/i);
+    ).rejects.toThrow(/more than one open folder/iu);
   });
 
   it('uses an explicit root to disambiguate nested roots', async () => {

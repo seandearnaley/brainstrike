@@ -106,11 +106,11 @@ describe('LogViewer interactions and export', () => {
     await screen.findByText('Older row');
     expect(screen.getAllByRole('row')[1]).toHaveTextContent('Older row');
 
-    await user.click(screen.getByRole('button', { name: /^Time/ }));
-    expect(screen.getByRole('button', { name: /^Time/ })).toHaveAccessibleName('Time');
-    await user.click(screen.getByRole('button', { name: /^Time/ }));
+    await user.click(screen.getByRole('button', { name: /^Time/u }));
+    expect(screen.getByRole('button', { name: /^Time/u })).toHaveAccessibleName('Time');
+    await user.click(screen.getByRole('button', { name: /^Time/u }));
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^Time/ })).toHaveAccessibleName('Time↓');
+      expect(screen.getByRole('button', { name: /^Time/u })).toHaveAccessibleName('Time↓');
       expect(screen.getAllByRole('row')[1]).toHaveTextContent('Newer row');
     });
 

@@ -30,7 +30,7 @@ export function ModelPickerItem({
   return (
     <Command.Item
       className={cn(
-        'group/item relative grid min-h-14 cursor-pointer select-none grid-cols-[2rem_minmax(0,1fr)_1.75rem] items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-sm outline-none transition-[border-color,background-color,box-shadow] aria-selected:border-border/60 aria-selected:bg-accent/60 aria-selected:text-accent-foreground aria-selected:shadow-sm',
+        'group/item aria-selected:border-border/60 aria-selected:bg-accent/60 aria-selected:text-accent-foreground relative grid min-h-14 cursor-pointer grid-cols-[2rem_minmax(0,1fr)_1.75rem] items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-sm transition-[border-color,background-color,box-shadow] outline-none select-none aria-selected:shadow-sm',
         // Force pointer events to ensure items are clickable even if cmdk thinks they are disabled
         'pointer-events-auto opacity-100',
         isSelected && 'border-border/70 bg-accent/45 shadow-sm'
@@ -38,24 +38,24 @@ export function ModelPickerItem({
       onSelect={onSelect}
       value={model.id}
     >
-      <span className="grid size-8 place-items-center rounded-lg border border-border/60 bg-background/70 shadow-xs">
+      <span className="border-border/60 bg-background/70 grid size-8 place-items-center rounded-lg border shadow-xs">
         <span
           className="size-2.5 rounded-full ring-4 ring-current/10"
           style={{ backgroundColor: providerColor, color: providerColor }}
         />
       </span>
       <div className="min-w-0">
-        <span className="block truncate font-medium leading-5">{model.name}</span>
+        <span className="block truncate leading-5 font-medium">{model.name}</span>
         {model.description && (
-          <span className="block truncate text-muted-foreground text-xs leading-4">
+          <span className="text-muted-foreground block truncate text-xs leading-4">
             {model.description}
           </span>
         )}
         {metadata.length > 0 && (
-          <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground leading-4">
+          <span className="text-muted-foreground mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] leading-4">
             {metadata.map((label) => (
               <span
-                className="rounded-md border border-border/50 bg-background/55 px-1.5"
+                className="border-border/50 bg-background/55 rounded-md border px-1.5"
                 key={label}
               >
                 {label}
@@ -68,7 +68,7 @@ export function ModelPickerItem({
         className={cn(
           'grid size-7 place-items-center rounded-full border transition-colors',
           isSelected
-            ? 'border-current bg-background/80 shadow-xs'
+            ? 'bg-background/80 border-current shadow-xs'
             : 'border-transparent text-transparent'
         )}
         style={isSelected ? { color: providerColor } : undefined}

@@ -79,7 +79,7 @@ describe('WorktreePickerDialog', () => {
 
     render(<WorktreePickerDialog picker={picker({ options })} />);
 
-    expect(screen.getAllByTestId(/^worktree-picker-row-/)).toHaveLength(4);
+    expect(screen.getAllByTestId(/^worktree-picker-row-/u)).toHaveLength(4);
     for (const worktree of options) {
       expect(
         screen.getByTestId(`worktree-picker-row-${worktree.worktreeId ?? worktree.path}`)

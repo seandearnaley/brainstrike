@@ -74,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 ]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -82,7 +82,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache: 'true'
+          turbo-cache: "true"
 
       # The lane script runs Playwright directly, not through turbo, so the
       # `test:e2e` task's declared test-only prerequisite
@@ -180,7 +180,7 @@ jobs:
   desktop-full-regression-gate:
     name: Desktop Full Regression
     if: github.repository == 'seandearnaley/brainstrike' && always() && (github.event_name != 'workflow_dispatch' || inputs.suite == 'full')
-    needs: [desktop-full-regression]
+    needs: [ desktop-full-regression ]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:

@@ -35,7 +35,7 @@ export const TurnScrubber = memo(function TurnScrubber({
           <Fragment key={run.runId}>
             {run.compactedRunIds.length > 0 && (
               <span
-                className="self-stretch border-muted-foreground/60 border-l-2 border-dotted"
+                className="border-muted-foreground/60 self-stretch border-l-2 border-dotted"
                 data-testid="context-map-compaction-marker"
                 title={`Before turn ${turn}, a compaction summarized ${run.compactedRunIds.length} earlier turn(s)`}
               />
@@ -44,8 +44,8 @@ export const TurnScrubber = memo(function TurnScrubber({
               aria-label={`Turn ${turn}: ${added} file tokens delivered`}
               aria-pressed={turn === selected}
               className={cn(
-                'flex min-w-9 flex-col items-center gap-1 rounded px-1 pb-0.5 text-muted-foreground',
-                'hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'text-muted-foreground flex min-w-9 flex-col items-center gap-1 rounded px-1 pb-0.5',
+                'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
                 turn === selected && 'text-foreground'
               )}
               data-testid={`context-map-turn-${turn}`}
@@ -55,7 +55,7 @@ export const TurnScrubber = memo(function TurnScrubber({
             >
               <span
                 className={cn(
-                  'w-4 rounded-t-sm bg-foreground',
+                  'bg-foreground w-4 rounded-t-sm',
                   turn === selected ? 'opacity-70' : 'opacity-25'
                 )}
                 style={{ height: `${Math.max(3, Math.round((added / max) * BAR_MAX_PX))}px` }}

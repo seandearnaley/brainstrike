@@ -5,6 +5,7 @@ import type {
   WorkspaceSnapshotSelection,
   WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
+import { createLogger } from '@brainstrike/logging';
 
 export type {
   WorkspaceSnapshotEditor,
@@ -13,8 +14,6 @@ export type {
   WorkspaceSnapshotSelection,
   WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
-
-import { createLogger } from '@brainstrike/logging';
 
 /**
  * Versioned per-thread workspace snapshot (BST-1268). The JSONB payload of

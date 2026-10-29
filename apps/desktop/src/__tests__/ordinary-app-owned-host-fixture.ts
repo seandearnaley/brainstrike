@@ -174,7 +174,7 @@ setInterval(() => {}, 1000);
       if (
         value !== undefined &&
         name !== 'ELECTRON_RUN_AS_NODE' &&
-        !/(API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET|AWS_)/.test(name)
+        !/(API_KEY|AUTH_TOKEN|ACCESS_TOKEN|SECRET|AWS_)/u.test(name)
       ) {
         env[name] = value;
       }

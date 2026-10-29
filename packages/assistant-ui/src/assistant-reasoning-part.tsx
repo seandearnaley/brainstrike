@@ -12,12 +12,12 @@ export function AssistantReasoningPart() {
   const visibleText = stripProviderCitationMarkers(text);
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-muted/20 px-3 py-3">
-      <p className="mb-2 font-medium text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+    <div className="border-border/60 bg-muted/20 rounded-2xl border px-3 py-3">
+      <p className="text-muted-foreground mb-2 text-[10px] font-medium tracking-[0.14em] uppercase">
         Thinking
       </p>
       <div
-        className="whitespace-pre-wrap text-muted-foreground text-sm leading-6"
+        className="text-muted-foreground text-sm leading-6 whitespace-pre-wrap"
         data-testid="local-reasoning-part"
       >
         {visibleText}

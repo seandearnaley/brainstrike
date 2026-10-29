@@ -20,8 +20,8 @@
  */
 
 /** Everything a filesystem (Windows in particular) rejects, plus separators. */
-const UNSAFE_FILENAME_CHARS = /[^a-zA-Z0-9._-]/g;
-const MILLIS_SUFFIX = /\.\d+Z$/;
+const UNSAFE_FILENAME_CHARS = /[^a-zA-Z0-9._-]/gu;
+const MILLIS_SUFFIX = /\.\d+Z$/u;
 
 /**
  * Strips everything outside `[a-zA-Z0-9._-]`. Exported so callers that need to
@@ -43,7 +43,7 @@ function formatFilesystemSafeTimestamp(generatedAt: Date): string {
   if (Number.isNaN(generatedAt.getTime())) {
     throw new Error('Cannot build a download filename from an invalid Date.');
   }
-  return generatedAt.toISOString().replace(MILLIS_SUFFIX, 'Z').replace(/:/g, '-');
+  return generatedAt.toISOString().replace(MILLIS_SUFFIX, 'Z').replace(/:/gu, '-');
 }
 
 /**
@@ -71,7 +71,7 @@ export function formatTimestampedDownloadFilename({
   if (!safeName) {
     throw new Error(`Download filename has no usable name segment: ${JSON.stringify(name)}`);
   }
-  const safeExtension = sanitizeFilenameSegment(extension).replace(/^\.+/, '');
+  const safeExtension = sanitizeFilenameSegment(extension).replace(/^\.+/u, '');
   if (!safeExtension) {
     throw new Error(`Download filename has no usable extension: ${JSON.stringify(extension)}`);
   }

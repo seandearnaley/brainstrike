@@ -87,7 +87,8 @@ describe('assistant thread presentation', () => {
     // Neutral means theme tokens only — an unassigned thread must never borrow a
     // palette hue and read as though the user had picked one.
     const paletteHue = new RegExp(
-      `-(?:${Object.keys(ASSISTANT_THREAD_COLOR_PRESENTATION).join('|')}|sky)-\\d`
+      `-(?:${Object.keys(ASSISTANT_THREAD_COLOR_PRESENTATION).join('|')}|sky)-\\d`,
+      'u'
     );
     for (const className of Object.values(UNASSIGNED_ASSISTANT_THREAD_COLOR_PRESENTATION)) {
       expect(className).not.toMatch(paletteHue);

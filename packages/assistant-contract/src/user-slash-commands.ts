@@ -69,7 +69,7 @@ const FRONTMATTER_FENCE = '---';
 export function parseUserCommandFile(content: string): ParsedUserCommandFile {
   // Strip a leading UTF-8 BOM so a BOM-prefixed `---` still opens frontmatter
   // (otherwise the whole file — fences included — leaks into the template).
-  const normalized = content.replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const normalized = content.replace(/^﻿/u, '').replace(/\r\n/gu, '\n');
   const lines = normalized.split('\n');
   if (lines[0] !== FRONTMATTER_FENCE) {
     return { ok: true, template: normalized };
@@ -118,7 +118,7 @@ export function parseUserCommandFile(content: string): ParsedUserCommandFile {
   const template = lines
     .slice(closingIndex + 1)
     .join('\n')
-    .replace(/^\n/, '');
+    .replace(/^\n/u, '');
   return {
     ok: true,
     template,
@@ -133,14 +133,14 @@ export function parseUserCommandFile(content: string): ParsedUserCommandFile {
  * `git:commit`). Directory namespacing is the same convention Claude Code uses.
  */
 export function deriveUserCommandId(relativePosixPath: string): string {
-  const withoutExtension = relativePosixPath.replace(/\.(md|markdown|mdown|mkd)$/i, '');
+  const withoutExtension = relativePosixPath.replace(/\.(md|markdown|mdown|mkd)$/iu, '');
   return withoutExtension
     .split('/')
     .filter((segment) => segment.length > 0)
     .join(':');
 }
 
-const REGEX_SPECIAL = /[.*+?^${}()|[\]\\]/g;
+const REGEX_SPECIAL = /[.*+?^${}()|[\]\\]/gu;
 
 function escapeRegExp(value: string): string {
   return value.replace(REGEX_SPECIAL, '\\$&');
@@ -160,7 +160,7 @@ export function extractUserCommandArgString(
   composerText: string,
   commandId: string
 ): string | null {
-  const pattern = new RegExp(`/${escapeRegExp(commandId)}(?:\\s+([\\s\\S]*))?$`);
+  const pattern = new RegExp(`/${escapeRegExp(commandId)}(?:\\s+([\\s\\S]*))?$`, 'u');
   const match = pattern.exec(composerText);
   if (!match) {
     return null;
@@ -173,9 +173,9 @@ export function extractUserCommandArgString(
 // with a function replacement guarantees substituted text is never re-scanned
 // (F2): `$100` inside an inserted arg stays literal, and a user-typed `@` in an
 // arg is never promoted to a file directive.
-const TEMPLATE_TOKEN = /(^|\s)@(\S+)|\$ARGUMENTS\b|\$(\d+)/g;
+const TEMPLATE_TOKEN = /(^|\s)@(\S+)|\$ARGUMENTS\b|\$(\d+)/gu;
 // The same argument tokens, for substituting args WITHIN a template @path.
-const ARG_TOKEN = /\$ARGUMENTS\b|\$(\d+)/g;
+const ARG_TOKEN = /\$ARGUMENTS\b|\$(\d+)/gu;
 
 function basename(pathValue: string): string {
   const segments = pathValue.split('/');
@@ -262,7 +262,7 @@ export function expandUserCommandTemplate(input: {
 }): string {
   const { argString, mentionRootId, template } = input;
   const trimmedArgs = argString.trim();
-  const positional = trimmedArgs.length > 0 ? trimmedArgs.split(/\s+/) : [];
+  const positional = trimmedArgs.length > 0 ? trimmedArgs.split(/\s+/u) : [];
 
   return template.replace(
     TEMPLATE_TOKEN,

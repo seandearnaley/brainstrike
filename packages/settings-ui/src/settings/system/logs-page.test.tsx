@@ -160,7 +160,7 @@ describe('LogsPage log source switch', () => {
   it('does not render a log source control without a durable source', () => {
     render(<LogsPage active logSource={createLogSource([])} />);
 
-    expect(screen.queryByRole('combobox', { name: /log source/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /log source/iu })).not.toBeInTheDocument();
   });
 
   it('subscribes to the session adapter by default and the durable adapter once Persistent errors is selected', async () => {
@@ -175,7 +175,7 @@ describe('LogsPage log source switch', () => {
     });
     expect(persistent.callCount.subscribe).toBe(0);
 
-    await user.click(screen.getByRole('combobox', { name: /log source/i }));
+    await user.click(screen.getByRole('combobox', { name: /log source/iu }));
     await user.click(screen.getByText('Persistent errors'));
 
     await waitFor(() => {
@@ -194,7 +194,7 @@ describe('LogsPage log source switch', () => {
       expect(screen.getByText('No logs recorded for the current session.')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('combobox', { name: /log source/i }));
+    await user.click(screen.getByRole('combobox', { name: /log source/iu }));
     await user.click(screen.getByText('Persistent errors'));
 
     await waitFor(() => {
@@ -206,7 +206,7 @@ describe('LogsPage log source switch', () => {
 describe('LogsPage export NDJSON button', () => {
   async function selectPersistentSource() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole('combobox', { name: /log source/i }));
+    await user.click(screen.getByRole('combobox', { name: /log source/iu }));
     await user.click(screen.getByText('Persistent errors'));
     return user;
   }
@@ -221,7 +221,7 @@ describe('LogsPage export NDJSON button', () => {
       />
     );
 
-    expect(screen.queryByRole('button', { name: /export ndjson/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /export ndjson/iu })).not.toBeInTheDocument();
   });
 
   it('is present once the persistent source is selected', async () => {
@@ -237,7 +237,7 @@ describe('LogsPage export NDJSON button', () => {
     await selectPersistentSource();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /export ndjson/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /export ndjson/iu })).toBeInTheDocument();
     });
   });
 
@@ -251,7 +251,7 @@ describe('LogsPage export NDJSON button', () => {
     await waitFor(() => {
       expect(screen.getByText('No durable warn+ events recorded.')).toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /export ndjson/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /export ndjson/iu })).not.toBeInTheDocument();
   });
 
   it('clicking it invokes the export and triggers a Blob-anchor download', async () => {
@@ -281,7 +281,7 @@ describe('LogsPage export NDJSON button', () => {
       );
 
       const user = await selectPersistentSource();
-      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/iu });
       await user.click(exportButton);
 
       await waitFor(() => expect(onExportDurableNdjson).toHaveBeenCalledTimes(1));
@@ -343,7 +343,7 @@ describe('LogsPage export NDJSON button', () => {
       );
 
       const user = await selectPersistentSource();
-      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/iu });
       await user.click(exportButton);
 
       await waitFor(() =>
@@ -356,10 +356,10 @@ describe('LogsPage export NDJSON button', () => {
         )
       );
       expect(mockAnchor.download).toMatch(
-        /^brainstrike-errors-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-recent2000\.ndjson$/
+        /^brainstrike-errors-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-recent2000\.ndjson$/u
       );
       // Windows rejects `:`; a raw ISO timestamp here gets silently mangled.
-      expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/);
+      expect(mockAnchor.download).not.toMatch(/[<>:"/\\|?*]/u);
     } finally {
       createElementSpy.mockRestore();
       createObjectUrlSpy.mockRestore();
@@ -383,7 +383,7 @@ describe('LogsPage export NDJSON button', () => {
     );
 
     const user = await selectPersistentSource();
-    const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+    const exportButton = await screen.findByRole('button', { name: /export ndjson/iu });
     await user.click(exportButton);
 
     await waitFor(() =>
@@ -415,7 +415,7 @@ describe('LogsPage export NDJSON button', () => {
       );
 
       const user = await selectPersistentSource();
-      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/iu });
       await user.click(exportButton);
 
       await waitFor(() => expect(onExportDurableNdjson).toHaveBeenCalledTimes(1));
@@ -462,7 +462,7 @@ describe('LogsPage export NDJSON button', () => {
       );
 
       const user = await selectPersistentSource();
-      const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+      const exportButton = await screen.findByRole('button', { name: /export ndjson/iu });
       expect(exportButton).not.toBeDisabled();
 
       await user.click(exportButton);
@@ -499,7 +499,7 @@ describe('LogsPage export NDJSON button', () => {
     );
 
     const user = await selectPersistentSource();
-    const exportButton = await screen.findByRole('button', { name: /export ndjson/i });
+    const exportButton = await screen.findByRole('button', { name: /export ndjson/iu });
     expect(exportButton).not.toBeDisabled();
 
     await user.click(exportButton);

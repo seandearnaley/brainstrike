@@ -83,7 +83,7 @@ function lastFollowUp(modelProvider: ModelProviderShim): string {
 
 async function hooksSettings(page: Page) {
   await new HomePage(page).openSettings();
-  return await new SettingsPage(page).openCategory(/Hooks/i, 'hooks');
+  return await new SettingsPage(page).openCategory(/Hooks/iu, 'hooks');
 }
 
 test('a project hook runs on a host thread only after it is approved in Settings › Hooks', async ({

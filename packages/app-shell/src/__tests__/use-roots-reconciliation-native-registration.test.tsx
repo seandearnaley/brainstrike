@@ -2,6 +2,8 @@ import { act } from '@brainstrike/test-utils/react-act';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetRootRegistrationEventsForTests } from '../roots/root-registration-events';
+import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 
 const loggerMock = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -13,9 +15,6 @@ vi.mock('@brainstrike/logging', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/logging')>()),
   createLogger: () => loggerMock,
 }));
-
-import { resetRootRegistrationEventsForTests } from '../roots/root-registration-events';
-import { useRootsReconciliation } from '../roots/use-roots-reconciliation';
 
 function grantedRootWithPath(rootId: string, name: string, path: string): RootDescriptor {
   return {

@@ -82,7 +82,7 @@ function validateRefArg(value: unknown, fieldName: string): GitResult<string> {
   if (typeof value !== 'string' || value.length === 0) {
     return { error: `${fieldName} must be a non-empty string`, ok: false };
   }
-  if (/\s/.test(value)) {
+  if (/\s/u.test(value)) {
     return { error: `${fieldName} must not contain whitespace`, ok: false };
   }
   if (value.includes(':')) {
@@ -109,7 +109,7 @@ export function validateCommitId(value: unknown): GitResult<string> {
   if (!safe.ok) {
     return safe;
   }
-  if (!/^[0-9a-f]{40,64}$/.test(safe.value)) {
+  if (!/^[0-9a-f]{40,64}$/u.test(safe.value)) {
     return { error: 'commitId must be a full object id returned by Git', ok: false };
   }
   return safe;
@@ -168,14 +168,14 @@ export async function resolveCommitOldRef(
   if (run_.exitCode !== 0) {
     return { error: describeFailure(run_), ok: false };
   }
-  const [resolvedCommit, firstParent] = run_.stdout.trim().split(/\s+/);
+  const [resolvedCommit, firstParent] = run_.stdout.trim().split(/\s+/u);
   if (resolvedCommit !== commitId) {
     return { error: 'git returned mismatched commit ancestry metadata', ok: false };
   }
   if (firstParent === undefined) {
     return await resolveEmptyTreeHash(invoke);
   }
-  if (!/^[0-9a-f]{40,64}$/.test(firstParent)) {
+  if (!/^[0-9a-f]{40,64}$/u.test(firstParent)) {
     return { error: 'git returned an invalid first-parent object id', ok: false };
   }
   return { ok: true, value: `${commitId}^` };

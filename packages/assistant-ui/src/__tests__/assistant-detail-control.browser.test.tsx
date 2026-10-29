@@ -25,29 +25,29 @@ describe('DetailLevelControl (real browser)', () => {
 
   test('lists all three levels with standard active by default', async () => {
     await setup();
-    expect(screen.getByRole('radio', { name: /Compact/ })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Standard/ })).toBeChecked();
-    expect(screen.getByRole('radio', { name: /Developer/ })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Compact/u })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Standard/u })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Developer/u })).toBeInTheDocument();
   });
 
   test('selecting Developer persists the choice and keeps Controls open', async () => {
     const user = await setup();
 
-    await user.click(screen.getByRole('radio', { name: /Developer/ }));
+    await user.click(screen.getByRole('radio', { name: /Developer/u }));
 
     expect(window.localStorage.getItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY)).toBe('developer');
     expect(screen.getByRole('dialog', { name: 'Assistant controls' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Developer/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Developer/u })).toBeChecked();
   });
 
   test('arrow keys move between detail levels and persist the selection', async () => {
     const user = await setup();
-    const standard = screen.getByRole('radio', { name: /Standard/ });
+    const standard = screen.getByRole('radio', { name: /Standard/u });
     standard.focus();
 
     await user.keyboard('{ArrowRight}');
 
-    expect(screen.getByRole('radio', { name: /Developer/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Developer/u })).toBeChecked();
     expect(window.localStorage.getItem(ASSISTANT_DETAIL_LEVEL_STORAGE_KEY)).toBe('developer');
     expect(screen.getByRole('dialog', { name: 'Assistant controls' })).toBeInTheDocument();
   });

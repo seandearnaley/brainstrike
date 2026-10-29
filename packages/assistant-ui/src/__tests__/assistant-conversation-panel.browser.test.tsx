@@ -101,8 +101,8 @@ test.each(
     onTestFinished(() => viewport.removeEventListener('scrollend', openingEnded));
     await waitFor(() => expect(viewport).toHaveAttribute('data-thread-render-tier', 'virtual'));
     expect(getComputedStyle(viewport).scrollBehavior).toBe('auto');
-    await waitFor(() => expect(child.getByText(/Evidence 599:/)).toBeVisible());
-    const lastMessage = child.getByText(/Evidence 599:/).closest('.aui-assistant-message-root');
+    await waitFor(() => expect(child.getByText(/Evidence 599:/u)).toBeVisible());
+    const lastMessage = child.getByText(/Evidence 599:/u).closest('.aui-assistant-message-root');
     if (!lastMessage) {
       throw new Error('Expected the shared assistant message root');
     }
@@ -151,7 +151,7 @@ test.each(
       viewport.scrollTo({ behavior: 'instant', top: 0 });
       fireEvent.scroll(viewport);
     });
-    await waitFor(() => expect(child.getByText(/Evidence 0:/)).toBeVisible(), {
+    await waitFor(() => expect(child.getByText(/Evidence 0:/u)).toBeVisible(), {
       onTimeout: (error) =>
         new Error(`${error.message}\nScroll geometry: ${openingGeometry.read()}`, { cause: error }),
     });
@@ -181,7 +181,7 @@ test.each(
     // the true bottom plus the final row, not merely a completed animation.
     await waitFor(
       () => {
-        expect(child.getByText(/Evidence 599:/)).toBeVisible();
+        expect(child.getByText(/Evidence 599:/u)).toBeVisible();
         expect(
           Math.abs(viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight)
         ).toBeLessThanOrEqual(2);
@@ -210,7 +210,7 @@ test('commits virtual sizing synchronously under reduced motion', async () => {
   const viewport = within(screen.getByRole('region', { name: 'Cedar' })).getByTestId(
     'assistant-ui-viewport'
   );
-  await waitFor(() => expect(within(viewport).getByText(/Evidence 599:/)).toBeVisible());
+  await waitFor(() => expect(within(viewport).getByText(/Evidence 599:/u)).toBeVisible());
   const sizer = viewport.querySelector<HTMLElement>('.bs-virtual-thread');
   if (!sizer) {
     throw new Error('Missing virtual sizing container');

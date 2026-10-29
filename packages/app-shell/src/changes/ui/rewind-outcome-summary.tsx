@@ -29,14 +29,14 @@ export function RewindOutcomeSummary({
 
       {outcome.roots.length > 0 ? (
         <div className="flex flex-col gap-1" data-testid="rewind-outcome-roots">
-          <p className="font-medium text-xs">Per workspace root</p>
+          <p className="text-xs font-medium">Per workspace root</p>
           {outcome.roots.map((root) => (
             <p
               className="text-muted-foreground text-xs"
               data-testid={`rewind-outcome-root-${root.rootId}`}
               key={root.rootId}
             >
-              <span className="font-medium text-foreground">{root.label ?? root.rootId}</span>
+              <span className="text-foreground font-medium">{root.label ?? root.rootId}</span>
               {root.rootPath === null ? (
                 <span className="text-warning"> (not connected — nothing could be written)</span>
               ) : null}
@@ -53,10 +53,10 @@ export function RewindOutcomeSummary({
 
       {outcome.notRestored.length > 0 ? (
         <div className="flex flex-col gap-0.5" data-testid="rewind-outcome-unreverted">
-          <p className="font-medium text-xs">Not restored</p>
+          <p className="text-xs font-medium">Not restored</p>
           {outcome.notRestored.map((file) => (
             <p className="text-muted-foreground text-xs" key={`${file.rootId}\u0000${file.path}`}>
-              <span className="font-mono text-foreground">{file.path}</span>
+              <span className="text-foreground font-mono">{file.path}</span>
               <span> — {file.message}</span>
             </p>
           ))}

@@ -194,8 +194,8 @@ const fixtureWithDisabledDeepseek = {
   })),
 };
 
-const ENABLE_FLASH = /Enable and select DeepSeek V4\.1 Flash/;
-const ENABLE_PRO = /Enable and select DeepSeek V4\.1 Pro/;
+const ENABLE_FLASH = /Enable and select DeepSeek V4\.1 Flash/u;
+const ENABLE_PRO = /Enable and select DeepSeek V4\.1 Pro/u;
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve: (value: T) => void = () => undefined;
@@ -255,7 +255,7 @@ describe('ComposerModelPicker', () => {
     const picker = await openPicker(user);
     expect(picker).toHaveAccessibleName('Choose a model');
     expect(within(picker).getByRole('combobox')).toHaveFocus();
-    const row = within(picker).getAllByRole('option', { name: /GPT-5\.6 Terra/ })[0];
+    const row = within(picker).getAllByRole('option', { name: /GPT-5\.6 Terra/u })[0];
     if (!row) {
       throw new Error('selected row missing');
     }
@@ -304,7 +304,7 @@ describe('ComposerModelPicker', () => {
 
     const picker = await openPicker(user);
     const recent = within(picker).getByRole('group', { name: 'Recent' });
-    await user.click(within(recent).getByRole('option', { name: /Claude Sonnet 5/ }));
+    await user.click(within(recent).getByRole('option', { name: /Claude Sonnet 5/u }));
 
     expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-5');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -334,10 +334,10 @@ describe('ComposerModelPicker', () => {
     await user.type(within(picker).getByRole('combobox'), 'shared');
     expect(within(picker).queryByRole('group', { name: 'Recent' })).not.toBeInTheDocument();
     const anthropicRow = within(picker).getByRole('option', {
-      name: /Shared \(Anthropic\).*Anthropic/,
+      name: /Shared \(Anthropic\).*Anthropic/u,
     });
     expect(
-      within(picker).getByRole('option', { name: /Shared \(OpenAI\).*OpenAI/ })
+      within(picker).getByRole('option', { name: /Shared \(OpenAI\).*OpenAI/u })
     ).toBeInTheDocument();
     await user.click(anthropicRow);
 
@@ -372,7 +372,7 @@ describe('ComposerModelPicker', () => {
     await user.type(within(picker).getByRole('combobox'), 'deepseek');
     within(picker).getByRole('group', { name: 'Not enabled' });
     await user.click(
-      within(picker).getByRole('option', { name: /Enable and select DeepSeek V4\.1 Flash/ })
+      within(picker).getByRole('option', { name: /Enable and select DeepSeek V4\.1 Flash/u })
     );
 
     expect(onEnableModel).toHaveBeenCalledWith('openrouter', 'deepseek/deepseek-v4.1-flash');
@@ -396,7 +396,7 @@ describe('ComposerModelPicker', () => {
     const picker = await openPicker(user);
     await user.type(within(picker).getByRole('combobox'), 'deepseek');
     await user.click(
-      within(picker).getByRole('option', { name: /Enable and select DeepSeek V4\.1 Flash/ })
+      within(picker).getByRole('option', { name: /Enable and select DeepSeek V4\.1 Flash/u })
     );
 
     expect(onEnableModel).toHaveBeenCalledWith('openrouter', 'deepseek/deepseek-v4.1-flash');
@@ -407,7 +407,7 @@ describe('ComposerModelPicker', () => {
     expect(onModelChange).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(
-      within(picker).getByRole('option', { name: /Enable and select DeepSeek V4\.1 Flash/ })
+      within(picker).getByRole('option', { name: /Enable and select DeepSeek V4\.1 Flash/u })
     ).not.toHaveAttribute('aria-disabled', 'true');
   });
 
@@ -424,7 +424,7 @@ describe('ComposerModelPicker', () => {
     const picker = await openPicker(user);
     await user.type(within(picker).getByRole('combobox'), 'deepseek');
     const row = within(picker).getByRole('option', { name: ENABLE_FLASH });
-    expect(within(row).queryByText(/context$/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/context$/u)).not.toBeInTheDocument();
     expect(within(row).queryByLabelText('Vision')).not.toBeInTheDocument();
     expect(within(row).queryByLabelText('Reasoning')).not.toBeInTheDocument();
   });
@@ -530,7 +530,7 @@ describe('ComposerModelPicker', () => {
     await user.type(search, 'deepseek');
     await user.click(within(picker).getByRole('option', { name: ENABLE_FLASH }));
     await user.clear(search);
-    await user.click(within(picker).getByRole('option', { name: /Claude Sonnet 5/ }));
+    await user.click(within(picker).getByRole('option', { name: /Claude Sonnet 5/u }));
     expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-5');
 
     await act(async () => {

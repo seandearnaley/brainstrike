@@ -466,7 +466,7 @@ describe('bedrock case composes prompt caching (BST-1354) with chain auth (BST-1
     // The Converse body carries `cachePoint` blocks inline; counting them on
     // the SERIALIZED request proves the wrapper survived into the wire, not
     // merely that some object was returned.
-    return body === undefined ? 0 : (body.match(/"cachePoint"/g) ?? []).length;
+    return body === undefined ? 0 : (body.match(/"cachePoint"/gu) ?? []).length;
   }
 
   async function streamOnce(auth: ProviderAuthInput, modelId: string) {

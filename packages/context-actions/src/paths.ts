@@ -1,4 +1,4 @@
-const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/;
+const WINDOWS_DRIVE_PATH = /^[A-Za-z]:[\\/]/u;
 
 export function isAbsolutePath(path: string): boolean {
   return path.startsWith('/') || path.startsWith('\\\\') || WINDOWS_DRIVE_PATH.test(path);

@@ -166,9 +166,9 @@ interface PresetCreateFormProps {
 
 function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFormProps) {
   return (
-    <div className="space-y-3 bg-muted/10 p-3">
+    <div className="bg-muted/10 space-y-3 p-3">
       <div className="flex items-center justify-between border-b pb-2">
-        <span className="font-semibold text-muted-foreground text-xs uppercase">New Preset</span>
+        <span className="text-muted-foreground text-xs font-semibold uppercase">New Preset</span>
         <Button
           aria-label="Cancel preset creation"
           className="size-5"
@@ -182,7 +182,7 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
       </div>
       <div className="space-y-2">
         <div className="space-y-1">
-          <label className="font-medium text-[10px] text-muted-foreground" htmlFor="preset-name">
+          <label className="text-muted-foreground text-[10px] font-medium" htmlFor="preset-name">
             Name
           </label>
           <Input
@@ -194,7 +194,7 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
           />
         </div>
         <fieldset className="m-0 space-y-1 border-0 p-0">
-          <legend className="font-medium text-[10px] text-muted-foreground">Icon</legend>
+          <legend className="text-muted-foreground text-[10px] font-medium">Icon</legend>
           <IconPicker
             onSelect={(name) => dispatch({ type: 'SET_ICON', value: name })}
             selectedIcon={form.icon}
@@ -202,7 +202,7 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
         </fieldset>
         <div className="space-y-1">
           <label
-            className="font-medium text-[10px] text-muted-foreground"
+            className="text-muted-foreground text-[10px] font-medium"
             htmlFor="preset-includes"
           >
             Include Patterns (comma sep)
@@ -218,7 +218,7 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <label
-              className="font-medium text-[10px] text-muted-foreground"
+              className="text-muted-foreground text-[10px] font-medium"
               htmlFor="preset-excludes"
             >
               Exclude Patterns
@@ -237,9 +237,9 @@ function PresetCreateForm({ form, dispatch, onCancel, onCreate }: PresetCreateFo
                   form.useRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
                 )}
               >
-                {form.useRegex && <Check className="size-2 text-primary-foreground" />}
+                {form.useRegex && <Check className="text-primary-foreground size-2" />}
               </div>
-              <span className="text-[10px] text-muted-foreground">Use Regex</span>
+              <span className="text-muted-foreground text-[10px]">Use Regex</span>
             </label>
           </div>
           <Input
@@ -283,9 +283,9 @@ function PresetEditForm({
   onDelete,
 }: PresetEditFormProps) {
   return (
-    <div className="my-1 cursor-default space-y-2 rounded-md border bg-muted/20 p-2">
+    <div className="bg-muted/20 my-1 cursor-default space-y-2 rounded-md border p-2">
       <div className="flex items-center justify-between">
-        <span className="font-semibold text-muted-foreground text-xs uppercase">
+        <span className="text-muted-foreground text-xs font-semibold uppercase">
           Editing {preset.name}
         </span>
         <Button
@@ -337,9 +337,9 @@ function PresetEditForm({
               form.useRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
             )}
           >
-            {form.useRegex && <Check className="size-2 text-primary-foreground" />}
+            {form.useRegex && <Check className="text-primary-foreground size-2" />}
           </div>
-          <span className="text-[10px] text-muted-foreground">Regex</span>
+          <span className="text-muted-foreground text-[10px]">Regex</span>
         </label>
       </div>
       <div className="flex gap-2 pt-1">
@@ -635,7 +635,7 @@ export function ViewFilterPresetDropdown({
         ) : (
           <>
             {/* Search */}
-            <div className="border-b bg-muted/30 p-2">
+            <div className="bg-muted/30 border-b p-2">
               <Input
                 aria-label="Filter presets"
                 className="h-8"
@@ -651,12 +651,12 @@ export function ViewFilterPresetDropdown({
             <div className="max-h-[300px] overflow-y-auto p-1">
               {shownThreadPreset ? (
                 <div className="border-b pb-1" data-testid="thread-touched-preset">
-                  <div className="px-2 pt-1 pb-0.5 font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
+                  <div className="text-muted-foreground px-2 pt-1 pb-0.5 text-[10px] font-medium tracking-wide uppercase">
                     This thread
                   </div>
                   <div
                     className={cn(
-                      'flex items-center justify-between rounded-sm px-2 py-1 hover:bg-accent hover:text-accent-foreground',
+                      'hover:bg-accent hover:text-accent-foreground flex items-center justify-between rounded-sm px-2 py-1',
                       selectedPreset?.id === shownThreadPreset.id &&
                         'bg-accent/50 text-accent-foreground'
                     )}
@@ -668,22 +668,22 @@ export function ViewFilterPresetDropdown({
                     >
                       <FileText className="size-4 shrink-0 opacity-70" />
                       <div className="flex flex-col truncate">
-                        <span className="truncate font-medium text-sm">
+                        <span className="truncate text-sm font-medium">
                           {shownThreadPreset.name}
                         </span>
-                        <span className="truncate text-[10px] text-muted-foreground opacity-80">
+                        <span className="text-muted-foreground truncate text-[10px] opacity-80">
                           {shownThreadPreset.description}
                         </span>
                       </div>
                     </button>
                     {selectedPreset?.id === shownThreadPreset.id && (
-                      <Check className="ml-2 size-4 shrink-0 text-primary" />
+                      <Check className="text-primary ml-2 size-4 shrink-0" />
                     )}
                   </div>
                 </div>
               ) : null}
               {loading && filteredPresets.length === 0 && (
-                <div className="py-4 text-center text-muted-foreground text-sm">
+                <div className="text-muted-foreground py-4 text-center text-sm">
                   Loading presets...
                 </div>
               )}
@@ -708,7 +708,7 @@ export function ViewFilterPresetDropdown({
                 return (
                   <div
                     className={cn(
-                      'group flex items-center justify-between rounded-sm px-2 py-1 hover:bg-accent hover:text-accent-foreground',
+                      'group hover:bg-accent hover:text-accent-foreground flex items-center justify-between rounded-sm px-2 py-1',
                       selectedPreset?.id === preset.id && 'bg-accent/50 text-accent-foreground'
                     )}
                     key={preset.id}
@@ -720,15 +720,15 @@ export function ViewFilterPresetDropdown({
                     >
                       <PresetIcon className="size-4 shrink-0 opacity-70" />
                       <div className="flex flex-col truncate">
-                        <span className="truncate font-medium text-sm">{preset.name}</span>
-                        <span className="truncate font-mono text-[10px] text-muted-foreground opacity-80">
+                        <span className="truncate text-sm font-medium">{preset.name}</span>
+                        <span className="text-muted-foreground truncate font-mono text-[10px] opacity-80">
                           {preset.includes.join(', ')}
                         </span>
                       </div>
                     </button>
                     <div className="ml-2 flex items-center gap-1">
                       {selectedPreset?.id === preset.id && (
-                        <Check className="size-4 shrink-0 text-primary" />
+                        <Check className="text-primary size-4 shrink-0" />
                       )}
                       <Button
                         aria-label="Edit preset"
@@ -749,14 +749,14 @@ export function ViewFilterPresetDropdown({
               })}
 
               {!loading && filteredPresets.length === 0 && !shownThreadPreset && (
-                <div className="py-4 text-center text-muted-foreground text-sm">
+                <div className="text-muted-foreground py-4 text-center text-sm">
                   No presets found
                 </div>
               )}
             </div>
 
             {/* Create New */}
-            <div className="border-t bg-muted/30 p-1">
+            <div className="bg-muted/30 border-t p-1">
               <Button
                 className="h-8 w-full justify-start text-xs"
                 onClick={() => setIsCreating(true)}

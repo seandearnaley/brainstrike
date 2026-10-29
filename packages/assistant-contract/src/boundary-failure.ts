@@ -21,7 +21,7 @@ export const BOUNDARY_FAILURE_CATEGORIES = [
 export type BoundaryFailureCategory = (typeof BOUNDARY_FAILURE_CATEGORIES)[number];
 /** A namespaced, stable code: `area.reason`, lower-case words joined by dashes. */
 const BoundaryFailureCode = Schema.Union([
-  Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/)),
+  Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u)),
   Schema.Literals([
     'native-index-transitioning',
     'native-index-closed',

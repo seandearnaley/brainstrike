@@ -80,7 +80,7 @@ test.each([390, 900])(
       composer.getBoundingClientRect().top + 1
     );
     await page.getByText('Debug pack', { exact: true }).click();
-    expect(screen.getByText(/Includes this conversation and its subagents/)).toBeVisible();
+    expect(screen.getByText(/Includes this conversation and its subagents/u)).toBeVisible();
     expect(viewport.getBoundingClientRect().height).toBeGreaterThan(0);
     expect(viewport.getBoundingClientRect().height).toBeLessThan(collapsedViewportHeight);
     expect(viewport.getBoundingClientRect().bottom).toBeLessThanOrEqual(
@@ -92,7 +92,7 @@ test.each([390, 900])(
     await page.getByRole('button', { exact: true, name: 'Download debug pack' }).click();
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     const payload = save.mock.calls[0]?.[0];
-    expect(payload?.filename).toMatch(/^brainstrike-thread-debug-.*\.json$/);
+    expect(payload?.filename).toMatch(/^brainstrike-thread-debug-.*\.json$/u);
     expect(JSON.parse(new TextDecoder().decode(payload?.bytes)).sections.messages).toEqual([
       'successful',
     ]);

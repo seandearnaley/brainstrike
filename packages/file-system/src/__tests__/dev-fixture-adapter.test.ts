@@ -541,10 +541,10 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
     await expect(
       adapter.loadInlineFixture({ name: 'bad-empty', rootId: '', tree: { 'a.ts': '' } })
-    ).rejects.toThrow(/invalid durable rootId/);
+    ).rejects.toThrow(/invalid durable rootId/u);
     await expect(
       adapter.loadInlineFixture({ name: 'bad-shape', rootId: 'not-a-uuid', tree: { 'a.ts': '' } })
-    ).rejects.toThrow(/invalid durable rootId/);
+    ).rejects.toThrow(/invalid durable rootId/u);
     expect(adapter.isInlineFixtureActive()).toBe(false);
   });
 
@@ -555,14 +555,14 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     await adapter.loadInlineFixture({ name: 'primary', rootId: sharedId, tree: { 'a.ts': '' } });
     await expect(
       adapter.addInlineFixtureRoot({ name: 'secondary', rootId: sharedId, tree: { 'b.ts': '' } })
-    ).rejects.toThrow(/already active on another root/);
+    ).rejects.toThrow(/already active on another root/u);
   });
 
   it('ships the dev inline fixture with a durable rootId so selections survive reloads', async () => {
     // Guards the actual shipped fixture: dropping its rootId reintroduces the
     // cross-reload selection loss this fix addresses.
     expect(DEV_INLINE_FIXTURE.rootId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
     );
 
     const bootA = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
@@ -686,7 +686,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
     it('throws without an active primary fixture — the harness must not half-activate', async () => {
       const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
       await expect(adapter.addInlineFixtureRoot(SECOND_FIXTURE)).rejects.toThrow(
-        /requires an active inline fixture/
+        /requires an active inline fixture/u
       );
     });
 
@@ -694,7 +694,7 @@ describe('createFixtureCapableAdapter (inline fixture)', () => {
       const adapter = createFixtureCapableAdapter(createBaseAdapter(), { platform: 'web' });
       await adapter.loadInlineFixture(FIXTURE);
       await adapter.addInlineFixtureRoot(SECOND_FIXTURE);
-      await expect(adapter.addInlineFixtureRoot(SECOND_FIXTURE)).rejects.toThrow(/already active/);
+      await expect(adapter.addInlineFixtureRoot(SECOND_FIXTURE)).rejects.toThrow(/already active/u);
     });
 
     it('keeps the added root id durable across re-adds after a clear', async () => {

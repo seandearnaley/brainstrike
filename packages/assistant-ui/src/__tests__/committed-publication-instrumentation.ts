@@ -216,7 +216,7 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
     if (handler.name === 'performWorkUntilDeadline') {
       return 'react-scheduler';
     }
-    return /flushScheduled/.test(String(handler)) ? 'assistant-ui/tap' : 'other';
+    return /flushScheduled/u.test(String(handler)) ? 'assistant-ui/tap' : 'other';
   }
 
   function instrumentPort(port: MessagePort): void {

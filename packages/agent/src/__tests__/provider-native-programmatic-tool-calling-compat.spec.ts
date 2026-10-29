@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 describe('provider-native programmatic tool-calling compatibility seam', () => {
   it('pins the installed adapter surface evaluated by BST-616', () => {
     const tools = createOpenAI({ apiKey: 'not-used' }).tools;
-    const programmaticToolKeys = Object.keys(tools).filter((key) => /programmatic/i.test(key));
+    const programmaticToolKeys = Object.keys(tools).filter((key) => /programmatic/iu.test(key));
 
     expect(programmaticToolKeys).toEqual(['programmaticToolCalling']);
     expect(tools.programmaticToolCalling()).toMatchObject({

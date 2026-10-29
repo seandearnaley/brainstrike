@@ -16,7 +16,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 /** Trust writes change what runs on the user's machine: the visible UI only. */
-const Sha256Schema = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+const Sha256Schema = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 
 /**
  * Load the mounted catalog roots (id + path) so a reviewed/attested path can be

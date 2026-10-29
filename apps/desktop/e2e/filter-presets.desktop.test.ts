@@ -71,7 +71,7 @@ async function ensureFileExplorerPanelVisible(window: Page): Promise<void> {
   const explorerPanel = getContextExplorerFileExplorerPanel(window);
   const showExplorerPanelButton = window
     .getByTestId('show-explorer-panel')
-    .or(window.getByRole('button', { name: /show explorer/i }));
+    .or(window.getByRole('button', { name: /show explorer/iu }));
 
   if (
     !(await explorerPanel.isVisible().catch(() => false)) &&
@@ -99,7 +99,7 @@ function getViewFiltersContent(window: Page): Locator {
 /** Wide-toolbar surface: present in the accessibility tree only at >=236px. */
 function getViewFiltersToggle(window: Page): Locator {
   return getContextExplorerFileExplorerPanel(window).getByRole('button', {
-    name: /view filters/i,
+    name: /view filters/iu,
   });
 }
 
@@ -143,7 +143,7 @@ async function openExplorerCompactMenu(window: Page): Promise<Locator> {
   // "element(s) not found". That is exactly why the handle is captured up front.
   await expect
     .poll(async () => await compactActionsHandle.getAttribute('aria-controls'))
-    .toMatch(/\S/);
+    .toMatch(/\S/u);
 
   const menuId = await compactActionsHandle.getAttribute('aria-controls');
   if (!menuId) {
@@ -426,7 +426,7 @@ async function resolvePresetTrigger(window: Page): Promise<Locator> {
   const presetTrigger = explorerPanel
     .locator('button')
     .filter({
-      hasText: /custom filters|select filter|source files|documentation|typescript\/javascript/i,
+      hasText: /custom filters|select filter|source files|documentation|typescript\/javascript/iu,
     })
     .first();
   await expect(presetTrigger).toBeVisible({ timeout: 10_000 });
@@ -436,7 +436,7 @@ async function resolvePresetTrigger(window: Page): Promise<Locator> {
 
 async function selectMockRoot(window: Page): Promise<void> {
   const selectRootButton = window
-    .getByRole('button', { name: /add folder to workspace|^browse$/i })
+    .getByRole('button', { name: /add folder to workspace|^browse$/iu })
     .first();
   await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
   await clickElectronControl(selectRootButton);
@@ -452,7 +452,7 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
   const selectedDocumentationTrigger = getContextExplorerFileExplorerPanel(window).getByRole(
     'button',
     {
-      name: /documentation/i,
+      name: /documentation/iu,
     }
   );
   if (await selectedDocumentationTrigger.isVisible().catch(() => false)) {
@@ -460,7 +460,7 @@ async function selectDocumentationPreset(window: Page): Promise<void> {
     return;
   }
 
-  await selectPresetBySearch(window, 'Documentation', /documentation/i);
+  await selectPresetBySearch(window, 'Documentation', /documentation/iu);
 }
 
 async function selectPresetBySearch(
@@ -476,7 +476,7 @@ async function selectPresetBySearch(
     timeout: PRESET_LOAD_TIMEOUT_MS,
   });
 
-  const presetSearchInput = window.getByRole('textbox', { name: /filter presets/i });
+  const presetSearchInput = window.getByRole('textbox', { name: /filter presets/iu });
   await expect(presetSearchInput).toBeVisible({ timeout: 10_000 });
   await presetSearchInput.fill(searchText);
   await expect(window.getByRole('button', { name: selectedName }).first()).toBeVisible({
@@ -546,7 +546,7 @@ test.describe('Desktop filter presets', () => {
     await waitForViewFilterPresetsCatalog(relaunchedWindow);
     await expect(
       getContextExplorerFileExplorerPanel(relaunchedWindow).getByRole('button', {
-        name: /documentation/i,
+        name: /documentation/iu,
       })
     ).toBeVisible({ timeout: 10_000 });
     await expect(relaunchedWindow.getByText('Select filter...')).toBeHidden({ timeout: 10_000 });

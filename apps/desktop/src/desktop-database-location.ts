@@ -53,7 +53,7 @@ function tryReadGitBranchFromGitDir(gitDirPath: string): string | null {
 
 function tryResolveGitDirFromPointer(currentDir: string, gitPointerPath: string): string | null {
   const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
-  const gitDirMatch = /^gitdir:\s*(.+)$/i.exec(gitPointer);
+  const gitDirMatch = /^gitdir:\s*(.+)$/iu.exec(gitPointer);
   if (!gitDirMatch?.[1]) {
     return null;
   }

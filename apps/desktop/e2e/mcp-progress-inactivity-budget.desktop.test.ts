@@ -50,7 +50,7 @@ function fixtureServer(
 
 async function openMcpConfig(window: Page): Promise<void> {
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(window).openCategory(/AI Tools/iu, 'ai-tools');
   await window.getByRole('tab', { name: 'MCP Config' }).click();
 }
 
@@ -61,7 +61,7 @@ async function configureServer(window: Page, server: FixtureServer): Promise<voi
   await expect(window.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await window.getByRole('tab', { exact: true, name: 'Tools' }).click();
   const row = window.getByTestId(`mcp-server-row-${server.name}`);
-  await expect(row).toContainText(/connected/i, { timeout: 60_000 });
+  await expect(row).toContainText(/connected/iu, { timeout: 60_000 });
   if (typeof server['toolTimeoutMs'] === 'number') {
     // The connected generation states the window it runs under.
     await row.getByText('Connection details').click();

@@ -183,7 +183,7 @@ test('wrapper death still joins its parent-owned Job and never invents a success
   expect(h.onSettled).not.toHaveBeenCalled();
   h.physical.resolve();
   await expect(result).resolves.toMatchObject({
-    message: expect.stringMatching(/completion receipt/),
+    message: expect.stringMatching(/completion receipt/u),
   });
   expect(h.onSettled).toHaveBeenCalledTimes(1);
 });
@@ -198,7 +198,7 @@ test('a wrapper that dies before READY joins its close even when kill finds it a
   expect(h.kill).toHaveBeenCalledExactlyOnceWith('SIGKILL');
   h.physical.resolve();
   h.close();
-  expect(await result).toMatchObject({ message: expect.stringMatching(/disconnected/) });
+  expect(await result).toMatchObject({ message: expect.stringMatching(/disconnected/u) });
   expect(h.onSettled).toHaveBeenCalledTimes(1);
   expect(h.job.close).toHaveBeenCalledTimes(1);
   await expect(h.owner.retire()).resolves.toBeUndefined();

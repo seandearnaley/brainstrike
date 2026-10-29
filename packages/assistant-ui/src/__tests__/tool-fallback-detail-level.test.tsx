@@ -48,20 +48,20 @@ describe('ToolFallback detail level', () => {
 
   it('compact shows the call only — no expander or result summary (any tool)', () => {
     renderTool(internalToolProps, 'compact');
-    expect(screen.queryByRole('button', { name: /expand details/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /expand details/iu })).not.toBeInTheDocument();
     expect(screen.queryByText('3 matches')).not.toBeInTheDocument();
   });
 
   it('compact treats external (MCP) tools the same — no expander', () => {
     // Detail level is a pure verbosity axis; it no longer special-cases tool origin.
     renderTool({ ...internalToolProps, toolName: 'web.echo' }, 'compact');
-    expect(screen.queryByRole('button', { name: /expand details/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /expand details/iu })).not.toBeInTheDocument();
   });
 
   it('standard shows the summary and a collapsed expander', () => {
     renderTool(internalToolProps, 'standard');
     expect(screen.getByText('3 matches')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /expand details/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /expand details/iu })).toBeInTheDocument();
     expect(screen.queryByText('Arguments:')).not.toBeInTheDocument();
   });
 

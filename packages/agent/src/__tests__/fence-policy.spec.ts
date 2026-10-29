@@ -142,7 +142,7 @@ describe('buildSandboxRuntimeConfig', () => {
       build({ allowedDomains: [], allowRead: ['/'], allowWrite: [] })
     ).rejects.toBeInstanceOf(FencePolicyError);
     await expect(build({ allowedDomains: [], allowRead: ['/'], allowWrite: [] })).rejects.toThrow(
-      /filesystem root/
+      /filesystem root/u
     );
   });
 
@@ -158,7 +158,7 @@ describe('buildSandboxRuntimeConfig', () => {
     ).rejects.toBeInstanceOf(FencePolicyError);
     await expect(
       build({ allowedDomains: [], allowWrite: [join(homedir(), '.aws', 'nested')] })
-    ).rejects.toThrow(/always-denied credential store/);
+    ).rejects.toThrow(/always-denied credential store/u);
   });
 
   it('REJECTS a policy that allows and denies EXACTLY the same path', async () => {
@@ -172,7 +172,7 @@ describe('buildSandboxRuntimeConfig', () => {
         allowWrite: [],
         denyRead: [opt('data')],
       })
-    ).rejects.toThrow(/denyRead/);
+    ).rejects.toThrow(/denyRead/u);
   });
 
   it('still allows a denyRead NESTED inside an allowRead — srt re-emits that one', async () => {
@@ -284,7 +284,7 @@ describe('buildSandboxRuntimeConfig', () => {
     if (!isFencePolicyError(caught)) {
       throw new Error('unreachable');
     }
-    expect(caught.message).toMatch(/no canonical form/);
+    expect(caught.message).toMatch(/no canonical form/u);
   });
 
   it('rejects a scratchDir that does not exist', async () => {

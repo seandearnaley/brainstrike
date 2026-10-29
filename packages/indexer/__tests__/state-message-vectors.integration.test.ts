@@ -224,10 +224,10 @@ it('rejects adversarial Root/resource/thread/message selection before ranking or
           profile,
           scope: foreignScope,
         })
-      ).rejects.toThrow(/authorized|resource|Root/);
+      ).rejects.toThrow(/authorized|resource|Root/u);
       await expect(
         f.port.queryStateMessageVectors({ ...query, scope: foreignScope })
-      ).rejects.toThrow(/authorized|resource|Root/);
+      ).rejects.toThrow(/authorized|resource|Root/u);
     }
     await expect(
       f.port.queryStateMessageVectors({ ...query, limit: 1, threadIds: ['one', 'foreign-thread'] })
@@ -267,21 +267,21 @@ it('rejects non-cosine profiles and finite/dimension/Float32-invalid batches ato
       ).rejects.toThrow();
     }
     await expect(f.port.upsertStateMessageVectors({ embeddings: [], plan })).rejects.toThrow(
-      /exactly once/
+      /exactly once/u
     );
     await expect(
       f.port.upsertStateMessageVectors({
         embeddings: [{ messageId: 'forged', vectors: [vector] }],
         plan,
       })
-    ).rejects.toThrow(/exactly once/);
+    ).rejects.toThrow(/exactly once/u);
     await expect(
       f.port.prepareStateMessageVectors({
         messages: [message('one', 1)],
         profile: { ...profile, distance: 'l2' },
         scope,
       })
-    ).rejects.toThrow(/cosine/);
+    ).rejects.toThrow(/cosine/u);
     const batch = await f.port.prepareStateMessageVectors({
       messages: [message('one', 1), message('one', 2)],
       profile,
@@ -295,7 +295,7 @@ it('rejects non-cosine profiles and finite/dimension/Float32-invalid batches ato
         ],
         plan: batch,
       })
-    ).rejects.toThrow(/dimensions/);
+    ).rejects.toThrow(/dimensions/u);
     expect(await f.port.queryStateMessageVectors(query)).toHaveLength(1);
   } finally {
     await f.close();
@@ -361,10 +361,10 @@ it('purge joins admitted vector/query work, fences delayed inference, and retain
     reader.exec('BEGIN');
     reader.prepare('SELECT count(*) FROM state_message_vectors').get();
     const admitted = f.port.queryStateMessageVectors(query);
-    await expect(f.port.purgeStateMessageVectors(scope)).rejects.toThrow(/checkpoint|pinned/);
+    await expect(f.port.purgeStateMessageVectors(scope)).rejects.toThrow(/checkpoint|pinned/u);
     expect(await admitted).toHaveLength(1);
     await expect(prepare(f)).rejects.toMatchObject({ code: 'message-cleanup-pending' });
-    expect((await f.port.stateHealth()).indexerErrors.some((error) => /pinned/.test(error))).toBe(
+    expect((await f.port.stateHealth()).indexerErrors.some((error) => /pinned/u.test(error))).toBe(
       true
     );
     await f.reopen();
@@ -527,10 +527,10 @@ it('surfaces CRC and missing-sequence truth failures and never ranks across them
       "CREATE TEMP TABLE saved_truth AS SELECT * FROM run_events WHERE thread_id='one' AND seq=1"
     );
     db.exec("UPDATE run_events SET crc=crc+1 WHERE thread_id='one' AND seq=1");
-    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/CRC|gap/);
-    await expect(prepare(f)).rejects.toThrow(/CRC|gap/);
+    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/CRC|gap/u);
+    await expect(prepare(f)).rejects.toThrow(/CRC|gap/u);
     db.exec("DELETE FROM run_events WHERE thread_id='one' AND seq=1");
-    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/CRC|gap/);
+    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/CRC|gap/u);
     db.exec('INSERT INTO run_events SELECT * FROM saved_truth');
     const source = decoder(Schema.String)(
       db.prepare('SELECT payload FROM saved_truth').pluck().get()
@@ -543,7 +543,7 @@ it('surfaces CRC and missing-sequence truth failures and never ranks across them
       changed,
       crc32(Buffer.from(changed))
     );
-    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/sequence identity gap/);
+    await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(/sequence identity gap/u);
     // A committed row changes only into its purge tombstone; any other change is damage.
     const rewritten = JSON.stringify({
       ...decoder(Schema.Record(Schema.String, Schema.Unknown))(JSON.parse(source)),
@@ -554,13 +554,13 @@ it('surfaces CRC and missing-sequence truth failures and never ranks across them
       crc32(Buffer.from(rewritten))
     );
     await expect(f.port.queryStateMessageVectors(query)).rejects.toThrow(
-      /changed under its recorded source/
+      /changed under its recorded source/u
     );
     db.exec("DELETE FROM run_events WHERE thread_id='one' AND seq=1");
     db.exec('INSERT INTO run_events SELECT * FROM saved_truth');
     expect(await f.port.queryStateMessageVectors(query)).toHaveLength(1);
     expect(
-      (await f.port.stateHealth()).indexerErrors.filter((error) => /CRC|gap/.test(error))
+      (await f.port.stateHealth()).indexerErrors.filter((error) => /CRC|gap/u.test(error))
     ).toHaveLength(4);
   } finally {
     db.close();
@@ -606,7 +606,7 @@ it('partitions vectors by each request’s complete profile and detects corrupt 
     }
     await expect(
       openIndexer({ ...f.options, embedding: { indexMode: 'open-existing' } }, deadlines)
-    ).rejects.toThrow(/finite/);
+    ).rejects.toThrow(/finite/u);
   } finally {
     await f.close();
   }

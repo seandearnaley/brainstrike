@@ -1,7 +1,13 @@
+import {
+  __resetModelRegistryStoreForTests,
+  type DbModel,
+  useModelRegistryStore,
+} from '@brainstrike/app-state/stores/model-registry-store';
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useModelBulkToggle } from '../use-model-bulk-toggle';
 import type { ModelBulkToggleOutcome } from '../use-model-toggle';
 
 const toast = vi.fn();
@@ -10,13 +16,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   useToast: () => ({ toast }),
 }));
-
-import {
-  __resetModelRegistryStoreForTests,
-  type DbModel,
-  useModelRegistryStore,
-} from '@brainstrike/app-state/stores/model-registry-store';
-import { useModelBulkToggle } from '../use-model-bulk-toggle';
 
 const toggleMany =
   vi.fn<(modelIds: readonly string[], enabled: boolean) => Promise<ModelBulkToggleOutcome>>();

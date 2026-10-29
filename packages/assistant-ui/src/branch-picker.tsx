@@ -22,7 +22,7 @@ export const BranchPicker = ({ className }: { className?: string }): ReactElemen
   }
   return (
     <BranchPickerPrimitive.Root
-      className={`inline-flex items-center text-muted-foreground text-xs ${className ?? ''}`}
+      className={`text-muted-foreground inline-flex items-center text-xs ${className ?? ''}`}
       hideWhenSingleBranch
     >
       <BranchPickerPrimitive.Previous asChild>

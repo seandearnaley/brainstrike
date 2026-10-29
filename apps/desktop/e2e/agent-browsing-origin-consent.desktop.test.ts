@@ -73,7 +73,7 @@ test('the agent asks once per site, and Settings lists and removes the saved ans
   expect(requests).not.toContain(`agent browsing could not resolve ${DENIED}`);
 
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   const saved = window.getByTestId('saved-browser-origins');
   await expect(saved.getByTestId(`saved-browser-origin-https://${ALLOWED}`)).toContainText(
     'Always allowed'

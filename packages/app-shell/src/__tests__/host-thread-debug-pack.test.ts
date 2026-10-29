@@ -29,9 +29,9 @@ describe('host thread debug pack', () => {
     const noBridge = JSON.parse(await buildHostThreadDebugPack(snapshot(), null));
     expect(noBridge.sections.hostLog).toBeNull();
     expect(noBridge.sections.processCounters).toBeNull();
-    expect(noBridge.manifest.host.hostLog).toMatch(/^unavailable: no desktop diagnostics bridge/);
+    expect(noBridge.manifest.host.hostLog).toMatch(/^unavailable: no desktop diagnostics bridge/u);
     expect(noBridge.manifest.host.processCounters).toMatch(
-      /^unavailable: no desktop diagnostics bridge/
+      /^unavailable: no desktop diagnostics bridge/u
     );
     expect(noBridge.manifest.host.window).toBeNull();
 

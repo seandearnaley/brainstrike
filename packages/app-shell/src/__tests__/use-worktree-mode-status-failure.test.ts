@@ -7,6 +7,7 @@
 import { act } from '@brainstrike/test-utils/react-act';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { unavailableRepositoryReason, useWorktreeMode } from '../hooks/use-worktree-mode';
 import { stubWorktreesBridge, workspaceGitWrapper } from './helpers/workspace-git-services-wrapper';
 
 const wrapper = workspaceGitWrapper({
@@ -33,8 +34,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   }),
 }));
 vi.mock('@brainstrike/ui', () => ({ toast: vi.fn() }));
-
-import { unavailableRepositoryReason, useWorktreeMode } from '../hooks/use-worktree-mode';
 
 const ARGS = {
   checkout: { branch: null, mode: 'local' as const, worktreeId: null, worktreePath: null },

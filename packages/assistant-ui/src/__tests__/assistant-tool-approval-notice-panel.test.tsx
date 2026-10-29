@@ -60,10 +60,10 @@ vi.mock('@assistant-ui/react', async (importOriginal) => ({
  * buttons live in the expanded body.
  */
 async function approveButton(user: UserEvent): Promise<HTMLElement> {
-  if (screen.queryByRole('button', { name: /approve workspace\.writefile/i }) === null) {
+  if (screen.queryByRole('button', { name: /approve workspace\.writefile/iu }) === null) {
     await expandApprovalRow(user);
   }
-  return screen.getByRole('button', { name: /approve workspace\.writefile/i });
+  return screen.getByRole('button', { name: /approve workspace\.writefile/iu });
 }
 
 const baseApproval = {
@@ -106,7 +106,7 @@ describe('AssistantToolApprovalNotice', () => {
     expect(screen.getByText('Pending')).toBeInTheDocument();
     expect(screen.queryByText('README.md')).not.toBeInTheDocument();
     // No risk reason without a riskCategory hint.
-    expect(screen.queryByText(/Requires approval/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Requires approval/iu)).not.toBeInTheDocument();
   });
 
   it('shows the risk reason when the approval carries a riskCategory hint', () => {
@@ -117,9 +117,9 @@ describe('AssistantToolApprovalNotice', () => {
     };
     render(<AssistantToolApprovalNotice data={approvalWithRisk} />);
 
-    expect(screen.getByText(/Requires approval/i)).toBeInTheDocument();
+    expect(screen.getByText(/Requires approval/iu)).toBeInTheDocument();
     // BST-1070 §6.1: the shared execute reason line covers code as well as commands.
-    expect(screen.getByText(/runs commands or code on your computer/i)).toBeInTheDocument();
+    expect(screen.getByText(/runs commands or code on your computer/iu)).toBeInTheDocument();
   });
 
   it('shows a "pending since" line and a stale advisory for a rediscovered stale approval, keeping both buttons enabled', () => {
@@ -130,10 +130,10 @@ describe('AssistantToolApprovalNotice', () => {
     };
     render(<AssistantToolApprovalNotice data={staleApproval} />);
 
-    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
-    expect(screen.getByText(/pending a while/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByText(/pending since/iu)).toBeInTheDocument();
+    expect(screen.getByText(/pending a while/iu)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeEnabled();
   });
 
   it('shows "pending since" but no advisory for a fresh (non-stale) rediscovered approval', () => {
@@ -144,32 +144,32 @@ describe('AssistantToolApprovalNotice', () => {
     };
     render(<AssistantToolApprovalNotice data={freshApproval} />);
 
-    expect(screen.getByText(/pending since/i)).toBeInTheDocument();
-    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/pending since/iu)).toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/iu)).not.toBeInTheDocument();
   });
 
   it('renders a live approval (no suspendedAt) without the pending-since or advisory lines', () => {
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    expect(screen.queryByText(/pending since/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/pending a while/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending since/iu)).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending a while/iu)).not.toBeInTheDocument();
   });
 
   it('expands to show approval identifiers and arguments', async () => {
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /expand tool approval details/i }));
+    await user.click(screen.getByRole('button', { name: /expand tool approval details/iu }));
 
     expect(screen.getByText('runId')).toBeInTheDocument();
     expect(screen.getByText('run-approval-1')).toBeInTheDocument();
     expect(screen.getByText('toolCallId')).toBeInTheDocument();
     expect(screen.getByText('tool-call-1')).toBeInTheDocument();
     expect(screen.getByText('args')).toBeInTheDocument();
-    expect(screen.getByText(/README\.md/)).toBeInTheDocument();
+    expect(screen.getByText(/README\.md/u)).toBeInTheDocument();
     expect(screen.getByText('resumeSchema')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /collapse tool approval details/i })
+      screen.getByRole('button', { name: /collapse tool approval details/iu })
     ).toBeInTheDocument();
   });
 
@@ -192,7 +192,7 @@ describe('AssistantToolApprovalNotice', () => {
         toolCallId: surface === 'parent' ? 'delegate-1' : 'read-1',
       };
       const view = render(<AssistantToolApprovalNotice data={first} />);
-      await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+      await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
       expect(appendMessageMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
           runConfig: {
@@ -210,8 +210,8 @@ describe('AssistantToolApprovalNotice', () => {
       );
       const second = { ...first, delegation: { path, toolCallId: 'read-2' } };
       view.rerender(<AssistantToolApprovalNotice data={second} />);
-      expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
-      await user.click(screen.getByRole('button', { name: /decline workspace\.writefile/i }));
+      expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeEnabled();
+      await user.click(screen.getByRole('button', { name: /decline workspace\.writefile/iu }));
       expect(appendMessageMock).toHaveBeenLastCalledWith(
         expect.objectContaining({
           runConfig: {
@@ -231,7 +231,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
 
     expect(appendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -251,15 +251,15 @@ describe('AssistantToolApprovalNotice', () => {
     );
     // An answered notice collapses into a row; its buttons live in the expanded body.
     await expandApprovalRow(user);
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();
   });
 
   it('appends decline actions with runConfig for the assistant runtime', async () => {
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /decline workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /decline workspace\.writefile/iu }));
 
     expect(appendMessageMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -283,11 +283,11 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     await expandApprovalRow(user);
 
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
 
     threadMessagesMock.push({
@@ -301,12 +301,12 @@ describe('AssistantToolApprovalNotice', () => {
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
     );
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeEnabled();
     expect(screen.getByText('Pending')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
 
     expect(appendMessageMock).toHaveBeenCalledTimes(2);
   });
@@ -315,7 +315,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
 
     threadMessagesMock.push({
       role: 'assistant',
@@ -327,9 +327,9 @@ describe('AssistantToolApprovalNotice', () => {
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
     );
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeEnabled();
     expect(screen.getByText('Pending')).toBeInTheDocument();
   });
 
@@ -416,11 +416,11 @@ describe('AssistantToolApprovalNotice', () => {
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await expect(
-      user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }))
+      user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }))
     ).resolves.toBeUndefined();
 
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeEnabled();
     expect(screen.getByText('Pending')).toBeInTheDocument();
   });
 
@@ -431,7 +431,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
   });
@@ -443,8 +443,8 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     await expandApprovalRow(user);
 
     expect(appendMessageMock).toHaveBeenCalledTimes(2);
@@ -458,7 +458,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
 
     // Another surface (the composer's approval strip) answered the same pause.
@@ -490,7 +490,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     threadMessagesMock.push({
       metadata: {
         custom: {
@@ -514,7 +514,7 @@ describe('AssistantToolApprovalNotice', () => {
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -545,7 +545,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
 
     // Another surface answers the same pause, and THAT run fails too — which
@@ -557,7 +557,7 @@ describe('AssistantToolApprovalNotice', () => {
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeEnabled()
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
@@ -590,7 +590,7 @@ describe('AssistantToolApprovalNotice', () => {
     // are on screen without expanding a row.
     render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed again');
   });
@@ -599,7 +599,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     await expandApprovalRow(user);
 
     threadMessagesMock.push({
@@ -608,7 +608,7 @@ describe('AssistantToolApprovalNotice', () => {
     });
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
 
     threadMessagesMock.push({
@@ -621,8 +621,8 @@ describe('AssistantToolApprovalNotice', () => {
     });
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
   });
 
@@ -648,11 +648,11 @@ describe('AssistantToolApprovalNotice', () => {
     render(<AssistantToolApprovalNotice data={baseApproval} />);
     await expandApprovalRow(user);
 
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
 
     expect(appendMessageMock).not.toHaveBeenCalled();
   });
@@ -675,8 +675,8 @@ describe('AssistantToolApprovalNotice', () => {
     render(<AssistantToolApprovalNotice data={baseApproval} />);
     await expandApprovalRow(user);
 
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Declined');
   });
 
@@ -709,7 +709,7 @@ describe('AssistantToolApprovalNotice', () => {
     const user = userEvent.setup();
     const view = render(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/i }));
+    await user.click(screen.getByRole('button', { name: /approve workspace\.writefile/iu }));
     await expandApprovalRow(user);
 
     threadMessagesMock.push({
@@ -735,8 +735,8 @@ describe('AssistantToolApprovalNotice', () => {
     });
     view.rerender(<AssistantToolApprovalNotice data={baseApproval} />);
 
-    expect(screen.getByRole('button', { name: /approve workspace\.writefile/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /decline workspace\.writefile/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve workspace\.writefile/iu })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /decline workspace\.writefile/iu })).toBeDisabled();
     expect(screen.getByTestId('approval-row-status')).toHaveTextContent('Approved');
   });
 

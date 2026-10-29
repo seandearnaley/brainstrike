@@ -59,7 +59,7 @@ function CapabilityIcons({ meta }: { meta: ModelPickerModel | undefined }): Reac
   }
   const { reasoning, vision } = meta.capabilities;
   return (
-    <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+    <span className="text-muted-foreground flex shrink-0 items-center gap-1">
       {vision === 'supported' ? (
         <Eye aria-label="Vision" className="size-3.5" role="img">
           <title>Supports image input</title>
@@ -113,14 +113,14 @@ function RecentRow({ entry, onPick, selected }: Omit<RowProps, 'showProvider'>):
     >
       <ProviderDot providerId={entry.providerId} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium leading-5">{entry.modelLabel}</span>
+        <span className="block truncate leading-5 font-medium">{entry.modelLabel}</span>
         {entry.meta?.description ? (
-          <span className="block truncate text-muted-foreground text-xs leading-4">
+          <span className="text-muted-foreground block truncate text-xs leading-4">
             {entry.meta.description}
           </span>
         ) : null}
       </span>
-      <span className="shrink-0 text-[10px] text-muted-foreground">{entry.providerName}</span>
+      <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
       <CapabilityIcons meta={entry.meta} />
       <SelectedMark selected={selected} />
     </Command.Item>
@@ -133,10 +133,10 @@ function ListRow({ entry, onPick, selected, showProvider }: RowProps): ReactNode
       {showProvider ? <ProviderDot providerId={entry.providerId} /> : null}
       <span className="min-w-0 flex-1 truncate leading-5">{entry.modelLabel}</span>
       {showProvider ? (
-        <span className="shrink-0 text-[10px] text-muted-foreground">{entry.providerName}</span>
+        <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
       ) : null}
       {entry.meta?.contextWindow ? (
-        <span className="shrink-0 rounded-md border border-border/50 bg-background/55 px-1 text-[10px] text-muted-foreground">
+        <span className="border-border/50 bg-background/55 text-muted-foreground shrink-0 rounded-md border px-1 text-[10px]">
           {formatContextWindow(entry.meta.contextWindow)}
         </span>
       ) : null}
@@ -164,11 +164,11 @@ function NotEnabledRow({
       value={`enable:${entry.compositeKey}`}
     >
       <ProviderDot providerId={entry.providerId} />
-      <span className="min-w-0 flex-1 truncate text-muted-foreground leading-5">
+      <span className="text-muted-foreground min-w-0 flex-1 truncate leading-5">
         {entry.modelLabel}
       </span>
-      <span className="shrink-0 text-[10px] text-muted-foreground">{entry.providerName}</span>
-      <Plus aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="text-muted-foreground shrink-0 text-[10px]">{entry.providerName}</span>
+      <Plus aria-hidden className="text-muted-foreground size-3.5 shrink-0" />
     </Command.Item>
   );
 }
@@ -291,7 +291,7 @@ export function ComposerModelPicker({
             value={query}
           />
           <Command.List className="max-h-[min(60vh,420px)] overflow-y-auto p-1">
-            <Command.Empty className="px-2 py-6 text-center text-muted-foreground text-sm">
+            <Command.Empty className="text-muted-foreground px-2 py-6 text-center text-sm">
               No models match “{query.trim()}”.
             </Command.Empty>
             {isSearching ? null : (

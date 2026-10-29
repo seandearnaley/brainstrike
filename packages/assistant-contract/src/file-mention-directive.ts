@@ -41,10 +41,10 @@ const FILE_MENTION_ID_SEPARATOR = '::';
 const FILE_MENTION_ENCODED_PATH_PREFIX = '/.brainstrike-file-path-v1/';
 
 /** Characters that need an encoded path segment inside the directive id. */
-const FILE_MENTION_PATH_ESCAPE_RE = /[{}%]/;
+const FILE_MENTION_PATH_ESCAPE_RE = /[{}%]/u;
 
 /** Percent sequences emitted by the pre-marker encoder from PR #1303. */
-const PRE_MARKER_FILE_MENTION_ESCAPE_RE = /%(?:25|7B|7D)/;
+const PRE_MARKER_FILE_MENTION_ESCAPE_RE = /%(?:25|7B|7D)/u;
 
 /**
  * Percent-encode the characters that would otherwise corrupt a mention id inside
@@ -125,7 +125,7 @@ function decodeFileMentionPathSegmentForLabel(encodedPath: string, label: string
  * word/hyphen run, `label` is anything up to the closing `]`, and `id` is
  * anything up to the closing `}`.
  */
-const DIRECTIVE_RE = /:([\w-]+)\[([^\]]+)\](?:\{name=([^}]+)\})?/g;
+const DIRECTIVE_RE = /:([\w-]+)\[([^\]]+)\](?:\{name=([^}]+)\})?/gu;
 
 /** A file mention as the composer knows it (before/after the directive encoding). */
 export interface FileMentionDirective {

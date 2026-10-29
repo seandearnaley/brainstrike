@@ -96,7 +96,10 @@
         "useDestructuring": "off",
         "useErrorCause": "off",
         "useForOf": "off",
-        "useConsistentEnumValueType": "off"
+        "useConsistentEnumValueType": "off",
+        "useDomQuerySelector": "off",
+        "useNamedCaptureGroup": "off",
+        "useThisInClassMethods": "off"
       },
       "suspicious": {
         "noConsole": "error",
@@ -109,7 +112,8 @@
         "noReturnAssign": "off",
         "noShadow": "off",
         "noUnnecessaryConditions": "off",
-        "useArraySortCompare": "off"
+        "useArraySortCompare": "off",
+        "noLoopFunc": "off"
       },
       "complexity": {
         "useLiteralKeys": "off",
@@ -190,7 +194,8 @@
           "correctness": {
             "noUnusedVariables": "error",
             "useUniqueElementIds": "off",
-            "useParseIntRadix": "error"
+            "useParseIntRadix": "error",
+            "noComponentHookFactories": "off"
           },
           "complexity": {
             "useLiteralKeys": "off",
@@ -220,6 +225,9 @@
             "noExplicitAny": "off",
             "noConsole": "off",
             "noSkippedTests": "off"
+          },
+          "performance": {
+            "useDomNodeTextContent": "off"
           }
         }
       }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PRIVILEGED_SCHEMES, registerPrivilegedSchemes } from '../privileged-schemes';
 
 const registerSchemesAsPrivileged = vi.fn();
 
@@ -9,8 +10,6 @@ vi.mock('electron', () => ({
     },
   },
 }));
-
-import { PRIVILEGED_SCHEMES, registerPrivilegedSchemes } from '../privileged-schemes';
 
 /**
  * Electron honors exactly ONE registerSchemesAsPrivileged call per launch; a

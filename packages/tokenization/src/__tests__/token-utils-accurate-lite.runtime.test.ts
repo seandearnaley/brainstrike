@@ -90,7 +90,7 @@ describe('token-utils-accurate-lite runtime behavior', () => {
 
     await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
     await expect(runtime.countTokensAccurate('abc')).rejects.toThrow(
-      /Accurate token counting unavailable/
+      /Accurate token counting unavailable/u
     );
     expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
       'Node tiktoken encoder unavailable'
@@ -351,7 +351,7 @@ describe('token-utils-accurate-lite runtime behavior', () => {
 
     await expect(runtime.supportsAccurateTokenCounting()).resolves.toBe(false);
     await expect(runtime.countTokensAccurate('web')).rejects.toThrow(
-      /Accurate token counting unavailable/
+      /Accurate token counting unavailable/u
     );
     expect(runtime.getAccurateTokenCountingFailureReason()).toContain(
       'Failed to load tiktoken (browser)'

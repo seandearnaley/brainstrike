@@ -84,14 +84,14 @@ test('a trust is recorded only for the reviewed bytes and survives a host restar
     client.request('hooks/trust', { path: 'relative/root', rootId: 'root-1', sha256 })
   ).rejects.toMatchObject({
     failure: { code: 'hooks.trust-refused', kind: 'refusal' },
-    message: /absolute path/,
+    message: /absolute path/u,
   });
   const noHooks = await tempDir('bs-m3-hook-trust-none-');
   await expect(
     client.request('hooks/trust', { path: noHooks, rootId: 'root-1', sha256 })
   ).rejects.toMatchObject({
     failure: { code: 'hooks.trust-refused', kind: 'refusal' },
-    message: /cannot be read/,
+    message: /cannot be read/u,
   });
   await expect(read()).resolves.toEqual({ trust: null });
 

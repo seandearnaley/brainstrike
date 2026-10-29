@@ -111,7 +111,7 @@ test.describe('Logs workspace tab (BST-1791)', () => {
     );
 
     await new HomePage(page).openSettings();
-    const logging = await new SettingsPage(page).openCategory(/Logging & Diagnostics/i, 'logging');
+    const logging = await new SettingsPage(page).openCategory(/Logging & Diagnostics/iu, 'logging');
     await expect(logging.getByRole('region', { name: 'Log Viewer' })).toHaveCount(0);
     await logging.getByRole('button', { name: 'Open Logs' }).click();
 
@@ -124,7 +124,7 @@ test.describe('Logs workspace tab (BST-1791)', () => {
     await expect(viewer.getByText(LONG_PAYLOAD_MESSAGE, { exact: true })).toBeVisible();
 
     // One page of every record, so the list overflows; the filters fold away again.
-    const filters = viewer.getByRole('button', { name: /^Filters/ });
+    const filters = viewer.getByRole('button', { name: /^Filters/u });
     await filters.click();
     await viewer.getByRole('combobox', { name: 'Page size' }).click();
     await page.getByRole('option', { name: '200 rows' }).click();

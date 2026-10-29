@@ -5,7 +5,7 @@ export async function resetToAppHome(window: Page): Promise<void> {
   // Try to close any dialogs
   const dialog = window.getByRole('dialog');
   if (await dialog.isVisible().catch(() => false)) {
-    const closeBtn = dialog.getByRole('button', { name: /close|ok|dismiss|cancel/i }).first();
+    const closeBtn = dialog.getByRole('button', { name: /close|ok|dismiss|cancel/iu }).first();
     if (await closeBtn.isVisible().catch(() => false)) {
       await closeBtn.click().catch(() => {});
     }

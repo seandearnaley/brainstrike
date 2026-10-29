@@ -127,7 +127,7 @@ describe('M0-A1 Coalescer: step-boundary syncs', () => {
     co.push('A', 'r', finishStep);
     co.show('A', 'r', finishStep);
     await co.flush();
-    await expect(co.drainSyncs()).rejects.toThrow(/EIO/);
+    await expect(co.drainSyncs()).rejects.toThrow(/EIO/u);
     expect(co.syncFailures.length).toBe(1);
   });
 });

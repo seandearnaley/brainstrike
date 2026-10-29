@@ -213,7 +213,7 @@ describe('captured canonical utility capabilities', () => {
     const { parent, frames } = await attached();
     const close = parent.close();
     expect(() => call(parent, 'foreign-owner', 200, 'load-files', scope)).toThrow(
-      /unknown captured owner/
+      /unknown captured owner/u
     );
     expect(
       frames.some((input) => {
@@ -236,7 +236,7 @@ describe('captured canonical utility capabilities', () => {
       return frame.kind === 'result' && frame.id === 200;
     });
     expect(response).toMatchObject({
-      error: { message: expect.stringMatching(/captured owner/) },
+      error: { message: expect.stringMatching(/captured owner/u) },
       ok: false,
     });
     expect(response).not.toHaveProperty('cancelled');
@@ -392,7 +392,7 @@ describe('captured canonical utility capabilities', () => {
     const { parent, owner } = await attached(deps);
     call(parent, owner, 30, 'subscribe', null);
     await flush();
-    await expect(parent.close()).rejects.toThrow(/remain owned/);
+    await expect(parent.close()).rejects.toThrow(/remain owned/u);
     await parent.close();
     expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
@@ -400,7 +400,7 @@ describe('captured canonical utility capabilities', () => {
   it('rejects a changed actual mount generation and duplicate scope owners', async () => {
     const deps = fixture();
     const { parent, owner, frames } = await attached(deps);
-    await expect(parent.attachWorkspace(deps)).rejects.toThrow(/already has an owner/);
+    await expect(parent.attachWorkspace(deps)).rejects.toThrow(/already has an owner/u);
     Object.assign(deps.source.lease, { generation: 'replacement' });
     call(parent, owner, 40, 'list-dir', { maxEntries: 10, relativePath: '.' });
     await flush();
@@ -415,10 +415,10 @@ describe('captured canonical utility capabilities', () => {
     expect(() =>
       parent.receive({ channel: CANONICAL_CHANNEL, id: 50, kind: 'cancel', owner })
     ).not.toThrow();
-    expect(() => call(parent, owner, 50, 'load-files', scope)).toThrow(/repeated/);
+    expect(() => call(parent, owner, 50, 'load-files', scope)).toThrow(/repeated/u);
     expect(() =>
       parent.receive({ channel: CANONICAL_CHANNEL, id: 51, kind: 'cancel', owner })
-    ).toThrow(/unknown/);
+    ).toThrow(/unknown/u);
     await parent.close();
   });
   it('refuses an unconnected VECTOR dependency instead of silently running TEXT', async () => {
@@ -478,7 +478,7 @@ describe('captured canonical utility capabilities', () => {
     const exit = parent.exited(new Error('physical exit')).finally(() => {
       exited = true;
     });
-    const rejection = expect(exit).rejects.toThrow(/retained main cleanup/);
+    const rejection = expect(exit).rejects.toThrow(/retained main cleanup/u);
     await flush();
     expect(exited).toBe(false);
     release();
@@ -520,7 +520,7 @@ describe('captured canonical utility capabilities', () => {
     await flush();
     expect(generate).toHaveBeenCalledOnce();
     const exit = parent.exited(new Error('utility physical exit'));
-    const rejection = expect(exit).rejects.toThrow(/retained main cleanup/);
+    const rejection = expect(exit).rejects.toThrow(/retained main cleanup/u);
     await flush();
     expect(cancel).toHaveBeenCalledWith('exact-operation');
     expect(join).not.toHaveBeenCalled();
@@ -672,7 +672,7 @@ it('fences nonterminal retirement until physical IO joins, then admits fresh sou
   const retiring = parent.retireAttachments().then(() => {
     retired = true;
   });
-  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/retir/);
+  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/retir/u);
   await flush();
   expect(retired).toBe(false);
   physical.resolve();
@@ -846,8 +846,8 @@ it('retains failed nonterminal cleanup and its admission fence until explicit re
   const cause = new Error('Original source retirement failed.');
   deps.source.lease.retire = vi.fn().mockRejectedValueOnce(cause).mockResolvedValue(undefined);
   const { parent } = await attached(deps);
-  await expect(parent.retireAttachments()).rejects.toThrow(/remain owned/);
-  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/retir/);
+  await expect(parent.retireAttachments()).rejects.toThrow(/remain owned/u);
+  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/retir/u);
   await parent.retireAttachments();
   expect(deps.source.lease.retire).toHaveBeenCalledTimes(2);
   await parent.attachWorkspace(fixture());
@@ -899,7 +899,7 @@ it('joins held acquisition under nonterminal retirement and never reopens after 
   read.resolve();
   await Promise.all([retiring, terminal]);
   expect(await acquiring).toBeInstanceOf(Error);
-  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/closed/);
+  await expect(parent.attachWorkspace(fixture())).rejects.toThrow(/closed/u);
 });
 
 it('retires failed acquisition under its original owner before a replacement can attach', async () => {
@@ -991,7 +991,7 @@ it('keeps a Main capability failure during the utility exit an owned retirement 
   const { owner, parent } = await attachedUntilExit(deps);
   const exit = new Error('Indexer utility exited.');
   const closing = parent.closeOwner(owner).catch((error: unknown) => error);
-  await expect(parent.exited(exit)).rejects.toThrow(/retained main cleanup/);
+  await expect(parent.exited(exit)).rejects.toThrow(/retained main cleanup/u);
   const outcome = await closing;
   expect(outcome).not.toBe(exit);
   expect(outcome).toBeInstanceOf(AggregateError);

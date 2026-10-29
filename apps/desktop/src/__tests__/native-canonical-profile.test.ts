@@ -75,10 +75,10 @@ describe('saved canonical profile identity', () => {
     });
     expect(() =>
       resolveNativeCanonicalProfile({ ...metadata, modelKey: 'text-embedding-3-small (1536D)' })
-    ).toThrow(/provider\/model/);
+    ).toThrow(/provider\/model/u);
     expect(() =>
       resolveNativeCanonicalProfile({ ...metadata, modelId: 'text-embedding-3-large' })
-    ).toThrow(/modelId/);
+    ).toThrow(/modelId/u);
   });
 
   it.each(['openai', 'google', 'cohere', 'voyage'] as const)(
@@ -119,9 +119,9 @@ describe('saved canonical profile identity', () => {
     const f = fixture();
     const context = { requestId: 'resolve', signal: new AbortController().signal };
     f.collections.mockResolvedValueOnce({ collections: [] });
-    await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/missing/);
+    await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/missing/u);
     f.collections.mockResolvedValueOnce({ collections: [setRow({ id: 'different' })] });
-    await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/authorized/);
+    await expect(f.resolver.resolve(scope, context)).rejects.toThrow(/authorized/u);
     f.collections.mockResolvedValueOnce({ collections: [setRow({ dimensions: Number.NaN })] });
     await expect(f.resolver.resolve(scope, context)).rejects.toThrow();
     expect(f.hostedEmbeddings).not.toHaveBeenCalled();
@@ -200,7 +200,7 @@ describe('canonical inference ownership', () => {
         Array.from({ length: chunks.length }, () => vector(1))
       );
       try {
-        await expect(f.inference.generate({ ...request(), chunks })).rejects.toThrow(/sparse/);
+        await expect(f.inference.generate({ ...request(), chunks })).rejects.toThrow(/sparse/u);
         expect(f.resolveEmbeddingSetId).not.toHaveBeenCalled();
         expect(f.collections).not.toHaveBeenCalled();
         expect(f.hostedEmbeddings).not.toHaveBeenCalled();
@@ -220,7 +220,7 @@ describe('canonical inference ownership', () => {
     async (change) => {
       const f = fixture();
       const input = { ...request(), profile: { ...profile(), ...change } as VectorProfile };
-      await expect(f.inference.generate(input)).rejects.toThrow(/profile/);
+      await expect(f.inference.generate(input)).rejects.toThrow(/profile/u);
       expect(f.hostedEmbeddings).not.toHaveBeenCalled();
     }
   );
@@ -238,7 +238,7 @@ describe('canonical inference ownership', () => {
   )('refuses malformed result cardinality, dimensions or numbers %#', async ({ output }) => {
     const f = fixture();
     f.hostedEmbeddings.mockResolvedValueOnce(output);
-    await expect(f.inference.generate(request())).rejects.toThrow(/response/);
+    await expect(f.inference.generate(request())).rejects.toThrow(/response/u);
     await expect(f.inference.join('request')).resolves.toBeUndefined();
   });
 
@@ -277,13 +277,13 @@ describe('canonical inference ownership', () => {
       await Promise.resolve();
       expect(signal.aborted).toBe(true);
       expect(retired).not.toHaveBeenCalled();
-      await expect(f.inference.generate(request())).rejects.toThrow(/already/);
+      await expect(f.inference.generate(request())).rejects.toThrow(/already/u);
     } finally {
       held.resolve(vectors());
       await Promise.all([canceled, joined, rejected]);
     }
     expect(retired).toHaveBeenCalledTimes(2);
-    await expect(f.inference.generate(request())).rejects.toThrow(/already/);
+    await expect(f.inference.generate(request())).rejects.toThrow(/already/u);
     await f.inference.close();
   });
 
@@ -370,7 +370,7 @@ describe('canonical inference ownership', () => {
     ]);
     expect(retired).toHaveBeenCalledOnce();
     // No physical request remains to block a later close. Its ID still cannot be replayed.
-    await expect(f.inference.generate(request())).rejects.toThrow(/already/);
+    await expect(f.inference.generate(request())).rejects.toThrow(/already/u);
     await expect(f.inference.close()).resolves.toBeUndefined();
   });
 
@@ -415,7 +415,7 @@ describe('canonical inference ownership', () => {
     held.resolve(vectors());
     await generated;
     await f.inference.close();
-    await expect(f.inference.generate(request('closed'))).rejects.toThrow(/closed/);
+    await expect(f.inference.generate(request('closed'))).rejects.toThrow(/closed/u);
   });
 });
 

@@ -458,7 +458,7 @@ export function McpConfigPanel({
   if (!editorAvailable) {
     return (
       <Card>
-        <CardContent className="py-6 text-muted-foreground text-sm">
+        <CardContent className="text-muted-foreground py-6 text-sm">
           MCP config editing is unavailable in this runtime.
         </CardContent>
       </Card>
@@ -507,7 +507,7 @@ export function McpConfigPanel({
         />
       ) : (
         <Card>
-          <CardContent className="py-6 text-muted-foreground text-sm">
+          <CardContent className="text-muted-foreground py-6 text-sm">
             Loading MCP config…
           </CardContent>
         </Card>
@@ -538,7 +538,7 @@ function McpPathCard({
     <Card>
       <CardContent className="space-y-4 p-4">
         <div className="space-y-2">
-          <label className="font-medium text-sm" htmlFor="mcp-config-path-input-field">
+          <label className="text-sm font-medium" htmlFor="mcp-config-path-input-field">
             MCP Config Path
           </label>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -632,7 +632,7 @@ function McpEditorCard({
     <Card>
       <CardContent className="space-y-2 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <label className="font-medium text-sm" htmlFor="mcp-config-editor-field">
+          <label className="text-sm font-medium" htmlFor="mcp-config-editor-field">
             Config Editor (JSONC)
           </label>
           <div className="flex gap-2">
@@ -647,7 +647,7 @@ function McpEditorCard({
         <textarea
           aria-describedby={editorDescribedBy}
           aria-invalid={errorMessage ? true : undefined}
-          className="max-h-[600px] min-h-[360px] w-full resize-y overflow-y-auto rounded-md border bg-background p-3 font-mono text-xs leading-5"
+          className="bg-background max-h-[600px] min-h-[360px] w-full resize-y overflow-y-auto rounded-md border p-3 font-mono text-xs leading-5"
           data-testid="mcp-config-editor"
           id="mcp-config-editor-field"
           onChange={(event) => onEditorChange(event.target.value)}
@@ -685,8 +685,8 @@ function McpEditorCard({
             aria-live="polite"
             className={
               statusTone === 'warning'
-                ? 'rounded-md border border-warning/40 bg-warning/10 p-2 text-warning text-xs'
-                : 'rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-900 text-xs dark:text-emerald-200'
+                ? 'border-warning/40 bg-warning/10 text-warning rounded-md border p-2 text-xs'
+                : 'rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-xs text-emerald-900 dark:text-emerald-200'
             }
             data-testid="mcp-config-status"
             data-tone={statusTone}
@@ -698,7 +698,7 @@ function McpEditorCard({
         {errorMessage && (
           <div
             aria-live="assertive"
-            className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive text-xs"
+            className="border-destructive/40 bg-destructive/10 text-destructive rounded-md border p-2 text-xs"
             data-testid="mcp-config-error"
             id={MCP_CONFIG_ERROR_ID}
           >
@@ -714,7 +714,7 @@ function McpHelpCard() {
   return (
     <Card>
       <CardContent className="space-y-2 p-4">
-        <div className="font-medium text-sm">Help</div>
+        <div className="text-sm font-medium">Help</div>
         <div className="text-muted-foreground text-xs">
           Use `streamable-http` for new remote endpoints, `stdio` for local commands, and `sse` only
           for legacy HTTP+SSE servers. Comments are supported in this file. Keep placeholder values
@@ -722,7 +722,7 @@ function McpHelpCard() {
           a server whose tools work longer than that in silence, set `toolTimeoutMs` (milliseconds,
           1000 to 600000), for example `"toolTimeoutMs": 180000`.
         </div>
-        <pre className="overflow-x-auto rounded-md border bg-muted/30 p-3 text-[11px]">
+        <pre className="bg-muted/30 overflow-x-auto rounded-md border p-3 text-[11px]">
           {`// stdio example
 {
   "transport": "stdio",

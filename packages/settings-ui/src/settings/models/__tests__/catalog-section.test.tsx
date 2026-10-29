@@ -80,14 +80,14 @@ describe('CatalogSection header', () => {
     expect(header.className).toContain(STICKY_SECTION_HEADER_LAYER_CLASS);
 
     const heading = within(header).getByRole('heading', { level: 3 });
-    const disclosure = within(heading).getByRole('button', { name: /OpenAI/ });
+    const disclosure = within(heading).getByRole('button', { name: /OpenAI/u });
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     const regionId = disclosure.getAttribute('aria-controls');
     expect(regionId).toBeTruthy();
     expect(document.getElementById(regionId ?? '')).toContainElement(
       screen.getByRole('treegrid', { name: 'OpenAI models' })
     );
-    expect(within(heading).queryByRole('button', { name: /Enable/ })).not.toBeInTheDocument();
+    expect(within(heading).queryByRole('button', { name: /Enable/u })).not.toBeInTheDocument();
 
     await userEvent.click(disclosure);
     expect(props.onToggleSection).toHaveBeenCalledWith('openai');
@@ -97,7 +97,7 @@ describe('CatalogSection header', () => {
     renderSection({ section: { ...SECTION, providerName: 'Amazon Bedrock' } });
     const header = screen.getByTestId('model-catalog-section-header-openai');
     const heading = within(header).getByRole('heading', { level: 3 });
-    const disclosure = within(heading).getByRole('button', { name: /Amazon Bedrock/ });
+    const disclosure = within(heading).getByRole('button', { name: /Amazon Bedrock/u });
     const name = within(disclosure).getByText('Amazon Bedrock');
     // A button is shrink-to-fit even as display:flex, so the h3 must itself be a
     // shrinkable flex container and the button a min-w-0 flex item capped at the
@@ -120,7 +120,7 @@ describe('CatalogSection header', () => {
     );
     expect(within(header).getByRole('button', { name: 'Enable all' })).toBeEnabled();
     expect(within(header).getByRole('button', { name: 'Disable all' })).toBeEnabled();
-    expect(within(header).queryByText(/shown/)).not.toBeInTheDocument();
+    expect(within(header).queryByText(/shown/u)).not.toBeInTheDocument();
   });
 
   it('scopes the labels to the shown rows while filtering', () => {
@@ -227,7 +227,7 @@ describe('CatalogSection details and pointer', () => {
 
   it('a pointer click on a model row selects nothing', async () => {
     const props = renderSection();
-    const row = screen.getByRole('row', { name: /GPT A/ });
+    const row = screen.getByRole('row', { name: /GPT A/u });
     await userEvent.click(within(row).getByText('GPT A'));
     expect(props.onToggleDetails).not.toHaveBeenCalled();
     expect(props.onToggleModel).not.toHaveBeenCalled();

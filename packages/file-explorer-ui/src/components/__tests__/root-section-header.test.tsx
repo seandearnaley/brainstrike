@@ -41,7 +41,7 @@ describe('RootSectionHeader', () => {
       <RootSectionHeader displayName="my-project" isCollapsed={false} onToggleCollapse={vi.fn()} />
     );
 
-    expect(screen.getByLabelText(/collapse/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/collapse/iu)).toBeInTheDocument();
   });
 
   it('shows expand indicator when isCollapsed is true', () => {
@@ -49,7 +49,7 @@ describe('RootSectionHeader', () => {
       <RootSectionHeader displayName="my-project" isCollapsed={true} onToggleCollapse={vi.fn()} />
     );
 
-    expect(screen.getByLabelText(/expand/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/expand/iu)).toBeInTheDocument();
   });
 
   describe('main-root badge and focused indicator (main vs focused clarity)', () => {

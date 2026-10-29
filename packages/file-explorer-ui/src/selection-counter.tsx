@@ -32,7 +32,7 @@ export function parseCountInput(raw: string): number | null {
   }
 
   // Validate that the entire string is numeric
-  if (!/^\d+$/.test(trimmed)) {
+  if (!/^\d+$/u.test(trimmed)) {
     return null;
   }
 
@@ -171,20 +171,20 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
   const triggerButton = (
     <button
       aria-label={accessibleLabel}
-      className={`flex @[300px]:h-9 h-8 items-center @[300px]:gap-1.5 gap-1 rounded-md border @[300px]:px-2.5 ${
-        compact ? '@[72px]:px-1.5 @[96px]:px-2 px-1 @[72px]:text-sm text-xs' : 'px-2 text-sm'
-      } py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${statusStyles} ${
+      className={`flex h-8 items-center gap-1 rounded-md border @[300px]:h-9 @[300px]:gap-1.5 @[300px]:px-2.5 ${
+        compact ? 'px-1 text-xs @[72px]:px-1.5 @[72px]:text-sm @[96px]:px-2' : 'px-2 text-sm'
+      } focus-visible:ring-ring py-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none ${statusStyles} ${
         isEditable ? 'cursor-pointer' : 'cursor-default'
       }`}
       disabled={!isEditable}
       onClick={() => isEditable && handleOpenChange(true)}
       type="button"
     >
-      {!compact && <Files className="@[300px]:mr-2 size-3.5 text-muted-foreground" />}
+      {!compact && <Files className="text-muted-foreground size-3.5 @[300px]:mr-2" />}
       <span className="font-medium tabular-nums">
         <span data-testid="selection-count">{visibleSelectedCount}</span>
         <span
-          className={compact ? '@[96px]:inline hidden' : undefined}
+          className={compact ? 'hidden @[96px]:inline' : undefined}
           data-testid="selection-count-suffix"
         >
           <span className="mx-0.5">/</span>
@@ -192,7 +192,7 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
         </span>
       </span>
       {isEditable && (
-        <Pencil className="@[300px]:ml-2 @[300px]:inline hidden size-3 text-muted-foreground" />
+        <Pencil className="text-muted-foreground hidden size-3 @[300px]:ml-2 @[300px]:inline" />
       )}
     </button>
   );
@@ -235,7 +235,7 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
         <PopoverContent align="end" className="w-64 p-3" side="bottom">
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <label className="font-medium text-foreground text-xs" htmlFor="max-count-input">
+              <label className="text-foreground text-xs font-medium" htmlFor="max-count-input">
                 Maximum Selection Count
               </label>
               <div className="flex gap-1.5">
@@ -282,14 +282,14 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
                 </Button>
               </div>
               {error && (
-                <p aria-live="polite" className="text-[11px] text-destructive" role="alert">
+                <p aria-live="polite" className="text-destructive text-[11px]" role="alert">
                   {error}
                 </p>
               )}
             </div>
 
             <div className="space-y-1.5">
-              <span className="text-[11px] text-muted-foreground">Quick presets</span>
+              <span className="text-muted-foreground text-[11px]">Quick presets</span>
               <div className="flex flex-wrap gap-1.5">
                 {SELECTION_PRESETS.map((preset) => (
                   <Button
@@ -309,7 +309,7 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
               </div>
             </div>
 
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-muted-foreground text-[10px]">
               Maximum number of files that can be selected at once
             </p>
           </div>

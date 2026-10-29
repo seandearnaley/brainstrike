@@ -9,7 +9,7 @@ test.describe('File System Integration', () => {
     const explorerPanel = getContextExplorerFileExplorerPanel(window);
     const showExplorerPanelButton = window
       .getByTestId('show-explorer-panel')
-      .or(window.getByRole('button', { name: /show explorer/i }));
+      .or(window.getByRole('button', { name: /show explorer/iu }));
 
     if (
       !(await explorerPanel.isVisible().catch(() => false)) &&
@@ -23,7 +23,7 @@ test.describe('File System Integration', () => {
 
   async function selectMockRoot(window: Page): Promise<void> {
     const selectRootButton = window
-      .getByRole('button', { name: /add folder to workspace|^browse$/i })
+      .getByRole('button', { name: /add folder to workspace|^browse$/iu })
       .first();
     await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
     await selectRootButton.click();
@@ -40,7 +40,7 @@ test.describe('File System Integration', () => {
     // The button text comes from FileExplorerStrings.addFolderToWorkspace
     // ('Add Folder to Workspace'); we keep 'browse' for backward compatibility.
     const fileSystemButton = window.getByRole('button', {
-      name: /add folder to workspace|^browse$/i,
+      name: /add folder to workspace|^browse$/iu,
     });
 
     // Wait for the button to be actionable before interacting
@@ -53,7 +53,7 @@ test.describe('File System Integration', () => {
       // In test mode with mocked file system, errors may occur due to mock limitations
       // We only fail on critical/fatal errors, not general error display
       const criticalErrorAlert = window.locator('[role="alert"]').filter({
-        hasText: /critical|fatal|crash/i,
+        hasText: /critical|fatal|crash/iu,
       });
       await expect(criticalErrorAlert).not.toBeVisible({ timeout: 2000 });
     }
@@ -85,7 +85,7 @@ test.describe('File System Integration', () => {
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     await selectMockRoot(window);
-    await expect(window.getByRole('button', { name: /view filters/i })).toBeVisible({
+    await expect(window.getByRole('button', { name: /view filters/iu })).toBeVisible({
       timeout: 15_000,
     });
     await expect(getContextExplorerFileExplorerPanel(window)).toBeVisible({ timeout: 15_000 });

@@ -143,7 +143,7 @@ function PopoverTree({
   if (rootFailed || parentFailed || (parentMissing && chainSettled)) {
     return (
       <div
-        className="p-4 text-center text-muted-foreground text-xs"
+        className="text-muted-foreground p-4 text-center text-xs"
         data-testid="breadcrumb-popover-unavailable"
       >
         This folder could not be loaded.
@@ -154,7 +154,7 @@ function PopoverTree({
   if (rootSettledEmpty) {
     return (
       <div
-        className="p-4 text-center text-muted-foreground text-xs"
+        className="text-muted-foreground p-4 text-center text-xs"
         data-testid="breadcrumb-popover-empty"
       >
         Nothing to show in this folder.
@@ -165,7 +165,7 @@ function PopoverTree({
   if (!parentLoaded) {
     return (
       <div
-        className="flex items-center justify-center gap-2 p-4 text-muted-foreground text-xs"
+        className="text-muted-foreground flex items-center justify-center gap-2 p-4 text-xs"
         data-testid="breadcrumb-popover-loading"
       >
         <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
@@ -199,7 +199,7 @@ export function FileTabBreadcrumbPopover({
     // connected, and the popover says so instead of rendering an empty tree.
     return (
       <div
-        className="p-4 text-center text-muted-foreground text-xs"
+        className="text-muted-foreground p-4 text-center text-xs"
         data-testid="breadcrumb-popover-unavailable"
       >
         This file's workspace root is not connected.

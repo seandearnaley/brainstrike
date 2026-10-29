@@ -30,7 +30,7 @@ describe('FileHasher', () => {
   describe('hashContent', () => {
     it('hashes content and returns a 16-character hex string', async () => {
       const hash = await hasher.hashContent('Hello, World!');
-      expect(hash).toMatch(/^[0-9a-f]{16}$/);
+      expect(hash).toMatch(/^[0-9a-f]{16}$/u);
     });
 
     it('returns consistent hashes for same content', async () => {
@@ -47,18 +47,18 @@ describe('FileHasher', () => {
 
     it('handles empty string', async () => {
       const hash = await hasher.hashContent('');
-      expect(hash).toMatch(/^[0-9a-f]{16}$/);
+      expect(hash).toMatch(/^[0-9a-f]{16}$/u);
     });
 
     it('handles large content', async () => {
       const largeContent = 'x'.repeat(100_000);
       const hash = await hasher.hashContent(largeContent);
-      expect(hash).toMatch(/^[0-9a-f]{16}$/);
+      expect(hash).toMatch(/^[0-9a-f]{16}$/u);
     });
 
     it('handles unicode content', async () => {
       const hash = await hasher.hashContent('Hello, \u4e16\u754c! \ud83c\udf0d');
-      expect(hash).toMatch(/^[0-9a-f]{16}$/);
+      expect(hash).toMatch(/^[0-9a-f]{16}$/u);
     });
   });
 
@@ -72,7 +72,7 @@ describe('FileHasher', () => {
     it('hashes streaming content', async () => {
       const chunks = ['Hello, ', 'World!'];
       const hash = await hasher.hashContentStreaming(generateChunks(chunks));
-      expect(hash).toMatch(/^[0-9a-f]{16}$/);
+      expect(hash).toMatch(/^[0-9a-f]{16}$/u);
     });
 
     it('returns consistent hashes for same streaming content', async () => {

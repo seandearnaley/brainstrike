@@ -36,15 +36,15 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^@brainstrike\/indexing-contract$/,
+        find: /^@brainstrike\/indexing-contract$/u,
         replacement: path.resolve(import.meta.dirname, '../indexing-contract/src/index.ts'),
       },
       {
-        find: /^@brainstrike\/assistant-contract\/(.*)$/,
+        find: /^@brainstrike\/assistant-contract\/(.*)$/u,
         replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
       },
       {
-        find: /^@brainstrike\/assistant-contract$/,
+        find: /^@brainstrike\/assistant-contract$/u,
         replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
       },
       {
@@ -54,7 +54,7 @@ export default defineConfig({
       {
         // Anchored: a bare-string find would also capture the
         // './commands' subpath export, which the registry spread resolves.
-        find: /^@brainstrike\/context-actions$/,
+        find: /^@brainstrike\/context-actions$/u,
         replacement: path.resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       {
@@ -72,15 +72,15 @@ export default defineConfig({
         ),
       },
       {
-        find: /^@brainstrike\/workspace-search$/,
+        find: /^@brainstrike\/workspace-search$/u,
         replacement: path.resolve(import.meta.dirname, '../workspace-search/src/index.ts'),
       },
       {
-        find: /^@brainstrike\/db$/,
+        find: /^@brainstrike\/db$/u,
         replacement: path.resolve(import.meta.dirname, '../db/src/index.ts'),
       },
       {
-        find: /^@brainstrike\/file-explorer-ui\/(.*)$/,
+        find: /^@brainstrike\/file-explorer-ui\/(.*)$/u,
         replacement: path.resolve(import.meta.dirname, '../file-explorer-ui/src/$1'),
       },
       {
@@ -88,7 +88,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/chunking-core.ts'),
       },
       {
-        find: /^@brainstrike\/text-splitter$/,
+        find: /^@brainstrike\/text-splitter$/u,
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
       },
       {
@@ -114,15 +114,15 @@ export default defineConfig({
       },
       {
         // Root aliases must be anchored because this package has subpath exports.
-        find: /^@brainstrike\/assistant-ui$/,
+        find: /^@brainstrike\/assistant-ui$/u,
         replacement: path.resolve(import.meta.dirname, '../assistant-ui/src/index.ts'),
       },
       {
-        find: /^@brainstrike\/ui$/,
+        find: /^@brainstrike\/ui$/u,
         replacement: path.resolve(import.meta.dirname, '../ui/src/index.ts'),
       },
       {
-        find: /^@brainstrike\/utils$/,
+        find: /^@brainstrike\/utils$/u,
         replacement: path.resolve(import.meta.dirname, '../utils/src'),
       },
       {
@@ -130,7 +130,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../utils/src/crypto.ts'),
       },
       {
-        find: /^@brainstrike\/utils\/(.*)$/,
+        find: /^@brainstrike\/utils\/(.*)$/u,
         replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
       },
       {

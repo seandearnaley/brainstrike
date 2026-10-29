@@ -150,20 +150,20 @@ describe('Desktop CSP Utils', () => {
       const prodCSP = getCSP('production');
 
       // Images can be data: URIs
-      expect(devCSP).toMatch(/img-src[^;]*data:/);
-      expect(prodCSP).toMatch(/img-src[^;]*data:/);
+      expect(devCSP).toMatch(/img-src[^;]*data:/u);
+      expect(prodCSP).toMatch(/img-src[^;]*data:/u);
 
       // Fonts can be data: URIs
-      expect(devCSP).toMatch(/font-src[^;]*data:/);
-      expect(prodCSP).toMatch(/font-src[^;]*data:/);
+      expect(devCSP).toMatch(/font-src[^;]*data:/u);
+      expect(prodCSP).toMatch(/font-src[^;]*data:/u);
     });
 
     it('allows the root-validated brainstrike-asset: protocol for local images', () => {
       const devCSP = getCSP('development');
       const prodCSP = getCSP('production');
 
-      expect(devCSP).toMatch(/img-src[^;]*brainstrike-asset:/);
-      expect(prodCSP).toMatch(/img-src[^;]*brainstrike-asset:/);
+      expect(devCSP).toMatch(/img-src[^;]*brainstrike-asset:/u);
+      expect(prodCSP).toMatch(/img-src[^;]*brainstrike-asset:/u);
     });
 
     it('maintains consistent CSP format', () => {
@@ -171,12 +171,12 @@ describe('Desktop CSP Utils', () => {
       const prodCSP = getCSP('production');
 
       // Should be valid CSP format
-      expect(devCSP).toMatch(/^[a-z-]+\s+.+?(?:;\s+[a-z-]+\s+.+)*$/);
-      expect(prodCSP).toMatch(/^[a-z-]+\s+.+?(?:;\s+[a-z-]+\s+.+)*$/);
+      expect(devCSP).toMatch(/^[a-z-]+\s+.+?(?:;\s+[a-z-]+\s+.+)*$/u);
+      expect(prodCSP).toMatch(/^[a-z-]+\s+.+?(?:;\s+[a-z-]+\s+.+)*$/u);
 
       // Should not have empty directives
-      expect(devCSP).not.toMatch(/;\s+;/);
-      expect(prodCSP).not.toMatch(/;\s+;/);
+      expect(devCSP).not.toMatch(/;\s+;/u);
+      expect(prodCSP).not.toMatch(/;\s+;/u);
     });
   });
 
@@ -186,11 +186,11 @@ describe('Desktop CSP Utils', () => {
 
       // No full eval in production script-src — WASM runs on the narrower
       // 'wasm-unsafe-eval' (BST-573).
-      expect(prodCSP).not.toMatch(/script-src[^;]*'unsafe-eval'/);
-      expect(prodCSP).toMatch(/script-src[^;]*'wasm-unsafe-eval'/);
+      expect(prodCSP).not.toMatch(/script-src[^;]*'unsafe-eval'/u);
+      expect(prodCSP).toMatch(/script-src[^;]*'wasm-unsafe-eval'/u);
 
       // Should not allow inline scripts in production
-      expect(prodCSP).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+      expect(prodCSP).not.toMatch(/script-src[^;]*'unsafe-inline'/u);
 
       // Should block object-src completely
       expect(prodCSP).toContain("object-src 'none'");
@@ -200,8 +200,8 @@ describe('Desktop CSP Utils', () => {
       const devCSP = getCSP('development');
 
       // Development can have unsafe-inline for hot reloading
-      expect(devCSP).toMatch(/script-src[^;]*'unsafe-inline'/);
-      expect(devCSP).toMatch(/style-src[^;]*'unsafe-inline'/);
+      expect(devCSP).toMatch(/script-src[^;]*'unsafe-inline'/u);
+      expect(devCSP).toMatch(/style-src[^;]*'unsafe-inline'/u);
 
       // Still blocks dangerous object-src
       expect(devCSP).toContain("object-src 'none'");

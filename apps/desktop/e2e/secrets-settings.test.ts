@@ -15,7 +15,7 @@ async function openProvidersCategory(window: Page): Promise<void> {
   await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
   await window
     .getByRole('navigation', { name: 'Settings categories' })
-    .getByRole('button', { name: /^Providers$/i })
+    .getByRole('button', { name: /^Providers$/iu })
     .click();
   await expect(window.getByTestId('settings-category-providers')).toBeVisible();
 }
@@ -70,12 +70,12 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     // The flattened search can surface GPT rows from several providers
     // (OpenAI, OpenRouter): scope to the row whose provider label reads "OpenAI".
     const openAiModel = modelDialog
-      .getByRole('option', { name: /GPT/i })
-      .filter({ hasText: /OpenAI/i })
+      .getByRole('option', { name: /GPT/iu })
+      .filter({ hasText: /OpenAI/iu })
       .first();
     await expect(openAiModel).toBeVisible();
     await openAiModel.click();
-    await expect(modelPicker).toHaveAccessibleName(/Selected model:.*GPT/i);
+    await expect(modelPicker).toHaveAccessibleName(/Selected model:.*GPT/iu);
   });
 
   test('sets, fingerprints, retrieves, and removes an Anthropic key inside its card', async ({

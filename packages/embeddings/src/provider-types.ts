@@ -1,11 +1,11 @@
+import type { DistanceMetric, EmbeddingProviderType } from '@brainstrike/indexing-contract';
+
 export type {
   DistanceMetric,
   EmbeddingProviderType,
   ProviderMetadata,
 } from '@brainstrike/indexing-contract';
 export { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/indexing-contract';
-
-import type { DistanceMetric, EmbeddingProviderType } from '@brainstrike/indexing-contract';
 
 /**
  * Discriminated union for embedding provider configurations

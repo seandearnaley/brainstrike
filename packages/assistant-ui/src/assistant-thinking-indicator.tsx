@@ -27,7 +27,7 @@ interface AssistantThinkingIndicatorProps
 }
 
 function toSvgId(prefix: string, reactId: string): string {
-  return `${prefix}-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  return `${prefix}-${reactId.replace(/[^a-zA-Z0-9_-]/gu, '')}`;
 }
 
 export function BrainstrikeThinkingMark({

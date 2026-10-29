@@ -120,7 +120,7 @@ describe('ControlsMenu', () => {
     expect(screen.queryByText('Reads local context')).not.toBeInTheDocument();
 
     const groupLabels = screen
-      .getAllByText(/Alpha|Beta|Zeta/)
+      .getAllByText(/Alpha|Beta|Zeta/u)
       .map((element) => element.textContent ?? '');
     expect(groupLabels).toEqual(['Alpha', 'Beta', 'Zeta']);
     expect(screen.getByText('1/1')).toBeInTheDocument();
@@ -136,7 +136,7 @@ describe('ControlsMenu', () => {
     await user.click(screen.getByRole('button', { name: 'Refresh tools' }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole('button', { name: /Manage tools/ }));
+    await user.click(screen.getByRole('button', { name: /Manage tools/u }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
@@ -199,7 +199,7 @@ describe('ControlsMenu', () => {
 
     await user.clear(search);
     await user.type(search, 'unmatched');
-    expect(screen.getByText(/No tools match/)).toBeInTheDocument();
+    expect(screen.getByText(/No tools match/u)).toBeInTheDocument();
   });
 
   it('uses a supplied tool summary and disables tools without a toggle handler', async () => {
@@ -243,7 +243,7 @@ describe('ControlsMenu', () => {
     render(<ControlsMenu toolMenu={toolMenu} />);
     await user.click(screen.getByRole('button', { name: 'Open assistant controls' }));
 
-    expect(screen.getByText(/Loading tools/)).toBeInTheDocument();
+    expect(screen.getByText(/Loading tools/u)).toBeInTheDocument();
     expect(screen.queryByText('Native Read')).not.toBeInTheDocument();
   });
 });

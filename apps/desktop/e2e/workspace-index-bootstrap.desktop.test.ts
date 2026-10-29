@@ -63,11 +63,11 @@ test.describe('Workspace Index first run (desktop)', () => {
       const section = window.getByTestId('settings-category-search-indexing');
       await section
         .getByRole('group', { name: 'Search mode' })
-        .getByRole('button', { name: /^Semantic/ })
+        .getByRole('button', { name: /^Semantic/u })
         .click();
       await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
       // The Settings model picker's name for HOSTED_INDEX_MODEL.
-      await window.getByRole('option', { name: /Text Embedding 3 Small/ }).click();
+      await window.getByRole('option', { name: /Text Embedding 3 Small/u }).click();
       const pending = section.getByRole('status', { name: 'Pending changes' });
       await pending.getByRole('button', { exact: true, name: 'Apply and re-index' }).click();
       await expect(pending).toBeHidden({ timeout: 15_000 });
@@ -177,7 +177,7 @@ test.describe('Workspace Index first run (desktop)', () => {
       await expect(
         section
           .getByRole('group', { name: 'Search mode' })
-          .getByRole('button', { name: /^Semantic/ })
+          .getByRole('button', { name: /^Semantic/u })
       ).toHaveAttribute('aria-pressed', 'true');
       await expect(
         section.getByRole('button', { exact: true, name: 'Resume indexing' })
@@ -201,7 +201,7 @@ test.describe('Workspace Index first run (desktop)', () => {
       window
         .getByTestId('settings-category-search-indexing')
         .getByRole('group', { name: 'Search mode' })
-        .getByRole('button', { name: /^Text/ })
+        .getByRole('button', { name: /^Text/u })
     ).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
     expect(await readIndexConfig(window)).toEqual({
       chunking: { _tag: 'Auto' },

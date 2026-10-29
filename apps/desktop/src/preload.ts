@@ -1,34 +1,29 @@
+import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type { DiagnosticEventsQueryFilter } from '@brainstrike/utils/diagnostics';
 import type {
   DiagnosticEventsReader,
   mainDiagnosticEventsReader,
 } from './assistant-server/query-diagnostics-tool';
-import { contentClearContract } from './ipc-domains/content-clear.contract';
-import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
-import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
-import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
-import type { IpcResult } from './platform/ipc-contract';
-
-// Electron preload script. `electron` is the ONE runtime require a sandboxed
-// preload can resolve; every other import below is either type-only (erased)
-// or a PURE relative module that `scripts/build-main-config.mjs` inlines into
-// dist/preload.js (BST-1648). preload-sandbox-imports.test.ts walks that
-// graph, and build-main.mjs refuses a bundle that requires anything else.
-const electron = require('electron');
-const { contextBridge, webUtils } = electron;
-
+import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
+import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
+import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
 import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { agentHostRecoveryContract } from './ipc-domains/agent-host-recovery.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
+import { contentClearContract } from './ipc-domains/content-clear.contract';
 import { contextFilesContract } from './ipc-domains/context-files.contract';
 import { type DatabasePathBridge, databasePathContract } from './ipc-domains/database.contract';
 import { factoryResetContract } from './ipc-domains/factory-reset.contract';
 import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-system.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
 import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
+import { modelCatalogContract } from './ipc-domains/model-catalog.contract';
 import { settingsContract, storageContract } from './ipc-domains/storage-preferences.contract';
+import { threadGroupsContract } from './ipc-domains/thread-groups.contract';
 import { userPersonasContract } from './ipc-domains/user-personas.contract';
+import { viewFilterPresetsContract } from './ipc-domains/view-filter-presets.contract';
 import { windowFocusContract } from './ipc-domains/window-focus.contract';
+import type { LoggingSettingsPayload } from './logging-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-authority';
 import {
@@ -36,6 +31,19 @@ import {
   createDesktopIpcTransport,
   createIpcBridge,
 } from './platform/ipc-bridge';
+import type { IpcResult } from './platform/ipc-contract';
+import {
+  assertDesktopElectronApiKeyParity,
+  type VisibleDesktopElectronApi,
+} from './types/desktop-electron-api';
+
+// Electron preload script. `electron` is the ONE runtime require a sandboxed
+// preload can resolve; every import above is either type-only (erased)
+// or a PURE relative module that `scripts/build-main-config.mjs` inlines into
+// dist/preload.js (BST-1648). preload-sandbox-imports.test.ts walks that
+// graph, and build-main.mjs refuses a bundle that requires anything else.
+const electron = require('electron');
+const { contextBridge, webUtils } = electron;
 
 type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
 // The preload's ONE connection to Main: every call and push below rides it by method name.
@@ -93,16 +101,6 @@ ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, pa
 // This set only selects the E2E-only seed channel; MAIN validates the exact
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
-
-import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
-import type { DesktopPlatformDiagnosticsSnapshot } from './desktop-platform-diagnostics';
-import type { MainLogWindowRequest, MainLogWindowResult } from './diagnostics/main-log-window';
-import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
-import type { LoggingSettingsPayload } from './logging-shared';
-import {
-  assertDesktopElectronApiKeyParity,
-  type VisibleDesktopElectronApi,
-} from './types/desktop-electron-api';
 
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';

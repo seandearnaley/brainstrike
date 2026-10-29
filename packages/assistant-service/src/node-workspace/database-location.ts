@@ -89,10 +89,10 @@ function toProfileSegment(raw: string): string {
   const stripped = raw
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '');
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^[-.]+|[-.]+$/gu, '');
   // Cutting at the limit can expose a dot again; the first character is never one.
-  return stripped.slice(0, PROFILE_SEGMENT_MAX_LENGTH).replace(/\.+$/, '');
+  return stripped.slice(0, PROFILE_SEGMENT_MAX_LENGTH).replace(/\.+$/u, '');
 }
 
 /** For names WE derive (branch names): nothing usable falls back to `default`. */

@@ -88,7 +88,9 @@ describe('FileExplorerErrorBoundary', () => {
     expect(screen.getByText('File Content Error')).toBeInTheDocument();
     expect(screen.getByText('Retry Loading')).toBeInTheDocument();
     expect(screen.getByText('Skip File')).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(`Failed to load file '${filePath}'`))).toBeInTheDocument();
+    expect(
+      screen.getByText(new RegExp(`Failed to load file '${filePath}'`, 'u'))
+    ).toBeInTheDocument();
   });
 
   test('renders specialized UI for ConcurrentLoadingError', () => {
@@ -106,7 +108,7 @@ describe('FileExplorerErrorBoundary', () => {
     }
     expect(screen.getByText('Loading Error')).toBeInTheDocument();
     expect(screen.getByText('Retry with Fewer Concurrent Operations')).toBeInTheDocument();
-    expect(screen.getByText(/Failed to load 2 files/)).toBeInTheDocument();
+    expect(screen.getByText(/Failed to load 2 files/u)).toBeInTheDocument();
   });
 
   test('renders specialized UI for PartialRefreshError', () => {
@@ -127,7 +129,9 @@ describe('FileExplorerErrorBoundary', () => {
     }
     expect(screen.getByText('Partial Refresh Error')).toBeInTheDocument();
     expect(screen.getByText('Retry Failed Operations')).toBeInTheDocument();
-    expect(screen.getByText(/Refresh partially failed: 5 succeeded, 3 failed/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Refresh partially failed: 5 succeeded, 3 failed/u)
+    ).toBeInTheDocument();
   });
 
   test('toggles error details visibility', () => {
@@ -142,20 +146,20 @@ describe('FileExplorerErrorBoundary', () => {
       restoreConsole();
     }
 
-    const toggleButton = screen.getByRole('button', { name: /show details/i });
+    const toggleButton = screen.getByRole('button', { name: /show details/iu });
     expect(screen.queryByText('Error Details')).not.toBeInTheDocument();
 
     act(() => {
       fireEvent.click(toggleButton);
     });
     expect(screen.getByText('Error Details')).toBeInTheDocument();
-    expect(toggleButton.textContent).toMatch(/hide details/i);
+    expect(toggleButton.textContent).toMatch(/hide details/iu);
 
     act(() => {
       fireEvent.click(toggleButton);
     });
     expect(screen.queryByText('Error Details')).not.toBeInTheDocument();
-    expect(toggleButton.textContent).toMatch(/show details/i);
+    expect(toggleButton.textContent).toMatch(/show details/iu);
   });
 
   test('copies error details to clipboard', async () => {

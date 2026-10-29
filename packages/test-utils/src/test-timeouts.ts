@@ -40,7 +40,7 @@ export const getTimeoutMultiplier = (): number => {
     // Keep this grammar deliberately narrower than Number(...): whitespace,
     // signs, exponents, hex, Infinity, and an empty string are configuration
     // mistakes, not alternative spellings to accept silently.
-    const isPositiveDecimal = /^(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)$/.test(configuredMultiplier);
+    const isPositiveDecimal = /^(?:[1-9]\d*(?:\.\d+)?|0\.\d*[1-9]\d*)$/u.test(configuredMultiplier);
     const multiplier = Number(configuredMultiplier);
     if (
       !(

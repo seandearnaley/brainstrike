@@ -159,7 +159,7 @@ describe('typed skill-script resolution', () => {
           scriptPath: 'scripts/impeccable',
           skillName: 'site-design',
         })
-      ).rejects.toThrow(/runtime.*does not match/i);
+      ).rejects.toThrow(/runtime.*does not match/iu);
     }
   );
   it.each([
@@ -176,7 +176,7 @@ describe('typed skill-script resolution', () => {
           scriptPath: 'scripts/impeccable',
           skillName: 'site-design',
         })
-      ).rejects.toThrow(/runtime.*does not match/i);
+      ).rejects.toThrow(/runtime.*does not match/iu);
     }
   );
 
@@ -205,7 +205,7 @@ describe('typed skill-script resolution', () => {
     const { engine } = makeEngine();
     await expect(
       engine.resolveScriptExecution({ runtime: 'node', scriptPath, skillName: 'site-design' })
-    ).rejects.toThrow(/skill-root-relative|scripts\//i);
+    ).rejects.toThrow(/skill-root-relative|scripts\//iu);
   });
 
   it('rejects a runtime that does not match the bundled script extension', async () => {
@@ -216,7 +216,7 @@ describe('typed skill-script resolution', () => {
         scriptPath: 'scripts/palette.mjs',
         skillName: 'site-design',
       })
-    ).rejects.toThrow(/runtime.*does not match/i);
+    ).rejects.toThrow(/runtime.*does not match/iu);
   });
 
   it('rejects a canonical but missing bundled script', async () => {
@@ -227,7 +227,7 @@ describe('typed skill-script resolution', () => {
         scriptPath: 'scripts/missing.mjs',
         skillName: 'site-design',
       })
-    ).rejects.toThrow(/missing/i);
+    ).rejects.toThrow(/missing/iu);
   });
 
   it('rejects disabled skills and cannot address a shadowed skill by directory path', async () => {
@@ -238,7 +238,7 @@ describe('typed skill-script resolution', () => {
         scriptPath: 'scripts/palette.mjs',
         skillName: 'site-design',
       })
-    ).rejects.toThrow(/not available/i);
+    ).rejects.toThrow(/not available/iu);
 
     const { engine } = makeEngine({ shadowed: true });
     await expect(
@@ -247,7 +247,7 @@ describe('typed skill-script resolution', () => {
         scriptPath: 'scripts/palette.mjs',
         skillName: '/home/user/.claude/skills/site-design',
       })
-    ).rejects.toThrow(/skill name/i);
+    ).rejects.toThrow(/skill name/iu);
   });
 
   it('fails closed when declared allowed-tools does not authorize the script runtime', async () => {
@@ -258,7 +258,7 @@ describe('typed skill-script resolution', () => {
         scriptPath: 'scripts/palette.mjs',
         skillName: 'site-design',
       })
-    ).rejects.toThrow(/allowed-tools|runtime/i);
+    ).rejects.toThrow(/allowed-tools|runtime/iu);
   });
 
   it('does not let an exact no-argument allowed-tools rule authorize structured args', async () => {
@@ -272,7 +272,7 @@ describe('typed skill-script resolution', () => {
         scriptPath: 'scripts/palette.mjs',
         skillName: 'site-design',
       })
-    ).rejects.toThrow(/allowed-tools/i);
+    ).rejects.toThrow(/allowed-tools/iu);
   });
 
   it('preserves argv boundaries while matching allowed-tools arguments', async () => {
@@ -294,6 +294,6 @@ describe('typed skill-script resolution', () => {
         scriptPath: 'scripts/palette.mjs',
         skillName: 'site-design',
       })
-    ).rejects.toThrow(/allowed-tools/i);
+    ).rejects.toThrow(/allowed-tools/iu);
   });
 });

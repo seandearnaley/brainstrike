@@ -64,17 +64,17 @@ describe('formatTimestampedDownloadFilename', () => {
       suffix: 'run:id\\with*chars',
     });
 
-    expect(filename).not.toMatch(/[<>:"/\\|?*]/);
+    expect(filename).not.toMatch(/[<>:"/\\|?*]/u);
     expect(filename.endsWith('.json')).toBe(true);
   });
 
   it('throws instead of emitting a nameless or extensionless file', () => {
     expect(() =>
       formatTimestampedDownloadFilename({ extension: 'json', generatedAt: AT, name: '::::' })
-    ).toThrow(/name/i);
+    ).toThrow(/name/iu);
     expect(() =>
       formatTimestampedDownloadFilename({ extension: '', generatedAt: AT, name: 'logs' })
-    ).toThrow(/extension/i);
+    ).toThrow(/extension/iu);
   });
 
   it('rejects an invalid date rather than stamping "Invalid Date" into a filename', () => {
@@ -84,7 +84,7 @@ describe('formatTimestampedDownloadFilename', () => {
         generatedAt: new Date(Number.NaN),
         name: 'logs',
       })
-    ).toThrow(/date/i);
+    ).toThrow(/date/iu);
   });
 });
 

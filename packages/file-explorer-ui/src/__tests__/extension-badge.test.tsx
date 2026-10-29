@@ -11,7 +11,7 @@ describe('ExtensionBadge', () => {
   it('applies hash-based color styles for light and dark themes', () => {
     const { container } = render(<ExtensionBadge extension="js" />);
     const badge = container.firstElementChild as HTMLElement;
-    const hexColor = /^#[0-9A-Fa-f]{6}$/;
+    const hexColor = /^#[0-9A-Fa-f]{6}$/u;
 
     expect(badge.style.getPropertyValue('--extension-badge-bg')).toMatch(hexColor);
     expect(badge.style.getPropertyValue('--extension-badge-text')).toMatch(hexColor);

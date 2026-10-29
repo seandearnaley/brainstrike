@@ -217,7 +217,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
       threw = true;
     }
     expect(threw).toBe(false);
-    await expect(reused).rejects.toThrow(/already used/);
+    await expect(reused).rejects.toThrow(/already used/u);
     await expect(
       bridge.sendRequest({ jsonrpc: '2.0', method: 'ui/resource-teardown', params: {} })
     ).rejects.toThrow(/id/u);
@@ -361,7 +361,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
         method: 'ui/resource-teardown',
         params: {},
       });
-      const timedOutAssertion = expect(timedOut).rejects.toThrow(/timed out/);
+      const timedOutAssertion = expect(timedOut).rejects.toThrow(/timed out/u);
       await vi.advanceTimersByTimeAsync(51);
       await timedOutAssertion;
 
@@ -375,7 +375,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
           { id: 'cancelled', jsonrpc: '2.0', method: 'ui/resource-teardown', params: {} },
           { signal: controller.signal }
         )
-      ).rejects.toThrow(/caller cancelled/);
+      ).rejects.toThrow(/caller cancelled/u);
 
       target.dispatch(first, {
         jsonrpc: '2.0',
@@ -476,7 +476,7 @@ describe('bounded MCP Apps iframe JSON-RPC bridge', () => {
         method: 'ui/notifications/tool-input',
         params: {},
       })
-    ).toThrow(/frame detached/);
+    ).toThrow(/frame detached/u);
     expect(unsendable.bridge.snapshot.phase).toBe('disconnected');
     expectQuiescent(unsendable.bridge.snapshot);
   });

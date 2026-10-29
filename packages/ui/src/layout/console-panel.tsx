@@ -20,7 +20,7 @@ export function ConsolePanel({
 }: ConsolePanelProps) {
   return (
     <>
-      <Separator className="z-10 h-1 bg-border transition-colors hover:bg-border/80" />
+      <Separator className="bg-border hover:bg-border/80 z-10 h-1 transition-colors" />
       <Panel
         className="bg-background"
         collapsedSize="0%"
@@ -32,11 +32,11 @@ export function ConsolePanel({
         minSize="15%"
         panelRef={panelRef}
       >
-        <div className="h-full border-border border-t">
-          <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+        <div className="border-border h-full border-t">
+          <div className="border-border bg-muted/30 flex items-center justify-between border-b p-2">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4" />
-              <span className="font-medium text-sm">File Editor</span>
+              <span className="text-sm font-medium">File Editor</span>
             </div>
             <Button
               aria-label="Close File Editor"

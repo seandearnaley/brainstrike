@@ -161,7 +161,7 @@ describe('forest visible-file token indexing', () => {
 
     // Collapsing unmounts that section's tree; its files are no longer on
     // screen, so the indexer must stop being asked for them.
-    await user.click(screen.getByRole('button', { name: /project-b/i }));
+    await user.click(screen.getByRole('button', { name: /project-b/iu }));
 
     await waitFor(() => {
       expect([...latest()]).toEqual([`${ROOT_ID_A}|@|/project-a/a1.ts`]);

@@ -167,7 +167,7 @@ const STALE_TOOL_CALL_STUB_TEXT =
 
 const REPLAY_BEGIN_MARKER = '--- BEGIN REPLAYED TOOL OUTPUT ---';
 const REPLAY_END_MARKER = '--- END REPLAYED TOOL OUTPUT ---';
-const REPLAY_MARKER_ESCAPE_PATTERN = /--- (BEGIN|END) REPLAYED TOOL OUTPUT ---/g;
+const REPLAY_MARKER_ESCAPE_PATTERN = /--- (BEGIN|END) REPLAYED TOOL OUTPUT ---/gu;
 
 /**
  * The replay carries untrusted tool output (web pages, retrieved documents)

@@ -28,7 +28,7 @@ describe('electron test utilities', () => {
     expect(handler).toHaveBeenCalledWith({}, 'input');
 
     ipcMain.removeHandler('channel');
-    await expect(ipcMain.__invoke('channel')).rejects.toThrow(/No handler/);
+    await expect(ipcMain.__invoke('channel')).rejects.toThrow(/No handler/u);
   });
 
   it('provides ipcRenderer, contextBridge and app mocks', async () => {

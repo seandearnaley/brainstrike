@@ -91,7 +91,7 @@ describe('CopyDebugBundleButton', () => {
       expect(clipboardWriteText).toHaveBeenCalledWith(bundle);
     });
     await waitFor(() => {
-      expect(screen.getByTestId('copy-debug-bundle')).toHaveTextContent(/^Copied · \d+ KB$/);
+      expect(screen.getByTestId('copy-debug-bundle')).toHaveTextContent(/^Copied · \d+ KB$/u);
     });
   });
 
@@ -131,7 +131,7 @@ describe('CopyDebugBundleButton', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
     expect(anchor.download).toBe('brainstrike-debug-bundle-2026-07-27T14-32-05Z-run-1a2b3c4d.md');
-    expect(button).toHaveTextContent(/^Saved · \d+ KB$/);
+    expect(button).toHaveTextContent(/^Saved · \d+ KB$/u);
     // The copy action stays untouched by the download cycle.
     expect(screen.getByTestId('copy-debug-bundle')).toHaveTextContent('Copy debug bundle');
     expect(clipboardWriteText).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe('CopyDebugBundleButton — revert timer (pinning regressions)', () => {
       fireEvent.click(button);
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/u);
 
     // Let some time pass before the second click so the two revert timers
     // land at distinct due points.
@@ -203,7 +203,7 @@ describe('CopyDebugBundleButton — revert timer (pinning regressions)', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(buildBundle).toHaveBeenCalledTimes(2);
-    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/u);
 
     // Advance to the FIRST click's original 3s due point (t=3000): the stale
     // timer must NOT fire — the button must still read the SECOND cycle's
@@ -211,7 +211,7 @@ describe('CopyDebugBundleButton — revert timer (pinning regressions)', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/u);
 
     // Advance the remaining time for the SECOND cycle's own timer (t=4000).
     await act(async () => {
@@ -234,7 +234,7 @@ describe('CopyDebugBundleButton — revert timer (pinning regressions)', () => {
       fireEvent.click(button);
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(button).toHaveTextContent(/^Copied · \d+ KB$/);
+    expect(button).toHaveTextContent(/^Copied · \d+ KB$/u);
 
     unmount();
 

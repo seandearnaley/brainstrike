@@ -28,7 +28,7 @@ import {
 
 const SENTINEL_MESSAGE =
   'Loopback sentinel reached: this provider request was not refused by the E2E egress boundary.';
-const RUN_SETTLED = /Loopback sentinel reached|E2E egress boundary refused/;
+const RUN_SETTLED = /Loopback sentinel reached|E2E egress boundary refused/u;
 
 interface SentinelRequest {
   readonly method: string;
@@ -190,7 +190,7 @@ const REDIRECTABLE_CASES = [
   },
 ] as const;
 
-const REFUSAL_TEXT = /E2E egress boundary refused an unscripted provider request/;
+const REFUSAL_TEXT = /E2E egress boundary refused an unscripted provider request/u;
 
 /**
  * A new thread's first run streams its answer, and its title is requested
@@ -359,7 +359,7 @@ test.describe('Provider egress boundary (desktop)', () => {
     await withWorkerEnvironment(
       { ['GOOGLE_GENERATIVE_AI_API_KEY']: 'e2e-sentinel-not-a-credential' },
       async () => {
-        await expect(electron.ensureWindow()).rejects.toThrow(/GOOGLE_GENERATIVE_AI_API_KEY/);
+        await expect(electron.ensureWindow()).rejects.toThrow(/GOOGLE_GENERATIVE_AI_API_KEY/u);
       }
     );
   });

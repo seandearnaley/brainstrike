@@ -66,7 +66,7 @@ export function WorkspaceBody(): ReactElement {
     (selection.kind === 'app' && !activeAppIsRegistered);
 
   return (
-    <div className="h-full min-h-0 bg-background" data-testid="workspace-body">
+    <div className="bg-background h-full min-h-0" data-testid="workspace-body">
       {openApps.flatMap((app) => {
         // mounted ∩ open: keep-alive holds across tab SWITCHES only. CLOSING a
         // tab unmounts the surface (review finding) — the ✕ is the user's one

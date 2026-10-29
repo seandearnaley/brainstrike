@@ -76,13 +76,13 @@ describe('attachMcpAppShellBridge', () => {
 
     await expect(
       invoke('mcp:apps:releaseShell', new FakeSender(5), { token: lease.token })
-    ).rejects.toThrow(/not registered to this sender/);
+    ).rejects.toThrow(/not registered to this sender/u);
     expect(registry.resolve(lease.token)).toBeDefined();
 
     await invoke('mcp:apps:releaseShell', sender, { token: lease.token });
     expect(registry.resolve(lease.token)).toBeUndefined();
     await expect(invoke('mcp:apps:releaseShell', sender, { token: lease.token })).rejects.toThrow(
-      /not registered to this sender/
+      /not registered to this sender/u
     );
   });
 
@@ -94,11 +94,11 @@ describe('attachMcpAppShellBridge', () => {
     ).rejects.toThrow();
     await expect(invoke('mcp:apps:releaseShell', sender, { token: 'nope' })).rejects.toThrow();
     await expect(invoke('mcp:apps:prepareShell', sender, SHELL, 'extra')).rejects.toThrow(
-      /exactly 1 argument/
+      /exactly 1 argument/u
     );
     await expect(
       invoke('mcp:apps:releaseShell', sender, { token: '0'.repeat(32) }, 'extra')
-    ).rejects.toThrow(/exactly 1 argument/);
+    ).rejects.toThrow(/exactly 1 argument/u);
     expect(registry.size).toBe(0);
   });
 
@@ -115,7 +115,7 @@ describe('attachMcpAppShellBridge', () => {
     expect(registry.size).toBe(1);
     expect(registry.resolve(kept.token)).toBeDefined();
     await expect(invoke('mcp:apps:prepareShell', sender, SHELL)).rejects.toThrow(
-      /destroyed WebContents/
+      /destroyed WebContents/u
     );
     expect(registry.size).toBe(1);
   });

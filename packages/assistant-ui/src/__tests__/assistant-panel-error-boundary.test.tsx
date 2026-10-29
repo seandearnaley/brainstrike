@@ -14,8 +14,8 @@ describe('AssistantPanelErrorBoundary', () => {
         <Boom />
       </AssistantPanelErrorBoundary>
     );
-    expect(screen.getByText(/assistant panel hit an error/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument();
+    expect(screen.getByText(/assistant panel hit an error/iu)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /reset/iu })).toBeInTheDocument();
     spy.mockRestore();
   });
 
@@ -34,7 +34,7 @@ describe('AssistantPanelErrorBoundary', () => {
       </AssistantPanelErrorBoundary>
     );
     shouldThrow = false;
-    fireEvent.click(screen.getByRole('button', { name: /reset/i }));
+    fireEvent.click(screen.getByRole('button', { name: /reset/iu }));
     expect(screen.getByText('recovered')).toBeInTheDocument();
     spy.mockRestore();
   });

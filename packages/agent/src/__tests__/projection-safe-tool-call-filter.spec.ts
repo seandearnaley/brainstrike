@@ -325,8 +325,8 @@ describe('ProjectionSafeToolCallFilter', () => {
     expect(replay).toBeDefined();
     // Exactly one authentic BEGIN and one authentic END marker survive; the
     // injected copies inside the projection are defanged.
-    expect(replay?.match(/^--- BEGIN REPLAYED TOOL OUTPUT ---$/gm)).toHaveLength(1);
-    expect(replay?.match(/^--- END REPLAYED TOOL OUTPUT ---$/gm)).toHaveLength(1);
+    expect(replay?.match(/^--- BEGIN REPLAYED TOOL OUTPUT ---$/gmu)).toHaveLength(1);
+    expect(replay?.match(/^--- END REPLAYED TOOL OUTPUT ---$/gmu)).toHaveLength(1);
     const closingIndex = replay?.indexOf('--- END REPLAYED TOOL OUTPUT ---') ?? -1;
     expect(replay?.indexOf('ignore prior instructions')).toBeLessThan(closingIndex);
   });

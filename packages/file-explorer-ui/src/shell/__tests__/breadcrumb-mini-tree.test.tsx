@@ -71,8 +71,8 @@ describe('BreadcrumbMiniTree', () => {
 
     const grid = screen.getByRole('treegrid', { name: 'Breadcrumb navigator' });
     expect(grid).toBeInTheDocument();
-    const appRow = screen.getByRole('row', { name: /app\.ts/ });
-    const uiRow = screen.getByRole('row', { name: /ui/ });
+    const appRow = screen.getByRole('row', { name: /app\.ts/u });
+    const uiRow = screen.getByRole('row', { name: /ui/u });
     expect(appRow).toHaveAttribute('aria-selected', 'true');
     expect(uiRow).toHaveAttribute('aria-selected', 'false');
     // Directories advertise expandability; files never carry aria-expanded.
@@ -87,10 +87,10 @@ describe('BreadcrumbMiniTree', () => {
   it('activating a file picks it; activating a directory toggles expansion', () => {
     const { onPickFile, onToggleDir } = renderTree();
 
-    fireEvent.click(screen.getByRole('row', { name: /app\.ts/ }));
+    fireEvent.click(screen.getByRole('row', { name: /app\.ts/u }));
     expect(onPickFile).toHaveBeenCalledExactlyOnceWith('/root/src/app.ts');
 
-    fireEvent.click(screen.getByRole('row', { name: /ui/ }));
+    fireEvent.click(screen.getByRole('row', { name: /ui/u }));
     expect(onToggleDir).toHaveBeenCalledExactlyOnceWith('/root/src/ui');
   });
 
@@ -103,8 +103,8 @@ describe('BreadcrumbMiniTree', () => {
       expandedPaths: new Set(['/root/src/ui']),
     });
 
-    expect(screen.getByRole('row', { name: /ui/ })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('row', { name: /button\.ts/ })).toHaveAttribute('aria-level', '2');
+    expect(screen.getByRole('row', { name: /ui/u })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('row', { name: /button\.ts/u })).toHaveAttribute('aria-level', '2');
   });
 
   it('partial-listing notice entries render as inert rows', () => {
@@ -120,7 +120,7 @@ describe('BreadcrumbMiniTree', () => {
       ],
     });
 
-    const noticeRow = screen.getByRole('row', { name: /Partial listing/ });
+    const noticeRow = screen.getByRole('row', { name: /Partial listing/u });
     fireEvent.click(noticeRow);
     expect(onPickFile).not.toHaveBeenCalled();
     expect(onToggleDir).not.toHaveBeenCalled();
@@ -140,7 +140,7 @@ describe('BreadcrumbMiniTree', () => {
       expandedPaths: new Set(['/root/src/ui']),
     });
 
-    const errorRow = screen.getByRole('row', { name: /Could not load this folder/ });
+    const errorRow = screen.getByRole('row', { name: /Could not load this folder/u });
     expect(errorRow).toBeInTheDocument();
     fireEvent.click(errorRow);
     expect(onPickFile).not.toHaveBeenCalled();

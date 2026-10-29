@@ -398,7 +398,7 @@ export function AssistantThreadTabsCore({
             {statusErrorText ? (
               <span
                 aria-label={`Thread status unavailable. ${statusErrorText}`}
-                className="flex size-7 shrink-0 items-center justify-center text-destructive"
+                className="text-destructive flex size-7 shrink-0 items-center justify-center"
                 data-testid="assistant-thread-tab-status-error"
                 role="img"
                 title={statusErrorText}
@@ -418,7 +418,7 @@ export function AssistantThreadTabsCore({
             >
               <Plus className="size-3.5" />
               <span
-                className="@min-[380px]/tab-strip:inline hidden"
+                className="hidden @min-[380px]/tab-strip:inline"
                 data-testid="assistant-new-thread-label"
               >
                 {newThreadAction.text}
@@ -429,7 +429,7 @@ export function AssistantThreadTabsCore({
       />
 
       {unavailableSavedThread ? (
-        <div className="p-3 text-muted-foreground text-sm" role="status">
+        <div className="text-muted-foreground p-3 text-sm" role="status">
           Your saved conversation is unavailable. Start a new chat using New.
         </div>
       ) : null}
@@ -546,7 +546,7 @@ function ThreadWorkspaceState({
       data-testid="assistant-thread-workspace-state"
       data-variant={variant}
     >
-      <div className="font-medium text-sm">{title}</div>
+      <div className="text-sm font-medium">{title}</div>
       <div className="mt-1">{description}</div>
     </div>
   );

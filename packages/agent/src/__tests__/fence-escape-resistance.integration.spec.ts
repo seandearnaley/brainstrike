@@ -915,7 +915,7 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
       expect(result.timedOut).toBe(true);
       expect(result.exitCode).toBeNull();
       expect(result.signal).not.toBeNull();
-      expect(result.signal).toMatch(/^SIG[A-Z]+$/);
+      expect(result.signal).toMatch(/^SIG[A-Z]+$/u);
     };
 
     it('kills an infinite CPU loop on timeout and reports the exact signal shape', async () => {

@@ -686,7 +686,7 @@ describe('ThreadsPanel', () => {
     });
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByRole('checkbox', { name: 'Select thread First thread' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /^(Select|Clear) \d+ visible/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^(Select|Clear) \d+ visible/u })).toBeNull();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
@@ -719,7 +719,7 @@ describe('ThreadsPanel', () => {
       'true'
     );
 
-    const checkbox = screen.getByRole('checkbox', { name: /^Select thread / });
+    const checkbox = screen.getByRole('checkbox', { name: /^Select thread /u });
     expect(checkbox).toBeChecked();
     checkbox.focus();
     fireEvent.click(checkbox);
@@ -756,7 +756,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
     });
-    expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /visible threads?$/u })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(hostMocks.listThreads).toHaveBeenCalledWith(WORKSPACE_MEMORY_RESOURCE_ID);
     });
@@ -775,7 +775,7 @@ describe('ThreadsPanel', () => {
 
     expect(screen.getByTestId('threads-loading-card')).toBeVisible();
     expect(screen.queryByTestId('threads-visible-count')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /visible threads?$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /visible threads?$/u })).not.toBeInTheDocument();
   });
 
   it('drops the redundant Memory pill and its restated subtitle from the toolbar', async () => {
@@ -824,8 +824,8 @@ describe('ThreadsPanel', () => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
 
-    const expand = screen.getByRole('button', { name: /Show thread details First thread/ });
-    const actions = screen.getByRole('button', { name: /Thread actions First thread/ });
+    const expand = screen.getByRole('button', { name: /Show thread details First thread/u });
+    const actions = screen.getByRole('button', { name: /Thread actions First thread/u });
 
     for (const control of [expand, actions]) {
       // icon-xs paints a 28px chip, which is now the entire row height, so the
@@ -836,7 +836,7 @@ describe('ThreadsPanel', () => {
       // Hover rides the tinted row rather than punching a neutral chip into it.
       expect(control).not.toHaveClass('hover:bg-accent');
       // Visual box shrinks but the pointer target stays >= 24px.
-      expect(control.className).toMatch(/after:-inset-1/);
+      expect(control.className).toMatch(/after:-inset-1/u);
       expect(control.querySelector('svg')).toHaveClass('size-3');
     }
   });
@@ -848,7 +848,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(2);
     });
-    await user.click(screen.getByRole('button', { name: /Show thread details First thread/ }));
+    await user.click(screen.getByRole('button', { name: /Show thread details First thread/u }));
 
     // The row supplies px-1 horizontally and no vertical padding (vertical
     // padding would push the collapsed control past the tab's 28px). So the
@@ -940,7 +940,7 @@ describe('ThreadsPanel', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-row')).toHaveLength(52);
     });
-    expect(screen.queryByRole('button', { name: /Show .* more threads/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show .* more threads/u })).not.toBeInTheDocument();
   });
 
   it('selects only disclosed threads and scopes Escape clearing to the thread panel', async () => {
@@ -1250,7 +1250,7 @@ describe('ThreadsPanel', () => {
       throw new Error('Expected the first thread row to render.');
     }
 
-    await user.click(within(firstThreadRow).getByRole('button', { name: /^First thread/ }));
+    await user.click(within(firstThreadRow).getByRole('button', { name: /^First thread/u }));
     fireEvent.click(firstThreadRow);
 
     expect(
@@ -1275,7 +1275,7 @@ describe('ThreadsPanel', () => {
     }
 
     fireEvent.click(firstThreadRow);
-    fireEvent.keyDown(within(firstThreadRow).getByRole('button', { name: /^First thread/ }), {
+    fireEvent.keyDown(within(firstThreadRow).getByRole('button', { name: /^First thread/u }), {
       key: ' ',
     });
 
@@ -1809,7 +1809,7 @@ describe('ThreadsPanel groups', () => {
     });
     const initialTitles = screen
       .getAllByTestId('thread-row')
-      .map((row) => within(row).getByText(/thread/i).textContent);
+      .map((row) => within(row).getByText(/thread/iu).textContent);
     expect(initialTitles).toEqual(['Second thread', 'First thread']);
 
     fireEvent.click(screen.getByRole('button', { name: 'View options' }));
@@ -1818,7 +1818,7 @@ describe('ThreadsPanel groups', () => {
     await waitFor(() => {
       const titles = screen
         .getAllByTestId('thread-row')
-        .map((row) => within(row).getByText(/thread/i).textContent);
+        .map((row) => within(row).getByText(/thread/iu).textContent);
       expect(titles).toEqual(['First thread', 'Second thread']);
     });
     expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('name');
@@ -1869,7 +1869,7 @@ describe('ThreadsPanel dates and pins', () => {
     ]);
     const titles = screen
       .getAllByTestId('thread-row')
-      .map((row) => within(row).getByText(/thread/i).textContent);
+      .map((row) => within(row).getByText(/thread/iu).textContent);
     expect(titles).toEqual(['Fresh thread', 'Second thread', 'First thread']);
   });
 
@@ -1885,7 +1885,7 @@ describe('ThreadsPanel dates and pins', () => {
     expect(pinned).toHaveTextContent('Pinned');
     const titles = screen
       .getAllByTestId('thread-row')
-      .map((row) => within(row).getByText(/thread/i).textContent);
+      .map((row) => within(row).getByText(/thread/iu).textContent);
     expect(titles).toEqual(['First thread', 'Second thread']);
     expect(
       within(screen.getByText('First thread').closest('tr') as HTMLElement).getByTestId(
@@ -1905,7 +1905,7 @@ describe('ThreadsPanel dates and pins', () => {
     expect(pinRows).toEqual([]);
     const after = screen
       .getAllByTestId('thread-row')
-      .map((row) => within(row).getByText(/thread/i).textContent);
+      .map((row) => within(row).getByText(/thread/iu).textContent);
     expect(after).toEqual(['Second thread', 'First thread']);
   });
 });
@@ -2040,7 +2040,7 @@ describe('ThreadsPanel folders', () => {
     await waitFor(() => {
       const titles = screen
         .getAllByTestId('thread-row')
-        .map((row) => within(row).getByText(/thread/i).textContent);
+        .map((row) => within(row).getByText(/thread/iu).textContent);
       expect(titles).toEqual(['First thread', 'Second thread']);
     });
   });

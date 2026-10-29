@@ -42,7 +42,7 @@ const BranchGlyphs = ({
 
 const BRANCH_ROW_CLASS = cn(
   ROW_CLASS,
-  'items-start font-mono text-xs data-[disabled=true]:text-muted-foreground data-[disabled=true]:opacity-100'
+  'data-[disabled=true]:text-muted-foreground items-start font-mono text-xs data-[disabled=true]:opacity-100'
 );
 
 const BranchMenuRow = ({
@@ -84,7 +84,7 @@ const BranchMenuRow = ({
           </span>
           {row.disabledReason ? (
             <span
-              className="block whitespace-normal font-sans text-[11px] text-muted-foreground"
+              className="text-muted-foreground block font-sans text-[11px] whitespace-normal"
               data-testid={`workspace-bar-branch-reason-${row.name}`}
             >
               {row.disabledReason}
@@ -92,7 +92,7 @@ const BranchMenuRow = ({
           ) : null}
         </span>
         {row.worktreeName ? (
-          <span className="flex shrink-0 items-center gap-1 font-sans text-[11px] text-muted-foreground">
+          <span className="text-muted-foreground flex shrink-0 items-center gap-1 font-sans text-[11px]">
             <FolderGit2 aria-hidden="true" className="size-3" />
             <span className="sr-only">Checked out in worktree </span>
             {row.worktreeName}
@@ -176,21 +176,21 @@ const BranchSwitcher = ({
         value={branchMenu.query}
       />
       {branchMenu.pending ? (
-        <span className="block px-3 pt-2 text-[11px] text-muted-foreground" role="status">
+        <span className="text-muted-foreground block px-3 pt-2 text-[11px]" role="status">
           Branch operation in progress.
         </span>
       ) : null}
       <Command.List className="max-h-[min(50vh,22rem)] overflow-y-auto p-1">
         {branchMenu.scopeReason ? (
           <p
-            className="px-2 py-2 text-muted-foreground text-xs"
+            className="text-muted-foreground px-2 py-2 text-xs"
             data-testid="workspace-bar-branch-scope-reason"
           >
             {branchMenu.scopeReason}
           </p>
         ) : (
           <>
-            <Command.Empty className="px-2 py-6 text-center text-muted-foreground text-sm">
+            <Command.Empty className="text-muted-foreground px-2 py-6 text-center text-sm">
               No branches match.
             </Command.Empty>
             {free.length > 0 ? (
@@ -225,7 +225,7 @@ const BranchSwitcher = ({
               >
                 <GitBranchPlus aria-hidden="true" className="size-3.5" />
                 <span className="min-w-0 truncate">
-                  Create branch <span className="font-medium font-mono">{newBranchName}</span>
+                  Create branch <span className="font-mono font-medium">{newBranchName}</span>
                 </span>
               </Command.Item>
             ) : null}

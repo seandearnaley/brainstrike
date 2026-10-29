@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-const MARK_PATTERN = /<mark>(.*?)<\/mark>/gs;
+const MARK_PATTERN = /<mark>(.*?)<\/mark>/gsu;
 
 /**
  * Renders a ts_headline snippet: `<mark>` tokens become real highlight
@@ -18,7 +18,7 @@ export function renderMarkedText(text: string): ReactNode[] {
       nodes.push(text.slice(lastIndex, index));
     }
     nodes.push(
-      <mark className="rounded-[2px] bg-primary/20 px-px text-inherit" key={`mark-${key}`}>
+      <mark className="bg-primary/20 rounded-[2px] px-px text-inherit" key={`mark-${key}`}>
         {match[1]}
       </mark>
     );

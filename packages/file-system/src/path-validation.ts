@@ -85,7 +85,7 @@ function containsNullByte(value: string): boolean {
 // spaces per path component, so ".. " and "..." open as "..". Counted on every
 // platform — a POSIX file legitimately named ".. " is pathological enough to
 // reject from a security validator.
-const TRAVERSAL_SEGMENT_PATTERN = /^\.\.[. ]*$/;
+const TRAVERSAL_SEGMENT_PATTERN = /^\.\.[. ]*$/u;
 
 function countTraversalSegments(value: string): number {
   // Only traversal segments count. Names that merely contain ".." (nyc
@@ -97,7 +97,7 @@ function countTraversalSegments(value: string): number {
   // over-inclusive direction only ever over-counts (rejects), never lets a
   // Windows-style traversal through a validator running on the wrong branch.
   let count = 0;
-  for (const segment of value.split(/[\\/]/)) {
+  for (const segment of value.split(/[\\/]/u)) {
     if (TRAVERSAL_SEGMENT_PATTERN.test(segment)) {
       count++;
     }

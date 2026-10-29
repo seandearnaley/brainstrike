@@ -5,23 +5,23 @@ export function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
 }
 
 function normalizePathSeparators(value: string): string {
-  return value.replace(/\\/g, '/');
+  return value.replace(/\\/gu, '/');
 }
 
 function isAbsolutePathLike(value: string): boolean {
   const normalized = normalizePathSeparators(value);
-  return normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized);
+  return normalized.startsWith('/') || /^[A-Za-z]:\//u.test(normalized);
 }
 
 function isCaseInsensitiveAbsolutePath(value: string): boolean {
-  return /^[A-Za-z]:\//.test(value) || value.startsWith('//');
+  return /^[A-Za-z]:\//u.test(value) || value.startsWith('//');
 }
 
 function trimTrailingSlashesPreservingRoot(value: string): string {
-  if (value === '/' || /^[A-Za-z]:\/$/.test(value)) {
+  if (value === '/' || /^[A-Za-z]:\/$/u.test(value)) {
     return value;
   }
-  return value.replace(/\/+$/, '');
+  return value.replace(/\/+$/u, '');
 }
 
 function containsControlCharacter(value: string): boolean {
@@ -42,7 +42,7 @@ function isStructurallyValidAbsolutePath(value: string): boolean {
   if (!isAbsolutePathLike(value) || containsControlCharacter(value)) {
     return false;
   }
-  if (/^[A-Za-z]:\//.test(value)) {
+  if (/^[A-Za-z]:\//u.test(value)) {
     const remainder = value.slice(3);
     return remainder.length === 0 || !hasInvalidSegments(remainder.split('/'));
   }

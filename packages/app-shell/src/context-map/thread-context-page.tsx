@@ -131,11 +131,11 @@ function ContextRingBar({
         aria-valuemax={ring.budgetTokens}
         aria-valuemin={0}
         aria-valuenow={Math.min(ring.usedTokens, ring.budgetTokens)}
-        className="relative h-1.5 rounded-full bg-muted"
+        className="bg-muted relative h-1.5 rounded-full"
         role="meter"
       >
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-foreground/30"
+          className="bg-foreground/30 absolute inset-y-0 left-0 rounded-full"
           style={{ width: percentOf(ring.usedTokens, ring.budgetTokens) }}
         />
         {filesTokens !== null && (
@@ -146,7 +146,7 @@ function ContextRingBar({
           />
         )}
         <div
-          className="absolute -inset-y-0.5 w-px bg-foreground"
+          className="bg-foreground absolute -inset-y-0.5 w-px"
           style={{ left: `${COMPACTION_TICK_RATIO * 100}%` }}
           title="The thread compacts near 90% of its input limit"
         />
@@ -199,7 +199,7 @@ function BundleDownloadButton({ build }: { readonly build: () => string }): Reac
 
 function Legend(): ReactElement {
   return (
-    <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
+    <ul className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
       {KIND_ORDER.map((kind) => (
         <li className="flex items-center gap-1.5" key={kind}>
           <span
@@ -231,7 +231,7 @@ function laneFigure(lane: ContextLane): string {
 
 function LaneMark({ color }: { readonly color: string }): ReactElement {
   if (!isAgentColor(color)) {
-    return <span aria-hidden="true" className="size-2 rounded-full bg-muted-foreground" />;
+    return <span aria-hidden="true" className="bg-muted-foreground size-2 rounded-full" />;
   }
   const presentation = getDelegatedColorPresentation(color);
   return (
@@ -369,8 +369,8 @@ function LaneView({
         className="flex h-full min-h-0 flex-col"
         data-testid="thread-context-page"
       >
-        <header className="flex flex-col gap-3 border-border border-b px-4 py-3">
-          <h2 className="font-semibold text-sm" data-testid="context-map-title">
+        <header className="border-border flex flex-col gap-3 border-b px-4 py-3">
+          <h2 className="text-sm font-semibold" data-testid="context-map-title">
             {title}
           </h2>
           {lanes}
@@ -394,10 +394,10 @@ function LaneView({
       className="@container/context-map flex h-full min-h-0 flex-col"
       data-testid="thread-context-page"
     >
-      <header className="flex flex-col gap-3 border-border border-b px-4 py-3">
+      <header className="border-border flex flex-col gap-3 border-b px-4 py-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <h2 className="font-semibold text-sm" data-testid="context-map-title">
+            <h2 className="text-sm font-semibold" data-testid="context-map-title">
               {title}
             </h2>
             <p className="text-muted-foreground text-xs">
@@ -446,36 +446,36 @@ function LaneView({
         />
         <ul className="flex flex-wrap gap-1.5 text-xs" data-testid="context-map-signals">
           {windowUnknown && (
-            <li className="rounded-full border border-border px-2 py-0.5">
+            <li className="border-border rounded-full border px-2 py-0.5">
               This turn's requests did not record their window
             </li>
           )}
           {changedSinceRead && (
             <li
-              className="rounded-full border border-foreground px-2 py-0.5"
+              className="border-foreground rounded-full border px-2 py-0.5"
               data-testid="context-map-changed-since-read"
             >
               Changed since read: {changedSinceRead}
             </li>
           )}
           {editedWithoutRead.length > 0 && (
-            <li className="rounded-full border border-foreground border-dashed px-2 py-0.5">
+            <li className="border-foreground rounded-full border border-dashed px-2 py-0.5">
               Edited without reading: {editedWithoutRead.map((row) => row.path).join(', ')}
             </li>
           )}
           {totals.unmappedCalls > 0 && (
-            <li className="rounded-full border border-border px-2 py-0.5">
+            <li className="border-border rounded-full border px-2 py-0.5">
               {totals.unmappedCalls} result(s) could not be mapped to lines
             </li>
           )}
           {totals.otherCalls > 0 && (
-            <li className="rounded-full border border-border px-2 py-0.5 text-muted-foreground">
+            <li className="border-border text-muted-foreground rounded-full border px-2 py-0.5">
               {totals.otherCalls} other call(s) delivered no file lines
             </li>
           )}
         </ul>
       </header>
-      <div className="grid min-h-0 flex-1 @[56rem]/context-map:grid-cols-[minmax(0,1fr)_22rem] grid-cols-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 @[56rem]/context-map:grid-cols-[minmax(0,1fr)_22rem]">
         <ul aria-label="Files the model received" className="min-h-0 overflow-y-auto p-2">
           {rows.map((row) => {
             const { cells, note } = cellsFor(row, chunks.get(row.key), mode);
@@ -489,7 +489,7 @@ function LaneView({
                     // Narrow: name and tokens, then the strip on its own line.
                     'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded px-2 py-1.5 text-left',
                     '@[40rem]/context-map:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_6rem]',
-                    'hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'hover:bg-muted focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
                     isSelected && 'bg-muted',
                     mode === 'window' && row.gone && 'opacity-60'
                   )}
@@ -499,11 +499,11 @@ function LaneView({
                 >
                   <span className="flex min-w-0 flex-col">
                     <span className="truncate font-mono text-xs">{row.path.split('/').at(-1)}</span>
-                    <span className="truncate font-mono text-[11px] text-muted-foreground">
+                    <span className="text-muted-foreground truncate font-mono text-[11px]">
                       {row.path}
                     </span>
                     {(note || row.editedWithoutRead || changedNow) && (
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-muted-foreground text-[11px]">
                         {[
                           changedNow ? 'changed since read' : null,
                           row.editedWithoutRead ? 'edited without reading' : null,
@@ -514,7 +514,7 @@ function LaneView({
                       </span>
                     )}
                   </span>
-                  <span className="@[40rem]/context-map:order-none order-last @[40rem]/context-map:col-span-1 col-span-2">
+                  <span className="order-last col-span-2 @[40rem]/context-map:order-none @[40rem]/context-map:col-span-1">
                     <ChunkStrip cells={cells} label={`${row.path}: delivered chunks`} />
                   </span>
                   <span className="text-right text-xs tabular-nums">
@@ -525,7 +525,7 @@ function LaneView({
             );
           })}
         </ul>
-        <aside className="min-h-0 overflow-y-auto border-border border-t @[56rem]/context-map:border-t-0 @[56rem]/context-map:border-l p-4">
+        <aside className="border-border min-h-0 overflow-y-auto border-t p-4 @[56rem]/context-map:border-t-0 @[56rem]/context-map:border-l">
           {selected && (
             <ContextLens
               cells={cellsFor(selected, chunks.get(selected.key), mode).cells}
@@ -536,7 +536,7 @@ function LaneView({
           )}
         </aside>
       </div>
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-border border-t px-4 py-2">
+      <footer className="border-border flex flex-wrap items-center justify-between gap-3 border-t px-4 py-2">
         <Legend />
         <span className="flex items-center gap-1">
           <CopyTextButton
@@ -569,14 +569,14 @@ function LaneStatus({
       className="flex h-full min-h-0 flex-col"
       data-testid="thread-context-page"
     >
-      <header className="flex flex-col gap-3 border-border border-b px-4 py-3">
-        <h2 className="font-semibold text-sm" data-testid="context-map-title">
+      <header className="border-border flex flex-col gap-3 border-b px-4 py-3">
+        <h2 className="text-sm font-semibold" data-testid="context-map-title">
           What {callSign}'s model received
         </h2>
         {lanes}
       </header>
       {state.error === undefined ? (
-        <p className="p-4 text-muted-foreground text-xs" role="status">
+        <p className="text-muted-foreground p-4 text-xs" role="status">
           Reading {callSign}'s log…
         </p>
       ) : (
@@ -597,7 +597,7 @@ function LaneError({
 }): ReactElement {
   return (
     <div
-      className="flex flex-wrap items-center gap-2 text-destructive text-xs"
+      className="text-destructive flex flex-wrap items-center gap-2 text-xs"
       data-testid="context-map-lane-error"
       role="alert"
     >

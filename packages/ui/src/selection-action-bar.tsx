@@ -118,7 +118,7 @@ export function SelectionActionBar({
       aria-label={ariaLabel}
       className={cn(
         '@container/selection-actions flex max-w-full items-center gap-2 rounded-xl',
-        'border border-border/80 bg-popover/95 p-2 shadow-lg backdrop-blur-sm',
+        'border-border/80 bg-popover/95 border p-2 shadow-lg backdrop-blur-sm',
         'transition-[border-color,background-color,box-shadow] motion-reduce:transition-none',
         className
       )}
@@ -132,7 +132,7 @@ export function SelectionActionBar({
       >
         <span className="min-w-0 truncate font-medium">{summary}</span>
         {summaryDetail ? (
-          <span className="min-w-0 truncate text-muted-foreground" title={summaryDetailTitle}>
+          <span className="text-muted-foreground min-w-0 truncate" title={summaryDetailTitle}>
             {summaryDetail}
           </span>
         ) : null}
@@ -142,7 +142,7 @@ export function SelectionActionBar({
         <>
           <div
             aria-hidden="true"
-            className="@[420px]/selection-actions:block hidden h-4 w-px shrink-0 bg-border"
+            className="bg-border hidden h-4 w-px shrink-0 @[420px]/selection-actions:block"
           />
           <div className="flex min-w-0 items-center gap-1">
             {actions.map((action) => {

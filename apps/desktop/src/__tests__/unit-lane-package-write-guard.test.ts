@@ -62,7 +62,7 @@ describe('unit-lane package write guard against a real repository (BST-546)', ()
 
     expect(teardown).toBeTypeOf('function');
     expect(() => teardown?.()).toThrow(
-      /1 new untracked file\(s\)[\s\S]*nested\/stray-fixture\.json/
+      /1 new untracked file\(s\)[\s\S]*nested\/stray-fixture\.json/u
     );
   });
 

@@ -45,7 +45,7 @@ test('native segments reuse one committed ID and the pre-inference owner plan', 
   ]);
   await expect(
     vector.upsert({ indexName: 'native-memory', metadata: [], vectors: [] })
-  ).rejects.toThrow(/pre-inference/);
+  ).rejects.toThrow(/pre-inference/u);
 });
 
 test.each(['thread', 'resource'] as const)(
@@ -89,7 +89,7 @@ test('foreign/unsupported filters fail before the borrowed query port', async ()
   ]) {
     await expect(
       vector.query({ filter, indexName: 'native-memory', queryVector: dense, topK: 1 })
-    ).rejects.toThrow(/scope|authority/);
+    ).rejects.toThrow(/scope|authority/u);
   }
   expect(recorded.queries).toHaveLength(0);
 });
@@ -105,7 +105,7 @@ test('a foreign committed metadata claim cannot enter an admitted write', async 
         vectors: [dense],
       });
     })
-  ).rejects.toThrow(/authority/);
+  ).rejects.toThrow(/authority/u);
   expect(recorded.upserts).toHaveLength(0);
 });
 
@@ -125,7 +125,7 @@ test('captured run authority and cancellation survive caller DTO mutation', asyn
   const { controller, recorded, scope, vector } = fixture();
   scope.resourceId = 'changed';
   vector.assertOwner('resource', 'thread', controller.signal);
-  expect(() => vector.assertOwner('changed', 'thread', controller.signal)).toThrow(/authority/);
+  expect(() => vector.assertOwner('changed', 'thread', controller.signal)).toThrow(/authority/u);
   await vector.createIndex({ dimension: 1536, indexName: 'native-memory' });
   const reason = new Error('run stopped');
   controller.abort(reason);

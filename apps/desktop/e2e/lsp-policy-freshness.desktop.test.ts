@@ -27,7 +27,7 @@ test('assistant LSP results refresh after external edits and withhold ignored in
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   await window.getByTestId('permission-policy-edit').selectOption('allow');
   const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
   const run = async (

@@ -521,12 +521,12 @@ describe('assistant thread surface', () => {
       });
       const { rerender } = render(<Panel {...baseProps} onModelChange={() => {}} />);
 
-      expect(screen.getByText(/no summarization model ran/i)).toBeVisible();
+      expect(screen.getByText(/no summarization model ran/iu)).toBeVisible();
 
       setAssistantMessage(summaryPayload);
       rerender(<Panel {...baseProps} onModelChange={() => {}} />);
 
-      expect(screen.queryByText(/no summarization model ran/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/no summarization model ran/iu)).not.toBeInTheDocument();
     });
   });
 
@@ -662,9 +662,9 @@ describe('assistant thread surface', () => {
     expect(container).toBeInTheDocument();
 
     // Verify the ComposerModelPicker trigger button exists
-    const trigger = within(container).getByRole('button', { name: /Selected model/ });
+    const trigger = within(container).getByRole('button', { name: /Selected model/u });
     expect(trigger).toBeInTheDocument();
-    expect(screen.queryByText(/OpenAI \/ GPT-5\.2/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/OpenAI \/ GPT-5\.2/u)).not.toBeInTheDocument();
   });
 
   it('keeps the model picker operable when message submission is disabled', () => {
@@ -691,7 +691,7 @@ describe('assistant thread surface', () => {
     expect(trigger).toBeEnabled();
     // The active effort is legible without opening any menu. (Accessible-name
     // whitespace joining differs between jsdom setups, so match tolerantly.)
-    expect(trigger).toHaveAccessibleName(/Reasoning\s*Effort\s*High/);
+    expect(trigger).toHaveAccessibleName(/Reasoning\s*Effort\s*High/u);
     // And it sits in the same dock as the model menu.
     expect(within(controls).getByTestId('assistant-model-dropdown')).toBeInTheDocument();
   });
@@ -719,11 +719,11 @@ describe('assistant thread surface', () => {
 
     // Open the composer model picker and search for the model.
     const container = screen.getByTestId('assistant-model-dropdown');
-    await user.click(within(container).getByRole('button', { name: /Selected model/ }));
+    await user.click(within(container).getByRole('button', { name: /Selected model/u }));
 
     const picker = await screen.findByRole('dialog');
     await user.type(within(picker).getByRole('combobox'), 'sonnet 4.6');
-    const option = await within(picker).findByRole('option', { name: /Claude Sonnet 4\.6/ });
+    const option = await within(picker).findByRole('option', { name: /Claude Sonnet 4\.6/u });
     await user.click(option);
 
     // Should be called with composite key format: "provider::model"
@@ -845,8 +845,8 @@ describe('assistant thread surface', () => {
     );
 
     expect(screen.getByText('GPT-5.4 Mini (OpenRouter)')).toBeInTheDocument();
-    expect(screen.getByText(/400,000 context.*128,000 max output/)).toBeInTheDocument();
-    expect(screen.getByText(/Auto requests 32,000.*348,000 effective input/)).toBeInTheDocument();
+    expect(screen.getByText(/400,000 context.*128,000 max output/u)).toBeInTheDocument();
+    expect(screen.getByText(/Auto requests 32,000.*348,000 effective input/u)).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveAttribute(
       'max',
       '128000'
@@ -868,7 +868,7 @@ describe('assistant thread surface', () => {
       />
     );
 
-    expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/)).toBeInTheDocument();
+    expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/u)).toBeInTheDocument();
     const slider = screen.getByRole('slider', { name: 'Max output tokens' });
     // BST-1804: the slider bound is the route's top_provider max output.
     expect(slider).toHaveAttribute('max', '943718');
@@ -910,7 +910,7 @@ describe('assistant thread surface', () => {
       />
     );
 
-    expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/)).toBeInTheDocument();
+    expect(screen.getByText(/Auto requests 131,072.*865,075 effective input/u)).toBeInTheDocument();
   });
 
   it('drops Kimi K3 back to the coding ceiling when reasoning is switched off', () => {
@@ -923,7 +923,7 @@ describe('assistant thread surface', () => {
       />
     );
 
-    expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
+    expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/u)).toBeInTheDocument();
   });
 
   it('caps the output control at the room the window leaves for input (BST-1810)', () => {
@@ -996,11 +996,11 @@ describe('assistant thread surface', () => {
       />
     );
 
-    expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/)).toBeInTheDocument();
+    expect(screen.getByText(/Auto requests 32,000.*964,147 effective input/u)).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('32000');
     expect(
       screen.getByRole('spinbutton', { name: 'Output token limit' })
-    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/u);
   });
 
   it('describes the actual OpenRouter Auto reservation while a custom output cap is selected', () => {
@@ -1015,8 +1015,8 @@ describe('assistant thread surface', () => {
 
     expect(
       screen.getByRole('spinbutton', { name: 'Output token limit' })
-    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/);
-    expect(screen.getByText(/1,024 configured output/)).toBeInTheDocument();
+    ).toHaveAccessibleDescription(/Auto requests 32,000 tokens for this model/u);
+    expect(screen.getByText(/1,024 configured output/u)).toBeInTheDocument();
   });
 
   it('shows and applies live OpenRouter model limits with provenance', () => {
@@ -1043,7 +1043,7 @@ describe('assistant thread surface', () => {
       />
     );
 
-    expect(screen.getByText(/1,000,000 context.*128,000 max output/)).toBeInTheDocument();
+    expect(screen.getByText(/1,000,000 context.*128,000 max output/u)).toBeInTheDocument();
     expect(screen.getByText('Source: OpenRouter live')).toBeInTheDocument();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveAttribute(
       'max',
@@ -1108,18 +1108,18 @@ describe('assistant thread surface', () => {
     const input = screen.getByRole('spinbutton', { name: 'Output token limit' });
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
-    expect(screen.getByRole('alert')).toHaveTextContent(/enter an output limit/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/enter an output limit/iu);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '127' } });
     fireEvent.blur(input);
     expect(input).toHaveValue(127);
-    expect(screen.getByRole('alert')).toHaveTextContent(/at least 128/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/at least 128/iu);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '128.5' } });
     fireEvent.blur(input);
-    expect(screen.getByRole('alert')).toHaveTextContent(/whole number/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/whole number/iu);
     expect(onSettingsChange).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '512' } });
@@ -1158,7 +1158,7 @@ describe('assistant thread surface', () => {
     );
 
     expect(
-      screen.getByText(/effective input unavailable until the output limit is fixed/i)
+      screen.getByText(/effective input unavailable until the output limit is fixed/iu)
     ).toBeVisible();
   });
 
@@ -1187,7 +1187,7 @@ describe('assistant thread surface', () => {
     );
 
     expect(
-      screen.getByText(/configured output 200,000 exceeds the OpenRouter live maximum 128,000/i)
+      screen.getByText(/configured output 200,000 exceeds the OpenRouter live maximum 128,000/iu)
     ).toBeVisible();
     expect(screen.getByRole('slider', { name: 'Max output tokens' })).toHaveValue('128000');
   });
@@ -1206,10 +1206,10 @@ describe('assistant thread surface', () => {
       />
     );
 
-    expect(screen.getByText(/1,000,000 context.*128,000 max output/)).toBeInTheDocument();
+    expect(screen.getByText(/1,000,000 context.*128,000 max output/u)).toBeInTheDocument();
     expect(screen.getByText('Source: built-in model catalog')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent(
-      /Live metadata unavailable.*OpenRouter request failed/
+      /Live metadata unavailable.*OpenRouter request failed/u
     );
     expect(screen.getByRole('status')).toHaveClass('text-destructive');
   });
@@ -1226,7 +1226,7 @@ describe('assistant thread surface', () => {
     );
 
     const status = screen.getByRole('status');
-    expect(status).toHaveTextContent(/Checking live OpenRouter metadata/);
+    expect(status).toHaveTextContent(/Checking live OpenRouter metadata/u);
     expect(status).toHaveClass('text-muted-foreground');
     expect(status).not.toHaveClass('text-destructive');
   });
@@ -1241,7 +1241,7 @@ describe('assistant thread surface', () => {
       />
     );
 
-    expect(screen.getByText(/limits unavailable.*built-in catalog/i)).toBeInTheDocument();
+    expect(screen.getByText(/limits unavailable.*built-in catalog/iu)).toBeInTheDocument();
   });
 
   it('renders anthropic settings and updates the thinking budget input', () => {

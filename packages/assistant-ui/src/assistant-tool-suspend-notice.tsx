@@ -306,21 +306,21 @@ function NoticeShell({
     <div
       className={
         failed
-          ? 'my-2 rounded-lg border border-destructive/50 bg-destructive/5'
+          ? 'border-destructive/50 bg-destructive/5 my-2 rounded-lg border'
           : 'my-2 rounded-lg border border-sky-500/40 bg-sky-50/50 dark:bg-sky-950/20'
       }
       data-testid={testId}
       role={role}
     >
       <div className="grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3 px-4 py-3">
-        <div aria-hidden="true" className={failed ? 'pt-0.5 text-destructive' : 'pt-0.5 text-info'}>
+        <div aria-hidden="true" className={failed ? 'text-destructive pt-0.5' : 'text-info pt-0.5'}>
           {icon}
         </div>
         <div className="min-w-0">
-          <p className="font-medium text-sm">{title}</p>
+          <p className="text-sm font-medium">{title}</p>
           {children}
           {sendError === null ? null : (
-            <p className="mt-2 text-destructive text-xs" role="alert">
+            <p className="text-destructive mt-2 text-xs" role="alert">
               Decision not sent: {sendError}
             </p>
           )}
@@ -372,8 +372,8 @@ function UnreadableSuspendPayloadNotice({
       tone="failed"
     >
       <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
-      <p className="mt-1 text-muted-foreground text-xs">{detail}</p>
-      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+      <p className="text-muted-foreground mt-1 text-xs">{detail}</p>
+      <pre className="text-muted-foreground mt-2 max-h-48 overflow-auto font-mono text-[11px] whitespace-pre-wrap">
         {payloadDetail}
       </pre>
       {children}
@@ -437,7 +437,7 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
         <div className="mt-1 space-y-2 text-xs">
           <p className="text-foreground/90">{plan.overview}</p>
           {plan.steps?.length ? (
-            <ol className="list-decimal space-y-0.5 pl-4 text-muted-foreground">
+            <ol className="text-muted-foreground list-decimal space-y-0.5 pl-4">
               {plan.steps.map((step, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: steps are an immutable, never-reordered slice of one suspend payload; the index disambiguates duplicate title/detail pairs that collide on a content-only key.
                 <li key={`${index}:${step.title}:${step.detail ?? ''}`}>
@@ -451,23 +451,23 @@ function SubmitPlanNotice({ request }: { request: AssistantToolSuspendRequest })
           ) : null}
           {plan.risks ? (
             <p className="text-muted-foreground">
-              <span className="font-medium text-foreground/90">Risks: </span>
+              <span className="text-foreground/90 font-medium">Risks: </span>
               {plan.risks}
             </p>
           ) : null}
           {plan.verification ? (
             <p className="text-muted-foreground">
-              <span className="font-medium text-foreground/90">Verification: </span>
+              <span className="text-foreground/90 font-medium">Verification: </span>
               {plan.verification}
             </p>
           ) : null}
         </div>
       ) : (
-        <p className="mt-1 text-muted-foreground text-xs">A plan was submitted for your review.</p>
+        <p className="text-muted-foreground mt-1 text-xs">A plan was submitted for your review.</p>
       )}
       <textarea
         aria-label="Feedback for the plan"
-        className="mt-3 w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+        className="border-border bg-background mt-3 w-full rounded-md border px-2 py-1.5 text-xs"
         disabled={locked}
         onChange={(event) => setFeedback(event.target.value)}
         placeholder="Optional feedback (sent on Reject so the plan can be revised)…"
@@ -549,7 +549,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
             <div className="flex flex-wrap items-center gap-2">
               <input
                 aria-label="Answer in your own words"
-                className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                className="border-border bg-background min-w-0 flex-1 rounded-md border px-2 py-1.5 text-xs"
                 disabled={locked}
                 onChange={(event) => setFreeText(event.target.value)}
                 placeholder="Type your answer…"
@@ -582,7 +582,7 @@ function AskUserNotice({ request }: { request: AssistantToolSuspendRequest }) {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input
             aria-label="Your answer"
-            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+            className="border-border bg-background min-w-0 flex-1 rounded-md border px-2 py-1.5 text-xs"
             disabled={locked}
             onChange={(event) => setFreeText(event.target.value)}
             placeholder="Type your answer…"
@@ -680,11 +680,11 @@ function UnsupportedSuspendNotice({ request }: { request: AssistantToolSuspendRe
       tone="failed"
     >
       <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
-      <p className="mt-1 text-muted-foreground text-xs">
+      <p className="text-muted-foreground mt-1 text-xs">
         This tool paused the run for input, but this build has no resume UI registered for its
         resume schema, so the pause cannot be answered and the run cannot continue here.
       </p>
-      <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+      <pre className="text-muted-foreground mt-2 font-mono text-[11px] whitespace-pre-wrap">
         {detail}
       </pre>
       <div className="mt-2">
@@ -761,12 +761,12 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
       >
         <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
         <p
-          className="mt-1 text-muted-foreground text-xs"
+          className="text-muted-foreground mt-1 text-xs"
           data-testid="run-python-network-unreadable"
         >
           The request didn't say which domains it needs, so it can't be allowed.
         </p>
-        <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground">
+        <pre className="text-muted-foreground mt-2 font-mono text-[11px] whitespace-pre-wrap">
           {payloadDetail}
         </pre>
         <div className="mt-2">
@@ -792,7 +792,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
       tone="failed"
     >
       <RediscoveredPauseLines display={readRediscoveredPauseDisplay(request)} />
-      <p className="mt-1 text-foreground/90 text-xs">
+      <p className="text-foreground/90 mt-1 text-xs">
         You said the code could run. Before it does, it needs your OK to connect out.
       </p>
       <NetworkDomainChecklist
@@ -831,7 +831,7 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
           </span>
         )}
       </div>
-      <p className="mt-2 text-muted-foreground text-xs">
+      <p className="text-muted-foreground mt-2 text-xs">
         You'll be asked this every time. There is no "always allow" for internet access.
       </p>
     </NoticeShell>

@@ -35,7 +35,7 @@ async function openAssistantChat(window: Page): Promise<void> {
   const assistantChatCard = await ensureAssistantShellVisible(window);
   await expect(assistantChatCard).toBeVisible({ timeout: E2E_TIMEOUTS.cardVisibility });
 
-  const loadingIndicator = window.getByText(/Loading assistant/i);
+  const loadingIndicator = window.getByText(/Loading assistant/iu);
   if (await loadingIndicator.isVisible().catch(() => false)) {
     await loadingIndicator
       .waitFor({ state: 'hidden', timeout: E2E_TIMEOUTS.loadingIndicator })

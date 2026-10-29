@@ -1,5 +1,9 @@
 import { type LoggingPreferences, LogLevel } from '@brainstrike/logging';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  createDesktopLoggingPreferencesController,
+  readConsoleLevelOverride,
+} from '../../main/logging-preferences';
 
 const { applyLoggingPreferencesMock } = vi.hoisted(() => ({
   applyLoggingPreferencesMock: vi.fn(),
@@ -26,11 +30,6 @@ vi.mock('node:fs', () => ({
     statSync: statSyncMock,
   },
 }));
-
-import {
-  createDesktopLoggingPreferencesController,
-  readConsoleLevelOverride,
-} from '../../main/logging-preferences';
 
 function createStore(initial?: { v1: LoggingPreferences }) {
   const records = new Map<string, unknown>();

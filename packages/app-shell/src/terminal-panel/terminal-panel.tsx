@@ -42,11 +42,11 @@ function HumanTerminal({ cwd, onClearTarget, rootId }: HumanTerminalProps): Reac
   const isError = state.kind === 'error';
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex items-center justify-between gap-2 border-border border-b px-3 py-2">
+    <div className="bg-background flex h-full min-h-0 flex-col">
+      <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <TerminalSquare aria-hidden="true" className="shrink-0 text-muted-foreground" />
-          <span className="truncate font-medium text-sm">
+          <TerminalSquare aria-hidden="true" className="text-muted-foreground shrink-0" />
+          <span className="truncate text-sm font-medium">
             {state.kind === 'ready' ? state.cwd : 'Terminal'}
           </span>
         </div>
@@ -79,7 +79,7 @@ function HumanTerminal({ cwd, onClearTarget, rootId }: HumanTerminalProps): Reac
             it has no semantic-HTML equivalent, so it is the correct role here. */}
         <div
           aria-label="Terminal"
-          className="h-full w-full px-2 py-1 text-foreground"
+          className="text-foreground h-full w-full px-2 py-1"
           data-testid="terminal-host"
           ref={containerRef}
           role="application"
@@ -87,7 +87,7 @@ function HumanTerminal({ cwd, onClearTarget, rootId }: HumanTerminalProps): Reac
 
         {isExited ? (
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/80 p-6 text-center text-sm"
+            className="bg-background/80 absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm"
             data-testid="terminal-panel-exited"
           >
             <p className="text-muted-foreground">
@@ -104,11 +104,11 @@ function HumanTerminal({ cwd, onClearTarget, rootId }: HumanTerminalProps): Reac
 
         {isError ? (
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/80 p-6 text-center text-sm"
+            className="bg-background/80 absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm"
             data-testid="terminal-panel-error"
           >
             <p className="text-destructive">Could not start the terminal.</p>
-            <p className="max-w-md text-muted-foreground text-xs">{state.message}</p>
+            <p className="text-muted-foreground max-w-md text-xs">{state.message}</p>
             <Button onClick={restart} size="sm" type="button" variant="outline">
               <RotateCw aria-hidden="true" className="mr-1" />
               Retry
@@ -149,7 +149,7 @@ export function TerminalPanel(): ReactElement {
   if (!rootId) {
     return (
       <div
-        className="flex h-full items-center justify-center bg-background p-6 text-center text-muted-foreground text-sm"
+        className="bg-background text-muted-foreground flex h-full items-center justify-center p-6 text-center text-sm"
         data-testid="terminal-panel-no-root"
       >
         Open a workspace folder to run a shell in it.
@@ -158,11 +158,11 @@ export function TerminalPanel(): ReactElement {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background" data-testid="terminal-panel">
+    <div className="bg-background flex h-full min-h-0 flex-col" data-testid="terminal-panel">
       {commandSessionsAvailable ? (
         <nav
           aria-label="Terminal surfaces"
-          className="flex gap-1 border-border border-b px-2 py-1.5"
+          className="border-border flex gap-1 border-b px-2 py-1.5"
         >
           <Button
             aria-current={surface === 'shell' ? 'page' : undefined}

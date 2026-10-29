@@ -108,7 +108,7 @@ describe('discoverDesktopSkills', () => {
     });
 
     const invalid = byStatus.get('invalid');
-    expect(invalid?.errors?.join('\n')).toMatch(/must match directory name "broken"/);
+    expect(invalid?.errors?.join('\n')).toMatch(/must match directory name "broken"/u);
   });
 
   it('rejects a root read failure instead of degrading to global-only scanning', async () => {

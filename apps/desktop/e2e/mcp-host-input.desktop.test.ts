@@ -23,7 +23,7 @@ test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 async function configureServer(page: Page, url: string): Promise<void> {
   await new HomePage(page).openSettings();
   const settings = new SettingsPage(page);
-  await settings.openCategory(/AI Tools/i, 'ai-tools');
+  await settings.openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { name: 'MCP Config' }).click();
   const editor = page.getByTestId('mcp-config-editor');
   await expect(editor).toBeVisible();
@@ -35,7 +35,7 @@ async function configureServer(page: Page, url: string): Promise<void> {
   await page.getByTestId('mcp-config-save').click();
   await expect(page.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
-  await expect(page.getByTestId(`mcp-server-row-${SERVER_ID}`)).toContainText(/Connected/i, {
+  await expect(page.getByTestId(`mcp-server-row-${SERVER_ID}`)).toContainText(/Connected/iu, {
     timeout: 60_000,
   });
   await page.keyboard.press('Escape');
@@ -135,7 +135,7 @@ test('a host-run MCP server input is presented once and answered once through Co
     expect(await readCommittedRuns(electron.getUserDataDir(), stored?.threadId ?? '')).toHaveLength(
       1
     );
-    await dialog.getByRole('checkbox', { name: /approved/i }).check();
+    await dialog.getByRole('checkbox', { name: /approved/iu }).check();
     await dialog.getByRole('button', { name: /^Accept and send input/u }).click();
     await expect(dialog).toBeHidden({ timeout: 30_000 });
     await expect(page.getByText(FINAL_TEXT).first()).toBeVisible({ timeout: 90_000 });
@@ -175,11 +175,14 @@ test('a durable MCP server input recovers into Core after an app restart and is 
     const restarted = (await electron.restart()).window;
     // The restarted host connects the configured server, which opens its Tasks session.
     await new HomePage(restarted).openSettings();
-    await new SettingsPage(restarted).openCategory(/AI Tools/i, 'ai-tools');
+    await new SettingsPage(restarted).openCategory(/AI Tools/iu, 'ai-tools');
     await restarted.getByRole('tab', { exact: true, name: 'Tools' }).click();
-    await expect(restarted.getByTestId(`mcp-server-row-${SERVER_ID}`)).toContainText(/Connected/i, {
-      timeout: 60_000,
-    });
+    await expect(restarted.getByTestId(`mcp-server-row-${SERVER_ID}`)).toContainText(
+      /Connected/iu,
+      {
+        timeout: 60_000,
+      }
+    );
     await restarted.keyboard.press('Escape');
     await ensureAssistantShellVisible(restarted);
     // The restart interrupted the run, which retired its first input. Its notice comes
@@ -208,7 +211,7 @@ test('a durable MCP server input recovers into Core after an app restart and is 
     ]);
     expect(recovered.typeCounts['mcp.task.bound']).toBe(1);
 
-    await dialog.getByRole('checkbox', { name: /approved/i }).check();
+    await dialog.getByRole('checkbox', { name: /approved/iu }).check();
     await dialog.getByRole('button', { name: /^Accept and send input/u }).click();
     await expect(dialog).toBeHidden({ timeout: 30_000 });
     // The server completes the task, and the host's StateStore records it.

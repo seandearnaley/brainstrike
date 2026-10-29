@@ -190,7 +190,7 @@ test('root approval resumes while three Workers are parked, then live grants com
     });
     await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await new HomePage(window).openSettings();
-    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
     await window
       .getByRole('combobox', { exact: true, name: 'Read permission' })
       .selectOption('ask');

@@ -41,7 +41,7 @@ export interface MemoryEmbedderTestProps {
 function EmbedderTestFailure({ failure }: { readonly failure: BoundaryFailure }) {
   return (
     <div
-      className="space-y-1 text-destructive text-xs"
+      className="text-destructive space-y-1 text-xs"
       data-testid="assistant-memory-embedder-test-failure"
       role="alert"
     >

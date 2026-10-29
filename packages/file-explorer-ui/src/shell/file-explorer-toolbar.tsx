@@ -60,7 +60,7 @@ const FileExplorerToolbar = React.memo(
     // stays outside the grid. Edge padding lives inside each measured side slot
     // to preserve its disclosure breakpoints while keeping the gutters symmetric.
     return (
-      <div className="@container/explorer-toolbar h-9 w-full min-w-0 max-w-full shrink-0 overflow-hidden border-b">
+      <div className="@container/explorer-toolbar h-9 w-full max-w-full min-w-0 shrink-0 overflow-hidden border-b">
         <div
           className="grid h-full w-full min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-0"
           data-testid="file-explorer-toolbar"
@@ -75,24 +75,24 @@ const FileExplorerToolbar = React.memo(
                 therefore live HERE, and the selection counter yields to them
                 below 180px of track (the mode badge still carries the compact
                 count), so the two never fight for the same pixels. */}
-            <div className="flex w-full min-w-0 items-center gap-1 @[128px]/explorer-toolbar:pl-3 @[96px]/explorer-toolbar:pl-1.5 pl-1">
+            <div className="flex w-full min-w-0 items-center gap-1 pl-1 @[96px]/explorer-toolbar:pl-1.5 @[128px]/explorer-toolbar:pl-3">
               {selectionStatusControl}
-              <div className="@[236px]/explorer-toolbar:contents hidden">
+              <div className="hidden @[236px]/explorer-toolbar:contents">
                 {treeExpansionControl}
               </div>
             </div>
           </div>
           <Button
             aria-label={FileExplorerStrings.addFolderToWorkspace}
-            className="@[96px]/explorer-toolbar:size-7 size-6 @[460px]/explorer-toolbar:w-auto border-primary/40 bg-primary/10 p-0 @[460px]/explorer-toolbar:px-3 text-primary shadow-sm hover:border-primary/60 hover:bg-primary/15 hover:shadow-md focus-visible:border-primary/70 focus-visible:ring-primary/30 motion-safe:transition-transform motion-safe:hover:-translate-y-px motion-reduce:transform-none motion-reduce:transition-none"
+            className="border-primary/40 bg-primary/10 text-primary hover:border-primary/60 hover:bg-primary/15 focus-visible:border-primary/70 focus-visible:ring-primary/30 size-6 p-0 shadow-sm hover:shadow-md motion-safe:transition-transform motion-safe:hover:-translate-y-px motion-reduce:transform-none motion-reduce:transition-none @[96px]/explorer-toolbar:size-7 @[460px]/explorer-toolbar:w-auto @[460px]/explorer-toolbar:px-3"
             data-testid="select-root-button"
             disabled={isLoading}
             onClick={onDirectorySelect}
             size="icon-xs"
             variant="outline"
           >
-            <Folder className="@[460px]/explorer-toolbar:mr-2 size-4" />
-            <span className="@[460px]/explorer-toolbar:inline hidden">
+            <Folder className="size-4 @[460px]/explorer-toolbar:mr-2" />
+            <span className="hidden @[460px]/explorer-toolbar:inline">
               {FileExplorerStrings.addFolderToWorkspace}
             </span>
           </Button>
@@ -111,15 +111,15 @@ const FileExplorerToolbar = React.memo(
                 regression). The cluster gates its own children instead — only
                 the cancel survives the narrow track, and the compact menu
                 yields its slot for the duration (see CompactToolbarActions). */}
-            <div className="flex w-full min-w-0 items-center justify-end @[236px]/explorer-toolbar:gap-1 gap-0 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
+            <div className="flex w-full min-w-0 items-center justify-end gap-0 pr-1 @[96px]/explorer-toolbar:pr-1.5 @[128px]/explorer-toolbar:pr-3 @[236px]/explorer-toolbar:gap-1">
               {/* Columns joins one breakpoint LATER than View Filters: at
                   236px the track holds exactly three 28px controls. */}
-              <div className="@[300px]/explorer-toolbar:contents hidden">{columnsControl}</div>
+              <div className="hidden @[300px]/explorer-toolbar:contents">{columnsControl}</div>
               {/* NOT inside the narrow-hidden wrapper — BST-657: this cluster
                   carries the scanning indicator's Cancel, the only abort path
                   for a running sweep. It gates its own children by width. */}
               {treeActionsControl}
-              <div className="@[236px]/explorer-toolbar:contents hidden">{filtersControl}</div>
+              <div className="hidden @[236px]/explorer-toolbar:contents">{filtersControl}</div>
               {compactActionsControl}
               {bulkSelectionControl}
             </div>

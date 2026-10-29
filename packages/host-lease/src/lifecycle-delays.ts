@@ -31,7 +31,7 @@ export type LifecycleDelayPoint = (typeof LIFECYCLE_DELAY_POINTS)[number];
 export type LifecycleDelays = ReadonlyMap<LifecycleDelayPoint, number>;
 
 const POINTS: ReadonlySet<string> = new Set(LIFECYCLE_DELAY_POINTS);
-const MILLISECONDS = /^[1-9][0-9]*$/;
+const MILLISECONDS = /^[1-9][0-9]*$/u;
 
 function isPoint(value: string): value is LifecycleDelayPoint {
   return POINTS.has(value);

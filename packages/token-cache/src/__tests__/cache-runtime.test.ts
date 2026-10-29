@@ -105,25 +105,25 @@ describe('createTokenCacheWorkerPool', () => {
 
   it.each([
     {
-      expected: /forkArgs/,
+      expected: /forkArgs/u,
       options: {
         forkArgs: ['--inspect'],
       },
     },
     {
-      expected: /workerType/,
+      expected: /workerType/u,
       options: {
         workerType: 'thread' as const,
       },
     },
     {
-      expected: /minWorkers/,
+      expected: /minWorkers/u,
       options: {
         minWorkers: 'max' as const,
       },
     },
     {
-      expected: /maxWorkers/,
+      expected: /maxWorkers/u,
       options: {
         maxWorkers: 2,
       },
@@ -138,7 +138,7 @@ describe('createTokenCacheWorkerPool', () => {
 
     const pool = await createTokenCacheWorkerPool('/token-worker.js');
 
-    expect(() => pool.exec('unknownMethod', [])).toThrow(/Unsupported token cache worker method/);
+    expect(() => pool.exec('unknownMethod', [])).toThrow(/Unsupported token cache worker method/u);
     expect(workerInstance.postMessage).not.toHaveBeenCalled();
   });
 
@@ -192,8 +192,8 @@ describe('createTokenCacheWorkerPool', () => {
       message: 'boom',
     });
 
-    await expect(pending).rejects.toThrow(/boom/);
-    expect(() => pool.exec('countTokens', [])).toThrow(/boom/);
+    await expect(pending).rejects.toThrow(/boom/u);
+    expect(() => pool.exec('countTokens', [])).toThrow(/boom/u);
   });
 
   it('rejects worker error envelopes with cause text', async () => {
@@ -214,7 +214,7 @@ describe('createTokenCacheWorkerPool', () => {
       },
     });
 
-    await expect(pending).rejects.toThrow(/Worker cause: stack trace/);
+    await expect(pending).rejects.toThrow(/Worker cause: stack trace/u);
   });
 
   it('rejects pending requests on message deserialization failure', async () => {
@@ -227,8 +227,8 @@ describe('createTokenCacheWorkerPool', () => {
 
     workerInstance.dispatch('messageerror', {});
 
-    await expect(pending).rejects.toThrow(/failed to deserialize/);
-    expect(() => pool.exec('hashContent', ['abc'])).toThrow(/failed to deserialize/);
+    await expect(pending).rejects.toThrow(/failed to deserialize/u);
+    expect(() => pool.exec('hashContent', ['abc'])).toThrow(/failed to deserialize/u);
   });
 
   it('rejects when worker postMessage throws a non-error value', async () => {
@@ -239,7 +239,7 @@ describe('createTokenCacheWorkerPool', () => {
     const pool = await createTokenCacheWorkerPool('/token-worker.js');
 
     await expect(pool.exec('countTokens', [])).rejects.toThrow(
-      /Failed to post token cache worker request: post failed/
+      /Failed to post token cache worker request: post failed/u
     );
     expect(pool.stats().pendingTasks).toBe(0);
   });
@@ -255,7 +255,7 @@ describe('createTokenCacheWorkerPool', () => {
     await pool.terminate();
     await pool.terminate();
 
-    await expect(pending).rejects.toThrow(/terminated before requests completed/);
+    await expect(pending).rejects.toThrow(/terminated before requests completed/u);
     expect(pool.stats()).toEqual({
       activeTasks: 0,
       busyWorkers: 0,
@@ -264,6 +264,6 @@ describe('createTokenCacheWorkerPool', () => {
       totalWorkers: 0,
     });
     expect(workerInstance.terminate).toHaveBeenCalledTimes(1);
-    expect(() => pool.exec('countTokens', [])).toThrow(/has been terminated/);
+    expect(() => pool.exec('countTokens', [])).toThrow(/has been terminated/u);
   });
 });

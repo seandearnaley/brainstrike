@@ -50,7 +50,7 @@ describe('MCP Apps same-server provenance', () => {
         text: '<!doctype html>',
         uri: 'ui://weather/dashboard',
       })
-    ).toThrow(/does not belong to server generation/);
+    ).toThrow(/does not belong to server generation/u);
   });
 
   it('binds tool input and result to one audience, server, generation, and request', () => {
@@ -74,10 +74,10 @@ describe('MCP Apps same-server provenance', () => {
         id: 'model-call',
         input: {},
       })
-    ).toThrow(/not visible to model/);
+    ).toThrow(/not visible to model/u);
     expect(() =>
       authority.beginToolCall(beta, appOnly, { audience: 'app', id: 'cross-server', input: {} })
-    ).toThrow(/does not belong to server generation/);
+    ).toThrow(/does not belong to server generation/u);
 
     const input = { city: 'London' };
     const call = authority.beginToolCall(alpha, appOnly, {
@@ -87,7 +87,7 @@ describe('MCP Apps same-server provenance', () => {
     });
     expect(() =>
       authority.beginToolCall(alpha, appOnly, { audience: 'app', id: 'call-1', input: {} })
-    ).toThrow(/already pending/);
+    ).toThrow(/already pending/u);
     input.city = 'Paris';
     expect(call).toMatchObject({
       audience: 'app',
@@ -99,7 +99,7 @@ describe('MCP Apps same-server provenance', () => {
     });
     expect(Object.isFrozen(call.input)).toBe(true);
     expect(() => authority.completeToolCall(beta, call, { content: [] })).toThrow(
-      /does not belong to server generation/
+      /does not belong to server generation/u
     );
     const resultInput = { content: [{ text: 'ok', type: 'text' }] };
     const result = authority.completeToolCall(alpha, call, resultInput);
@@ -112,7 +112,7 @@ describe('MCP Apps same-server provenance', () => {
       toolName: 'refresh',
     });
     expect(() => authority.completeToolCall(alpha, call, { content: [] })).toThrow(
-      /already settled/
+      /already settled/u
     );
     expect(() =>
       authority.beginToolCall(alpha, appOnly, { audience: 'app', id: 'call-1', input: {} })
@@ -129,17 +129,17 @@ describe('MCP Apps same-server provenance', () => {
     const call = authority.beginToolCall(first, tool, { audience: 'app', id: 1, input: {} });
     authority.openGeneration({ generation: 5, serverId: 'alpha' });
 
-    expect(() => authority.toolsFor(first, 'app')).toThrow(/generation is retired/);
+    expect(() => authority.toolsFor(first, 'app')).toThrow(/generation is retired/u);
     expect(() =>
       authority.resolveResource(first, tool, {
         mimeType: 'text/html;profile=mcp-app',
         text: '<!doctype html>',
         uri: 'ui://alpha/app',
       })
-    ).toThrow(/generation is retired/);
-    expect(() => authority.completeToolCall(first, call, {})).toThrow(/generation is retired/);
+    ).toThrow(/generation is retired/u);
+    expect(() => authority.completeToolCall(first, call, {})).toThrow(/generation is retired/u);
     expect(() => authority.openGeneration({ generation: 5, serverId: 'alpha' })).toThrow(
-      /increase monotonically/
+      /increase monotonically/u
     );
   });
 
@@ -163,11 +163,11 @@ describe('MCP Apps same-server provenance', () => {
     // one row cannot hide behind an unrelated throw.
     for (const { reason, resource } of [
       {
-        reason: /MIME type/i,
+        reason: /MIME type/iu,
         resource: { mimeType: 'text/html', text: '<!doctype html>', uri: 'ui://alpha/app' },
       },
       {
-        reason: /does not match the associated tool resource/,
+        reason: /does not match the associated tool resource/u,
         resource: {
           mimeType: 'text/html;profile=mcp-app',
           text: '<!doctype html>',
@@ -175,15 +175,15 @@ describe('MCP Apps same-server provenance', () => {
         },
       },
       {
-        reason: /bounded canonical base64/,
+        reason: /bounded canonical base64/u,
         resource: { blob: '***', mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
       },
       {
-        reason: /non-empty UTF-8/,
+        reason: /non-empty UTF-8/u,
         resource: { blob: '/w==', mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
       },
       {
-        reason: /exactly one of text or blob/,
+        reason: /exactly one of text or blob/u,
         resource: {
           blob: btoa('<!doctype html>'),
           mimeType: 'text/html;profile=mcp-app',
@@ -192,11 +192,11 @@ describe('MCP Apps same-server provenance', () => {
         },
       },
       {
-        reason: /exactly one of text or blob/,
+        reason: /exactly one of text or blob/u,
         resource: { mimeType: 'text/html;profile=mcp-app', uri: 'ui://alpha/app' },
       },
       {
-        reason: /text exceeds 1048576 decoded bytes/,
+        reason: /text exceeds 1048576 decoded bytes/u,
         resource: {
           mimeType: 'text/html;profile=mcp-app',
           text: 'x'.repeat(1024 * 1024 + 1),
@@ -204,7 +204,7 @@ describe('MCP Apps same-server provenance', () => {
         },
       },
       {
-        reason: /blob exceeds 1048576 decoded bytes/,
+        reason: /blob exceeds 1048576 decoded bytes/u,
         resource: {
           blob: btoa('x'.repeat(1024 * 1024 + 1)),
           mimeType: 'text/html;profile=mcp-app',
@@ -253,17 +253,17 @@ describe('MCP Apps same-server provenance', () => {
       name: 'alpha-tool',
     });
     authority.retireGeneration(generation);
-    expect(() => authority.toolsFor(generation, 'app')).toThrow(/generation is retired/);
+    expect(() => authority.toolsFor(generation, 'app')).toThrow(/generation is retired/u);
     expect(() =>
       authority.beginToolCall(generation, tool, { audience: 'app', id: 1, input: {} })
-    ).toThrow(/generation is retired/);
+    ).toThrow(/generation is retired/u);
     expect(() => authority.openGeneration({ generation: 5, serverId: 'alpha' })).toThrow(
-      /increase monotonically/
+      /increase monotonically/u
     );
     expect(() => authority.retireGeneration(generation)).not.toThrow();
     expect(() =>
       authority.retireGeneration({ generation: 9, serverId: 'alpha' } as typeof generation)
-    ).toThrow(/not owned by this authority/);
+    ).toThrow(/not owned by this authority/u);
     const next = authority.openGeneration({ generation: 6, serverId: 'alpha' });
     expect(authority.toolsFor(next, 'app')).toEqual([]);
   });

@@ -33,7 +33,7 @@ interface TreeNodeIconProps {
 function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIconProps) {
   if (isLoading) {
     return (
-      <Loader2 aria-label={`Loading ${nodeName}`} className="animate-spin text-info" size={16} />
+      <Loader2 aria-label={`Loading ${nodeName}`} className="text-info animate-spin" size={16} />
     );
   }
   if (nodeType === 'truncated') {
@@ -142,7 +142,7 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
           {rowData.isLoadingForSelection ? (
             <Loader2
               aria-label={`Loading ${fileNode.name} for selection`}
-              className="h-4 w-4 animate-spin text-info"
+              className="text-info h-4 w-4 animate-spin"
             />
           ) : (
             // No DOM id: the same path renders in multiple tree surfaces
@@ -197,14 +197,14 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
         <span
           className={
             fileNode.type === 'truncated'
-              ? 'truncate text-muted-foreground text-sm italic leading-4'
+              ? 'text-muted-foreground truncate text-sm leading-4 italic'
               : 'truncate text-sm leading-4 group-hover/file-row:underline'
           }
         >
           {fileNode.name}
         </span>
         {fileNode.type === 'directory' && fileNode.isDepthTruncated && (
-          <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          <MoreHorizontalIcon className="text-muted-foreground ml-1.5 h-4 w-4 flex-shrink-0" />
         )}
       </div>
     </div>

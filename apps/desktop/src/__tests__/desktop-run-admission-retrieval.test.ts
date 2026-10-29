@@ -105,7 +105,7 @@ test('a TEXT-mode index offers grep and no retrieval tool, and the instructions 
   for (const id of RETRIEVAL) {
     expect(ids).not.toContain(id);
   }
-  expect(system).not.toMatch(/hybridSearch|queryEmbeddingSpace|listEmbeddingSpaces/);
+  expect(system).not.toMatch(/hybridSearch|queryEmbeddingSpace|listEmbeddingSpaces/u);
 });
 
 test('an index that is not ready offers no retrieval tool', async () => {
@@ -125,7 +125,7 @@ test('an index that is not ready offers no retrieval tool', async () => {
 test('a ready VECTOR index with a saved collection over the thread’s folder offers the retrieval tools', async () => {
   const { ids, system } = await offered({ indexStatus: async () => ready() });
   expect(ids).toEqual(expect.arrayContaining([NATIVE_TOOL_ID.grepSearch, ...RETRIEVAL]));
-  expect(system).toMatch(/queryEmbeddingSpace/);
+  expect(system).toMatch(/queryEmbeddingSpace/u);
 });
 
 test('a ready VECTOR index without an authorized collection offers no retrieval tool', async () => {

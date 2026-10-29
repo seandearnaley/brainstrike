@@ -167,7 +167,7 @@ describe('useLazyFileTree renderer-fallback expand-all batching', () => {
     // Fail every sub-1/sub-2 directory read (8 of the 16 mid-level dirs).
     const originalStreaming = mockAdapter.readDirectoryStreaming.bind(mockAdapter);
     mockAdapter.readDirectoryStreaming = async (dirHandle, onBatch, options) => {
-      if (/\/(sub-1|sub-2)$/.test(dirHandle.path)) {
+      if (/\/(sub-1|sub-2)$/u.test(dirHandle.path)) {
         throw new Error(`permission denied: ${dirHandle.path}`);
       }
       return originalStreaming(dirHandle, onBatch, options);

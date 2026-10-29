@@ -100,7 +100,7 @@ function braceDelta(line: string): number {
 }
 
 function indentWidth(line: string): number {
-  const match = line.match(/^[ \t]*/);
+  const match = line.match(/^[ \t]*/u);
   return match ? match[0].length : 0;
 }
 
@@ -164,7 +164,7 @@ function buildPreview(lines: string[], declIndex: number, contextLines: number):
 }
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 /** Keywords that introduce a named declaration whose identifier follows. */
@@ -178,9 +178,9 @@ function createDeclarationMatchers(escapedQuery: string): {
   word: RegExp;
 } {
   return {
-    member: new RegExp(`^(?:(?:${MEMBER_PREFIXES})\\s+)*${escapedQuery}\\s*[(:=]`),
-    named: new RegExp(`\\b(?:${DECLARATION_KEYWORDS})\\s+${escapedQuery}\\b`),
-    word: new RegExp(`\\b${escapedQuery}\\b`),
+    member: new RegExp(`^(?:(?:${MEMBER_PREFIXES})\\s+)*${escapedQuery}\\s*[(:=]`, 'u'),
+    named: new RegExp(`\\b(?:${DECLARATION_KEYWORDS})\\s+${escapedQuery}\\b`, 'u'),
+    word: new RegExp(`\\b${escapedQuery}\\b`, 'u'),
   };
 }
 

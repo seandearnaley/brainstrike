@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
+import { acquireIndexerHost, closeIndexerRuntime, getReadyIndexerHost } from '../indexer-runtime';
 import { IndexerUtilityExitedError } from '../indexer-utility-exit';
 
 const manager = vi.hoisted(() => ({
@@ -10,8 +11,6 @@ const manager = vi.hoisted(() => ({
 vi.mock('../indexer-host-manager', () => ({
   IndexerHostManager: { create: vi.fn(async () => manager) },
 }));
-
-import { acquireIndexerHost, closeIndexerRuntime, getReadyIndexerHost } from '../indexer-runtime';
 
 // BST-2135: a signal to Main's process group ends the utility before shutdown retires it.
 it('refuses an exited host with its typed exit, so retirement can settle that outcome', async () => {
@@ -24,5 +23,5 @@ it('refuses an exited host with its typed exit, so retirement can settle that ou
   expect(getReadyIndexerHost).toThrow(IndexerUtilityExitedError);
   await closeIndexerRuntime(async () => {});
   expect(manager.close).toHaveBeenCalledOnce();
-  expect(getReadyIndexerHost).toThrow(/owned host is not ready/);
+  expect(getReadyIndexerHost).toThrow(/owned host is not ready/u);
 });

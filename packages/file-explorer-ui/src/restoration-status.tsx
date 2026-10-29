@@ -64,10 +64,10 @@ export const RestorationStatus = React.memo(
       <div
         aria-live="polite"
         className={cn(
-          'flex items-center gap-3 rounded-lg border bg-background/90 px-3 py-2 shadow-md backdrop-blur-sm',
+          'bg-background/90 flex items-center gap-3 rounded-lg border px-3 py-2 shadow-md backdrop-blur-sm',
           // Enter animation via @starting-style: fades/slides in on mount
           // without affecting layout (the card is an overlay).
-          'starting:-translate-y-2 starting:opacity-0 transition-all duration-300 ease-out',
+          'transition-all duration-300 ease-out starting:-translate-y-2 starting:opacity-0',
           'motion-reduce:transition-none',
           className
         )}
@@ -76,8 +76,8 @@ export const RestorationStatus = React.memo(
       >
         {/* Icon with animation */}
         <div className="relative shrink-0">
-          <FolderOpen className="h-4 w-4 text-muted-foreground" />
-          <Loader2 className="absolute -right-1 -bottom-1 h-3 w-3 animate-spin text-primary" />
+          <FolderOpen className="text-muted-foreground h-4 w-4" />
+          <Loader2 className="text-primary absolute -right-1 -bottom-1 h-3 w-3 animate-spin" />
         </div>
 
         {/* Progress bar and text. Every line is always rendered (the path line
@@ -85,18 +85,18 @@ export const RestorationStatus = React.memo(
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-center justify-between gap-2">
             <span
-              className="truncate font-medium text-foreground text-sm tabular-nums"
+              className="text-foreground truncate text-sm font-medium tabular-nums"
               title={statusText}
             >
               {statusText}
             </span>
-            <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
+            <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
               {percentage}%
             </span>
           </div>
           <Progress aria-label="Folder restoration progress" className="h-1" value={percentage} />
           <span
-            className="min-h-4 truncate text-muted-foreground text-xs"
+            className="text-muted-foreground min-h-4 truncate text-xs"
             {...(progress?.currentPath ? { title: progress.currentPath } : {})}
           >
             {displayPath}

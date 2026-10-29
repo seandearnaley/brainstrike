@@ -50,11 +50,11 @@ export function TokenBudgetSummary({
         onClick={() => setExpanded(!expanded)}
         type="button"
       >
-        <span className="shrink-0 font-medium text-sm">Token Budget</span>
+        <span className="shrink-0 text-sm font-medium">Token Budget</span>
 
         {/* Inline Progress Bar */}
         <div
-          className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
+          className="bg-muted h-2 flex-1 overflow-hidden rounded-full"
           data-testid="progress-bar-inline"
         >
           <div className="flex h-full">
@@ -71,14 +71,14 @@ export function TokenBudgetSummary({
           </div>
         </div>
 
-        <span className="shrink-0 text-muted-foreground text-sm">
+        <span className="text-muted-foreground shrink-0 text-sm">
           {usedTokens.toLocaleString()} / {(totalBudget / 1000).toFixed(0)}K
           <span className="ml-1.5">({usagePercent.toFixed(0)}%)</span>
         </span>
 
         <ChevronDown
           className={cn(
-            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+            'text-muted-foreground h-4 w-4 shrink-0 transition-transform',
             expanded && 'rotate-180'
           )}
         />
@@ -87,19 +87,19 @@ export function TokenBudgetSummary({
       {/* Expanded Legend */}
       {expanded && (
         <div
-          className="mt-2 flex flex-wrap gap-4 border-border/50 border-t pt-2 text-xs"
+          className="border-border/50 mt-2 flex flex-wrap gap-4 border-t pt-2 text-xs"
           id={legendId}
         >
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-primary" />
+            <span className="bg-primary h-2 w-2 rounded-full" />
             <span>Critical ({criticalTokens.toLocaleString()})</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-secondary" />
+            <span className="bg-secondary h-2 w-2 rounded-full" />
             <span>Conditional ({conditionalTokens.toLocaleString()})</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-muted" />
+            <span className="bg-muted h-2 w-2 rounded-full" />
             <span>Available ({availableTokens.toLocaleString()})</span>
           </div>
         </div>

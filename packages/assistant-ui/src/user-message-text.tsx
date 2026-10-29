@@ -65,11 +65,11 @@ function FileMentionChip({
     // the chip is capped at the bubble's width and its label truncates visually
     // (the full name stays in the text, for copy and assistive technology).
     <span
-      className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 bg-background/60 px-1.5 align-baseline font-medium text-[0.92em] leading-snug"
+      className="border-border/60 bg-background/60 inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 align-baseline text-[0.92em] leading-snug font-medium"
       data-testid="user-message-file-mention"
       title={path}
     >
-      <FileText aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+      <FileText aria-hidden="true" className="text-muted-foreground size-3.5 shrink-0" />
       <span className="min-w-0 truncate">{label}</span>
     </span>
   );

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useTerminalTargetStore } from '../stores/terminal-target-store';
 
 const openAppMock = vi.fn();
 const setActiveTabMock = vi.fn();
@@ -10,8 +11,6 @@ vi.mock('@brainstrike/file-explorer-ui/workspace-tab-selection-store', () => ({
 vi.mock('@brainstrike/app-state/stores/panel-layout-store', () => ({
   usePanelLayoutStore: { getState: () => ({ setActiveTab: setActiveTabMock }) },
 }));
-
-import { useTerminalTargetStore } from '../stores/terminal-target-store';
 
 const TARGET = { cwd: '/repo/.claude/worktrees/bright-fox', rootId: 'root-1' } as const;
 

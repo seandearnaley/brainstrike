@@ -72,12 +72,12 @@ describe('AssistantToolSuspendNotice send failures', () => {
     [
       'a plan approval',
       planRequest,
-      (user) => user.click(screen.getByRole('button', { name: /approve/i })),
+      (user) => user.click(screen.getByRole('button', { name: /approve/iu })),
     ],
     [
       'an unreadable plan rejection',
       { ...planRequest, suspendPayload: { overview: 42 } },
-      (user) => user.click(screen.getByRole('button', { name: /reject/i })),
+      (user) => user.click(screen.getByRole('button', { name: /reject/iu })),
     ],
     [
       'an askUser choice',
@@ -88,8 +88,8 @@ describe('AssistantToolSuspendNotice send failures', () => {
       'an answer to a question with unreadable choices',
       { ...askRequest, suspendPayload: { options: 'not-an-array', question: 'Still?' } },
       async (user) => {
-        await user.type(screen.getByRole('textbox', { name: /answer in your own words/i }), 'No');
-        await user.click(screen.getByRole('button', { name: /send answer/i }));
+        await user.type(screen.getByRole('textbox', { name: /answer in your own words/iu }), 'No');
+        await user.click(screen.getByRole('button', { name: /send answer/iu }));
       },
     ],
     [
@@ -100,7 +100,7 @@ describe('AssistantToolSuspendNotice send failures', () => {
     [
       'an unreadable network denial',
       { ...networkRequest, suspendPayload: { kind: 'network' } },
-      (user) => user.click(screen.getByRole('button', { name: /don't allow/i })),
+      (user) => user.click(screen.getByRole('button', { name: /don't allow/iu })),
     ],
   ])(
     'shows why the decision was not sent after a synchronous append failure (%s)',
@@ -124,9 +124,9 @@ describe('AssistantToolSuspendNotice send failures', () => {
     const user = userEvent.setup();
     render(<AssistantToolSuspendNotice data={planRequest} />);
 
-    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await user.click(screen.getByRole('button', { name: /approve/iu }));
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
-    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await user.click(screen.getByRole('button', { name: /approve/iu }));
 
     expect(appendMessageMock).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -141,7 +141,7 @@ describe('AssistantToolSuspendNotice send failures', () => {
     });
     const user = userEvent.setup();
     const view = render(<AssistantToolSuspendNotice data={planRequest} />);
-    await user.click(screen.getByRole('button', { name: /approve/i }));
+    await user.click(screen.getByRole('button', { name: /approve/iu }));
     expect(screen.getByRole('alert')).toHaveTextContent('Decision not sent: append failed');
 
     threadMessagesMock.push({
@@ -154,6 +154,6 @@ describe('AssistantToolSuspendNotice send failures', () => {
     view.rerender(<AssistantToolSuspendNotice data={planRequest} />);
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /approve/iu })).toBeDisabled();
   });
 });

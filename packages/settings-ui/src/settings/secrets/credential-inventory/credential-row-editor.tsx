@@ -245,7 +245,7 @@ export function CredentialRowEditor({
         // rather than a dead anchor.
         <div className="flex items-center gap-1">
           <p
-            className="select-all break-all text-muted-foreground text-xs"
+            className="text-muted-foreground text-xs break-all select-all"
             data-testid={`credential-editor-docs-${slot.id}`}
           >
             Get an API key: {slot.docsUrl}

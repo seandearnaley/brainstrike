@@ -54,7 +54,7 @@ describe('boundary failures on a JSON-RPC connection', () => {
     expect(sent.message).toBe(INTERNAL_FAULT.message);
     expect(JSON.stringify(sent.data)).not.toContain('/Users/');
     const correlationId = (sent.data as { correlationId?: string }).correlationId;
-    expect(correlationId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(correlationId).toMatch(/^[0-9a-f-]{36}$/u);
     expect(log).toHaveBeenCalledExactlyOnceWith(
       'Untyped failure crossed a process boundary',
       expect.objectContaining({ correlationId, error: expect.objectContaining({ message: RAW }) })

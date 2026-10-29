@@ -16,7 +16,7 @@ describe('ClearStoredFoldersPanel', () => {
       expect(screen.getByText('Stored Folders')).toBeInTheDocument();
       expect(
         screen.getByText(
-          /Clear all remembered folders for File System access\. This will require you to re-select folders next time you use the file explorer\./
+          /Clear all remembered folders for File System access\. This will require you to re-select folders next time you use the file explorer\./u
         )
       ).toBeInTheDocument();
       expect(screen.getByTestId('clear-stored-folders-button')).toBeInTheDocument();

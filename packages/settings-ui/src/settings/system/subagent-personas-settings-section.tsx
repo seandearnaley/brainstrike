@@ -99,7 +99,7 @@ function DelegationLimits() {
   const settings = useAssistantSubagentPreferencesStore((state) => state.settings);
   return (
     <div className="space-y-1" data-testid="subagent-delegation-limits">
-      <p className="font-medium text-sm">Limits on every turn</p>
+      <p className="text-sm font-medium">Limits on every turn</p>
       <p className="text-muted-foreground text-sm">
         Subagents can delegate to other subagents up to {settings.maxDepth} levels deep, with at
         most {settings.maxInvocations} delegations per turn and {settings.maxConcurrentWork}{' '}
@@ -130,7 +130,7 @@ function PersonaRowDetail({
 }): React.JSX.Element {
   if (item.status === 'invalid') {
     return (
-      <p className="flex items-center gap-1 text-destructive text-sm">
+      <p className="text-destructive flex items-center gap-1 text-sm">
         <AlertTriangle className="size-3.5 shrink-0" />
         {item.error}
       </p>
@@ -140,7 +140,7 @@ function PersonaRowDetail({
     // Same wording shape as the skills panel: name the WINNING file, because
     // "which copy is live" is the question the author actually has.
     return (
-      <p className="flex items-center gap-1 text-muted-foreground text-sm">
+      <p className="text-muted-foreground flex items-center gap-1 text-sm">
         <Layers className="size-3.5 shrink-0" />
         Shadowed by a higher-priority persona of the same name in{' '}
         <code>{item.shadowedBy?.absPath}</code> — this copy is inactive.
@@ -155,14 +155,14 @@ function PersonaRowDetail({
       {item.availability ? (
         <div className="mt-1 space-y-1" data-testid={`subagent-persona-availability-${item.id}`}>
           {item.availability.status === 'request-dependent' ? null : (
-            <p className="font-medium text-sm">
+            <p className="text-sm font-medium">
               {item.availability.status === 'blocked'
                 ? 'Unavailable until corrected'
                 : 'Check this configuration'}
             </p>
           )}
           {item.availability.issues.map((issue) => (
-            <p className="text-sm text-warning" key={`${issue.code}:${issue.toolId ?? ''}`}>
+            <p className="text-warning text-sm" key={`${issue.code}:${issue.toolId ?? ''}`}>
               {issue.message}
             </p>
           ))}
@@ -183,7 +183,7 @@ function PersonaRow(props: {
     <div className="flex items-center justify-between gap-4 rounded-md border p-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <p className="font-medium text-sm">{item.label}</p>
+          <p className="text-sm font-medium">{item.label}</p>
           {item.source === 'user' ? <Badge variant="outline">User</Badge> : null}
           {item.modelPin ? <Badge variant="secondary">{item.modelPin}</Badge> : null}
         </div>
@@ -262,7 +262,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
       <CardContent className="space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="font-medium text-sm" htmlFor="subagent-delegation-toggle">
+            <Label className="text-sm font-medium" htmlFor="subagent-delegation-toggle">
               Enable subagent delegation
             </Label>
             <p className="text-muted-foreground text-sm">
@@ -313,7 +313,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
           <div className="space-y-1" data-testid="subagent-personas-incomplete">
             {incompleteDirs.map((entry) => (
               <p
-                className="flex items-center gap-1 text-sm text-warning"
+                className="text-warning flex items-center gap-1 text-sm"
                 key={`${entry.reason}:${entry.dir}`}
               >
                 <AlertTriangle className="size-3.5 shrink-0" />
@@ -326,7 +326,7 @@ export function SubagentPersonasSettingsSection(): React.JSX.Element {
         ) : null}
 
         <fieldset className="space-y-3 border-0 p-0" disabled={!delegationEnabled}>
-          <legend className="font-medium text-sm">Personas</legend>
+          <legend className="text-sm font-medium">Personas</legend>
           {items.map((item) => (
             <PersonaRow
               disabled={!delegationEnabled}

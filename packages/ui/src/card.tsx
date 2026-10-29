@@ -8,7 +8,7 @@ const Card = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & { ref?: React.RefObject<HTMLDivElement | null> }) => (
   <div
-    className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)}
+    className={cn('bg-card text-card-foreground rounded-lg border shadow-sm', className)}
     data-slot="card"
     ref={ref}
     {...props}
@@ -39,7 +39,7 @@ const CardTitle = ({
   ref?: React.RefObject<HTMLHeadingElement | null>;
 }) => (
   <h3
-    className={cn('font-semibold text-2xl leading-none tracking-tight', className)}
+    className={cn('text-2xl leading-none font-semibold tracking-tight', className)}
     data-slot="card-title"
     ref={ref}
     {...props}

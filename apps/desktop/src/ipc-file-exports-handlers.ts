@@ -30,8 +30,8 @@ interface FileExportsIpcDependencies {
   getDownloadsPath: () => string;
 }
 
-const SAFE_EXPORT_FILENAME = /^[a-zA-Z0-9._-]+$/;
-const DOTS_ONLY = /^\.+$/;
+const SAFE_EXPORT_FILENAME = /^[a-zA-Z0-9._-]+$/u;
+const DOTS_ONLY = /^\.+$/u;
 /**
  * Common filesystem NAME_MAX (255) minus room for the widest collision
  * counter this module can append (` (99)`), so a colliding near-limit name

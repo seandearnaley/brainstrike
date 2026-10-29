@@ -171,17 +171,17 @@ function ThemeLoadFailure({
 }): React.ReactElement {
   return (
     <div
-      className="flex h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-center text-foreground"
+      className="bg-background text-foreground flex h-screen flex-col items-center justify-center gap-3 p-6 text-center"
       data-slot="theme-load-failure"
       role="alert"
     >
-      <AlertTriangle aria-hidden="true" className="size-6 text-destructive" />
-      <h1 className="font-semibold text-lg">Your theme preference couldn't be read</h1>
-      <p className="max-w-md text-muted-foreground text-sm">
+      <AlertTriangle aria-hidden="true" className="text-destructive size-6" />
+      <h1 className="text-lg font-semibold">Your theme preference couldn't be read</h1>
+      <p className="text-muted-foreground max-w-md text-sm">
         The app reads your saved theme before it opens, and reading it from storage failed. Your
         saved preference has not been changed.
       </p>
-      <p className="max-w-md break-words font-mono text-muted-foreground text-xs">
+      <p className="text-muted-foreground max-w-md font-mono text-xs break-words">
         {getErrorMessage(error)}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2">
@@ -193,7 +193,7 @@ function ThemeLoadFailure({
           Continue with the {defaultTheme} theme
         </Button>
       </div>
-      <p className="max-w-md text-muted-foreground text-xs">
+      <p className="text-muted-foreground max-w-md text-xs">
         Continuing uses the {defaultTheme} theme for this session and keeps your saved preference.
       </p>
     </div>

@@ -268,7 +268,7 @@ export function ApprovalCard({
           <AlertTriangle className="bs-approval-icon size-4" />
         </div>
         <div className="min-w-0">
-          <p className="font-medium text-sm">
+          <p className="text-sm font-medium">
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <span className="truncate">
                 {state.decisionLocked ? 'Tool decision' : 'Tool approval required'}
@@ -282,14 +282,14 @@ export function ApprovalCard({
           (ownerDisplayName || state.delegationOwner) &&
           presentation !== 'embedded' ? (
             <p
-              className="mt-1 truncate font-medium text-xs"
+              className="mt-1 truncate text-xs font-medium"
               data-testid="approval-delegation-owner"
               title={state.delegationOwner ?? ownerDisplayName}
             >
               {ownerDisplayName ?? state.delegationOwner}
             </p>
           ) : null}
-          <p className="mt-1 truncate text-muted-foreground text-xs">{approval.toolName}</p>
+          <p className="text-muted-foreground mt-1 truncate text-xs">{approval.toolName}</p>
           {approvalReason && !state.decisionLocked ? (
             <p className="bs-approval-reason mt-0.5 truncate text-xs">
               Requires approval: {approvalReason}
@@ -330,7 +330,7 @@ export function ApprovalCard({
             </div>
           )}
           {state.sendError === null ? null : (
-            <p className="mt-2 break-words text-destructive text-xs" role="alert">
+            <p className="text-destructive mt-2 text-xs break-words" role="alert">
               Decision not sent: {state.sendError}
             </p>
           )}
@@ -351,13 +351,13 @@ export function ApprovalCard({
         </Button>
       </div>
       {isExpanded ? (
-        <div className="border-amber-500/30 border-t border-dashed px-4 py-3" id={detailsId}>
+        <div className="border-t border-dashed border-amber-500/30 px-4 py-3" id={detailsId}>
           <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs">
             {detailEntries.map(([key, value]) => (
               <div className="contents" key={key}>
-                <dt className="font-medium text-muted-foreground">{key}</dt>
-                <dd className="min-w-0 break-words text-foreground/90">
-                  <pre className="whitespace-pre-wrap font-mono text-[11px] leading-4">
+                <dt className="text-muted-foreground font-medium">{key}</dt>
+                <dd className="text-foreground/90 min-w-0 break-words">
+                  <pre className="font-mono text-[11px] leading-4 whitespace-pre-wrap">
                     {formatJsonValue(value)}
                   </pre>
                 </dd>

@@ -107,7 +107,7 @@ const SECRET_FILES = ignore().add([...WORKSPACE_SECRET_FILE_PATTERNS]);
 
 /** Whether a workspace-relative POSIX path is a credential file under the floor. */
 export function isWorkspaceSecretFile(relativePath: string, asDirectory = false): boolean {
-  const normalized = relativePath.replace(/^\/+/, '');
+  const normalized = relativePath.replace(/^\/+/u, '');
   return normalized !== '' && SECRET_FILES.ignores(asDirectory ? `${normalized}/` : normalized);
 }
 

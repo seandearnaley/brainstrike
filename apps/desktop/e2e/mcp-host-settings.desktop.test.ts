@@ -37,13 +37,13 @@ async function storeBearerCredential(userDataDir: string, id: string): Promise<v
 
 async function openTools(page: Page): Promise<void> {
   await new HomePage(page).openSettings();
-  await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
   await page.getByRole('tab', { exact: true, name: 'Tools' }).click();
 }
 
 /** The server's tool row, once discovery has listed it. */
 async function toolToggle(page: Page) {
-  await expect(page.getByTestId(`mcp-server-row-${SERVER}`)).toContainText(/Connected/i, {
+  await expect(page.getByTestId(`mcp-server-row-${SERVER}`)).toContainText(/Connected/iu, {
     timeout: 60_000,
   });
   const trigger = page.getByTestId(`tool-group-trigger-mcp-${SERVER}`);
@@ -70,7 +70,7 @@ test('the agent host owns MCP settings: saved config, discovered tools and a dis
 
     // 1. Edit the config in Settings: the host saves the profile's config file.
     await new HomePage(page).openSettings();
-    await new SettingsPage(page).openCategory(/AI Tools/i, 'ai-tools');
+    await new SettingsPage(page).openCategory(/AI Tools/iu, 'ai-tools');
     await page.getByRole('tab', { name: 'MCP Config' }).click();
     const editor = page.getByTestId('mcp-config-editor');
     await expect(editor).toBeVisible({ timeout: 30_000 });

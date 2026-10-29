@@ -98,7 +98,7 @@ describe('MCP lab scenario manifest', () => {
     expect(MCP_LAB_OFFICIAL_EVERYTHING_PROFILE_SOURCE).toMatchObject({
       kind: 'brainstrike-owned-derived-profile',
       path: 'packages/mcp-test-lab/src/official-everything-profile.ts',
-      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
       upstream: MCP_LAB_OFFICIAL_EVERYTHING_SERVER_SOURCE,
     });
   });

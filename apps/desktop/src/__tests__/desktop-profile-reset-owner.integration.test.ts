@@ -5,15 +5,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { RootLock } from '@brainstrike/state-store';
+import { expect, test } from 'vitest';
+import { createDesktopProfileResetOwner } from '../desktop-profile-reset-owner';
 
 const { StateStore } = await import(
   /* @vite-ignore */ pathToFileURL(
     createRequire(import.meta.url).resolve('@brainstrike/state-store')
   ).href
 );
-
-import { expect, test } from 'vitest';
-import { createDesktopProfileResetOwner } from '../desktop-profile-reset-owner';
 
 test('reset joins the existing SQLite writer before clearing, keeps its lock, and creates no PG data', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'bs-current-profile-reset-'));

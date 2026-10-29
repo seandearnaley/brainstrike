@@ -1,14 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CommandPaletteHost } from '../command-palette-host';
+import { registerTabChordStrip, type TabChordStrip } from '../tab-chords/tab-chord-registry';
+import { useTabChords } from '../tab-chords/use-tab-chords';
 
 const noHandlers = {};
 vi.mock('../use-global-command-handlers', () => ({
   useGlobalCommandHandlers: () => noHandlers,
 }));
-
-import { CommandPaletteHost } from '../command-palette-host';
-import { registerTabChordStrip, type TabChordStrip } from '../tab-chords/tab-chord-registry';
-import { useTabChords } from '../tab-chords/use-tab-chords';
 
 /** The real chord router with the desktop capability, beside the palette. */
 function DesktopChordRouter(): null {
@@ -78,7 +77,7 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
     composer.focus();
 
     openPalette(composer);
-    fireEvent.click(await screen.findByRole('option', { name: /^Next Tab/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /^Next Tab/u }));
 
     await waitFor(() => expect(assistant.activate).toHaveBeenCalledExactlyOnceWith('t2'));
     expect(workspace.activate).not.toHaveBeenCalled();
@@ -89,15 +88,15 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
 
     composer.focus();
     openPalette(composer);
-    expect(await screen.findByRole('option', { name: /^Reopen Closed Tab/ })).toBeTruthy();
+    expect(await screen.findByRole('option', { name: /^Reopen Closed Tab/u })).toBeTruthy();
     fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
 
     // Focus in no panel scopes to the workspace, whose history is empty.
     (document.activeElement as HTMLElement | null)?.blur();
     openPalette(document.body);
-    expect(await screen.findByRole('option', { name: /^Next Tab/ })).toBeTruthy();
-    expect(screen.queryByRole('option', { name: /^Reopen Closed Tab/ })).toBeNull();
+    expect(await screen.findByRole('option', { name: /^Next Tab/u })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /^Reopen Closed Tab/u })).toBeNull();
   });
 
   it('Ctrl+W typed in the open palette leaves the workspace tab behind it open', async () => {
@@ -129,7 +128,7 @@ describe('CommandPaletteHost tab commands (BST-1842)', () => {
     render(<CommandPaletteHost />);
 
     openPalette(document.body);
-    fireEvent.click(await screen.findByRole('option', { name: /^Go to Tab…/ }));
+    fireEvent.click(await screen.findByRole('option', { name: /^Go to Tab…/u }));
     const listbox = await screen.findByRole('listbox');
     await waitFor(() =>
       expect(

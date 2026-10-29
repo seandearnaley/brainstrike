@@ -22,9 +22,9 @@ describe('TokenBudgetSummary', () => {
       expect(screen.getByTestId('token-budget-summary')).toBeInTheDocument();
       expect(screen.getByText('Token Budget')).toBeInTheDocument();
       // Should show "3,000 / 10K" and "30%"
-      expect(screen.getByText(/3,000/)).toBeInTheDocument();
-      expect(screen.getByText(/10K/)).toBeInTheDocument();
-      expect(screen.getByText(/30%/)).toBeInTheDocument();
+      expect(screen.getByText(/3,000/u)).toBeInTheDocument();
+      expect(screen.getByText(/10K/u)).toBeInTheDocument();
+      expect(screen.getByText(/30%/u)).toBeInTheDocument();
     });
 
     it('renders progress bar segments', () => {
@@ -48,7 +48,7 @@ describe('TokenBudgetSummary', () => {
     it('links the disclosure button to the mounted legend with ARIA state', () => {
       render(<TokenBudgetSummary {...defaultProps} />);
 
-      const button = screen.getByRole('button', { name: /token budget/i });
+      const button = screen.getByRole('button', { name: /token budget/iu });
 
       expect(button).toHaveAttribute('aria-expanded', 'false');
       expect(button).not.toHaveAttribute('aria-controls');
@@ -65,16 +65,16 @@ describe('TokenBudgetSummary', () => {
       render(<TokenBudgetSummary {...defaultProps} />);
 
       // Initially, details should not be visible
-      expect(screen.queryByText(/Critical \(1,000\)/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Critical \(1,000\)/u)).not.toBeInTheDocument();
 
       // Click to expand
       const button = screen.getByRole('button');
       fireEvent.click(button);
 
       // Now details should be visible
-      expect(screen.getByText(/Critical \(1,000\)/)).toBeInTheDocument();
-      expect(screen.getByText(/Conditional \(2,000\)/)).toBeInTheDocument();
-      expect(screen.getByText(/Available \(7,000\)/)).toBeInTheDocument();
+      expect(screen.getByText(/Critical \(1,000\)/u)).toBeInTheDocument();
+      expect(screen.getByText(/Conditional \(2,000\)/u)).toBeInTheDocument();
+      expect(screen.getByText(/Available \(7,000\)/u)).toBeInTheDocument();
     });
 
     it('collapses when clicked again', () => {
@@ -84,11 +84,11 @@ describe('TokenBudgetSummary', () => {
 
       // Expand
       fireEvent.click(button);
-      expect(screen.getByText(/Critical \(1,000\)/)).toBeInTheDocument();
+      expect(screen.getByText(/Critical \(1,000\)/u)).toBeInTheDocument();
 
       // Collapse
       fireEvent.click(button);
-      expect(screen.queryByText(/Critical \(1,000\)/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Critical \(1,000\)/u)).not.toBeInTheDocument();
     });
   });
 
@@ -144,7 +144,7 @@ describe('TokenBudgetSummary', () => {
       );
 
       expect(screen.getByTestId('token-budget-summary')).toBeInTheDocument();
-      expect(screen.getByText(/0%/)).toBeInTheDocument();
+      expect(screen.getByText(/0%/u)).toBeInTheDocument();
     });
 
     it('handles zero tokens with positive budget', () => {
@@ -180,7 +180,7 @@ describe('TokenBudgetSummary', () => {
       fireEvent.click(button);
 
       // Available should be clamped to 0, not negative
-      expect(screen.getByText(/Available \(0\)/)).toBeInTheDocument();
+      expect(screen.getByText(/Available \(0\)/u)).toBeInTheDocument();
     });
 
     it('formats large numbers with locale separators', () => {
@@ -194,8 +194,8 @@ describe('TokenBudgetSummary', () => {
       );
 
       // Should show formatted numbers
-      expect(screen.getByText(/40,000/)).toBeInTheDocument();
-      expect(screen.getByText(/100K/)).toBeInTheDocument();
+      expect(screen.getByText(/40,000/u)).toBeInTheDocument();
+      expect(screen.getByText(/100K/u)).toBeInTheDocument();
     });
   });
 
@@ -245,7 +245,7 @@ describe('TokenBudgetSummary', () => {
       );
 
       // 5000/10000 = 50%
-      expect(screen.getByText(/50%/)).toBeInTheDocument();
+      expect(screen.getByText(/50%/u)).toBeInTheDocument();
     });
   });
 });

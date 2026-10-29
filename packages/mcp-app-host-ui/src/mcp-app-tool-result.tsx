@@ -336,6 +336,7 @@ function LiveMcpApp({
         state={view.state}
       >
         {view.shellUrl === undefined ? null : (
+          // biome-ignore lint/security/useIframeSandbox: the host-authored shell needs its own origin for header-delivered CSP; it sandboxes the untrusted app frame itself (apps-session-policy.ts).
           <iframe
             aria-label={`${origin.toolName} app`}
             className="h-64 w-full rounded-lg border-0"
@@ -378,7 +379,7 @@ export function McpAppToolResult({
       <div className="my-1">
         <ToolFallback {...toolCall} result={marker.result} />
         <p
-          className="mt-1 text-muted-foreground text-xs"
+          className="text-muted-foreground mt-1 text-xs"
           data-testid="mcp-app-host-note"
           role="note"
         >

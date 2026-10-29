@@ -44,7 +44,7 @@ describe('ToolFallback duration', () => {
 
   it('shows nothing when no duration is available for the tool call', () => {
     renderTool({ 'other-call': 999 });
-    expect(screen.queryByText(/\ds/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\ds/u)).not.toBeInTheDocument();
   });
 
   it('does not break without a duration provider', () => {

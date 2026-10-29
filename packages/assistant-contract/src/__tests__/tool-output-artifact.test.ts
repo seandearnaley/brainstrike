@@ -37,7 +37,7 @@ describe('tool output artifact contracts', () => {
     });
     expect(() =>
       decodeToolOutputArtifactCursor(`${encoded.slice(0, -1)}${encoded.endsWith('A') ? 'B' : 'A'}`)
-    ).toThrow(/cursor/i);
+    ).toThrow(/cursor/iu);
   });
 
   it('accepts one canonical opaque reference and recoverable preview envelope', () => {

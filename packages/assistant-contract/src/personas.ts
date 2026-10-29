@@ -220,7 +220,7 @@ export function assertPersonaToolScope(persona: AssistantPersonaDefinition): voi
   }
   if (
     persona.allowedToolIds.length === 0 ||
-    persona.allowedToolIds.some((id) => !id.trim() || /\s/.test(id))
+    persona.allowedToolIds.some((id) => !id.trim() || /\s/u.test(id))
   ) {
     throw new Error('Worker tools must be nonempty exact tool ids or a sole wildcard.');
   }

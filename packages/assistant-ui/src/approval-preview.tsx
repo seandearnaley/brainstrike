@@ -82,7 +82,7 @@ function isCanonicalRelativePath(value: string): boolean {
     (value.length > 0 &&
       !value.startsWith('/') &&
       !value.includes('\\') &&
-      !/^[A-Za-z]:/.test(value) &&
+      !/^[A-Za-z]:/u.test(value) &&
       value
         .split('/')
         .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..'))
@@ -107,7 +107,7 @@ function narrowRunSkillScriptArgs(value: unknown): RunSkillScriptApprovalArgs | 
     !scriptPath.startsWith('scripts/') ||
     !isCanonicalRelativePath(scriptPath) ||
     typeof skillName !== 'string' ||
-    !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(skillName) ||
+    !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u.test(skillName) ||
     (args !== undefined &&
       (!Array.isArray(args) ||
         args.length > 64 ||
@@ -238,9 +238,9 @@ function RunPythonFactRow({
 }) {
   return (
     <div className="flex min-w-0 gap-2">
-      <dt className="w-20 shrink-0 text-muted-foreground">{label}</dt>
+      <dt className="text-muted-foreground w-20 shrink-0">{label}</dt>
       <dd
-        className="min-w-0 break-words text-foreground/90 [overflow-wrap:anywhere]"
+        className="text-foreground/90 min-w-0 [overflow-wrap:anywhere] break-words"
         data-testid={testId}
       >
         {children}
@@ -316,7 +316,7 @@ function RunPythonFactRows({
         </RunPythonFactRow>
       </dl>
       {domainCount > 0 && !networkAskedHere ? (
-        <p className="mt-2 text-warning text-xs" data-testid="approval-run-python-forewarning">
+        <p className="text-warning mt-2 text-xs" data-testid="approval-run-python-forewarning">
           You'll be asked about internet access separately, right before it runs.
         </p>
       ) : null}
@@ -346,7 +346,7 @@ function RunPythonPreview({
       <>
         <PreviewParseError />
         <p
-          className="mt-1 text-warning text-xs"
+          className="text-warning mt-1 text-xs"
           data-testid="approval-run-python-grants-suppressed-note"
         >
           Because this tool runs code, we won't offer "always allow" for a call we can't read.
@@ -357,15 +357,15 @@ function RunPythonPreview({
   const codePreview = truncatePreviewText(parsed.code);
   return (
     <div className="mt-3 text-xs">
-      <p className="font-medium text-foreground/90">
+      <p className="text-foreground/90 font-medium">
         Run this Python code on your computer, in a sandbox.
       </p>
       {parsed.code.length === 0 ? (
-        <p className="mt-1.5 text-muted-foreground" data-testid="approval-run-python-empty">
+        <p className="text-muted-foreground mt-1.5" data-testid="approval-run-python-empty">
           This script is empty — it won't do anything.
         </p>
       ) : (
-        <div className="mt-1.5 h-64 overflow-hidden rounded-md border border-border">
+        <div className="border-border mt-1.5 h-64 overflow-hidden rounded-md border">
           <CodeSurface
             ariaLabel="Python code to run"
             language="python"
@@ -386,14 +386,14 @@ function RunPythonPreview({
       {!context && parsed.code.length > 0 ? (
         <>
           <p
-            className="mt-2 text-warning text-xs"
+            className="text-warning mt-2 text-xs"
             data-testid="approval-run-python-context-missing"
           >
             We couldn't confirm what this script is allowed to touch. Check the raw arguments below
             before approving.
           </p>
           <p
-            className="mt-1 text-warning text-xs"
+            className="text-warning mt-1 text-xs"
             data-testid="approval-run-python-grants-suppressed-note"
           >
             Because this tool runs code, we won't offer "always allow" for a call we can't confirm.
@@ -407,7 +407,7 @@ function RunPythonPreview({
 function RootLabel({ root }: { root: string }) {
   return (
     <span
-      className="inline-flex min-w-0 max-w-full rounded border border-border bg-muted/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+      className="border-border bg-muted/60 text-muted-foreground inline-flex max-w-full min-w-0 rounded border px-1.5 py-0.5 text-[10px]"
       data-testid="approval-workspace-root"
     >
       <span className="shrink-0 whitespace-pre">{'Workspace root: '}</span>
@@ -433,13 +433,13 @@ function FileTargetSummary({
 }) {
   return (
     <p
-      className="flex min-w-0 flex-wrap items-center font-medium text-foreground/90 text-xs"
+      className="text-foreground/90 flex min-w-0 flex-wrap items-center text-xs font-medium"
       data-testid="approval-file-target-summary"
     >
       {action ? <span>{action}</span> : null}
-      <span className="inline-flex min-w-0 max-w-full items-center">
+      <span className="inline-flex max-w-full min-w-0 items-center">
         {action ? <span className="shrink-0 whitespace-pre">{' · '}</span> : null}
-        <span className="inline-flex min-w-0 max-w-full">
+        <span className="inline-flex max-w-full min-w-0">
           <span className="shrink-0 whitespace-pre">{'Path: '}</span>
           <span className="min-w-0 truncate font-mono" title={path}>
             {path}
@@ -447,7 +447,7 @@ function FileTargetSummary({
         </span>
       </span>
       {root ? (
-        <span className="inline-flex min-w-0 max-w-full items-center">
+        <span className="inline-flex max-w-full min-w-0 items-center">
           <span className="shrink-0 whitespace-pre">{' · '}</span>
           <RootLabel root={root} />
         </span>
@@ -458,7 +458,7 @@ function FileTargetSummary({
 
 function PreviewParseError() {
   return (
-    <p className="mt-3 text-warning text-xs" data-testid="approval-preview-parse-error">
+    <p className="text-warning mt-3 text-xs" data-testid="approval-preview-parse-error">
       Could not render a preview for these arguments — see the raw arguments below.
     </p>
   );
@@ -475,18 +475,18 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
 
   return (
     <div className="mt-3">
-      <p className="font-medium text-foreground/90 text-xs">Command</p>
+      <p className="text-foreground/90 text-xs font-medium">Command</p>
       <pre
-        className="mt-1.5 max-w-full select-text overflow-x-hidden whitespace-pre-wrap rounded-md border border-border bg-muted/60 p-3 font-mono text-xs leading-5 [overflow-wrap:anywhere]"
+        className="border-border bg-muted/60 mt-1.5 max-w-full overflow-x-hidden rounded-md border p-3 font-mono text-xs leading-5 [overflow-wrap:anywhere] whitespace-pre-wrap select-text"
         data-testid="approval-command-preview"
       >
         <code data-testid="approval-command-code">{parsed.command}</code>
       </pre>
       <dl className="mt-2 space-y-1 text-xs">
         <div className="flex min-w-0 gap-2">
-          <dt className="shrink-0 text-muted-foreground">Working directory</dt>
+          <dt className="text-muted-foreground shrink-0">Working directory</dt>
           <dd
-            className="min-w-0 break-words font-mono text-foreground/90 [overflow-wrap:anywhere]"
+            className="text-foreground/90 min-w-0 font-mono [overflow-wrap:anywhere] break-words"
             data-testid="approval-command-cwd"
           >
             {parsed.cwd ?? defaultWorkingDirectory}
@@ -494,9 +494,9 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
         </div>
         {parsed.root ? (
           <div className="flex min-w-0 gap-2">
-            <dt className="shrink-0 text-muted-foreground">Workspace</dt>
+            <dt className="text-muted-foreground shrink-0">Workspace</dt>
             <dd
-              className="min-w-0 break-words font-mono text-foreground/90 [overflow-wrap:anywhere]"
+              className="text-foreground/90 min-w-0 font-mono [overflow-wrap:anywhere] break-words"
               data-testid="approval-command-root"
             >
               {parsed.root}
@@ -505,8 +505,8 @@ function ExecuteCommandPreview({ args }: { args: unknown }) {
         ) : null}
         {parsed.timeoutMs === undefined ? null : (
           <div className="flex min-w-0 gap-2">
-            <dt className="shrink-0 text-muted-foreground">Timeout</dt>
-            <dd className="font-mono text-foreground/90" data-testid="approval-command-timeout">
+            <dt className="text-muted-foreground shrink-0">Timeout</dt>
+            <dd className="text-foreground/90 font-mono" data-testid="approval-command-timeout">
               {parsed.timeoutMs} ms
             </dd>
           </div>
@@ -524,7 +524,7 @@ function RunSkillScriptPreview({ args }: { args: unknown }) {
   const fileName = parsed.scriptPath.split('/').at(-1) ?? parsed.scriptPath;
   return (
     <div className="mt-3 text-xs" data-testid="approval-skill-script-summary">
-      <p className="font-medium text-foreground/90">
+      <p className="text-foreground/90 font-medium">
         Run script <span className="font-mono">{fileName}</span> from activated skill{' '}
         <span className="font-mono">{parsed.skillName}</span>
       </p>
@@ -603,7 +603,7 @@ function moreTruncatedPreview(
 
 function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
   return (
-    <p className="mt-1.5 text-warning text-xs" data-testid="approval-preview-truncated-note">
+    <p className="text-warning mt-1.5 text-xs" data-testid="approval-preview-truncated-note">
       Preview truncated — showing {preview.shownChars} of {preview.totalChars} chars. Full content
       is in the raw arguments below.
     </p>
@@ -654,7 +654,7 @@ export function ApprovalPreview({
           path={parsed.path}
           root={approval.targetRoot?.displayName ?? parsed.root}
         />
-        <div className="mt-1.5 h-72 overflow-hidden rounded-md border border-border">
+        <div className="border-border mt-1.5 h-72 overflow-hidden rounded-md border">
           <DiffView
             ariaLabel={`Proposed changes to ${parsed.path}`}
             filename={parsed.path}
@@ -684,7 +684,7 @@ export function ApprovalPreview({
           path={parsed.path}
           root={approval.targetRoot?.displayName ?? parsed.root}
         />
-        <div className="mt-1.5 h-64 overflow-hidden rounded-md border border-border">
+        <div className="border-border mt-1.5 h-64 overflow-hidden rounded-md border">
           <CodeSurface
             ariaLabel={`New content for ${parsed.path}`}
             path={parsed.path}
@@ -708,9 +708,9 @@ function OtherArgumentsPreview({ args, enabled }: { args: unknown; enabled: bool
   const preview = truncatePreviewText(JSON.stringify(args, null, 2));
   return (
     <div className="mt-3">
-      <p className="mb-1 font-medium text-xs">Requested arguments</p>
+      <p className="mb-1 text-xs font-medium">Requested arguments</p>
       <pre
-        className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border bg-muted/40 p-2 text-xs"
+        className="bg-muted/40 max-h-48 overflow-auto rounded border p-2 text-xs break-words whitespace-pre-wrap"
         data-testid="approval-arguments-preview"
       >
         {preview.text}

@@ -221,7 +221,7 @@ function loadManifestTargets(manifest, manifestPath) {
     const entry = manifest.targets[target];
     if (
       typeof entry?.sha256 !== 'string' ||
-      !/^[0-9a-f]{64}$/.test(entry.sha256) ||
+      !/^[0-9a-f]{64}$/u.test(entry.sha256) ||
       !Number.isSafeInteger(entry?.bytes) ||
       entry.bytes <= 0
     ) {
@@ -235,8 +235,8 @@ function loadManifestTargets(manifest, manifestPath) {
         !['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu'].includes(target) ||
         derived?.variant !== 'no-dbm-v1' ||
         typeof derived.archiveFileName !== 'string' ||
-        !/^cpython-[a-zA-Z0-9+._-]+\.tar\.gz$/.test(derived.archiveFileName) ||
-        !/^[0-9a-f]{64}$/.test(derived.sha256 ?? '') ||
+        !/^cpython-[a-zA-Z0-9+._-]+\.tar\.gz$/u.test(derived.archiveFileName) ||
+        !/^[0-9a-f]{64}$/u.test(derived.sha256 ?? '') ||
         !Number.isSafeInteger(derived.bytes) ||
         derived.bytes <= 0
       ) {

@@ -39,7 +39,7 @@ function findMarkerlessIdentifierOffsets(line: string, identifier: string): numb
 function findLspMatchCandidateLines(lines: readonly string[], match: string): number[] {
   const candidates: number[] = [];
   for (const [index, rawLine] of lines.entries()) {
-    if (findMarkerlessIdentifierOffsets(rawLine.replace(/\r$/, ''), match).length > 0) {
+    if (findMarkerlessIdentifierOffsets(rawLine.replace(/\r$/u, ''), match).length > 0) {
       candidates.push(index + 1);
       if (candidates.length === MAX_LSP_MATCH_CANDIDATE_LINES) {
         break;
@@ -105,7 +105,7 @@ export async function runLspInspect(
   // never silently inspect the wrong column (mirrors stringReplace's
   // validate-before-position convention). CRLF: the split leaves a trailing
   // \r; it can't precede the marker, so ignoring it never shifts the column.
-  const lineText = (lines[input.line - 1] ?? '').replace(/\r$/, '');
+  const lineText = (lines[input.line - 1] ?? '').replace(/\r$/u, '');
   const markerlessOffsets = isMarkerlessIdentifier
     ? findMarkerlessIdentifierOffsets(lineText, strippedMatch)
     : [];

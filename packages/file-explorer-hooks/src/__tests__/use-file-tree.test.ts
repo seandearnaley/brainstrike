@@ -242,7 +242,7 @@ describe('useFileTree', () => {
       expect(error).toBeInstanceOf(Error);
       expect(error).not.toBeInstanceOf(PartialRefreshError);
       if (error instanceof Error) {
-        expect(error.message).toMatch(/Failed to refresh file tree/);
+        expect(error.message).toMatch(/Failed to refresh file tree/u);
       }
     });
 

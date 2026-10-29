@@ -26,7 +26,7 @@ export function NetworkDomainChecklist({
   const fieldId = useId();
   return (
     <>
-      <p className="mt-2 text-muted-foreground text-xs">It will be able to connect to:</p>
+      <p className="text-muted-foreground mt-2 text-xs">It will be able to connect to:</p>
       <div
         className="mt-1 max-h-48 space-y-1.5 overflow-auto"
         data-testid="run-python-network-domains"
@@ -43,18 +43,18 @@ export function NetworkDomainChecklist({
             <label className="min-w-0" htmlFor={`${fieldId}-${domain}`}>
               {/* Never truncate a domain with an ellipsis: pypi.org.evil.com
                   clipped to pypi.org… is a lie. */}
-              <span className="break-all font-mono text-foreground/90">{domain}</span>
+              <span className="text-foreground/90 font-mono break-all">{domain}</span>
               {wildcardGloss(domain) ? (
-                <span className="ml-1 text-muted-foreground">{wildcardGloss(domain)}</span>
+                <span className="text-muted-foreground ml-1">{wildcardGloss(domain)}</span>
               ) : null}
             </label>
           </div>
         ))}
       </div>
-      <p className="mt-2 text-muted-foreground text-xs">
+      <p className="text-muted-foreground mt-2 text-xs">
         Nothing else. Every other address is blocked.
       </p>
-      <p className="mt-1 text-foreground/90 text-xs">
+      <p className="text-foreground/90 mt-1 text-xs">
         Once it can connect, it can also send data out — including anything it read from your files.
       </p>
     </>

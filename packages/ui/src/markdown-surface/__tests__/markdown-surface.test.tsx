@@ -63,13 +63,13 @@ describe('MarkdownSurface', () => {
     renderSurface('---\ntitle: Spec\n---\n# Body\n');
     expect(screen.getByTestId('markdown-frontmatter')).toHaveTextContent('title');
     expect(screen.getByTestId('markdown-frontmatter')).toHaveTextContent('Spec');
-    expect(screen.queryByText(/title: Spec/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/title: Spec/u)).not.toBeInTheDocument();
   });
 
   it('renders invalid frontmatter visibly with the raw block', () => {
     renderSurface('---\n: : :\n---\nbody\n');
     expect(screen.getByTestId('markdown-frontmatter-error')).toHaveTextContent(
-      /invalid frontmatter/i
+      /invalid frontmatter/iu
     );
     expect(screen.getByTestId('markdown-frontmatter-error')).toHaveTextContent(': : :');
   });
@@ -183,7 +183,7 @@ describe('MarkdownSurface', () => {
 
   it('shows a truncation notice when truncated', () => {
     renderSurface('# a\n', { truncated: true });
-    expect(screen.getByText(/truncated/i)).toBeInTheDocument();
+    expect(screen.getByText(/truncated/iu)).toBeInTheDocument();
   });
 
   it('snapshots exact text selected entirely inside the surface on contextmenu', () => {

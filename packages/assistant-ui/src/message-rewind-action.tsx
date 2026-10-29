@@ -74,7 +74,7 @@ export function MessageRewindAction({
         <TooltipTrigger asChild>
           <Button
             aria-label={REWIND_ACTION_LABEL}
-            className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
+            className="text-muted-foreground h-5 gap-1 px-1.5 text-[11px]"
             data-testid="message-rewind-action"
             onClick={onClick}
             size="sm"

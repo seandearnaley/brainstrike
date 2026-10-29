@@ -112,7 +112,7 @@ describe('GrepSearchService', () => {
   it('throws a structured error for an invalid regex (no literal fallback)', async () => {
     const service = new GrepSearchService(stubRepository([]));
     await expect(service.search({ isRegex: true, pattern: '([unclosed' })).rejects.toThrow(
-      /Invalid regular expression pattern/
+      /Invalid regular expression pattern/u
     );
   });
 
@@ -181,7 +181,7 @@ describe('GrepSearchService', () => {
 
   it('rejects patterns shorter than 2 characters', async () => {
     const service = new GrepSearchService(stubRepository([]));
-    await expect(service.search({ pattern: 'x' })).rejects.toThrow(/at least 2 characters/);
+    await expect(service.search({ pattern: 'x' })).rejects.toThrow(/at least 2 characters/u);
   });
 
   it('carries rootId and rootName from the candidate onto each match', async () => {

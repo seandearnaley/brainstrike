@@ -24,10 +24,10 @@ export function ProviderRecommendationPanel({
   return (
     <Card className="border-primary/30 bg-primary/5 p-4" data-testid="provider-recommendations">
       <div className="flex items-start gap-3">
-        <Sparkles aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+        <Sparkles aria-hidden="true" className="text-primary mt-0.5 size-4 shrink-0" />
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h3 className="font-medium text-sm">Connect your first provider</h3>
+            <h3 className="text-sm font-medium">Connect your first provider</h3>
             <p className="text-muted-foreground text-xs">
               Add a key for any provider below to start chatting. You can add more at any time.
             </p>

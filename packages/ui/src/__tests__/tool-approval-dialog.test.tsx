@@ -185,7 +185,7 @@ describe('ToolApprovalDialog', () => {
       render(<ToolApprovalDialog onResult={mockOnResult} open={true} tool={longValueTool} />);
 
       // Should show truncated value with ellipsis
-      expect(screen.getByText(/\.\.\.$/)).toBeInTheDocument();
+      expect(screen.getByText(/\.\.\.$/u)).toBeInTheDocument();
     });
 
     it('displays array values as count', () => {

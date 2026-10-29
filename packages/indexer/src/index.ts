@@ -1,12 +1,3 @@
-import type { ScopedFileChunkBounds, ScopedFilePage } from './contracts.ts';
-
-export type {
-  ScopedFileChunkBounds,
-  ScopedFileChunkBoundsRequest,
-  ScopedFilePage,
-  ScopedFilePageRequest,
-} from './contracts.ts';
-
 import { fork } from 'node:child_process';
 import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +9,8 @@ import type {
   IndexerInfo,
   IndexerManifestResult,
   ScopedCoverage,
+  ScopedFileChunkBounds,
+  ScopedFilePage,
   ScopedFilePlan,
   ScopedManifestResult,
   ScopedSearchResult,
@@ -65,6 +58,10 @@ export type {
   ProvidedFileSnapshot,
   ScopedCoverage,
   ScopedCoverageRequest,
+  ScopedFileChunkBounds,
+  ScopedFileChunkBoundsRequest,
+  ScopedFilePage,
+  ScopedFilePageRequest,
   ScopedFilePlan,
   ScopedFileSnapshot,
   ScopedManifestChunk,

@@ -122,6 +122,6 @@ describe('search tool-call telemetry extraction', () => {
       truncated: false,
       zeroMatch: false,
     });
-    expect(JSON.stringify(metadata)).not.toMatch(/PRIVATE_PATTERN|PRIVATE_PATH/);
+    expect(JSON.stringify(metadata)).not.toMatch(/PRIVATE_PATTERN|PRIVATE_PATH/u);
   });
 });

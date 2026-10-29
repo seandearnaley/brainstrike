@@ -51,11 +51,11 @@ const NoWorkspaceFolders = () => (
  */
 const SelectAllLoadingIndicator = () => (
   <div
-    className="absolute inset-0 z-30 flex items-center justify-center bg-background/50"
+    className="bg-background/50 absolute inset-0 z-30 flex items-center justify-center"
     data-testid="select-all-loading-overlay"
   >
-    <div className="flex items-center gap-2 rounded-md bg-background/90 px-3 py-2 shadow-sm">
-      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+    <div className="bg-background/90 flex items-center gap-2 rounded-md px-3 py-2 shadow-sm">
+      <Loader2 className="text-primary h-4 w-4 animate-spin" />
       <span className="text-muted-foreground text-xs">Selecting files...</span>
     </div>
   </div>
@@ -124,7 +124,7 @@ const ErrorDisplay = ({
   filterError?: Error | null;
 }) => (
   <div
-    className="m-2 rounded border border-red-400 bg-red-100 p-3 text-red-700 text-sm dark:border-red-700 dark:bg-red-900 dark:text-red-200"
+    className="m-2 rounded border border-red-400 bg-red-100 p-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-900 dark:text-red-200"
     role="alert"
   >
     <strong>Error: </strong>
@@ -140,7 +140,7 @@ const EmptyStateComponent = ({
   quickFilteredTree: IFileNode[] | null;
   rootDirectoryHandle: DirectoryHandle | null;
 }) => (
-  <div className="py-8 text-center text-muted-foreground">
+  <div className="text-muted-foreground py-8 text-center">
     {isLoading ? 'Loading files...' : 'No matching files found'}
   </div>
 );
@@ -200,13 +200,13 @@ const ForestSectionEmptyState = ({
   // section doesn't keep shouting the stale failure.
   if (loadError && !isLoading) {
     return (
-      <div className="px-9 py-1.5 text-destructive text-xs" role="alert">
+      <div className="text-destructive px-9 py-1.5 text-xs" role="alert">
         {`Couldn't read this folder: ${loadError.message}`}
       </div>
     );
   }
   return (
-    <div className="px-9 py-1.5 text-muted-foreground text-xs">
+    <div className="text-muted-foreground px-9 py-1.5 text-xs">
       {forestEmptyStateMessage({ includeFilters, isFilteredOut, isLoading, quickFilter })}
     </div>
   );
@@ -986,7 +986,7 @@ const FileExplorerSidebar = memo(
       };
 
       return (
-        <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
+        <div className="bg-panel-surface flex h-full w-full flex-col overflow-hidden">
           {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
           {/* ONE header for every section: N sticky headers inside the shared
               scroller would stack against the same scrollport. It aligns with
@@ -1030,7 +1030,7 @@ const FileExplorerSidebar = memo(
       getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId ?? '';
 
     return (
-      <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
+      <div className="bg-panel-surface flex h-full w-full flex-col overflow-hidden">
         {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
         {/* Per-root status must surface in the DEFAULT one-folder workspace
             too, not only in forest sections. Both status controls render
@@ -1054,7 +1054,7 @@ const FileExplorerSidebar = memo(
               ref={singleRootMenuAnchorRef}
               tabIndex={-1}
             >
-              <span className="truncate text-muted-foreground text-xs">
+              <span className="text-muted-foreground truncate text-xs">
                 {rootDirectoryHandle.name}
               </span>
               {singleRootFolderId ? <ThreadScopeMarker rootId={singleRootFolderId} /> : null}

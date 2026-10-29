@@ -108,7 +108,7 @@ const SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
  */
 export const execFileSnapshotGitRunner: SnapshotGitCommandRunner = execFileGitRunner;
 
-const OID_PATTERN = /^[0-9a-f]{40,64}$/;
+const OID_PATTERN = /^[0-9a-f]{40,64}$/u;
 
 /** Full hex object id — the engine never resolves symbolic refs from callers. */
 export function assertValidOid(oid: string, label: string): void {
@@ -119,7 +119,7 @@ export function assertValidOid(oid: string, label: string): void {
 
 // Root directories and legacy ref components retain their strict path validation.
 // Native thread identities use a bounded encoded ref when they do not fit it.
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 function assertValidIdentifier(value: string, label: string): void {
   if (!IDENTIFIER_PATTERN.test(value) || value.includes('..') || value.endsWith('.lock')) {
@@ -198,7 +198,7 @@ function gitIndexFileEnv(indexPath: string): Readonly<Record<string, string>> {
  * error — never classified as an absent side.
  */
 const CAT_FILE_ABSENT_STDERR_PATTERN =
-  /does not exist|exists on disk, but not in|invalid object name/;
+  /does not exist|exists on disk, but not in|invalid object name/u;
 
 /** One side's size-gated blob read (shape mirrors the structured-diff engine). */
 export type ShadowBlobRead =

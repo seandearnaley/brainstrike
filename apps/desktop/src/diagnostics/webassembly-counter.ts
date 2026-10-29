@@ -95,6 +95,7 @@ export function installWebAssemblyCounter(
   target.compile = countedCompile as typeof WebAssembly.compile;
 
   const OriginalInstance = target.Instance;
+  // biome-ignore lint/correctness/noComponentHookFactories: a WebAssembly constructor shim, not a React component.
   const CountedInstance = function Instance(
     this: unknown,
     ...args: ConstructorParameters<typeof WebAssembly.Instance>
@@ -111,6 +112,7 @@ export function installWebAssemblyCounter(
   target.Instance = CountedInstance;
 
   const OriginalMemory = target.Memory;
+  // biome-ignore lint/correctness/noComponentHookFactories: a WebAssembly constructor shim, not a React component.
   const CountedMemory = function Memory(
     this: unknown,
     ...args: ConstructorParameters<typeof WebAssembly.Memory>

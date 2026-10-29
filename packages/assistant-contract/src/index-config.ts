@@ -21,7 +21,7 @@ export const IndexChunkingSchema = Schema.TaggedUnion({
 /** An embedding model whose dimensions were verified. */
 export const IndexModelSchema = Schema.Struct({
   dimensions: IntBetween({ maximum: 16_000, minimum: 1 }),
-  modelKey: Schema.String.check(Schema.isPattern(/^[^:\s]+::\S+/)),
+  modelKey: Schema.String.check(Schema.isPattern(/^[^:\s]+::\S+/u)),
 });
 
 const fields = {

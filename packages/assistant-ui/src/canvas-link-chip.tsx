@@ -47,7 +47,7 @@ export function CanvasLinkChip({
     <div className="px-2 pb-1.5">
       <button
         aria-label={`Open canvas ${canvasId}, version ${version}`}
-        className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-muted/40 px-1.5 py-0.5 text-[11px] hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+        className="border-border bg-muted/40 hover:bg-muted inline-flex max-w-full items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-60"
         data-canvas-id={canvasId}
         data-testid="canvas-link-chip"
         disabled={!capabilities}
@@ -57,7 +57,7 @@ export function CanvasLinkChip({
       >
         <PanelsTopLeft aria-hidden="true" className="size-3 shrink-0" />
         <span className="truncate font-mono">{href}</span>
-        <span className="shrink-0 text-muted-foreground tabular-nums">v{version}</span>
+        <span className="text-muted-foreground shrink-0 tabular-nums">v{version}</span>
       </button>
     </div>
   );

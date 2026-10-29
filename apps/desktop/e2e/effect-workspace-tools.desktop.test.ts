@@ -36,7 +36,7 @@ test('Effect workspace and MCP producers retain validation, decisions, progress,
   await configureAssistantProvider(window);
   const settings = async () => {
     await new HomePage(window).openSettings();
-    await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+    await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   };
   await settings();
   await window.getByTestId('permission-policy-edit').selectOption('allow');
@@ -139,7 +139,7 @@ test('Effect workspace and MCP producers retain validation, decisions, progress,
   const serverId = 'effect-progress';
   const toolName = 'effect-progress_progress_forever';
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/AI Tools/i, 'ai-tools');
+  await new SettingsPage(window).openCategory(/AI Tools/iu, 'ai-tools');
   await window.getByRole('tab', { name: 'MCP Config' }).click();
   await window.getByTestId('mcp-config-editor').fill(
     JSON.stringify({
@@ -164,7 +164,7 @@ test('Effect workspace and MCP producers retain validation, decisions, progress,
   await window.getByTestId('mcp-config-save').click();
   await expect(window.getByTestId('mcp-config-status')).toHaveText('MCP config saved.');
   await window.getByRole('tab', { exact: true, name: 'Tools' }).click();
-  await expect(window.getByTestId(`mcp-server-row-${serverId}`)).toContainText(/connected/i, {
+  await expect(window.getByTestId(`mcp-server-row-${serverId}`)).toContainText(/connected/iu, {
     timeout: 60_000,
   });
   modelProvider.setScript(({ requestBody }) =>

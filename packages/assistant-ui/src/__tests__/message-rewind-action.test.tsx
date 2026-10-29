@@ -6,9 +6,21 @@
  * their prompt (Amendment 2). If a future change shortens the label, this suite
  * is the thing that should stop it.
  */
+
+import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  MessageRewindAction,
+  REWIND_ACTION_LABEL,
+  selectRewindComposerText,
+} from '../message-rewind-action';
+import {
+  type RewindContextValue,
+  RewindProvider,
+  type RewindRequestFromMessage,
+} from '../rewind-context';
 
 interface MockMessageState {
   readonly message: { readonly id: string; readonly role: string };
@@ -25,18 +37,6 @@ vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({ message: () => ({ getCopyText }) }),
   useAuiState: <T,>(selector: (state: MockMessageState) => T) => selector(mockState),
 }));
-
-import { TooltipProvider } from '@brainstrike/ui';
-import {
-  MessageRewindAction,
-  REWIND_ACTION_LABEL,
-  selectRewindComposerText,
-} from '../message-rewind-action';
-import {
-  type RewindContextValue,
-  RewindProvider,
-  type RewindRequestFromMessage,
-} from '../rewind-context';
 
 function renderAction(
   ui: ReactElement,

@@ -290,7 +290,7 @@ export function WorkspaceTabStrip(): ReactElement {
       items={items}
       leading={
         isEmpty ? (
-          <span className="px-1.5 font-medium text-muted-foreground text-xs">Workspace</span>
+          <span className="text-muted-foreground px-1.5 text-xs font-medium">Workspace</span>
         ) : null
       }
       onActivate={onActivateTab}

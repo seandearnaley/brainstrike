@@ -43,7 +43,7 @@ export function parsePositiveIntegerConfig({
   }
 
   const trimmedValue = rawValue.trim();
-  if (!/^\d+$/.test(trimmedValue)) {
+  if (!/^\d+$/u.test(trimmedValue)) {
     throw new Error(`${name} must be a positive integer, received "${rawValue}".`);
   }
   const parsed = Number(trimmedValue);

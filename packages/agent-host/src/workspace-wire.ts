@@ -70,7 +70,7 @@ export type HostTurnSnapshotRoot = (typeof HostTurnSnapshotRootSchema)['Type'];
  */
 export const HostTurnSnapshotSchema = Schema.Struct({
   ...HostTurnSnapshotRootSchema.fields,
-  commitOid: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40,64}$/)),
+  commitOid: Schema.String.check(Schema.isPattern(/^[0-9a-f]{40,64}$/u)),
 });
 export type HostTurnSnapshot = (typeof HostTurnSnapshotSchema)['Type'];
 /** A path whose files changed after a rewind's preview (or, for a redo, after the rewind). */

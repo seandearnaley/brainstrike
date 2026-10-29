@@ -55,7 +55,7 @@ export function CodeBlockBody({
   return (
     <div
       className={cn(
-        'bs-code-block-body overflow-x-auto rounded-b-md border border-border border-t-0 bg-muted/40',
+        'bs-code-block-body border-border bg-muted/40 overflow-x-auto rounded-b-md border border-t-0',
         className
       )}
     >

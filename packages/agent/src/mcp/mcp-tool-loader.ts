@@ -276,7 +276,7 @@ function findToolsetForServer(
 }
 
 function normalizeMcpServerName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return value.toLowerCase().replace(/[^a-z0-9]/gu, '');
 }
 
 function findSingleServerFallbackToolset(

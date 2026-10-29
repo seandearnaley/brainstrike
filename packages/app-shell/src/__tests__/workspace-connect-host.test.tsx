@@ -8,6 +8,7 @@ import {
 import { act } from '@brainstrike/test-utils/react-act';
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { WorkspaceConnectHost } from '../workspace-connect/workspace-connect-host';
 
 const { connectPathCapabilityRef, connectPathMock, openPickerMock } = vi.hoisted(() => ({
   connectPathCapabilityRef: { current: true },
@@ -21,8 +22,6 @@ vi.mock('../workspace-connect/use-connect-folder', () => ({
     ...(connectPathCapabilityRef.current ? { connectPath: connectPathMock } : {}),
   }),
 }));
-
-import { WorkspaceConnectHost } from '../workspace-connect/workspace-connect-host';
 
 interface MutableWindow {
   workspace?: unknown;

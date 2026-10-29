@@ -169,7 +169,7 @@ const SCRIPT_CLOSE = '</script>';
  * HTML parser does not recognize as a close tag.
  */
 function embedAsJsString(value: string): string {
-  return JSON.stringify(value).replace(/<\//g, String.raw`<\/`);
+  return JSON.stringify(value).replace(/<\//gu, String.raw`<\/`);
 }
 
 const PRELUDE_SOURCE = `(() => {

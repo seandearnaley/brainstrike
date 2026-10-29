@@ -93,7 +93,9 @@ describe('async-utility timeout wiring', () => {
 
     it('names the provide key browser projects must publish', () => {
       expect(ASYNC_UTIL_TIMEOUT_PROVIDE_KEY).toBe('asyncUtilTimeout');
-      expect(() => configureAsyncUtilTimeout(undefined)).toThrow(/test\.provide\.asyncUtilTimeout/);
+      expect(() => configureAsyncUtilTimeout(undefined)).toThrow(
+        /test\.provide\.asyncUtilTimeout/u
+      );
     });
   });
 
@@ -138,7 +140,7 @@ describe('async-utility timeout wiring', () => {
       // rejects it with "The URL must be of scheme file".
       const source = await readFile(join(import.meta.dirname, '..', 'vitest.setup.ts'), 'utf8');
 
-      expect(source).toMatch(/^import '\.\/vitest\.timeouts\.setup\.js';$/m);
+      expect(source).toMatch(/^import '\.\/vitest\.timeouts\.setup\.js';$/mu);
     });
   });
 });

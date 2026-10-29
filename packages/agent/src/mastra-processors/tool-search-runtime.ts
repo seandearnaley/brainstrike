@@ -230,7 +230,7 @@ function describeSearchMatches(matchedToolNames: readonly string[], catalogSize:
  * (review of #3049). Copy without the phrase — a plain miss, "Did you mean" —
  * passes through verbatim: there is nothing to call.
  */
-const LOAD_TOOL_NEXT_TURN_PATTERN = /\b(?:will be )?available on your next turns?\b/g;
+const LOAD_TOOL_NEXT_TURN_PATTERN = /\b(?:will be )?available on your next turns?\b/gu;
 // Kept clause-shaped (no colon) so it also reads inside Mastra's batch
 // sentence: "Loaded: a — <clause> | Not found: c".
 const LOAD_TOOL_SAME_RESPONSE_CLAUSE =

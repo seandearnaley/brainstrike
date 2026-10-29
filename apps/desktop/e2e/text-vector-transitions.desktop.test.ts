@@ -29,7 +29,7 @@ const MODEL = 'Text Embedding 3 Small';
 
 async function openSearchSettings(page: Page) {
   await new HomePage(page).openSettings();
-  return await new SettingsPage(page).openCategory(/Search & Indexing/i, 'search-indexing');
+  return await new SettingsPage(page).openCategory(/Search & Indexing/iu, 'search-indexing');
 }
 
 /** The ready index's status; anything else fails with its own reason. */
@@ -171,13 +171,13 @@ test.describe('Text and semantic search transitions (desktop)', () => {
       const section = await openSearchSettings(page);
       await section
         .getByRole('group', { name: 'Search mode' })
-        .getByRole('button', { name: /^Semantic/ })
+        .getByRole('button', { name: /^Semantic/u })
         .click();
       const pending = section.getByRole('status', { name: 'Pending changes' });
       const apply = pending.getByRole('button', { exact: true, name: 'Apply and re-index' });
       await expect(apply).toBeDisabled();
       await section.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
-      await page.getByRole('option', { name: new RegExp(MODEL) }).click();
+      await page.getByRole('option', { name: new RegExp(MODEL, 'u') }).click();
       await apply.click();
       await expect(pending).toBeHidden({ timeout: 15_000 });
       expect(await readIndexConfig(page)).toMatchObject({
@@ -216,7 +216,7 @@ test.describe('Text and semantic search transitions (desktop)', () => {
       const section = await openSearchSettings(page);
       const text = section
         .getByRole('group', { name: 'Search mode' })
-        .getByRole('button', { name: /^Text/ });
+        .getByRole('button', { name: /^Text/u });
       await text.click();
       await expect(text).toHaveAttribute('aria-pressed', 'true');
       await new HomePage(page).leaveSettings();

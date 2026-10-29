@@ -232,7 +232,7 @@ function GeneralLoggingCard({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+          <div className="border-border/60 flex items-start justify-between gap-3 rounded-md border p-3">
             <div>
               <Label className="flex items-center gap-2" htmlFor="console-enabled">
                 Console Logging
@@ -249,7 +249,7 @@ function GeneralLoggingCard({
             />
           </div>
 
-          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+          <div className="border-border/60 flex items-start justify-between gap-3 rounded-md border p-3">
             <div>
               <Label className="flex items-center gap-2" htmlFor="include-timestamp">
                 Include Timestamp
@@ -309,12 +309,12 @@ function FileLoggingCard({
       </CardHeader>
       <CardContent className="space-y-4">
         {fileCapabilities?.reason ? (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-warning text-xs">
+          <div className="text-warning rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
             {fileCapabilities.reason}
           </div>
         ) : null}
 
-        <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+        <div className="border-border/60 flex items-start justify-between gap-3 rounded-md border p-3">
           <div>
             <Label htmlFor="file-enabled">Enable File Logging</Label>
             <p className="text-muted-foreground text-xs">
@@ -330,10 +330,10 @@ function FileLoggingCard({
         </div>
 
         <div className="space-y-2">
-          <Label>Destination</Label>
+          <p className="text-sm leading-none font-medium">Destination</p>
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-            <div className="flex-1 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-sm">
-              <div className="font-medium text-muted-foreground">{fileDestinationLabel.label}</div>
+            <div className="border-border/60 bg-muted/40 flex-1 rounded-md border px-3 py-2 text-sm">
+              <div className="text-muted-foreground font-medium">{fileDestinationLabel.label}</div>
               {fileDestinationLabel.hint ? (
                 <div className="text-muted-foreground/80 text-xs">{fileDestinationLabel.hint}</div>
               ) : null}
@@ -379,7 +379,7 @@ function FileLoggingCard({
               <SelectContent>{logLevelItems}</SelectContent>
             </Select>
           </div>
-          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+          <div className="border-border/60 flex items-start justify-between gap-3 rounded-md border p-3">
             <div>
               <Label htmlFor="file-append">Append Mode</Label>
               <p className="text-muted-foreground text-xs">Keep history between sessions.</p>
@@ -391,7 +391,7 @@ function FileLoggingCard({
               onCheckedChange={(checked) => applyNestedUpdates({ append: checked })}
             />
           </div>
-          <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 p-3">
+          <div className="border-border/60 flex items-start justify-between gap-3 rounded-md border p-3">
             <div>
               <Label htmlFor="file-mkdir">Auto-create Folders</Label>
               <p className="text-muted-foreground text-xs">Create missing directories as needed.</p>
@@ -446,9 +446,9 @@ function AdvancedLoggingCard({
           </p>
         </div>
 
-        <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+        <div className="border-border/60 flex items-center justify-between rounded-md border p-3">
           <div>
-            <div className="font-medium text-sm">Restore Defaults</div>
+            <div className="text-sm font-medium">Restore Defaults</div>
             <p className="text-muted-foreground text-xs">
               Reset all logging preferences to their recommended defaults.
             </p>
@@ -541,9 +541,9 @@ function DiagnosticsRetentionCard({
         </div>
 
         {onPurgeNow ? (
-          <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
+          <div className="border-border/60 flex items-center justify-between rounded-md border p-3">
             <div>
-              <div className="font-medium text-sm">Purge Now</div>
+              <div className="text-sm font-medium">Purge Now</div>
               <p className="text-muted-foreground text-xs">
                 Immediately delete diagnostic events past the limits above.
               </p>
@@ -560,7 +560,7 @@ function DiagnosticsRetentionCard({
             </Button>
           </div>
         ) : (
-          <p className="rounded-md border border-border/60 p-3 text-muted-foreground text-xs">
+          <p className="border-border/60 text-muted-foreground rounded-md border p-3 text-xs">
             These limits apply once the local database is available.
           </p>
         )}

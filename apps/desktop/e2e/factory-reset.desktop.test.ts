@@ -32,7 +32,7 @@ async function openTokenCountingSettings(
   settingsPage: SettingsPage
 ): Promise<void> {
   await homePage.openSettings();
-  await settingsPage.openCategory(/Token Counting/i, 'token-counting');
+  await settingsPage.openCategory(/Token Counting/iu, 'token-counting');
 }
 
 async function overrideNextConfirm(
@@ -149,7 +149,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     settingsPage: SettingsPage
   ): Promise<void> {
     await homePage.openSettings();
-    await settingsPage.openCategory(/Factory Reset/i, 'factory-reset');
+    await settingsPage.openCategory(/Factory Reset/iu, 'factory-reset');
   }
 
   test.afterEach(async ({ window }) => {
@@ -276,7 +276,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
     // A saved permission policy, which the agent host keeps (BST-1930 stage e).
     await homePage.openSettings();
-    await settingsPage.openCategory(/Permissions/i, 'permissions');
+    await settingsPage.openCategory(/Permissions/iu, 'permissions');
     await window.getByTestId('permission-policy-edit').selectOption('deny');
     await expect(window.getByTestId('permission-policy-edit')).toHaveValue('deny');
 
@@ -344,7 +344,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     expect(fs.existsSync(diagnosticFile)).toBe(true);
     // The reset cleared the saved policy with the host's state: the default applies again.
     await restartedHomePage.openSettings();
-    await restartedSettingsPage.openCategory(/Permissions/i, 'permissions');
+    await restartedSettingsPage.openCategory(/Permissions/iu, 'permissions');
     await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
   });
   // A profile saved before local embedding models were removed (#4420) holds an index file of
@@ -396,7 +396,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const homePage = new HomePage(reopened);
     const settingsPage = new SettingsPage(reopened);
     await homePage.openSettings();
-    const unreadable = await settingsPage.openCategory(/Search & Indexing/i, 'search-indexing');
+    const unreadable = await settingsPage.openCategory(/Search & Indexing/iu, 'search-indexing');
     await expect(unreadable.getByRole('alert').first()).toContainText(
       'The saved search index settings are from another version and cannot be read'
     );
@@ -413,7 +413,7 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     await waitForAppReady(reopened);
     expect(await readIndexConfig(reopened)).toEqual(DEFAULT_INDEX_CONFIG);
     await homePage.openSettings();
-    const fresh = await settingsPage.openCategory(/Search & Indexing/i, 'search-indexing');
+    const fresh = await settingsPage.openCategory(/Search & Indexing/iu, 'search-indexing');
     await expect(fresh.getByRole('alert')).toHaveCount(0);
   });
   // Two folders: the first opened with the workspace, the second added from the Explorer.
@@ -494,13 +494,13 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       await expect(window.getByTestId('indexing-status-value')).toHaveText('Ready');
       await homePage.openSettings();
       const searchSettings = await new SettingsPage(window).openCategory(
-        /Search & Indexing/i,
+        /Search & Indexing/iu,
         'search-indexing'
       );
       await expect(
         searchSettings
           .getByRole('group', { name: 'Search mode' })
-          .getByRole('button', { name: /^Text/ })
+          .getByRole('button', { name: /^Text/u })
       ).toHaveAttribute('aria-pressed', 'true');
       await expect(searchSettings).not.toContainText('The search index is closed');
       await homePage.leaveSettings();

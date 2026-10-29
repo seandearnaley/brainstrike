@@ -36,9 +36,9 @@ describe('ThemeSettings', () => {
     render(<ThemeSettings />);
 
     // Get all buttons
-    const darkButton = screen.getByRole('button', { name: /dark/i });
-    const lightButton = screen.getByRole('button', { name: /light/i });
-    const systemButton = screen.getByRole('button', { name: /system/i });
+    const darkButton = screen.getByRole('button', { name: /dark/iu });
+    const lightButton = screen.getByRole('button', { name: /light/iu });
+    const systemButton = screen.getByRole('button', { name: /system/iu });
 
     // The active button (dark) should not have the outline class
     expect(darkButton).not.toHaveClass('border');

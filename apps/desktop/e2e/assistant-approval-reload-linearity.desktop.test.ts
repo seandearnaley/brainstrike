@@ -100,7 +100,7 @@ async function waitForAssistantChat(window: Page): Promise<void> {
   await expect(await ensureAssistantShellVisible(window)).toBeVisible({
     timeout: E2E_TIMEOUTS.cardVisibility,
   });
-  const loadingIndicator = window.getByText(/Loading assistant/i);
+  const loadingIndicator = window.getByText(/Loading assistant/iu);
   if (await loadingIndicator.isVisible().catch(() => false)) {
     await loadingIndicator.waitFor({
       state: 'hidden',
@@ -396,7 +396,7 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         });
         await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
         await new HomePage(window).openSettings();
-        await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+        await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
         await window
           .getByRole('combobox', { exact: true, name: 'Read permission' })
           .selectOption('ask');
@@ -406,7 +406,7 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
         await root.getByRole('button', { exact: true, name: 'Send' }).click();
         await expect(root.getByTestId('host-child-waiting')).toBeVisible();
         await ensureActivityExpanded(root);
-        await root.getByRole('button', { name: /Open .* conversation/ }).click();
+        await root.getByRole('button', { name: /Open .* conversation/u }).click();
         const childTab = window
           .getByRole('tablist', { name: 'Workspace tabs' })
           .getByRole('tab', { selected: true });

@@ -112,10 +112,10 @@ describe('useFileSystem context hook', () => {
     // The reducer is the sole handle owner; the focused handle is stamped with a
     // durable RootId (storage v5), so it is a superset of the raw mock handle.
     expect(handle).toMatchObject(mockHandle);
-    expect(handle?.rootId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(handle?.rootId).toMatch(/^[0-9a-f-]{36}$/u);
     expect(result.current.fs.rootDirectoryHandle).toMatchObject(mockHandle);
     // v5: currentFolderId is a durable RootId UUID, not the handle path.
-    expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/u);
     expect(result.current.fs.isAccessLoading).toBe(false);
   });
 
@@ -554,7 +554,7 @@ describe('useFileSystem context hook', () => {
       expect(result.current.fs.rootDirectoryHandle).toMatchObject(restoredHandle);
       // v5: on a true first run (nothing persisted) currentFolderId is a
       // freshly minted durable RootId UUID, not the handle path.
-      expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(result.current.store.getState().currentFolderId).toMatch(/^[0-9a-f-]{36}$/u);
     });
   });
 

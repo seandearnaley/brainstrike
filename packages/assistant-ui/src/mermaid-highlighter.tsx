@@ -21,7 +21,7 @@ const MermaidHighlighterImpl = (props: SyntaxHighlighterProps) => {
   }
   return (
     <Suspense fallback={<SyntaxHighlighterComponent {...props} />}>
-      <div className="rounded-b-md border border-border border-t-0 p-3">
+      <div className="border-border rounded-b-md border border-t-0 p-3">
         <MermaidBlock code={props.code} key={props.code} />
       </div>
     </Suspense>

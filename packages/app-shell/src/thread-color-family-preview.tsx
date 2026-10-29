@@ -41,7 +41,7 @@ export function ThreadColorFamilyPreview({
   const colors = useMemo(() => previewColors(rootColor ?? 'blue'), [rootColor]);
   return (
     <div className="mt-2 border-t pt-2" data-testid="thread-color-family-preview">
-      <p className="text-[11px] text-muted-foreground">New agents get distinct, related colors.</p>
+      <p className="text-muted-foreground text-[11px]">New agents get distinct, related colors.</p>
       <p className="sr-only">
         Preview: one root agent branches to three child agents; one child branches to two more.
       </p>
@@ -72,7 +72,7 @@ export function ThreadColorFamilyPreview({
           );
         })}
       </svg>
-      <p className="text-[10px] text-muted-foreground leading-3">
+      <p className="text-muted-foreground text-[10px] leading-3">
         Changing this color sets the starting point for new agents.
       </p>
     </div>

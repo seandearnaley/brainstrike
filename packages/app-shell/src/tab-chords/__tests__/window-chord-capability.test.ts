@@ -1,11 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { canClaimWindowChords } from '../window-chord-capability';
 
 const { logError } = vi.hoisted(() => ({ logError: vi.fn() }));
 vi.mock('@brainstrike/logging', () => ({
   createLogger: () => ({ debug: vi.fn(), error: logError, info: vi.fn(), warn: vi.fn() }),
 }));
-
-import { canClaimWindowChords } from '../window-chord-capability';
 
 /** `Reflect` because the window typings already declare a narrower `desktopLifecycle`. */
 function setLifecycleBridge(bridge: unknown): void {

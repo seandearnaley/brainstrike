@@ -77,7 +77,7 @@ export function CommittedNetworkConsent({
       data-testid="committed-network-consent"
       ref={decisionRef}
     >
-      <legend className="font-medium text-xs">This script wants to reach the internet</legend>
+      <legend className="text-xs font-medium">This script wants to reach the internet</legend>
       <ApprovalPreview approval={subject} networkAskedHere />
       {domains.length === 0 ? (
         <p className="text-muted-foreground text-xs" data-testid="run-python-network-unreadable">

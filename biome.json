@@ -17,7 +17,13 @@
         "noUndeclaredDependencies": "error"
       },
       "style": {
-        "useConsistentEnumValueType": "error"
+        "useConsistentEnumValueType": "error",
+        "useDomQuerySelector": "off",
+        "useNamedCaptureGroup": "off",
+        "useThisInClassMethods": "off"
+      },
+      "suspicious": {
+        "noLoopFunc": "off"
       }
     }
   },
@@ -28,6 +34,9 @@
         "rules": {
           "correctness": {
             "noUndeclaredDependencies": "off"
+          },
+          "performance": {
+            "useDomNodeTextContent": "off"
           }
         }
       }
@@ -36,6 +45,9 @@
       "includes": ["**/__tests__/**", "**/*.test.*", "**/*.stories.*"],
       "linter": {
         "rules": {
+          "correctness": {
+            "noComponentHookFactories": "off"
+          },
           "nursery": {
             "noFloatingPromises": "off"
           }

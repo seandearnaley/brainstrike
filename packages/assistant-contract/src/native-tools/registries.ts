@@ -37,7 +37,7 @@ export function toNativeToolKey(toolId: string): string {
   if (toolId.startsWith('brainstrike.')) {
     return toolId.slice('brainstrike.'.length);
   }
-  return toolId.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+  return toolId.replace(/_([a-z])/gu, (_match, letter: string) => letter.toUpperCase());
 }
 
 type IdOf<Tools extends readonly NativeToolDefinition[]> = Tools[number]['id'];

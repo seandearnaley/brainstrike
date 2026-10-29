@@ -121,7 +121,7 @@ describe('ModelPicker', () => {
     it('gives the selected model a provider-aware accessible name', () => {
       render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
 
-      expect(screen.getByRole('combobox')).toHaveAccessibleName(/GPT-5\.2.*OpenAI/i);
+      expect(screen.getByRole('combobox')).toHaveAccessibleName(/GPT-5\.2.*OpenAI/iu);
     });
 
     it('handles multi-select mode - adds selection', () => {
@@ -357,7 +357,7 @@ describe('ModelPicker', () => {
       render(<ModelPicker models={models} modelType="llm" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
 
-      const option = screen.getByRole('option', { name: /GPT-5\.2/i });
+      const option = screen.getByRole('option', { name: /GPT-5\.2/iu });
       expect(within(option).getByText('128K context')).toBeInTheDocument();
       expect(within(option).getByText('Streaming')).toBeInTheDocument();
     });
@@ -471,7 +471,7 @@ describe('ModelPicker', () => {
       fireEvent.click(screen.getByRole('combobox'));
 
       // Count how many models are visible (should be 3)
-      const visibleModels = screen.getAllByText(/Embed English|Embed Multilingual|Text Embedding/);
+      const visibleModels = screen.getAllByText(/Embed English|Embed Multilingual|Text Embedding/u);
       expect(visibleModels).toHaveLength(3);
     });
   });
@@ -489,7 +489,7 @@ describe('ModelPicker', () => {
       const className = (popover as HTMLElement).className;
 
       // Must explicitly opt out of the default z-50 (which is below dialog content z-[51])
-      expect(className).toMatch(/z-\[(5[2-9]|[6-9]\d|1\d{2,})\]/);
+      expect(className).toMatch(/z-\[(5[2-9]|[6-9]\d|1\d{2,})\]/u);
     });
 
     // The popover is fixed at w-[400px] which overflows narrow viewports (mobile/tablet portrait).
@@ -504,7 +504,7 @@ describe('ModelPicker', () => {
 
       // The popover must be bounded by the viewport — either via max-w-[...vw...]
       // or via a w-[...] expression that includes a viewport unit (e.g. min(400px,calc(100vw-2rem))).
-      expect(className).toMatch(/(?:max-w|w)-\[(?:[^\]]*v[wh]|calc\([^\]]*v[wh])/);
+      expect(className).toMatch(/(?:max-w|w)-\[(?:[^\]]*v[wh]|calc\([^\]]*v[wh])/u);
     });
 
     // Popover modal=true conflicts with parent Dialog modal=true (FocusScope fights).

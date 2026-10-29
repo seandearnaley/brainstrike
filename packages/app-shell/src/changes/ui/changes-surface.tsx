@@ -186,7 +186,7 @@ export function ChangesSurface(): ReactElement {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground"
+      className="bg-background text-foreground flex h-full min-h-0 flex-col overflow-hidden"
       data-testid="changes-surface"
     >
       <ChangesetHeader
@@ -206,7 +206,7 @@ export function ChangesSurface(): ReactElement {
       />
       {rootId && changeset ? (
         <div className="flex min-h-0 flex-1">
-          <div className="flex w-72 shrink-0 flex-col border-border border-r">
+          <div className="border-border flex w-72 shrink-0 flex-col border-r">
             <ChangedFilesTree
               changesetKey={changesetKey}
               files={renderedFiles}

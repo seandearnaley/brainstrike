@@ -2,6 +2,8 @@ import type { ChangedFileEntry, GitResult, StructuredFileDiff } from '@brainstri
 import type { DiffViewSource } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { changedFileKey, useChangesStore } from '../changes-store';
+import { ChangesetDiffPane } from '../ui/changeset-diff-pane';
 
 // Stub the heavy CodeMirror DiffView (covered by its own suite).
 vi.mock('@brainstrike/ui', async (importOriginal) => {
@@ -17,9 +19,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     ),
   };
 });
-
-import { changedFileKey, useChangesStore } from '../changes-store';
-import { ChangesetDiffPane } from '../ui/changeset-diff-pane';
 
 /** Synchronously reports every observed target as intersecting, so every
  * card in the pane loads immediately without simulating real scrolling. */

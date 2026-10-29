@@ -1,3 +1,8 @@
+import {
+  useAdapters,
+  useFileExplorer as useCoreFileExplorer,
+  useFileContentLoading,
+} from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/file-tree-test-fixtures';
 import type { StorageAdapter } from '@brainstrike/storage';
@@ -5,6 +10,11 @@ import { act } from '@brainstrike/test-utils/react-act';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
+import { useFileSystem } from '../shell/file-system-provider';
+import { __resetRestorationLock, useFileExplorer } from '../shell/use-file-explorer-context';
+import { useFileTree } from '../tree/use-file-tree-context';
+import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 // Mocks for internal context hooks
 vi.mock('../shell/file-explorer-provider', () => {
@@ -45,17 +55,6 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
     })),
   };
 });
-
-import {
-  useAdapters,
-  useFileExplorer as useCoreFileExplorer,
-  useFileContentLoading,
-} from '@brainstrike/file-explorer-hooks';
-import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import { useFileSystem } from '../shell/file-system-provider';
-import { __resetRestorationLock, useFileExplorer } from '../shell/use-file-explorer-context';
-import { useFileTree } from '../tree/use-file-tree-context';
-import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 describe('useFileExplorer (context)', () => {
   const mockSelectRootDirectory = vi.fn();

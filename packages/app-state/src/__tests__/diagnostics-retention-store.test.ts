@@ -48,10 +48,10 @@ describe('diagnostics-retention-store', () => {
     const store = useDiagnosticsRetentionStore.getState();
 
     for (const invalid of [0, 1, 15, 91, -30, Number.NaN]) {
-      expect(() => store.setMaxAgeDays(invalid)).toThrow(/maxAgeDays/);
+      expect(() => store.setMaxAgeDays(invalid)).toThrow(/maxAgeDays/u);
     }
     for (const invalid of [0, 1, 100, 19_999, -20_000, Number.NaN]) {
-      expect(() => store.setMaxRows(invalid)).toThrow(/maxRows/);
+      expect(() => store.setMaxRows(invalid)).toThrow(/maxRows/u);
     }
 
     // A rejected write never lands.

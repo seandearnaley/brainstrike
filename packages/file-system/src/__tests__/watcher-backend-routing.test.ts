@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ElectronFileSystemAdapter } from '../adapters/electron-adapter.js';
 import type { DirectoryHandle } from '../types.js';
 
 vi.mock('electron', () => ({
@@ -23,8 +24,6 @@ vi.mock('../adapters/root-watchers', async (importOriginal) => {
     startRootWatch: startRootWatchMock,
   };
 });
-
-import { ElectronFileSystemAdapter } from '../adapters/electron-adapter.js';
 
 describe('watchDirectory backend routing', () => {
   let tempDir = '';

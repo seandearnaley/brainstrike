@@ -32,7 +32,7 @@ describe('provider auth metadata', () => {
       if (provider.authType !== 'api_key') {
         continue;
       }
-      expect(provider.docsUrl, `${provider.id} docsUrl`).toMatch(/^https:\/\//);
+      expect(provider.docsUrl, `${provider.id} docsUrl`).toMatch(/^https:\/\//u);
     }
   });
 

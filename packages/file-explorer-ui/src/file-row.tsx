@@ -30,17 +30,17 @@ export const FileRow = memo<FileRowProps>(function FileRow({
   formatFileSize,
 }) {
   return (
-    <div className="flex h-full w-full items-center gap-3 border-border/50 border-b px-4 py-2 hover:bg-muted/50">
+    <div className="border-border/50 hover:bg-muted/50 flex h-full w-full items-center gap-3 border-b px-4 py-2">
       <Checkbox
         checked={isSelected}
         className="flex-shrink-0"
         onCheckedChange={(checked) => onToggleSelection(checked === true)}
       />
 
-      <FileIcon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+      <FileIcon className="text-muted-foreground h-4 w-4 flex-shrink-0" />
 
       <button
-        className="min-w-0 flex-1 cursor-pointer text-left transition-colors hover:text-primary"
+        className="hover:text-primary min-w-0 flex-1 cursor-pointer text-left transition-colors"
         onClick={onShowDetail}
         type="button"
       >
@@ -49,7 +49,7 @@ export const FileRow = memo<FileRowProps>(function FileRow({
         </div>
       </button>
 
-      <div className="flex flex-shrink-0 items-center gap-3 text-muted-foreground text-xs">
+      <div className="text-muted-foreground flex flex-shrink-0 items-center gap-3 text-xs">
         {isLoading && <Loader2 className="h-3 w-3 animate-spin" data-testid="loading-spinner" />}
         <span className="min-w-[60px] text-right">{formatFileSize(item.size)}</span>
         <span className="min-w-[50px] text-right">

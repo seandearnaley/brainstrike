@@ -22,13 +22,13 @@ export function PermissionRequiredScreen({
       <div aria-live="polite" className="sr-only">
         File access required for {path}. Click the tab to restore access.
       </div>
-      <LockKeyhole aria-hidden="true" className="mb-4 h-12 w-12 text-warning" />
-      <p className="font-semibold text-lg">File Access Required</p>
-      <p className="mt-2 max-w-md text-muted-foreground text-sm">
+      <LockKeyhole aria-hidden="true" className="text-warning mb-4 h-12 w-12" />
+      <p className="text-lg font-semibold">File Access Required</p>
+      <p className="text-muted-foreground mt-2 max-w-md text-sm">
         Click the tab again to restore access to this file. Your browser requires permission to read
         files after a page reload.
       </p>
-      {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
+      {status.error ? <p className="text-destructive mt-2 text-xs">{status.error}</p> : null}
     </div>
   );
 }
@@ -45,13 +45,13 @@ export function FileNotFoundScreen({
       <div aria-live="polite" className="sr-only">
         File not found: {path}. This file may have been moved, renamed, or deleted.
       </div>
-      <AlertCircle aria-hidden="true" className="mb-4 h-12 w-12 text-destructive" />
-      <p className="font-semibold text-lg">File Not Found</p>
-      <p className="mt-2 max-w-md text-muted-foreground text-sm">
+      <AlertCircle aria-hidden="true" className="text-destructive mb-4 h-12 w-12" />
+      <p className="text-lg font-semibold">File Not Found</p>
+      <p className="text-muted-foreground mt-2 max-w-md text-sm">
         This file could not be restored. It may have been moved, renamed, or deleted.
       </p>
-      <p className="mt-1 text-muted-foreground text-xs">{path}</p>
-      {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
+      <p className="text-muted-foreground mt-1 text-xs">{path}</p>
+      {status.error ? <p className="text-destructive mt-2 text-xs">{status.error}</p> : null}
     </div>
   );
 }
@@ -62,7 +62,7 @@ export function FileContentPendingScreen({
   readonly isPending: boolean;
 }): ReactElement {
   return (
-    <div className="flex h-full items-center justify-center text-muted-foreground">
+    <div className="text-muted-foreground flex h-full items-center justify-center">
       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
       <span>{isPending ? 'Restoring…' : 'Loading…'}</span>
     </div>
@@ -97,15 +97,15 @@ export function FileContentErrorScreen({
       className="flex h-full flex-col items-center justify-center text-center"
       role="alert"
     >
-      <AlertCircle aria-hidden="true" className="mb-4 h-12 w-12 text-destructive" />
-      <p className="font-semibold text-lg" id="file-content-error-title">
+      <AlertCircle aria-hidden="true" className="text-destructive mb-4 h-12 w-12" />
+      <p className="text-lg font-semibold" id="file-content-error-title">
         File content unavailable
       </p>
-      <p className="mt-2 max-w-md text-muted-foreground text-sm">
+      <p className="text-muted-foreground mt-2 max-w-md text-sm">
         Brainstrike could not load this file. Retry the read when you are ready.
       </p>
-      <p className="mt-2 text-destructive text-sm">{describeFileContentError(contentError)}</p>
-      <p className="mt-1 max-w-md break-all text-muted-foreground text-xs">{path}</p>
+      <p className="text-destructive mt-2 text-sm">{describeFileContentError(contentError)}</p>
+      <p className="text-muted-foreground mt-1 max-w-md text-xs break-all">{path}</p>
       <Button className="mt-4" onClick={onRetry} type="button" variant="outline">
         Retry file content
       </Button>
@@ -117,7 +117,7 @@ export function InaccessibleFileScreen({ content }: { readonly content: string }
   return (
     <div className="h-full overflow-auto p-4">
       <p className="text-warning">{content}</p>
-      <p className="mt-2 text-muted-foreground text-sm">
+      <p className="text-muted-foreground mt-2 text-sm">
         To access this file, please open the folder again using the folder icon button. This is a
         security measure of your browser.
       </p>

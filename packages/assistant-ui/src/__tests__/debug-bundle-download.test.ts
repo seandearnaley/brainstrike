@@ -28,7 +28,7 @@ describe('formatDebugBundleFilename', () => {
       generatedAt: AT,
       runId: 'weird/run:id\\with*chars',
     });
-    expect(filename).not.toMatch(/[<>:"/\\|?*]/);
+    expect(filename).not.toMatch(/[<>:"/\\|?*]/u);
     expect(filename.endsWith('.md')).toBe(true);
   });
 });

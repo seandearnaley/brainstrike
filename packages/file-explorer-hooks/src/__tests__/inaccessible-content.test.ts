@@ -12,7 +12,7 @@ describe('inaccessible-content sentinel', () => {
 
   it('buildInaccessibleContent always starts with the prefix', () => {
     expect(buildInaccessibleContent('permission required: src/index.ts')).toMatch(
-      new RegExp(`^${INACCESSIBLE_CONTENT_PREFIX}`)
+      new RegExp(`^${INACCESSIBLE_CONTENT_PREFIX}`, 'u')
     );
     expect(buildInaccessibleContent('')).toBe(`${INACCESSIBLE_CONTENT_PREFIX} - `);
     expect(buildInaccessibleContent('Folder mismatch. Expected: a, Found: b')).toBe(

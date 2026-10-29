@@ -84,7 +84,7 @@ it('shows a persisted child callsign and color from an authorized live publicati
   const user = userEvent.setup();
   await user.click(await screen.findByTestId('assistant-activity-summary'));
   expect(screen.queryByText('Delegating to Cedar')).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /^Open .+ conversation$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /^Open .+ conversation$/u })).not.toBeInTheDocument();
   act(() => {
     childThreadId = 'child-run-one';
     for (const listener of listeners) {

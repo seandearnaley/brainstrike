@@ -28,12 +28,12 @@
  * and its text would count as content.
  */
 const HEAD_TOKEN =
-  /\s+|<!--[\s\S]*?-->|<!doctype\b[^>]*>|<\/?html\b[^>]*>|<(?<headTag>\/?head)\b[^>]*>|<(?:base|link|meta)\b[^>]*>|<(?<rawText>title|style|script|noscript|template)\b[^>]*>[\s\S]*?(?:<\/\k<rawText>\s*>|$)/iy;
-const HTML_COMMENT = /<!--[\s\S]*?-->/g;
-const HTML_TAG = /<[^>]*>/g;
-const WHITESPACE_ENTITY = /&(?:nbsp|ensp|emsp|thinsp|#160|#xa0);/gi;
+  /\s+|<!--[\s\S]*?-->|<!doctype\b[^>]*>|<\/?html\b[^>]*>|<(?<headTag>\/?head)\b[^>]*>|<(?:base|link|meta)\b[^>]*>|<(?<rawText>title|style|script|noscript|template)\b[^>]*>[\s\S]*?(?:<\/\k<rawText>\s*>|$)/iuy;
+const HTML_COMMENT = /<!--[\s\S]*?-->/gu;
+const HTML_TAG = /<[^>]*>/gu;
+const WHITESPACE_ENTITY = /&(?:nbsp|ensp|emsp|thinsp|#160|#xa0);/giu;
 // No `g` flag: `.test` on a global regex is stateful across calls.
-const CONTENT_BEARING_ELEMENT = /<(?:img|svg|canvas|video|audio|iframe|object|embed|script)\b/i;
+const CONTENT_BEARING_ELEMENT = /<(?:img|svg|canvas|video|audio|iframe|object|embed|script)\b/iu;
 const BODY_CONTENT_OUTSIDE_EXPLICIT_HEAD = new Set(['script', 'template', 'noscript']);
 
 function stripLeadingHead(html: string): string {

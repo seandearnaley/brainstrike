@@ -125,8 +125,8 @@ describe('lspInspect advertisement', () => {
     expect(withTool).toContain('prefer the unique identifier itself');
     expect(withTool).toContain('<<<');
     expect(withTool).toContain('If it repeats on that line');
-    expect(withTool).toMatch(/definition/i);
-    expect(withTool).toMatch(/implementations/i);
+    expect(withTool).toMatch(/definition/iu);
+    expect(withTool).toMatch(/implementations/iu);
 
     const withoutTool = buildDefaultInstructions(
       new Map<string, string>([['grepSearch', 'brainstrike.grepSearch']])
@@ -191,7 +191,7 @@ describe('default assistant instructions', () => {
     const instructions = buildDefaultInstructions(
       new Map<string, string>([['brainstrike_grepSearch', 'brainstrike.grepSearch']])
     );
-    expect(instructions).not.toMatch(/\n[ \t]*\n/);
+    expect(instructions).not.toMatch(/\n[ \t]*\n/u);
   });
 
   it('advertises globWorkspace guidance only when the tool is registered', () => {
@@ -253,7 +253,7 @@ describe('buildDefaultInstructions', () => {
   it('includes harness framing without duplicating the provider tool inventory', () => {
     const prompt = buildDefaultInstructions(new Map());
     expect(prompt.length).toBeGreaterThan(0);
-    expect(prompt).toMatch(/Files explorer/);
+    expect(prompt).toMatch(/Files explorer/u);
     expect(prompt).not.toContain('Registered native tools');
   });
 
@@ -276,9 +276,9 @@ describe('buildDefaultInstructions', () => {
     const prompt = buildDefaultInstructions(FULL_TOOL_MAP);
     // The model reads line-numbered file pages and continues with the cursor as given.
     expect(prompt).toContain('readWorkspaceFile');
-    expect(prompt).toMatch(/content with 1-based line numbers/i);
-    expect(prompt).toMatch(/nextCursor/i);
-    expect(prompt).not.toMatch(/no inline line numbers/i);
+    expect(prompt).toMatch(/content with 1-based line numbers/iu);
+    expect(prompt).toMatch(/nextCursor/iu);
+    expect(prompt).not.toMatch(/no inline line numbers/iu);
   });
 
   it('omits selection guidance when its tools are absent and does not leak raw tool IDs', () => {
@@ -287,7 +287,7 @@ describe('buildDefaultInstructions', () => {
       ['queryEmbeddingSpace', 'brainstrike.queryEmbeddingSpace'],
     ]);
     const prompt = buildDefaultInstructions(noSelection);
-    expect(prompt).not.toMatch(/Precise context selection is unavailable/i);
+    expect(prompt).not.toMatch(/Precise context selection is unavailable/iu);
     expect(prompt).not.toContain('brainstrike.updateWorkspaceTapestrySelections');
   });
 
@@ -455,9 +455,9 @@ describe('cross-tool safety guidance', () => {
 
     expect(instructions).toContain('brainstrike_runSkillScript');
     expect(instructions).toContain('brainstrike_writeWorkspaceFile');
-    expect(instructions).toMatch(/do not reconstruct.*absolute skill/i);
-    expect(instructions).toMatch(/declined.*continue.*native workspace tools/i);
-    expect(instructions).toMatch(/never.*heredoc/i);
+    expect(instructions).toMatch(/do not reconstruct.*absolute skill/iu);
+    expect(instructions).toMatch(/declined.*continue.*native workspace tools/iu);
+    expect(instructions).toMatch(/never.*heredoc/iu);
   });
 
   // Live smoke 2026-10-16: "activate it proactively" sent GLM, Qwen and Grok
@@ -471,24 +471,24 @@ describe('cross-tool safety guidance', () => {
         ['skill', 'skill'],
       ])
     );
-    expect(instructions).not.toMatch(/proactively/i);
-    expect(instructions).toMatch(/when the user's request clearly calls for one/i);
-    expect(instructions).toMatch(/run a listed script only when/i);
+    expect(instructions).not.toMatch(/proactively/iu);
+    expect(instructions).toMatch(/when the user's request clearly calls for one/iu);
+    expect(instructions).toMatch(/run a listed script only when/iu);
   });
 });
 
 describe('multi-root guidance', () => {
   it('teaches the root-qualifier workflow when listWorkspaceContext and a root-qualified tool are registered', () => {
     const instructions = buildDefaultInstructions(FULL_TOOL_MAP);
-    expect(instructions).toMatch(/several roots/i);
+    expect(instructions).toMatch(/several roots/iu);
     expect(instructions).toContain('workspace-root manifest');
     expect(instructions).toContain('refreshes the root inventory and index state');
-    expect(instructions).toMatch(/pass "root"/i);
+    expect(instructions).toMatch(/pass "root"/iu);
     // Search handoffs teach the compact root-prefix convention (BST-1185):
     // results carry `rootName:path` file headers, and the root name is a valid
     // "root" selector for the read tools.
     expect(instructions).toContain('root name');
-    expect(instructions).toMatch(/root name.*as "root"/i);
+    expect(instructions).toMatch(/root name.*as "root"/iu);
     expect(instructions).not.toContain('read_args');
     // The root-qualified tools are named in the guidance.
     expect(instructions).toContain('grepSearch');
@@ -516,7 +516,7 @@ describe('multi-root guidance', () => {
 
     expect(instructions).toContain('lspInspect');
     expect(instructions).toContain('The initial workspace-root manifest reports');
-    expect(instructions).toMatch(/several roots[^.]*pass "root"/i);
+    expect(instructions).toMatch(/several roots[^.]*pass "root"/iu);
     expect(instructions).toContain('no implicit Main-root fallback');
   });
 });
@@ -534,7 +534,7 @@ describe('plan mode instructions', () => {
 
     const on = buildDefaultInstructions(PLAN_MAP, { planMode: true });
     expect(on).toContain('PLAN MODE IS ACTIVE');
-    expect(on).toMatch(/MUST NOT modify files/i);
+    expect(on).toMatch(/MUST NOT modify files/iu);
     expect(on).toContain('brainstrike_submitPlan');
     // The block leads the instructions.
     expect(on.indexOf('PLAN MODE IS ACTIVE')).toBeLessThan(on.indexOf('Brainstrike IDE'));
@@ -588,7 +588,7 @@ describe('buildCurrentDateNote', () => {
     const morning = buildCurrentDateNote(new Date(2026, 7, 23, 0, 1));
     const evening = buildCurrentDateNote(new Date(2026, 7, 23, 23, 59));
     expect(morning).toBe(evening);
-    expect(morning).not.toMatch(/\d{2}:\d{2}/);
+    expect(morning).not.toMatch(/\d{2}:\d{2}/u);
   });
 
   it('tells the model its training cutoff is not today', () => {
@@ -656,8 +656,8 @@ describe('tool-discovery guidance', () => {
     const text = buildDefaultInstructions(toolNameMap, { toolDiscoveryEnabled: true });
     // Asserts the two facts the model has to act on, not one phrasing of them:
     // WHEN a match becomes callable, and what that rules out.
-    expect(text).toMatch(/NEXT turn/);
-    expect(text).toMatch(/long-running/);
+    expect(text).toMatch(/NEXT turn/u);
+    expect(text).toMatch(/long-running/u);
   });
 
   it('says nothing about discovery when the catalog is not installed', () => {
@@ -681,7 +681,7 @@ describe('tool-discovery capability coverage', () => {
       .map(([id]) => id);
     const map = new Map(toolNameMap);
     for (const id of deferredIds) {
-      map.set(id.replace(/[^a-zA-Z0-9_-]/g, '_'), id);
+      map.set(id.replace(/[^a-zA-Z0-9_-]/gu, '_'), id);
     }
     return { deferredIds, map };
   };
@@ -789,16 +789,16 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
     );
     const { resolveModelFacingToolNames } = await import('../default-instructions');
     const toolNameMap = new Map(
-      NATIVE_TOOL_IDS.map((id) => [id.replace(/[^a-zA-Z0-9_-]/g, '_'), id] as const)
+      NATIVE_TOOL_IDS.map((id) => [id.replace(/[^a-zA-Z0-9_-]/gu, '_'), id] as const)
     );
     const names = resolveModelFacingToolNames(toolNameMap);
     for (const [key, id] of Object.entries(NATIVE_TOOL_ID)) {
       expect(names[key as keyof typeof names], `${key} → ${id}`).toBe(
-        id.replace(/[^a-zA-Z0-9_-]/g, '_')
+        id.replace(/[^a-zA-Z0-9_-]/gu, '_')
       );
     }
     for (const id of FORMERLY_MISSING) {
-      expect(Object.values(names)).toContain(id.replace(/[^a-zA-Z0-9_-]/g, '_'));
+      expect(Object.values(names)).toContain(id.replace(/[^a-zA-Z0-9_-]/gu, '_'));
     }
     expect(Object.keys(names)).toHaveLength(NATIVE_TOOL_IDS.length);
   });
@@ -850,7 +850,7 @@ describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
         [typo],
         new Map([['brainstrike_instructionTypo', 'brainstrike.instructionTypo']])
       )
-    ).toThrow(/not a native tool id/);
+    ).toThrow(/not a native tool id/u);
   });
 });
 

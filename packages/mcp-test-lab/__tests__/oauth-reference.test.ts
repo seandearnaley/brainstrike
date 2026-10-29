@@ -227,14 +227,14 @@ describe('MCP OAuth reference core', () => {
       expectedState: 'state-1',
     });
     expect(verifier(callback)).toMatch(/^brainstrike-lab-code-/u);
-    expect(() => verifier(callback)).toThrow(/already consumed/);
+    expect(() => verifier(callback)).toThrow(/already consumed/u);
 
     for (const [mutate, error] of [
-      [(url: URL) => url.searchParams.append('state', 'state-1'), /repeats a known parameter/],
-      [(url: URL) => url.searchParams.append('iss', handler.endpoint.issuer.href), /repeats/],
-      [(url: URL) => url.searchParams.set('state', 'wrong-state'), /state mismatch/],
-      [(url: URL) => url.searchParams.set('iss', 'https://attacker.invalid/'), /issuer mismatch/],
-      [(url: URL) => url.searchParams.delete('code'), /missing an authorization code/],
+      [(url: URL) => url.searchParams.append('state', 'state-1'), /repeats a known parameter/u],
+      [(url: URL) => url.searchParams.append('iss', handler.endpoint.issuer.href), /repeats/u],
+      [(url: URL) => url.searchParams.set('state', 'wrong-state'), /state mismatch/u],
+      [(url: URL) => url.searchParams.set('iss', 'https://attacker.invalid/'), /issuer mismatch/u],
+      [(url: URL) => url.searchParams.delete('code'), /missing an authorization code/u],
     ] as const) {
       const tampered = new URL(callback);
       mutate(tampered);
@@ -258,7 +258,7 @@ describe('MCP OAuth reference core', () => {
         expectedRedirectUri: REDIRECT_URI,
         expectedState: 'state-error',
       })(authorizationError)
-    ).toThrow(/authorization error: invalid_request/);
+    ).toThrow(/authorization error: invalid_request/u);
 
     const fixedQueryCallback = new URL(
       `${REDIRECT_URI}?tenant=a&tenant=b&code=code&iss=${encodeURIComponent(handler.endpoint.issuer.href)}&state=state-1`
@@ -269,7 +269,7 @@ describe('MCP OAuth reference core', () => {
         expectedRedirectUri: `${REDIRECT_URI}?tenant=a`,
         expectedState: 'state-1',
       })(fixedQueryCallback)
-    ).toThrow(/redirect mismatch/);
+    ).toThrow(/redirect mismatch/u);
   });
 
   it('prunes expired capacity and waits for in-flight routes before retryable close', async () => {

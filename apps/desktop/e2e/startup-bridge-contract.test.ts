@@ -13,11 +13,11 @@ test.describe('Desktop startup bridge contract @desktop-ipc-reset', () => {
       const { window } = await electronHarness.restart();
       const failure = window.getByTestId('desktop-startup-failure');
       await expect(failure).toBeVisible({ timeout: 30_000 });
-      await expect(failure).toContainText(/desktop preload bridge is incomplete/i);
-      await expect(failure).toContainText(/preload script did not initialize correctly/i);
-      await expect(failure).toContainText(/check the electron startup logs/i);
-      await expect(failure).toContainText(/window\.electronAPI/i);
-      await expect(failure).toContainText(/window\.logging/i);
+      await expect(failure).toContainText(/desktop preload bridge is incomplete/iu);
+      await expect(failure).toContainText(/preload script did not initialize correctly/iu);
+      await expect(failure).toContainText(/check the electron startup logs/iu);
+      await expect(failure).toContainText(/window\.electronAPI/iu);
+      await expect(failure).toContainText(/window\.logging/iu);
     } finally {
       if (previousDisabledBridges === undefined) {
         Reflect.deleteProperty(process.env, 'BRAINSTRIKE_E2E_DISABLE_PRELOAD_BRIDGES');

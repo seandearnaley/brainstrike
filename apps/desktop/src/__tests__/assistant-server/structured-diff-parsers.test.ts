@@ -69,17 +69,17 @@ describe('parseNumstatZ', () => {
     // (an empty field appearing where a normal record was expected) must throw
     // rather than being silently dropped by a Boolean filter (spike shortcut).
     const output = '3\t1\tfoo.txt\0\0bar\t1\t2\0';
-    expect(() => parseNumstatZ(output)).toThrow(/malformed/i);
+    expect(() => parseNumstatZ(output)).toThrow(/malformed/iu);
   });
 
   it('throws with the record content when a rename triple is missing its new path', () => {
     const output = '2\t0\t\0modified.txt\0';
-    expect(() => parseNumstatZ(output)).toThrow(/modified\.txt|rename/i);
+    expect(() => parseNumstatZ(output)).toThrow(/modified\.txt|rename/iu);
   });
 
   it('throws on a record with a non-numeric count', () => {
     const output = 'x\t1\tfoo.txt\0';
-    expect(() => parseNumstatZ(output)).toThrow(/count/i);
+    expect(() => parseNumstatZ(output)).toThrow(/count/iu);
   });
 });
 
@@ -124,7 +124,7 @@ describe('parseHunkHeaders', () => {
 
   it('throws when a line matched as a hunk header but cannot be parsed', () => {
     const diff = '@@ -abc +1 @@';
-    expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/i);
+    expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/iu);
   });
 
   it('tolerates a partial header cut off immediately before the truncation marker', () => {
@@ -137,7 +137,7 @@ describe('parseHunkHeaders', () => {
 
   it('still throws on a malformed header NOT immediately followed by the truncation marker', () => {
     const diff = ['@@ -120,7 +1', 'some other content'].join('\n');
-    expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/i);
+    expect(() => parseHunkHeaders(diff)).toThrow(/malformed|hunk/iu);
   });
 
   it('throws when a second "diff --git " header appears (single-file precondition)', () => {
@@ -149,7 +149,7 @@ describe('parseHunkHeaders', () => {
       'diff --git a/bar.txt b/bar.txt',
       '@@ -1,1 +1,1 @@',
     ].join('\n');
-    expect(() => parseHunkHeaders(diff)).toThrow(/single-file|diff --git/i);
+    expect(() => parseHunkHeaders(diff)).toThrow(/single-file|diff --git/iu);
   });
 });
 

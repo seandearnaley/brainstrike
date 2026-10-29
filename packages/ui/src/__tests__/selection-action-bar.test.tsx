@@ -65,7 +65,7 @@ describe('SelectionActionBar', () => {
     const label = screen.getByText('Move');
 
     expect(toolbar.className).toContain('@container/selection-actions');
-    expect(label.className).toMatch(/@\[\d+px\]\/selection-actions:inline/);
+    expect(label.className).toMatch(/@\[\d+px\]\/selection-actions:inline/u);
     expect(container.querySelector('[style]')).toBeNull();
     expect(toolbar.className).toContain('shadow-lg');
   });
@@ -76,7 +76,7 @@ describe('SelectionActionBar', () => {
     const toolbar = screen.getByRole('toolbar');
     expect(toolbar.className).toContain('border');
     expect(toolbar.className).toContain('p-2');
-    expect(toolbar.className).not.toMatch(/\b(?:p[xy]|p[trbl])-\d/);
+    expect(toolbar.className).not.toMatch(/\b(?:p[xy]|p[trbl])-\d/u);
   });
 
   it('keeps summary detail visible and truncatable at narrow container widths', () => {
@@ -216,6 +216,6 @@ describe('SelectionActionBarOverlay', () => {
 
     const overlay = screen.getByTestId('selection-action-overlay');
     expect(overlay).toHaveClass('absolute', 'bottom-3', 'pointer-events-none');
-    expect(overlay.className).not.toMatch(/\btop-/);
+    expect(overlay.className).not.toMatch(/\btop-/u);
   });
 });

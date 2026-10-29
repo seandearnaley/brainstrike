@@ -54,7 +54,7 @@ describe('SelectionModeBadge', () => {
       fireEvent.click(screen.getByTestId('selection-mode-badge'));
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
       expect(requestAnimationFrameSpy).toHaveBeenCalled();
@@ -159,7 +159,7 @@ describe('SelectionModeBadge', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Selection settings' }));
 
       await waitFor(() => {
-        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+        expect(screen.getByLabelText(/Maximum selection count input/iu)).toBeInTheDocument();
       });
 
       expect(screen.getByRole('button', { name: '5K' })).toBeInTheDocument();
@@ -185,7 +185,7 @@ describe('SelectionModeBadge', () => {
       );
 
       await user.click(screen.getByTestId('selection-mode-badge'));
-      const input = await screen.findByLabelText(/Maximum selection count input/i);
+      const input = await screen.findByLabelText(/Maximum selection count input/iu);
 
       await user.clear(input);
       await user.type(input, '250{Enter}');
@@ -196,7 +196,7 @@ describe('SelectionModeBadge', () => {
       });
 
       await user.click(screen.getByTestId('selection-mode-badge'));
-      expect(await screen.findByLabelText(/Maximum selection count input/i)).toHaveValue('100');
+      expect(await screen.findByLabelText(/Maximum selection count input/iu)).toHaveValue('100');
 
       await user.keyboard('{Escape}');
 
@@ -219,7 +219,7 @@ describe('SelectionModeBadge', () => {
       );
 
       await user.click(screen.getByTestId('selection-mode-badge'));
-      const input = await screen.findByLabelText(/Maximum selection count input/i);
+      const input = await screen.findByLabelText(/Maximum selection count input/iu);
       const applyButton = screen.getByRole('button', { name: 'Apply selection count' });
 
       await user.clear(input);
@@ -296,7 +296,7 @@ describe('SelectionModeBadge', () => {
 
       const badge = screen.getByTestId('selection-mode-badge');
       // outline variant should not have primary background
-      expect(badge.className).not.toMatch(/bg-primary/);
+      expect(badge.className).not.toMatch(/bg-primary/u);
     });
   });
 });

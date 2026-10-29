@@ -284,7 +284,7 @@ describe('runManageWorktree', () => {
 
     await expect(
       runManageWorktree({ action: 'create', branch: 'bs/fox' }, RUNTIME, caps as never)
-    ).rejects.toThrow(/Only the conversation that delegated this task can create a worktree/);
+    ).rejects.toThrow(/Only the conversation that delegated this task can create a worktree/u);
     expect(caps.create).not.toHaveBeenCalled();
   });
 

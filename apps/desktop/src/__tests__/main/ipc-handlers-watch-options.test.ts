@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystemIpcDomain } from '../../ipc-domains/file-system-ipc';
 import type { StartFileSystemWatch } from '../../ipc-domains/file-system-watch-ipc';
 import { registerStoragePreferencesIpcHandlers } from '../../ipc-domains/storage-preferences-ipc';
+import { createApplicationIpcDomain } from '../../ipc-handlers';
 import {
   createRegistry,
   rootHandle,
@@ -43,8 +44,6 @@ vi.mock('../../ipc-domains/file-system-ipc', () => ({
 vi.mock('../../ipc-domains/storage-preferences-ipc', () => ({
   registerStoragePreferencesIpcHandlers: vi.fn(() => () => undefined),
 }));
-
-import { createApplicationIpcDomain } from '../../ipc-handlers';
 
 async function fixture() {
   const root = secureRoot(WORKSPACE);

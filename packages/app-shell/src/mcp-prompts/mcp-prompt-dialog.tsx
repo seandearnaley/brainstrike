@@ -176,7 +176,7 @@ export function McpPromptDialog({
             </DialogDescription>
           </DialogHeader>
           {entry.description ? (
-            <p className="whitespace-pre-wrap text-muted-foreground text-sm">{entry.description}</p>
+            <p className="text-muted-foreground text-sm whitespace-pre-wrap">{entry.description}</p>
           ) : null}
           <div className="space-y-3">
             {entry.arguments.map((argument) => {

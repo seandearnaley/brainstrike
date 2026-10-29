@@ -90,11 +90,11 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
     const home = new HomePage(page);
     await home.openSettings();
     const settings = await new SettingsPage(page).openCategory(
-      /Search & Indexing/i,
+      /Search & Indexing/iu,
       'search-indexing'
     );
     await expect(
-      settings.getByRole('group', { name: 'Search mode' }).getByRole('button', { name: /^Text/ })
+      settings.getByRole('group', { name: 'Search mode' }).getByRole('button', { name: /^Text/u })
     ).toHaveAttribute('aria-pressed', 'true');
     await expect(settings).not.toContainText('Setup required');
     await expect(settings).not.toContainText('set up a collection');

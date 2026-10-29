@@ -134,7 +134,7 @@ describe('workspace tabs — file tab operations', () => {
 
     expect(await screen.findByTestId('files-app-body')).toBeInTheDocument();
 
-    const fileTab = await screen.findByRole('tab', { name: /index\.ts/i });
+    const fileTab = await screen.findByRole('tab', { name: /index\.ts/iu });
     expect(fileTab).toHaveAttribute('aria-selected', 'false');
 
     await user.click(fileTab);
@@ -199,8 +199,8 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await user.click(await screen.findByRole('tab', { name: /a\.ts/i }));
-    await user.click(await screen.findByRole('tab', { name: /b\.ts/i }));
+    await user.click(await screen.findByRole('tab', { name: /a\.ts/iu }));
+    await user.click(await screen.findByRole('tab', { name: /b\.ts/iu }));
 
     expect(setActiveTab).toHaveBeenCalledWith('folderA|@|src/b.ts');
     await act(async () => {
@@ -278,7 +278,7 @@ describe('workspace tabs — file tab operations', () => {
     renderWorkspace();
 
     // Click the needs-permission tab: its selection awaits the prompt.
-    await user.click(await screen.findByRole('tab', { name: /a\.ts/i }));
+    await user.click(await screen.findByRole('tab', { name: /a\.ts/iu }));
 
     // While the prompt is up, a tree click opens another file via the seam.
     act(() => {
@@ -340,12 +340,12 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await screen.findByText(/export const file/);
+    await screen.findByText(/export const file/u);
     // Files was activated at the session default, so it stays MOUNTED but
     // hidden while a file tab is showing (keep-alive contract).
     expect(screen.getByTestId('files-app-body')).not.toBeVisible();
 
-    await user.click(await screen.findByRole('tab', { name: /files/i }));
+    await user.click(await screen.findByRole('tab', { name: /files/iu }));
 
     expect(await screen.findByTestId('files-app-body')).toBeVisible();
     await waitFor(() => {
@@ -473,14 +473,14 @@ describe('workspace tabs — file tab operations', () => {
 
     indexSurfaceInitialLines = [];
 
-    await user.click(await screen.findByRole('tab', { name: /other\.ts/i }));
+    await user.click(await screen.findByRole('tab', { name: /other\.ts/iu }));
     await waitFor(() => {
       expect(screen.getByTestId('file-code-surface')).toHaveTextContent(
         'export const other = true;'
       );
     });
 
-    await user.click(await screen.findByRole('tab', { name: /index\.ts/i }));
+    await user.click(await screen.findByRole('tab', { name: /index\.ts/iu }));
     await waitFor(() => {
       expect(screen.getByTestId('file-code-surface')).toHaveTextContent(
         'export const file = "content";'
@@ -585,8 +585,8 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByText(/restoring/i)).toBeInTheDocument();
-    expect(screen.queryByText(/file not found or unable to load/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/restoring/iu)).toBeInTheDocument();
+    expect(screen.queryByText(/file not found or unable to load/iu)).not.toBeInTheDocument();
   });
 
   it('closing the active file tab hops to the next sibling tab, not back to Files', async () => {
@@ -684,7 +684,7 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    await screen.findByRole('tab', { name: /b\.ts/i });
+    await screen.findByRole('tab', { name: /b\.ts/iu });
     fireEvent.contextMenu(screen.getByRole('tablist', { name: 'Workspace tabs' }));
     await user.click(await screen.findByRole('menuitem', { name: 'Close All Files' }));
 
@@ -713,7 +713,7 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/iu }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close' }));
 
     await waitFor(() => {
@@ -740,7 +740,7 @@ describe('workspace tabs — file tab operations', () => {
 
     renderWorkspace();
 
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/iu }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
 
     await waitFor(() => {
@@ -758,7 +758,7 @@ describe('workspace tabs — file tab operations', () => {
     await openThreeTabsWithDemoAppSelected();
     renderWorkspace([FILES_APP, DEMO_APP]);
 
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/iu }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
 
     expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual(['folderA|@|src/b.ts']);
@@ -772,7 +772,7 @@ describe('workspace tabs — file tab operations', () => {
     await openThreeTabsWithDemoAppSelected();
     renderWorkspace([FILES_APP, DEMO_APP]);
 
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/iu }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close to the Right' }));
 
     expect(useTabManagerStore.getState().tabs.map((tab) => tab.id)).toEqual([
@@ -789,7 +789,7 @@ describe('workspace tabs — file tab operations', () => {
     await openThreeTabsWithDemoAppSelected();
     renderWorkspace([FILES_APP, DEMO_APP]);
 
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/iu }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All' }));
 
     expect(useTabManagerStore.getState().tabs).toEqual([]);
@@ -803,7 +803,7 @@ describe('workspace tabs — file tab operations', () => {
     await openThreeTabsWithDemoAppSelected();
     renderWorkspace([FILES_APP, DEMO_APP]);
 
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
+    fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/iu }));
     const close = await screen.findByRole('menuitem', { name: 'Close' });
     act(() => {
       useTabManagerStore.getState().closeTab('folderA|@|src/b.ts');
@@ -976,6 +976,6 @@ describe('workspace tabs — file tab operations', () => {
     renderWorkspace();
 
     expect(await screen.findByText(inaccessibleContent)).toBeInTheDocument();
-    expect(screen.getByText(/please open the folder again/i)).toBeInTheDocument();
+    expect(screen.getByText(/please open the folder again/iu)).toBeInTheDocument();
   });
 });

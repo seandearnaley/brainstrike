@@ -52,7 +52,7 @@ export function CatalogColumnHeader({
 
   return (
     <div
-      className="shrink-0 border-b bg-muted/30"
+      className="bg-muted/30 shrink-0 border-b"
       data-testid="model-catalog-column-header"
       style={{ paddingRight: gutterWidth }}
     >
@@ -75,7 +75,7 @@ export function CatalogColumnHeader({
                     sortColumn ? getTreeTableAriaSortValue(sortColumn, sortState) : undefined
                   }
                   className={cn(
-                    'h-8 px-2 font-medium text-[11px] text-muted-foreground uppercase tracking-wide',
+                    'text-muted-foreground h-8 px-2 text-[11px] font-medium tracking-wide uppercase',
                     ALIGN_CLASS[column.align]
                   )}
                   data-column-id={column.id}
@@ -85,7 +85,7 @@ export function CatalogColumnHeader({
                     <button
                       aria-label={getTreeTableSortButtonLabel(column.name, sortColumn, sortState)}
                       className={cn(
-                        'inline-flex h-full cursor-pointer items-center gap-1 uppercase tracking-wide',
+                        'inline-flex h-full cursor-pointer items-center gap-1 tracking-wide uppercase',
                         column.align === 'right' && 'justify-end'
                       )}
                       onClick={() => handleSort(sortColumn)}

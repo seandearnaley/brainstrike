@@ -3,6 +3,7 @@ import type { DiffViewSource } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ChangesetFileDiffCard } from '../ui/changeset-file-diff-card';
 
 // Stub the heavy CodeMirror DiffView (covered by its own suite) — surface the
 // `source` prop so the card→DiffView wiring is asserted without mounting CM6.
@@ -19,8 +20,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     ),
   };
 });
-
-import { ChangesetFileDiffCard } from '../ui/changeset-file-diff-card';
 
 /** Synchronously reports every observed target as intersecting — lets tests
  * exercise the "load on visible" path without simulating real scrolling. */

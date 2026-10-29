@@ -110,7 +110,7 @@ export const RootSectionHeader = ({
     // biome-ignore lint/a11y/noNoninteractiveElementInteractions: layout row claims context-menu identity for its nested controls
     // biome-ignore lint/a11y/noStaticElementInteractions: see above — context-menu ownership does not make the row a separate control
     <div
-      className={`group relative flex w-full items-center hover:bg-muted/40 ${
+      className={`group hover:bg-muted/40 relative flex w-full items-center ${
         isFocused ? 'bg-muted/40' : ''
       } ${reserveFloatingActionsClearance ? 'pr-16' : ''}`}
       data-focused={isFocused ? 'true' : undefined}
@@ -120,7 +120,7 @@ export const RootSectionHeader = ({
       {isFocused && (
         <span
           aria-hidden="true"
-          className="absolute inset-y-0 left-0 w-0.5 bg-primary"
+          className="bg-primary absolute inset-y-0 left-0 w-0.5"
           data-testid="root-focused-accent"
         />
       )}
@@ -129,7 +129,7 @@ export const RootSectionHeader = ({
       )}
       <button
         aria-expanded={!isCollapsed}
-        className={`flex min-w-0 flex-1 cursor-pointer items-center gap-1 px-2 py-1 text-left font-medium text-xs uppercase tracking-wider focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+        className={`focus-visible:ring-ring flex min-w-0 flex-1 cursor-pointer items-center gap-1 px-2 py-1 text-left text-xs font-medium tracking-wider uppercase focus-visible:ring-1 focus-visible:outline-none ${
           isFocused ? 'text-foreground' : 'text-muted-foreground'
         }`}
         data-testid="root-section-header"
@@ -150,7 +150,7 @@ export const RootSectionHeader = ({
         )}
         {isMain && (
           <span
-            className="ml-1 inline-flex shrink-0 items-center rounded-full bg-secondary px-1.5 font-medium text-[9px] text-secondary-foreground normal-case leading-4 tracking-normal"
+            className="bg-secondary text-secondary-foreground ml-1 inline-flex shrink-0 items-center rounded-full px-1.5 text-[9px] leading-4 font-medium tracking-normal normal-case"
             data-testid="root-main-badge"
           >
             Main
@@ -161,7 +161,7 @@ export const RootSectionHeader = ({
       {onDisconnect && (
         <button
           aria-label="Disconnect folder"
-          className="mr-1 shrink-0 cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100"
+          className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring mr-1 shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:outline-none"
           data-testid="root-section-disconnect"
           onClick={onDisconnect}
           type="button"

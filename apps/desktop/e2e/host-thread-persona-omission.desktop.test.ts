@@ -73,7 +73,7 @@ test('personas are omitted in plan mode and for a persona disabled in Settings',
 
   // Disabling Explorer in Settings drops only `agent-explore` from the next run.
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Subagents/i, 'subagents');
+  await new SettingsPage(window).openCategory(/Subagents/iu, 'subagents');
   const explorer = window.getByTestId('subagent-persona-toggle-explore');
   await expect(explorer).toHaveAttribute('aria-checked', 'true');
   await explorer.click();

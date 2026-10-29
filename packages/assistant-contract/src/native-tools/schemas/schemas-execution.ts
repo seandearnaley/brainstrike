@@ -64,7 +64,7 @@ const ROOT_RELATIVE_PATH_MAX = 1000;
 /** The root-relative path grammar, written once for both properties that use it. */
 const isRootRelativePath = Schema.makeFilter<string>((value) =>
   value === '.' ||
-  (!(value.startsWith('/') || value.includes('\\') || /^[A-Za-z]:/.test(value)) &&
+  (!(value.startsWith('/') || value.includes('\\') || /^[A-Za-z]:/u.test(value)) &&
     value.split('/').every((segment) => segment.length > 0 && segment !== '.' && segment !== '..'))
     ? undefined
     : 'Must be a canonical root-relative path without traversal'
@@ -98,7 +98,7 @@ const rootRelativePath = (description: string, ...extra: readonly SchemaAST.Chec
  * dev server, a dev database, a cloud metadata endpoint). Model-authored code
  * gets no such grant: name a public domain or run offline.
  */
-const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/u;
 const runPythonDomainSchema = policyDomainSchema.check(
   Schema.makeFilter((value) =>
     IPV4_LITERAL_PATTERN.test(value)

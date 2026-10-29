@@ -13,7 +13,7 @@ name: Nightly
 
 on:
   schedule:
-    - cron: '53 7 * * *'
+    - cron: "53 7 * * *"
   workflow_dispatch:
 
 # One night per ref at a time, never cancelled.
@@ -44,7 +44,7 @@ jobs:
   verdict:
     name: Nightly verdict
     if: github.repository == 'seandearnaley/brainstrike' && always()
-    needs: [test]
+    needs: [ test ]
     runs-on: ubuntu-slim
     timeout-minutes: 5
     steps:

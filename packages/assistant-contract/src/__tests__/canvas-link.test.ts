@@ -37,6 +37,6 @@ describe('canvas links', () => {
     expect(isLinkableCanvasId(ID)).toBe(true);
     expect(isLinkableCanvasId('a/b')).toBe(false);
     expect(isLinkableCanvasId('')).toBe(false);
-    expect(() => formatCanvasLink('a/b')).toThrow(/cannot be linked/);
+    expect(() => formatCanvasLink('a/b')).toThrow(/cannot be linked/u);
   });
 });

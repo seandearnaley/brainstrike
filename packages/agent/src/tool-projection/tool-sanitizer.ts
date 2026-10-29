@@ -1,7 +1,7 @@
 import type { HostToolDefinitions as ToolsInput } from '../host-tool-definition.ts';
 
 export function sanitizeToolName(name: string): string {
-  const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const sanitized = name.replace(/[^a-zA-Z0-9_-]/gu, '_');
   if (sanitized.trim().length > 0) {
     return sanitized;
   }

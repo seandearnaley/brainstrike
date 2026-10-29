@@ -56,7 +56,7 @@ function replaceTriggerWithDirective(
   }
   // Partial trigger (`/skill:pd`): the popover matched by fuzzy search before
   // the id was fully typed. Replace the LAST `/skill:<partial>` token.
-  const partialMatch = /\/skill:\S*(?!.*\/skill:)/.exec(draftText);
+  const partialMatch = /\/skill:\S*(?!.*\/skill:)/u.exec(draftText);
   if (partialMatch) {
     const after = draftText.slice(partialMatch.index + partialMatch[0].length);
     return `${draftText.slice(0, partialMatch.index)}${directive}${after.length > 0 ? after : ' '}`;

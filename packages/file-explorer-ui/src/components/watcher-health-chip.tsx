@@ -91,7 +91,7 @@ export const WatcherHealthChip = ({ rootPath }: WatcherHealthChipProps) => {
         {canRetry ? (
           <button
             aria-label="Retry file watching"
-            className="rounded p-0.5 hover:bg-muted disabled:opacity-50"
+            className="hover:bg-muted rounded p-0.5 disabled:opacity-50"
             disabled={retryPending}
             onClick={onRetry}
             type="button"

@@ -23,7 +23,7 @@ const refuses = (
   }
   expect(err, `${root} should be refused`).toBeInstanceOf(SyncedRootError);
   expect((err as SyncedRootError).provider).toMatch(provider);
-  expect((err as Error).message).toMatch(/choose a local folder/);
+  expect((err as Error).message).toMatch(/choose a local folder/u);
 };
 
 describe('item 6 · synced data roots', () => {
@@ -31,29 +31,31 @@ describe('item 6 · synced data roots', () => {
   test('macOS: iCloud Drive and File Provider (CloudStorage) paths are refused, with the provider named', () => {
     refuses(
       join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'Brainstrike'),
-      /iCloud Drive/,
+      /iCloud Drive/u,
       { platform: 'darwin' }
     );
-    refuses(join(home, 'Library', 'CloudStorage', 'OneDrive-Personal', 'bs'), /File Provider/, {
+    refuses(join(home, 'Library', 'CloudStorage', 'OneDrive-Personal', 'bs'), /File Provider/u, {
       platform: 'darwin',
     });
-    refuses(join(home, 'Library', 'CloudStorage', 'Dropbox', 'bs'), /File Provider/, {
+    refuses(join(home, 'Library', 'CloudStorage', 'Dropbox', 'bs'), /File Provider/u, {
       platform: 'darwin',
     });
     refuses(
       join(home, 'Library', 'CloudStorage', 'GoogleDrive-me@example.com', 'My Drive', 'bs'),
-      /File Provider/,
+      /File Provider/u,
       { platform: 'darwin' }
     );
-    refuses(join(home, 'library', 'mobile documents', 'x'), /iCloud Drive/, { platform: 'darwin' }); // APFS is case-insensitive by default
+    refuses(join(home, 'library', 'mobile documents', 'x'), /iCloud Drive/u, {
+      platform: 'darwin',
+    }); // APFS is case-insensitive by default
   });
 
   test('Dropbox and OneDrive folders in the home are refused (macOS and Linux)', () => {
     for (const platform of ['darwin', 'linux'] as const) {
-      refuses(join(home, 'Dropbox', 'bs'), /Dropbox/, { platform });
-      refuses(join(home, 'Dropbox (Acme Corp)', 'bs'), /Dropbox/, { platform });
-      refuses(join(home, 'OneDrive', 'bs'), /OneDrive/, { platform });
-      refuses(join(home, 'OneDrive - Acme Corp', 'bs'), /OneDrive/, { platform });
+      refuses(join(home, 'Dropbox', 'bs'), /Dropbox/u, { platform });
+      refuses(join(home, 'Dropbox (Acme Corp)', 'bs'), /Dropbox/u, { platform });
+      refuses(join(home, 'OneDrive', 'bs'), /OneDrive/u, { platform });
+      refuses(join(home, 'OneDrive - Acme Corp', 'bs'), /OneDrive/u, { platform });
     }
   });
 
@@ -65,7 +67,7 @@ describe('item 6 · synced data roots', () => {
     mkdirSync(dropbox);
     const link = join(freshDir('i6link'), 'data');
     symlinkSync(dropbox, link, 'junction');
-    refuses(join(link, 'brainstrike'), /Dropbox/, { env: {}, home: fakeHome });
+    refuses(join(link, 'brainstrike'), /Dropbox/u, { env: {}, home: fakeHome });
   });
 
   test('local folders are accepted', () => {
@@ -86,20 +88,20 @@ describe('item 6 · synced data roots', () => {
       OneDriveCommercial: 'D:\\Corp\\OneDrive - Acme',
       USERPROFILE: 'C:\\Users\\sean',
     };
-    refuses('C:\\Users\\sean\\OneDrive\\Documents\\Brainstrike', /OneDrive/, {
+    refuses('C:\\Users\\sean\\OneDrive\\Documents\\Brainstrike', /OneDrive/u, {
       env,
       platform: 'win32',
     });
-    refuses('c:\\users\\sean\\onedrive\\desktop\\bs', /OneDrive/, { env, platform: 'win32' });
-    refuses('D:\\Corp\\OneDrive - Acme\\Documents\\bs', /OneDriveCommercial/, {
+    refuses('c:\\users\\sean\\onedrive\\desktop\\bs', /OneDrive/u, { env, platform: 'win32' });
+    refuses('D:\\Corp\\OneDrive - Acme\\Documents\\bs', /OneDriveCommercial/u, {
       env,
       platform: 'win32',
     });
-    refuses('C:\\Users\\sean\\OneDrive - Acme\\bs', /OneDrive/, {
+    refuses('C:\\Users\\sean\\OneDrive - Acme\\bs', /OneDrive/u, {
       env: { USERPROFILE: 'C:\\Users\\sean' },
       platform: 'win32',
     });
-    refuses('C:\\Users\\sean\\Dropbox\\bs', /Dropbox/, {
+    refuses('C:\\Users\\sean\\Dropbox\\bs', /Dropbox/u, {
       env: { USERPROFILE: 'C:\\Users\\sean' },
       platform: 'win32',
     });

@@ -195,18 +195,18 @@ export function fromApprovalActionChipKey(key: string): ApprovalActionChipProps 
 
 function ChipIcon({ tone }: { tone: ApprovalActionChipProps['tone'] }) {
   if (tone === 'approve') {
-    return <Check aria-hidden="true" className="size-3.5 text-success" />;
+    return <Check aria-hidden="true" className="text-success size-3.5" />;
   }
   if (tone === 'decline') {
     return <X aria-hidden="true" className="size-3.5" />;
   }
-  return <MessageSquare aria-hidden="true" className="size-3.5 text-info" />;
+  return <MessageSquare aria-hidden="true" className="text-info size-3.5" />;
 }
 
 export function ApprovalActionChip({ label, tone, toolName }: ApprovalActionChipProps) {
   return (
     <div
-      className="col-start-2 row-start-2 flex items-center gap-1.5 justify-self-end rounded-full border border-border bg-muted/60 px-3 py-1 text-muted-foreground text-xs"
+      className="border-border bg-muted/60 text-muted-foreground col-start-2 row-start-2 flex items-center gap-1.5 justify-self-end rounded-full border px-3 py-1 text-xs"
       data-testid="approval-action-chip"
     >
       <ChipIcon tone={tone} />

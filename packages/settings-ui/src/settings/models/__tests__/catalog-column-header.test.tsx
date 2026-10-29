@@ -27,7 +27,7 @@ describe('CatalogColumnHeader', () => {
     expect(screen.getByRole('button', { name: 'Context: sort ascending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Max output: sort ascending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Price: sort ascending' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Capabilities/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Capabilities/u })).not.toBeInTheDocument();
   });
 
   it('cycles ascending → descending → catalog order', async () => {
@@ -83,7 +83,7 @@ describe('CatalogColumnHeader', () => {
       />
     );
     expect(screen.getByText('Caps')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Price/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Max output/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Price/u })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Max output/u })).not.toBeInTheDocument();
   });
 });

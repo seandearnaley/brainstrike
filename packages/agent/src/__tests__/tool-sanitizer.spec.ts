@@ -152,7 +152,7 @@ describe('tool-sanitizer', () => {
 
       // Names should be sanitized (may be underscores or 'tool' fallback)
       for (const name of sanitizedNames) {
-        expect(/^[a-zA-Z0-9_-]+$/.test(name)).toBe(true);
+        expect(/^[a-zA-Z0-9_-]+$/u.test(name)).toBe(true);
       }
 
       // Should be unique

@@ -260,9 +260,9 @@ const REDACTED = '[redacted]';
  */
 const SCHEME = '[a-z][a-z0-9+.-]*:\\/\\/';
 /** `postgres://user:pass@host` — credentials in the URI's userinfo section. */
-const URL_USERINFO = new RegExp(`(${SCHEME})[^/\\s@]+@`, 'gi');
+const URL_USERINFO = new RegExp(`(${SCHEME})[^/\\s@]+@`, 'giu');
 /** `https://host/mcp?api_key=…` — credentials in a URI query string. */
-const URL_QUERY = new RegExp(`(${SCHEME}[^\\s?]+)\\?\\S*`, 'gi');
+const URL_QUERY = new RegExp(`(${SCHEME}[^\\s?]+)\\?\\S*`, 'giu');
 
 /**
  * Prepare a failure message for DURABLE run-event metadata and for an
@@ -455,7 +455,7 @@ function isUnsafeRunEventMetadataKey(normalizedKey: string): boolean {
 }
 
 function normalizeRunEventMetadataKey(key: string): string {
-  return key.toLowerCase().replaceAll(/[^a-z0-9]/g, '');
+  return key.toLowerCase().replaceAll(/[^a-z0-9]/gu, '');
 }
 
 function isPlainRecord(value: unknown): value is Record<string, AssistantRunEventJson> {

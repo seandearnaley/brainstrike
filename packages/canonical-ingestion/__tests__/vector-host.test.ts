@@ -564,7 +564,7 @@ describe('explicit canonical TEXT / VECTOR admission', () => {
     expect(reason).not.toBe(ownedReason);
     expect(diagnostics.debug).toHaveBeenCalledWith(expect.any(String), {
       error: ownedReason,
-      requestId: expect.stringMatching(new RegExp(`^${f.request.requestId}:`)),
+      requestId: expect.stringMatching(new RegExp(`^${f.request.requestId}:`, 'u')),
     });
     expect(f.inference.join).toHaveBeenCalledOnce();
     expect(f.catalog.completeFiles).not.toHaveBeenCalled();

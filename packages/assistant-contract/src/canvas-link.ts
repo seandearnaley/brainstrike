@@ -15,8 +15,8 @@
  */
 export const CANVAS_LINK_PROTOCOL = 'canvas:';
 
-const LINKABLE_CANVAS_ID = /^[A-Za-z0-9-]+$/;
-const CANVAS_LINK = /^canvas:\/\/([A-Za-z0-9-]+)$/i;
+const LINKABLE_CANVAS_ID = /^[A-Za-z0-9-]+$/u;
+const CANVAS_LINK = /^canvas:\/\/([A-Za-z0-9-]+)$/iu;
 
 export type CanvasLinkParse =
   | { readonly canvasId: string; readonly kind: 'canvas' }

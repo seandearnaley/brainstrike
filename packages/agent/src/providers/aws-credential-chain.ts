@@ -158,16 +158,16 @@ const UNKNOWN_CHAIN_FAILURE_SHAPES: readonly { readonly detail: string; readonly
   [
     {
       detail: 'the AWS credential chain could not reach the network',
-      match: /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|socket hang up|network/i,
+      match: /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|socket hang up|network/iu,
     },
-    { detail: 'the AWS credential chain timed out', match: /ETIMEDOUT|timed? ?out|abort/i },
+    { detail: 'the AWS credential chain timed out', match: /ETIMEDOUT|timed? ?out|abort/iu },
     {
       detail: 'AWS rejected the credentials or role assumption',
-      match: /AccessDenied|UnrecognizedClient|InvalidClientTokenId|not authorized|AssumeRole/i,
+      match: /AccessDenied|UnrecognizedClient|InvalidClientTokenId|not authorized|AssumeRole/iu,
     },
     {
       detail: 'the AWS profile or config file could not be read',
-      match: /ENOENT|EACCES|could not be parsed|malformed|profile/i,
+      match: /ENOENT|EACCES|could not be parsed|malformed|profile/iu,
     },
   ];
 

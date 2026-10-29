@@ -69,7 +69,7 @@ export function requireOpenRouterModelId(modelId: string): readonly [string, str
   const parts = modelId.split('/');
   if (
     parts.length !== 2 ||
-    parts.some((part) => part.length === 0 || part.trim() !== part || /\s/.test(part))
+    parts.some((part) => part.length === 0 || part.trim() !== part || /\s/u.test(part))
   ) {
     throw new Error('OpenRouter model id must use the provider/model form');
   }

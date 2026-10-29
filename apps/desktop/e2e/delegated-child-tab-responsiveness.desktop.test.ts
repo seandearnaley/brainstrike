@@ -63,7 +63,7 @@ test('switches among running child tabs and retains the child draft', async ({
       await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
       await new HomePage(window).openSettings();
       const settings = new SettingsPage(window);
-      await settings.openCategory(/Permissions/i, 'permissions');
+      await settings.openCategory(/Permissions/iu, 'permissions');
       await window
         .getByRole('combobox', { exact: true, name: 'Read permission' })
         .selectOption('ask');
@@ -102,7 +102,7 @@ test('switches among running child tabs and retains the child draft', async ({
         await root
           .getByTestId('subagent-execution-card')
           .filter({ hasText: persona })
-          .getByRole('button', { name: /Open .* conversation/ })
+          .getByRole('button', { name: /Open .* conversation/u })
           .click();
         await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
         return (await selectedTab.innerText()).trim();

@@ -2,6 +2,17 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { platform } from 'node:process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ExecCapabilityMismatchError, type ExecInput } from '../code-execution';
+import {
+  createFenceExecutor,
+  createFenceExecutorFactory,
+  FenceExecutorDisposedError,
+  FenceInvalidRequestError,
+  FenceQueueTimeoutError,
+  FenceUnsupportedLanguageError,
+  FenceUnsupportedPlatformError,
+  isFenceSupported,
+} from '../fence/fence-executor';
 
 const sandbox = vi.hoisted(() => ({
   checkDependenciesAsync: vi.fn(async () => ({ errors: [] as string[], warnings: [] as string[] })),
@@ -40,18 +51,6 @@ beforeEach(() => {
     return child;
   });
 });
-
-import { ExecCapabilityMismatchError, type ExecInput } from '../code-execution';
-import {
-  createFenceExecutor,
-  createFenceExecutorFactory,
-  FenceExecutorDisposedError,
-  FenceInvalidRequestError,
-  FenceQueueTimeoutError,
-  FenceUnsupportedLanguageError,
-  FenceUnsupportedPlatformError,
-  isFenceSupported,
-} from '../fence/fence-executor';
 
 const interpreters = {
   python: { command: '/usr/bin/python3', scriptExtension: 'py' },
@@ -169,7 +168,7 @@ describe('createFenceExecutor', () => {
   it.runIf(supported)('rejects execute after dispose instead of silently re-arming', async () => {
     const executor = await createFenceExecutor({ interpreters });
     await executor.dispose();
-    await expect(executor.execute(request())).rejects.toThrowError(/disposed/i);
+    await expect(executor.execute(request())).rejects.toThrowError(/disposed/iu);
   });
 
   it.runIf(supported)('dispose is idempotent', async () => {
@@ -200,11 +199,11 @@ describe('typed fence errors', () => {
   // The tool layer maps these to model-visible structured failures, so the
   // discriminant and the operator-facing text are contract, not decoration.
   it.each([
-    [new FenceUnsupportedPlatformError('sunos'), 'fence_unsupported_platform', /sunos/],
-    [new FenceUnsupportedLanguageError('python', ['bash']), 'fence_unsupported_language', /bash/],
-    [new FenceExecutorDisposedError(), 'fence_executor_disposed', /disposed/i],
-    [new FenceInvalidRequestError('nope'), 'fence_invalid_request', /nope/],
-    [new FenceQueueTimeoutError(1234), 'fence_queue_timeout', /1234ms/],
+    [new FenceUnsupportedPlatformError('sunos'), 'fence_unsupported_platform', /sunos/u],
+    [new FenceUnsupportedLanguageError('python', ['bash']), 'fence_unsupported_language', /bash/u],
+    [new FenceExecutorDisposedError(), 'fence_executor_disposed', /disposed/iu],
+    [new FenceInvalidRequestError('nope'), 'fence_invalid_request', /nope/u],
+    [new FenceQueueTimeoutError(1234), 'fence_queue_timeout', /1234ms/u],
   ])('%s carries a stable code and an actionable message', (error, code, messagePattern) => {
     expect(error).toBeInstanceOf(Error);
     expect(error.code).toBe(code);
@@ -220,7 +219,7 @@ describe('typed fence errors', () => {
   });
 
   it('says plainly that nothing ran when the budget was spent queueing', () => {
-    expect(new FenceQueueTimeoutError(500).message).toMatch(/no code was run/i);
+    expect(new FenceQueueTimeoutError(500).message).toMatch(/no code was run/iu);
     expect(new FenceQueueTimeoutError(500).timeoutMs).toBe(500);
   });
 });

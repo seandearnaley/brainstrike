@@ -18,7 +18,7 @@ import { isAbsolutePath } from '@brainstrike/context-actions';
 import { isDescendantPath } from '@brainstrike/file-tree-worker';
 
 export function normalizePathForRootScope(path: string): string {
-  return path.replace(/\\/g, '/');
+  return path.replace(/\\/gu, '/');
 }
 
 function isWindowsAbsolutePath(path: string): boolean {

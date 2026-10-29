@@ -108,7 +108,7 @@ export function LogDiagnosticFilters({
         <Select onValueChange={onSourceChange} value={sourceFilter}>
           <SelectTrigger
             aria-label="Source"
-            className="h-8 w-[170px] border-border/50 bg-muted/40"
+            className="border-border/50 bg-muted/40 h-8 w-[170px]"
             id="log-viewer-source-filter"
           >
             <SelectValue />
@@ -131,7 +131,7 @@ export function LogDiagnosticFilters({
         <Select onValueChange={onCodeChange} value={codeFilter}>
           <SelectTrigger
             aria-label="Code"
-            className="h-8 w-[170px] border-border/50 bg-muted/40"
+            className="border-border/50 bg-muted/40 h-8 w-[170px]"
             id="log-viewer-code-filter"
           >
             <SelectValue />
@@ -155,7 +155,7 @@ export function LogDiagnosticFilters({
         <Input
           aria-invalid={invalidRange || invalidTimeBoundary === 'start'}
           aria-label="From time"
-          className="h-8 w-[190px] border-border/50 bg-muted/40 text-xs"
+          className="border-border/50 bg-muted/40 h-8 w-[190px] text-xs"
           id="log-viewer-time-start"
           onChange={(event) =>
             handleTimeChange(event.currentTarget.value, 'start', onTimeStartChange)
@@ -172,7 +172,7 @@ export function LogDiagnosticFilters({
         <Input
           aria-invalid={invalidRange || invalidTimeBoundary === 'end'}
           aria-label="To time"
-          className="h-8 w-[190px] border-border/50 bg-muted/40 text-xs"
+          className="border-border/50 bg-muted/40 h-8 w-[190px] text-xs"
           id="log-viewer-time-end"
           onChange={(event) => handleTimeChange(event.currentTarget.value, 'end', onTimeEndChange)}
           type="datetime-local"
@@ -181,7 +181,7 @@ export function LogDiagnosticFilters({
       </div>
 
       {errorMessage ? (
-        <span className="pb-1 text-destructive text-xs" role="alert">
+        <span className="text-destructive pb-1 text-xs" role="alert">
           {errorMessage}
         </span>
       ) : null}

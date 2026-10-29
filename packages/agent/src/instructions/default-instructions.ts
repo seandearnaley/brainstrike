@@ -78,7 +78,7 @@ const TASK_STATUS_GLYPHS: Record<AssistantTaskStatus, string> = {
  * inside a quoted attribute, only free-standing block content.
  */
 function escapeTaskListText(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return value.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;');
 }
 
 /**

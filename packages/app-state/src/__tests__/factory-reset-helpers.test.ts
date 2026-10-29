@@ -420,7 +420,7 @@ describe('clearPersistentUiState IndexedDB handling', () => {
     const reset = clearPersistentUiState({ skipIndexedDb: true });
     await expect(reset).rejects.toBeInstanceOf(ClearPersistentUiStateIncompleteError);
     await expect(reset).rejects.toMatchObject({
-      message: expect.stringMatching(/CacheStorage reset incomplete/),
+      message: expect.stringMatching(/CacheStorage reset incomplete/u),
       result: expect.objectContaining({ success: false }),
     });
   });

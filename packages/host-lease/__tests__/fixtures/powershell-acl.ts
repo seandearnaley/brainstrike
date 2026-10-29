@@ -104,7 +104,7 @@ export async function windowsPrivateAcl(
   if (
     !(
       acl.protected &&
-      /^S-1-\d+(?:-\d+)+$/.test(acl.currentSid) &&
+      /^S-1-\d+(?:-\d+)+$/u.test(acl.currentSid) &&
       acl.ownerSid === acl.currentSid &&
       acl.rules.length === 1 &&
       rule &&

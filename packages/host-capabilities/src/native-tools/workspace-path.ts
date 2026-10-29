@@ -33,16 +33,16 @@ const SLASH_CHAR_CODE = 47;
  * A bare ".", "", "./", or whitespace resolves to the root "/".
  */
 export function normalizeWorkspacePath(value: string): string {
-  const forward = value.trim().replace(/\\/g, '/');
+  const forward = value.trim().replace(/\\/gu, '/');
   if (forward.length === 0) {
     return '/';
   }
   const isRooted = forward.startsWith('/');
   // Root before normalising so POSIX semantics clamp ".." at "/" — escapes are
   // impossible by construction. This also collapses "." and duplicate slashes.
-  const normalizedRooted = path.posix.normalize(`/${forward.replace(/^\/+/, '')}`);
+  const normalizedRooted = path.posix.normalize(`/${forward.replace(/^\/+/u, '')}`);
   const withoutTrailing =
-    normalizedRooted.length > 1 ? normalizedRooted.replace(/\/+$/, '') : normalizedRooted;
+    normalizedRooted.length > 1 ? normalizedRooted.replace(/\/+$/u, '') : normalizedRooted;
   if (withoutTrailing === '/') {
     return '/';
   }
@@ -67,7 +67,7 @@ export function normalizeWorkspacePaths(paths: readonly string[]): string[] {
 /** Split a virtual path into its non-empty segments (leading "/" dropped). */
 export function toPathSegments(workspacePath: string): string[] {
   return workspacePath
-    .replace(/^\/+/, '')
+    .replace(/^\/+/u, '')
     .split('/')
     .filter((segment) => segment.length > 0);
 }

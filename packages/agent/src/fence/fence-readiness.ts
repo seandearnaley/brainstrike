@@ -12,8 +12,8 @@ import { FenceReadinessError } from './fence-readiness-error.ts';
 const realpathNative = promisify(realpath.native);
 export const FENCE_READINESS_TIMEOUT_MS = 5000;
 const PROBE_OUTPUT = 'brainstrike-fence-ready';
-const NAMESPACE_OPERATION = /namespace|unshare|[ug]id map|RTM_NEWADDR|NETLINK_ROUTE|loopback/i;
-const NAMESPACE_DENIAL = /not permitted|permission denied|no permissions|not supported|disabled/i;
+const NAMESPACE_OPERATION = /namespace|unshare|[ug]id map|RTM_NEWADDR|NETLINK_ROUTE|loopback/iu;
+const NAMESPACE_DENIAL = /not permitted|permission denied|no permissions|not supported|disabled/iu;
 
 export function fenceReadinessTimeout(): FenceReadinessError {
   return new FenceReadinessError(

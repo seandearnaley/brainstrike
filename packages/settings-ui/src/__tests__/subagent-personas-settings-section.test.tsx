@@ -99,8 +99,8 @@ describe('SubagentPersonasSettingsSection', () => {
     await waitFor(() => {
       expect(screen.getByText('Security Auditor')).toBeInTheDocument();
     });
-    expect(screen.getByText(/anthropic::claude-haiku-4-5/)).toBeInTheDocument();
-    expect(screen.getByText(/persona frontmatter requires a description/)).toBeInTheDocument();
+    expect(screen.getByText(/anthropic::claude-haiku-4-5/u)).toBeInTheDocument();
+    expect(screen.getByText(/persona frontmatter requires a description/u)).toBeInTheDocument();
     // Invalid personas get no availability toggle (there is nothing to enable).
     expect(screen.queryByTestId('subagent-persona-toggle-broken.md')).not.toBeInTheDocument();
   });
@@ -135,9 +135,9 @@ describe('SubagentPersonasSettingsSection', () => {
     });
     render(<SubagentPersonasSettingsSection />);
     await waitFor(() => {
-      expect(screen.getByText(/error A/)).toBeInTheDocument();
+      expect(screen.getByText(/error A/u)).toBeInTheDocument();
     });
-    expect(screen.getByText(/error B/)).toBeInTheDocument();
+    expect(screen.getByText(/error B/u)).toBeInTheDocument();
     expect(screen.getAllByText('bad.md')).toHaveLength(2);
   });
 
@@ -162,7 +162,7 @@ describe('SubagentPersonasSettingsSection', () => {
     });
     render(<SubagentPersonasSettingsSection />);
 
-    const detail = await screen.findByText(/this copy is inactive/i);
+    const detail = await screen.findByText(/this copy is inactive/iu);
     expect(detail).toBeInTheDocument();
     expect(detail).toHaveClass('text-muted-foreground');
     expect(detail).not.toHaveClass('text-destructive');
@@ -187,8 +187,8 @@ describe('SubagentPersonasSettingsSection', () => {
 
     const warnings = await screen.findByTestId('subagent-personas-incomplete');
     expect(warnings).toHaveTextContent('/work/a/.brainstrike/agents');
-    expect(warnings).toHaveTextContent(/not read/i);
-    expect(warnings).toHaveTextContent(/scan limit reached/i);
+    expect(warnings).toHaveTextContent(/not read/iu);
+    expect(warnings).toHaveTextContent(/scan limit reached/iu);
     expect(warnings.querySelector('.text-destructive')).toBeNull();
     expect(warnings.closest('fieldset')).toBeNull();
   });
@@ -338,7 +338,7 @@ describe('SubagentPersonasSettingsSection', () => {
 
   it('without the bridge, shows the desktop-only note for user personas', () => {
     render(<SubagentPersonasSettingsSection />);
-    expect(screen.getByText(/desktop/i)).toBeInTheDocument();
+    expect(screen.getByText(/desktop/iu)).toBeInTheDocument();
   });
 });
 
@@ -373,7 +373,7 @@ it('shows an actionable host issue while keeping declared scope distinct', async
     await screen.findByText('Add credentials for anthropic in Providers.')
   ).toBeInTheDocument();
   expect(screen.getByText('Unavailable until corrected')).toBeInTheDocument();
-  expect(screen.getByText(/Declared scope:/)).toBeInTheDocument();
+  expect(screen.getByText(/Declared scope:/u)).toBeInTheDocument();
 });
 
 it('reports loading failure and retries the bridge instead of hiding user profiles', async () => {
@@ -416,7 +416,7 @@ it('keeps refresh disabled while the host scan is pending and enables it after s
     },
   });
   render(<SubagentPersonasSettingsSection />);
-  const refresh = screen.getByRole('button', { name: /personas/i });
+  const refresh = screen.getByRole('button', { name: /personas/iu });
   expect(refresh).toBeDisabled();
   await userEvent.click(refresh);
   expect(calls).toBe(1);

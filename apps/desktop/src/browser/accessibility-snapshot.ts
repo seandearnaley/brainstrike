@@ -93,8 +93,8 @@ function isInteractive(node: AxSnapshotNode): boolean {
  * cap the length.
  */
 function sanitizeName(raw: string): string {
-  const collapsed = raw.replace(/\s+/g, ' ').trim();
-  const escaped = collapsed.replace(/"/g, '\\"').replace(/\[ref=/gi, '[ref–');
+  const collapsed = raw.replace(/\s+/gu, ' ').trim();
+  const escaped = collapsed.replace(/"/gu, '\\"').replace(/\[ref=/giu, '[ref–');
   return escaped.length > MAX_NAME_LENGTH ? `${escaped.slice(0, MAX_NAME_LENGTH)}…` : escaped;
 }
 

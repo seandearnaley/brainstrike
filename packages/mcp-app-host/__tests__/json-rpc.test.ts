@@ -6,7 +6,7 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
   it('rejects an empty ui/initialize result against the pinned canonical schema', () => {
     expect(() =>
       parseMcpAppResponse({ id: 'initialize', jsonrpc: '2.0', result: {} }, 'ui/initialize')
-    ).toThrow(/ui\/initialize.*canonical result schema/);
+    ).toThrow(/ui\/initialize.*canonical result schema/u);
   });
 
   it.each([
@@ -29,7 +29,7 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
     ['tools/call', { isError: 'yes' }],
   ] as const)('rejects a non-canonical result shape for %s', (method, result) => {
     expect(() => parseMcpAppResponse({ id: method, jsonrpc: '2.0', result }, method)).toThrow(
-      /canonical result schema/
+      /canonical result schema/u
     );
   });
 
@@ -52,7 +52,7 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
     expect(parseMcpAppResponse(response, 'ping')).toEqual(response);
     const correlation = new McpAppRequestCorrelator();
     correlation.register('r1', 'ping');
-    expect(() => correlation.settle(response)).toThrow(/no routable id: -32700 Parse error/);
+    expect(() => correlation.settle(response)).toThrow(/no routable id: -32700 Parse error/u);
     expect(correlation.pendingCount).toBe(1);
   });
 
@@ -65,7 +65,7 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
     { error: { code: -1, message: 42 }, id: 1, jsonrpc: '2.0' },
     { error: { code: -1, extra: true, message: 'bad' }, id: 1, jsonrpc: '2.0' },
   ])('rejects malformed response envelopes: %j', (response) => {
-    expect(() => parseMcpAppResponse(response, 'ping')).toThrow(/MCP Apps response/);
+    expect(() => parseMcpAppResponse(response, 'ping')).toThrow(/MCP Apps response/u);
   });
 
   it('rejects deeply nested and oversized response payloads', () => {
@@ -74,11 +74,11 @@ describe('bounded MCP Apps JSON-RPC responses', () => {
       nested = { nested };
     }
     expect(() => parseMcpAppResponse({ id: 1, jsonrpc: '2.0', result: nested }, 'ping')).toThrow(
-      /maximum JSON depth/
+      /maximum JSON depth/u
     );
     expect(() =>
       parseMcpAppResponse({ id: 1, jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } }, 'ping')
-    ).toThrow(/maximum encoded size/);
+    ).toThrow(/maximum encoded size/u);
   });
 });
 
@@ -91,12 +91,12 @@ describe('MCP Apps request correlation', () => {
     const correlation = new McpAppRequestCorrelator();
     correlation.register('initialize', 'ui/initialize');
     expect(() => correlation.settle({ id: 'initialize', jsonrpc: '2.0', result: {} })).toThrow(
-      /ui\/initialize.*canonical result schema/
+      /ui\/initialize.*canonical result schema/u
     );
     expect(correlation.pendingCount).toBe(0);
     expect(() =>
       correlation.settle({ id: 'initialize', jsonrpc: '2.0', result: INITIALIZE_RESULT })
-    ).toThrow(/not pending/);
+    ).toThrow(/not pending/u);
     const fresh = new McpAppRequestCorrelator();
     fresh.register('initialize', 'ui/initialize');
     expect(
@@ -116,21 +116,21 @@ describe('MCP Apps request correlation', () => {
   it('rejects duplicate, unknown, and replayed ids', () => {
     const correlation = new McpAppRequestCorrelator();
     correlation.register('one', 'ping');
-    expect(() => correlation.register('one', 'ping')).toThrow(/already pending/);
+    expect(() => correlation.register('one', 'ping')).toThrow(/already pending/u);
     expect(() => correlation.settle({ id: 'unknown', jsonrpc: '2.0', result: {} })).toThrow(
-      /not pending/
+      /not pending/u
     );
     correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} });
-    expect(() => correlation.register('one', 'ping')).toThrow(/already used/);
+    expect(() => correlation.register('one', 'ping')).toThrow(/already used/u);
     expect(() => correlation.settle({ id: 'one', jsonrpc: '2.0', result: {} })).toThrow(
-      /not pending/
+      /not pending/u
     );
 
     const bounded = new McpAppRequestCorrelator();
     for (let id = 0; id < 256; id += 1) {
       bounded.register(id, 'ping');
     }
-    expect(() => bounded.register(256, 'ping')).toThrow(/exceeds 256 entries/);
+    expect(() => bounded.register(256, 'ping')).toThrow(/exceeds 256 entries/u);
   });
 
   it('bounds replay memory to a recent-id ring instead of a session lifetime', () => {
@@ -140,8 +140,8 @@ describe('MCP Apps request correlation', () => {
       correlation.settle({ id, jsonrpc: '2.0', result: {} });
     }
     // The most recent ids are still refused as replays…
-    expect(() => correlation.register(4096, 'ping')).toThrow(/already used/);
-    expect(() => correlation.register(1, 'ping')).toThrow(/already used/);
+    expect(() => correlation.register(4096, 'ping')).toThrow(/already used/u);
+    expect(() => correlation.register(1, 'ping')).toThrow(/already used/u);
     // …while the oldest has been evicted, so a long session never wedges.
     correlation.register(0, 'ping');
     expect(correlation.pendingCount).toBe(1);
@@ -154,13 +154,13 @@ describe('MCP Apps request correlation', () => {
     correlation.register('r1', 'ping');
     expect(() =>
       correlation.settle({ id: 'r1', jsonrpc: '2.0', result: { text: 'x'.repeat(262_145) } })
-    ).toThrow(/maximum encoded size/);
+    ).toThrow(/maximum encoded size/u);
     expect(correlation.pendingCount).toBe(0);
     // Ids are one-shot (BST-1570): the released id cannot be re-registered,
     // but a fresh id proves the slot itself was released.
-    expect(() => correlation.register('r1', 'ping')).toThrow(/already used/);
+    expect(() => correlation.register('r1', 'ping')).toThrow(/already used/u);
     correlation.register('r2', 'ping');
-    expect(() => correlation.settle({ id: 'r2', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/);
+    expect(() => correlation.settle({ id: 'r2', jsonrpc: '1.0', result: {} })).toThrow(/jsonrpc/u);
     expect(correlation.pendingCount).toBe(0);
   });
 
@@ -173,6 +173,6 @@ describe('MCP Apps request correlation', () => {
     expect(correlation.pendingCount).toBe(1);
     correlation.clear();
     expect(correlation.pendingCount).toBe(0);
-    expect(() => correlation.settle({ id: 2, jsonrpc: '2.0', result: {} })).toThrow(/not pending/);
+    expect(() => correlation.settle({ id: 2, jsonrpc: '2.0', result: {} })).toThrow(/not pending/u);
   });
 });

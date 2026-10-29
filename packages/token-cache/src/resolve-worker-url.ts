@@ -17,7 +17,7 @@ function usesTypeScriptSource(url: string): boolean {
 }
 
 function getSourceWorkerPath(path: string): string {
-  return path.replace(/\.js$/, '.ts');
+  return path.replace(/\.js$/u, '.ts');
 }
 
 function readImportMetaOverride(): ImportMetaLike | null {

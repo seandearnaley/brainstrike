@@ -54,7 +54,7 @@ const ScrollArea = ({
   >
     <ScrollAreaPrimitive.Viewport
       className={cn(
-        'size-full min-h-0 rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:outline-1 focus-visible:ring-[3px] focus-visible:ring-ring/50',
+        'focus-visible:ring-ring/50 size-full min-h-0 rounded-[inherit] outline-hidden transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1',
         // `& > div` is the content wrapper Radix renders inside every viewport.
         contentWidth === 'viewport' && '[&>div]:!block'
       )}
@@ -79,7 +79,7 @@ const ScrollBar = ({
 }) => (
   <ScrollAreaPrimitive.ScrollAreaScrollbar
     className={cn(
-      'flex touch-none select-none p-px transition-colors',
+      'flex touch-none p-px transition-colors select-none',
       orientation === 'vertical' && 'h-full w-2.5 border-l border-l-transparent',
       orientation === 'horizontal' && 'h-2.5 flex-col border-t border-t-transparent',
       className
@@ -90,7 +90,7 @@ const ScrollBar = ({
     {...props}
   >
     <ScrollAreaPrimitive.ScrollAreaThumb
-      className="relative flex-1 rounded-full bg-border"
+      className="bg-border relative flex-1 rounded-full"
       data-slot="scroll-area-thumb"
     />
   </ScrollAreaPrimitive.ScrollAreaScrollbar>

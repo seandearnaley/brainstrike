@@ -48,7 +48,7 @@ describe('AgentEgressHost (BST-1238)', () => {
     expect(utilities).toHaveLength(1);
     const [start] = (utilities[0]?.sent ?? []) as [{ credential: string; type: string }];
     expect(start.type).toBe('start');
-    expect(start.credential).toMatch(/^agent:[0-9a-f]{64}$/);
+    expect(start.credential).toMatch(/^agent:[0-9a-f]{64}$/u);
     utilities[0]?.answer({ port: 41_000, type: 'ready' });
     const egress = await first;
     expect(await second).toBe(egress);
@@ -95,8 +95,8 @@ describe('AgentEgressHost (BST-1238)', () => {
   });
 
   it.each([
-    ['a failed start', { message: 'EADDRINUSE', type: 'failed' }, /failed to start: EADDRINUSE/],
-    ['an out-of-protocol message', { port: 'not a port', type: 'ready' }, /invalid message/],
+    ['a failed start', { message: 'EADDRINUSE', type: 'failed' }, /failed to start: EADDRINUSE/u],
+    ['an out-of-protocol message', { port: 'not a port', type: 'ready' }, /invalid message/u],
   ])(
     'rejects %s, kills the proxy and starts a fresh one next time',
     async (_label, answer, error) => {

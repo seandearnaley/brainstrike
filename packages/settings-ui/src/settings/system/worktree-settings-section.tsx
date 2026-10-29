@@ -137,7 +137,7 @@ function WorktreeSettingsForm({
             id="worktree-disable-setup"
             onCheckedChange={(checked) => setSetupDisabled(checked === true)}
           />
-          <Label className="font-normal text-sm" htmlFor="worktree-disable-setup">
+          <Label className="text-sm font-normal" htmlFor="worktree-disable-setup">
             Disable setup entirely; do not fall back to the repository setup script.
           </Label>
         </div>

@@ -364,7 +364,7 @@ describe('fetchAssistantStatusState', () => {
         fetchImpl,
         signal: new AbortController().signal,
       })
-    ).rejects.toThrowError(/Invalid assistant deprecated env var report/);
+    ).rejects.toThrowError(/Invalid assistant deprecated env var report/u);
   });
 
   it.each([
@@ -415,7 +415,7 @@ describe('fetchAssistantStatusState', () => {
         fetchImpl,
         signal: new AbortController().signal,
       })
-    ).rejects.toThrowError(/Invalid assistant provider key source/);
+    ).rejects.toThrowError(/Invalid assistant provider key source/u);
   });
 
   it('rejects duplicate available providers', async () => {

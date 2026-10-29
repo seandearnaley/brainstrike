@@ -225,10 +225,10 @@ const UNCONDITIONAL_EXCLUDED_NATIVE_PATH_REGEX = new RegExp(
   `(?:^|${NATIVE_SEPARATOR})(?:${UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES.map((prefix) =>
     prefix
       .split('/')
-      .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+      .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`))
       .join(NATIVE_SEPARATOR)
   ).join('|')})(?:$|${NATIVE_SEPARATOR})`,
-  'i'
+  'iu'
 );
 
 /**

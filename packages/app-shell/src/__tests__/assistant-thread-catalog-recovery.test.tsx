@@ -40,7 +40,7 @@ test.each(['empty', 'current'] as const)(
     });
     renderWorkspace({}, host);
     expect(await screen.findByText('Catalog unavailable')).toBeVisible();
-    expect(screen.queryByText(/Your saved conversation is unavailable/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Your saved conversation is unavailable/u)).not.toBeInTheDocument();
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Retry loading conversations' }));
     expect(await screen.findByText('Catalog still unavailable')).toBeVisible();
@@ -52,7 +52,7 @@ test.each(['empty', 'current'] as const)(
     if (result === 'empty') {
       // An empty catalog opens the new-thread screen; no thread is created for it.
       expect(await screen.findByTestId('new-thread-composer')).toBeVisible();
-      expect(screen.getByText(/Your saved conversation is unavailable/)).toBeVisible();
+      expect(screen.getByText(/Your saved conversation is unavailable/u)).toBeVisible();
     } else {
       expect(await screen.findByTestId('host-thread')).toHaveTextContent('owned-current');
     }

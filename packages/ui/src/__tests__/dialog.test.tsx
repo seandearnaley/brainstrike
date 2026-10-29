@@ -174,7 +174,7 @@ describe('Dialog Component', () => {
 
     const overlay = document.querySelector('[data-slot="dialog-overlay"]');
     expect(overlay).toBeTruthy();
-    expect(overlay?.className).toMatch(/\bz-50\b/);
+    expect(overlay?.className).toMatch(/\bz-50\b/u);
 
     const content = screen.getByRole('dialog');
     expect(content.className).toContain('z-[51]');

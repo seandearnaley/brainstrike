@@ -15,6 +15,11 @@
 import { screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
+import {
+  type ToolApprovalGrantHandlers,
+  ToolApprovalGrantProvider,
+} from '../tool-approval-grant-context';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 vi.mock('@assistant-ui/react', () => ({
@@ -49,12 +54,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
     />
   ),
 }));
-
-import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
-import {
-  type ToolApprovalGrantHandlers,
-  ToolApprovalGrantProvider,
-} from '../tool-approval-grant-context';
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -123,13 +122,13 @@ describe('run_python approval card — fact rows', () => {
     );
     const write = screen.getByTestId('approval-run-python-write');
     expect(write).toHaveTextContent('/var/folders/xx/T');
-    expect(write).toHaveTextContent(/nowhere else/i);
+    expect(write).toHaveTextContent(/nowhere else/iu);
     // Reads are PERMISSIVE by default in the fence — an empty allowRead means
     // "most files", and rendering "can't read your files" would be a lie on a
     // security surface.
     const read = screen.getByTestId('approval-run-python-read');
-    expect(read).toHaveTextContent(/most files on this computer/i);
-    expect(read).not.toHaveTextContent(/can't read your files/i);
+    expect(read).toHaveTextContent(/most files on this computer/iu);
+    expect(read).not.toHaveTextContent(/can't read your files/iu);
     expect(screen.getByTestId('approval-run-python-time')).toHaveTextContent(
       'Stops after 30 seconds'
     );
@@ -196,7 +195,7 @@ describe('run_python approval card — fact rows', () => {
       null
     );
     expect(screen.getByTestId('approval-run-python-read')).toHaveTextContent(
-      /can't read your files/i
+      /can't read your files/iu
     );
   });
 
@@ -215,7 +214,7 @@ describe('run_python approval card — fact rows', () => {
       'Wants to reach 2 domains'
     );
     expect(screen.getByTestId('approval-run-python-forewarning')).toHaveTextContent(
-      /asked about internet access separately/i
+      /asked about internet access separately/iu
     );
   });
 
@@ -224,7 +223,7 @@ describe('run_python approval card — fact rows', () => {
       { ...baseApproval, args: { code: '' }, executionContext: undefined },
       makeHandlers()
     );
-    expect(screen.getByText(/this script is empty/i)).toBeInTheDocument();
+    expect(screen.getByText(/this script is empty/iu)).toBeInTheDocument();
     expect(screen.queryByTestId('approval-run-python-code')).not.toBeInTheDocument();
     // An empty script provably does nothing — the missing-context alarm would
     // cry wolf, so it is exempt (grants stay suppressed regardless).
@@ -238,18 +237,18 @@ describe('run_python approval card — fail-safe paths', () => {
     renderNotice({ ...baseApproval, executionContext: undefined }, makeHandlers());
 
     expect(screen.getByTestId('approval-run-python-context-missing')).toHaveTextContent(
-      /couldn't confirm what this script is allowed to touch/i
+      /couldn't confirm what this script is allowed to touch/iu
     );
     // The disappearing grant buttons come with a visible reason, same as the
     // unreadable-args path.
     expect(screen.getByTestId('approval-run-python-grants-suppressed-note')).toHaveTextContent(
-      /won't offer "always allow"/i
+      /won't offer "always allow"/iu
     );
     expect(screen.queryByTestId('approval-run-python-internet')).not.toBeInTheDocument();
     expect(screen.queryByTestId('approval-run-python-write')).not.toBeInTheDocument();
     // Approve/Decline stay; grants are suppressed.
-    expect(screen.getByRole('button', { name: /approve brainstrike.runPython/i })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /decline brainstrike.runPython/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /approve brainstrike.runPython/iu })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /decline brainstrike.runPython/iu })).toBeEnabled();
     expect(screen.queryByTestId('approval-grant-tool-always')).not.toBeInTheDocument();
     expect(screen.queryByTestId('approval-grant-category-session')).not.toBeInTheDocument();
   });
@@ -274,10 +273,10 @@ describe('run_python approval card — fail-safe paths', () => {
     );
     expect(screen.getByTestId('approval-preview-parse-error')).toBeInTheDocument();
     expect(screen.getByTestId('approval-run-python-grants-suppressed-note')).toHaveTextContent(
-      /won't offer "always allow" for a call we can't read/i
+      /won't offer "always allow" for a call we can't read/iu
     );
     expect(screen.queryByTestId('approval-grant-tool-always')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /approve brainstrike.runPython/i })).toBeEnabled();
+    expect(screen.getByRole('button', { name: /approve brainstrike.runPython/iu })).toBeEnabled();
   });
 
   it("leaves every other tool's grants untouched by the suppression seam", () => {
@@ -301,7 +300,7 @@ describe('run_python approval card — shared copy', () => {
   it('the execute reason line covers code, not only commands', () => {
     renderNotice(baseApproval, null);
     expect(
-      screen.getByText(/requires approval: execute \(runs commands or code on your computer\)/i)
+      screen.getByText(/requires approval: execute \(runs commands or code on your computer\)/iu)
     ).toBeInTheDocument();
   });
 });

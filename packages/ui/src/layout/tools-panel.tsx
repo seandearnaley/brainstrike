@@ -20,7 +20,7 @@ export function ToolsPanel({
 }: ToolsPanelProps) {
   return (
     <>
-      <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
+      <Separator className="bg-border hover:bg-border/80 z-10 w-1 transition-colors" />
       <Panel
         className="bg-background"
         collapsedSize="0%"
@@ -32,11 +32,11 @@ export function ToolsPanel({
         minSize="15%"
         panelRef={panelRef}
       >
-        <div className="h-full border-border border-l">
-          <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+        <div className="border-border h-full border-l">
+          <div className="border-border bg-muted/30 flex items-center justify-between border-b p-2">
             <div className="flex items-center gap-2">
               <PanelRight className="h-4 w-4" />
-              <span className="font-medium text-sm">Tools</span>
+              <span className="text-sm font-medium">Tools</span>
             </div>
             <Button
               aria-label="Hide tools panel"

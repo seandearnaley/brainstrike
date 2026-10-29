@@ -43,7 +43,7 @@ describe('parseUserCommandFile', () => {
     const result = parseUserCommandFile(content);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toMatch(/unterminated/i);
+      expect(result.error).toMatch(/unterminated/iu);
     }
   });
 

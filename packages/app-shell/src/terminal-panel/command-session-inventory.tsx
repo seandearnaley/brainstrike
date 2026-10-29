@@ -7,7 +7,7 @@ import type { CommandSessionInfo } from './command-session-bridge';
 const MAX_DISPLAY_CHARS = 128 * 1024;
 
 function sessionTitle(session: CommandSessionInfo): string {
-  const segments = session.cwd.split(/[\\/]/).filter(Boolean);
+  const segments = session.cwd.split(/[\\/]/u).filter(Boolean);
   return segments.at(-1) ?? 'Command session';
 }
 
@@ -177,11 +177,11 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
   const selected = sessions.find((session) => session.id === selectedId);
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(12rem,18rem)_1fr] bg-background">
-      <aside className="flex min-h-0 flex-col border-border border-r">
-        <div className="flex items-center justify-between gap-2 border-border border-b px-3 py-2">
+    <div className="bg-background grid h-full min-h-0 grid-cols-[minmax(12rem,18rem)_1fr]">
+      <aside className="border-border flex min-h-0 flex-col border-r">
+        <div className="border-border flex items-center justify-between gap-2 border-b px-3 py-2">
           <div>
-            <p className="font-medium text-sm">Command sessions</p>
+            <p className="text-sm font-medium">Command sessions</p>
             <p className="text-muted-foreground text-xs">Assistant-owned processes</p>
           </div>
           <Button
@@ -197,7 +197,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {sessions.length === 0 && !loading ? (
-            <p className="px-2 py-6 text-center text-muted-foreground text-xs">
+            <p className="text-muted-foreground px-2 py-6 text-center text-xs">
               No command sessions in this workspace.
             </p>
           ) : null}
@@ -206,21 +206,21 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
               className={`mb-1 w-full rounded-md border px-2.5 py-2 text-left transition-colors ${
                 selectedId === session.id
                   ? 'border-primary/40 bg-primary/10'
-                  : 'border-transparent hover:bg-muted/70'
+                  : 'hover:bg-muted/70 border-transparent'
               }`}
               key={session.id}
               onClick={() => selectSession(session.id)}
               type="button"
             >
               <span className="flex items-center justify-between gap-2">
-                <span className="truncate font-medium text-xs">{sessionTitle(session)}</span>
+                <span className="truncate text-xs font-medium">{sessionTitle(session)}</span>
                 <span
                   className={`size-2 shrink-0 rounded-full ${
                     session.status === 'running' ? 'bg-emerald-500' : 'bg-muted-foreground/50'
                   }`}
                 />
               </span>
-              <span className="mt-1 block truncate font-mono text-[11px] text-muted-foreground">
+              <span className="text-muted-foreground mt-1 block truncate font-mono text-[11px]">
                 {shortSessionId(session.id)} · PID {session.pid}
               </span>
             </button>
@@ -231,10 +231,10 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
       <section className="flex min-h-0 min-w-0 flex-col">
         {selected ? (
           <>
-            <header className="flex flex-wrap items-center justify-between gap-2 border-border border-b px-3 py-2">
+            <header className="border-border flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
               <div className="min-w-0">
-                <p className="truncate font-medium text-sm">{sessionTitle(selected)}</p>
-                <p className="truncate font-mono text-[11px] text-muted-foreground">
+                <p className="truncate text-sm font-medium">{sessionTitle(selected)}</p>
+                <p className="text-muted-foreground truncate font-mono text-[11px]">
                   {selected.id} · root {selected.rootId} · {selected.status}
                   {selected.status === 'exited' ? ` · exit ${selected.exitCode}` : ''}
                 </p>
@@ -261,18 +261,18 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
               </div>
             </header>
             {error ? (
-              <p className="border-destructive/30 border-b bg-destructive/10 px-3 py-2 text-destructive text-xs">
+              <p className="border-destructive/30 bg-destructive/10 text-destructive border-b px-3 py-2 text-xs">
                 {error}
               </p>
             ) : null}
             {outputOmitted ? (
-              <p className="border-border border-b px-3 py-1.5 text-warning text-xs">
+              <p className="border-border text-warning border-b px-3 py-1.5 text-xs">
                 Older output is no longer available in this view.
               </p>
             ) : null}
             <pre
               aria-label="Command session output"
-              className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words bg-black/95 p-3 font-mono text-[12px] text-zinc-100 leading-5"
+              className="min-h-0 flex-1 overflow-auto bg-black/95 p-3 font-mono text-[12px] leading-5 break-words whitespace-pre-wrap text-zinc-100"
               role="log"
             >
               {output || 'Waiting for output…'}
@@ -289,10 +289,10 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
               </Button>
             ) : null}
             {selected.status === 'running' ? (
-              <form className="flex gap-2 border-border border-t p-2" onSubmit={sendInput}>
+              <form className="border-border flex gap-2 border-t p-2" onSubmit={sendInput}>
                 <input
                   aria-label="Command session input"
-                  className="min-w-0 flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="border-input bg-background focus-visible:ring-ring min-w-0 flex-1 rounded-md border px-2.5 py-1.5 font-mono text-xs outline-none focus-visible:ring-2"
                   onChange={(event) => setInput(event.target.value)}
                   placeholder="Send input"
                   value={input}
@@ -304,7 +304,7 @@ export function CommandSessionInventory({ rootId }: CommandSessionInventoryProps
             ) : null}
           </>
         ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center text-muted-foreground text-sm">
+          <div className="text-muted-foreground flex h-full items-center justify-center p-6 text-center text-sm">
             {error ?? 'Select a command session to inspect its output.'}
           </div>
         )}

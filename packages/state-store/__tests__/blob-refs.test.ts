@@ -19,10 +19,10 @@ test('blobsOf lists the spooled blob and every referenced blob once', () => {
   expect(blobsOf(JSON.stringify({ blobRefs: [a, b, a], type: 'edit' }))).toEqual([a, b]);
   expect(blobsOf(JSON.stringify({ blob: a, blobRefs: [b], type: 'edit' }))).toEqual([a, b]);
   expect(() => blobsOf(JSON.stringify({ blobRefs: ['nope'], type: 'edit' }))).toThrow(
-    /invalid blob hash/
+    /invalid blob hash/u
   );
   expect(() => blobsOf(JSON.stringify({ blobRefs: 'nope', type: 'edit' }))).toThrow(
-    /invalid blob hash/
+    /invalid blob hash/u
   );
 });
 
@@ -31,10 +31,10 @@ test('an event cannot commit a reference to a missing blob', async () => {
   try {
     await expect(
       store.append([{ event: { blobRefs: [sha256Hex('absent')], type: 'edit' }, threadId: 't' }])
-    ).rejects.toThrow(/missing blob/);
+    ).rejects.toThrow(/missing blob/u);
   } finally {
     // As for a spooled `blob`, a refused reference fails the writer (blobs.test.ts).
-    await expect(store.close()).rejects.toThrow(/failed earlier/);
+    await expect(store.close()).rejects.toThrow(/failed earlier/u);
   }
 });
 

@@ -12,35 +12,35 @@ interface ScrubPattern {
 const PATTERNS: readonly ScrubPattern[] = [
   {
     kind: 'private-key',
-    regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+    regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/gu,
   },
   {
     kind: 'github-token',
-    regex: /(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})/g,
+    regex: /(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})/gu,
   },
   {
     kind: 'aws-access-key',
-    regex: /AKIA[0-9A-Z]{16}/g,
+    regex: /AKIA[0-9A-Z]{16}/gu,
   },
   {
     kind: 'slack-token',
-    regex: /xox[baprs]-[A-Za-z0-9-]{10,}/g,
+    regex: /xox[baprs]-[A-Za-z0-9-]{10,}/gu,
   },
   {
     kind: 'api-key',
-    regex: /sk-[A-Za-z0-9_-]{16,}/g,
+    regex: /sk-[A-Za-z0-9_-]{16,}/gu,
   },
   {
     kind: 'bearer-token',
-    regex: /Bearer\s+[A-Za-z0-9._~+/-]{20,}/g,
+    regex: /Bearer\s+[A-Za-z0-9._~+/-]{20,}/gu,
   },
   {
     kind: 'jwt',
-    regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g,
+    regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/gu,
   },
   {
     kind: 'db-credentials',
-    regex: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:@/]+:[^\s@/]+@/g,
+    regex: /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp):\/\/[^\s:@/]+:[^\s@/]+@/gu,
   },
 ];
 

@@ -1479,7 +1479,7 @@ describe('mcp-tool-loader', () => {
         execute: () => Promise<unknown>;
       };
       await expect(tool.execute()).rejects.toThrow(
-        /MCP tool remote\.oversized_structured_content returned \d+ non-media serialized characters/
+        /MCP tool remote\.oversized_structured_content returned \d+ non-media serialized characters/u
       );
     });
 

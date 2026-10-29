@@ -36,10 +36,10 @@ export function WorktreeMapToolbar({
   readonly total: number;
 }): ReactElement {
   return (
-    <header className="flex shrink-0 flex-col gap-3 border-border border-b px-4 py-3">
+    <header className="border-border flex shrink-0 flex-col gap-3 border-b px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-baseline gap-2">
-          <h1 className="font-semibold text-base tracking-tight">Worktrees</h1>
+          <h1 className="text-base font-semibold tracking-tight">Worktrees</h1>
           <span className="text-muted-foreground text-xs tabular-nums">{total} checkouts</span>
         </div>
         <Button
@@ -57,7 +57,7 @@ export function WorktreeMapToolbar({
         <div className="relative min-w-40 flex-1">
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-2 left-2.5 size-4 text-muted-foreground"
+            className="text-muted-foreground pointer-events-none absolute top-2 left-2.5 size-4"
           />
           <Input
             aria-label="Search worktrees"
@@ -69,11 +69,11 @@ export function WorktreeMapToolbar({
             value={query}
           />
         </div>
-        <label className="flex h-8 items-center gap-2 rounded-md border border-input px-2 text-muted-foreground text-xs">
+        <label className="border-input text-muted-foreground flex h-8 items-center gap-2 rounded-md border px-2 text-xs">
           Sort
           <select
             aria-label="Sort worktrees"
-            className="h-full min-w-0 bg-background text-foreground outline-offset-2"
+            className="bg-background text-foreground h-full min-w-0 outline-offset-2"
             onChange={(event) => {
               const value = event.target.value;
               if (value !== 'name' && value !== 'recent') {
@@ -119,7 +119,7 @@ export function WorktreeMapPagination({
   return (
     <nav
       aria-label="Worktree pages"
-      className="flex shrink-0 items-center justify-between gap-2 border-border border-t px-4 py-2"
+      className="border-border flex shrink-0 items-center justify-between gap-2 border-t px-4 py-2"
     >
       <span aria-live="polite" className="text-muted-foreground text-xs tabular-nums">
         {matched === 0 ? 0 : page * WORKTREE_PAGE_SIZE + 1}–
@@ -135,7 +135,7 @@ export function WorktreeMapPagination({
         >
           <ChevronLeft className="size-4" />
         </Button>
-        <span className="min-w-14 text-center text-muted-foreground text-xs tabular-nums">
+        <span className="text-muted-foreground min-w-14 text-center text-xs tabular-nums">
           {page + 1} / {pageCount}
         </span>
         <Button

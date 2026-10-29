@@ -802,7 +802,7 @@ describe('WorkspaceRootRegistry', () => {
           platform: 'electron',
           rootId: descriptor.rootId,
         })
-      ).rejects.toThrow(/exceeds the native secure-read cap/);
+      ).rejects.toThrow(/exceeds the native secure-read cap/u);
     } finally {
       setFileSizeConfig(defaultFileSizeConfig);
     }

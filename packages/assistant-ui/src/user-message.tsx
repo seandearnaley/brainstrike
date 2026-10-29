@@ -52,7 +52,7 @@ export const UserMessage = () => {
     const chipProps = fromApprovalActionChipKey(approvalChipKey);
     return (
       <MessagePrimitive.Root
-        className="aui-user-message-root fade-in slide-in-from-bottom-1 grid w-full animate-in auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] gap-y-2 py-3 duration-150 [&:where(>*)]:col-start-2"
+        className="aui-user-message-root fade-in slide-in-from-bottom-1 animate-in grid w-full auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] gap-y-2 py-3 duration-150 [&:where(>*)]:col-start-2"
         data-message-id={messageId}
         tabIndex={-1}
       >
@@ -62,7 +62,7 @@ export const UserMessage = () => {
   }
   return (
     <MessagePrimitive.Root
-      className="aui-user-message-root fade-in slide-in-from-bottom-1 relative grid w-full animate-in auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] gap-y-2 py-2 duration-150 [&:where(>*)]:col-start-2"
+      className="aui-user-message-root fade-in slide-in-from-bottom-1 animate-in relative grid w-full auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] gap-y-2 py-2 duration-150 [&:where(>*)]:col-start-2"
       data-message-id={messageId}
       tabIndex={-1}
     >
@@ -86,7 +86,7 @@ export const UserMessage = () => {
         )}
         {hasBubbleContent ? (
           <ExpandableMessageContent
-            className="aui-user-message-content max-w-full break-words rounded-2xl bg-muted px-4 py-2"
+            className="aui-user-message-content bg-muted max-w-full rounded-2xl px-4 py-2 break-words"
             testId="assistant-user-message-content"
           >
             <MessagePrimitive.Parts
@@ -158,7 +158,7 @@ export const UserActionBar = () => {
   if (isCopied) {
     copyIcon = <CheckIcon className="size-4" />;
   } else if (isFailed) {
-    copyIcon = <CopyIcon className="size-4 text-destructive" />;
+    copyIcon = <CopyIcon className="text-destructive size-4" />;
   } else {
     copyIcon = <CopyIcon className="size-4" />;
   }

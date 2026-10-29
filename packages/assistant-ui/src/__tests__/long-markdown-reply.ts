@@ -132,7 +132,7 @@ sections.push(
 const LONG_REPLY = sections.join('\n\n');
 
 /** Model-like tokens: an optional leading space and up to five characters. */
-export const LONG_REPLY_TOKENS: readonly string[] = LONG_REPLY.match(/\s*\S{1,5}|\s+/g) ?? [];
+export const LONG_REPLY_TOKENS: readonly string[] = LONG_REPLY.match(/\s*\S{1,5}|\s+/gu) ?? [];
 
 /**
  * The index of the token that carries the start of the reply's footnote. From
@@ -152,7 +152,7 @@ const LONG_REPLY_FOOTNOTE_TOKEN = ((): number => {
 })();
 
 /** A token that opens a new prose paragraph: a blank line, then a capital letter. */
-const PARAGRAPH_START = /^\n\n[A-Z]/;
+const PARAGRAPH_START = /^\n\n[A-Z]/u;
 
 /** Tokens until the next blank line, i.e. how long the paragraph opened at `start` streams. */
 function paragraphTokens(start: number): number {

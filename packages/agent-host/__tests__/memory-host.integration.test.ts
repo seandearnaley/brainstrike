@@ -300,7 +300,7 @@ test.each([
       expect(replay).toEqual(committed);
       expect(committedMemoryTranscript(replay, resourceId)).toEqual(transcript);
       expect(await store.memory({ operation: 'read', resourceId })).toEqual(nativeSnapshot);
-      await expect(core.startRun({ ...command, commandId: runId })).rejects.toThrow(/collides/);
+      await expect(core.startRun({ ...command, commandId: runId })).rejects.toThrow(/collides/u);
       expect(await core.startRun(command)).toEqual({ runId });
       expect(await store.check()).toEqual({ gaps: 0, integrity: 'ok' });
       const all = await Promise.all((await store.readAll()).map((row) => readHostRow(store, row)));

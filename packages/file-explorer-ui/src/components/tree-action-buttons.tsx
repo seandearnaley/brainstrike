@@ -105,18 +105,18 @@ const InlineScanningIndicator = React.memo(
             the readouts collapse and the cancel keeps the space (BST-657). */}
         {!hideSpinner && (
           <Loader2
-            className="@[236px]/explorer-toolbar:block hidden h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
+            className="text-muted-foreground hidden h-3.5 w-3.5 shrink-0 animate-spin @[236px]/explorer-toolbar:block"
             data-testid="inline-scanning-spinner"
           />
         )}
         {isCancelling ? (
-          <span className="@[236px]/explorer-toolbar:inline hidden text-muted-foreground text-xs">
+          <span className="text-muted-foreground hidden text-xs @[236px]/explorer-toolbar:inline">
             Stopping...
           </span>
         ) : (
           countText && (
             <span
-              className="@[236px]/explorer-toolbar:inline hidden text-muted-foreground text-xs tabular-nums"
+              className="text-muted-foreground hidden text-xs tabular-nums @[236px]/explorer-toolbar:inline"
               data-testid="inline-scanning-count"
               title={currentPath}
             >
@@ -191,7 +191,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Refresh"
-              className="@[236px]/explorer-toolbar:inline-flex hidden @[236px]/explorer-toolbar:size-7 size-6"
+              className="hidden size-6 @[236px]/explorer-toolbar:inline-flex @[236px]/explorer-toolbar:size-7"
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}

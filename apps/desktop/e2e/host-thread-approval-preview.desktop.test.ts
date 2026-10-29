@@ -16,7 +16,7 @@ test('a host approval previews a command and run_python’s host-computed sandbo
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   await new HomePage(window).openSettings();
-  await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
+  await new SettingsPage(window).openCategory(/Permissions/iu, 'permissions');
   await window.getByTestId('permission-policy-execute').selectOption('ask');
   modelProvider.setScript(({ requestBody, toolNames }) =>
     (requestBody as { stream?: unknown }).stream === true && toolNames.length > 0

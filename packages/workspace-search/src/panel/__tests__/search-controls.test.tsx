@@ -80,7 +80,7 @@ describe('SearchInputBar', () => {
     });
 
     const alert = screen.getByRole('alert');
-    expect(alert).toHaveTextContent(/./);
+    expect(alert).toHaveTextContent(/./u);
 
     fireEvent.keyDown(screen.getByPlaceholderText('Search workspace'), { key: 'Enter' });
 

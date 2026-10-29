@@ -246,18 +246,18 @@ export function SettingsPageContent({
     >
       <nav
         aria-label="Settings categories"
-        className="flex min-h-0 flex-col border-border/70 border-r bg-muted/20"
+        className="border-border/70 bg-muted/20 flex min-h-0 flex-col border-r"
       >
         <div className="border-border/60 border-b px-4 pt-4 pb-3">
           <div className="flex items-center gap-2 px-1">
-            <Settings aria-hidden="true" className="size-4 text-muted-foreground" />
-            <h1 className="font-medium text-sm">Settings</h1>
+            <Settings aria-hidden="true" className="text-muted-foreground size-4" />
+            <h1 className="text-sm font-medium">Settings</h1>
           </div>
           <div className="relative mt-3">
             <SettingsSearchIcon />
             <Input
               aria-label="Search settings"
-              className="h-9 rounded-lg border-border/70 bg-background/75 pr-3 pl-10 shadow-none"
+              className="border-border/70 bg-background/75 h-9 rounded-lg pr-3 pl-10 shadow-none"
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchPlaceholder}
               role="searchbox"
@@ -299,17 +299,17 @@ export function SettingsPageContent({
                   ) : (
                     <span
                       aria-hidden="true"
-                      className="size-1.5 rounded-full bg-muted-foreground/60"
+                      className="bg-muted-foreground/60 size-1.5 rounded-full"
                     />
                   )}
-                  <span className="min-w-0 flex-1 truncate font-medium leading-tight">
+                  <span className="min-w-0 flex-1 truncate leading-tight font-medium">
                     {category.title}
                   </span>
                 </button>
               );
             })
           ) : (
-            <div className="rounded-lg border border-border/60 border-dashed bg-background/50 px-3 py-4 text-muted-foreground text-sm">
+            <div className="border-border/60 bg-background/50 text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-sm">
               No settings matched "{query}".
             </div>
           )}
@@ -326,7 +326,7 @@ export function SettingsPageContent({
         style={{ paddingBlock: '2rem' }}
       >
         {filteredCategories.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+          <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
             Try adjusting your search to find settings.
           </div>
         ) : activeCategory ? (
@@ -340,13 +340,13 @@ export function SettingsPageContent({
             data-testid={`settings-category-${activeCategory.id}`}
           >
             <div
-              className="flex shrink-0 items-start justify-between gap-4 border-border/60 border-b pb-5"
+              className="border-border/60 flex shrink-0 items-start justify-between gap-4 border-b pb-5"
               data-testid={`settings-category-header-${activeCategory.id}`}
             >
               <div className="min-w-0">
-                <h2 className="font-semibold text-xl tracking-tight">{activeCategory.title}</h2>
+                <h2 className="text-xl font-semibold tracking-tight">{activeCategory.title}</h2>
                 {activeCategory.description ? (
-                  <p className="mt-1.5 max-w-2xl text-muted-foreground text-sm leading-relaxed">
+                  <p className="text-muted-foreground mt-1.5 max-w-2xl text-sm leading-relaxed">
                     {activeCategory.description}
                   </p>
                 ) : null}
@@ -366,7 +366,7 @@ export function SettingsPageContent({
             </div>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+          <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
             Select a setting category to view its options.
           </div>
         )}

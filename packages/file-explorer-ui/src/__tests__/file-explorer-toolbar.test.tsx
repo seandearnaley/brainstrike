@@ -149,7 +149,7 @@ describe('FileExplorerToolbar', () => {
   it('does not render the focused-root folder badge (removed for multi-root)', () => {
     renderWithProviders(<FileExplorerToolbar {...getProps()} />);
     const toolbar = screen.getByTestId('file-explorer-toolbar');
-    expect(toolbar).not.toHaveTextContent(/focused root/i);
+    expect(toolbar).not.toHaveTextContent(/focused root/iu);
   });
 
   it('uses a stable 36px centered toolbar and an accented reduced-motion-safe primary action', () => {

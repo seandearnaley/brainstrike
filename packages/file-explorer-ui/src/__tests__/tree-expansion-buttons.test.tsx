@@ -50,7 +50,7 @@ describe('TreeExpansionButtons', () => {
     expect(cluster.className).not.toContain('fixed');
     // No stacking context either: the overlay's z-20 is what let it paint over
     // the sticky header in the first place.
-    expect(cluster.className).not.toMatch(/\bz-\d/);
+    expect(cluster.className).not.toMatch(/\bz-\d/u);
   });
 
   it('invokes the handlers', async () => {

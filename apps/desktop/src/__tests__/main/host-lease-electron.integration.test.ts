@@ -193,7 +193,7 @@ function startApp(
     while (newline !== -1) {
       const line = buffered.slice(0, newline);
       buffered = buffered.slice(newline + 1);
-      if (/^\r*$/.test(line)) {
+      if (/^\r*$/u.test(line)) {
         newline = buffered.indexOf('\n');
         continue;
       }

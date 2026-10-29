@@ -198,7 +198,7 @@ const GOOGLE_DEFINITION = { authType: 'api_key', displayName: 'Google', id: 'goo
 
 const waitForReady = async (): Promise<void> => {
   await waitFor(() => {
-    expect(screen.queryAllByTestId(/credential-status-skeleton-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/credential-status-skeleton-/u)).toHaveLength(0);
   });
 };
 
@@ -244,7 +244,7 @@ describe('CredentialInventory', () => {
     render(<CredentialInventory providers={['openai']} />);
     await waitForReady();
 
-    const rows = screen.getAllByTestId(/^credential-row-/);
+    const rows = screen.getAllByTestId(/^credential-row-/u);
     expect(rows).toHaveLength(1);
     expect(screen.getByTestId('credential-row-openai')).toBeDefined();
     expect(screen.queryByTestId('credential-row-tavily')).toBeNull();
@@ -259,8 +259,8 @@ describe('CredentialInventory', () => {
 
     render(<CredentialInventory />);
 
-    expect(screen.getAllByTestId(/^credential-row-/)).toHaveLength(3);
-    expect(screen.getAllByTestId(/^credential-status-skeleton-/)).toHaveLength(3);
+    expect(screen.getAllByTestId(/^credential-row-/u)).toHaveLength(3);
+    expect(screen.getAllByTestId(/^credential-status-skeleton-/u)).toHaveLength(3);
     expect(screen.queryByTestId('credential-set-openai')).toBeNull();
   });
 
@@ -278,7 +278,7 @@ describe('CredentialInventory', () => {
         'Environment file is malformed.'
       );
     });
-    expect(screen.getAllByTestId(/^credential-row-/)).toHaveLength(3);
+    expect(screen.getAllByTestId(/^credential-row-/u)).toHaveLength(3);
     expect((screen.getByTestId('credential-set-openai') as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -400,7 +400,7 @@ describe('CredentialInventory', () => {
     await waitForReady();
 
     const ids = screen
-      .getAllByTestId(/^credential-row-/)
+      .getAllByTestId(/^credential-row-/u)
       .map((row) => row.getAttribute('data-testid'));
     expect(ids).toEqual([
       'credential-row-google',

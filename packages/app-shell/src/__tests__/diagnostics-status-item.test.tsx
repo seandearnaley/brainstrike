@@ -2,15 +2,6 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { useUnseenDiagnosticsCountMock } = vi.hoisted(() => ({
-  useUnseenDiagnosticsCountMock: vi.fn(),
-}));
-
-vi.mock('../diagnostics/use-unseen-diagnostics-count', () => ({
-  useUnseenDiagnosticsCount: useUnseenDiagnosticsCountMock,
-}));
-
 import {
   resetDiagnosticSinkHealthStore,
   useDiagnosticSinkHealthStore,
@@ -20,6 +11,14 @@ import {
   useDiagnosticsSeenStore,
 } from '../diagnostics/diagnostics-seen-store';
 import { DiagnosticsStatusItem } from '../status-items/diagnostics-status-item';
+
+const { useUnseenDiagnosticsCountMock } = vi.hoisted(() => ({
+  useUnseenDiagnosticsCountMock: vi.fn(),
+}));
+
+vi.mock('../diagnostics/use-unseen-diagnostics-count', () => ({
+  useUnseenDiagnosticsCount: useUnseenDiagnosticsCountMock,
+}));
 
 function mockUnseenCounts(
   rows: Array<{ errorCount: number; warningCount: number }>,

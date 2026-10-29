@@ -32,7 +32,7 @@ export class MarkdownPreviewErrorBoundary extends Component<Props, State> {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
         <p className="font-semibold">Preview failed to render</p>
-        <p className="max-w-md text-muted-foreground text-sm">{this.state.error}</p>
+        <p className="text-muted-foreground max-w-md text-sm">{this.state.error}</p>
         <Button onClick={this.props.onOpenSource} size="sm" variant="outline">
           Open in source
         </Button>

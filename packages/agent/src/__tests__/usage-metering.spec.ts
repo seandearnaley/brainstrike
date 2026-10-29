@@ -48,11 +48,11 @@ describe('readOpenRouterBilledCost', () => {
     });
     expect(
       readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: 'x' } } })
-    ).toMatchObject({ kind: 'malformed', reason: /usage metadata must be an object/ });
+    ).toMatchObject({ kind: 'malformed', reason: /usage metadata must be an object/u });
     for (const cost of ['1', -0.01, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(
         readOpenRouterBilledCost({ providerMetadata: { openrouter: { usage: { cost } } } })
-      ).toMatchObject({ kind: 'malformed', reason: /finite, non-negative/ });
+      ).toMatchObject({ kind: 'malformed', reason: /finite, non-negative/u });
     }
   });
 

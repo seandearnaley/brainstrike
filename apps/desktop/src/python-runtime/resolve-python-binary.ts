@@ -105,7 +105,7 @@ export interface ResolvePythonBinaryOptions {
  * the manifest pins without re-hashing the archive, which no longer ships.
  */
 export const PYTHON_RUNTIME_SENTINEL_FILE_NAME = '.brainstrike-python-runtime-ok';
-const SHA256_HEX = /^[0-9a-f]{64}$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
 const BINARY_RELATIVE_PATH = path.join('python', 'bin', 'python3');
 const LINUX_TARGETS: readonly string[] = ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu'];
 const archiveIntegrityFields = {
@@ -114,7 +114,7 @@ const archiveIntegrityFields = {
 };
 const derivedArchiveSchema = Schema.Struct({
   ...archiveIntegrityFields,
-  archiveFileName: Schema.String.check(Schema.isPattern(/^cpython-[a-zA-Z0-9+._-]+\.tar\.gz$/)),
+  archiveFileName: Schema.String.check(Schema.isPattern(/^cpython-[a-zA-Z0-9+._-]+\.tar\.gz$/u)),
   variant: Schema.Literal('no-dbm-v1'),
 });
 const manifestTargetSchema = Schema.Struct({

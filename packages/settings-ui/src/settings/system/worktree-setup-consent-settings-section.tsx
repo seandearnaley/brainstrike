@@ -59,7 +59,7 @@ export function WorktreeSetupConsentSettingsSection(): ReactElement {
                 data-testid={`worktree-setup-consent-${repositoryId}`}
                 key={repositoryId}
               >
-                <p className="min-w-0 truncate break-all font-mono text-xs">{repositoryId}</p>
+                <p className="min-w-0 truncate font-mono text-xs break-all">{repositoryId}</p>
                 <div className="flex items-center gap-2">
                   <Badge variant={record.decision === 'approved' ? 'default' : 'secondary'}>
                     {record.decision === 'approved' ? 'Allowed' : 'Skipped'}

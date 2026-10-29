@@ -6,11 +6,11 @@
  */
 export function resolveRelativePath(baseFilePath: string, relative: string): string | null {
   const isAbsolute = baseFilePath.startsWith('/');
-  const baseSegments = baseFilePath.split(/[\\/]+/).filter((s) => s.length > 0);
+  const baseSegments = baseFilePath.split(/[\\/]+/u).filter((s) => s.length > 0);
   // Drop the file name; what remains is the directory.
   baseSegments.pop();
   const stack = [...baseSegments];
-  for (const part of relative.split(/[\\/]+/)) {
+  for (const part of relative.split(/[\\/]+/u)) {
     if (part.length === 0 || part === '.') {
       continue;
     }

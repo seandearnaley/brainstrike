@@ -10,6 +10,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactNode, useLayoutEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { LocalConversationPanel } from './local-conversation-panel';
 
 const run = vi.fn(async function* () {
   yield { content: [] };
@@ -21,8 +22,6 @@ vi.mock('../assistant-message-text', () => ({
   preloadMarkdownText: vi.fn().mockResolvedValue(undefined),
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
-
-import { LocalConversationPanel } from './local-conversation-panel';
 
 const textMessage = (id: string, role: 'assistant' | 'user', text: string): ThreadMessageLike => {
   const message = {

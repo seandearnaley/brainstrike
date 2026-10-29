@@ -71,7 +71,7 @@ export function ThreadRowStatusGlyph({
     return (
       <LoaderCircle
         aria-label={getThreadRowAccessibleName(state, title)}
-        className={`${GLYPH_CLASS_NAME} animate-spin bg-background text-current motion-reduce:animate-none`}
+        className={`${GLYPH_CLASS_NAME} bg-background animate-spin text-current motion-reduce:animate-none`}
         data-testid="thread-active-spinner"
         role="img"
       />

@@ -1,9 +1,9 @@
 export function normalizeWorkspaceLookupPath(value: string): string {
   return value
     .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\.\/+/, '')
-    .replace(/^\/+/, '');
+    .replace(/\\/gu, '/')
+    .replace(/^\.\/+/u, '')
+    .replace(/^\/+/u, '');
 }
 
 export function buildWorkspaceLookupCandidates(paths: readonly string[]): string[] {

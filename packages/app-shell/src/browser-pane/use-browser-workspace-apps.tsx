@@ -21,7 +21,7 @@ function corruptedPageApp(id: string, error: unknown): WorkspaceApp {
     label: FALLBACK_LABEL,
     placement: 'dynamic',
     render: () => (
-      <p className="p-4 text-destructive text-xs" role="alert">
+      <p className="text-destructive p-4 text-xs" role="alert">
         {message}
       </p>
     ),

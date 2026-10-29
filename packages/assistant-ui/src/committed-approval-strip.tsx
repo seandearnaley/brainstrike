@@ -155,7 +155,7 @@ function CommittedApprovalReview({
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h2 className="font-semibold text-sm">Needs your attention</h2>
+            <h2 className="text-sm font-semibold">Needs your attention</h2>
             <p className="text-muted-foreground text-xs">Review the action before approving.</p>
           </div>
           <Button
@@ -168,7 +168,7 @@ function CommittedApprovalReview({
           </Button>
         </div>
         {count === 0 ? (
-          <p className="p-3 text-muted-foreground text-sm" role="status">
+          <p className="text-muted-foreground p-3 text-sm" role="status">
             All approvals handled.
           </p>
         ) : (

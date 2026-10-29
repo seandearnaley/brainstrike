@@ -79,6 +79,7 @@ describe('engine facts the planner relies on', () => {
   });
 
   it('never matches a non-ASCII code unit with an ASCII character under a non-unicode i flag', () => {
+    // biome-ignore lint/style/useUnicodeRegex: this test pins the non-unicode i flag's behaviour.
     const ascii = /[ -~]/i;
     const matched: number[] = [];
     for (let code = 0x80; code <= 0xff_ff; code += 1) {

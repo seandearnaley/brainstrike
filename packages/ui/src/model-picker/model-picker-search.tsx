@@ -22,15 +22,15 @@ export function ModelPickerSearch({
 }: ModelPickerSearchProps) {
   return (
     <div
-      className="m-2 mb-0 flex items-center rounded-lg border border-border/70 bg-muted/35 px-3 shadow-black/[0.02] shadow-inner focus-within:border-ring/60 focus-within:ring-2 focus-within:ring-ring/15"
+      className="border-border/70 bg-muted/35 focus-within:border-ring/60 focus-within:ring-ring/15 m-2 mb-0 flex items-center rounded-lg border px-3 shadow-inner shadow-black/[0.02] focus-within:ring-2"
       data-cmdk-input-wrapper=""
     >
-      <Search className="mr-2 size-4 shrink-0 text-muted-foreground" />
+      <Search className="text-muted-foreground mr-2 size-4 shrink-0" />
       <Command.Input
         {...(ariaLabel ? { 'aria-label': ariaLabel } : {})}
         {...(testId ? { 'data-testid': testId } : {})}
         className={cn(
-          'flex h-10 w-full bg-transparent py-2.5 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50',
+          'placeholder:text-muted-foreground flex h-10 w-full bg-transparent py-2.5 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50',
           className
         )}
         onValueChange={onValueChange ?? (() => {})}

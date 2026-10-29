@@ -79,7 +79,7 @@ export interface UserSlashCommandScanInput {
   readonly roots: readonly UserSlashCommandScanRoot[];
 }
 
-const MD_EXTENSION = /\.(md|markdown|mdown|mkd)$/i;
+const MD_EXTENSION = /\.(md|markdown|mdown|mkd)$/iu;
 
 /**
  * Per-file template size cap. Command `.md` files are UNTRUSTED repo content, so
@@ -142,7 +142,7 @@ function warnCountCapReached(): void {
 }
 
 function joinPath(base: string, segments: readonly string[]): string {
-  return [base.replace(/\/+$/, ''), ...segments].join('/');
+  return [base.replace(/\/+$/u, ''), ...segments].join('/');
 }
 
 interface ScanSource {

@@ -56,7 +56,7 @@ test.describe('Electron App Launch', () => {
     // Check app version
     const version = await getAppVersion(electronApp.app);
     expect(version).toBeTruthy();
-    expect(version).toMatch(/^\d+\.\d+\.\d+/); // Semantic version format
+    expect(version).toMatch(/^\d+\.\d+\.\d+/u); // Semantic version format
 
     // The app path is the bundle Electron loaded: the dev entry's folder, or
     // the packaged app.asar. It names no checkout folder.

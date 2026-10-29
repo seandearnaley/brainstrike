@@ -47,7 +47,7 @@ function matchCycleChord(event: KeyboardEvent, isMac: boolean): TabChordAction |
   return null;
 }
 
-const PHYSICAL_LETTER = /^Key([A-Z])$/;
+const PHYSICAL_LETTER = /^Key([A-Z])$/u;
 
 /**
  * The letter a chord names. `event.key` wins, so a Latin layout matches what
@@ -58,7 +58,7 @@ const PHYSICAL_LETTER = /^Key([A-Z])$/;
  * ",", and ⌘, is macOS Preferences.
  */
 function chordLetter(event: KeyboardEvent): string | null {
-  if (/^[a-z]$/i.test(event.key)) {
+  if (/^[a-z]$/iu.test(event.key)) {
     return event.key.toLowerCase();
   }
   if (/^\p{L}$/u.test(event.key) && !/^\p{Script=Latin}$/u.test(event.key)) {

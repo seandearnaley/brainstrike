@@ -63,8 +63,8 @@ describe('SettingsPageContent', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument();
     expect(screen.getByTestId('theme-settings')).toBeInTheDocument();
 
-    const nav = screen.getByRole('navigation', { name: /settings categories/i });
-    const searchbox = within(nav).getByRole('searchbox', { name: /search settings/i });
+    const nav = screen.getByRole('navigation', { name: /settings categories/iu });
+    const searchbox = within(nav).getByRole('searchbox', { name: /search settings/iu });
     expect(searchbox).toHaveClass('pl-10');
     // Every length asserted below is authored INLINE in rem — see
     // SETTINGS_SEARCH_INPUT_STYLE (settings-search-layout.ts),
@@ -79,7 +79,7 @@ describe('SettingsPageContent', () => {
       searchbox.parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')
         ?.style.left
     ).toBe('0.75rem');
-    const appearanceButton = within(nav).getByRole('button', { name: /Appearance/i });
+    const appearanceButton = within(nav).getByRole('button', { name: /Appearance/iu });
     expect(appearanceButton).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('settings-category-appearance')).toBeInTheDocument();
     expect(
@@ -137,12 +137,12 @@ describe('SettingsPageContent', () => {
       />
     );
 
-    const searchbox = screen.getByRole('searchbox', { name: /search settings/i });
+    const searchbox = screen.getByRole('searchbox', { name: /search settings/iu });
     fireEvent.change(searchbox, { target: { value: 'privacy' } });
 
-    expect(screen.getByRole('button', { name: /Privacy/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Network Controls/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/No settings matched/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Privacy/iu })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Network Controls/iu })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No settings matched/iu)).not.toBeInTheDocument();
 
     fireEvent.change(searchbox, { target: { value: 'missing' } });
     expect(screen.getByText('No settings matched "missing".')).toBeInTheDocument();
@@ -163,7 +163,7 @@ describe('SettingsPageContent', () => {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
 
-    const notificationsButton = await screen.findByRole('button', { name: /Notifications/i });
+    const notificationsButton = await screen.findByRole('button', { name: /Notifications/iu });
     expect(notificationsButton).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('settings-category-notifications')).toBeInTheDocument();
   });
@@ -171,7 +171,7 @@ describe('SettingsPageContent', () => {
   it('shows empty state when categories are missing', () => {
     render(<SettingsPageContent categories={[]} />);
     expect(screen.getByText('No settings matched "".')).toBeInTheDocument();
-    expect(screen.getByText(/Try adjusting your search/i)).toBeInTheDocument();
+    expect(screen.getByText(/Try adjusting your search/iu)).toBeInTheDocument();
   });
 
   it('keeps the document layout by default', () => {
@@ -264,8 +264,8 @@ describe('createFactoryResetSettingsCategory', () => {
       />
     );
 
-    const nav = screen.getByRole('navigation', { name: /settings categories/i });
-    const factoryResetButton = within(nav).getByRole('button', { name: /Factory Reset/i });
+    const nav = screen.getByRole('navigation', { name: /settings categories/iu });
+    const factoryResetButton = within(nav).getByRole('button', { name: /Factory Reset/iu });
     expect(factoryResetButton).toBeInTheDocument();
   });
 
@@ -276,8 +276,8 @@ describe('createFactoryResetSettingsCategory', () => {
       />
     );
 
-    const nav = screen.getByRole('navigation', { name: /settings categories/i });
-    const factoryResetButton = within(nav).getByRole('button', { name: /Factory Reset/i });
+    const nav = screen.getByRole('navigation', { name: /settings categories/iu });
+    const factoryResetButton = within(nav).getByRole('button', { name: /Factory Reset/iu });
     fireEvent.click(factoryResetButton);
 
     expect(factoryResetButton).toHaveAttribute('aria-current', 'page');
@@ -292,13 +292,13 @@ describe('createFactoryResetSettingsCategory', () => {
       />
     );
 
-    const searchbox = screen.getByRole('searchbox', { name: /search settings/i });
+    const searchbox = screen.getByRole('searchbox', { name: /search settings/iu });
 
     // Test each keyword
     const keywords = ['factory', 'reset', 'wipe', 'preferences'];
     for (const keyword of keywords) {
       fireEvent.change(searchbox, { target: { value: keyword } });
-      expect(screen.getByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Factory Reset/iu })).toBeInTheDocument();
     }
   });
 });
@@ -309,7 +309,7 @@ describe('createSearchIndexingSettingsCategory', () => {
 
     expect(category.id).toBe('search-indexing');
     expect(category.title).toBe('Search & Indexing');
-    expect(category.description).toMatch(/how your folders are searched/i);
+    expect(category.description).toMatch(/how your folders are searched/iu);
     expect(category.keywords).toEqual([
       'search',
       'indexing',

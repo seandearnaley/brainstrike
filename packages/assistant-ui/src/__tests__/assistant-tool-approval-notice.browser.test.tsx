@@ -3,6 +3,7 @@ import './assistant-tool-approval-notice.browser.css';
 import { screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
 vi.mock('@assistant-ui/react', async (importOriginal) => ({
@@ -18,8 +19,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
   CodeSurface: ({ testId }: { testId?: string }) => <div data-testid={testId ?? 'code-surface'} />,
 }));
-
-import { AssistantToolApprovalNotice } from '../assistant-tool-approval-notice';
 
 const request = {
   args: {

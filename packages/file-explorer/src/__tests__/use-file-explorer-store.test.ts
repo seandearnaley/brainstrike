@@ -6,6 +6,7 @@ import {
   MIN_MAX_SELECTION_COUNT,
 } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StoreApi } from 'zustand/vanilla';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { createDirectoryExpansionActions } from '../actions/directory-expansion-actions';
 import { createFileContentActions, createFileContentCache } from '../actions/file-content-actions';
@@ -20,9 +21,7 @@ type TestActions = ReturnType<typeof createFolderStateActions> &
   ReturnType<typeof createFileSelectionActions> &
   ReturnType<typeof createDirectoryExpansionActions> &
   ReturnType<typeof createSettingsActions> &
-  ReturnType<typeof createFileContentActions>;
-
-import type { StoreApi } from 'zustand/vanilla'; // Import StoreApi
+  ReturnType<typeof createFileContentActions>; // Import StoreApi
 
 describe('useFileExplorerStore Actions Integration', () => {
   let store: {

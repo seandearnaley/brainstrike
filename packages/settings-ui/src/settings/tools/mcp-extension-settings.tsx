@@ -111,7 +111,7 @@ export function McpExtensionSettings({
       data-testid="mcp-extension-settings"
     >
       <div>
-        <h3 className="font-medium text-sm" id="mcp-extension-settings-title">
+        <h3 className="text-sm font-medium" id="mcp-extension-settings-title">
           Registered MCP extensions
         </h3>
         <p className="text-muted-foreground text-xs">
@@ -134,10 +134,10 @@ export function McpExtensionSettings({
               key={key}
             >
               <div className="min-w-0 space-y-0.5">
-                <Label className="font-medium text-sm" htmlFor={toggleId}>
+                <Label className="text-sm font-medium" htmlFor={toggleId}>
                   {MCP_EXTENSION_LABEL_BY_KEY[key]}
                 </Label>
-                <div className="break-all font-mono text-muted-foreground text-xs">
+                <div className="text-muted-foreground font-mono text-xs break-all">
                   {MCP_EXTENSION_ID_BY_KEY[key]}
                 </div>
               </div>

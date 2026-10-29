@@ -56,7 +56,7 @@ function userDataEnvPath(report: EnvBootstrapReport): string | undefined {
 function FailureBanner({ failure }: { readonly failure: EnvBootstrapFailure }) {
   return (
     <div
-      className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-destructive text-sm"
+      className="border-destructive/50 bg-destructive/5 text-destructive rounded-md border p-3 text-sm"
       data-testid={`env-bootstrap-failure-${failure.file}`}
       role="alert"
     >
@@ -88,7 +88,7 @@ function loginShellText(loginShell: EnvBootstrapLoginShell): string | null {
 function LoginShellFailureBanner({ message }: { readonly message: string }) {
   return (
     <div
-      className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-destructive text-sm"
+      className="border-destructive/50 bg-destructive/5 text-destructive rounded-md border p-3 text-sm"
       data-testid="env-bootstrap-login-shell-failure"
       role="alert"
     >
@@ -215,7 +215,7 @@ export function EnvironmentSection({
   if (state.status === 'error') {
     return (
       <div
-        className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-destructive text-sm"
+        className="border-destructive/50 bg-destructive/5 text-destructive rounded-md border p-3 text-sm"
         data-testid="env-bootstrap-error"
         role="alert"
       >
@@ -227,7 +227,7 @@ export function EnvironmentSection({
   if (state.status === 'loading') {
     return (
       <div
-        className="h-5 w-64 animate-pulse rounded bg-muted"
+        className="bg-muted h-5 w-64 animate-pulse rounded"
         data-testid="env-bootstrap-skeleton"
       />
     );

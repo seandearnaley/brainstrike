@@ -57,4 +57,3 @@ runs:
     # Provisioned before any lane runs.
     - name: Provision the Electron binary
       uses: ./.github/actions/provision-electron
-

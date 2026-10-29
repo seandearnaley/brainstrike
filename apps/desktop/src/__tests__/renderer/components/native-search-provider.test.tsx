@@ -21,6 +21,8 @@ import {
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NativeSearchProvider } from '../../../renderer/components/native-search-provider';
+import { mountNativeSearchController } from './native-search-controller-fixture';
 
 vi.mock('@brainstrike/ui', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/ui')>()),
@@ -32,9 +34,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', async (importOriginal) => ({
   useFileExplorerStoreSelector: <T,>(selector: (state: { rootDescriptors: object }) => T): T =>
     selector({ rootDescriptors: {} }),
 }));
-
-import { NativeSearchProvider } from '../../../renderer/components/native-search-provider';
-import { mountNativeSearchController } from './native-search-controller-fixture';
 
 const MODEL_ID = 'text-embedding-3-small';
 const MODEL_KEY = `openai::${MODEL_ID}`;

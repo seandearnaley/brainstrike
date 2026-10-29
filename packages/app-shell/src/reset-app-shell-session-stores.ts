@@ -1,4 +1,6 @@
 import { useThreadFolderScopeStore } from '@brainstrike/file-explorer-ui/thread-folder-scope-store';
+import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
 import { resetDiagnosticSinkHealthStore } from './diagnostics/diagnostic-sink-health-store';
 import { resetDiagnosticsSeenStore } from './diagnostics/diagnostics-seen-store';
 import { useCommandPaletteStore } from './stores/command-palette-store';
@@ -37,6 +39,3 @@ export function resetAppShellSessionStores(): void {
     reset();
   }
 }
-
-import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';

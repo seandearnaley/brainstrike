@@ -167,7 +167,7 @@ describe('readMainLogWindow', () => {
     );
     await expect(
       readMainLogWindow({ logFilePath: timelessCaseLiveLog, request: window })
-    ).rejects.toThrow(/no ISO "time" field/);
+    ).rejects.toThrow(/no ISO "time" field/u);
   });
 
   it('accepts only the millisecond instants the log sink writes, so string order is time order', () => {

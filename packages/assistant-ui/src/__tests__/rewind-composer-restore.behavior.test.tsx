@@ -10,6 +10,8 @@ import type { ChatModelAdapter } from '@assistant-ui/react';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { useRewindComposerStore } from '../rewind-composer-store';
+import { LocalConversationPanel } from './local-conversation-panel';
 
 const run = vi.fn(async function* () {
   yield { content: [] };
@@ -22,9 +24,6 @@ vi.mock('../assistant-message-text', () => ({
 vi.mock('../user-message-text', () => ({
   UserMessageText: () => <div data-testid="markdown-text" />,
 }));
-
-import { useRewindComposerStore } from '../rewind-composer-store';
-import { LocalConversationPanel } from './local-conversation-panel';
 
 describe('rewind composer restore', () => {
   it('puts the rewound prompt into the composer and consumes the request', async () => {

@@ -415,7 +415,7 @@ function SteeringStatus({
     () => store.getCommittedView().activeRunId
   );
   return activeRunId === runId ? (
-    <div aria-live="polite" className="px-3 py-1 text-muted-foreground text-xs" role="status">
+    <div aria-live="polite" className="text-muted-foreground px-3 py-1 text-xs" role="status">
       Steering: stopping after this step, then sending your message…
     </div>
   ) : null;
@@ -464,7 +464,7 @@ const threadCapability = createWindowThreadCapability(
         )}
       </ConnectedHost>
     ) : (
-      <div aria-label="Agent host error" className="p-4 text-destructive text-sm" role="alert">
+      <div aria-label="Agent host error" className="text-destructive p-4 text-sm" role="alert">
         This thread is not owned by the agent host.
       </div>
     );

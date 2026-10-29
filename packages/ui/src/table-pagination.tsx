@@ -231,7 +231,7 @@ const NavigationControls = memo(function NavigationControls({
       {isMicroDensity ? (
         <output
           aria-label={`Page ${displayPage} of ${totalPages}`}
-          className="max-w-8 truncate text-center text-muted-foreground text-xs tabular-nums"
+          className="text-muted-foreground max-w-8 truncate text-center text-xs tabular-nums"
         >
           {displayPage}/{totalPages}
         </output>
@@ -255,7 +255,7 @@ const NavigationControls = memo(function NavigationControls({
           />
           <span
             className={cn(
-              'whitespace-nowrap text-muted-foreground text-xs tabular-nums',
+              'text-muted-foreground text-xs whitespace-nowrap tabular-nums',
               isMinimalDensity ? 'min-w-0' : 'min-w-[4rem]'
             )}
           >
@@ -312,12 +312,12 @@ const RangeSummary = memo(function RangeSummary({
   rangeSummary,
 }: RangeSummaryProps) {
   return (
-    <div className="flex min-w-0 flex-1 justify-end text-muted-foreground text-xs tabular-nums">
+    <div className="text-muted-foreground flex min-w-0 flex-1 justify-end text-xs tabular-nums">
       {shouldRenderRangeSummary && (
         <Tooltip>
           <TooltipTrigger asChild>
             <span
-              className="truncate rounded-sm outline-hidden focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="focus-visible:ring-ring/50 truncate rounded-sm outline-hidden focus-visible:ring-[3px]"
               // biome-ignore lint/a11y/noNoninteractiveTabindex: Range summary is a Radix tooltip trigger; focus enables keyboard tooltip access.
               tabIndex={0}
             >
@@ -515,7 +515,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     <TooltipProvider delayDuration={300}>
       <div
         className={cn(
-          'flex w-full min-w-0 max-w-full items-center border-t bg-background py-1.5',
+          'bg-background flex w-full max-w-full min-w-0 items-center border-t py-1.5',
           isMicroDensity ? 'gap-0 px-1' : 'gap-2 px-3'
         )}
         data-testid="table-pagination"
