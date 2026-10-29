@@ -142,7 +142,7 @@
       draftPR: true,
     },
     {
-      description: 'Electron Chromium security releases: one ready PR. Majors fall to the major rule; 46 removes the synchronous safeStorage calls.',
+      description: 'Electron Chromium security releases: one ready PR. Majors fall to the major rule.',
       matchPackageNames: ['electron'],
       matchUpdateTypes: ['minor', 'patch'],
       groupName: 'Electron',

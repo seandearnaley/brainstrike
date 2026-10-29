@@ -139,9 +139,8 @@ catalog:
   # API, not a path segment, so an exact pin is what makes an unstable-API
   # change reviewable. docs/agents/effect-boundary.md.
   effect: 4.1.0
-  # Electron 45 (Chromium 156, Node 24.22). Its synchronous safeStorage calls
-  # are deprecated and removed in 46; safe-storage-credential-cipher.ts keeps
-  # them because the async encryptor still falls back to a fixed Linux key.
+  # Electron 45 (Chromium 156, Node 24.22). Main uses only the async
+  # safeStorage API, which 46 keeps when it removes the synchronous calls.
   electron: ^45.1.0
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.7

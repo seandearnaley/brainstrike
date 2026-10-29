@@ -52,10 +52,13 @@ const electronMainMockSurface = {
   },
   safeStorage: {
     ...electronTestStub.safeStorage,
-    decryptString: vi.fn((buffer: Buffer) => Buffer.from(buffer).toString('utf-8')),
-    encryptString: vi.fn((text: string) => Buffer.from(text)),
+    decryptStringAsync: vi.fn(async (buffer: Buffer) => ({
+      result: Buffer.from(buffer).toString('utf-8'),
+      shouldReEncrypt: false,
+    })),
+    encryptStringAsync: vi.fn(async (text: string) => Buffer.from(text)),
     getSelectedStorageBackend: vi.fn(() => 'basic_text'),
-    isEncryptionAvailable: vi.fn(() => true),
+    isAsyncEncryptionAvailable: vi.fn(async () => true),
     setUsePlainTextEncryption: vi.fn(),
   },
   screen: {
@@ -125,14 +128,15 @@ function restoreOwnedMockImplementations(): void {
   electronMainMock.BrowserWindow.fromWebContents.mockImplementation(() => null);
   electronMainMock.BrowserWindow.getAllWindows.mockImplementation(() => []);
   electronMainMock.dialog.showMessageBox.mockImplementation(async () => ({ response: 0 }));
-  electronMainMock.safeStorage.decryptString.mockImplementation((buffer: Buffer) =>
-    Buffer.from(buffer).toString('utf-8')
-  );
-  electronMainMock.safeStorage.encryptString.mockImplementation((text: string) =>
+  electronMainMock.safeStorage.decryptStringAsync.mockImplementation(async (buffer: Buffer) => ({
+    result: Buffer.from(buffer).toString('utf-8'),
+    shouldReEncrypt: false,
+  }));
+  electronMainMock.safeStorage.encryptStringAsync.mockImplementation(async (text: string) =>
     Buffer.from(text)
   );
   electronMainMock.safeStorage.getSelectedStorageBackend.mockImplementation(() => 'basic_text');
-  electronMainMock.safeStorage.isEncryptionAvailable.mockImplementation(() => true);
+  electronMainMock.safeStorage.isAsyncEncryptionAvailable.mockImplementation(async () => true);
   electronMainMock.screen.getAllDisplays.mockImplementation(() => [
     { workArea: { height: 1080, width: 1920, x: 0, y: 0 } },
   ]);
