@@ -130,12 +130,15 @@
     {
       description: 'Pinned for code that reads vendor surface: ignore (private _rules.test in workspace-ignore-matcher.ts) and ext-apps (commit and schema sha256 in mcp-app-host/src/capabilities.ts).',
       matchPackageNames: ['ignore', '@modelcontextprotocol/ext-apps'],
+      // Its own group: an inherited non-major group name would put these in a ready PR.
+      groupName: 'code-checked pins',
       draftPR: true,
       addLabels: ['needs-code-check'],
     },
     {
       description: 'Sandbox runtime stays on its qualified fence (BST-2029).',
       matchPackageNames: ['@anthropic-ai/sandbox-runtime'],
+      groupName: 'sandbox runtime',
       draftPR: true,
     },
     {
