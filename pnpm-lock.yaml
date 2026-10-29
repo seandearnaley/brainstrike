@@ -210,8 +210,8 @@ catalogs:
       specifier: ^6.43.15
       version: 6.43.15
     '@effect/tsgo':
-      specifier: 0.53.3
-      version: 0.53.3
+      specifier: 0.63.0
+      version: 0.63.0
     '@eslint-community/regexpp':
       specifier: 4.12.2
       version: 4.12.2
@@ -369,8 +369,8 @@ catalogs:
       specifier: 4.1.0
       version: 4.1.0
     electron:
-      specifier: ^44.10.0
-      version: 44.10.0
+      specifier: ^45.1.0
+      version: 45.1.0
     esbuild:
       specifier: ^0.28.2
       version: 0.28.2
@@ -396,8 +396,8 @@ catalogs:
       specifier: ^1.64.0
       version: 1.64.0
     minimatch:
-      specifier: ^10.2.6
-      version: 10.2.6
+      specifier: ^11.0.3
+      version: 11.0.3
     node-addon-api:
       specifier: 8.9.2
       version: 8.9.2
@@ -480,8 +480,8 @@ catalogs:
       specifier: ^5.0.5
       version: 5.0.5
     vscode-jsonrpc:
-      specifier: 9.0.3
-      version: 9.0.3
+      specifier: 10.0.0
+      version: 10.0.0
     web-tree-sitter:
       specifier: 0.27.1
       version: 0.27.1
@@ -520,7 +520,7 @@ patchedDependencies:
   '@mastra/core@1.80.0': 4765d2924d6493e2bc6ce27da012c5201cecb19d352e72279b8218d283e0f799
   '@mastra/memory@1.39.1': 58f79bbec023b9ee32cba6aa1d10d20f32ed3e630738b8c6d813adc9a741383e
   playwright-core@1.64.1: 79a90d62951819db9ce03cee5e288e1655267f14f9e7b324a7f2e31fd2b1469c
-  vscode-jsonrpc@9.0.3: df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034
+  vscode-jsonrpc@10.0.0: 2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4
 
 importers:
 
@@ -822,7 +822,7 @@ importers:
         version: 1.64.0(@types/react@19.3.0)(react@19.3.1)
       minimatch:
         specifier: 'catalog:'
-        version: 10.2.6
+        version: 11.0.3
       node-pty:
         specifier: ^1.1.0
         version: 1.1.0
@@ -858,7 +858,7 @@ importers:
         version: 6.0.2
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
+        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       vscode-languageserver-protocol:
         specifier: ^3.18.5
         version: 3.18.5
@@ -901,10 +901,10 @@ importers:
         version: link:../../packages/test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@electron/osx-sign':
-        specifier: 1.3.3
-        version: 1.3.3(supports-color@10.2.2)
+        specifier: 2.7.2
+        version: 2.7.2(supports-color@10.2.2)
       '@modelcontextprotocol/ext-apps':
         specifier: 'catalog:'
         version: 2.0.4(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
@@ -970,7 +970,7 @@ importers:
         version: 10.0.6
       electron:
         specifier: 'catalog:'
-        version: 44.10.0(supports-color@10.2.2)
+        version: 45.1.0(supports-color@10.2.2)
       electron-builder:
         specifier: 26.18.0
         version: 26.18.0(electron-builder-squirrel-windows@26.18.0)(supports-color@10.2.2)
@@ -1142,7 +1142,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@modelcontextprotocol/node':
         specifier: 'catalog:'
         version: 2.1.2(@modelcontextprotocol/server@2.4.0)
@@ -1194,7 +1194,7 @@ importers:
     devDependencies:
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -1284,7 +1284,7 @@ importers:
         version: 4.1.0
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
+        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -1294,7 +1294,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -1397,7 +1397,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@tanstack/react-virtual':
         specifier: 'catalog:'
         version: 3.14.23(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1522,7 +1522,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -1565,7 +1565,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -1638,7 +1638,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -1723,7 +1723,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.3.3(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
@@ -1844,7 +1844,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -1954,7 +1954,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -1985,7 +1985,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -2018,7 +2018,7 @@ importers:
         version: link:../utils
       minimatch:
         specifier: 'catalog:'
-        version: 10.2.6
+        version: 11.0.3
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -2266,7 +2266,7 @@ importers:
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
-        version: 44.10.0(supports-color@10.2.2)
+        version: 45.1.0(supports-color@10.2.2)
       happy-dom:
         specifier: 'catalog:'
         version: 21.0.4
@@ -2322,7 +2322,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -2355,7 +2355,7 @@ importers:
         version: link:../utils
       minimatch:
         specifier: 'catalog:'
-        version: 10.2.6
+        version: 11.0.3
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -2443,7 +2443,7 @@ importers:
         version: 3.3.1
       minimatch:
         specifier: 'catalog:'
-        version: 10.2.6
+        version: 11.0.3
       strip-ansi:
         specifier: 'catalog:'
         version: 7.2.0
@@ -2452,7 +2452,7 @@ importers:
         version: 1.2.2
       vscode-jsonrpc:
         specifier: 'catalog:'
-        version: 9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034)
+        version: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -2468,7 +2468,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -2514,7 +2514,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -2566,7 +2566,7 @@ importers:
         version: link:../windows-job-native
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -2612,7 +2612,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/better-sqlite3':
         specifier: 'catalog:'
         version: 9.6.0
@@ -2624,7 +2624,7 @@ importers:
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
-        version: 44.10.0(supports-color@10.2.2)
+        version: 45.1.0(supports-color@10.2.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -2806,7 +2806,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -3009,7 +3009,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -3018,7 +3018,7 @@ importers:
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
-        version: 44.10.0(supports-color@10.2.2)
+        version: 45.1.0(supports-color@10.2.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -3092,7 +3092,7 @@ importers:
         version: 5.0.5(@vitest/browser@5.0.5)(vitest@5.0.5)
       electron:
         specifier: 'catalog:'
-        version: 44.10.0(supports-color@10.2.2)
+        version: 45.1.0(supports-color@10.2.2)
       jsdom:
         specifier: 'catalog:'
         version: 30.1.3(@noble/hashes@1.8.0)
@@ -3196,7 +3196,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@testing-library/react':
         specifier: 'catalog:'
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -3483,7 +3483,7 @@ importers:
         version: 7.0.14
       minimatch:
         specifier: 'catalog:'
-        version: 10.2.6
+        version: 11.0.3
     devDependencies:
       '@brainstrike/file-tree-test-fixtures':
         specifier: workspace:*
@@ -3524,7 +3524,7 @@ importers:
         version: link:../test-utils
       '@effect/tsgo':
         specifier: 'catalog:'
-        version: 0.53.3
+        version: 0.63.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
@@ -4377,43 +4377,43 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@effect/tsgo-darwin-arm64@0.53.3':
-    resolution: {integrity: sha512-qd34+MHG/AOwm6x/I+ieRVBmrirE7LZ/Jyro+p55PMz/dN4WmgxvJmes+ltYaBUUXP0xtGE5TICufQdZyYjm4Q==}
+  '@effect/tsgo-darwin-arm64@0.63.0':
+    resolution: {integrity: sha512-KBvYatuEol71+i+BERWuDRU9XE+4sTK78N83Ko6VNF5gy6yXiujj/bgtWs2P3cDGXsevAV6L+HtpuAWjAQKC6Q==}
     cpu: [arm64]
     os: [darwin]
 
-  '@effect/tsgo-darwin-x64@0.53.3':
-    resolution: {integrity: sha512-DGYiRXx/GVP0rjQMT+yqROLT35nbgu5ImmI+XerlRhoF5Z/7UBHFiIDjD0df4+2WmF2w0D5vE6XPTyQpdw08Kg==}
+  '@effect/tsgo-darwin-x64@0.63.0':
+    resolution: {integrity: sha512-Qxp51/OFaHx5D+z5f1FtRKAiUH5rkMzaqjv/4ppUGNS0ppdqlcQ5rwQqbY6CiZOxqUlcnmKRirtWpmuxUgHP7w==}
     cpu: [x64]
     os: [darwin]
 
-  '@effect/tsgo-linux-arm64@0.53.3':
-    resolution: {integrity: sha512-qqKa5VYk7N+QnRUaPAkUeKaEOSiWW018ZJN/fGZ9ND9R4llBby6JVtVatUh8MsP+QDr1pavFp0JhOfXjg9S4Ig==}
+  '@effect/tsgo-linux-arm64@0.63.0':
+    resolution: {integrity: sha512-uwnM3kSwaHDKPeU1WSMxijdZaM1NxpDREgJtyyIx2qdqB6HnRYhEZB8RrhWvYYPw1QDKaWHd+byzq5p49+o7+Q==}
     cpu: [arm64]
     os: [linux]
 
-  '@effect/tsgo-linux-arm@0.53.3':
-    resolution: {integrity: sha512-NkfXu00rSy9rZa3O5YDmI+vZEsFlO42qOY6NBwtKwLpwOcbtY34JTDtPJAsRHN4ARlbh2CerFc46knIatLDWUw==}
+  '@effect/tsgo-linux-arm@0.63.0':
+    resolution: {integrity: sha512-tVwlTyAqmDVPvDrr0oogCnlRVs96X19Ny9OD/XJ/6QQSp/1hIjXAvKjo9HAyncF2sAUQyVdF1E7Q7X3wFXvSnQ==}
     cpu: [arm]
     os: [linux]
 
-  '@effect/tsgo-linux-x64@0.53.3':
-    resolution: {integrity: sha512-BPy6BVx/HfyzG6SWWTxIdt6ZynSE6OrRPCna2wYvI5EJELiCoFNbkLhzgLWVFOfy8z01eBwXUF6syPB4Y+c1GQ==}
+  '@effect/tsgo-linux-x64@0.63.0':
+    resolution: {integrity: sha512-fM3pJIhAZEX8LMbd/pN9iYNxkdVEkx68vMtILYGT4qazwxWelvouD/5fNV0SHDmY13Mv04NJ/550vTLC2hU8VA==}
     cpu: [x64]
     os: [linux]
 
-  '@effect/tsgo-win32-arm64@0.53.3':
-    resolution: {integrity: sha512-1a/h9nukr/4z9ZjyAe4cCG2XtAH6jqmBmjRTVGpopwqTf3ulyoiXEM7+/eywws+2sgTUl0hcghrvv5ej5E3taA==}
+  '@effect/tsgo-win32-arm64@0.63.0':
+    resolution: {integrity: sha512-LTS0CrEqZmQO0AJAIfFaETjIN/3d/Nda1Mi5zl90y/9BKZr4yyFfClCkz+DMl6/P/+TOuEQ5Wi8LvRiEdwWT4g==}
     cpu: [arm64]
     os: [win32]
 
-  '@effect/tsgo-win32-x64@0.53.3':
-    resolution: {integrity: sha512-tmfVk95IObJm+D0sK1Z416uspK5focwlacZQDzPJK8mzM/Tboqxr4y0MfRuOIfXigxZo0wdH0noiJ0lmoZJXwg==}
+  '@effect/tsgo-win32-x64@0.63.0':
+    resolution: {integrity: sha512-28s5YrwL26/7EUnUOu81IOJGJZLkPf2lPkiSIsd4EnFhimeBqP279bhAoDAEwLW1gv45GKM/49JKduXmdLyT1g==}
     cpu: [x64]
     os: [win32]
 
-  '@effect/tsgo@0.53.3':
-    resolution: {integrity: sha512-YqufYyU8aOEwz6wKjYvr8umfhw1JDLiU49y4s6lvApsXioRMg8y1nPc81+Hm2oMWZ2gbUikZW1w8fTDOadNN9w==}
+  '@effect/tsgo@0.63.0':
+    resolution: {integrity: sha512-bRbvVj+YLE/nBmcBWGAwsul3mjEYlqqOmWMxvwSVKq/oNnJEuZYgi2OFDeUf7q49E2g3w+oMHMWyN2QayZ77RQ==}
     hasBin: true
 
   '@electron-internal/extract-zip@1.0.4':
@@ -4444,6 +4444,11 @@ packages:
   '@electron/osx-sign@1.3.3':
     resolution: {integrity: sha512-KZ8mhXvWv2rIEgMbWZ4y33bDHyUKMXnx4M0sTyPNK/vcB81ImdeY9Ggdqy0SWbMDgmbqyQ+phgejh6V3R2QuSg==}
     engines: {node: '>=12.0.0'}
+    hasBin: true
+
+  '@electron/osx-sign@2.7.2':
+    resolution: {integrity: sha512-BD5ZyKDzzC1PLzWQCl1nw+X2/ErRCJGEIPwtjfOnCH+8KRLfBe/Vr9khUuEJC5bbrVACl8uO2Q2O/UqOzrcFgw==}
+    engines: {node: '>=22.12.0'}
     hasBin: true
 
   '@electron/rebuild@4.2.1':
@@ -4731,6 +4736,9 @@ packages:
   '@isaacs/fs-minipass@4.0.1':
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
+
+  '@isaacs/nonrecursive-glob-match@1.0.3':
+    resolution: {integrity: sha512-SI7kyKHq4XXDRozw+r9GlRZkia1ZkFrpLW98r2IC2Bpr8YkFGE3fvjzmxCG0x78A++69HmDNrDvSMYBZmHGpKA==}
 
   '@isaacs/ttlcache@2.1.5':
     resolution: {integrity: sha512-VwGZqqjAWPICTmxUZnbpEfO60LhPWzquik+bmyXGY7pYRn6diEvCI5i6Ca+J6o2y4vS73HrpuMTo2dOvUevH8w==}
@@ -7572,8 +7580,8 @@ packages:
     resolution: {integrity: sha512-bO3y10YikuUwUuDUQRM4KfwNkKhnpVO7IPdbsrejwN9/AABJzzTQ4GeHwyzNSrVO+tEH3/Np255a3sVZpZDjvg==}
     engines: {node: '>=8.0.0'}
 
-  electron@44.10.0:
-    resolution: {integrity: sha512-ss4pCfrQKV4TWkuVYtWB4HmeysPZgB96cSYNKYZv1UVCRP4vQMGNW5oopFbvx6Bbfce1XtP5pm5RDuKehp0svQ==}
+  electron@45.1.0:
+    resolution: {integrity: sha512-i7qKVAh/KR5v1pf56NhGGX2QYHcdjvLgS7koL6ui50c+zUDGLRunR95nXcTpHPURKOQ4GDBG8BmXiDgOQ8DD0A==}
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
@@ -8838,6 +8846,10 @@ packages:
 
   minimatch@10.2.6:
     resolution: {integrity: sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==}
+    engines: {node: 18 || 20 || >=22}
+
+  minimatch@11.0.3:
+    resolution: {integrity: sha512-iny/40PEGkNJQ5/Pv6z3nm6FbRAby32GeZRjCUJk2WnNDbgPSTcdI+DDvLqsgBdD4cD5sMtMheqPPnehCCa8Nw==}
     engines: {node: 18 || 20 || >=22}
 
   minimatch@3.1.5:
@@ -10200,10 +10212,6 @@ packages:
     resolution: {integrity: sha512-JvONPptw3GAQGXlVV2utDcHx0BiY34FupW/kI6mZ5x06ER5DdPG/tXWMVHjTNULF5uKPOUUD0SaXg5QaubJL0A==}
     engines: {node: '>=8.0.0 || >=10.0.0'}
 
-  vscode-jsonrpc@9.0.3:
-    resolution: {integrity: sha512-qETYf9PCl1lVfwR+oBmMfc4vP2nqLNA35ABxorw3j06+xlKRgDVxbLgKm4Y/xPL0YWdeDjLoI4ImICIT3nB0zQ==}
-    engines: {node: '>=14.0.0'}
-
   vscode-languageserver-protocol@3.18.5:
     resolution: {integrity: sha512-FW4fBMzZ99N8xeob4py0l050wgCoRgTpEq5Xcsb9lM1bc29UKGR/wSV+4knaqFxssFHajy7OzNiKP/m3U1ZEuA==}
 
@@ -11487,36 +11495,36 @@ snapshots:
       '@edge-runtime/primitives': 4.1.0
     optional: true
 
-  '@effect/tsgo-darwin-arm64@0.53.3':
+  '@effect/tsgo-darwin-arm64@0.63.0':
     optional: true
 
-  '@effect/tsgo-darwin-x64@0.53.3':
+  '@effect/tsgo-darwin-x64@0.63.0':
     optional: true
 
-  '@effect/tsgo-linux-arm64@0.53.3':
+  '@effect/tsgo-linux-arm64@0.63.0':
     optional: true
 
-  '@effect/tsgo-linux-arm@0.53.3':
+  '@effect/tsgo-linux-arm@0.63.0':
     optional: true
 
-  '@effect/tsgo-linux-x64@0.53.3':
+  '@effect/tsgo-linux-x64@0.63.0':
     optional: true
 
-  '@effect/tsgo-win32-arm64@0.53.3':
+  '@effect/tsgo-win32-arm64@0.63.0':
     optional: true
 
-  '@effect/tsgo-win32-x64@0.53.3':
+  '@effect/tsgo-win32-x64@0.63.0':
     optional: true
 
-  '@effect/tsgo@0.53.3':
+  '@effect/tsgo@0.63.0':
     optionalDependencies:
-      '@effect/tsgo-darwin-arm64': 0.53.3
-      '@effect/tsgo-darwin-x64': 0.53.3
-      '@effect/tsgo-linux-arm': 0.53.3
-      '@effect/tsgo-linux-arm64': 0.53.3
-      '@effect/tsgo-linux-x64': 0.53.3
-      '@effect/tsgo-win32-arm64': 0.53.3
-      '@effect/tsgo-win32-x64': 0.53.3
+      '@effect/tsgo-darwin-arm64': 0.63.0
+      '@effect/tsgo-darwin-x64': 0.63.0
+      '@effect/tsgo-linux-arm': 0.63.0
+      '@effect/tsgo-linux-arm64': 0.63.0
+      '@effect/tsgo-linux-x64': 0.63.0
+      '@effect/tsgo-win32-arm64': 0.63.0
+      '@effect/tsgo-win32-x64': 0.63.0
 
   '@electron-internal/extract-zip@1.0.4': {}
 
@@ -11575,6 +11583,15 @@ snapshots:
       isbinaryfile: 4.0.10
       minimist: 1.2.8
       plist: 3.1.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@electron/osx-sign@2.7.2(supports-color@10.2.2)':
+    dependencies:
+      debug: 4.4.3(supports-color@10.2.2)
+      isbinaryfile: 4.0.10
+      plist: 3.1.0
+      semver: 7.8.5
     transitivePeerDependencies:
       - supports-color
 
@@ -11789,6 +11806,8 @@ snapshots:
   '@isaacs/fs-minipass@4.0.1':
     dependencies:
       minipass: 7.1.3
+
+  '@isaacs/nonrecursive-glob-match@1.0.3': {}
 
   '@isaacs/ttlcache@2.1.5': {}
 
@@ -14560,7 +14579,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@44.10.0(supports-color@10.2.2):
+  electron@45.1.0(supports-color@10.2.2):
     dependencies:
       '@electron-internal/extract-zip': 1.0.4
       '@electron/get': 5.0.0(supports-color@10.2.2)
@@ -16158,6 +16177,11 @@ snapshots:
     dependencies:
       brace-expansion: 5.0.12
 
+  minimatch@11.0.3:
+    dependencies:
+      '@isaacs/nonrecursive-glob-match': 1.0.3
+      brace-expansion: 5.0.12
+
   minimatch@3.1.5:
     dependencies:
       brace-expansion: 1.1.21
@@ -17654,15 +17678,13 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vscode-jsonrpc@10.0.0: {}
+  vscode-jsonrpc@10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4): {}
 
   vscode-jsonrpc@5.0.1: {}
 
-  vscode-jsonrpc@9.0.3(patch_hash=df2075051190294761e76039366b12d72ab41c3ac815f5073d97de7c00806034): {}
-
   vscode-languageserver-protocol@3.18.5:
     dependencies:
-      vscode-jsonrpc: 10.0.0
+      vscode-jsonrpc: 10.0.0(patch_hash=2508fc2c39514a8610b140ba344fca61b122f2ff7b632d1969297f502c9997a4)
       vscode-languageserver-types: 3.18.5
 
   vscode-languageserver-types@3.18.5: {}
