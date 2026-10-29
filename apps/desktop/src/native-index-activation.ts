@@ -263,17 +263,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     current.observedCatalogFingerprint = catalogFingerprint(await loadRecords(current));
     assertCurrent(current);
     if (!settings.paused) {
-      admitSources(current, port).then(failures.started, (error: unknown) => {
-        if (current.controller.signal.aborted || current.settings.paused) {
-          // Superseded: the next generation redoes the work.
-          logger.debug('A retired native ingestion generation ended with an error', {
-            error,
-            generation: current.generation,
-          });
-          return;
-        }
-        failures.record(current.generation, error, true);
-      });
+      admitSources(current, port);
     }
   };
   const startSources = async (
@@ -475,7 +465,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await Promise.all(firstReceipts);
     assertSource();
   };
-  const admitSources = (current: Graph, port: IndexerPort & ScopedIndexerPort): Promise<void> => {
+  /** Start ingestion and observe its startup; a Pause or retirement supersedes a failure. */
+  const admitSources = (current: Graph, port: IndexerPort & ScopedIndexerPort): void => {
     if (current.settings.paused) {
       throw new Error('Native ingestion is paused.');
     }
@@ -491,8 +482,17 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     };
     current.sources = sources;
     sources.startup = startSources(current, sources, port);
-    sources.startup.catch(() => undefined);
-    return sources.startup;
+    sources.startup.then(failures.started, (error: unknown) => {
+      if (current.controller.signal.aborted || current.settings.paused) {
+        // Superseded: the next generation redoes the work.
+        logger.debug('A retired native ingestion generation ended with an error', {
+          error,
+          generation: current.generation,
+        });
+        return;
+      }
+      failures.record(current.generation, error, true);
+    });
   };
   const refreshCatalog = async (current: Graph, joinScan = true): Promise<void> => {
     const records = await loadRecords(current);
@@ -550,9 +550,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     if (!current.settings.paused) {
       const port = await runtime.acquire();
       assertCurrent(current);
-      admitSources(current, port).then(failures.started, (error: unknown) =>
-        failures.record(current.generation, error, true)
-      );
+      admitSources(current, port);
     }
   };
   const lifecycle = createNativeIndexLifecycle(
