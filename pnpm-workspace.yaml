@@ -140,11 +140,12 @@ catalog:
   # change reviewable. docs/agents/effect-boundary.md.
   effect: 4.0.5
   # Chromium security patches only. Stay on the 44 line: Electron 45 is a
-  # separate, reviewed decision, not a security bump.
-  electron: ^44.8.0
+  # separate, reviewed decision, not a security bump. 44.9.1 carries the
+  # eMudhra intermediate-certificate distrust (GHSA-jr5w-w6x2-84p9).
+  electron: ^44.10.0
   esbuild: ^0.28.2
   eslint-plugin-react-refresh: ^0.5.7
-  happy-dom: ^21.0.3
+  happy-dom: ^21.0.4
   ignore: 7.0.12
   jsdom: 30.1.3
   lucide-react: ^1.58.0
@@ -207,22 +208,9 @@ overrides:
   # on 1.2.1, and nothing stops any of them picking 1.2.1 again on a later
   # resolution. Remove when every owner's floor is >=1.2.2 unaided.
   'source-map-js@1.0.0 - 1.2.1': 1.2.2
-  # BST-880: patch pinned Vercel route parsers without crossing API majors.
-  # Retire each edge when its owner admits >=6.3.0 or >=8.4.0 respectively.
   # BST-878: keep YAML on its owner's major; 4.3.2 also fixes empty merge
   # sources. Retire when every 4.x owner resolves >=4.3.2 without this floor.
   'js-yaml@4.0.0 - 4.3.1': 4.3.2
-  # serve pins 1.8.1; 1.8.2 releases streams on client disconnect (GHSA-vc2v-76pw-4v95).
-  # Retire when serve resolves >=1.8.2 unaided; keep the HTTP abort regression.
-  'serve@14.2.6>compression': 1.8.2
-  # BST-884 follow-up: Vercel still pins TOML 1.5.2; 1.9.0 also fixes quadratic
-  # key parsing (GHSA-r4xh-jqrq-34v2). 1.9.1 rejects invalid exponent signs.
-  # Retire each edge when its owner admits >=1.9.1; parsed tables now have null prototypes.
-  # BST-887: these owners still pin EOL Undici 5 (and vulnerable busboy 2).
-  # 7.30.1 is maintained, removes busboy, and supports our Node 24/26 engines.
-  # Undici 6 fails the CLI native-fetch/proxy contract on Node 26; keep its regression.
-  # Retire each exception when the owner admits a patched, qualified version unaided.
-  # https://github.com/nodejs/undici/releases/tag/v7.30.1
   # W05 follow-up: Typography 0.5.20 still pins selector-parser 6.0.10.
   # 7.1.6 fixes flat-selector CPU exhaustion (GHSA-rj75-hqrm-r3gf).
   # Its 7.0 iteration change is qualified against Typography's actual caller
@@ -248,21 +236,14 @@ overrides:
   # Retire when this owner admits the qualified proxy adapter unaided.
   # https://github.com/gajus/global-agent/releases/tag/v4.0.0
   '@electron/get@3.1.0>global-agent': 4.1.3
-  # BST-879: python-analysis 0.15.0 still pins vulnerable minimatch 10.1.1.
-  # Use the vendor's patched 10.x API; remove when the owner admits >=10.2.3.
-  # https://github.com/isaacs/minimatch/security/advisories/GHSA-23c5-xmqv-rm74
-  # Parent scoping: https://pnpm.io/settings/dependency-resolution#overrides
   react: ^19.3.1
   react-dom: ^19.3.1
-  # BST-873: static-config 3.4.4 still pins Ajv 8.6.3; retain the patched 8.x edge.
   # BST-886: retain the tar 7.x safety floor, including container 19.1.2.
   # fun 1.3.6 now pins 7.5.22 unaided; its old exception is retired.
   'tar@': 7.5.22
-  # BST-881: qs 6.16.0 fixes the comma-stringify and parser DoS advisories.
-  # Converge compatible Express/body-parser edges; typed-rest-client@2.3.1
-  # pins 6.15.1 exactly, so keep that exception scoped to its current owner.
-  'qs@': 6.16.0
-  'typed-rest-client@2.3.1>qs': 6.16.0
+  # BST-881: converge Express/body-parser edges on a patched qs. 6.16.1 also
+  # fixes the comma-stringify TypeError in 6.16.0 (GHSA-6pq8-jhm2-2vcw).
+  'qs@': 6.16.1
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
