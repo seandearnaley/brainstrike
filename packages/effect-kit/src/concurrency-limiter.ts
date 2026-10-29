@@ -21,11 +21,9 @@ export type ConcurrencyLimiter = <T>(
  * always returns its permit, and its value or rejection passes through
  * unchanged.
  *
- * It bounds concurrency; it does NOT guarantee order. Waiting tasks wake in
- * arrival order, but a task that arrives while a permit is momentarily free
- * starts at once, ahead of waiters that have not woken yet. Code that needs
- * strict FIFO (a mutex whose callers rely on submission order) must not use
- * this (docs/agents/effect-boundary.md § "Promise and resource contracts").
+ * Tasks start in arrival order: Effect's Semaphore serves waiters in
+ * registration order and a new task does not start ahead of one already
+ * waiting. Aborted waiters leave the queue without starting.
  */
 export function createConcurrencyLimiter(permits: number): ConcurrencyLimiter {
   if (!(Number.isInteger(permits) && permits > 0)) {

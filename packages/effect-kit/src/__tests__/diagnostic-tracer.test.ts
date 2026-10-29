@@ -109,17 +109,22 @@ it('joins interrupted cleanup before ending and keeps caller abort identity', as
 });
 it('retains independent expected and cleanup defects on one terminal span', async () => {
   const { events, tracer } = recorder();
-  await runAtPromiseBoundary(
-    Effect.fail(new ExpectedFailure({ cause: new Error('primary') })).pipe(
-      Effect.ensuring(Effect.die(new Error('cleanup'))),
-      Effect.withSpan('root')
-    ),
+  const primary = new ExpectedFailure({ cause: new Error('primary') });
+  const cleanup = new Error('cleanup');
+  const rejection = await runAtPromiseBoundary(
+    Effect.fail(primary).pipe(Effect.ensuring(Effect.die(cleanup)), Effect.withSpan('root')),
     { tracing: { tracer } }
-  ).catch(() => undefined);
+  ).catch((error: unknown) => error);
+  expect(rejection).toBe(primary);
   const ended = events.find((e) => e.phase === 'end');
   expect(ended?.outcome).toBe('defect');
-  expect(ended?.cause && Cause.hasFails(ended.cause)).toBe(true);
-  expect(ended?.cause && Cause.hasDies(ended.cause)).toBe(true);
+  // Effect 4.1 elects a typed failure to a defect once a finalizer dies, so
+  // both errors stay on the cause, each with its own identity.
+  expect(
+    ended?.cause?.reasons.map((reason) =>
+      Cause.isFailReason(reason) ? reason.error : Cause.isDieReason(reason) ? reason.defect : reason
+    )
+  ).toEqual([primary, cleanup]);
 });
 it('ignores unlisted operations and duplicate end calls using the native span state', () => {
   const { events, tracer } = recorder();
